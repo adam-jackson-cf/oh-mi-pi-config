@@ -1,0 +1,27 @@
+# Track configuration and source only; ignore runtime state by default.
+*
+
+!.gitignore
+!package.json
+!bun.lock
+!tsconfig.json
+
+!agent/
+agent/*
+!agent/AGENTS.md
+!agent/WATCHDOG.yml
+!agent/config.yml
+!agent/lsp.json
+!agent/skill-auto-whitelist.json
+!agent/agents/
+!agent/agents/**
+!agent/extensions/
+!agent/extensions/**
+!agent/skills/
+!agent/skills/**
+
+!.omp/
+.omp/*
+!.omp/lsp.json
+
+**/.DS_Store

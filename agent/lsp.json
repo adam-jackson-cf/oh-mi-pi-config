@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "pyright": {
+      "command": "/Users/adamjackson/.volta/bin/pyright-langserver"
+    },
+    "typescript-language-server": {
+      "command": "/Users/adamjackson/.volta/bin/typescript-language-server"
+    },
+    "rust-analyzer": {
+      "command": "/Users/adamjackson/.cargo/bin/rust-analyzer",
+      "capabilities": {
+        "expandMacro": true,
+        "runnables": true,
+        "relatedTests": true
+      }
+    }
+  }
+}

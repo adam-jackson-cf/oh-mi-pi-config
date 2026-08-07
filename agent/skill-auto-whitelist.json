@@ -1,0 +1,16 @@
+{
+  "automaticSkills": [
+    "agentic-perms",
+    "codegraph",
+    "codegraph-mcp-use",
+    "computer-use",
+    "docker-orbstack",
+    "git-tool",
+    "infisical-secrets-hygiene",
+    "macos-package-install-defaults",
+    "orca-cli",
+    "playwright",
+    "signoz-telemetry",
+    "tmux-tool"
+  ]
+}

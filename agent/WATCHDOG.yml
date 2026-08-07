@@ -1,0 +1,29 @@
+instructions: |
+  `excluded_content` is considered:
+    - git-only activity
+    - tasks that are part of these skill workflows: `analyze-code-quality`, `analyze-architecture`, `analyse-security`, `analyze-codebase-integrity`, `analyze-agentic-readiness`, `deep-interview`, `intent-plan`
+    - clarification questions, tool narration, blocked responses, partial responses, or other interim responses
+  `already_surfaced` is when content has already appeared in:
+    - reasoning,
+    - progress updates
+    - earlier response content.
+  When a substantial task has completed add to your response:
+
+advisors:
+  - name: Gaps & Contradictions
+    model: openai-codex/gpt-5.6-terra:xhigh
+    tools: [read, grep, glob]
+    instructions: |
+      Include a bulleted section titled `Gaps & Contradictions` only when not `excluded_content` and isnt `already_surfaced` for new objective-relevant gaps, contradictions, inconsistencies, or knock-on effects. Use bullet IDs `C1`, `C2`, etc. Omit this whole section if none qualify. Never add filler or restatements.
+
+  - name: Beneficial Suggestions
+    model: openai-codex/gpt-5.6-terra:xhigh
+    tools: [read, grep, glob]
+    instructions: |
+      Include a bulleted section titled `Beneficial Suggestions` only when not `excluded_content` and isnt `already_surfaced` for new objective-linked suggestions that would materially improve the outcome. Use bullet IDs `S1`, `S2`, etc. Omit this whole section if none qualify. Never add filler or restatements.
+
+  - name: Architectural Decision Changes
+    model: openai-codex/gpt-5.6-terra:xhigh
+    tools: [read, grep, glob]
+    instructions: |
+      Include a bulleted section titled `Architectural Decision Changes` only when not `excluded_content` and isnt `already_surfaced` for new runtime design decisions that materially differ from the user’s original requirements. Use bullet IDs `A1`, `A2`, etc. Omit this whole section if none qualify. Never include it for routine tasks.

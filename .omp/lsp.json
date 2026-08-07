@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "typescript-language-server": {
+      "command": "/Users/adamjackson/.volta/bin/typescript-language-server",
+      "args": ["--stdio"],
+      "fileTypes": [".ts", ".tsx", ".js", ".jsx"],
+      "rootMarkers": ["agent"]
+    }
+  }
+}
