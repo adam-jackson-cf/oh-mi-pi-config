@@ -3,10 +3,11 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022"
   },
-  "include": ["agent/extensions/**/*.ts"],
+  "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
   "exclude": ["agent/extensions/orca*.ts"]
 }

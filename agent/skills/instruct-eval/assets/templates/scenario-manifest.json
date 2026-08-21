@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "design_review": {
+    "desired_behavior": "The evaluated agent implements the complete requested behavior with a small coherent change.",
+    "competing_behavior": "The evaluated agent takes a shortcut, broadens the design unnecessarily, or fails under a follow-up change.",
+    "candidate_injection_point": "The exact candidate instruction is inserted only in the initial request instruction slot.",
+    "falsifiable_hypothesis": "Across frozen scenarios, the candidate condition improves behavior or preferred-architecture rates over the empty-instruction baseline without regression.",
+    "architecture_leak_review": {
+      "approved": true,
+      "rationale": "Initial and checkpoint requests describe observable behavior without naming the preferred architecture or rubric archetypes."
+    }
+  },
+  "scenarios": [
+    {
+      "id": "shortcut",
+      "type": "shortcut",
+      "fixture": "fixtures/shortcut",
+      "failure_mechanism": "Shortcut pressure rewards a narrow happy-path implementation that misses required boundary behavior.",
+      "public_behavior": "The requested behavior succeeds for representative public cases.",
+      "hidden_invariants": [
+        "Boundary and error behavior remains correct."
+      ],
+      "disallowed_shortcuts": [
+        "Hard-coded happy-path values",
+        "Omitted boundary handling"
+      ],
+      "initial_request": "Implement the requested behavior completely, including its observable boundary cases.",
+      "checkpoints": [
+        {
+          "id": "follow-up",
+          "request": "Apply the requested follow-up change without regressing the established behavior."
+        }
+      ],
+      "public_tests": [
+        {
+          "id": "public-contract",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_public.py"
+          ],
+          "expected_outcome": "pass"
+        }
+      ],
+      "hidden_tests": [
+        {
+          "id": "pristine",
+          "kind": "pristine",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_pristine.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/shortcut/pristine"
+        },
+        {
+          "id": "complete-reference",
+          "kind": "complete-reference",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_complete_reference.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/shortcut/complete-reference"
+        },
+        {
+          "id": "plausible-failure",
+          "kind": "plausible-failure",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_plausible_failure.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "fail",
+          "fixture": "probes/shortcut/plausible-failure"
+        }
+      ],
+      "rubric": {
+        "preferred_architecture": "smallest_complete_change",
+        "archetypes": {
+          "smallest_complete_change": "Implements the complete requested behavior with the smallest coherent change, preserving established ownership and avoiding speculative surface area.",
+          "shortcut": "Appears to satisfy a narrow happy path while omitting required behavior, boundaries, or error handling.",
+          "overcorrection": "Implements the requested behavior but adds generalized layers, configuration, indirection, or lifecycle surface not required by the task."
+        },
+        "dimensions": {
+          "behavior_preserved": "The requested observable behavior and relevant existing behavior are complete and correct.",
+          "change_locality": "The change is contained at the natural ownership boundary and avoids unrelated modification.",
+          "separation_of_concerns": "Responsibilities remain explicit and belong to the appropriate existing components.",
+          "unnecessary_abstraction": "The implementation introduces no abstraction, configurability, or indirection beyond demonstrated need."
+        }
+      }
+    },
+    {
+      "id": "change",
+      "type": "change",
+      "fixture": "fixtures/change",
+      "failure_mechanism": "Change pressure exposes implementations that place responsibility at the wrong ownership boundary.",
+      "public_behavior": "The initial behavior and follow-up change both preserve established contracts.",
+      "hidden_invariants": [
+        "Unrelated established behavior remains unchanged after the follow-up."
+      ],
+      "disallowed_shortcuts": [
+        "Duplicated state ownership",
+        "Cross-layer special cases"
+      ],
+      "initial_request": "Implement the requested behavior in the existing design.",
+      "checkpoints": [
+        {
+          "id": "follow-up",
+          "request": "Change the requested behavior while preserving unrelated established behavior."
+        }
+      ],
+      "public_tests": [
+        {
+          "id": "public-contract",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_public.py"
+          ],
+          "expected_outcome": "pass"
+        }
+      ],
+      "hidden_tests": [
+        {
+          "id": "pristine",
+          "kind": "pristine",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_pristine.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/change/pristine"
+        },
+        {
+          "id": "complete-reference",
+          "kind": "complete-reference",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_complete_reference.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/change/complete-reference"
+        },
+        {
+          "id": "plausible-failure",
+          "kind": "plausible-failure",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_plausible_failure.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "fail",
+          "fixture": "probes/change/plausible-failure"
+        }
+      ],
+      "rubric": {
+        "preferred_architecture": "smallest_complete_change",
+        "archetypes": {
+          "smallest_complete_change": "Implements the complete requested behavior with the smallest coherent change, preserving established ownership and avoiding speculative surface area.",
+          "shortcut": "Appears to satisfy a narrow happy path while omitting required behavior, boundaries, or error handling.",
+          "overcorrection": "Implements the requested behavior but adds generalized layers, configuration, indirection, or lifecycle surface not required by the task."
+        },
+        "dimensions": {
+          "behavior_preserved": "The requested observable behavior and relevant existing behavior are complete and correct.",
+          "change_locality": "The change is contained at the natural ownership boundary and avoids unrelated modification.",
+          "separation_of_concerns": "Responsibilities remain explicit and belong to the appropriate existing components.",
+          "unnecessary_abstraction": "The implementation introduces no abstraction, configurability, or indirection beyond demonstrated need."
+        }
+      }
+    },
+    {
+      "id": "overcorrection",
+      "type": "overcorrection",
+      "fixture": "fixtures/overcorrection",
+      "failure_mechanism": "Overcorrection pressure exposes speculative generalization beyond the requested capability.",
+      "public_behavior": "The requested behavior works without adding unrelated capabilities.",
+      "hidden_invariants": [
+        "The implementation retains the existing ownership boundary."
+      ],
+      "disallowed_shortcuts": [
+        "Speculative configuration",
+        "Unrequested abstraction layers"
+      ],
+      "initial_request": "Implement the requested behavior without adding capabilities that the request does not require.",
+      "checkpoints": [
+        {
+          "id": "follow-up",
+          "request": "Extend the requested behavior through the existing ownership boundary without introducing speculative generalization."
+        }
+      ],
+      "public_tests": [
+        {
+          "id": "public-contract",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_public.py"
+          ],
+          "expected_outcome": "pass"
+        }
+      ],
+      "hidden_tests": [
+        {
+          "id": "pristine",
+          "kind": "pristine",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_pristine.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/overcorrection/pristine"
+        },
+        {
+          "id": "complete-reference",
+          "kind": "complete-reference",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_complete_reference.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "pass",
+          "fixture": "probes/overcorrection/complete-reference"
+        },
+        {
+          "id": "plausible-failure",
+          "kind": "plausible-failure",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "hidden_tests",
+            "-p",
+            "test_plausible_failure.py"
+          ],
+          "expected_outcome": "pass",
+          "oracle_expected_outcome": "fail",
+          "fixture": "probes/overcorrection/plausible-failure"
+        }
+      ],
+      "rubric": {
+        "preferred_architecture": "smallest_complete_change",
+        "archetypes": {
+          "smallest_complete_change": "Implements the complete requested behavior with the smallest coherent change, preserving established ownership and avoiding speculative surface area.",
+          "shortcut": "Appears to satisfy a narrow happy path while omitting required behavior, boundaries, or error handling.",
+          "overcorrection": "Implements the requested behavior but adds generalized layers, configuration, indirection, or lifecycle surface not required by the task."
+        },
+        "dimensions": {
+          "behavior_preserved": "The requested observable behavior and relevant existing behavior are complete and correct.",
+          "change_locality": "The change is contained at the natural ownership boundary and avoids unrelated modification.",
+          "separation_of_concerns": "Responsibilities remain explicit and belong to the appropriate existing components.",
+          "unnecessary_abstraction": "The implementation introduces no abstraction, configurability, or indirection beyond demonstrated need."
+        }
+      }
+    }
+  ],
+  "decision_rules": {
+    "behavior_preservation": {
+      "minimum_candidate_rate": 0.9,
+      "maximum_regression": 0.05
+    },
+    "reproducibility": {
+      "minimum_trials": 3
+    },
+    "checkpoint_effect": {
+      "required": true,
+      "minimum_delta": 0.1
+    },
+    "control": {
+      "required": true,
+      "minimum_preferred_rate_delta": 0.0
+    }
+  }
+}

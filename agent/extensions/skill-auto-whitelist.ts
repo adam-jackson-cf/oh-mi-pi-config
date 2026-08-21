@@ -89,6 +89,13 @@ export function filterSkillPrompt(
 }
 
 export default function skillAutoWhitelist(pi: ExtensionAPI): void {
+  pi.registerCommand("extension-health-skill-auto-whitelist", {
+    description: "Verify skill-auto-whitelist extension registration",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("Extension registered: skill-auto-whitelist", "info");
+    },
+  });
+
   const configPath = path.join(pi.pi.getAgentDir(), CONFIG_FILE_NAME);
   let reportedError: string | undefined;
 

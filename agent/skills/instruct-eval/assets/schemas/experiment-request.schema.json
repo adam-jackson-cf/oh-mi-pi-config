@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "created_at",
+    "instruction",
+    "provider",
+    "model",
+    "thinking",
+    "trials_per_condition",
+    "practical_effect_threshold",
+    "significance_level",
+    "protocol_path",
+    "repository",
+    "python_version",
+    "omp_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "thinking": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trials_per_condition": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "practical_effect_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "significance_level": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "protocol_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "python_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "omp_version": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

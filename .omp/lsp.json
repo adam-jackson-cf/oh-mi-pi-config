@@ -1,10 +1,27 @@
 {
   "servers": {
+    "pyright": {
+      "command": "/Users/adamjackson/.volta/bin/pyright-langserver",
+      "args": ["--stdio"],
+      "fileTypes": [".py", ".pyi"],
+      "rootMarkers": ["package.json"]
+    },
     "typescript-language-server": {
       "command": "/Users/adamjackson/.volta/bin/typescript-language-server",
       "args": ["--stdio"],
       "fileTypes": [".ts", ".tsx", ".js", ".jsx"],
       "rootMarkers": ["agent"]
+    },
+    "rust-analyzer": {
+      "command": "/Users/adamjackson/.cargo/bin/rust-analyzer",
+      "args": [],
+      "fileTypes": [".rs"],
+      "rootMarkers": ["package.json"],
+      "capabilities": {
+        "expandMacro": true,
+        "runnables": true,
+        "relatedTests": true
+      }
     }
   }
 }
