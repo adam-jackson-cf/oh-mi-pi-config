@@ -15,19 +15,18 @@ agent/*
 !agent/lsp.json
 !agent/skill-auto-whitelist.json
 
+!agent/skills/
+agent/skills/*
+!agent/skills/orchestrate/
+agent/skills/orchestrate/*
+!agent/skills/orchestrate/SKILL.md
+
 !agent/agents/
 agent/agents/*
 !agent/agents/completionist.md
-!agent/agents/designer.md
 !agent/agents/innovation-council.md
 !agent/agents/innovation-fable.md
-!agent/agents/librarian.md
-!agent/agents/orchestrator.md
 !agent/agents/plan-judge.md
-!agent/agents/reviewer.md
-!agent/agents/scout.md
-!agent/agents/sonic.md
-!agent/agents/task.md
 !agent/agents/test-judge.md
 
 !agent/extensions/
