@@ -13,7 +13,7 @@ tools:
 spawns:
   - scout
 model:
-  - openai-codex/gpt-5.6-terra
+  - "@reviewer"
 thinkingLevel: high
 output:
   properties:

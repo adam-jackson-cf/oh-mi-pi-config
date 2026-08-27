@@ -1,7 +1,0 @@
-Complete the following task in the current workspace:
-
-$initial_request
-
-$instruction_block
-
-Inspect the existing code before changing it. Implement the complete requested behavior, preserve existing behavior unless this request changes it, and verify the result.

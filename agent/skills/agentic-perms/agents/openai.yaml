@@ -1,4 +1,0 @@
-interface:
-  display_name: "Agentic Permissions"
-  short_description: "Review and maintain Codex and Orca permissions"
-  default_prompt: "Use $agentic-perms to review and verify my Codex and Orca runtime permissions."

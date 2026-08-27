@@ -36,7 +36,7 @@
 ### Shaping Completion Response Messages
 - `excluded_content` is considered:
   - git-only activity
-  - tasks that are part of these skill workflows: `analyze-code-quality`, `analyze-architecture`, `analyse-security`, `analyze-codebase-integrity`, `analyze-agentic-readiness`, `deep-interview`, `intent-plan`
+  - tasks that are part of these skill workflows: `analyze-code-quality`, `analyze-architecture`, `analyse-security`, `analyze-codebase-integrity`, `analyze-agentic-readiness`, `deep-interview`, `experiment-observations`, `fault-catalog`, `intent-plan`
   - clarification questions, tool narration, blocked responses, partial responses, or other interim responses
 - `already_surfaced` is when content (including by description or intent) has already appeared in:
   - reasoning

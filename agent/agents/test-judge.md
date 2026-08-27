@@ -9,7 +9,7 @@ tools:
   - ast_grep
   - yield
 model:
-  - openai-codex/gpt-5.6-terra
+  - "@test-judge"
 thinkingLevel: high
 ---
 

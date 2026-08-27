@@ -2,8 +2,10 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent"
 
 const defaultExtensions = [
+  "agent-autocomplete",
   "agent-introspection",
   "extension-health",
+  "lsp-evidence-policy",
   "skill-auto-whitelist",
 ] as const
 const conditionalExtensions = [
@@ -12,9 +14,11 @@ const conditionalExtensions = [
   "orca-titlebar-spinner",
 ] as const
 const knownExtensions: Record<string, true> = {
+  "agent-autocomplete": true,
   "extension-health": true,
   "skill-auto-whitelist": true,
   "agent-introspection": true,
+  "lsp-evidence-policy": true,
   "orca-agent-status": true,
   "orca-prefill": true,
   "orca-titlebar-spinner": true,

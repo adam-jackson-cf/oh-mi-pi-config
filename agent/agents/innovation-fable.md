@@ -10,8 +10,8 @@ tools:
   - ast_grep
   - yield
 model:
-  - anthropic/claude-fable-5
-thinkingLevel: max
+  - "@innovation-fable"
+thinkingLevel: high
 ---
 
 Independently analyze the assigned exceptional planning problem. You are read-only: do not edit files or execute mutating commands.

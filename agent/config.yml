@@ -1,23 +1,26 @@
 symbolPreset: nerd
 theme:
   light: light
-setupVersion: 1
+setupVersion: 2
 modelRoles:
-  default: openai-codex/gpt-5.6-sol:medium
-  plan: openai-codex/gpt-5.6-sol:medium
+  default: openai-codex/gpt-5.6-sol:off
+  plan: openai-codex/gpt-5.6-sol:low
   slow: openai-codex/gpt-5.6-terra:high
   smol: openai-codex/gpt-5.4-mini:low
   task: openai-codex/gpt-5.6-terra:low
   tiny: openai-codex/gpt-5.6-luna:low
-  designer: openai-codex/gpt-5.6-terra:medium
-  advisor: openai-codex/gpt-5.6-sol:high
-  slateResearch: openai-codex/gpt-5.6-sol:high
-  slateGoal: openai-codex/gpt-5.6-sol:high
-  slateProgramDesign: openai-codex/gpt-5.6-sol:high
+  designer: openai-codex/gpt-5.6-sol:low
+  advisor: openai-codex/gpt-5.6-sol:low
   commit: openai-codex/gpt-5.4-mini:low
   vision: openai-codex/gpt-5.6-terra:medium
+  completionist: openai-codex/gpt-5.6-terra:high
+  innovation-council: openai-codex/gpt-5.6-sol:low
+  innovation-fable: anthropic/claude-fable-5:high
+  plan-judge: openai-codex/gpt-5.6-terra:high
+  reviewer: openai-codex/gpt-5.6-terra:high
+  test-judge: openai-codex/gpt-5.6-terra:high
 advisor:
-  enabled: false
+  enabled: true
   syncBacklog: "1"
   immuneTurns: 3
 providers:
@@ -78,9 +81,13 @@ memory:
 autolearn:
   enabled: true
   autoContinue: false
-defaultThinkingLevel: auto
+defaultThinkingLevel: low
+extendedContext: false
 compaction:
   enabled: true
   handoffSaveToDisk: true
-  strategy: handoff
-  thresholdPercent: 40
+  methodOrder:
+    - handoff
+  thresholdPercent: 50
+composer:
+  shape: box

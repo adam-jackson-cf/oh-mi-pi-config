@@ -10,7 +10,7 @@ tools:
   - web_search
   - yield
 model:
-  - openai-codex/gpt-5.6-terra
+  - "@completionist"
 thinkingLevel: high
 ---
 

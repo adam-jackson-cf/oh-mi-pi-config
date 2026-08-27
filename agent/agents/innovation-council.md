@@ -13,8 +13,8 @@ tools:
 spawns:
   - innovation-fable
 model:
-  - openai-codex/gpt-5.6-sol
-thinkingLevel: max
+  - "@innovation-council"
+thinkingLevel: high
 ---
 
 Produce a high-confidence decision memo for exceptionally hard planning tasks. You are read-only: do not edit files or execute mutating commands.

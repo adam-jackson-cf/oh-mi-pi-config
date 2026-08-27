@@ -1,4 +1,5 @@
-# Track configuration and source only; ignore runtime state by default.
+# Ignore OMP runtime and update-managed files by default.
+# Add an explicit exception when taking ownership of a new file or directory.
 *
 
 !.gitignore
@@ -13,15 +14,36 @@ agent/*
 !agent/config.yml
 !agent/lsp.json
 !agent/skill-auto-whitelist.json
+
 !agent/agents/
-!agent/agents/**
+agent/agents/*
+!agent/agents/completionist.md
+!agent/agents/designer.md
+!agent/agents/innovation-council.md
+!agent/agents/innovation-fable.md
+!agent/agents/librarian.md
+!agent/agents/orchestrator.md
+!agent/agents/plan-judge.md
+!agent/agents/reviewer.md
+!agent/agents/scout.md
+!agent/agents/sonic.md
+!agent/agents/task.md
+!agent/agents/test-judge.md
+
 !agent/extensions/
-!agent/extensions/**
-!agent/skills/
-!agent/skills/**
+agent/extensions/*
+!agent/extensions/agent-introspection.ts
+!agent/extensions/extension-health.ts
+!agent/extensions/skill-auto-whitelist.ts
+
 
 !.omp/
 .omp/*
 !.omp/lsp.json
 
+# Generated state inside owned source trees remains runtime-only.
 **/.DS_Store
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/node_modules/
