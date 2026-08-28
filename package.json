@@ -10,6 +10,6 @@
     "@types/node": "26.1.2",
     "markdownlint-cli2": "0.23.2",
     "oxlint": "1.80.0",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }
