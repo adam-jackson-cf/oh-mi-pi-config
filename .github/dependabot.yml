@@ -1,7 +1,7 @@
 version: 2
 updates:
-  # Javascript dependencies
-  - package-ecosystem: "npm"
+  # Bun dependencies
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "daily"
