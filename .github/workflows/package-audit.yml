@@ -1,0 +1,49 @@
+name: Package Audit
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - bun.lock
+  workflow_dispatch:
+    inputs:
+      audit-level:
+        description: Audit severity level
+        required: false
+        default: critical
+        type: choice
+        options:
+          - low
+          - moderate
+          - high
+          - critical
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  audit-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+      - run: bun install --frozen-lockfile
+      - name: Audit JavaScript dependencies
+        run: bun audit --audit-level="${{ inputs['audit-level'] || 'critical' }}"
+      - name: Comment on pull request when audit fails
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          AUDIT_LEVEL: ${{ inputs['audit-level'] || 'critical' }}
+        with:
+          script: |
+            const auditLevel = process.env.AUDIT_LEVEL;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `Dependency vulnerabilities detected at audit level ${auditLevel}. Review the package audit job.`,
+            });

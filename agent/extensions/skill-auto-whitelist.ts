@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI, Skill } from "@oh-my-pi/pi-coding-agent";
+import { z } from "zod";
 
 const CONFIG_FILE_NAME = "skill-auto-whitelist.json";
 const SKILL_POLICY =
@@ -8,25 +9,27 @@ const SKILL_POLICY =
 const SKILLS_BLOCK_PATTERN = /<skills>\r?\n([\s\S]*?)\r?\n<\/skills>/g;
 const SKILL_ENTRY_PATTERN = /^(\s*-\s+)([^:\r\n]+):/;
 const SKILL_NAME_CHARACTER_PATTERN = /[A-Za-z0-9_-]/;
+const AUTOMATIC_SKILLS_CONFIG_SCHEMA = z.object({
+  automaticSkills: z.array(z.unknown()),
+});
 
 export function parseAutomaticSkills(content: string): Set<string> {
-  const parsed: unknown = JSON.parse(content);
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    !("automaticSkills" in parsed) ||
-    !Array.isArray(parsed.automaticSkills)
-  ) {
+  const configResult = AUTOMATIC_SKILLS_CONFIG_SCHEMA.safeParse(JSON.parse(content));
+  if (!configResult.success) {
     throw new Error('Expected an object with an "automaticSkills" array.');
   }
 
   const automaticSkills = new Set<string>();
-  for (const value of parsed.automaticSkills) {
-    if (typeof value !== "string" || !value.trim() || value !== value.trim()) {
+  for (const value of configResult.data.automaticSkills) {
+    const skillNameResult = z.string().safeParse(value);
+    if (
+      !skillNameResult.success ||
+      !skillNameResult.data.trim() ||
+      skillNameResult.data !== skillNameResult.data.trim()
+    ) {
       throw new Error('Every "automaticSkills" entry must be a non-empty, trimmed string.');
     }
-    automaticSkills.add(value);
+    automaticSkills.add(skillNameResult.data);
   }
   return automaticSkills;
 }

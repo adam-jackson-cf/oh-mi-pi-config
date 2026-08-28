@@ -14,7 +14,7 @@ const conditionalExtensions = [
   "orca-prefill",
   "orca-titlebar-spinner",
 ] as const
-const knownExtensions: Record<string, true> = {
+const knownExtensions = {
   "analyse": true,
   "agent-autocomplete": true,
   "extension-health": true,
@@ -24,7 +24,7 @@ const knownExtensions: Record<string, true> = {
   "orca-agent-status": true,
   "orca-prefill": true,
   "orca-titlebar-spinner": true,
-}
+} as const
 
 export default function extensionHealth(pi: ExtensionAPI): void {
   pi.registerCommand("extension-health", {
@@ -39,8 +39,12 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       const markerNames = [...commandNames]
         .filter((name) => name.startsWith(markerPrefix))
         .map((name) => name.slice(markerPrefix.length))
-      const registered = new Set(markerNames.filter((name) => knownExtensions[name]))
-      const unexpected = [...new Set(markerNames.filter((name) => !knownExtensions[name]))].sort()
+      const registered = new Set(
+        markerNames.filter((name) => Object.hasOwn(knownExtensions, name)),
+      )
+      const unexpected = [
+        ...new Set(markerNames.filter((name) => !Object.hasOwn(knownExtensions, name))),
+      ].sort()
 
       if (commandNames.has("extension-health")) {
         registered.add("extension-health")

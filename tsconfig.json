@@ -9,5 +9,8 @@
     "target": "ES2022"
   },
   "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
-  "exclude": ["agent/extensions/orca*.ts"]
+  "exclude": [
+    "agent/extensions/agent-introspection.ts",
+    "agent/extensions/orca*.ts"
+  ]
 }
