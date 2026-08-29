@@ -44,6 +44,9 @@ agent/skills/*
 agent/skills/orchestrate/*
 !agent/skills/orchestrate/SKILL.md
 
+# instruct-eval is a standalone project, not an OMP-managed skill.
+agent/skills/instruct-eval/
+
 !agent/agents/
 agent/agents/*
 !agent/agents/completionist.md
