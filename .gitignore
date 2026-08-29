@@ -57,10 +57,15 @@ agent/agents/*
 
 !agent/extensions/
 agent/extensions/*
+!agent/extensions/agent-autocomplete.ts
 !agent/extensions/agent-introspection.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/skill-auto-whitelist.ts
 
+
+!tests/
+tests/*
+!tests/agent-autocomplete.test.ts
 
 !.omp/
 .omp/*
