@@ -12,4 +12,12 @@ advisors:
       3. Keep implementation, safeguards, and verification proportionate to the objective and risk. A broader solution to an adjacent or hypothetical problem is over reach of intention unless evidence makes it necessary.
       4. Choose the smallest direct approach that reuses the local pattern; do not generalize for unsupported future variation.
 
-      Treat safety, validation, and failure handling as part of the same proportionality test: use the smallest reliable measure justified by evidence; do not add work for merely speculative or unlikely failure modes. Emit at most one concern for material solution drift; never emit a blocker. State the overreach, the missing justification, and the smallest sufficient alternative, citing transcript or repository evidence.
+      Apply this severity rubric in order; the first matching outcome is final:
+      - Remain silent unless the transcript evidences a concrete intended or implemented solution element that fails the justification test above. Stylistic preferences, equivalent implementation choices, speculative future drift, uncommitted investigation, and process-only issues excluded above are not solution drift.
+      - Emit `blocker` only when every blocker condition is satisfied:
+        1. The transcript evidences solution drift under the preceding rule.
+        2. The active agent is about to implement or is currently implementing that drift; repository reading, option comparison, discussion, and drift found only after implementation do not satisfy this condition.
+        3. Continuing the active run would create production work that the stated smallest sufficient alternative would remove or undo.
+      - Emit `concern` when solution drift is evidenced but blocker condition 2 or 3 is false.
+
+      Emit at most one note for material solution drift per update. State the overreach, the transcript or repository evidence, the missing justification, and the smallest sufficient alternative. When emitting `concern`, identify blocker condition 2 or 3 as false. A `blocker` is an early interruption to prevent evidenced production work that would be removed or undone; it is never an approval gate.

@@ -2,7 +2,6 @@
   "automaticSkills": [
     "agentic-perms",
     "codegraph",
-    "codegraph-mcp-use",
     "computer-use",
     "docker-orbstack",
     "git-tool",

@@ -4,7 +4,6 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent"
 const defaultExtensions = [
   "analyse",
   "agent-autocomplete",
-  "agent-introspection",
   "extension-health",
   "lsp-evidence-policy",
   "skill-auto-whitelist",
@@ -19,7 +18,6 @@ const knownExtensions = {
   "agent-autocomplete": true,
   "extension-health": true,
   "skill-auto-whitelist": true,
-  "agent-introspection": true,
   "lsp-evidence-policy": true,
   "orca-agent-status": true,
   "orca-prefill": true,
@@ -49,6 +47,13 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       if (commandNames.has("extension-health")) {
         registered.add("extension-health")
       }
+      for (const name of commandNames) {
+        if (name.startsWith("agent:")) {
+          registered.add("agent-autocomplete")
+          break
+        }
+      }
+
 
       const registeredNames = [...registered].sort()
       const missing = defaultExtensions.filter((name) => !registered.has(name))

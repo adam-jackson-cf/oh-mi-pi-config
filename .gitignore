@@ -52,6 +52,7 @@ agent/agents/*
 !agent/agents/completionist.md
 !agent/agents/innovation-council.md
 !agent/agents/innovation-fable.md
+!agent/agents/kiss.md
 !agent/agents/plan-judge.md
 !agent/agents/test-judge.md
 

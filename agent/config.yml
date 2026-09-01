@@ -1,33 +1,33 @@
 symbolPreset: nerd
-theme:
+theme: 
   light: light
 setupVersion: 2
-extensions:
+extensions: 
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
-modelRoles:
-  default: openai-codex/gpt-5.6-sol:off
-  plan: openai-codex/gpt-5.6-sol:low
+modelRoles: 
+  plan: openai-codex/gpt-5.6-sol:off
   slow: openai-codex/gpt-5.6-terra:high
   smol: openai-codex/gpt-5.4-mini:low
   task: openai-codex/gpt-5.6-terra:low
   tiny: openai-codex/gpt-5.6-luna:low
-  designer: openai-codex/gpt-5.6-sol:low
-  advisor: openai-codex/gpt-5.6-sol:low
+  designer: openai-codex/gpt-5.6-sol:off
+  advisor: openai-codex/gpt-5.6-sol:off
   commit: openai-codex/gpt-5.4-mini:low
   vision: openai-codex/gpt-5.6-terra:medium
   completionist: openai-codex/gpt-5.6-terra:high
-  innovation-council: openai-codex/gpt-5.6-sol:low
+  innovation-council: openai-codex/gpt-5.6-sol:medium
   innovation-fable: anthropic/claude-fable-5:high
   plan-judge: openai-codex/gpt-5.6-terra:high
   reviewer: openai-codex/gpt-5.6-terra:high
   test-judge: openai-codex/gpt-5.6-terra:high
-advisor:
+  default: openai-codex/gpt-5.6-sol:off
+advisor: 
   enabled: true
   syncBacklog: "1"
   immuneTurns: 3
-providers:
-  webSearchOrder:
+providers: 
+  webSearchOrder: 
     - codex
     - perplexity
     - gemini
@@ -51,46 +51,45 @@ providers:
     - google
     - mojeek
     - public
-dev:
+dev: 
   autoqaConsent: granted
 textVerbosity: low
-disabledProviders:
+disabledProviders: 
   - claude
   - codex
   - gemini
   - opencode
   - github
-  - agents
   - agents-md
-skills:
-  customDirectories:
+skills: 
+  customDirectories: 
     - ~/.agents/skills
-edit:
+edit: 
   enforceSeenLines: true
-lsp:
+lsp: 
   diagnosticsOnEdit: true
-bashInterceptor:
+bashInterceptor: 
   enabled: true
-task:
-  isolation:
+task: 
+  isolation: 
     mode: auto
   enableLsp: true
-  agentAdvisor:
+  agentAdvisor: 
     task: "off"
-checkpoint:
+checkpoint: 
   enabled: true
-memory:
+memory: 
   backend: local
-autolearn:
+autolearn: 
   enabled: true
   autoContinue: false
 defaultThinkingLevel: low
 extendedContext: false
-compaction:
+compaction: 
   enabled: true
   handoffSaveToDisk: true
-  methodOrder:
+  methodOrder: 
     - handoff
   thresholdPercent: 50
-composer:
+composer: 
   shape: box

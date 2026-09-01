@@ -2,13 +2,13 @@ import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type {
-	ExtensionAPI,
 	ExtensionHandler,
 	InputEvent,
 	InputEventResult,
 	SessionStartEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import type { AutocompleteItem, AutocompleteProvider } from "@oh-my-pi/pi-tui";
+
 
 type AgentDefinition = {
 	name: string;
@@ -22,22 +22,127 @@ type AgentInvocation = {
 	work: string;
 };
 
+type AgentCommandContext = {
+	ui: {
+		notify(message: string, level: "info" | "error"): void;
+	};
+};
+
 export interface AgentAutocompleteAPI {
-	registerCommand: ExtensionAPI["registerCommand"];
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
+	registerCommand(
+		name: string,
+		options: {
+			description?: string;
+			handler(args: string, context: AgentCommandContext): Promise<void> | void;
+		},
+	): void;
+	sendUserMessage(content: string): void;
 }
 
 const AGENT_NAMESPACE = "agent:";
 const MID_PROMPT_AGENT_RE = /(^|\s)\/agent:([^\s/]+)(\s|$)/;
-const TRAILING_AGENT_TOKEN_RE = /(^|\s)(\/agent:([^\s/]*))$/;
+const TRAILING_SLASH_TOKEN_RE = /(?:^|\s)(\/[^\s/]*)$/;
 
-function findTrailingAgentToken(textBeforeCursor: string): { prefix: string; query: string } | undefined {
-	const match = TRAILING_AGENT_TOKEN_RE.exec(textBeforeCursor);
-	const prefix = match?.[2];
-	const query = match?.[3];
-	return prefix !== undefined && query !== undefined ? { prefix, query } : undefined;
+function getAgentToken(
+	lines: string[],
+	cursorLine: number,
+	cursorCol: number,
+): { prefix: string; tokenStart: number } | undefined {
+	const currentLine = lines[cursorLine] ?? "";
+	const textBeforeCursor = currentLine.slice(0, cursorCol);
+	const prefix = TRAILING_SLASH_TOKEN_RE.exec(textBeforeCursor)?.[1];
+	if (!prefix) {
+		return undefined;
+	}
+
+	const query = prefix.slice(1).toLowerCase();
+	if (query.length === 0 || !(AGENT_NAMESPACE.startsWith(query) || query.startsWith(AGENT_NAMESPACE))) {
+		return undefined;
+	}
+	return { prefix, tokenStart: textBeforeCursor.length - prefix.length };
 }
+
+function getAgentSuggestions(
+	agents: AgentDefinition[],
+	prefix: string,
+): { items: AutocompleteItem[]; prefix: string } | null {
+	const query = prefix.slice(1).toLowerCase();
+	if (AGENT_NAMESPACE.startsWith(query) && query !== AGENT_NAMESPACE) {
+		return {
+			items: [
+				{
+					value: AGENT_NAMESPACE,
+					label: AGENT_NAMESPACE,
+					description: "Select a task agent for the following work",
+				},
+			],
+			prefix,
+		};
+	}
+
+	const roleQuery = query.slice(AGENT_NAMESPACE.length);
+	const items = agents
+		.filter(agent => agent.name.toLowerCase().startsWith(roleQuery))
+		.map(agent => ({
+			value: `${AGENT_NAMESPACE}${agent.name}`,
+			label: `${AGENT_NAMESPACE}${agent.name}`,
+			description: agent.description,
+		}));
+	return items.length > 0 ? { items, prefix } : null;
+}
+
+function wrapAutocompleteProvider(
+	current: AutocompleteProvider,
+	getAgents: () => AgentDefinition[],
+): AutocompleteProvider {
+	const wrapped: AutocompleteProvider = {
+		async getSuggestions(lines, cursorLine, cursorCol, signal) {
+			const token = getAgentToken(lines, cursorLine, cursorCol);
+			if (token) {
+				return getAgentSuggestions(getAgents(), token.prefix);
+			}
+			return current.getSuggestions(lines, cursorLine, cursorCol, signal);
+		},
+		applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+			const token = getAgentToken(lines, cursorLine, cursorCol);
+			if (!token || token.prefix !== prefix || !item.value.startsWith(AGENT_NAMESPACE)) {
+				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+			}
+
+			const currentLine = lines[cursorLine] ?? "";
+			const afterCursor = currentLine.slice(cursorCol);
+			const separator = item.value === AGENT_NAMESPACE || /^\s/.test(afterCursor) ? "" : " ";
+			const insert = `/${item.value}${separator}`;
+			const newLines = [...lines];
+			newLines[cursorLine] = `${currentLine.slice(0, token.tokenStart)}${insert}${afterCursor}`;
+			return {
+				lines: newLines,
+				cursorLine,
+				cursorCol: token.tokenStart + insert.length,
+			};
+		},
+	};
+
+	if (current.getInlineHint) {
+		wrapped.getInlineHint = current.getInlineHint.bind(current);
+	}
+	if (current.trySyncSlashCompletion) {
+		wrapped.trySyncSlashCompletion = current.trySyncSlashCompletion.bind(current);
+	}
+	if (current.trySyncInlineReplace) {
+		wrapped.trySyncInlineReplace = current.trySyncInlineReplace.bind(current);
+	}
+	if (current.getForceFileSuggestions) {
+		wrapped.getForceFileSuggestions = current.getForceFileSuggestions.bind(current);
+	}
+	if (current.shouldTriggerFileCompletion) {
+		wrapped.shouldTriggerFileCompletion = current.shouldTriggerFileCompletion.bind(current);
+	}
+	return wrapped;
+}
+
 
 function parseAgentInvocation(text: string): AgentInvocation | undefined {
 	const trimmedStart = text.trimStart();
@@ -71,60 +176,6 @@ function parseAgentInvocation(text: string): AgentInvocation | undefined {
 	};
 }
 
-function createAgentAutocompleteProvider(
-	current: AutocompleteProvider,
-	getAgents: () => AgentDefinition[],
-): AutocompleteProvider {
-	return {
-		async getSuggestions(lines, cursorLine, cursorCol) {
-			const currentLine = lines[cursorLine] ?? "";
-			const token = findTrailingAgentToken(currentLine.slice(0, cursorCol));
-			if (!token) {
-				return current.getSuggestions(lines, cursorLine, cursorCol);
-			}
-
-			const query = token.query.toLocaleLowerCase();
-			const items = getAgents()
-				.filter(agent => agent.name.toLocaleLowerCase().startsWith(query))
-				.map(
-					(agent): AutocompleteItem => ({
-						value: agent.name,
-						label: agent.name,
-						description: agent.description,
-					}),
-				);
-			return items.length > 0 ? { items, prefix: currentLine.slice(0, cursorCol) } : null;
-		},
-		applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
-			if (!findTrailingAgentToken(prefix)) {
-				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
-			}
-
-			const currentLine = lines[cursorLine] ?? "";
-			const textBeforeCursor = currentLine.slice(0, cursorCol);
-			const token = findTrailingAgentToken(textBeforeCursor);
-			const agent = getAgents().find(candidate => candidate.name === item.value);
-			if (!token || !agent || !agent.name.toLocaleLowerCase().startsWith(token.query.toLocaleLowerCase())) {
-				return { lines, cursorLine, cursorCol };
-			}
-
-			const beforeToken = textBeforeCursor.slice(0, -token.prefix.length);
-			const insert = `/${AGENT_NAMESPACE}${agent.name} `;
-			const newLines = [...lines];
-			newLines[cursorLine] = `${beforeToken}${insert}${currentLine.slice(cursorCol)}`;
-			return {
-				lines: newLines,
-				cursorLine,
-				cursorCol: beforeToken.length + insert.length,
-			};
-		},
-		getInlineHint: current.getInlineHint?.bind(current),
-		trySyncSlashCompletion: current.trySyncSlashCompletion?.bind(current),
-		trySyncInlineReplace: current.trySyncInlineReplace?.bind(current),
-		getForceFileSuggestions: current.getForceFileSuggestions?.bind(current),
-		shouldTriggerFileCompletion: current.shouldTriggerFileCompletion?.bind(current),
-	};
-}
 
 function getProfileName(): string | undefined {
 	const profileFlag = process.argv.findIndex(argument => argument === "--profile");
@@ -230,25 +281,50 @@ export function discoverAgentDefinitions(cwd: string): AgentDefinition[] {
 	return [...agents.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function formatAgentDirective(agentName: string, work: string): string {
+	return `Use the \`${agentName}\` task agent for the following work:\n${work}`;
+}
+
+function registerDiscoveredAgentCommands(
+	pi: AgentAutocompleteAPI,
+	agents: AgentDefinition[],
+	registeredCommands: Set<string>,
+): void {
+	for (const agent of agents) {
+		const commandName = `${AGENT_NAMESPACE}${agent.name}`;
+		if (registeredCommands.has(commandName)) {
+			continue;
+		}
+		registeredCommands.add(commandName);
+		pi.registerCommand(commandName, {
+			description: agent.description,
+			handler: (args, context) => {
+				const work = args.trim();
+				if (!work) {
+					context.ui.notify("Usage: /agent:<role> <work>", "error");
+					return;
+				}
+				pi.sendUserMessage(formatAgentDirective(agent.name, work));
+			},
+		});
+	}
+}
+
 export function registerAgentCommand(
 	pi: AgentAutocompleteAPI,
 	discoverAgents: AgentDiscovery = discoverAgentDefinitions,
 ): void {
 	let agents = discoverAgents(process.cwd());
-	let autocompleteRegistered = false;
-
-	pi.registerCommand("extension-health-agent-autocomplete", {
-		description: "Verify agent-autocomplete extension registration",
-		handler: async (_args, context) => {
-			context.ui.notify("Extension registered: agent-autocomplete", "info");
-		},
-	});
+	let autocompleteProviderRegistered = false;
+	const registeredCommands = new Set<string>();
+	registerDiscoveredAgentCommands(pi, agents, registeredCommands);
 
 	pi.on("session_start", (_event, context) => {
 		agents = discoverAgents(context.cwd);
-		if (!autocompleteRegistered) {
-			context.ui.addAutocompleteProvider(current => createAgentAutocompleteProvider(current, () => agents));
-			autocompleteRegistered = true;
+		registerDiscoveredAgentCommands(pi, agents, registeredCommands);
+		if (!autocompleteProviderRegistered) {
+			context.ui.addAutocompleteProvider(current => wrapAutocompleteProvider(current, () => agents));
+			autocompleteProviderRegistered = true;
 		}
 	});
 
@@ -270,7 +346,7 @@ export function registerAgentCommand(
 		}
 
 		return {
-			text: `Use the \`${agent.name}\` task agent for the following work:\n${invocation.work}`,
+			text: formatAgentDirective(agent.name, invocation.work),
 		};
 	});
 }
