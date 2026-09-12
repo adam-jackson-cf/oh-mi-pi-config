@@ -163,20 +163,23 @@ describe("agent autocomplete", () => {
 		);
 	});
 
-	test("offers the agent namespace before roles at leading and mid-prompt positions", async () => {
+	test("returns a stable editor prefix for leading and mid-prompt suggestions", async () => {
 		const harness = createExtensionHarness();
+		const leading = await harness.suggest("/agent");
+		const namespace = await harness.suggest("this is /agen");
+		const role = await harness.suggest("this is /agent:rev");
 
 		assert.deepEqual(
-			(await harness.suggest("/agent"))?.items.map(item => item.value),
-			["agent:"],
+			{ prefix: leading?.prefix, values: leading?.items.map(item => item.value) },
+			{ prefix: "", values: ["agent:"] },
 		);
 		assert.deepEqual(
-			(await harness.suggest("this is /agen"))?.items.map(item => item.value),
-			["agent:"],
+			{ prefix: namespace?.prefix, values: namespace?.items.map(item => item.value) },
+			{ prefix: "", values: ["agent:"] },
 		);
 		assert.deepEqual(
-			(await harness.suggest("this is /agent:rev"))?.items.map(item => item.value),
-			["agent:reviewer"],
+			{ prefix: role?.prefix, values: role?.items.map(item => item.value) },
+			{ prefix: "", values: ["agent:reviewer"] },
 		);
 	});
 
@@ -192,17 +195,30 @@ describe("agent autocomplete", () => {
 		});
 	});
 
-	test("replaces only the mid-prompt role token and preserves text after the cursor", async () => {
+	test("applies a selected role against the live token and preserves text after the cursor", async () => {
 		const harness = createExtensionHarness();
-		const line = "this is /agent:rev and keep this";
-		const cursorCol = "this is /agent:rev".length;
-		const result = await harness.suggest(line, cursorCol);
+		const result = await harness.suggest("this is /agent:r");
 		assert.ok(result);
 
+		const line = "this is /agent:rev and keep this";
+		const cursorCol = "this is /agent:rev".length;
 		assert.deepEqual(harness.applyCompletion(line, cursorCol, result.items[0], result.prefix), {
 			lines: ["this is /agent:reviewer and keep this"],
 			cursorLine: 0,
 			cursorCol: "this is /agent:reviewer".length,
+		});
+	});
+
+	test("rejects a stale selected role that no longer matches the live token", async () => {
+		const harness = createExtensionHarness();
+		const result = await harness.suggest("this is /agent:r");
+		assert.ok(result);
+
+		const line = "this is /agent:d";
+		assert.deepEqual(harness.applyCompletion(line, line.length, result.items[0], result.prefix), {
+			lines: [line],
+			cursorLine: 0,
+			cursorCol: line.length,
 		});
 	});
 

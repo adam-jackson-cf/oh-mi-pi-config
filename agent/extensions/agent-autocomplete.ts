@@ -78,7 +78,7 @@ function getAgentSuggestions(
 					description: "Select a task agent for the following work",
 				},
 			],
-			prefix,
+			prefix: "",
 		};
 	}
 
@@ -90,7 +90,7 @@ function getAgentSuggestions(
 			label: `${AGENT_NAMESPACE}${agent.name}`,
 			description: agent.description,
 		}));
-	return items.length > 0 ? { items, prefix } : null;
+	return items.length > 0 ? { items, prefix: "" } : null;
 }
 
 function wrapAutocompleteProvider(
@@ -106,9 +106,20 @@ function wrapAutocompleteProvider(
 			return current.getSuggestions(lines, cursorLine, cursorCol, signal);
 		},
 		applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
-			const token = getAgentToken(lines, cursorLine, cursorCol);
-			if (!token || token.prefix !== prefix || !item.value.startsWith(AGENT_NAMESPACE)) {
+			if (!item.value.startsWith(AGENT_NAMESPACE)) {
 				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+			}
+
+			const token = getAgentToken(lines, cursorLine, cursorCol);
+			const query = token?.prefix.slice(1).toLowerCase();
+			const itemValue = item.value.toLowerCase();
+			const itemMatchesLiveToken =
+				query !== undefined &&
+				(item.value === AGENT_NAMESPACE
+					? AGENT_NAMESPACE.startsWith(query) && query !== AGENT_NAMESPACE
+					: query.startsWith(AGENT_NAMESPACE) && itemValue.startsWith(query));
+			if (!token || !itemMatchesLiveToken) {
+				return { lines, cursorLine, cursorCol };
 			}
 
 			const currentLine = lines[cursorLine] ?? "";
