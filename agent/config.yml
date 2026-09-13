@@ -65,6 +65,8 @@ disabledProviders:
 skills:
   customDirectories:
     - ~/.agents/skills
+    - ~/.agents/by-request
+    - ~/.omp/agent/skills
 edit:
   enforceSeenLines: true
 lsp:
