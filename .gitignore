@@ -62,11 +62,13 @@ agent/extensions/*
 !agent/extensions/agent-introspection.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/skill-auto-whitelist.ts
+!agent/extensions/jev-watchdog.ts
 
 
 !tests/
 tests/*
 !tests/agent-autocomplete.test.ts
+!tests/jev-watchdog.test.ts
 
 !.omp/
 .omp/*

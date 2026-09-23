@@ -3,8 +3,11 @@ theme:
   light: light
 setupVersion: 2
 extensions:
+  - ~/.omp/agent/extensions/enable-command-centre.ts
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
+  - ~/.omp/agent/extensions/codex-quota-gate.ts
+  - ~/.omp/agent/extensions/jev-watchdog.ts
 modelRoles:
   plan: openai-codex/gpt-5.6-sol:off
   slow: openai-codex/gpt-5.6-terra:high
@@ -22,7 +25,7 @@ modelRoles:
   reviewer: openai-codex/gpt-5.6-terra:high
   test-judge: openai-codex/gpt-5.6-terra:high
   kiss: openaai-code/gpt-5.6-terr:high
-  default: openai-codex/gpt-5.6-terra:high
+  default: openai-codex/gpt-6-astra:low
 advisor:
   enabled: true
   syncBacklog: "1"

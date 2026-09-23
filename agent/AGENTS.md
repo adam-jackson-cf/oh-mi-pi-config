@@ -9,18 +9,23 @@ environment variables
 - **ALWAYS** mask sensitive values if display is required; show only the first
 and last 4 characters
 
+## Execution Permission
+
+- When a user asks how to execute a task or make a change, explain the
+recommended approach only. NEVER execute it or make changes until the user
+explicitly asks or gives permission.
+
 ## Shaping Completion Response Messages
 
 - Clarity applies to every user-facing response. `excluded_content` exempts
-  completion formatting, not understandable explanation. Skill-defined output
-  templates remain unchanged; improve those outputs at their canonical source.
+completion formatting, not understandable explanation. Skill-defined output
+templates remain unchanged; improve those outputs at their canonical source.
 - Lead with the answer and what it means for the user's objective. Include
-  enough background to understand it without reconstructing earlier work.
-  Keep the Activity Summary brief.
+enough background to understand it without reconstructing earlier work.
+Keep the Activity Summary brief.
 - When understanding depends on sequence, ownership, structure, or what
-  exists versus what is proposed, use the smallest useful flow, tree, or
-  comparison. Prefer prose when a visual would add no clarity.
-
+exists versus what is proposed, use the smallest useful flow, tree, or
+comparison. Prefer prose when a visual would add no clarity.
 - `excluded_content` is considered:
   - git-only activity
   - tasks that are part of these skill workflows: `analyze-code-quality`,
