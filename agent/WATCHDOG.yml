@@ -22,6 +22,15 @@ advisors:
       - Emit `concern` when solution drift is evidenced but blocker condition 2 or 3 is false.
 
       Emit at most one note for material solution drift per update. State the overreach, the transcript or repository evidence, the missing justification, and the smallest sufficient alternative. When emitting `concern`, identify blocker condition 2 or 3 as false. A `blocker` is an early interruption to prevent evidenced production work that would be removed or undone; it is never an approval gate.
+  # Jev audits default on: <reported-session-trace-stem>/jev-watchdog-requests.jsonl (0600).
+  # Each request/outcome pair shares a requestId; traceResponseId joins the outcome to
+  # the native __advisor.jev-complexity.jsonl assistant message in its actual owning session.
+  # The reported session path can lag concurrent sessions; use the trace join for provenance.
+  # requestSha256 hashes the exact transmitted JSON, while the logged view redacts prompt text.
+  # Set JEV_WATCHDOG_AUDIT=0 before launching OMP to disable. Redaction is best-effort;
+  # treat audit files as sensitive local data.
+  # Audit failures alert the agent while Jev still reviews; assessment failures alert
+  # the agent as blockers. Repeated failures are reported once until recovery.
   - name: jev-complexity
     enabled: true
     model: "jev-watchdog/~typesafe/jev-latest"
