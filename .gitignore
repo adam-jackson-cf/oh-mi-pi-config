@@ -30,6 +30,10 @@ tools/oxlint/*
 !tools/oxlint/anti-slop/
 !tools/oxlint/anti-slop/**
 
+!adr/
+adr/*
+!adr/2026-09-27T141651+0100-jev-deterministic-scope-review.md
+
 !agent/
 agent/*
 !agent/AGENTS.md

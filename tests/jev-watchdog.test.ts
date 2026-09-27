@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Context, Model } from "@oh-my-pi/pi-ai";
 import { isUsageLimit } from "@oh-my-pi/pi-ai/error";
-import { streamJev } from "../agent/extensions/jev-watchdog";
+import { labelOutcome, streamJev } from "../agent/extensions/jev-watchdog";
 
 const model: Model = {
   id: "~typesafe/jev-latest", name: "Jev fixture", provider: "jev-watchdog", api: "jev-decisions",
@@ -14,13 +14,17 @@ const model: Model = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 const context: Context = {
-  messages: [{ role: "user", content: "User: Fix only the typo. Agent: I will add an unrelated database.", timestamp: 0 }],
+  systemPrompt: ["Native advisor routing instructions", "Review only concrete scope drift."],
+  messages: [
+    { role: "user", content: "### Session update\n\n**user**:\nFix only the typo.", timestamp: 0 },
+    { role: "user", content: "**agent**:\nI will add an unrelated database.", timestamp: 1 },
+  ],
   tools: [{ name: "advise", description: "Advise primary", parameters: { type: "object" } }],
 };
 function decision(drift = 1) {
   const choice = (selected: string, probabilities: Record<string, number>) => ({ type: "choice", choice: selected, probabilities, confidence: 1 });
   return {
-    id: "fixture", model: "typesafe/jev-fixture", provider: "fixture",
+    id: "fixture", model: "typesafe/jev-1.13-20260917", provider: "fixture",
     answers: {
       drift: choice("yes", { yes: drift, no: 1 - drift, unknown: 0 }),
     }, usage: { input_tokens: 100, output_tokens: 20, cost: 0.001 },
@@ -72,49 +76,60 @@ test("malformed decisions record a safe failed attempt without relaying provider
   }
 });
 
-test("overreach alone triggers a blocker without evidence selection", async () => {
+test("high Jev probability stays nonblocking during shadow evaluation", async () => {
   const original = globalThis.fetch;
   try {
-    for (const [score, expected] of [
-      [0.9, "blocker"],
-      [0.89, "continue"],
-    ] as const) {
-      // SAFETY: The adapter only calls fetch; this stub returns a real Response and is restored below.
-      globalThis.fetch = (async () => Response.json(decision(score))) as typeof fetch;
-      const message = await streamJev(model, context, { apiKey: "test-placeholder" }).result();
-      const report = message.content.find(part => part.type === "text");
-      assert.equal(report!.text, expected);
-      const advice = message.content.find(part => part.type === "toolCall");
-      assert.equal(advice?.arguments.severity, expected === "blocker" ? "blocker" : undefined);
-      assert.equal(message.stopReason, expected === "blocker" ? "toolUse" : "stop");
-    }
+    // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+    globalThis.fetch = (async () => Response.json(decision(0.9))) as typeof fetch;
+    const message = await streamJev(model, context, { apiKey: "test-placeholder" }).result();
+    assert.equal(message.content[0].type === "text" && message.content[0].text, "continue");
+    assert.equal(message.content.some(part => part.type === "toolCall"), false);
+    assert.equal(message.stopReason, "stop");
   } finally { globalThis.fetch = original; }
 });
 
-test("split updates retain all current evidence and advise completion makes no request", async () => {
+test("split rendered updates select the task and current agent evidence only", async () => {
   const original = globalThis.fetch;
   let requests = 0;
-  // SAFETY: The adapter only calls fetch; this stub returns a real Response and is restored below.
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
   globalThis.fetch = (async (_url, options) => {
     requests++;
     const state = JSON.parse(String(options!.body)).state;
-    assert.match(state.current_update, /Fix only the typo/);
-    assert.match(state.current_update, /unrelated database/);
+    assert.equal(state.review_policy, "Review only concrete scope drift.");
+    assert.deepEqual(state.task_context.recent_user_requests, ["Fix only the typo."]);
+    assert.match(state.agent_activity.excerpt, /unrelated database/);
+    assert.match(state.agent_activity.excerpt, /→ edit\(src\/db.ts\)/);
+    assert.equal(state.policy_version, "scope-drift-2026-09-27");
+    assert.equal(JSON.stringify(state).includes("Native advisor routing instructions"), false);
     return Response.json(decision());
   }) as typeof fetch;
   try {
     const split: Context = { ...context, messages: [
-      { role: "user", content: "User: Fix only the typo.", timestamp: 0 },
-      { role: "user", content: "Agent: I will add an unrelated database.", timestamp: 1 },
+      ...context.messages,
+      { role: "user", content: "→ edit(src/db.ts) ⇒ ok · 3 lines", timestamp: 2 },
     ] };
     const result = await streamJev(model, split, { apiKey: "test-placeholder" }).result();
-    assert.equal(result.stopReason, "toolUse");
-    const finished = await streamJev(model, { ...split, messages: [...split.messages, result,
-      { role: "toolResult", toolCallId: "fixture", toolName: "advise", content: [{ type: "text", text: "Recorded." }], isError: false, timestamp: 2 },
-    ] }, { apiKey: "test-placeholder" }).result();
-    assert.equal(finished.stopReason, "stop");
+    assert.equal(result.stopReason, "stop");
     assert.equal(requests, 1);
-    assert.equal(finished.usage.cost.total, 0);
+  } finally { globalThis.fetch = original; }
+});
+
+test("watched role embedded after native prefix still supplies the user objective", async () => {
+  const original = globalThis.fetch;
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+  globalThis.fetch = (async (_url, options) => {
+    const state = JSON.parse(String(options!.body)).state;
+    assert.deepEqual(state.task_context.recent_user_requests, ["Fix only the typo."]);
+    assert.equal(state.task_context.source, "current");
+    return Response.json(decision());
+  }) as typeof fetch;
+  try {
+    const prefixed: Context = { ...context, messages: [
+      { role: "user", content: "### Session update\n\n[advisor metadata]\n**user**:\nFix only the typo.", timestamp: 0 },
+      context.messages[1],
+    ] };
+    const result = await streamJev(model, prefixed, { apiKey: "test-placeholder" }).result();
+    assert.equal(result.stopReason, "stop");
   } finally { globalThis.fetch = original; }
 });
 
@@ -131,8 +146,12 @@ test("audit joins transmitted request and decision to the native advisor trace",
   }) as typeof fetch;
   try {
     const withPrompt: Context = { ...context,
-      systemPrompt: ["Review only. password=fixture-value"],
-      messages: [{ role: "user", content: "Check this Bearer fixture-token123456. OPENROUTER_API_KEY=fixture-second", timestamp: 0 }],
+      systemPrompt: ["Native instructions should not be sent", "Review only. password=fixture-value"],
+      messages: [
+        { role: "user", content: "### Session update\n\n**user**:\nFix this typo. OPENROUTER_API_KEY=fixture-second", timestamp: 0 },
+        { role: "user", content: "**developer**:\nPreserve the existing pattern. token=fixture-third", timestamp: 1 },
+        { role: "user", content: "**agent**:\nCheck this Bearer fixture-token123456. Add a database.", timestamp: 1 },
+      ],
     };
     const provenance = () => ({ sessionId: "primary-session", sessionFile });
     const responses = [];
@@ -153,22 +172,35 @@ test("audit joins transmitted request and decision to the native advisor trace",
       assert.equal(request.requestSha256, createHash("sha256").update(transmitted[i]).digest("hex"));
       assert.equal(request.request.model, "~typesafe/jev-latest");
       assert.deepEqual(request.request.questions, JSON.parse(transmitted[i]).questions);
-      assert.equal(request.request.state.project_context[0], "Review only. password=[REDACTED]");
-      assert.equal(request.request.state.current_update, "Check this Bearer [REDACTED]. OPENROUTER_API_KEY=[REDACTED]");
+      assert.equal(request.request.state.review_policy, "Review only. password=[REDACTED]");
+      assert.deepEqual(request.request.state.task_context.recent_user_requests, ["Fix this typo. OPENROUTER_API_KEY=[REDACTED]"]);
+      assert.deepEqual(request.request.state.constraints.recent_instructions, ["Preserve the existing pattern. token=[REDACTED]"]);
+      assert.equal(request.request.state.agent_activity.excerpt, "Check this Bearer [REDACTED]. Add a database.");
+      assert.equal(request.request.state.policy_version, "scope-drift-2026-09-27");
       assert.equal(outcome.requestId, request.requestId);
       assert.equal(outcome.traceResponseId, responses[i].responseId);
       assert.equal(outcome.traceResponseId, request.requestId);
       assert.equal(outcome.providerResponseId, "fixture");
+      assert.equal(outcome.resolvedModel, "typesafe/jev-1.13-20260917");
       assert.deepEqual(outcome.decision, {
         choice: "yes", probabilities: { yes: i ? 0.9 : 0.89, no: 1 - (i ? 0.9 : 0.89), unknown: 0 },
-        confidence: 1, threshold: 0.9, verdict: i ? "blocker" : "continue",
+        confidence: 1, threshold: 0.9, reviewCandidate: i === 1,
       });
-      assert.equal(responses[i].stopReason, i ? "toolUse" : "stop");
+      assert.equal(responses[i].stopReason, "stop");
     }
     assert.notEqual(rows[0].requestId, rows[2].requestId);
     assert.equal((await stat(auditFile)).mode & 0o777, 0o600);
     assert.equal((await readFile(auditFile, "utf8")).includes("fixture-value"), false);
     assert.equal((await readFile(auditFile, "utf8")).includes("fixture-second"), false);
+    assert.equal((await readFile(auditFile, "utf8")).includes("fixture-third"), false);
+    await labelOutcome({ sessionId: "primary-session", sessionFile }, rows[2].requestId, "no_overreach");
+    const labeled = (await readFile(auditFile, "utf8")).trimEnd().split("\n").map(line => JSON.parse(line));
+    assert.deepEqual(
+      { type: labeled[4].type, requestId: labeled[4].requestId, label: labeled[4].label, reviewer: labeled[4].reviewer },
+      { type: "reviewer_outcome", requestId: rows[2].requestId, label: "no_overreach", reviewer: "human" },
+    );
+    await assert.rejects(labelOutcome({ sessionId: "primary-session", sessionFile }, rows[2].requestId, "overreach"),
+      /already has a human label/);
   } finally {
     globalThis.fetch = original;
     await rm(root, { recursive: true, force: true });
@@ -188,9 +220,63 @@ test("audit write failure alerts the agent without suppressing Jev review", asyn
     const result = await streamJev(model, context, { apiKey: "fixture-key" },
       () => ({ sessionId: "primary-session", sessionFile: `${file}.jsonl` }),
       (failure, succeeded) => failures.push(`${failure}:${succeeded}`)).result();
-    assert.equal(result.stopReason, "toolUse");
+    assert.equal(result.stopReason, "stop");
     assert.equal(requests, 1);
     assert.deepEqual(failures, ["audit:false", "review:true"]);
+  } finally {
+    globalThis.fetch = original;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an alias move leaves the review unresolved instead of accepting another model", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-version-"));
+  const original = globalThis.fetch;
+  const failures: string[] = [];
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+  globalThis.fetch = (async () => Response.json({ ...decision(), model: "typesafe/jev-next" })) as typeof fetch;
+  try {
+    const sessionFile = join(root, "primary.jsonl");
+    const result = await streamJev(model, context, { apiKey: "fixture-key" },
+      () => ({ sessionId: "primary", sessionFile }),
+      (kind, succeeded) => failures.push(`${kind}:${succeeded}`)).result();
+    const rows = (await readFile(join(root, "primary", "jev-watchdog-requests.jsonl"), "utf8"))
+      .trimEnd().split("\n").map(line => JSON.parse(line));
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage!, /different model version/);
+    assert.equal(rows[1].resolvedModel, "typesafe/jev-next");
+    assert.equal(rows[1].decision, undefined);
+    assert.deepEqual(failures, ["audit:true", "audit:true", "review:false"]);
+  } finally {
+    globalThis.fetch = original;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("oversized task and activity mark missing evidence and never promote a candidate", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-bounds-"));
+  const original = globalThis.fetch;
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+  globalThis.fetch = (async (_url, options) => {
+    const state = JSON.parse(String(options!.body)).state;
+    assert.equal(state.task_context.clipped_requests, true);
+    assert.ok(state.task_context.recent_user_requests[0].length <= 3000);
+    assert.ok(state.agent_activity.excerpt.length < 6100);
+    assert.ok(state.agent_activity.omitted_characters > 0);
+    return Response.json(decision());
+  }) as typeof fetch;
+  try {
+    const sessionFile = join(root, "primary.jsonl");
+    const longContext: Context = { ...context, messages: [
+      { role: "user", content: `### Session update\n\n**user**:\n${"A".repeat(4000)}`, timestamp: 0 },
+      { role: "user", content: `**agent**:\n${"B".repeat(9000)}`, timestamp: 1 },
+    ] };
+    const result = await streamJev(model, longContext, { apiKey: "fixture-key" },
+      () => ({ sessionId: "primary", sessionFile })).result();
+    const rows = (await readFile(join(root, "primary", "jev-watchdog-requests.jsonl"), "utf8"))
+      .trimEnd().split("\n").map(line => JSON.parse(line));
+    assert.equal(result.stopReason, "stop");
+    assert.equal(rows[1].decision.reviewCandidate, false);
   } finally {
     globalThis.fetch = original;
     await rm(root, { recursive: true, force: true });
