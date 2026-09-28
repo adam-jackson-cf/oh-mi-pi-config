@@ -9,24 +9,24 @@ extensions:
   - ~/.omp/agent/extensions/codex-quota-gate.ts
   - ~/.omp/agent/extensions/jev-watchdog.ts
 modelRoles:
-  plan: openai-codex/gpt-5.6-sol:off
+  plan: openai-codex/gpt-6-astra:low
   slow: openai-codex/gpt-5.6-terra:high
-  smol: openai-codex/gpt-5.4-mini:low
+  smol: openai-codex/gpt-5.6-luna:low
   task: openai-codex/gpt-5.6-terra:high
   tiny: openai-codex/gpt-5.6-luna:low
-  designer: openai-codex/gpt-6-astra:off
-  advisor: openai-codex/gpt-6-sol:off
+  designer: anthropic/claude-opus-5-5:medium
+  advisor: openai-codex/gpt-6-astra:low
   commit: openai-codex/gpt-5.4-mini:low
   vision: openai-codex/gpt-5.6-terra:medium
   completionist: openai-codex/gpt-5.6-terra:high
-  innovation-council: openai-codex/gpt-6-astra:medium
-  innovation-fable: anthropic/claude-fable-5.1:medium
+  innovation-council: openai-codex/gpt-6-astra:high
+  innovation-fable: anthropic/claude-opus-5-5:medium
   plan-judge: openai-codex/gpt-5.6-terra:high
-  reviewer: openai-codex/gpt-5.6-terra:high
+  reviewer: anthropic/claude-opus-5-5:medium
   test-judge: openai-codex/gpt-5.6-terra:high
-  kiss: openaai-code/gpt-5.6-terr:high
+  kiss: openaai-code/gpt-5.6-terra:high
   web: openai-codex/gpt-5.6-luna
-  default: openai-codex/gpt-6-sol:off
+  default: anthropic/claude-opus-5-5:off
 advisor:
   enabled: true
   syncBacklog: "1"

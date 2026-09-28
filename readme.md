@@ -20,6 +20,13 @@ follows the job rather than ad hoc selectors. It also defines runtime defaults
 such as edit diagnostics, task LSP, checkpoints, compaction, and managed skill
 locations.
 
+The OmO comparison maps like-for-like work rather than role names. Currently,
+`reviewer` uses Claude Opus 5.5 like OmO's code reviewer, and `smol` uses
+GPT-5.6 Luna low like OmO's `quick` category. `plan-judge` and `completionist`
+remain on GPT-5.6 Terra high rather than OmO's plan-reviewer and gate-reviewer
+routes. OmO's `explore`/`librarian` fallback uses GPT-6 Luna Fast, which OMP
+does not currently offer; `scout` and `web` are not silently substituted.
+
 ## Ownership boundaries
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
