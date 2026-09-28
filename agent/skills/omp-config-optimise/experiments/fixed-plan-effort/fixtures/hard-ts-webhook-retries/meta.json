@@ -1,0 +1,17 @@
+{
+  "id": "hard-ts-webhook-retries",
+  "language": "typescript",
+  "kind": "implementation-hard",
+  "steps": 8,
+  "pitfalls": [
+    "attempt counting in backoff exponent",
+    "delay cap",
+    "408/429 retryable 4xx",
+    "permanent 4xx no retry",
+    "config validation reuse",
+    "metric only on final failure",
+    "worker picks retrying",
+    "status key order",
+    "lastError cleared on success"
+  ]
+}

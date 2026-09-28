@@ -1,0 +1,16 @@
+{
+  "id": "hard-py-inventory-reservations",
+  "language": "python",
+  "kind": "implementation-hard",
+  "steps": 9,
+  "pitfalls": [
+    "expiry boundary is exclusive",
+    "validation order",
+    "insufficient-stock detail keys reused",
+    "release ignores expiry",
+    "expired commit drops reservation",
+    "every stock check migrated",
+    "report column order",
+    "bool is not a valid quantity"
+  ]
+}

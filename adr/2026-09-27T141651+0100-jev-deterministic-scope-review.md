@@ -41,6 +41,31 @@ policy, not the entire advisor system prompt or all earlier chunks. Limits and o
 markers are explicit. An update with no agent activity is not assessed. There is no model-submitted
 second path.
 
+Amendment (2026-09-28, policy `scope-drift-2026-09-28`): native advisor updates after the first
+contain only new messages, so an evaluation of the first live session found 12 of 16 reviews without
+a user objective. The extension now keeps, per advisor session, the latest observed task context and
+constraints in a bounded in-memory map (32 sessions) and reuses them for updates that contain none,
+marked `source: "carried_forward"`. Any update containing a user request replaces the carried value,
+so a superseded objective is never reused. The earlier "no context cache" decision was based on a
+single-update test and is withdrawn. Audit logs from earlier policies were deleted.
+
+Amendment (2026-09-28, policy `proportionality-2026-09-28`): the review reference is now the user's
+request plus the approved plan. The user approves plans and todo lists before the agent acts on
+them, so their content is valid scope, not evidence to discount. The extension records the latest
+plan file the agent read or wrote (`*plan*.md`, `local://*.md`, `.todo/**`) and the latest rendered
+todo list per advisor session, re-reads the plan at each review (bounded to 4,000 characters,
+redacted), and sends both as `approved_plan`. The question changed from scope drift to
+proportionality: each change outside the approved scope must be required and the smallest
+sufficient change; `unknown` is limited to a missing request or an invisible change so close calls
+are decided. The `evaluate-jev` rubric applies the same tests.
+
+Amendment (2026-09-28, policy `proportionality-implementation-2026-09-28`): `agent_activity` now
+contains only implementation steps: `write` and `edit` tool calls with their rendered diffs and
+results, excluding writes to plan files. Reading, searching, skill loading, todo updates, shell
+commands, and prose are dropped, and an update without an implementation step is not sent to Jev.
+A live run had shown non-trivial `P(yes)` on skill-file reads that the rubric excludes. Plan and
+todo detection still scan the full activity.
+
 The Jev question is limited to concrete scope drift: an added behavior or deliverable beyond the
 user's objective and necessary supporting work. This deliberately does not replace the separate,
 disabled multi-dimensional complexity judge or introduce completion-evidence triage. A Jev positive

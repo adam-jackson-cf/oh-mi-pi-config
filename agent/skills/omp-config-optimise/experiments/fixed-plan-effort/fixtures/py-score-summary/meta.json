@@ -1,0 +1,1 @@
+{"id":"py-score-summary","language":"python","kind":"implementation","steps":5,"pitfalls":["empty-input shape","duplicates versus unique values","do-not-mutate ordering","median parity","summary flag precedence"]}

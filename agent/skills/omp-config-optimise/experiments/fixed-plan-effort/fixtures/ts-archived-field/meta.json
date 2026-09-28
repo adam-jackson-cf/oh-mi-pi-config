@@ -1,0 +1,1 @@
+{"id":"ts-archived-field","language":"typescript","kind":"implementation","steps":6,"pitfalls":["optional legacy input","strict boolean validation","normalization versus serialization","migrating existing caller","JSON key order"]}

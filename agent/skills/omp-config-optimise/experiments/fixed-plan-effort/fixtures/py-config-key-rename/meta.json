@@ -1,0 +1,1 @@
+{"id":"py-config-key-rename","language":"python","kind":"simple-action","steps":5,"pitfalls":["new-key precedence","legacy read compatibility","do not mask legacy value during default merge","boolean validation","documentation migration"]}

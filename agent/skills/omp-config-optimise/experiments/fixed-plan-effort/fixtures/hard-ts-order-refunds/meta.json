@@ -1,0 +1,16 @@
+{
+  "id": "hard-ts-order-refunds",
+  "language": "typescript",
+  "kind": "implementation-hard",
+  "steps": 9,
+  "pitfalls": [
+    "validation order",
+    "no mutation of stored order",
+    "legacy records without refunds on every read path",
+    "status filter before pagination",
+    "net revenue includes refunded statuses",
+    "error details shape",
+    "audit data shape",
+    "exact summary line"
+  ]
+}

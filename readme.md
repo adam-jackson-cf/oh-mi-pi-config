@@ -20,24 +20,22 @@ follows the job rather than ad hoc selectors. It also defines runtime defaults
 such as edit diagnostics, task LSP, checkpoints, compaction, and managed skill
 locations.
 
-The OmO comparison maps like-for-like work rather than role names. Currently,
-`reviewer` uses Claude Opus 5.5 like OmO's code reviewer, and `smol` uses
-GPT-5.6 Luna low like OmO's `quick` category. `plan-judge` and `completionist`
-remain on GPT-5.6 Terra high rather than OmO's plan-reviewer and gate-reviewer
-routes. OmO's `explore`/`librarian` fallback uses GPT-6 Luna Fast, which OMP
-does not currently offer; `scout` and `web` are not silently substituted.
+Routing follows the owner's standing preferences, recorded with the process
+for revisiting them in `agent/skills/omp-config-optimise/`: Claude Opus 5.5
+orchestrates, plans, designs, and reviews at medium reasoning or below; GPT-6
+Luna implements fixed-plan work and simple actions on the Fast tier; GPT-6 Sol
+judges Opus plans and Luna output from the other model family. Reasoning above
+medium on Opus or Astra is reserved for the `innovation-council` (Opus-led,
+Astra challenger) and `experiment-design` (Fable-led, Astra and Opus peers).
 
 ## Ownership boundaries
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
-locally. Its tracked custom-agent surface is limited to independent judgment
-roles in `agent/agents/`: `completionist`, `plan-judge`, `test-judge`,
-`innovation-council`, and `innovation-fable`. Reusable coordination lives
-instead in the `agent/skills/orchestrate/` skill.
-
-When its workflow calls for it, `orchestrate` may delegate `lsp-evidence`; its
-current agent and policy extension are local runtime assets, not tracked
-canonical source.
+locally. Its tracked custom-agent surface in `agent/agents/` is limited to
+judgment and specialist roles: `completionist`, `plan-judge`, `test-judge`,
+`kiss`, `designer`, `innovation-council`, `innovation-challenger`,
+`experiment-design`, and `experiment-peer`. `lsp-evidence` and its policy
+extension are local runtime assets, not tracked canonical source.
 
 The boundaries are intentional:
 
@@ -71,9 +69,9 @@ source.
 - `agent/AGENTS.md` — engineering, verification, and response rules.
 - `agent/WATCHDOG.yml` — review and escalation policy.
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
-- `agent/skills/orchestrate/SKILL.md` — supervised coordination workflow.
-- `agent/extensions/` — tracked runtime extensions, including skill filtering
-  and extension-health reporting.
-- `agent/skill-auto-whitelist.json` — explicit user-skill availability policy.
+- `agent/skills/omp-config-optimise/` — model-routing preferences and the
+  evidence-driven process for re-tuning `agent/config.yml`.
+- `agent/extensions/` — tracked runtime extensions, including extension-health
+  reporting.
 - `agent/lsp.json` — LSP configuration.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.

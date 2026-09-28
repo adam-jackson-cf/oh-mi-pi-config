@@ -1,0 +1,1 @@
+{"id":"ts-release-edits","language":"typescript","kind":"simple-action","steps":5,"pitfalls":["exact enum placement","switch arm text","preserving unrelated constant","changelog insertion location"]}

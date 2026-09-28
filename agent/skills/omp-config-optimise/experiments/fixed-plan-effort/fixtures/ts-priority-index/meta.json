@@ -1,0 +1,1 @@
+{"id":"ts-priority-index","language":"typescript","kind":"implementation","steps":3,"pitfalls":["index zero is falsy","findIndex uses -1 for no match","root cause is not dispatch ordering"]}

@@ -1,0 +1,1 @@
+{"id":"ts-rate-limiter","language":"typescript","kind":"implementation","steps":5,"pitfalls":["window boundary arithmetic","per-key state isolation","validation and reset semantics","timestamps moving backward"]}

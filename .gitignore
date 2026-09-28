@@ -40,13 +40,13 @@ agent/*
 !agent/WATCHDOG.yml
 !agent/config.yml
 !agent/lsp.json
-!agent/skill-auto-whitelist.json
 
 !agent/skills/
 agent/skills/*
-!agent/skills/orchestrate/
-agent/skills/orchestrate/*
-!agent/skills/orchestrate/SKILL.md
+!agent/skills/evaluate-jev/
+!agent/skills/evaluate-jev/**
+!agent/skills/omp-config-optimise/
+!agent/skills/omp-config-optimise/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -54,8 +54,11 @@ agent/skills/instruct-eval/
 !agent/agents/
 agent/agents/*
 !agent/agents/completionist.md
+!agent/agents/designer.md
+!agent/agents/experiment-design.md
+!agent/agents/experiment-peer.md
+!agent/agents/innovation-challenger.md
 !agent/agents/innovation-council.md
-!agent/agents/innovation-fable.md
 !agent/agents/kiss.md
 !agent/agents/plan-judge.md
 !agent/agents/test-judge.md
@@ -65,7 +68,6 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/agent-introspection.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/skill-auto-whitelist.ts
 !agent/extensions/jev-watchdog.ts
 
 

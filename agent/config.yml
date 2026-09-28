@@ -9,24 +9,26 @@ extensions:
   - ~/.omp/agent/extensions/codex-quota-gate.ts
   - ~/.omp/agent/extensions/jev-watchdog.ts
 modelRoles:
-  plan: openai-codex/gpt-6-astra:low
-  slow: openai-codex/gpt-5.6-terra:high
-  smol: openai-codex/gpt-5.6-luna:low
-  task: openai-codex/gpt-5.6-terra:high
-  tiny: openai-codex/gpt-5.6-luna:low
+  plan: anthropic/claude-opus-5-5:medium
+  slow: anthropic/claude-opus-5-5:medium
+  smol: openai-codex/gpt-6-luna:low
+  task: openai-codex/gpt-6-luna:medium
+  tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-opus-5-5:medium
   advisor: openai-codex/gpt-6-astra:low
-  commit: openai-codex/gpt-5.4-mini:low
-  vision: openai-codex/gpt-5.6-terra:medium
-  completionist: openai-codex/gpt-5.6-terra:high
-  innovation-council: openai-codex/gpt-6-astra:high
-  innovation-fable: anthropic/claude-opus-5-5:medium
-  plan-judge: openai-codex/gpt-5.6-terra:high
+  commit: openai-codex/gpt-6-luna:low
+  vision: openai-codex/gpt-6-sol:medium
+  completionist: openai-codex/gpt-6-sol:high
+  innovation-council: anthropic/claude-opus-5-5:high
+  innovation-challenger: openai-codex/gpt-6-astra:high
+  experiment-design: anthropic/claude-fable-5-1:high
+  experiment-peer: anthropic/claude-opus-5-5:high
+  plan-judge: openai-codex/gpt-6-sol:high
   reviewer: anthropic/claude-opus-5-5:medium
-  test-judge: openai-codex/gpt-5.6-terra:high
-  kiss: openaai-code/gpt-5.6-terra:high
-  web: openai-codex/gpt-5.6-luna
-  default: anthropic/claude-opus-5-5:off
+  test-judge: openai-codex/gpt-6-sol:high
+  kiss: openai-codex/gpt-6-sol:medium
+  web: openai-codex/gpt-6-luna
+  default: anthropic/claude-opus-5-5
 advisor:
   enabled: true
   syncBacklog: "1"
@@ -58,6 +60,9 @@ task:
   enableLsp: true
   agentAdvisor:
     task: "off"
+  agentServiceTierOverrides:
+    task: priority
+    sonic: priority
 checkpoint:
   enabled: true
 memory:
@@ -65,7 +70,7 @@ memory:
 autolearn:
   enabled: false
   autoContinue: false
-defaultThinkingLevel: auto
+defaultThinkingLevel: medium
 extendedContext: false
 compaction:
   enabled: true
@@ -105,7 +110,6 @@ retry:
       - web/mojeek
       - web/public
       - google-antigravity/gemini-2.5-flash
-      - openai-codex/gpt-5.6
-      - openai-codex/gpt-5.5
+      - openai-codex/gpt-5.6-luna
       - xai-oauth/grok-4.5
       - web/ollama

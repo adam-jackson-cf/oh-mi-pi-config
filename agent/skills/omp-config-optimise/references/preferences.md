@@ -1,0 +1,52 @@
+# Owner preferences
+
+Standing decisions from the owner. Apply them without re-asking. Change them only
+when the owner says so; evidence that argues against one goes to the owner as a
+recommendation, not a silent edit.
+
+## Objective
+
+- Maximise use of the paid subscriptions (Anthropic Max, OpenAI Codex Pro and
+  Team). Spread load so neither provider's quota runs out while the other sits
+  idle. API list price is the tie-breaker, not the goal.
+
+## Role placement
+
+- Main orchestration, ideation, planning (`default`, `plan`, `slow`): Claude Opus (current: 5.5);
+  reasoning ≤ medium.
+- Design (`designer`): Claude Opus; reasoning ≤ medium.
+- Code review (`reviewer`): Claude Opus; reasoning ≤ medium.
+- Implementation with a fixed plan or todo list (`task`): GPT Luna (current: GPT-6 Luna), Fast tier;
+  reasoning the lowest effort the fixed-plan experiment shows sufficient (owner's hypothesis: no
+  reasoning needed; 2026-09-28 evidence: `medium` for multi-file plans).
+- Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`, `scout`): GPT Luna; reasoning
+  lowest effort.
+- Judging Opus plans and Luna output (`plan-judge`, `test-judge`, `completionist`, `kiss`): a
+  different family from the author (current: GPT-6 Sol); reasoning as needed.
+- Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
+- Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
+  peers; reasoning high allowed.
+
+## Reasoning caps
+
+- Opus and Astra run at **medium or below** everywhere except the innovation
+  council and experiment design. Planning is not an exception: when a plan
+  needs rigorous input, route it to `innovation-council`.
+- Above-medium reasoning outside those two is a deliberate, per-turn user
+  choice for a distinctly unique problem, not a configured default.
+- Work that arrives with a fixed plan or todo list does not need reasoning.
+
+## Fixed settings
+
+- `modelRoles.advisor` stays `openai-codex/gpt-6-astra:low`. It belongs to the
+  advisor watchdog setup that runs with the Jev classifier extension
+  (`agent/extensions/jev-watchdog.ts`, `agent/WATCHDOG.yml`). Do not re-route
+  it for cost or family reasons.
+
+## Working agreements
+
+- Explain proposals before executing config changes unless the owner asks
+  for the change directly.
+- Test claims about model behaviour with a frozen experiment before routing on
+  them (see `experiments.md`).
+- Commits and pushes need separate explicit permission.
