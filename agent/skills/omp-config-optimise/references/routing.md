@@ -10,21 +10,25 @@ list records why. Update both together.
 - `plan` → Opus 5.5 : medium. Used by plan mode. Preference; rigorous plans go to the council.
 - `slow` → Opus 5.5 : medium. Used by model cycling. Preference cap.
 - `designer` → Opus 5.5 : medium. Used by `designer` agent. Preference.
-- `reviewer` → Opus 5.5 : medium. Used by bundled `reviewer`. Opus reviews Luna code across
-  families. Resolved Opus:medium on 2026-09-28; whether via this role or parent inheritance is
-  unconfirmed.
-- `task` + Fast tier → GPT-6 Luna : medium. Used by bundled `task`. Experiments 2026-09-28: `low`
-  suffices for simple plans (18/18) but missed on multi-file plans (7/9 vs `medium` 9/9, at equal
-  cost).
+- `reviewer` → GPT-6 Sol : medium. Used by bundled `reviewer` through
+  `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
+  Opus (fresh-process check 2026-09-28). Leaves the Claude family because `task` runs on Sonnet;
+  review-detection 2026-09-28: every arm 36/36, cheapest qualifier (Opus also 36/36).
+- `task` → Sonnet 5.5 : low, standard tier. Used by bundled `task`. Hard fixed-plan set 2026-09-28:
+  Sonnet `low`/`medium`/`high` 9/9, GPT-6 Luna `medium` 6/9 (15/18 pooled); Sonnet ~5× faster.
+  Moves implementation load to the Anthropic quota.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast), `scout`, `lsp-evidence`, prewalk. Lowest
   effort; mechanical work.
 - `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest; replaced missing
   `gpt-5.4-mini`.
 - `web` → GPT-6 Luna. Used by `web_search`. Verified working 2026-09-28.
-- `plan-judge`, `test-judge`, `completionist` → GPT-6 Sol : high. Used by judges. Other family from
-  the Opus and Luna authors; Sol costs 1/5 of Astra.
+- `plan-judge`, `test-judge`, `completionist` → GPT-6 Sol : medium. Used by judges. Other family
+  from the Opus and Sonnet authors. Review-detection 2026-09-28: GPT-6 Sol `high`/`medium`,
+  GPT-5.6 Sol `low`, Terra `xhigh`, Astra `medium` all 36/36; `medium` cheapest (1.7 credits per
+  review vs 4.9–10.6 for the GPT-5.6 and Astra arms).
 - `kiss` → GPT-6 Sol : medium. Used by `kiss` agent. Other family from the Opus planner.
-- `vision` → GPT-6 Sol : medium. Used by image reading. Image input; cheaper than Terra.
+- `vision` → Sonnet 5.5 : low. Used by image reading. Vision-reading 2026-09-28: 48/48 vs GPT-6
+  Sol `medium` 45/48; Anthropic quota.
 - `advisor` → GPT-6 Astra : low. Used by advisor watchdog runtime alongside the Jev classifier
   extension. Owner-fixed; not a routing lever. Leave unchanged in reviews.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner: Opus-led council.
@@ -36,16 +40,23 @@ list records why. Update both together.
 
 ## Service tiers
 
-`task.agentServiceTierOverrides`: `task` and `sonic` use `priority` (Fast):
-2.5× Codex credits, measured ~20% lower wall time on the fixture set.
+`task.agentServiceTierOverrides`: `sonic` uses `priority` (Fast): 2.5× Codex
+credits, measured ~20% lower wall time on the fixture set. `task` runs on
+Sonnet at standard tier; it is already ~5× faster than Fast Luna, and Anthropic
+priority billing on the subscription is unverified.
 
 ## Watch items
 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped
   at 50% of it; keep `experiment-design` for genuinely novel problems.
 - GPT-5.5 retires from Codex on 2026-10-14; no route uses it.
-- `task: medium` rests on 9 trials per arm across three hard fixtures; rerun
-  the hard set when Luna changes or subagent implementation failures rise.
+- `task: sonnet-5-5:low` rests on 9 trials per arm across three hard fixtures,
+  all arms at ceiling; rerun the hard set when the model changes or subagent
+  implementation failures rise. Watch the Anthropic 7-day meter now that
+  implementation and vision draw it.
+- Review-detection and vision-reading both hit their ceilings; judge, reviewer
+  and vision routes are cost decisions among equals. Add harder cases before
+  re-litigating them.
 - Open-ended work handed to `task` without a plan under-delivers at low effort
   (a fixture-building task returned fixtures at a fifth of the requested size);
   the orchestrator should plan before delegating to `task`.

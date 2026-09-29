@@ -12,20 +12,20 @@ modelRoles:
   plan: anthropic/claude-opus-5-5:medium
   slow: anthropic/claude-opus-5-5:medium
   smol: openai-codex/gpt-6-luna:low
-  task: openai-codex/gpt-6-luna:medium
+  task: anthropic/claude-sonnet-5-5:low
   tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-opus-5-5:medium
   advisor: openai-codex/gpt-6-astra:low
   commit: openai-codex/gpt-6-luna:low
-  vision: openai-codex/gpt-6-sol:medium
-  completionist: openai-codex/gpt-6-sol:high
+  vision: anthropic/claude-sonnet-5-5:low
+  completionist: openai-codex/gpt-6-sol:medium
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   experiment-design: anthropic/claude-fable-5-1:high
   experiment-peer: anthropic/claude-opus-5-5:high
-  plan-judge: openai-codex/gpt-6-sol:high
-  reviewer: anthropic/claude-opus-5-5:medium
-  test-judge: openai-codex/gpt-6-sol:high
+  plan-judge: openai-codex/gpt-6-sol:medium
+  reviewer: openai-codex/gpt-6-sol:medium
+  test-judge: openai-codex/gpt-6-sol:medium
   kiss: openai-codex/gpt-6-sol:medium
   web: openai-codex/gpt-6-luna
   default: anthropic/claude-opus-5-5
@@ -61,8 +61,9 @@ task:
   agentAdvisor:
     task: "off"
   agentServiceTierOverrides:
-    task: priority
     sonic: priority
+  agentModelOverrides:
+    reviewer: "@reviewer"
 checkpoint:
   enabled: true
 memory:

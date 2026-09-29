@@ -34,6 +34,9 @@ the docs live at `omp://models.md`, `omp://settings.md`,
   The clamp is global, so a low `maxEffort` also caps council spawns.
 - `task.agentServiceTierOverrides[agent]` sets the Fast/priority tier per agent;
   Vibe workers use `tier.subagent` instead.
+- Bundled agents without a role alias in their frontmatter (e.g. `reviewer`) ignore a same-named
+  `modelRoles` entry and inherit the parent model. Route them with
+  `task.agentModelOverrides[agent]: "@<role>"` (verified 2026-09-28).
 - `task.agentPrewalk` / `prewalk.*`: start on one model, hand off to `@smol`
   at the first edit after a todo exists.
 - `/vibe`: `fast` = bundled `sonic` (`@smol`), `good` = bundled `task`

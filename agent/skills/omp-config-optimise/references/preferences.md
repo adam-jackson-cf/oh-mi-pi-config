@@ -15,14 +15,15 @@ recommendation, not a silent edit.
 - Main orchestration, ideation, planning (`default`, `plan`, `slow`): Claude Opus (current: 5.5);
   reasoning ≤ medium.
 - Design (`designer`): Claude Opus; reasoning ≤ medium.
-- Code review (`reviewer`): Claude Opus; reasoning ≤ medium.
-- Implementation with a fixed plan or todo list (`task`): GPT Luna (current: GPT-6 Luna), Fast tier;
-  reasoning the lowest effort the fixed-plan experiment shows sufficient (owner's hypothesis: no
-  reasoning needed; 2026-09-28 evidence: `medium` for multi-file plans).
+- Code review (`reviewer`): a different family from the `task` author (current: GPT-6 Sol `medium`,
+  owner decision 2026-09-28 once `task` moved to Sonnet); Opus/Astra would stay ≤ medium.
+- Implementation with a fixed plan or todo list (`task`): Claude Sonnet (current: Sonnet 5.5, owner
+  decision 2026-09-28 after Sonnet `low` scored 9/9 vs GPT-6 Luna `medium` 6/9 on the hard fixed-plan
+  set); reasoning the lowest effort the fixed-plan experiment shows sufficient (`low`).
 - Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`, `scout`): GPT Luna; reasoning
   lowest effort.
-- Judging Opus plans and Luna output (`plan-judge`, `test-judge`, `completionist`, `kiss`): a
-  different family from the author (current: GPT-6 Sol); reasoning as needed.
+- Judging Opus plans and Sonnet/Luna output (`plan-judge`, `test-judge`, `completionist`, `kiss`):
+  a different family from the author (current: GPT-6 Sol); reasoning as needed.
 - Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.
