@@ -18,6 +18,7 @@ const AuditLine = z.object({
   type: z.string().optional(),
   requestId: z.string().optional(),
   timestamp: z.string().optional(),
+  reason: z.string().optional(),
   label: z.string().optional(),
   request: z.object({
     state: z.object({
@@ -36,6 +37,7 @@ const AuditLine = z.object({
       }).optional(),
       approved_plan: z.object({
         path: z.string().nullable().optional(),
+        origin: z.string().nullable().optional(),
         excerpt: z.string().optional(),
         clipped: z.boolean().optional(),
         todo_items: z.string().optional(),
@@ -49,7 +51,7 @@ const AuditLine = z.object({
     probabilities: z.record(z.string(), z.number()).optional(),
     reviewCandidate: z.boolean().optional(),
   }).optional(),
-  error: z.object({ stopReason: z.string().optional() }).optional(),
+  error: z.object({ stopReason: z.string().optional(), reason: z.string().optional() }).optional(),
   resolvedModel: z.string().optional(),
 });
 type Row = z.infer<typeof AuditLine> & { file: string };
@@ -87,7 +89,7 @@ const cases = rows
       constraints: r.request?.state?.constraints ?? [],
       approvedPlan: r.request?.state?.approved_plan ?? null,
       activity: String(r.request?.state?.agent_activity?.excerpt ?? "").slice(0, 1200),
-      choice: o?.decision?.choice ?? (o?.error ? `error:${o.error.stopReason}` : "no-outcome"),
+      choice: o?.decision?.choice ?? (o?.error ? `error:${o.error.reason ?? o.error.stopReason}` : "no-outcome"),
       probabilities: o?.decision?.probabilities,
       reviewCandidate: Boolean(o?.decision?.reviewCandidate),
       resolvedModel: o?.resolvedModel ?? "absent",
@@ -102,6 +104,9 @@ const yesP = cases.map(c => c.probabilities?.yes).filter((p): p is number => Num
 console.log(JSON.stringify({
   root, filters: { policy: policy ?? null, since: since ?? null }, malformedLines: malformed,
   requests: cases.length,
+  // Reviews that failed before any request was logged (state building, key, policy slot); unaffected by --policy.
+  failuresBeforeRequest: rows.filter(r => r.type === "failure" && (!since || (r.timestamp ?? "") >= since))
+    .reduce<Record<string, number>>((m, r) => ((m[r.reason ?? "unknown"] = (m[r.reason ?? "unknown"] ?? 0) + 1), m), {}),
   byPolicy: tally(c => c.policy),
   byChoice: tally(c => c.choice),
   byTaskSource: tally(c => c.taskSource),

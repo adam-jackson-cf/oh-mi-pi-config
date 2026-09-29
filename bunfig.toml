@@ -1,0 +1,3 @@
+[test]
+# Owned tests live in tests/; runtime checkouts such as jev-lab/upstream carry their own suites.
+root = "tests"

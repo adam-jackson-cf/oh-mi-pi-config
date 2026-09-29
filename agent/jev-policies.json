@@ -1,0 +1,8 @@
+{
+  "$comment": "Per-policy mode for the Jev policy extensions: off | shadow | enforce. Shadow logs decisions to agent/jev-audit without changing behaviour. Move a policy to enforce only after a frozen experiment on labelled decisions (agent/skills/omp-config-optimise/references/experiments.md). Read at session start; restart OMP after editing.",
+  "guard.bash": "shadow",
+  "guard.write": "shadow",
+  "guard.result": "shadow",
+  "subagent.review-triage": "shadow",
+  "subagent.effort": "shadow"
+}

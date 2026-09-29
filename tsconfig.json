@@ -8,9 +8,10 @@
     "strict": true,
     "target": "ES2022"
   },
-  "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
+  "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts", "jev-lab/**/*.ts"],
   "exclude": [
     "agent/extensions/agent-introspection.ts",
-    "agent/extensions/orca*.ts"
+    "agent/extensions/orca*.ts",
+    "jev-lab/upstream/**"
   ]
 }

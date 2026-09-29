@@ -8,6 +8,9 @@ extensions:
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/codex-quota-gate.ts
   - ~/.omp/agent/extensions/jev-watchdog.ts
+  - ~/.omp/agent/extensions/jev-guard.ts
+  - ~/.omp/agent/extensions/jev-subagent-policy.ts
+  - ~/.omp/agent/extensions/jev-ask.ts
 modelRoles:
   plan: anthropic/claude-opus-5-5:medium
   slow: anthropic/claude-opus-5-5:medium

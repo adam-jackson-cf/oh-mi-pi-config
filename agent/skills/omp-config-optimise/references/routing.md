@@ -45,6 +45,29 @@ credits, measured ~20% lower wall time on the fixture set. `task` runs on
 Sonnet at standard tier; it is already ~5× faster than Fast Luna, and Anthropic
 priority billing on the subscription is unverified.
 
+## Jev policies
+
+Extensions in `agent/extensions/` follow the evidence ladder (deterministic >
+Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
+`agent/jev-audit/<policy>/` and are labelled in the Jev lab (`~/.omp/jev-lab`).
+
+- `jev-guard.ts`: `guard.bash` (read-only allowlist, destructive and
+  secret-read denylist, then Jev effect/intent/exposure), `guard.write`
+  (secret paths and literals, then Jev `contains_secret` on credential-like
+  assignments), `guard.result` (Jev `prompt_injection` on web, MCP and
+  network-fetch output only). All `shadow`.
+- `jev-subagent-policy.ts`: `subagent.review-triage` (sensitive/docs-only path
+  rules, then Jev risk scores → light Luna / standard / deep Sol:high reviewer,
+  never the author's family) and `subagent.effort` (explicit short plan keeps
+  `low`; Jev openness can raise `task` to `medium`). Both `shadow`.
+- `jev-ask.ts`: `jev_ask` tool (judge files or captured output without reading
+  them into context) plus the evidence-ladder system-prompt nudge. Always on;
+  every call is audited under `ask`.
+- Promotion to `enforce`: ≥ 30 labelled decisions per policy (≥ 5 of the
+  minority label), a frozen threshold chosen on the labelled set, and a
+  regression check on the matching harness (`review-detection` for triage,
+  `fixed-plan-effort` for effort).
+
 ## Watch items
 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped

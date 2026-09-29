@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Jev lab</title>
+  <meta name="jev-lab-token" content="__JEV_LAB_TOKEN__">
+  <meta name="jev-lab-live" content="__JEV_LAB_LIVE__">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Jev lab</h1>
+    <select id="source" aria-label="Source"></select>
+    <select id="version" aria-label="Policy version" hidden></select>
+    <nav id="tabs">
+      <button data-tab="cases" class="active">Cases</button>
+      <button data-tab="queue">Labelling queue</button>
+      <button data-tab="metrics">Metrics</button>
+      <button data-tab="playground">Playground</button>
+    </nav>
+    <span id="notice" class="notice" hidden>Live Jev calls disabled: no OpenRouter key available. Labelling and metrics still work.</span>
+  </header>
+  <main>
+    <section id="tab-cases">
+      <div class="layout">
+        <aside>
+          <div class="filters">
+            <select id="f-label"><option value="">all labels</option><option value="labelled">labelled</option><option value="unlabelled">unlabelled</option></select>
+            <select id="f-verdict"><option value="">all verdicts</option></select>
+            <select id="f-band"><option value="">any P</option><option value="0.9-1.01">P &ge; 0.9</option><option value="0.8-0.9">0.8&ndash;0.9</option><option value="0.5-0.8">0.5&ndash;0.8</option><option value="0-0.5">P &lt; 0.5</option></select>
+            <select id="f-stage"><option value="">any stage</option></select>
+            <select id="f-sort"><option value="time">newest first</option><option value="uncertainty">most uncertain first</option></select>
+          </div>
+          <div id="case-count" class="muted"></div>
+          <ul id="case-list"></ul>
+        </aside>
+        <article id="detail"><p class="muted">Select a case.</p></article>
+      </div>
+    </section>
+    <section id="tab-queue" hidden>
+      <div id="progress"></div>
+      <p class="muted">Unlabelled, sufficient-input cases, round-robin across P(yes) bands (highest first).</p>
+      <label>Order <select id="queue-order"><option value="bands">P(yes) bands</option><option value="proposals">Review proposals (disputed, overreach, rest)</option></select></label>
+      <ul id="queue-list"></ul>
+    </section>
+    <section id="tab-metrics" hidden>
+      <label>Threshold <input id="threshold" type="number" min="0" max="1" step="0.05" value="0.9"></label>
+      <label id="suff-wrap"><input id="suff" type="checkbox" checked> sufficient-input cases only (jev-scope)</label>
+      <div id="metrics"></div>
+    </section>
+    <section id="tab-playground" hidden>
+      <div class="two">
+        <div><h3>State (JSON)</h3><textarea id="pg-state" spellcheck="false">{"text": "The user asked to fix a typo."}</textarea></div>
+        <div><h3>Questions (JSON)</h3><textarea id="pg-questions" spellcheck="false">{"on_topic": {"type": "noul", "instructions": "Is the text about fixing a typo?"}}</textarea></div>
+      </div>
+      <div class="row">
+        <button id="pg-run">Run live</button>
+        <input id="pg-set" placeholder="case set name" value="scratch">
+        <input id="pg-id" placeholder="case id">
+        <input id="pg-expected" placeholder='expected JSON, e.g. {"on_topic": true}'>
+        <button id="pg-save">Save as case</button>
+        <select id="pg-existing"></select>
+        <button id="pg-runset">Run case set</button>
+      </div>
+      <div id="pg-out"></div>
+    </section>
+  </main>
+  <div id="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

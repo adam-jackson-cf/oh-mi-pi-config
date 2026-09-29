@@ -6,6 +6,7 @@
 !readme.md
 !package.json
 !bun.lock
+!bunfig.toml
 !tsconfig.json
 !.pre-commit-config.yaml
 !.markdownlint-cli2.jsonc
@@ -40,6 +41,7 @@ agent/*
 !agent/WATCHDOG.yml
 !agent/config.yml
 !agent/lsp.json
+!agent/jev-policies.json
 
 !agent/skills/
 agent/skills/*
@@ -47,6 +49,8 @@ agent/skills/*
 !agent/skills/evaluate-jev/**
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
+!agent/skills/workflow-templates/
+!agent/skills/workflow-templates/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -69,12 +73,36 @@ agent/extensions/*
 !agent/extensions/agent-introspection.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/jev-watchdog.ts
+!agent/extensions/jev-guard.ts
+!agent/extensions/jev-subagent-policy.ts
+!agent/extensions/jev-ask.ts
+!agent/extensions/lib/
+agent/extensions/lib/*
+!agent/extensions/lib/jev.ts
+!agent/extensions/lib/jev-auth.ts
 
 
 !tests/
 tests/*
 !tests/agent-autocomplete.test.ts
 !tests/jev-watchdog.test.ts
+!tests/jev-guard.test.ts
+!tests/jev-subagent-policy.test.ts
+!tests/jev-ask.test.ts
+!tests/jev-lab.test.ts
+
+# Jev lab: workbench source is owned; upstream clone, case sets and runs are runtime-only.
+!jev-lab/
+jev-lab/*
+!jev-lab/README.md
+!jev-lab/server.ts
+!jev-lab/lib/
+!jev-lab/lib/**
+!jev-lab/public/
+!jev-lab/public/**
+!jev-lab/scripts/
+jev-lab/scripts/*
+!jev-lab/scripts/upstream-lab.sh
 
 !.omp/
 .omp/*

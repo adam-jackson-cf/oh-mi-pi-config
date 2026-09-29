@@ -37,6 +37,19 @@ recommendation, not a silent edit.
   choice for a distinctly unique problem, not a configured default.
 - Work that arrives with a fixed plan or todo list does not need reasoning.
 
+## Evidence ladder
+
+- Decide with the cheapest mechanism that settles the question: **deterministic
+  process > Jev classifier > LLM**. Rules, parsers, codegraph, LSP, grep, git and
+  tests first; a Jev decision (`find`, `jev_ask`, eval `judge()`, the Jev policy
+  extensions) only for what rules cannot settle; an LLM or subagent only when
+  Jev is unsure or the policy escalates.
+- Jev policies ship in shadow mode (`agent/jev-policies.json`) and move to
+  enforce only after a frozen experiment on human-labelled decisions from the
+  Jev lab (`~/.omp/jev-lab`).
+- Compaction stays on the native mechanism until an experiment shows a Jev
+  boundary signal beats it.
+
 ## Fixed settings
 
 - `modelRoles.advisor` stays `openai-codex/gpt-6-astra:low`. It belongs to the
