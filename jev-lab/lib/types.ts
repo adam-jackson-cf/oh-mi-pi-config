@@ -47,6 +47,9 @@ export type LabCase = {
   sufficient?: boolean;
   taskSource?: string;
   policyVersion?: string;
+  /** jev-scope only: whether the audited session was a main session or a subagent, and the subagent's id. */
+  sessionKind?: "main" | "sub";
+  agentId?: string;
   state: JsonValue;
   questions?: JevQuestions;
   answers: LabAnswer[];

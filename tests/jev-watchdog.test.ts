@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
-import type { Context, Model } from "@oh-my-pi/pi-ai";
+import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import { isUsageLimit } from "@oh-my-pi/pi-ai/error";
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import jevWatchdog, { labelOutcome, streamJev } from "../agent/extensions/jev-watchdog";
@@ -30,6 +30,110 @@ function decision(drift = 1) {
       drift: choice("yes", { yes: drift, no: 1 - drift, unknown: 0 }),
     }, usage: { input_tokens: 100, output_tokens: 20, cost: 0.001 },
   };
+}
+
+// A fake host for the registered watchdog. Like OMP, every session (main or subagent) loads its own extension
+// instance and the provider registry is process-global, so the LAST registered instance serves every advisor.
+// An advisor call reaches the owning session only through `options.onPayload`, which mirrors the runner's
+// `emitBeforeProviderRequest`: it runs the `before_provider_request` handlers of that session's instances.
+// What the runner hands `before_provider_request` handlers: the provider payload, opaque to this fixture.
+type ProviderPayload = Parameters<NonNullable<SimpleStreamOptions["onPayload"]>>[0];
+type FakeHandler = (event: { type: string; payload?: ProviderPayload }, ctx: ExtensionContext) => void | Promise<void>;
+type CommandHandler = (args: string, ctx: ExtensionContext) => Promise<void>;
+type SessionSpec = {
+  kind: "main" | "sub";
+  agentId: string;
+  sessionFile: string;
+  cwd: string;
+  /** Subagents adopt the parent's artifacts dir; a main session's is its session directory. */
+  artifacts?: string;
+  branch?: () => Entry[];
+  systemPrompt?: string[];
+};
+type AuditedRow = { type: string; requestId: string; sessionId?: string; sessionFile?: string; sessionKind?: string;
+  agentId?: string; label?: string; reason?: string; error?: { reason: string }; stage?: string;
+  request?: { state: SeenState } };
+type FakeSession = {
+  auditFile: string;
+  advise: (messages: Context["messages"], advisorId?: string) => Promise<AssistantMessage>;
+  /** An advisor call OMP gives no onPayload hook ("no-hook"), or whose hook no session claims ("unclaimed"). */
+  adviseUnowned: (messages: Context["messages"], advisorId: string, cause: "no-hook" | "unclaimed") => Promise<AssistantMessage>;
+  auditRows: () => Promise<AuditedRow[]>;
+  label: (args: string) => Promise<string[]>;
+  alerts: string[];
+  end: () => Promise<void>;
+};
+let serving: ProviderConfig["streamSimple"];
+async function startSession(spec: SessionSpec): Promise<FakeSession> {
+  const handlers = new Map<string, FakeHandler[]>();
+  const commands = new Map<string, CommandHandler>();
+  const alerts: string[] = [];
+  const notices: string[] = [];
+  const fakePi = {
+    on: (name: string, handler: FakeHandler) => { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
+    registerProvider: (_name: string, config: ProviderConfig) => { serving = config.streamSimple; },
+    registerCommand: (name: string, command: { handler: CommandHandler }) => { commands.set(name, command.handler); },
+    sendMessage: (message: { content: string }) => { alerts.push(message.content); },
+  };
+  // SAFETY: The fixture implements the ExtensionAPI methods jevWatchdog calls.
+  await jevWatchdog(fakePi as ExtensionAPI);
+  const directory = spec.sessionFile.slice(0, -".jsonl".length);
+  // SAFETY: Only the fields the watchdog reads are provided by this fixture.
+  const ctx = {
+    agent: { kind: spec.kind, id: spec.agentId },
+    sessionManager: {
+      getSessionFile: () => spec.sessionFile, getSessionId: () => basename(directory), getCwd: () => spec.cwd,
+      getArtifactsDir: () => spec.artifacts ?? directory, getBranch: () => spec.branch?.() ?? [],
+    },
+    getSystemPrompt: () => spec.systemPrompt ?? [],
+    ui: { notify: (message: string) => { notices.push(message); } },
+  } as ExtensionContext;
+  const emit = async (name: string, payload?: ProviderPayload) => {
+    for (const handler of handlers.get(name) ?? []) await handler({ type: name, payload }, ctx);
+  };
+  type Owner = "owned" | "no-hook" | "unclaimed";
+  const hook = (owner: Owner) => owner === "no-hook" ? undefined : async (payload: ProviderPayload) => {
+    if (owner === "owned") await emit("before_provider_request", payload);
+    return payload;
+  };
+  const call = (messages: Context["messages"], sessionId: string | undefined, owner: Owner) =>
+    // SAFETY: streamSimple is assigned by registerProvider above; the fixture model matches its provider.
+    serving!(model, { ...context, messages }, { apiKey: "test-placeholder", sessionId, onPayload: hook(owner) }).result();
+  const auditFile = join(directory, "jev-watchdog-requests.jsonl");
+  return {
+    auditFile, alerts,
+    advise: (messages, advisorId) => call(messages, advisorId, "owned"),
+    adviseUnowned: (messages, advisorId, cause) => call(messages, advisorId, cause),
+    auditRows: async () => (await readFile(auditFile, "utf8").catch(() => "")).split("\n").filter(Boolean).map(line => JSON.parse(line)),
+    label: async args => {
+      notices.length = 0;
+      await commands.get("jev-label")!(args, ctx);
+      return [...notices];
+    },
+    end: () => emit("session_shutdown"),
+  };
+}
+
+/** Stubs OpenRouter with a drift-free decision; a request containing `slow` answers late so calls interleave. */
+async function withJev<T>(run: (seen: SeenState[]) => Promise<T>): Promise<T> {
+  const seen: SeenState[] = [];
+  const original = globalThis.fetch;
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test-placeholder";
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+  globalThis.fetch = (async (_url, options) => {
+    const body = String(options!.body);
+    seen.push(JSON.parse(body).state);
+    await new Promise(done => setTimeout(done, /\bslow\b/.test(body) ? 40 : 0));
+    return Response.json(decision(0));
+  }) as typeof fetch;
+  try {
+    return await run(seen);
+  } finally {
+    globalThis.fetch = original;
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+  }
 }
 
 test("credit exhaustion is a native usage-limit error, not a continue decision", async () => {
@@ -226,71 +330,6 @@ test("approved plan comes from the session, is excluded from activity, and todo 
   }
 });
 
-test("registered watchdog binds to the main session and reads the plan-mode path from its branch", async () => {
-  const root = await mkdtemp(join(tmpdir(), "jev-bind-"));
-  const previousKey = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = "test-placeholder";
-  const original = globalThis.fetch;
-  const states: { approved_plan: { path: string | null } }[] = [];
-  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
-  globalThis.fetch = (async (_url, options) => {
-    states.push(JSON.parse(String(options!.body)).state);
-    return Response.json(decision(0));
-  }) as typeof fetch;
-  type StartHandler = (event: Record<string, never>, ctx: ExtensionContext) => void;
-  let onStart: StartHandler | undefined;
-  let stream: ProviderConfig["streamSimple"];
-  const fakePi = {
-    on: (name: string, handler: StartHandler) => { if (name === "session_start") onStart = handler; },
-    registerProvider: (_name: string, config: ProviderConfig) => { stream = config.streamSimple; },
-    registerCommand: () => {},
-    sendMessage: () => {},
-  };
-  type BranchEntry = { type: string; mode?: string; data?: { planFilePath?: string }; customType?: string; content?: string };
-  // SAFETY: Only the fields the watchdog reads are provided by this fixture.
-  const fakeCtx = (kind: "main" | "sub", dir: string, branch: BranchEntry[]) => ({
-    agent: { kind, id: kind },
-    sessionManager: {
-      getSessionFile: () => join(root, `${dir}.jsonl`), getSessionId: () => dir, getCwd: () => root,
-      getArtifactsDir: () => join(root, dir), getBranch: () => branch,
-    },
-  }) as ExtensionContext;
-  try {
-    // SAFETY: The fixture implements the ExtensionAPI methods jevWatchdog calls.
-    await jevWatchdog(fakePi as ExtensionAPI);
-    const planned = [
-      { type: "mode_change", mode: "plan", data: { planFilePath: "local://old.md" } },
-      { type: "mode_change", mode: "plan", data: { planFilePath: "local://PLAN.md" } },
-      { type: "mode_change", mode: "default" },
-    ];
-    onStart!({}, fakeCtx("main", "main", planned));
-    onStart!({}, fakeCtx("sub", "sub", []));
-    const ctx: Context = { ...context, messages: [
-      { role: "user", content: "**user**:\nFix the typo.", timestamp: 0 },
-      { role: "user", content: "**agent**:\n→ read(agent/agents/plan-judge.md) ⇒ ok\n→ edit(src/a.ts) ⇒ ok", timestamp: 1 },
-    ] };
-    // SAFETY: streamSimple is assigned by registerProvider above; the fixture model matches its provider.
-    const result = await stream!(model, ctx, { apiKey: "test-placeholder" }).result();
-    assert.equal(result.stopReason, "stop");
-    assert.equal(states[0]!.approved_plan.path, "local://PLAN.md");
-    const audit = join(root, "main", "jev-watchdog-requests.jsonl");
-    assert.equal((await readFile(audit, "utf8")).trimEnd().split("\n").length, 2);
-    await assert.rejects(stat(join(root, "sub", "jev-watchdog-requests.jsonl")));
-
-    // Print-mode (plan-yolo) approval records no mode_change; its handoff message names the plan.
-    onStart!({}, fakeCtx("main", "main2", [...planned,
-      { type: "custom_message", customType: "plan-yolo-handoff", content: "Plan approved: **mul**.\n\nRead `local://mul-plan.md`; full tool access restored." },
-    ]));
-    await stream!(model, ctx, { apiKey: "test-placeholder" }).result();
-    assert.equal(states[1]!.approved_plan.path, "local://mul-plan.md");
-  } finally {
-    globalThis.fetch = original;
-    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = previousKey;
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("the request governing the earliest judged activity stays in the task context", async () => {
   const original = globalThis.fetch;
   const seen: { recent_user_requests: string[]; omitted_earlier_requests: boolean }[] = [];
@@ -472,7 +511,8 @@ test("oversized task and activity mark missing evidence and never promote a cand
 });
 
 type SeenState = {
-  task_context: { recent_user_requests: string[] };
+  task_context: { recent_user_requests: string[]; source: string };
+  constraints: { recent_instructions: string[] };
   agent_activity: { excerpt: string };
   approved_plan: { path: string | null; origin: string | null; source: string; excerpt: string };
 };
@@ -485,46 +525,11 @@ const wrote = (path: string, name = "write"): Entry =>
 
 /** Drives the registered watchdog with a fake main session whose branch is `branch`. */
 async function reviewWith(root: string, branch: () => Entry[], messages: Context["messages"], sessionDir = "main", advisorId?: string) {
-  const seen: SeenState[] = [];
-  const original = globalThis.fetch;
-  const previousKey = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = "test-placeholder";
-  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
-  globalThis.fetch = (async (_url, options) => {
-    seen.push(JSON.parse(String(options!.body)).state);
-    return Response.json(decision(0));
-  }) as typeof fetch;
-  type StartHandler = (event: Record<string, never>, ctx: ExtensionContext) => void;
-  let onStart: StartHandler | undefined;
-  let stream: ProviderConfig["streamSimple"];
-  const fakePi = {
-    on: (name: string, handler: StartHandler) => { if (name === "session_start") onStart = handler; },
-    registerProvider: (_name: string, config: ProviderConfig) => { stream = config.streamSimple; },
-    registerCommand: () => {},
-    sendMessage: () => {},
-  };
-  try {
-    // SAFETY: The fixture implements the ExtensionAPI methods jevWatchdog calls.
-    await jevWatchdog(fakePi as ExtensionAPI);
-    // SAFETY: Only the fields the watchdog reads are provided by this fixture.
-    onStart!({}, {
-      agent: { kind: "main", id: "main" },
-      sessionManager: {
-        getSessionFile: () => join(root, `${sessionDir}.jsonl`), getSessionId: () => sessionDir, getCwd: () => root,
-        getArtifactsDir: () => join(root, sessionDir), getBranch: branch,
-      },
-    } as ExtensionContext);
-    // SAFETY: streamSimple is assigned by registerProvider above; the fixture model matches its provider.
-    const result = await stream!(model, { ...context, messages }, { apiKey: "test-placeholder", sessionId: advisorId }).result();
-    const auditFile = join(root, sessionDir, "jev-watchdog-requests.jsonl");
-    const rows: { type: string; reason?: string; error?: { reason: string }; stage?: string }[] =
-      (await readFile(auditFile, "utf8").catch(() => "")).split("\n").filter(Boolean).map(line => JSON.parse(line));
-    return { seen, rows, result };
-  } finally {
-    globalThis.fetch = original;
-    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = previousKey;
-  }
+  return withJev(async seen => {
+    const session = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, `${sessionDir}.jsonl`), cwd: root, branch });
+    const result = await session.advise(messages, advisorId);
+    return { seen, rows: await session.auditRows(), result };
+  });
 }
 const impl = (activity: string): Context["messages"] => [
   { role: "user", content: "**user**:\nDo the work.", timestamp: 0 },
@@ -701,47 +706,232 @@ test("user-run commands and system notices are not user requests; file-changing 
   }
 });
 
-test("a subagent-instance provider still audits and alerts through the main session binding", async () => {
-  const root = await mkdtemp(join(tmpdir(), "jev-shared-"));
-  const alerts: string[] = [];
-  const original = globalThis.fetch;
-  const previousKey = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = "test-placeholder";
-  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
-  globalThis.fetch = (async () => Response.json(decision(0))) as typeof fetch;
-  type StartHandler = (event: Record<string, never>, ctx: ExtensionContext) => void;
-  const instance = async (label: string) => {
-    let onStart: StartHandler | undefined;
-    let stream: ProviderConfig["streamSimple"];
-    const fakePi = {
-      on: (name: string, handler: StartHandler) => { if (name === "session_start") onStart = handler; },
-      registerProvider: (_name: string, config: ProviderConfig) => { stream = config.streamSimple; },
-      registerCommand: () => {},
-      sendMessage: () => { alerts.push(label); },
-    };
-    // SAFETY: The fixture implements the ExtensionAPI methods jevWatchdog calls.
-    await jevWatchdog(fakePi as ExtensionAPI);
-    return { start: onStart!, stream: stream! };
-  };
+
+// Subagent attribution ---------------------------------------------------------------------------------------
+
+const turn = (request: string, activity: string): Context["messages"] => [
+  { role: "user", content: `### Session update\n\n**user**:\n${request}`, timestamp: 0 },
+  { role: "user", content: `**agent**:\n${activity}`, timestamp: 1 },
+];
+const assignment = (text: string) => `Complete assignment thoroughly:\n\n${text}`;
+const wrote2 = (path: string) => `→ write(${path}) ⇒ ok · 2 lines`;
+/** Mirrors subagent-system-prompt.md: `§ Context` (task context) and `§ Plan` (the parent's plan reference). */
+const spawnPrompt = (context?: string, planPath?: string, planBody = "") => [
+  ["§ Role\nWorker agent.", context ? `§ Context\n${context}` : "",
+    planPath ? `§ Plan\nThis session is executing an approved plan.\n\n<plan path="${planPath}">\n${planBody}\n</plan>\n` : "",
+    "§ Coop\nYou are operating on a piece of work assigned to you by the main agent."].filter(Boolean).join("\n"),
+];
+
+test("concurrent subagents and the main session audit into their own session's file with interleaved calls", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-concurrent-"));
   try {
-    const main = await instance("main");
-    const sub = await instance("sub"); // Registered last, so its provider serves the advisor.
-    // SAFETY: Only the fields the watchdog reads are provided by this fixture.
-    main.start({}, { agent: { kind: "main", id: "main" }, sessionManager: {
-      getSessionFile: () => join(root, "main.jsonl"), getSessionId: () => "main", getCwd: () => root,
-      getArtifactsDir: () => join(root, "main"), getBranch: () => [] } } as ExtensionContext);
-    // SAFETY: Only the fields the watchdog reads are provided by this fixture.
-    sub.start({}, { agent: { kind: "sub", id: "sub" }, sessionManager: {} } as ExtensionContext);
-    assert.equal((await sub.stream(model, context, { apiKey: "test-placeholder" }).result()).stopReason, "stop");
-    assert.equal((await readFile(join(root, "main", "jev-watchdog-requests.jsonl"), "utf8")).trimEnd().split("\n").length, 2);
-    await rm(join(root, "main"), { recursive: true });
-    await writeFile(join(root, "main"), "not a directory"); // Force an audit write failure.
-    await sub.stream(model, context, { apiKey: "test-placeholder" }).result();
-    assert.deepEqual(alerts, ["main"]);
-  } finally {
-    globalThis.fetch = original;
-    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = previousKey;
-    await rm(root, { recursive: true, force: true });
-  }
+    await withJev(async () => {
+      const main = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, "main.jsonl"), cwd: join(root, "ws-main") });
+      const sub = (id: string) => startSession({
+        kind: "sub", agentId: id, sessionFile: join(root, "main", `${id}.jsonl`), cwd: join(root, `ws-${id}`), artifacts: join(root, "main"),
+      });
+      const subA = await sub("EditA");
+      const subB = await sub("EditB");
+      // Slow calls finish after fast ones started later, so results interleave across sessions.
+      const results = await Promise.all([
+        subA.advise(turn(assignment("MARK-A slow"), wrote2("src/a1.ts")), "adv-A"),
+        main.advise(turn("MARK-MAIN", wrote2("src/m1.ts")), "adv-main"),
+        subB.advise(turn(assignment("MARK-B"), wrote2("src/b1.ts")), "adv-B"),
+        subA.advise(turn(assignment("MARK-A"), wrote2("src/a2.ts")), "adv-A"),
+        main.advise(turn("MARK-MAIN slow", wrote2("src/m2.ts")), "adv-main"),
+        subB.advise(turn(assignment("MARK-B slow"), wrote2("src/b2.ts")), "adv-B"),
+      ]);
+      assert.deepEqual(results.map(result => result.stopReason), Array(6).fill("stop"));
+      const expected = [
+        [main, "main", "Main", "MARK-MAIN", "src/m"],
+        [subA, "sub", "EditA", "MARK-A", "src/a"],
+        [subB, "sub", "EditB", "MARK-B", "src/b"],
+      ] as const;
+      for (const [session, kind, agentId, mark, files] of expected) {
+        const rows = await session.auditRows();
+        const requests = rows.filter(row => row.type === "request");
+        assert.equal(requests.length, 2, `${agentId} requests`);
+        assert.equal(rows.filter(row => row.type === "outcome").length, 2, `${agentId} outcomes`);
+        for (const row of rows) {
+          assert.deepEqual([row.sessionKind, row.agentId], [kind, agentId]);
+          assert.equal(row.sessionFile, kind === "main" ? join(root, "main.jsonl") : join(root, "main", `${agentId}.jsonl`));
+        }
+        for (const { request } of requests) {
+          const state = request!.state;
+          assert.ok(state.task_context.recent_user_requests.every(text => text.startsWith(mark)), `${agentId} request`);
+          assert.match(state.agent_activity.excerpt, new RegExp(files));
+          assert.doesNotMatch(state.agent_activity.excerpt, new RegExp(`src/(?!${files.slice(4)})`));
+        }
+      }
+      // The audit directories are exactly the three session directories: nothing landed elsewhere.
+      assert.deepEqual([subA.auditFile, subB.auditFile], [join(root, "main", "EditA", "jev-watchdog-requests.jsonl"),
+        join(root, "main", "EditB", "jev-watchdog-requests.jsonl")]);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a subagent review uses its own assignment, context, cwd and plan; its local:// root is the parent's", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-subplan-"));
+  try {
+    const workspaces = Object.fromEntries(["main", "A", "B", "C"].map(id => [id, join(root, `ws-${id}`)]));
+    for (const [id, dir] of Object.entries(workspaces)) {
+      await mkdir(join(dir, "docs"), { recursive: true });
+      await writeFile(join(dir, "docs", "plan.md"), `# ${id} workspace plan\n`);
+    }
+    await mkdir(join(root, "main", "local"), { recursive: true });
+    await writeFile(join(root, "main", "local", "parent-plan.md"), "# Parent plan on the shared local root\n");
+    const parentPrompt = spawnPrompt("# Goal\nOnly touch the A file.", "local://parent-plan.md", "# Parent plan on the shared local root");
+    await withJev(async seen => {
+      const at = (id: string, extra: Partial<SessionSpec>): SessionSpec => ({
+        kind: "sub", agentId: `Edit${id}`, sessionFile: join(root, "main", `Edit${id}.jsonl`), cwd: workspaces[id]!,
+        artifacts: join(root, "main"), ...extra,
+      });
+      const main = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, "main.jsonl"), cwd: workspaces.main!,
+        branch: () => [said("Implement docs/plan.md")] });
+      // A inherits the parent's plan reference; B has its own named plan as well (own branch wins); C has neither.
+      const a = await startSession(at("A", { systemPrompt: parentPrompt }));
+      const b = await startSession(at("B", { systemPrompt: parentPrompt, branch: () => [said(assignment("Implement docs/plan.md"))] }));
+      const c = await startSession(at("C", { systemPrompt: spawnPrompt() }));
+      const inDocs = (id: string) => wrote2(join(workspaces[id]!, "docs", "plan.md"));
+      await Promise.all([
+        main.advise(turn("Implement docs/plan.md", `${inDocs("main")}\n${wrote2("src/main.ts")}`), "adv-main"),
+        a.advise(turn(assignment("Change the A file."), `${inDocs("A")}\n${wrote2("src/a.ts")}`), "adv-A"),
+        b.advise(turn(assignment("Implement docs/plan.md"), `${inDocs("B")}\n${wrote2("src/b.ts")}`), "adv-B"),
+        c.advise(turn(assignment("Change the C file."), `${inDocs("C")}\n${wrote2("src/c.ts")}`), "adv-C"),
+      ]);
+      const state = async (session: FakeSession) => (await session.auditRows()).find(row => row.type === "request")!.request!.state;
+      const [sm, sa, sb, sc] = [await state(main), await state(a), await state(b), await state(c)];
+      assert.equal(seen.length, 4);
+
+      // The assignment is the request (wrapper removed); the task context is a standing instruction.
+      assert.deepEqual(sa.task_context, { ...sa.task_context, recent_user_requests: ["Change the A file."], source: "current" });
+      assert.deepEqual(sa.constraints.recent_instructions, ["# Goal\nOnly touch the A file."]);
+      assert.deepEqual(sc.constraints.recent_instructions, []);
+
+      // Plans: main and B name docs/plan.md in their own workspace; A inherits the spawned reference; C has none.
+      assert.deepEqual([sm.approved_plan.path, sm.approved_plan.origin, sm.approved_plan.excerpt], ["docs/plan.md", "user_named", "# main workspace plan"]);
+      assert.deepEqual([sb.approved_plan.path, sb.approved_plan.origin, sb.approved_plan.excerpt], ["docs/plan.md", "user_named", "# B workspace plan"]);
+      assert.deepEqual([sa.approved_plan.path, sa.approved_plan.origin, sa.approved_plan.excerpt],
+        ["local://parent-plan.md", "parent_reference", "# Parent plan on the shared local root"]);
+      assert.deepEqual([sc.approved_plan.path, sc.approved_plan.origin, sc.approved_plan.source], [null, null, "not_observed"]);
+
+      // Files resolve against each session's workspace: the write of a plan is excluded only where it is the plan.
+      assert.doesNotMatch(sm.agent_activity.excerpt, /docs\/plan\.md/);
+      assert.doesNotMatch(sb.agent_activity.excerpt, /docs\/plan\.md/);
+      assert.match(sa.agent_activity.excerpt, /ws-A\/docs\/plan\.md/);
+      assert.match(sc.agent_activity.excerpt, /ws-C\/docs\/plan\.md/);
+      assert.match(sb.agent_activity.excerpt, /src\/b\.ts/);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a subagent ending releases what its advisor carried, and a later session attributes to itself", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-release-"));
+  try {
+    await withJev(async () => {
+      const spec = (id: string): SessionSpec => ({ kind: "sub", agentId: id, sessionFile: join(root, "main", `${id}.jsonl`),
+        cwd: root, artifacts: join(root, "main") });
+      const first = await startSession(spec("EditA"));
+      await first.advise(turn(assignment("Change A."), wrote2("src/a.ts")), "adv-shared");
+      // An agent-only follow-up on the same advisor carries the request forward while the session lives.
+      await first.advise([{ role: "user", content: `**agent**:\n${wrote2("src/a2.ts")}`, timestamp: 0 }], "adv-shared");
+      const carriedWhileLive = (await first.auditRows()).filter(row => row.type === "request").map(row => row.request!.state.task_context.source);
+      assert.deepEqual(carriedWhileLive, ["current", "carried_forward"]);
+
+      await first.end();
+      // A later session (any id) that reuses the advisor id inherits nothing and audits into its own file.
+      const later = await startSession(spec("EditZ"));
+      await later.advise([{ role: "user", content: `**agent**:\n${wrote2("src/z.ts")}`, timestamp: 0 }], "adv-shared");
+      const [request] = (await later.auditRows()).filter(row => row.type === "request");
+      assert.equal(request!.request!.state.task_context.source, "missing");
+      assert.equal(request!.agentId, "EditZ");
+      assert.equal((await first.auditRows()).filter(row => row.type === "request").length, 2);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("an advisor call no session claims fails without auditing into any live session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-unowned-"));
+  try {
+    await withJev(async seen => {
+      const main = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, "main.jsonl"), cwd: root });
+      const sub = await startSession({ kind: "sub", agentId: "EditA", sessionFile: join(root, "main", "EditA.jsonl"), cwd: root, artifacts: join(root, "main") });
+      const noHook = await sub.adviseUnowned(turn("Do the work.", wrote2("src/a.ts")), "adv-orphan", "no-hook");
+      assert.equal(noHook.stopReason, "error");
+      assert.match(noHook.errorMessage!, /no_owner\)\. This OMP version no longer passes the session's onPayload hook.*Pin OMP/);
+      const unclaimed = await sub.adviseUnowned(turn("Do the work.", wrote2("src/a.ts")), "adv-orphan", "unclaimed");
+      assert.equal(unclaimed.stopReason, "error");
+      assert.match(unclaimed.errorMessage!, /No session claimed this advisor call.*restart OMP/);
+      assert.equal(seen.length, 0);
+      assert.deepEqual([await main.auditRows(), await sub.auditRows()], [[], []]);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("audit failures alert only the session that owns the call", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-alert-"));
+  try {
+    await withJev(async () => {
+      const main = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, "main.jsonl"), cwd: root });
+      const sub = await startSession({ kind: "sub", agentId: "EditA", sessionFile: join(root, "main", "EditA.jsonl"), cwd: root, artifacts: join(root, "main") });
+      await mkdir(join(root, "main"), { recursive: true });
+      await writeFile(join(root, "main", "EditA"), "not a directory"); // The subagent's audit directory cannot be created.
+      await sub.advise(turn(assignment("Change A."), wrote2("src/a.ts")), "adv-A");
+      await sub.advise(turn(assignment("Change A again."), wrote2("src/a.ts")), "adv-A");
+      assert.equal(sub.alerts.length, 1);
+      assert.match(sub.alerts[0]!, /audit logging failed/);
+      assert.deepEqual(main.alerts, []);
+      assert.equal((await main.advise(turn("Main work.", wrote2("src/m.ts")), "adv-main")).stopReason, "stop");
+      assert.deepEqual(main.alerts, []);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("/jev-label labels a subagent's request from the main session under the subagent's identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-label-"));
+  try {
+    await withJev(async () => {
+      const main = await startSession({ kind: "main", agentId: "Main", sessionFile: join(root, "main.jsonl"), cwd: root });
+      const sub = await startSession({ kind: "sub", agentId: "EditA", sessionFile: join(root, "main", "EditA.jsonl"), cwd: root, artifacts: join(root, "main") });
+      await main.advise(turn("Main work.", wrote2("src/m.ts")), "adv-main");
+      await sub.advise(turn(assignment("Change A."), wrote2("src/a.ts")), "adv-A");
+      const subId = (await sub.auditRows()).find(row => row.type === "request")!.requestId;
+      const mainId = (await main.auditRows()).find(row => row.type === "request")!.requestId;
+
+      assert.deepEqual(await main.label(`${subId} overreach`), ["Jev outcome labeled for later evaluation."]);
+      const labelled = (await sub.auditRows()).filter(row => row.type === "reviewer_outcome");
+      assert.deepEqual(labelled.map(row => [row.requestId, row.label, row.sessionKind, row.agentId, row.sessionFile]),
+        [[subId, "overreach", "sub", "EditA", join(root, "main", "EditA.jsonl")]]);
+      // The main audit gained no record for the subagent's request.
+      assert.deepEqual((await main.auditRows()).filter(row => row.type === "reviewer_outcome"), []);
+      assert.deepEqual(await main.label(`${subId} no_overreach`), ["This Jev outcome already has a human label."]);
+      assert.deepEqual(await sub.label(`${mainId} uncertain`), ["No Jev outcome with that request ID in this session audit."]);
+      // Each session still labels its own request.
+      assert.deepEqual(await main.label(`${mainId} no_overreach`), ["Jev outcome labeled for later evaluation."]);
+      assert.deepEqual((await main.auditRows()).filter(row => row.type === "reviewer_outcome").map(row => [row.sessionKind, row.agentId]), [["main", "Main"]]);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the main session keeps its plan sources: plan mode, plan-yolo handoff and a user-named plan", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-main-"));
+  try {
+    await mkdir(join(root, "docs"));
+    await writeFile(join(root, "docs", "named.md"), "# Named plan\n");
+    const planned: Entry[] = [
+      { type: "mode_change", mode: "plan", data: { planFilePath: "local://old.md" } },
+      { type: "mode_change", mode: "plan", data: { planFilePath: "local://PLAN.md" } },
+      { type: "mode_change", mode: "default" },
+    ];
+    const handoff: Entry = { type: "custom_message", customType: "plan-yolo-handoff",
+      content: "Plan approved: **mul**.\n\nRead `local://mul-plan.md`; full tool access restored." };
+    const plan = async (branch: Entry[], request = "Fix the typo.") =>
+      (await reviewWith(root, () => branch, turn(request, "→ edit(src/a.ts) ⇒ ok"))).seen[0]!.approved_plan;
+    const mode = await plan(planned);
+    assert.deepEqual([mode.path, mode.origin], ["local://PLAN.md", "plan_mode"]);
+    const yolo = await plan([...planned, handoff]);
+    assert.deepEqual([yolo.path, yolo.origin], ["local://mul-plan.md", "plan_yolo_handoff"]);
+    const named = await plan([said("Implement docs/named.md")], "Implement docs/named.md");
+    assert.deepEqual([named.path, named.origin, named.excerpt], ["docs/named.md", "user_named", "# Named plan"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

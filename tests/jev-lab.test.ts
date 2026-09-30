@@ -366,3 +366,52 @@ test("accepting a proposal goes through the human label path with the single-lab
     assert.equal(done?.labelNote, "accepted first-pass proposal");
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+
+test("nested subagent audits are discovered by the lab and summarize, keep their identity, and label in place", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jev-lab-sub-"));
+  try {
+    const paths: LabPaths = {
+      sessionsDir: join(root, "sessions"), auditDir: join(root, "audit"),
+      casesetDir: join(root, "casesets"), runsDir: join(root, "runs"),
+    };
+    const mainDir = join(paths.sessionsDir, "proj", "main");
+    const subDir = join(mainDir, "EditA");
+    await mkdir(subDir, { recursive: true });
+    const row = (identity: { sessionFile: string; sessionKind?: string; agentId?: string }, type: string, requestId: string, extra: Record<string, JsonValue> = {}) =>
+      JSON.stringify({ sessionId: "sid", timestamp: "2026-09-29T00:00:00Z", ...identity, type, requestId, ...extra });
+    const state = (request: string) => ({ policy_version: "p1", task_context: { recent_user_requests: [request], source: "current", clipped_requests: false },
+      agent_activity: { excerpt: "write" } });
+    const decision = { decision: { choice: "no", probabilities: { yes: 0.1, no: 0.9, unknown: 0 }, confidence: 1, reviewCandidate: false } };
+    const main = { sessionFile: join(paths.sessionsDir, "proj", "main.jsonl"), sessionKind: "main", agentId: "Main" };
+    const sub = { sessionFile: join(mainDir, "EditA.jsonl"), sessionKind: "sub", agentId: "EditA" };
+    await writeFile(join(mainDir, "jev-watchdog-requests.jsonl"), [
+      row(main, "request", "m1", { request: { model: "m", state: state("main request") } }), row(main, "outcome", "m1", decision),
+    ].join("\n") + "\n", { mode: 0o600 });
+    await writeFile(join(subDir, "jev-watchdog-requests.jsonl"), [
+      row(sub, "request", "s1", { request: { model: "m", state: state("sub assignment") } }), row(sub, "outcome", "s1", decision),
+    ].join("\n") + "\n", { mode: 0o600 });
+
+    const { cases } = await loadScopeCases(paths);
+    const byId = new Map(cases.map(c => [c.id, c]));
+    assert.deepEqual([...byId.keys()].sort(), ["m1", "s1"]);
+    assert.deepEqual([byId.get("s1")?.sessionKind, byId.get("s1")?.agentId, byId.get("s1")?.subject], ["sub", "EditA", "sub assignment"]);
+    assert.equal(byId.get("s1")?.transcriptPath, sub.sessionFile);
+    assert.deepEqual([byId.get("m1")?.sessionKind, byId.get("m1")?.agentId], ["main", "Main"]);
+
+    const out = join(root, "cases.jsonl");
+    const summary = JSON.parse((await run("bun", [join(import.meta.dirname, "..", "agent/skills/evaluate-jev/scripts/summarize.ts"),
+      "--root", paths.sessionsDir, "--cases", out])).stdout.split("\ncases written")[0]!);
+    assert.deepEqual(summary.bySessionKind, { main: 1, sub: 1 });
+    const summarized = (await readFile(out, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    assert.deepEqual(summarized.map(c => [c.requestId, c.sessionKind, c.agentId, c.session]).sort(),
+      [["m1", "main", "Main", join("proj", "main")], ["s1", "sub", "EditA", join("proj", "main", "EditA")]]);
+
+    // A label lands in the file holding the request, under the subagent's identity.
+    await appendScopeLabel(paths, "s1", "overreach");
+    const labelled = (await readFile(join(subDir, "jev-watchdog-requests.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)).at(-1);
+    assert.deepEqual([labelled.type, labelled.sessionKind, labelled.agentId, labelled.sessionFile], ["reviewer_outcome", "sub", "EditA", sub.sessionFile]);
+    assert.equal((await readFile(join(mainDir, "jev-watchdog-requests.jsonl"), "utf8")).includes("reviewer_outcome"), false);
+    assert.equal((await loadScopeCases(paths)).cases.find(c => c.id === "s1")?.label, "overreach");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -18,6 +18,8 @@ const AuditLine = z.object({
   type: z.string().optional(),
   requestId: z.string().optional(),
   timestamp: z.string().optional(),
+  sessionKind: z.enum(["main", "sub"]).optional(),
+  agentId: z.string().optional(),
   reason: z.string().optional(),
   label: z.string().optional(),
   request: z.object({
@@ -81,6 +83,9 @@ const cases = rows
       requestId: r.requestId,
       timestamp: r.timestamp,
       session: r.file.replace(/\/jev-watchdog-requests\.jsonl$/, ""),
+      // Records written before subagent advisors carry no kind; they are main sessions.
+      sessionKind: r.sessionKind ?? "main",
+      agentId: r.agentId ?? null,
       policy: r.request?.state?.policy_version ?? "unversioned",
       taskSource: tc.source ?? "absent",
       userRequests: (tc.recent_user_requests ?? []).map((s: string) => s.slice(0, 300)),
@@ -108,6 +113,7 @@ console.log(JSON.stringify({
   failuresBeforeRequest: rows.filter(r => r.type === "failure" && (!since || (r.timestamp ?? "") >= since))
     .reduce<Record<string, number>>((m, r) => ((m[r.reason ?? "unknown"] = (m[r.reason ?? "unknown"] ?? 0) + 1), m), {}),
   byPolicy: tally(c => c.policy),
+  bySessionKind: tally(c => c.sessionKind),
   byChoice: tally(c => c.choice),
   byTaskSource: tally(c => c.taskSource),
   choiceByTaskSource: tally(c => `${c.taskSource}:${c.choice}`),

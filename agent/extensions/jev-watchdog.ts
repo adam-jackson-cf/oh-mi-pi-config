@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { mkdir, open, readdir, readFile } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   createAssistantMessageEventStream,
   type AssistantMessage,
@@ -17,7 +17,7 @@ const MODEL = "~typesafe/jev-latest";
 const EXPECTED_RESOLVED_MODEL = "typesafe/jev-1.13-20260917";
 const API = "jev-decisions";
 const ENDPOINT = "https://openrouter.ai/api/alpha/decisions";
-const POLICY_VERSION = "proportionality-implementation-2026-09-29.2";
+const POLICY_VERSION = "proportionality-implementation-2026-09-29.3";
 // Shadow-mode routing threshold; not a calibrated accuracy claim.
 const THRESHOLD = 0.9;
 const TASK_LIMIT = 3_000;
@@ -29,17 +29,48 @@ const TODO_LIMIT = 1_500;
 const CARRY_SESSIONS = 32;
 type Carried = { task_context: ReviewState["task_context"]; constraints: ReviewState["constraints"];
   todoItems?: string };
-const carried = new Map<string, Carried>();
-// Latest requests seen per workspace: "Approve and execute" starts a fresh session that no longer holds them.
-const requestsByCwd = new Map<string, ReviewState["task_context"]>();
+/** The session whose extension instance answered an ownership probe, with that instance's own API and context. */
+type OwnerClaim = { pi: ExtensionAPI; ctx: ExtensionContext };
+type AlertState = { sessionId?: string; alerted: Set<FailureKind> };
+/**
+ * The provider registry is process-global (the last registered extension instance serves every advisor) and
+ * each session, main or subagent, loads its own instance, so cross-instance state lives on globalThis:
+ * `claims` (ownership probes awaiting collection), `carried` (per advisor session; released with its owning
+ * session), `advisors` (owning session manager -> its advisor session ids), `alerts` (per owning session) and
+ * `requestsByCwd` (latest requests per workspace: "Approve and execute" starts a fresh session that no longer
+ * holds them).
+ */
+type Shared = {
+  claims: Map<string, OwnerClaim>;
+  carried: Map<string, Carried>;
+  advisors: WeakMap<ExtensionContext["sessionManager"], Set<string>>;
+  alerts: WeakMap<ExtensionContext["sessionManager"], AlertState>;
+  requestsByCwd: Map<string, ReviewState["task_context"]>;
+};
+declare global {
+  // eslint-disable-next-line no-var
+  var jevWatchdogShared: Shared | undefined;
+}
+function shared(): Shared {
+  globalThis.jevWatchdogShared ??= {
+    claims: new Map(), carried: new Map(), advisors: new WeakMap(), alerts: new WeakMap(), requestsByCwd: new Map(),
+  };
+  return globalThis.jevWatchdogShared;
+}
+const { carried, requestsByCwd } = shared();
 const SCHEME_TARGET = /^[a-z][a-z0-9+.-]*:\/\//i;
 const AST_EDIT_TARGET = "xd://ast_edit"; // Rewrites files through the xd device, so it is an implementation step.
 // Shell commands that visibly modify files: in-place editors, output redirection (not /dev/null or fd dup), tee, and file operations.
 const MUTATING_BASH = /(?:^|[\s;&|(])(?:sed|perl)\s+(?:-\w*i|--in-place)|(?<![\d&>])>>?\s*(?!&|\/dev\/null)[^\s|&;>]|\btee\s+(?!\/dev\/null)[^\s|&;]|(?:^|[\s;&|(])(?:mv|cp|rm|touch|mkdir|patch|truncate|install)\s|\bgit\s+(?:apply|checkout|restore|mv|rm)\b/;
 const REQUEST_LIMIT = 4;
-type PlanOrigin = "plan_mode" | "plan_approval" | "plan_yolo_handoff" | "user_named" | "agent_created";
+type PlanOrigin = "plan_mode" | "plan_approval" | "plan_yolo_handoff" | "user_named" | "agent_created" | "parent_reference";
 type PlanSource = { path: string; origin: PlanOrigin };
-type Workspace = { cwd: string; localRoot?: string; plan?: PlanSource; planLookupFailed?: boolean };
+/**
+ * `sessionKind` is "sub" for a subagent, whose assignment arrives in the user message wrapper and whose
+ * `spawnContext` (the task `context`) lives in its system prompt, invisible to the advisor transcript.
+ */
+type Workspace = { cwd: string; localRoot?: string; plan?: PlanSource; planLookupFailed?: boolean;
+  sessionKind?: SessionKind; spawnContext?: string };
 const probability = z.number().min(0).max(1);
 const choiceAnswer = z.object({
   type: z.literal("choice"),
@@ -61,13 +92,14 @@ const responseSchema = z.object({
   }),
 });
 
-type AuditSession = { sessionId: string; sessionFile: string };
+type SessionKind = "main" | "sub";
+type AuditSession = { sessionId: string; sessionFile: string; sessionKind?: SessionKind; agentId?: string };
 type FailureKind = "audit" | "review";
 /** Non-secret reason a review could not be produced; recorded in the audit, never the error text. */
 type FailureReason =
   | "no_advisor_tool" | "missing_key" | "no_update" | "policy_slot" | "state_build" | "network"
   | "timeout" | "http_error" | "credits" | "invalid_response" | "model_mismatch" | "invalid_choices"
-  | "aborted" | "unexpected";
+  | "aborted" | "no_owner" | "unexpected";
 class ReviewFailure extends Error {
   constructor(message: string, readonly reason: FailureReason) { super(message); }
 }
@@ -116,33 +148,65 @@ async function appendAudit(session: AuditSession, record: AuditRecord): Promise<
     await handle.chmod(0o600);
     await handle.writeFile(JSON.stringify({
       timestamp: new Date().toISOString(),
-      sessionId: session.sessionId, sessionFile: session.sessionFile, ...record,
+      sessionId: session.sessionId, sessionFile: session.sessionFile, sessionKind: session.sessionKind,
+      agentId: session.agentId, ...record,
     }) + "\n");
   } finally {
     await handle.close();
   }
 }
 
-export async function labelOutcome(session: AuditSession, requestId: string, label: "overreach" | "no_overreach" | "uncertain"): Promise<void> {
-  const file = join(session.sessionFile.slice(0, -".jsonl".length), "jev-watchdog-requests.jsonl");
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+const AUDIT_FILE = "jev-watchdog-requests.jsonl";
+const auditRow = z.object({
+  type: z.string().optional(), requestId: z.string().optional(), sessionId: z.string().optional(),
+  sessionFile: z.string().optional(), sessionKind: z.enum(["main", "sub"]).optional(), agentId: z.string().optional(),
+});
+type AuditRow = z.infer<typeof auditRow>;
+
+/** Rows of one audit file that mention the request; an absent file has none. */
+async function requestRows(file: string, requestId: string): Promise<AuditRow[]> {
   let content: string;
-  try { content = await handle.readFile("utf8"); } finally { await handle.close(); }
-  const lines = content.split("\n");
-  let hasOutcome = false;
-  let alreadyLabeled = false;
-  for (const line of lines) {
-    if (!line.includes(requestId)) continue;
-    let record: { type?: string; requestId?: string };
-    try { record = JSON.parse(line); }
-    catch { throw new Error("Jev audit contains a malformed record."); }
-    if (record.requestId !== requestId) continue;
-    if (record.type === "outcome") hasOutcome = true;
-    if (record.type === "reviewer_outcome") alreadyLabeled = true;
+  try {
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try { content = await handle.readFile("utf8"); } finally { await handle.close(); }
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
   }
-  if (!hasOutcome) throw new Error("No Jev outcome with that request ID in this session audit.");
-  if (alreadyLabeled) throw new Error("This Jev outcome already has a human label.");
-  await appendAudit(session, { type: "reviewer_outcome", requestId, label, reviewer: "human" });
+  const rows: AuditRow[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.includes(requestId)) continue;
+    let parsed: AuditRow;
+    try { parsed = auditRow.parse(JSON.parse(line)); }
+    catch { throw new Error("Jev audit contains a malformed record."); }
+    if (parsed.requestId === requestId) rows.push(parsed);
+  }
+  return rows;
+}
+
+/**
+ * Label an outcome in this session's audit or in the audit of any subagent session below it (a subagent's
+ * audit lives beside its own session file). The label is appended to the file that holds the request, under
+ * the identity that request was recorded with.
+ */
+export async function labelOutcome(session: AuditSession, requestId: string, label: "overreach" | "no_overreach" | "uncertain"): Promise<void> {
+  const directory = session.sessionFile.slice(0, -".jsonl".length);
+  const nested = (await readdir(directory, { recursive: true }).catch(() => []))
+    .filter(rel => basename(rel) === AUDIT_FILE && rel !== AUDIT_FILE).sort();
+  for (const file of [AUDIT_FILE, ...nested]) {
+    const rows = await requestRows(join(directory, file), requestId);
+    if (!rows.length) continue;
+    if (!rows.some(row => row.type === "outcome")) throw new Error("No Jev outcome with that request ID in this session audit.");
+    if (rows.some(row => row.type === "reviewer_outcome")) throw new Error("This Jev outcome already has a human label.");
+    const owner = rows[0]!;
+    const target: AuditSession = file === AUDIT_FILE || !owner.sessionFile?.endsWith(".jsonl") ? session : {
+      sessionId: owner.sessionId ?? session.sessionId, sessionFile: owner.sessionFile,
+      sessionKind: owner.sessionKind, agentId: owner.agentId,
+    };
+    await appendAudit(target, { type: "reviewer_outcome", requestId, label, reviewer: "human" });
+    return;
+  }
+  throw new Error("No Jev outcome with that request ID in this session audit.");
 }
 
 type ContentParts = Context["messages"][number]["content"] | undefined;
@@ -156,6 +220,8 @@ function textOf(content: ContentParts): string {
 const NOT_PROSE = /^(?:→ |\[[\w:.-]+\] )/;
 const WIP_MARKER = /\n*---\s*\n+\[in progress[^\]\n]*\]\s*$/;
 const USER_EXEC = /^→ user-(?:bash|python)! /;
+// A subagent's first user message wraps the task assignment (subagent-user-prompt.md).
+const ASSIGNMENT_WRAPPER = /^Complete assignment thoroughly:\s*/;
 
 /** OMP renders each primary message into a user chunk with watched-role labels. */
 function buildReviewState(context: Context, updateStart: number, workspace?: Workspace): ReviewState {
@@ -197,7 +263,7 @@ function buildReviewState(context: Context, updateStart: number, workspace?: Wor
     if (role === "user") {
       if (USER_EXEC.test(text)) { collecting = false; continue; }
       if (!collecting) { requests.push(""); collecting = true; }
-      requests[requests.length - 1] += `${text}\n`;
+      requests[requests.length - 1] += `${workspace?.sessionKind === "sub" ? text.replace(ASSIGNMENT_WRAPPER, "") : text}\n`;
     }
     if (role === "developer" && instructions.length) instructions[instructions.length - 1] += `${text}\n`;
     if (i >= updateStart && role === "agent") {
@@ -210,6 +276,8 @@ function buildReviewState(context: Context, updateStart: number, workspace?: Wor
     later.length > REQUEST_LIMIT ? [later[0]!, ...later.slice(-(REQUEST_LIMIT - 1))] : later;
   const clipped = recent.some(text => text.length > TASK_LIMIT);
   const recentInstructions = instructions.slice(-2);
+  // A subagent's spawn context is the parent's standing instruction, invisible in its transcript.
+  if (workspace?.spawnContext) recentInstructions.unshift(workspace.spawnContext);
   const agentText = activity.join("\n\n").trim();
   const implementation = implementationSteps(agentText, workspace);
   const head = Math.floor(UPDATE_LIMIT / 3);
@@ -226,7 +294,7 @@ function buildReviewState(context: Context, updateStart: number, workspace?: Wor
     },
     constraints: {
       recent_instructions: recentInstructions.map(text => text.trim().slice(0, TASK_LIMIT)),
-      omitted_earlier_instructions: instructions.length > recentInstructions.length,
+      omitted_earlier_instructions: instructions.length > 2,
       clipped_instructions: recentInstructions.some(text => text.length > TASK_LIMIT),
       source: recentInstructions.length ? "current" : "not_observed",
     },
@@ -343,8 +411,10 @@ function approvedPlan(manager: ExtensionContext["sessionManager"], cwd: string):
 /** Replace carried context when the update has its own; otherwise reuse the latest known one. */
 function carryContext(key: string | undefined, state: ReviewState, workspace?: Workspace): void {
   // A fresh-context plan approval continues the request the previous session in this workspace was planning.
-  const inherited = workspace?.plan?.origin === "plan_approval" ? requestsByCwd.get(workspace.cwd) : undefined;
-  if (workspace && state.task_context.source === "current") {
+  // Only a main session takes part: a subagent shares the workspace but its assignment is not the user's request.
+  const main = workspace?.sessionKind !== "sub";
+  const inherited = main && workspace?.plan?.origin === "plan_approval" ? requestsByCwd.get(workspace.cwd) : undefined;
+  if (workspace && main && state.task_context.source === "current") {
     requestsByCwd.delete(workspace.cwd);
     requestsByCwd.set(workspace.cwd, state.task_context);
     if (requestsByCwd.size > CARRY_SESSIONS) requestsByCwd.delete(requestsByCwd.keys().next().value!);
@@ -584,30 +654,148 @@ export function streamJev(
   return stream;
 }
 
-/**
- * The provider is process-global (the last registered extension instance serves every advisor) while each
- * session, including subagents, loads its own instance. State the streaming closure needs therefore lives on
- * the main session's binding, shared through globalThis, not in any one instance's closure.
- */
-type MainBinding = { pi?: ExtensionAPI; manager?: ExtensionContext["sessionManager"];
-  alertedSessionId?: string; alerted: Set<FailureKind> };
-declare global {
-  // eslint-disable-next-line no-var
-  var jevWatchdogMainBinding: MainBinding | undefined;
+/** Everything one advisor call needs from its owning session. */
+type JevHost = {
+  audit?: () => AuditSession;
+  status: (kind: FailureKind, succeeded: boolean) => void;
+  workspace: () => Workspace;
+};
+
+// Subagent system prompt sections (subagent-system-prompt.md): the task `context`, and the approved plan the
+// subagent was spawned with (`planReference`), which the executor renders into `§ Plan` and never into a message.
+const SPAWN_CONTEXT = /(?:^|\n)§ Context\n([\s\S]*?)\n+§ (?:Plan|Coop)\b/;
+const SPAWN_PLAN = /(?:^|\n)§ Plan\n[\s\S]*?<plan path="([^"\n]+)">/;
+function spawnSection(prompt: string[], pattern: RegExp): string | undefined {
+  for (const part of prompt) {
+    const found = part.match(pattern)?.[1]?.trim();
+    if (found) return found;
+  }
+  return undefined;
 }
-function mainBinding(): MainBinding {
-  globalThis.jevWatchdogMainBinding ??= { alerted: new Set() };
-  return globalThis.jevWatchdogMainBinding;
+
+/**
+ * Plan rule for a subagent: its own branch first (same sources as a main session), else the plan reference it
+ * was spawned with. The reference path is `local://` under the artifacts root the subagent shares with its
+ * parent, so the plan is read from the same file the parent approved.
+ */
+function subagentPlan(manager: ExtensionContext["sessionManager"], cwd: string, prompt: string[]): PlanSource | undefined {
+  const inherited = spawnSection(prompt, SPAWN_PLAN);
+  return approvedPlan(manager, cwd) ?? (inherited ? { path: inherited, origin: "parent_reference" } : undefined);
+}
+
+/** Bind one advisor call to the session that owns it, using that session's own manager and identity. */
+function hostFor({ pi, ctx }: OwnerClaim, auditEnabled: boolean): JevHost {
+  // Resolve through the live manager: /new, resume and /move can change both ID and path.
+  const manager = ctx.sessionManager;
+  const sessionKind = ctx.agent.kind;
+  const agentId = ctx.agent.id;
+  return {
+    audit: auditEnabled ? () => {
+      const sessionFile = manager.getSessionFile();
+      if (!sessionFile?.endsWith(".jsonl")) throw new Error("Jev watchdog audit requires a persistent session trace file.");
+      return { sessionId: manager.getSessionId(), sessionFile, sessionKind, agentId };
+    } : undefined,
+    status: (failure, succeeded) => {
+      const { alerts } = shared();
+      const state = alerts.get(manager) ?? { alerted: new Set<FailureKind>() };
+      alerts.set(manager, state);
+      const sessionId = manager.getSessionId();
+      if (sessionId !== state.sessionId) {
+        state.alerted.clear();
+        state.sessionId = sessionId;
+      }
+      if (succeeded) {
+        state.alerted.delete(failure);
+        return;
+      }
+      // The alert itself creates a primary turn. Report once per outage, not
+      // on every review of that turn, or a persistent failure loops forever.
+      if (state.alerted.has(failure)) return;
+      const severity = "concern";
+      const note = failure === "audit"
+        ? "Jev audit logging failed. Review continues, but this attempt may have no audit record; a human reviewer owns reconciliation."
+        : "Jev assessment failed. This update is unreviewed; OMP retries are bounded. A human reviewer owns follow-up. Work is not blocked.";
+      pi.sendMessage({
+        customType: "advisor",
+        content: `<advisory advisor="jev-scope" severity="${severity}" guidance="weigh, don't blindly obey">\n${note}\n</advisory>`,
+        display: true, attribution: "agent",
+        details: { notes: [{ advisor: "jev-scope", note, severity }] },
+      }, { deliverAs: "steer", triggerTurn: true });
+      state.alerted.add(failure);
+    },
+    workspace: () => {
+      const artifacts = manager.getArtifactsDir();
+      const cwd = manager.getCwd();
+      const base: Workspace = { cwd, localRoot: artifacts ? join(artifacts, "local") : undefined, sessionKind };
+      // A plan-lookup fault must not fail the review; the state marks the plan unreadable instead.
+      try {
+        if (sessionKind !== "sub") return { ...base, plan: approvedPlan(manager, cwd) };
+        const prompt = ctx.getSystemPrompt();
+        return { ...base, plan: subagentPlan(manager, cwd, prompt), spawnContext: spawnSection(prompt, SPAWN_CONTEXT) };
+      } catch { return { ...base, planLookupFailed: true }; }
+    },
+  };
+}
+
+// An advisor call whose owner cannot be established fails: nothing else identifies the session to audit into.
+// The message names the cause and the action, because this is an OMP-compatibility failure, not a scope finding.
+const UNOWNED_NO_HOOK = "Jev watchdog: review not performed and not audited (no_owner). This OMP version no " +
+  "longer passes the session's onPayload hook to advisor calls, which the watchdog uses to find the session " +
+  "that owns each review. Pin OMP to the last working version, or turn the jev-scope advisor off " +
+  "(agent/WATCHDOG.yml enabled: false) until jev-watchdog.ts is updated for this OMP version.";
+const UNOWNED_UNCLAIMED = "Jev watchdog: review not performed and not audited (no_owner). No session claimed " +
+  "this advisor call, so jev-watchdog.ts is probably not loaded in the session that owns it (check the " +
+  "extensions list in agent/config.yml and restart OMP). If it is loaded, OMP has changed how advisor calls " +
+  "reach session extensions; update jev-watchdog.ts for this OMP version.";
+function unowned(message: string): JevHost {
+  return { status: () => {}, workspace: () => { throw new ReviewFailure(message, "no_owner"); } };
+}
+const OwnerProbe = z.object({ jevWatchdogOwnerProbe: z.string() });
+
+/**
+ * The advisor call carries only the advisor's own random provider session id, so the owner is found by asking:
+ * `options.onPayload` is the owning session's `emitBeforeProviderRequest`, which runs `before_provider_request`
+ * handlers of that session's own extension instances only. A nonce sent through it comes back as a claim made
+ * with that instance's `pi` and context. No session binding, ordering or timing is involved.
+ */
+async function claimHost(model: Model, options: SimpleStreamOptions | undefined, auditEnabled: boolean): Promise<JevHost> {
+  const { claims, advisors } = shared();
+  const nonce = randomUUID();
+  const probe = options?.onPayload;
+  if (!probe) return unowned(UNOWNED_NO_HOOK);
+  try { await probe({ jevWatchdogOwnerProbe: nonce }, model, options.signal); } catch { /* unclaimed below */ }
+  const claim = claims.get(nonce);
+  claims.delete(nonce);
+  if (!claim) return unowned(UNOWNED_UNCLAIMED);
+  if (options?.sessionId) {
+    const owned = advisors.get(claim.ctx.sessionManager) ?? new Set<string>();
+    owned.add(options.sessionId);
+    advisors.set(claim.ctx.sessionManager, owned);
+  }
+  return hostFor(claim, auditEnabled);
+}
+
+/** The provider entry point: resolve the owning session, then review with that session's state only. */
+function streamOwned(model: Model, context: Context, options: SimpleStreamOptions | undefined, auditEnabled: boolean) {
+  const stream = createAssistantMessageEventStream();
+  void (async () => {
+    const host = await claimHost(model, options, auditEnabled);
+    for await (const event of streamJev(model, context, options, host.audit, host.status, host.workspace)) stream.push(event);
+  })();
+  return stream;
 }
 
 export default async function jevWatchdog(pi: ExtensionAPI) {
-  // Resolve through the live manager: /new, resume and /move can change both ID and path.
-  // Only the main session's advisor runs here (task.agentAdvisor.task: off); subagent starts must not rebind it.
-  pi.on("session_start", (_event, ctx) => {
-    if (ctx.agent.kind !== "main") return;
-    const binding = mainBinding();
-    binding.pi = pi;
-    binding.manager = ctx.sessionManager;
+  // Every session, main or subagent, runs its own instance: answer only the probes this session's runner emits.
+  pi.on("before_provider_request", (event, ctx) => {
+    const probe = OwnerProbe.safeParse(event.payload);
+    if (probe.success) shared().claims.set(probe.data.jevWatchdogOwnerProbe, { pi, ctx });
+  });
+  // A finished session releases what its advisors carried; its audit and transcript stay on disk.
+  pi.on("session_shutdown", (_event, ctx) => {
+    const { advisors } = shared();
+    for (const advisorId of advisors.get(ctx.sessionManager) ?? []) carried.delete(advisorId);
+    advisors.delete(ctx.sessionManager);
   });
   const auditEnabled = process.env.JEV_WATCHDOG_AUDIT !== "0";
   // Reuse native OpenRouter auth; no new credential file or secret in YAML.
@@ -617,54 +805,13 @@ export default async function jevWatchdog(pi: ExtensionAPI) {
   if (!apiKey) throw new Error("Jev watchdog: run /login openrouter before enabling this extension.");
   pi.registerProvider("jev-watchdog", {
     baseUrl: "https://openrouter.ai/api/alpha", apiKey, api: API,
-    streamSimple: (model, context, options) => streamJev(model, context, options, auditEnabled ? () => {
-      const { manager } = mainBinding();
-      const sessionFile = manager?.getSessionFile();
-      if (!manager || !sessionFile?.endsWith(".jsonl")) {
-        throw new Error("Jev watchdog audit requires a persistent session trace file.");
-      }
-      return { sessionId: manager.getSessionId(), sessionFile };
-    } : undefined, (failure, succeeded) => {
-      const binding = mainBinding();
-      const sessionId = binding.manager?.getSessionId();
-      if (sessionId !== binding.alertedSessionId) {
-        binding.alerted.clear();
-        binding.alertedSessionId = sessionId;
-      }
-      if (succeeded) {
-        binding.alerted.delete(failure);
-        return;
-      }
-      // The alert itself creates a primary turn. Report once per outage, not
-      // on every review of that turn, or a persistent failure loops forever.
-      if (binding.alerted.has(failure) || !binding.pi) return;
-      const severity = "concern";
-      const note = failure === "audit"
-        ? "Jev audit logging failed. Review continues, but this attempt may have no audit record; a human reviewer owns reconciliation."
-        : "Jev assessment failed. This update is unreviewed; OMP retries are bounded. A human reviewer owns follow-up. Work is not blocked.";
-      binding.pi.sendMessage({
-        customType: "advisor",
-        content: `<advisory advisor="jev-scope" severity="${severity}" guidance="weigh, don't blindly obey">\n${note}\n</advisory>`,
-        display: true, attribution: "agent",
-        details: { notes: [{ advisor: "jev-scope", note, severity }] },
-      }, { deliverAs: "steer", triggerTurn: true });
-      binding.alerted.add(failure);
-    }, () => {
-      const { manager } = mainBinding();
-      if (!manager) return { cwd: process.cwd() };
-      const artifacts = manager.getArtifactsDir();
-      const cwd = manager.getCwd();
-      const base: Workspace = { cwd, localRoot: artifacts ? join(artifacts, "local") : undefined };
-      // A plan-lookup fault must not fail the review; the state marks the plan unreadable instead.
-      try { return { ...base, plan: approvedPlan(manager, cwd) }; }
-      catch { return { ...base, planLookupFailed: true }; }
-    }),
+    streamSimple: (model, context, options) => streamOwned(model, context, options, auditEnabled),
     models: [{ id: MODEL, name: "Jev watchdog (advisor only)", reasoning: false, input: ["text"],
       contextWindow: 32_000, maxTokens: 2_000,
       cost: { input: 0.042, output: 0, cacheRead: 0, cacheWrite: 0 } }],
   });
   pi.registerCommand("jev-label", {
-    description: "Label a Jev audit outcome: /jev-label <requestId> overreach|no_overreach|uncertain",
+    description: "Label a Jev audit outcome, in this session or its subagents: /jev-label <requestId> overreach|no_overreach|uncertain",
     handler: async (args, ctx) => {
       const [requestId, label, extra] = args.trim().split(/\s+/);
       if (!auditEnabled || !/^jev_[0-9a-f-]{36}$/i.test(requestId ?? "") ||
@@ -678,7 +825,7 @@ export default async function jevWatchdog(pi: ExtensionAPI) {
         return;
       }
       try {
-        await labelOutcome({ sessionId: ctx.sessionManager.getSessionId(), sessionFile }, requestId, label);
+        await labelOutcome({ sessionId: ctx.sessionManager.getSessionId(), sessionFile, sessionKind: ctx.agent.kind, agentId: ctx.agent.id }, requestId, label);
         ctx.ui.notify("Jev outcome labeled for later evaluation.", "info");
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : "Could not label Jev outcome.", "error");

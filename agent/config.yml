@@ -62,7 +62,7 @@ task:
     enabled: true
   enableLsp: true
   agentAdvisor:
-    task: "off"
+    task: "on"
   agentServiceTierOverrides:
     sonic: priority
   agentModelOverrides:

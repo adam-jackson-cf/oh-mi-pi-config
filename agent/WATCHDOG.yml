@@ -22,10 +22,11 @@ advisors:
       - Emit `concern` when solution drift is evidenced but blocker condition 2 or 3 is false.
 
       Emit at most one note for material solution drift per update. State the overreach, the transcript or repository evidence, the missing justification, and the smallest sufficient alternative. When emitting `concern`, identify blocker condition 2 or 3 as false. A `blocker` is an early interruption to prevent evidenced production work that would be removed or undone; it is never an approval gate.
-  # Jev audits default on: <reported-session-trace-stem>/jev-watchdog-requests.jsonl (0600).
-  # Requests, outcomes, and optional human labels share a requestId. traceResponseId
-  # joins an outcome to the native __advisor.jev-scope.jsonl in its owning session.
-  # The reported session path can lag concurrent sessions; use the trace join.
+  # Jev audits default on: <owning-session-trace-stem>/jev-watchdog-requests.jsonl (0600).
+  # Main and subagent sessions each audit into their own session's directory
+  # (<main>/<SubId>/ for a subagent). Requests, outcomes, and optional human labels share
+  # a requestId. traceResponseId joins an outcome to the native __advisor.jev-scope.jsonl
+  # beside it; records carry sessionKind and agentId.
   # requestSha256 hashes the exact transmitted JSON; the audit view redacts secrets.
   # Set JEV_WATCHDOG_AUDIT=0 before launching OMP to disable. Treat audit as sensitive.
   # Review failures are unresolved, not evidence of a scope problem; native advisor

@@ -19,6 +19,8 @@ const line = z.object({
   timestamp: z.string().optional(),
   sessionId: z.string().optional(),
   sessionFile: z.string().optional(),
+  sessionKind: z.enum(["main", "sub"]).optional(),
+  agentId: z.string().optional(),
   label: z.string().optional(),
   request: z.object({
     model: z.string().optional(),
@@ -135,6 +137,8 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
     sufficient: isSufficient(taskSource, userRequests.length, Boolean(context.clipped_requests)),
     taskSource,
     policyVersion: (view.success ? view.data.policy_version : undefined) ?? "unversioned",
+    sessionKind: request.sessionKind,
+    agentId: request.agentId,
     state,
     // Stored questions were sent to Jev verbatim; Replay revalidates them before use.
     // SAFETY: JSON object read from the owner's own audit file; decide() validates it before any call.
@@ -175,6 +179,7 @@ export async function appendScopeLabel(paths: LabPaths, requestId: string, label
       await handle.writeFile(JSON.stringify({
         timestamp: new Date().toISOString(),
         sessionId: request.sessionId, sessionFile: request.sessionFile,
+        sessionKind: request.sessionKind, agentId: request.agentId,
         type: "reviewer_outcome", requestId, label, reviewer: "human",
       }) + "\n");
     } finally {

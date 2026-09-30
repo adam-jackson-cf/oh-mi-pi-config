@@ -55,9 +55,13 @@ audited. Labels: `correct`, `incorrect`, `uncertain`.
 State is built by deterministic rules only; Jev never chooses what it is shown. The audit
 (`<session>/jev-watchdog-requests.jsonl`, mode 0600) holds `request`, `outcome`, `reviewer_outcome`,
 and `failure` (a review that failed before its request was logged) records, joined by `requestId`.
-Every failure carries a non-secret `reason` (`policy_slot`, `state_build`, `missing_key`,
-`no_update`, `no_advisor_tool`, `network`, `timeout`, `http_error`, `credits`, `invalid_response`,
-`model_mismatch`, `invalid_choices`); `summarize.ts` tallies them as `failuresBeforeRequest`.
+Every record names its session: `sessionKind` (`main` or `sub`) and `agentId` (`Main`, `EditA`, …);
+older records lack them and are main sessions. A subagent's audit sits beside its own session file,
+`<main>/<SubId>/jev-watchdog-requests.jsonl`, next to its `__advisor.jev-scope.jsonl`; the lab and
+`summarize.ts` scan recursively (`bySessionKind` tallies them). Every failure carries a non-secret
+`reason` (`policy_slot`, `state_build`, `missing_key`, `no_update`, `no_advisor_tool`, `network`,
+`timeout`, `http_error`, `credits`, `invalid_response`, `model_mismatch`, `invalid_choices`,
+`no_owner`); `summarize.ts` tallies them as `failuresBeforeRequest`.
 
 - **Requests.** `**user**` chunks only. User-run `!`/`$` commands (`→ user-bash!`), `[custom]`
   notices (async results, IRC, hooks) and the in-progress marker are not requests. The request
@@ -79,9 +83,30 @@ Every failure carries a non-secret `reason` (`policy_slot`, `state_build`, `miss
   stay inside the workspace; files the agent only reads (agent definitions such as `plan-judge.md`),
   research notes and reports are never plans. Todo items are separate: the latest "Remaining items"
   output always rides along and carries across updates, whatever the plan source.
-- **Binding.** The provider is process-global, so the main session's manager and alert channel live
-  in a `globalThis` binding set only from a `session_start` with `agent.kind === "main"`; subagent
-  instances cannot rebind or steal it.
+- **Subagent plan.** The subagent's own branch first (same sources as above), else the plan
+  reference it was spawned with: OMP renders the parent's active plan reference into the
+  subagent's system prompt (`§ Plan`, `<plan path=…>`), never into a message, so it is read from
+  there (`parent_reference`). It is a `local://` path under the artifacts root the subagent shares
+  with its parent. OMP hands a reference down only when the parent's `getPlanReferencePath()` file
+  exists; print-mode `--plan-yolo` does not set it (its plan lives at a slug name), so those
+  subagents review with no plan.
+- **Subagent request.** The task assignment is the subagent's first user message, with the
+  `Complete assignment thoroughly:` wrapper removed. The task `context` lives only in the system
+  prompt (`§ Context`), so it is added to `constraints.recent_instructions`. A subagent never feeds
+  the per-workspace request inheritance used by "Approve and execute".
+- **Attribution.** The provider registry is process-global, so the last registered instance serves
+  every advisor, and an advisor call carries only its own random provider session id. The owner is
+  found by asking: `options.onPayload` is the owning session's `emitBeforeProviderRequest`, so a
+  nonce probe reaches only that session's own extension instance (`before_provider_request`),
+  which claims it with its own `pi` and context. Manager, cwd, `local://` root, plan, audit path
+  and failure alerts all come from that claim, per call; nothing is bound by timing or start
+  order. A call nobody claims fails as `no_owner` and audits nowhere. Its error names the cause:
+  OMP passed no `onPayload` hook (an OMP upgrade broke attribution: pin OMP or disable `jev-scope`
+  until the extension is updated), or the hook ran but no session claimed it (the extension isn't
+  loaded in the owning session: check `agent/config.yml` and restart). `session_shutdown` releases
+  the carried context of the session's advisors. `/jev-label` labels a request in its own session
+  or any subagent below it, appended to the file that holds the request under that request's
+  identity.
 
 ## Promotion to enforce
 

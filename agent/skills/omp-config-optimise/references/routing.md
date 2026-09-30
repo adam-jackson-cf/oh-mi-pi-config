@@ -31,6 +31,9 @@ list records why. Update both together.
   Sol `medium` 45/48; Anthropic quota.
 - `advisor` → GPT-6 Astra : low. Used by advisor watchdog runtime alongside the Jev classifier
   extension. Owner-fixed; not a routing lever. Leave unchanged in reviews.
+  `task.agentAdvisor: { task: "on" }` (2026-09-29) gives bundled `task` subagents the watchdog so
+  implementation work in subagents is reviewed and audited under the subagent's own session;
+  reviewers, scouts and judges stay unadvised. Leave `task` on unless the owner asks otherwise.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner: Opus-led council.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
