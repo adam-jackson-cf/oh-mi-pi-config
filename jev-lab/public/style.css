@@ -19,6 +19,7 @@ li.item.sel { border-color: var(--acc); }
 li.item .sub { color: var(--muted); font-size: 12px; }
 .tag { display: inline-block; padding: 0 6px; border-radius: 8px; background: var(--line); font-size: 12px; margin-right: 4px; }
 .tag.labelled { background: #24513a; }
+.tag.agent { background: #4a3d6b; }
 pre { background: var(--panel); border: 1px solid var(--line); padding: 8px; overflow: auto; max-height: 320px; white-space: pre-wrap; word-break: break-word; }
 .bar { display: flex; align-items: center; gap: 6px; }
 .bar .track { flex: 0 0 160px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }

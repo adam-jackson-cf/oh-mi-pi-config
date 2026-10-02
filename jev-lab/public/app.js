@@ -90,7 +90,7 @@ async function loadCases() {
 function filtered() {
   const label = $("f-label").value, verdict = $("f-verdict").value, stage = $("f-stage").value, band = $("f-band").value;
   let list = state.cases.filter(c =>
-    (!label || (label === "labelled") === (c.label !== null)) &&
+    (!label || (label === "agent" ? c.labelBy === "agent" : (label === "labelled") === (c.label !== null))) &&
     (!verdict || c.verdict === verdict) && (!stage || c.stage === stage));
   if (band) {
     const [lo, hi] = band.split("-").map(Number);
@@ -103,7 +103,8 @@ function filtered() {
 
 function caseItem(c) {
   return h("li", { class: `item${c.id === state.selected ? " sel" : ""}`, onclick: guarded(() => select(c.id)) },
-    h("div", {}, h("span", { class: `tag${c.label ? " labelled" : ""}` }, c.label ?? "unlabelled"), h("span", { class: "tag" }, c.verdict),
+    h("div", {}, h("span", { class: `tag${c.labelBy === "agent" ? " agent" : c.label ? " labelled" : ""}` },
+      c.labelBy === "agent" ? `agent: ${c.label}` : c.label ?? "unlabelled"), h("span", { class: "tag" }, c.verdict),
       c.score !== undefined ? `P=${pct(c.score)}` : ""),
     h("div", { class: "sub" }, `${c.timestamp?.slice(0, 19) ?? ""} ${c.subject}`));
 }
@@ -125,9 +126,11 @@ async function select(id) {
 function proposalPanel(c) {
   const p = c.proposal;
   if (!p) return "";
-  const owner = c.label === null ? "" : c.label === p.label
-    ? h("span", { class: "tag labelled" }, `owner: ${c.label} (confirmed)`)
-    : h("span", { class: "tag overridden" }, `owner: ${c.label} (overridden)`);
+  const owner = c.label === null ? "" : c.labelBy === "agent"
+    ? h("span", { class: "tag agent" }, `agent: ${c.label} (unconfirmed)`)
+    : c.label === p.label
+      ? h("span", { class: "tag labelled" }, `owner: ${c.label} (confirmed)`)
+      : h("span", { class: "tag overridden" }, `owner: ${c.label} (overridden)`);
   return h("div", { class: "proposal" },
     h("h4", {}, "First-pass proposal"),
     h("div", {}, h("span", { class: "tag" }, p.label), h("span", { class: `tag ${p.agreement}` }, p.agreement), owner),
@@ -135,12 +138,12 @@ function proposalPanel(c) {
     p.namedChange ? h("div", {}, h("strong", {}, "Named change: "), p.namedChange) : "",
     p.evidence ? h("div", { class: "muted" }, `evidence: ${p.evidence}`) : "",
     h("div", { class: "muted" }, Object.entries(p.labellers).map(([k, v]) => `${k}: ${v}`).join(" · ")),
-    h("button", { id: "accept", disabled: c.label === null ? null : "", onclick: guarded(acceptProposal) }, "a Accept proposal"));
+    h("button", { id: "accept", disabled: c.labelBy === "human" ? "" : null, onclick: guarded(acceptProposal) }, "a Accept proposal"));
 }
 
 async function acceptProposal() {
   const c = state.detail;
-  if (!c?.proposal || c.label !== null) return;
+  if (!c?.proposal || c.labelBy === "human") return;
   await api("/api/label", { source: state.source, id: c.id, label: c.proposal.label, note: "accepted first-pass proposal" });
   toast(`accepted ${c.proposal.label}`);
   await refreshAfterLabel(c.id);
@@ -157,8 +160,12 @@ function renderDetail(replay) {
     a.choice ? h("div", {}, `choice: ${a.choice}, confidence ${pct(a.confidence)}`) : "",
     ...Object.entries(a.probabilities ?? {}).map(([k, v]) => bar(k, v))));
   const labels = h("div", { class: "labels" }, c.labelOptions.map((l, i) =>
-    h("button", { disabled: c.label !== null ? "" : null, onclick: guarded(() => label(l)) }, `${i + 1} ${l}`)));
-  if (c.label !== null) labels.append(h("span", { class: "tag labelled" }, `labelled: ${c.label}`), c.labelNote ?? "");
+    h("button", { disabled: c.labelBy === "human" ? "" : null, onclick: guarded(() => label(l)) }, `${i + 1} ${l}`)));
+  if (c.label !== null) {
+    labels.append(c.labelBy === "agent"
+      ? h("span", { class: "tag agent" }, `labelled: ${c.label} (agent first-pass, unconfirmed)`)
+      : h("span", { class: "tag labelled" }, `labelled: ${c.label}`), c.labelNote ?? "");
+  }
   box.replaceChildren(
     h("h3", {}, c.subject),
     h("div", { class: "muted" }, [c.id, c.stage, c.policyVersion, c.taskSource ? `task source: ${c.taskSource}` : "",
@@ -213,6 +220,7 @@ async function loadQueue() {
   $("progress").replaceChildren(
     h("div", {}, `Labelled sufficient-input cases: ${progress.labelledSufficient} / ${progress.minSufficient}; overreach labels: ${progress.positives} / ${progress.minPositive}`,
       progress.done ? " — minimum reached" : ""),
+    h("div", {}, `human-confirmed: ${progress.humanConfirmed} · agent-labelled, awaiting confirmation: ${progress.agentLabelled}`),
     progress.proposalsTotal ? h("div", {}, `proposals reviewed: ${progress.proposalsReviewed} / ${progress.proposalsTotal}`) : "",
     h("div", { class: "progress-bar" }, h("div", { style: `width:${Math.round(frac * 100)}%` })));
   $("queue-list").replaceChildren(...queue.map(c => h("li", { class: "item", onclick: guarded(async () => {
@@ -328,7 +336,7 @@ document.addEventListener("keydown", guarded(async event => {
   else if (event.key === "k" && list[at - 1]) await select(list[at - 1].id);
   else if (event.key === "a") await acceptProposal();
   else if (event.key === "n") { event.preventDefault(); $("note")?.focus(); }
-  else if (/^[1-4]$/.test(event.key) && state.detail && state.detail.label === null) {
+  else if (/^[1-4]$/.test(event.key) && state.detail && state.detail.labelBy !== "human") {
     const option = state.detail.labelOptions[Number(event.key) - 1];
     if (option) await label(option);
   }

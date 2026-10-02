@@ -1,7 +1,7 @@
 # Current routing
 
-Last reviewed 2026-09-28. Source of truth is `~/.omp/agent/config.yml`; this
-list records why. Update both together.
+Last reviewed 2026-09-30 (GPT-6.1 Sol launch, OMP 18.4.4). Source of truth is
+`~/.omp/agent/config.yml`; this list records why. Update both together.
 
 ## Roles
 
@@ -9,26 +9,30 @@ list records why. Update both together.
   Orchestrator; `auto` cannot be capped at medium.
 - `plan` → Opus 5.5 : medium. Used by plan mode. Preference; rigorous plans go to the council.
 - `slow` → Opus 5.5 : medium. Used by model cycling. Preference cap.
-- `designer` → Opus 5.5 : medium. Used by `designer` agent. Preference.
-- `reviewer` → GPT-6 Sol : medium. Used by bundled `reviewer` through
+- `designer` → Sonnet 5.5 : medium. Used by `designer` agent. Owner decision 2026-09-30; no design
+  experiment exists.
+- `reviewer` → GPT-6.1 Sol : low. Used by bundled `reviewer` through
   `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
-  Opus (fresh-process check 2026-09-28). Leaves the Claude family because `task` runs on Sonnet;
-  review-detection 2026-09-28: every arm 36/36, cheapest qualifier (Opus also 36/36).
-- `task` → Sonnet 5.5 : low, standard tier. Used by bundled `task`. Hard fixed-plan set 2026-09-28:
-  Sonnet `low`/`medium`/`high` 9/9, GPT-6 Luna `medium` 6/9 (15/18 pooled); Sonnet ~5× faster.
-  Moves implementation load to the Anthropic quota.
+  model (fresh-process check 2026-09-28). Review-detection 2026-09-30: 6.1 Sol `low` 36/36, 0 clean
+  FP, $0.059, 76 s; GPT-6 Sol `medium` 36/36, 0.33 FP, $0.072, 109 s. Independence comes from the
+  fresh subagent session, not the model family.
+- `task` → Sonnet 5.5 : low, standard tier. Used by bundled `task`. Hard fixed-plan set: Sonnet
+  `low` 9/9, $0.112, 25 s median, 5 turns (2026-09-28); GPT-6.1 Sol `low` 9/9, $0.122, 238 s, 16
+  turns (2026-09-30). Cost includes caching. Owner kept Sonnet 2026-09-30 for speed (split-family
+  review was also a reason then; no longer required since 2026-10-02); it also keeps implementation
+  load on the Anthropic quota.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast), `scout`, `lsp-evidence`, prewalk. Lowest
   effort; mechanical work.
 - `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest; replaced missing
   `gpt-5.4-mini`.
 - `web` → GPT-6 Luna. Used by `web_search`. Verified working 2026-09-28.
-- `plan-judge`, `test-judge`, `completionist` → GPT-6 Sol : medium. Used by judges. Other family
-  from the Opus and Sonnet authors. Review-detection 2026-09-28: GPT-6 Sol `high`/`medium`,
-  GPT-5.6 Sol `low`, Terra `xhigh`, Astra `medium` all 36/36; `medium` cheapest (1.7 credits per
-  review vs 4.9–10.6 for the GPT-5.6 and Astra arms).
-- `kiss` → GPT-6 Sol : medium. Used by `kiss` agent. Other family from the Opus planner.
-- `vision` → Sonnet 5.5 : low. Used by image reading. Vision-reading 2026-09-28: 48/48 vs GPT-6
-  Sol `medium` 45/48; Anthropic quota.
+- `plan-judge`, `test-judge`, `completionist`, `kiss` → GPT-6.1 Sol : low. Used by judges.
+  Review-detection 2026-09-30 (above); `plan-judge` and `kiss` by extrapolation (the harness judges
+  code, not plans).
+- `vision` → GPT-6.1 Sol : low. Used by image reading. Vision-reading 2026-09-30: `low` and
+  `medium` 48/48, 9 s median.
+- `operator` → GPT-6.1 Sol : low. Used by the `operator` agent (browser and computer preludes).
+  OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-09-30.
 - `advisor` → GPT-6 Astra : low. Used by advisor watchdog runtime alongside the Jev classifier
   extension. Owner-fixed; not a routing lever. Leave unchanged in reviews.
   `task.agentAdvisor: { task: "on" }` (2026-09-29) gives bundled `task` subagents the watchdog so
@@ -45,7 +49,7 @@ list records why. Update both together.
 
 `task.agentServiceTierOverrides`: `sonic` uses `priority` (Fast): 2.5× Codex
 credits, measured ~20% lower wall time on the fixture set. `task` runs on
-Sonnet at standard tier; it is already ~5× faster than Fast Luna, and Anthropic
+Sonnet at standard tier; it is already ~10× faster than 6.1 Sol, and Anthropic
 priority billing on the subscription is unverified.
 
 ## Jev policies
@@ -59,17 +63,12 @@ Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
   (secret paths and literals, then Jev `contains_secret` on credential-like
   assignments), `guard.result` (Jev `prompt_injection` on web, MCP and
   network-fetch output only). All `shadow`.
-- `jev-subagent-policy.ts`: `subagent.review-triage` (sensitive/docs-only path
-  rules, then Jev risk scores → light Luna / standard / deep Sol:high reviewer,
-  never the author's family) and `subagent.effort` (explicit short plan keeps
-  `low`; Jev openness can raise `task` to `medium`). Both `shadow`.
 - `jev-ask.ts`: `jev_ask` tool (judge files or captured output without reading
   them into context) plus the evidence-ladder system-prompt nudge. Always on;
   every call is audited under `ask`.
 - Promotion to `enforce`: ≥ 30 labelled decisions per policy (≥ 5 of the
   minority label), a frozen threshold chosen on the labelled set, and a
-  regression check on the matching harness (`review-detection` for triage,
-  `fixed-plan-effort` for effort).
+  regression check on frozen corpora with benign canaries.
 
 ## Watch items
 
@@ -78,8 +77,9 @@ Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
 - GPT-5.5 retires from Codex on 2026-10-14; no route uses it.
 - `task: sonnet-5-5:low` rests on 9 trials per arm across three hard fixtures,
   all arms at ceiling; rerun the hard set when the model changes or subagent
-  implementation failures rise. Watch the Anthropic 7-day meter now that
-  implementation and vision draw it.
+  implementation failures rise. Review, judging, vision and `operator` draw
+  Codex (Team 7-day 62%, Pro 8% on 2026-09-30); implementation and `designer`
+  draw Anthropic (14%). Watch both.
 - Review-detection and vision-reading both hit their ceilings; judge, reviewer
   and vision routes are cost decisions among equals. Add harder cases before
   re-litigating them.

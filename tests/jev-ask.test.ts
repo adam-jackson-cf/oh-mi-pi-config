@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import * as hostZod from "@oh-my-pi/omptype/zod";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { askParameters, NUDGE_MARKER, registerJevAsk, type AskDetails, type AskParameters } from "../agent/extensions/jev-ask";
-import { JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, type JevAnswers } from "../agent/extensions/lib/jev";
+import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, type JevAnswers } from "../agent/extensions/lib/jev";
 
 type ToolResult = { content: { type: string; text: string }[]; details?: AskDetails; isError?: boolean };
 type CapturedTool = {
@@ -111,6 +111,44 @@ test("globs expand under cwd and every pre-filter skip carries its reason", asyn
     assert.match(text, /Skipped:/);
     assert.match(text, /cost \$0\.000020, 2 calls/);
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
+});
+
+test("symlinks that resolve outside the workspace are never loaded", async () => {
+  const { root } = await fixture();
+  const outside = await mkdtemp(join(tmpdir(), "jev-ask-outside-"));
+  try {
+    await writeFile(join(outside, "secret.ts"), "export const s = \"OUTSIDE_SECRET_MARKER\";\n");
+    await symlink(join(outside, "secret.ts"), join(root, "link.ts"));
+    await symlink(outside, join(root, "linkdir"));
+    const { tool, ctx } = harness(root);
+    const out = await withJev(async (sent) => ({
+      r: await tool.execute("1", { questions, paths: ["link.ts", "linkdir", "**/*"] }, undefined, undefined, ctx), sent }));
+    assert.deepEqual(out.r.details!.results.map((x) => x.key), ["a.ts", "sub/b.ts"]);
+    assert.ok(!out.sent.some((s) => JSON.stringify(s.state).includes("OUTSIDE_SECRET_MARKER")));
+    const reasons = Object.fromEntries(out.r.details!.skipped.map((s) => [s.path, s.reason]));
+    assert.equal(reasons["link.ts"], "outside the workspace");
+    assert.equal(reasons["linkdir"], "outside the workspace");
+  } finally {
+    delete process.env.JEV_AUDIT_DIR;
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("decide latency includes reading the response body", async () => {
+  const original = globalThis.fetch;
+  const asked: AskParameters["questions"] = { q: { type: "noul", instructions: "ok?" } };
+  const body = JSON.stringify({ id: "r1", model: JEV_PINNED_MODEL, answers: answersFor(asked), usage: { input_tokens: 1, output_tokens: 1, cost: 0 } });
+  // A real delay is required: latency is wall-clock time, which fake timers do not advance. Headers
+  // arrive at once; the body only after 120 ms.
+  globalThis.fetch = Object.assign(async () => new Response(new ReadableStream({
+    start(controller) { setTimeout(() => { controller.enqueue(new TextEncoder().encode(body)); controller.close(); }, 120); },
+  }), { status: 200 }), { preconnect: original.preconnect });
+  try {
+    const result = await decide("sk-test-key-000000", "state", asked);
+    assert.ok(result.ok);
+    assert.ok(result.latencyMs >= 100, `latency ${result.latencyMs} should include the delayed body`);
+  } finally { globalThis.fetch = original; }
 });
 
 test("per-file answers keep input order, format each level, and never echo file content", async () => {

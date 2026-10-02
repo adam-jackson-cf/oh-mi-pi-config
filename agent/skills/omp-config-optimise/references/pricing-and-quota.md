@@ -15,7 +15,7 @@ Prices move; re-read the sources on every review and update the dated figures.
 - Anthropic model launch pages for price and effort guidance, e.g.
   <https://www.anthropic.com/claude-sonnet-5-5>.
 
-## Findings as of 2026-09-28
+## Findings as of 2026-09-28 (GPT-6.1 Sol added 2026-09-30)
 
 - Codex Standard credits per 1M tokens (input / cached / output): GPT-6 Astra
   250 / 25 / 1,250; GPT-6 Sol 50 / 5 / 250; GPT-6 Luna 2.5 / 0.25 / 12.5;
@@ -23,6 +23,11 @@ Prices move; re-read the sources on every review and update the dated figures.
   30. Luna costs 1/20 of Sol; GPT-5.6 Sol costs 2× GPT-6 Sol.
 - Codex Fast mode costs 2.5× Standard credits for GPT-6 and GPT-5.6 models.
   Fast Luna still costs 1/8 of Standard Sol.
+- GPT-6.1 Sol (launched 2026-09-29): 50 / 2.5 / 250 credits per 1M input / cached / output, the
+  same as GPT-6 Sol except cached input at half. API $2 / $0.10 / $10. Codex 5-hour estimate
+  15–160 local messages (Plus). Reachable in OMP from 18.4.4, which reports Codex client 0.159.0;
+  the backend hides the model from 0.155.1. Efforts `low`–`max`; no `none`/`minimal`. Fast is
+  available; Ultrafast is announced, not yet available.
 - Claude Sonnet 5.5 (2026-09-28): $2 / $10 per 1M input / output, cache read
   $0.20, cache write $2.50; half of Opus 5.5. Draws the shared Anthropic weekly
   limit. Claude Code 2.1.284 and OMP 18.3.2 both run it without upgrading.

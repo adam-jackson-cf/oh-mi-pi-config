@@ -6,10 +6,12 @@ import { CASESET_PREFIX, listCasesets, loadCasesetCases } from "./caseset";
 import { appendPolicyLabel, listPolicies, loadPolicyCases, POLICY_PREFIX } from "./policy";
 import { loadProposals } from "./proposals";
 import { appendScopeLabel, loadScopeCases, SCOPE_SOURCE } from "./scope";
+import type { LabelReviewer } from "../../agent/extensions/lib/jev";
 import { LabError, type LabCase, type LabPaths, type Source } from "./types";
 
-const noteLine = z.object({ requestId: z.string(), note: z.string() });
+const noteLine = z.object({ requestId: z.string(), note: z.string(), reviewer: z.enum(["human", "agent"]).optional() });
 
+/** Latest note keyed `reviewer:requestId`; rows without a reviewer are human. */
 async function readScopeNotes(paths: LabPaths): Promise<Map<string, string>> {
   const notes = new Map<string, string>();
   let text = "";
@@ -18,20 +20,20 @@ async function readScopeNotes(paths: LabPaths): Promise<Map<string, string>> {
     if (!raw) continue;
     try {
       const parsed = noteLine.safeParse(JSON.parse(raw));
-      if (parsed.success) notes.set(parsed.data.requestId, parsed.data.note);
+      if (parsed.success) notes.set(`${parsed.data.reviewer ?? "human"}:${parsed.data.requestId}`, parsed.data.note);
     } catch { /* skip malformed */ }
   }
   return notes;
 }
 
 /** The scope audit record format is fixed, so reviewer notes live beside it in the runtime-only runs directory. */
-async function appendScopeNote(paths: LabPaths, requestId: string, note: string): Promise<void> {
+async function appendScopeNote(paths: LabPaths, requestId: string, note: string, reviewer: LabelReviewer): Promise<void> {
   await mkdir(paths.runsDir, { recursive: true, mode: 0o700 });
   const handle = await open(join(paths.runsDir, "scope-notes.jsonl"),
     constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
   try {
     await handle.chmod(0o600);
-    await handle.writeFile(JSON.stringify({ requestId, note, timestamp: new Date().toISOString() }) + "\n");
+    await handle.writeFile(JSON.stringify({ requestId, note, reviewer, timestamp: new Date().toISOString() }) + "\n");
   } finally {
     await handle.close();
   }
@@ -41,7 +43,9 @@ export async function loadCases(paths: LabPaths, source: string): Promise<LabCas
   if (source === SCOPE_SOURCE) {
     const notes = await readScopeNotes(paths);
     const { byId } = await loadProposals(paths);
-    return (await loadScopeCases(paths)).cases.map(c => ({ ...c, labelNote: notes.get(c.id), proposal: byId.get(c.id) }));
+    return (await loadScopeCases(paths)).cases.map(c => ({
+      ...c, labelNote: c.labelBy === null ? undefined : notes.get(`${c.labelBy}:${c.id}`), proposal: byId.get(c.id),
+    }));
   }
   if (source.startsWith(POLICY_PREFIX)) return loadPolicyCases(paths, source.slice(POLICY_PREFIX.length));
   if (source.startsWith(CASESET_PREFIX)) return loadCasesetCases(paths, source.slice(CASESET_PREFIX.length));
@@ -61,14 +65,14 @@ export async function listSources(paths: LabPaths): Promise<Source[]> {
   return sources;
 }
 
-export async function applyLabel(paths: LabPaths, source: string, id: string, label: string, note?: string): Promise<void> {
+export async function applyLabel(paths: LabPaths, source: string, id: string, label: string, reviewer: LabelReviewer, note?: string): Promise<void> {
   if (source === SCOPE_SOURCE) {
-    await appendScopeLabel(paths, id, label);
-    if (note) await appendScopeNote(paths, id, note);
+    await appendScopeLabel(paths, id, label, reviewer);
+    if (note) await appendScopeNote(paths, id, note, reviewer);
     return;
   }
   if (source.startsWith(POLICY_PREFIX)) {
-    await appendPolicyLabel(paths, source.slice(POLICY_PREFIX.length), id, label, note);
+    await appendPolicyLabel(paths, source.slice(POLICY_PREFIX.length), id, label, reviewer, note);
     return;
   }
   throw new LabError("Case sets carry `expected` values instead of labels; edit the .jsonl or save from the Playground.", 400);

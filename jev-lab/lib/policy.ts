@@ -2,9 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { appendLabel } from "../../agent/extensions/lib/jev";
+import type { LabelReviewer } from "../../agent/extensions/lib/jev";
 import {
-  answerSchema, binaryUncertainty, choiceUncertainty, jsonValue, LabError, questionsSchema,
-  type LabAnswer, type LabCase, type LabPaths,
+  answerSchema, binaryUncertainty, choiceUncertainty, foldLabel, jsonValue, LabError, questionsSchema,
+  type EffectiveLabel, type LabAnswer, type LabCase, type LabPaths,
 } from "./types";
 
 export const POLICY_PREFIX = "policy:";
@@ -34,6 +35,7 @@ const decisionLine = z.object({
 });
 const labelLine = z.object({
   type: z.literal("label"), requestId: z.string(), label: z.string(), note: z.string().optional(),
+  reviewer: z.enum(["human", "agent"]).optional(),
 });
 
 export async function listPolicies(auditDir: string): Promise<string[]> {
@@ -73,9 +75,9 @@ export async function loadPolicyCases(paths: LabPaths, policy: string): Promise<
   if (!POLICY_NAME.test(policy)) throw new LabError("Invalid policy name.", 400);
   const dir = join(paths.auditDir, policy);
   const files = (await readdir(dir).catch(() => [])).filter(f => f.endsWith(".jsonl") && f !== "labels.jsonl").sort();
-  const labels = new Map<string, { label: string; note?: string }>();
+  const labels = new Map<string, EffectiveLabel>();
   for (const row of await readJsonl(join(dir, "labels.jsonl"), labelLine)) {
-    if (!labels.has(row.requestId)) labels.set(row.requestId, { label: row.label, note: row.note });
+    labels.set(row.requestId, foldLabel(labels.get(row.requestId), { label: row.label, by: row.reviewer ?? "human", note: row.note }));
   }
   const cases: LabCase[] = [];
   for (const file of files) {
@@ -100,6 +102,7 @@ export async function loadPolicyCases(paths: LabPaths, policy: string): Promise<
         error: row.error,
         labelOptions: row.labels,
         label: applied?.label ?? null,
+        labelBy: applied?.by ?? null,
         labelNote: applied?.note,
         note: [row.rule ? `rule ${row.rule}` : "", row.mode ? `mode ${row.mode}` : ""].filter(Boolean).join(" · ") || undefined,
       });
@@ -108,11 +111,17 @@ export async function loadPolicyCases(paths: LabPaths, policy: string): Promise<
   return cases;
 }
 
-/** Append a policy label through the shared `appendLabel`; one label per decision. */
-export async function appendPolicyLabel(paths: LabPaths, policy: string, requestId: string, label: string, note?: string): Promise<void> {
+/**
+ * Append a policy label through the shared `appendLabel`. A human label is final; an agent label
+ * is a first pass that a human may replace and that no later agent label may overwrite.
+ */
+export async function appendPolicyLabel(
+  paths: LabPaths, policy: string, requestId: string, label: string, reviewer: LabelReviewer, note?: string,
+): Promise<void> {
   const target = (await loadPolicyCases(paths, policy)).find(c => c.id === requestId);
   if (!target) throw new LabError("No decision with that request ID in this policy audit.", 404);
-  if (target.label !== null) throw new LabError("This decision already has a human label.", 409);
+  if (target.labelBy === "human") throw new LabError("This decision already has a human label.", 409);
+  if (reviewer === "agent" && target.label !== null) throw new LabError("This decision already has a label.", 409);
   if (!target.labelOptions.includes(label)) throw new LabError(`Label must be one of ${target.labelOptions.join(", ")}.`, 400);
-  await appendLabel({ requestId, policy, label, reviewer: "human", note });
+  await appendLabel({ requestId, policy, label, reviewer, note });
 }

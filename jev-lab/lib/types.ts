@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { JsonValue, JevQuestions } from "../../agent/extensions/lib/jev";
+import type { JsonValue, JevQuestions, LabelReviewer } from "../../agent/extensions/lib/jev";
 
 export const jsonValue = z.json();
 
@@ -61,6 +61,8 @@ export type LabCase = {
   labelOptions: string[];
   positiveLabel?: string;
   label: string | null;
+  /** Who wrote the effective label: a human always wins over an agent first-pass label. */
+  labelBy: LabelReviewer | null;
   labelNote?: string;
   proposal?: Proposal;
   expected?: Record<string, string | number | boolean>;
@@ -85,4 +87,11 @@ export function binaryUncertainty(p: number): number {
 export function choiceUncertainty(probabilities: Record<string, number> | undefined): number {
   const values = Object.values(probabilities ?? {});
   return values.length ? 1 - Math.max(...values) : 1;
+}
+
+export type EffectiveLabel = { label: string; by: LabelReviewer; note?: string };
+
+/** Fold label rows in file order: the latest human label wins, else the latest agent label. */
+export function foldLabel(current: EffectiveLabel | undefined, next: EffectiveLabel): EffectiveLabel {
+  return current?.by === "human" && next.by === "agent" ? current : next;
 }

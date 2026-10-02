@@ -32,12 +32,22 @@ sufficient-input cases with at least 5 `overreach` labels before any threshold o
    (required? smallest?), before weighing Jev's answer.
 3. Press `1` overreach, `2` no_overreach, `3` uncertain. `j`/`k` move between cases, `n` focuses the
    note. The label is appended to that session's `jev-watchdog-requests.jsonl` as a
-   `reviewer_outcome` record, the same format `/jev-label` writes. A second label or a request with
-   no outcome is rejected. Notes cannot be stored in that record, so they go to
+   `reviewer_outcome` record, the same format `/jev-label` writes. A second human label or a
+   request with no outcome is rejected. Notes cannot be stored in that record, so they go to
    `runs/scope-notes.jsonl`.
 4. Watch the progress bar until both minimums are met, then open **Metrics** for the confusion
    matrix at your chosen threshold (default 0.9) and the 0.50-0.95 sweep. Uncertain labels are
    excluded from the matrix; unlabelled cases are excluded.
+
+### Agent first-pass labels
+
+Labels written by blind LLM labellers carry `reviewer: "agent"`. They count toward the metrics and
+progress (reported separately as `agentLabelled` and `humanConfirmed`) and show as `agent: <label>`
+until you confirm or override them; the latest human label always wins, and a human label is never
+overwritten by an agent one. Apply a batch with
+`bun jev-lab/scripts/apply-agent-labels.ts <labels.jsonl>`, one `{source, id, label, note}` per line
+(`source` is `jev-scope` or `policy:<name>`); cases that already carry a label are skipped. The
+**Cases** filter `agent` lists them, and **Review proposals** keeps them in the queue.
 
 ### Policy versions
 

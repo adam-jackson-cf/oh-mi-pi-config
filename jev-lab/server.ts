@@ -166,7 +166,7 @@ export function createHandler(deps: LabDeps): (req: Request) => Promise<Response
 
     if (path === "/api/label") {
       const body = await readBody(req, labelBody);
-      await applyLabel(paths, body.source, body.id, body.label, body.note);
+      await applyLabel(paths, body.source, body.id, body.label, "human", body.note);
       return json(JSON.stringify({ ok: true }));
     }
     if (path === "/api/replay") {

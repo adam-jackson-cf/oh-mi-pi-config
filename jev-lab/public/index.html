@@ -25,7 +25,7 @@
       <div class="layout">
         <aside>
           <div class="filters">
-            <select id="f-label"><option value="">all labels</option><option value="labelled">labelled</option><option value="unlabelled">unlabelled</option></select>
+            <select id="f-label"><option value="">all labels</option><option value="labelled">labelled</option><option value="unlabelled">unlabelled</option><option value="agent">agent (unconfirmed)</option></select>
             <select id="f-verdict"><option value="">all verdicts</option></select>
             <select id="f-band"><option value="">any P</option><option value="0.9-1.01">P &ge; 0.9</option><option value="0.8-0.9">0.8&ndash;0.9</option><option value="0.5-0.8">0.5&ndash;0.8</option><option value="0-0.5">P &lt; 0.5</option></select>
             <select id="f-stage"><option value="">any stage</option></select>
@@ -39,7 +39,7 @@
     </section>
     <section id="tab-queue" hidden>
       <div id="progress"></div>
-      <p class="muted">Unlabelled, sufficient-input cases, round-robin across P(yes) bands (highest first).</p>
+      <p class="muted">Unlabelled, sufficient-input cases, round-robin across P(yes) bands (highest first). Agent-labelled cases appear only under Review proposals.</p>
       <label>Order <select id="queue-order"><option value="bands">P(yes) bands</option><option value="proposals">Review proposals (disputed, overreach, rest)</option></select></label>
       <ul id="queue-list"></ul>
     </section>

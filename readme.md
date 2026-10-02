@@ -22,18 +22,19 @@ locations.
 
 Routing follows the owner's standing preferences, recorded with the process
 for revisiting them in `agent/skills/omp-config-optimise/`: Claude Opus 5.5
-orchestrates, plans, designs, and reviews at medium reasoning or below; GPT-6
-Luna implements fixed-plan work and simple actions on the Fast tier; GPT-6 Sol
-judges Opus plans and Luna output from the other model family. Reasoning above
-medium on Opus or Astra is reserved for the `innovation-council` (Opus-led,
-Astra challenger) and `experiment-design` (Fable-led, Astra and Opus peers).
+orchestrates and plans at medium reasoning or below; Claude Sonnet 5.5
+implements fixed-plan work and designs; GPT-6 Luna handles simple actions;
+GPT-6.1 Sol reviews and judges in an independent session (same model family
+as the author is allowed). Reasoning above medium on Opus or Astra is reserved
+for the `innovation-council` (Opus-led, Astra challenger) and
+`experiment-design` (Fable-led, Astra and Opus peers).
 
 ## Ownership boundaries
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
 locally. Its tracked custom-agent surface in `agent/agents/` is limited to
 judgment and specialist roles: `completionist`, `plan-judge`, `test-judge`,
-`kiss`, `designer`, `innovation-council`, `innovation-challenger`,
+`kiss`, `designer`, `operator`, `innovation-council`, `innovation-challenger`,
 `experiment-design`, and `experiment-peer`. `lsp-evidence` and its policy
 extension are local runtime assets, not tracked canonical source.
 

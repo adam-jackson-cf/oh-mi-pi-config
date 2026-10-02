@@ -2,7 +2,7 @@
 name: "workflow-templates"
 description:
   "USE WHEN running multi-agent work in OMP with the workflowz, jevify or orchestrate keywords, or
-  when implementing with independent cross-family review, or producing blind labels for human
+  when implementing with independent-session review, or producing blind labels for human
   confirmation."
 ---
 
@@ -22,10 +22,11 @@ skill adds the owner's rules and two templates the keywords lack.
 
 ## Owner rules on top
 
-- **Cross-family judging.** A judge, reviewer or second labeller never shares the author's model
-  family. `require_cross_family(author, judge)` checks the live routes in `agent/config.yml`. In a
-  `workflowz` judge panel, build the judge pool from an agent that passes this check (for example
-  `task` designs judged by `plan-judge`).
+- **Independent-session judging.** A judge, reviewer or second labeller runs in its own session
+  with none of the author's context (every `agent()` spawn qualifies); it may share the author's
+  model family. Prefer GPT Sol judges: `reviewer`, `plan-judge`, `test-judge`, `completionist` and
+  `kiss` already route to GPT-6.1 Sol (`agent/config.yml`). Never let the author's own session
+  judge its work.
 - **Deterministic before Jev before LLM.** A real check command, pre-filter or rule runs first.
 - **Caps that raise.** `MAX_AGENTS` (16) per wave; templates raise `WorkflowError` rather than
   silently dropping work.
@@ -38,10 +39,10 @@ Both are dependency-coupled, so they use `agent()` handles and `wait()` as the n
 allows.
 
 - `adversarial_verify(objective, repo, check_cmd, max_rounds=3)`: `task` implements; the repo's own
-  check must pass before any review; `reviewer` (another family) tries to break it; its findings go
-  back to `task`. Returns `pass` or `exhausted` with the full history.
-- `blind_label(batch_files, rubric_path, labels)`: two blind labellers from different families per
-  frozen batch. Returns `agreed` and `disputed`; the orchestrator settles disputes and a human
-  confirms before any label is written.
+  check must pass before any review; `reviewer` (independent session) tries to break it; its
+  findings go back to `task`. Returns `pass` or `exhausted` with the full history.
+- `blind_label(batch_files, rubric_path, labels)`: two blind labellers (distinct agents, separate
+  sessions) per frozen batch. Returns `agreed` and `disputed`; the orchestrator settles disputes
+  and a human confirms before any label is written.
 
 Contracts and failure handling: `references/patterns.md`.

@@ -1,0 +1,311 @@
+{
+  "$comment": "Integrity guard rules (policy guard.integrity). Changed only via the maintainer loop (evaluate-jev integrity maintainer) or with the user's approval; regression-checked against fixtures.json.",
+  "rules": [
+    {
+      "id": "git-no-verify",
+      "category": "gate_bypass",
+      "verdict": "certain",
+      "scope": "bash",
+      "pattern": "\\bgit\\b[^\\n;&|]*\\b(?:commit|push|merge|rebase|am|cherry-pick|revert)\\b[^\\n;&|]*\\s--no-verify\\b",
+      "rationale": "--no-verify skips the repository's commit and push hooks.",
+      "unquoted": true
+    },
+    {
+      "id": "git-commit-n",
+      "category": "gate_bypass",
+      "verdict": "certain",
+      "scope": "bash",
+      "pattern": "\\bgit\\b[^\\n;&|]*\\bcommit\\b[^\\n;&|]*\\s-[a-zA-Z]*n[a-zA-Z]*(?=\\s|$)",
+      "rationale": "git commit -n is the short form of --no-verify.",
+      "unquoted": true
+    },
+    {
+      "id": "hook-skip-env",
+      "category": "gate_bypass",
+      "verdict": "certain",
+      "scope": "bash",
+      "pattern": "(?:^|[\\s;&|(])(?:SKIP|HUSKY|HUSKY_SKIP_HOOKS|LEFTHOOK|LEFTHOOK_EXCLUDE|PRE_COMMIT_ALLOW_NO_CONFIG|SKIP_HOOKS|NO_VERIFY)=[\\s\\S]*\\bgit\\b[^\\n;&|]*\\b(?:commit|push|merge|rebase|am|cherry-pick)\\b",
+      "rationale": "Hook-skipping environment variables set for a git commit or push turn off pre-commit, husky or lefthook checks.",
+      "unquoted": true
+    },
+    {
+      "id": "hook-skip-run",
+      "category": "gate_bypass",
+      "verdict": "suspect",
+      "scope": "bash",
+      "unquoted": true,
+      "pattern": "(?:^|[\\s;&|(])(?:SKIP|HUSKY|HUSKY_SKIP_HOOKS|LEFTHOOK|LEFTHOOK_EXCLUDE|PRE_COMMIT_ALLOW_NO_CONFIG|SKIP_HOOKS|NO_VERIFY)=",
+      "rationale": "Hook-skip variables outside a commit, e.g. a partial pre-commit run; legitimate while iterating, a bypass as the final check."
+    },
+    {
+      "id": "hooks-path",
+      "category": "gate_bypass",
+      "verdict": "certain",
+      "scope": "bash",
+      "pattern": "\\bgit\\b[^\\n;&|]*(?:-c\\s+core\\.hooksPath=|\\bconfig\\b(?![^\\n;&|]*--(?:get|list)\\b)[^\\n;&|]*\\bcore\\.hooksPath\\s+\\S)",
+      "rationale": "Setting core.hooksPath redirects or disables git hooks.",
+      "unquoted": true
+    },
+    {
+      "id": "pytest-deselect",
+      "category": "gate_bypass",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "\\bpytest\\b[^\\n;&|]*(?:--deselect\\b|\\s-k\\s+[\\\"']?not\\b|--ignore(?:-glob)?[= ])",
+      "rationale": "Deselecting or ignoring tests can hide failures; legitimate while iterating."
+    },
+    {
+      "id": "gate-or-true",
+      "category": "gate_bypass",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "(?:\\bbun\\s+test\\b|\\bnpm\\s+(?:run\\s+)?test\\b|\\bpnpm\\s+(?:run\\s+)?test\\b|\\byarn\\s+test\\b|\\bpytest\\b|\\btsc\\b|\\boxlint\\b|\\beslint\\b|\\bruff\\b|\\bmypy\\b|\\bpyright\\b|\\bclippy\\b|\\bvitest\\b|\\bjest\\b|\\bpre-commit\\s+run\\b|\\bmarkdownlint[\\w-]*|run-ci-quality-gates\\.sh|\\bcargo\\s+(?:test|clippy|check)\\b|\\bgo\\s+(?:test|vet)\\b|\\bbiome\\s+(?:check|lint)\\b|\\b(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:lint|typecheck|type-check|check|test)\\b)(?:>&|&>|[^\\n;&|])*\\|\\|\\s*(?:true|:|exit\\s+0)\\b",
+      "rationale": "'|| true' after a gate turns its failure into success."
+    },
+    {
+      "id": "lint-cli-allow",
+      "category": "gate_bypass",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "(?:\\bclippy\\b[^\\n;&|]*\\s(?:-A\\s+\\S+|--cap-lints)|RUSTFLAGS=\\S*-A|\\b(?:eslint|oxlint)\\b[^\\n;&|]*\\s(?:--no-eslintrc|--no-config|--rule\\s+\\S+\\s*:\\s*[\\\"']?off|-A\\s+\\S+|--quiet)|\\bruff\\b[^\\n;&|]*\\s--ignore\\b|\\bmypy\\b[^\\n;&|]*\\s--ignore-missing-imports\\b)",
+      "rationale": "Command-line flags that allow or ignore lint rules weaken the configured gate."
+    },
+    {
+      "id": "tests-pass-without-tests",
+      "category": "gate_bypass",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "--passWithNoTests\\b|--no-tests\\b|--exitzero\\b|--exit-zero\\b",
+      "rationale": "Flags that make a gate pass when nothing ran or when it found problems."
+    },
+    {
+      "id": "gate-masked-pipe",
+      "category": "gate_masking",
+      "verdict": "record",
+      "scope": "bash",
+      "pattern": "^(?![\\s\\S]*pipefail)[\\s\\S]*(?:\\bbun\\s+test\\b|\\bnpm\\s+(?:run\\s+)?test\\b|\\bpnpm\\s+(?:run\\s+)?test\\b|\\byarn\\s+test\\b|\\bpytest\\b|\\btsc\\b|\\boxlint\\b|\\beslint\\b|\\bruff\\b|\\bmypy\\b|\\bpyright\\b|\\bclippy\\b|\\bvitest\\b|\\bjest\\b|\\bpre-commit\\s+run\\b|\\bmarkdownlint[\\w-]*|run-ci-quality-gates\\.sh|\\bcargo\\s+(?:test|clippy|check)\\b|\\bgo\\s+(?:test|vet)\\b|\\bbiome\\s+(?:check|lint)\\b|\\b(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:lint|typecheck|type-check|check|test)\\b)(?:>&|&>|[^\\n;&|])*(?<!\\|)\\|(?!\\|)\\s*(?:tail|head|grep|rg|sed|awk|wc|cut|sort)\\b",
+      "rationale": "Piping a gate without pipefail reports the pipe's exit code, not the gate's (shadow metric)."
+    },
+    {
+      "id": "guard-code-edit",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "path",
+      "pattern": "/\\.omp/agent/(?:extensions/(?:jev-[\\w-]+|lib/(?:jev|integrity)[\\w-]*)\\.ts|jev-policies\\.json)$",
+      "rationale": "The Jev guard code and policy modes are changed only with the user's approval.",
+      "context": "edit"
+    },
+    {
+      "id": "guard-rules-edit",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "path",
+      "pattern": "/\\.omp/agent/integrity/(?:rules|fixtures)\\.json$",
+      "maintainerExempt": true,
+      "rationale": "Integrity rules and fixtures change only through the maintainer loop or with the user's approval.",
+      "context": "edit"
+    },
+    {
+      "id": "git-hooks-edit",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "path",
+      "pattern": "/\\.git/hooks/[^/]+$",
+      "rationale": "Editing git hooks can disable the commit gates.",
+      "context": "edit"
+    },
+    {
+      "id": "omp-config-guard-removed",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "removed",
+      "path": "/\\.omp/agent/config\\.yml$",
+      "pattern": "extensions/(?:jev-|lib/(?:jev|integrity))",
+      "rationale": "Removing a Jev guard extension from the OMP config stops the guard loading."
+    },
+    {
+      "id": "guard-bash-tamper",
+      "category": "guard_tamper",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:jev-(?:guard|policies|integrity|ask|watchdog)|extensions/lib/(?:jev|integrity)|\\.git/hooks)",
+      "rationale": "A mutating command naming the guard, its policies or git hooks."
+    },
+    {
+      "id": "guard-rules-bash",
+      "category": "guard_tamper",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*integrity/(?:rules|fixtures)\\.json",
+      "maintainerExempt": true,
+      "rationale": "A mutating command naming the integrity rules or fixtures."
+    },
+    {
+      "id": "ts-suppress",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "@ts-(?:ignore|nocheck|expect-error)\\b",
+      "rationale": "TypeScript error suppression."
+    },
+    {
+      "id": "js-lint-disable",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "\\b(?:eslint|oxlint)-disable\\b|\\bbiome-ignore\\b|\\bdeno-lint-ignore\\b",
+      "rationale": "JavaScript/TypeScript lint suppression."
+    },
+    {
+      "id": "ts-any-cast",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "path": "\\.(?:ts|tsx|mts|cts)$",
+      "pattern": "\\bas\\s+any\\b|\\bas\\s+unknown\\s+as\\b",
+      "rationale": "Casting through any hides type errors."
+    },
+    {
+      "id": "py-suppress",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "#\\s*(?:noqa\\b|type:\\s*ignore\\b|pyright:\\s*ignore\\b|mypy:\\s*ignore|ruff:\\s*noqa\\b|pylint:\\s*disable)",
+      "rationale": "Python lint or type suppression."
+    },
+    {
+      "id": "rust-allow",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "#!?\\[allow\\(",
+      "rationale": "Rust lint allowance."
+    },
+    {
+      "id": "go-nolint",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "//\\s*nolint\\b",
+      "rationale": "Go lint suppression."
+    },
+    {
+      "id": "coverage-ignore",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "\\b(?:istanbul|c8|v8)\\s+ignore\\b|pragma:\\s*no\\s*cover",
+      "rationale": "Coverage exclusion."
+    },
+    {
+      "id": "markdownlint-disable",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "markdownlint-disable|markdownlint-capture",
+      "rationale": "Markdown lint suppression."
+    },
+    {
+      "id": "swallowed-error",
+      "category": "suppression",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "^\\s*except\\s*(?:(?:Base)?Exception\\b[^:]*)?:\\s*(?:pass\\b|\\.\\.\\.|$)|catch\\s*(?:\\([^)]*\\))?\\s*\\{\\s*\\}|\\.catch\\(\\s*\\(\\)\\s*=>\\s*(?:\\{\\s*\\}|undefined|null)\\s*\\)",
+      "rationale": "Broad error swallowing can turn failures into silent success."
+    },
+    {
+      "id": "test-skip",
+      "category": "test_removal",
+      "verdict": "suspect",
+      "scope": "added",
+      "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "pattern": "\\.(?:skip|todo)\\s*\\(|\\b(?:xit|xdescribe|xtest)\\s*\\(|\\bpytest\\.(?:skip|xfail)\\s*\\(|\\{\\s*skip\\s*:\\s*true",
+      "rationale": "Skipped or to-do tests in test files."
+    },
+    {
+      "id": "test-skip-marker",
+      "category": "test_removal",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "#\\[ignore\\]|@pytest\\.mark\\.(?:skip|xfail)|@unittest\\.(?:skip|expectedFailure)|\\bt\\.Skip(?:Now|f)?\\s*\\(",
+      "rationale": "Test skip or expected-failure markers, including inline test modules."
+    },
+    {
+      "id": "test-only",
+      "category": "gate_bypass",
+      "verdict": "certain",
+      "scope": "added",
+      "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "pattern": "\\b(?:it|test|describe)\\.only\\s*\\(|\\bfit\\s*\\(|\\bfdescribe\\s*\\(",
+      "rationale": "Focused tests make the suite run only a subset."
+    },
+    {
+      "id": "test-case-removed",
+      "category": "test_removal",
+      "verdict": "suspect",
+      "scope": "removed",
+      "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "pattern": "\\b(?:it|test|describe)\\s*\\(|\\bdef\\s+test_|#\\[test\\]|\\bfunc\\s+Test\\w*\\(",
+      "rationale": "A test case was removed."
+    },
+    {
+      "id": "assertion-removed",
+      "category": "assertion_weakening",
+      "verdict": "suspect",
+      "scope": "removed",
+      "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "pattern": "\\bassert\\w*\\b|\\bexpect\\s*\\(|\\.should\\b|\\bt\\.(?:Error|Fatal)f?\\s*\\(",
+      "rationale": "An assertion was removed or rewritten."
+    },
+    {
+      "id": "test-timeout-raised",
+      "category": "assertion_weakening",
+      "verdict": "suspect",
+      "scope": "added",
+      "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "pattern": "\\btimeout\\s*[:=(]\\s*[\\d_]{4,}|\\bsetTimeout\\s*\\(\\s*[\\d_]{5,}|@pytest\\.mark\\.timeout|\\bretries\\s*[:=]\\s*\\d|\\bflaky\\b",
+      "rationale": "Raising timeouts or retries can hide flaky or failing tests."
+    },
+    {
+      "id": "test-file-deleted",
+      "category": "test_removal",
+      "verdict": "suspect",
+      "scope": "path",
+      "status": "deleted",
+      "pattern": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
+      "rationale": "A test file was deleted."
+    },
+    {
+      "id": "snapshot-changed",
+      "category": "assertion_weakening",
+      "verdict": "suspect",
+      "scope": "path",
+      "pattern": "\\.snap$|/__snapshots__/",
+      "rationale": "Snapshot updates can bless wrong output."
+    },
+    {
+      "id": "gate-config-changed",
+      "category": "config_loosening",
+      "verdict": "suspect",
+      "scope": "path",
+      "pattern": "(?:^|/)(?:\\.eslintrc[^/]*|eslint\\.config\\.[^/]+|\\.?oxlint(?:rc)?[^/]*\\.(?:json|jsonc|ts|js)|oxlint\\.config\\.[^/]+|biome\\.jsonc?|tsconfig[^/]*\\.json|jsconfig\\.json|pyproject\\.toml|setup\\.cfg|tox\\.ini|\\.?ruff\\.toml|\\.flake8|mypy\\.ini|\\.pylintrc|pytest\\.ini|conftest\\.py|jest\\.config\\.[^/]+|vitest\\.config\\.[^/]+|\\.coveragerc|codecov\\.ya?ml|\\.pre-commit-config\\.ya?ml|lefthook\\.ya?ml|\\.golangci\\.ya?ml|clippy\\.toml|\\.markdownlint[^/]*|\\.github/workflows/[^/]+|\\.gitlab-ci\\.yml|\\.husky/[^/]+|package\\.json|Cargo\\.toml|Makefile|justfile)$",
+      "rationale": "Lint, type, test, coverage, CI or hook configuration changed."
+    },
+    {
+      "id": "ci-allow-failure",
+      "category": "config_loosening",
+      "verdict": "suspect",
+      "scope": "added",
+      "pattern": "continue-on-error:\\s*true|allow_failure:\\s*true",
+      "rationale": "CI steps allowed to fail."
+    },
+    {
+      "id": "gate-config-bash",
+      "category": "config_loosening",
+      "verdict": "suspect",
+      "scope": "bash",
+      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:\\.eslintrc[^/\\s]*|eslint\\.config\\.\\w+|oxlint[\\w.-]*\\.(?:json|jsonc|ts|js)|\\.oxlintrc[\\w.]*|biome\\.jsonc?|tsconfig[\\w.-]*\\.json|pyproject\\.toml|setup\\.cfg|tox\\.ini|ruff\\.toml|\\.flake8|mypy\\.ini|\\.pylintrc|pytest\\.ini|conftest\\.py|jest\\.config\\.\\w+|vitest\\.config\\.\\w+|\\.coveragerc|codecov\\.ya?ml|\\.pre-commit-config\\.ya?ml|lefthook\\.ya?ml|\\.golangci\\.ya?ml|clippy\\.toml|\\.markdownlint[\\w.-]*|\\.github/workflows/|\\.gitlab-ci\\.yml|\\.husky/)",
+      "rationale": "A mutating shell command on lint, type, test, coverage, CI or hook configuration."
+    }
+  ]
+}

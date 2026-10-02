@@ -61,7 +61,7 @@ async function fixture(): Promise<Fixture> {
 function labCase(score: number | undefined, label: string | null, extra: Partial<LabCase> = {}): LabCase {
   return {
     source: "jev-scope", id: `c${Math.random()}`, subject: "s", verdict: "yes", uncertainty: 0, state: null, answers: [],
-    labelOptions: ["overreach", "no_overreach", "uncertain"], positiveLabel: "overreach", score, label, sufficient: true, ...extra,
+    labelOptions: ["overreach", "no_overreach", "uncertain"], positiveLabel: "overreach", score, label, labelBy: label === null ? null : "human", sufficient: true, ...extra,
   };
 }
 
@@ -136,17 +136,17 @@ test("current policy version comes from the newest case; queue, progress and met
 test("scope label append uses the labelOutcome record shape, mode 0600, and rejects duplicates and missing outcomes", async () => {
   const f = await fixture();
   try {
-    await appendScopeLabel(f.paths, "r1", "overreach");
+    await appendScopeLabel(f.paths, "r1", "overreach", "human");
     const last = JSON.parse((await readFile(f.auditFile, "utf8")).trim().split("\n").at(-1) ?? "");
     assert.deepEqual(Object.keys(last).sort(), ["label", "requestId", "reviewer", "sessionFile", "sessionId", "timestamp", "type"]);
     assert.equal(last.type, "reviewer_outcome");
     assert.equal(last.reviewer, "human");
     assert.equal(last.sessionId, "s1");
     assert.equal((await stat(f.auditFile)).mode & 0o777, 0o600);
-    await assert.rejects(appendScopeLabel(f.paths, "r1", "no_overreach"), /already has a human label/);
-    await assert.rejects(appendScopeLabel(f.paths, "r333", "overreach"), /No Jev outcome/);
-    await assert.rejects(appendScopeLabel(f.paths, "nope", "overreach"), /No Jev request/);
-    await assert.rejects(appendScopeLabel(f.paths, "r4444", "maybe"), /Label must be one of/);
+    await assert.rejects(appendScopeLabel(f.paths, "r1", "no_overreach", "human"), /already has a human label/);
+    await assert.rejects(appendScopeLabel(f.paths, "r333", "overreach", "human"), /No Jev outcome/);
+    await assert.rejects(appendScopeLabel(f.paths, "nope", "overreach", "human"), /No Jev request/);
+    await assert.rejects(appendScopeLabel(f.paths, "r4444", "maybe", "human"), /Label must be one of/);
     const { cases } = await loadScopeCases(f.paths);
     assert.equal(cases.find(c => c.id === "r1")?.label, "overreach");
   } finally { await rm(f.root, { recursive: true, force: true }); }
@@ -169,13 +169,76 @@ test("policy audit decisions load with labels and labels are appended once via a
     assert.equal(cases.length, 1);
     assert.equal(cases[0]?.score, 0.97);
     assert.equal(cases[0]?.label, null);
-    await appendPolicyLabel(f.paths, "demo", written.requestId, "block", "clearly destructive");
+    await appendPolicyLabel(f.paths, "demo", written.requestId, "block", "human", "clearly destructive");
     cases = await loadPolicyCases(f.paths, "demo");
     assert.equal(cases[0]?.label, "block");
     assert.equal(cases[0]?.labelNote, "clearly destructive");
     assert.equal((await stat(join(f.paths.auditDir, "demo", "labels.jsonl"))).mode & 0o777, 0o600);
-    await assert.rejects(appendPolicyLabel(f.paths, "demo", written.requestId, "allow"), /already has a human label/);
-    await assert.rejects(appendPolicyLabel(f.paths, "demo", "missing", "allow"), /No decision/);
+    await assert.rejects(appendPolicyLabel(f.paths, "demo", written.requestId, "allow", "human"), /already has a human label/);
+    await assert.rejects(appendPolicyLabel(f.paths, "demo", "missing", "allow", "human"), /No decision/);
+  } finally {
+    if (previous === undefined) delete process.env.JEV_AUDIT_DIR; else process.env.JEV_AUDIT_DIR = previous;
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("scope labels: human beats agent, agent never overwrites, legacy reviewer-less rows are human", async () => {
+  const f = await fixture();
+  try {
+    await appendScopeLabel(f.paths, "r1", "overreach", "agent");
+    let r1 = (await loadScopeCases(f.paths)).cases.find(c => c.id === "r1");
+    assert.deepEqual([r1?.label, r1?.labelBy], ["overreach", "agent"]);
+    await assert.rejects(appendScopeLabel(f.paths, "r1", "uncertain", "agent"), /already has a label/);
+    await appendScopeLabel(f.paths, "r1", "no_overreach", "human");
+    r1 = (await loadScopeCases(f.paths)).cases.find(c => c.id === "r1");
+    assert.deepEqual([r1?.label, r1?.labelBy], ["no_overreach", "human"]);
+    // A stray later agent row (e.g. from a concurrent writer) cannot displace the human label.
+    const base = { sessionId: "s1", type: "reviewer_outcome", requestId: "r1" };
+    await appendFile(f.auditFile, JSON.stringify({ ...base, label: "overreach", reviewer: "agent" }) + "\n");
+    r1 = (await loadScopeCases(f.paths)).cases.find(c => c.id === "r1");
+    assert.deepEqual([r1?.label, r1?.labelBy], ["no_overreach", "human"]);
+    await assert.rejects(appendScopeLabel(f.paths, "r1", "uncertain", "agent"), /already has a human label/);
+
+    // Legacy rows have no reviewer field and count as human.
+    await appendFile(f.auditFile, JSON.stringify({ sessionId: "s1", type: "request", requestId: "leg", request: { state: {} } }) + "\n");
+    await appendFile(f.auditFile, JSON.stringify({ sessionId: "s1", type: "outcome", requestId: "leg", decision: { choice: "yes", probabilities: { yes: 0.9, no: 0.1 } } }) + "\n");
+    await appendFile(f.auditFile, JSON.stringify({ sessionId: "s1", type: "reviewer_outcome", requestId: "leg", label: "overreach" }) + "\n");
+    const leg = (await loadScopeCases(f.paths)).cases.find(c => c.id === "leg");
+    assert.deepEqual([leg?.label, leg?.labelBy], ["overreach", "human"]);
+    await assert.rejects(appendScopeLabel(f.paths, "leg", "uncertain", "agent"), /already has a human label/);
+    await assert.rejects(appendScopeLabel(f.paths, "leg", "uncertain", "human"), /already has a human label/);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("policy labels: human beats agent, agent never overwrites, legacy reviewer-less rows are human", async () => {
+  const f = await fixture();
+  const previous = process.env.JEV_AUDIT_DIR;
+  process.env.JEV_AUDIT_DIR = f.paths.auditDir;
+  try {
+    const decision: NewDecision = {
+      policy: "demo", policyVersion: "v1", mode: "shadow", stage: "jev", subject: "rm -rf x", verdict: "block", enforced: false,
+      labels: ["block", "allow"], state: { command: "rm -rf x" },
+      questions: { danger: { type: "noul", instructions: "Is it dangerous?" } }, answers: { danger: { type: "noul", noul: 0.97 } },
+    };
+    const first = await appendDecision(decision);
+    const second = await appendDecision(decision);
+    assert.ok(first && second);
+    const find = async (id: string) => (await loadPolicyCases(f.paths, "demo")).find(c => c.id === id);
+
+    await appendPolicyLabel(f.paths, "demo", first.requestId, "allow", "agent", "first pass");
+    assert.deepEqual([(await find(first.requestId))?.label, (await find(first.requestId))?.labelBy], ["allow", "agent"]);
+    await assert.rejects(appendPolicyLabel(f.paths, "demo", first.requestId, "block", "agent"), /already has a label/);
+    await appendPolicyLabel(f.paths, "demo", first.requestId, "block", "human");
+    assert.deepEqual([(await find(first.requestId))?.label, (await find(first.requestId))?.labelBy], ["block", "human"]);
+    await appendFile(join(f.paths.auditDir, "demo", "labels.jsonl"),
+      JSON.stringify({ type: "label", requestId: first.requestId, label: "allow", reviewer: "agent" }) + "\n");
+    assert.deepEqual([(await find(first.requestId))?.label, (await find(first.requestId))?.labelBy], ["block", "human"]);
+    await assert.rejects(appendPolicyLabel(f.paths, "demo", first.requestId, "allow", "agent"), /already has a human label/);
+
+    await appendFile(join(f.paths.auditDir, "demo", "labels.jsonl"),
+      JSON.stringify({ type: "label", requestId: second.requestId, label: "allow" }) + "\n");
+    assert.deepEqual([(await find(second.requestId))?.label, (await find(second.requestId))?.labelBy], ["allow", "human"]);
+    await assert.rejects(appendPolicyLabel(f.paths, "demo", second.requestId, "block", "agent"), /already has a human label/);
   } finally {
     if (previous === undefined) delete process.env.JEV_AUDIT_DIR; else process.env.JEV_AUDIT_DIR = previous;
     await rm(f.root, { recursive: true, force: true });
@@ -201,7 +264,15 @@ test("threshold sweep, confusion counts and progress on a fixture", () => {
   assert.equal(metrics.scored, 5);
   assert.equal(metrics.unlabelled, 1);
   assert.deepEqual(metrics.verdictByLabel.yes, { overreach: 2, no_overreach: 3, uncertain: 1, unlabelled: 1 });
-  assert.deepEqual(scopeProgress(cases, 30, 5), { proposalsReviewed: 0, proposalsTotal: 0, labelledSufficient: 6, positives: 2, minSufficient: 30, minPositive: 5, done: false });
+  assert.deepEqual(scopeProgress(cases, 30, 5), {
+    proposalsReviewed: 0, proposalsTotal: 0, labelledSufficient: 6, positives: 2, minSufficient: 30, minPositive: 5, done: false,
+    agentLabelled: 0, humanConfirmed: 6,
+  });
+  const proposal = { label: "overreach", agreement: "agreed" as const, rationale: "r", labellers: {} };
+  const withAgent = scopeProgress([
+    labCase(0.9, "overreach", { labelBy: "agent", proposal }), labCase(0.9, "overreach", { proposal }),
+  ], 30, 5);
+  assert.deepEqual([withAgent.agentLabelled, withAgent.humanConfirmed, withAgent.proposalsReviewed, withAgent.proposalsTotal], [1, 1, 1, 2]);
 });
 
 test("queue prefers unlabelled sufficient cases and spans P bands", () => {
@@ -408,7 +479,7 @@ test("nested subagent audits are discovered by the lab and summarize, keep their
       [["m1", "main", "Main", join("proj", "main")], ["s1", "sub", "EditA", join("proj", "main", "EditA")]]);
 
     // A label lands in the file holding the request, under the subagent's identity.
-    await appendScopeLabel(paths, "s1", "overreach");
+    await appendScopeLabel(paths, "s1", "overreach", "human");
     const labelled = (await readFile(join(subDir, "jev-watchdog-requests.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)).at(-1);
     assert.deepEqual([labelled.type, labelled.sessionKind, labelled.agentId, labelled.sessionFile], ["reviewer_outcome", "sub", "EditA", sub.sessionFile]);
     assert.equal((await readFile(join(mainDir, "jev-watchdog-requests.jsonl"), "utf8")).includes("reviewer_outcome"), false);

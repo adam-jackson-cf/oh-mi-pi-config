@@ -59,6 +59,7 @@ export async function loadCasesetCases(paths: LabPaths, name: string): Promise<L
     answers: [],
     labelOptions: [],
     label: null,
+    labelBy: null,
     expected: row.expected,
     note: row.note,
   }));

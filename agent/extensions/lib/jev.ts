@@ -107,19 +107,19 @@ export async function decide(apiKey: string, state: JsonValue, questions: JevQue
     return { ok: false, error: aborted ? "Jev request timed out or was cancelled." : "Jev request failed to reach OpenRouter.",
       latencyMs: Date.now() - started };
   }
-  const latencyMs = Date.now() - started;
   if (!response.ok) {
     const error = response.status === 402
       ? "OpenRouter is out of credits or at its spending limit (HTTP 402)."
       : `Jev Decisions API returned HTTP ${response.status}.`;
-    return { ok: false, error, httpStatus: response.status, latencyMs };
+    return { ok: false, error, httpStatus: response.status, latencyMs: Date.now() - started };
   }
   let parsed: z.infer<typeof decisionResponse>;
   try {
     parsed = decisionResponse.parse(await response.json());
   } catch {
-    return { ok: false, error: "Jev returned an invalid decision response.", latencyMs };
+    return { ok: false, error: "Jev returned an invalid decision response.", latencyMs: Date.now() - started };
   }
+  const latencyMs = Date.now() - started;
   const resolvedModel = /^[\w./~-]{1,120}$/.test(parsed.model) ? parsed.model : "invalid-model-identifier";
   if (resolvedModel !== JEV_PINNED_MODEL) {
     return { ok: false, error: "Jev resolved to an unexpected model version; re-evaluate before trusting it.",
@@ -192,7 +192,7 @@ export function policyMode(modes: Record<string, PolicyMode>, policy: string, fa
 }
 
 export type AgentKind = "main" | "sub";
-export type DecisionStage = "deterministic" | "jev" | "jev_error" | "skipped";
+type DecisionStage = "deterministic" | "jev" | "jev_error" | "skipped";
 
 /** One policy decision; the workbench (`~/.omp/jev-lab`) reads and labels these. */
 export type DecisionRecord = {
@@ -214,9 +214,10 @@ export type DecisionRecord = {
   /** Label vocabulary offered to the human reviewer for this record. */
   labels: string[];
 };
+export type LabelReviewer = "human" | "agent";
 export type LabelRecord = {
   schema: 1; type: "label"; timestamp: string; requestId: string; policy: string;
-  label: string; reviewer: "human"; note?: string;
+  label: string; reviewer: LabelReviewer; note?: string;
 };
 export type NewDecision = Omit<DecisionRecord, "schema" | "type" | "timestamp" | "requestId">;
 

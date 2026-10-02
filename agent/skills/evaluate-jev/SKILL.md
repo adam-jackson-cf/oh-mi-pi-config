@@ -1,8 +1,9 @@
 ---
 name: "evaluate-jev"
 description:
-  "USE WHEN reviewing Jev watchdog or Jev policy decision logs, or assessing how a Jev advisor
-  (scope review, guard, subagent routing, jev_ask) performed."
+  "USE WHEN reviewing Jev watchdog or Jev policy decision logs, assessing how a Jev advisor (scope
+  review, guard, subagent routing, jev_ask) performed, or running/inspecting the guard.integrity
+  integrity maintainer (weekly rule-maintenance loop)."
 ---
 
 # Evaluate Jev Decisions
@@ -43,6 +44,32 @@ Metrics view) for counts, verdict × label tables and threshold sweeps, and
 `references/policies.md` for each policy's rules, thresholds, label vocabulary and promotion
 experiment. Report shadow decisions that disagree with a label, grouped by stage (`deterministic`
 rule vs `jev`), because the fix differs: rules are edited, Jev thresholds are re-chosen.
+
+## Integrity maintainer
+
+The `guard.integrity` rules (`agent/integrity/rules.json`) and regression fixtures
+(`agent/integrity/fixtures.json`) are kept current by an autonomous weekly loop. Policy semantics
+are in `references/policies.md`. Scripts live in `scripts/`:
+
+- `integrity-mine.ts --since <ISO> --out <dir>`: finds bash commands and committed file changes the
+  rules missed (Jev-scored), commits made without a guard check, escalation stats and
+  gate-masking counts; writes `candidates.json` and `digest.md` (secrets masked).
+- `integrity-regress.ts [--base <ref>] [--scope-check] [--json <out>]`: the deterministic merge gate
+  (append-only fixtures, legit never `certain`, routed hacks stay routed, only the two data files
+  change). Run it before trusting any rule edit.
+- `integrity-maintain.sh [--since <ISO>] [--dry-run]`: mine, propose (Opus, worktree from
+  `origin/main`), regress, verify (independent session, GPT-6.1 Sol by default), open a PR,
+  self-merge when regress and verifier both pass, then write the two data files into `~/.omp` from
+  `origin/main`. Otherwise the PR is left as a draft titled `[blocked]`. Never deploys on failure.
+- `install-integrity-schedule.sh [--uninstall]`: launchd job, Mondays 09:00 local.
+
+Prompts: `references/integrity-maintainer.md` (proposer), `references/integrity-verifier.md`
+(verifier). Each run's evidence is in `~/.omp/agent/jev-audit/guard.integrity/runs/<UTC stamp>/`
+(`digest.md`, `candidates.json`, `pr-body.md`, `proposal.diff`, `regress.md`, `verdict.json`,
+logs); `maintainer.log` has one line per run and `maintainer-state.json` the last successful
+window. To audit the loop, read the newest run's digest and verdict, check merged PRs titled
+`chore(integrity): …`, and report any approved rule that later fired on legitimate work. Do not
+edit rules or fixtures yourself during evaluation; report recommendations.
 
 ## Notes
 

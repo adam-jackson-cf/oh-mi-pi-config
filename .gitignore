@@ -42,6 +42,10 @@ agent/*
 !agent/config.yml
 !agent/lsp.json
 !agent/jev-policies.json
+!agent/integrity/
+agent/integrity/*
+!agent/integrity/rules.json
+!agent/integrity/fixtures.json
 
 !agent/skills/
 agent/skills/*
@@ -64,32 +68,32 @@ agent/agents/*
 !agent/agents/innovation-challenger.md
 !agent/agents/innovation-council.md
 !agent/agents/kiss.md
+!agent/agents/operator.md
 !agent/agents/plan-judge.md
 !agent/agents/test-judge.md
 
 !agent/extensions/
 agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
-!agent/extensions/agent-introspection.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/jev-watchdog.ts
 !agent/extensions/jev-guard.ts
-!agent/extensions/jev-subagent-policy.ts
 !agent/extensions/jev-ask.ts
 !agent/extensions/lib/
 agent/extensions/lib/*
 !agent/extensions/lib/jev.ts
 !agent/extensions/lib/jev-auth.ts
+!agent/extensions/lib/integrity.ts
 
 
 !tests/
 tests/*
 !tests/agent-autocomplete.test.ts
-!tests/jev-watchdog.test.ts
 !tests/jev-guard.test.ts
-!tests/jev-subagent-policy.test.ts
+!tests/jev-watchdog.test.ts
 !tests/jev-ask.test.ts
 !tests/jev-lab.test.ts
+!tests/jev-integrity.test.ts
 
 # Jev lab: workbench source is owned; upstream clone, case sets and runs are runtime-only.
 !jev-lab/

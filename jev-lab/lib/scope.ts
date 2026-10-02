@@ -2,7 +2,8 @@ import { constants } from "node:fs";
 import { open, readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import { binaryUncertainty, jsonValue, LabError, type LabCase, type LabPaths } from "./types";
+import type { LabelReviewer } from "../../agent/extensions/lib/jev";
+import { binaryUncertainty, foldLabel, jsonValue, LabError, type EffectiveLabel, type LabCase, type LabPaths } from "./types";
 
 export const SCOPE_SOURCE = "jev-scope";
 export const SCOPE_LABELS = ["overreach", "no_overreach", "uncertain"];
@@ -22,6 +23,7 @@ const line = z.object({
   sessionKind: z.enum(["main", "sub"]).optional(),
   agentId: z.string().optional(),
   label: z.string().optional(),
+  reviewer: z.enum(["human", "agent"]).optional(),
   request: z.object({
     model: z.string().optional(),
     state: jsonValue.optional(),
@@ -84,10 +86,14 @@ export async function loadScopeCases(paths: LabPaths): Promise<ScopeIndex> {
     const parsed = await readLines(join(paths.sessionsDir, rel));
     malformed += parsed.malformed;
     const outcomes = new Map(parsed.rows.filter(r => r.type === "outcome" && r.requestId).map(r => [r.requestId, r]));
-    const labels = new Map(parsed.rows.filter(r => r.type === "reviewer_outcome" && r.requestId).map(r => [r.requestId, r.label]));
+    const labels = new Map<string, EffectiveLabel>();
+    for (const row of parsed.rows) {
+      if (row.type !== "reviewer_outcome" || !row.requestId || !row.label) continue;
+      labels.set(row.requestId, foldLabel(labels.get(row.requestId), { label: row.label, by: row.reviewer ?? "human" }));
+    }
     for (const request of parsed.rows) {
       if (request.type !== "request" || !request.requestId) continue;
-      cases.push(toCase(paths, request, outcomes.get(request.requestId), labels.get(request.requestId) ?? null, rel));
+      cases.push(toCase(paths, request, outcomes.get(request.requestId), labels.get(request.requestId), rel));
     }
   }
   return { cases, malformed };
@@ -116,7 +122,7 @@ export function casesForVersion(cases: LabCase[], requested: string): LabCase[] 
   return target === null ? cases : cases.filter(c => (c.policyVersion ?? UNVERSIONED) === target);
 }
 
-function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label: string | null, rel: string): LabCase {
+function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label: EffectiveLabel | undefined, rel: string): LabCase {
   const state = request.request?.state ?? null;
   const view = stateView.safeParse(state);
   const context = view.success ? view.data.task_context ?? {} : {};
@@ -152,15 +158,17 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
     transcriptPath: request.sessionFile ?? join(paths.sessionsDir, rel.replace(/\/jev-watchdog-requests\.jsonl$/, ".jsonl")),
     labelOptions: SCOPE_LABELS,
     positiveLabel: SCOPE_POSITIVE,
-    label,
+    label: label?.label ?? null,
+    labelBy: label?.by ?? null,
   };
 }
 
 /**
- * Append a human `reviewer_outcome` to the session audit with the exact fields
- * `labelOutcome` writes. Rejects a missing outcome or an already-labelled request.
+ * Append a `reviewer_outcome` to the session audit with the exact fields `labelOutcome` writes.
+ * A human label is final; an agent label is a first pass a human may replace and no later agent
+ * label may overwrite. Rejects a missing outcome.
  */
-export async function appendScopeLabel(paths: LabPaths, requestId: string, label: string): Promise<void> {
+export async function appendScopeLabel(paths: LabPaths, requestId: string, label: string, reviewer: LabelReviewer): Promise<void> {
   if (!SCOPE_LABELS.includes(label)) throw new LabError(`Label must be one of ${SCOPE_LABELS.join(", ")}.`, 400);
   for (const rel of await scopeAuditFiles(paths.sessionsDir)) {
     const file = join(paths.sessionsDir, rel);
@@ -170,9 +178,14 @@ export async function appendScopeLabel(paths: LabPaths, requestId: string, label
     if (!rows.some(r => r.type === "outcome" && r.requestId === requestId)) {
       throw new LabError("No Jev outcome with that request ID in this session audit.", 409);
     }
-    if (rows.some(r => r.type === "reviewer_outcome" && r.requestId === requestId)) {
-      throw new LabError("This Jev outcome already has a human label.", 409);
+    let existing: EffectiveLabel | undefined;
+    for (const row of rows) {
+      if (row.type === "reviewer_outcome" && row.requestId === requestId && row.label) {
+        existing = foldLabel(existing, { label: row.label, by: row.reviewer ?? "human" });
+      }
     }
+    if (existing?.by === "human") throw new LabError("This Jev outcome already has a human label.", 409);
+    if (existing && reviewer === "agent") throw new LabError("This Jev outcome already has a label.", 409);
     const handle = await open(file, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
     try {
       await handle.chmod(0o600);
@@ -180,7 +193,7 @@ export async function appendScopeLabel(paths: LabPaths, requestId: string, label
         timestamp: new Date().toISOString(),
         sessionId: request.sessionId, sessionFile: request.sessionFile,
         sessionKind: request.sessionKind, agentId: request.agentId,
-        type: "reviewer_outcome", requestId, label, reviewer: "human",
+        type: "reviewer_outcome", requestId, label, reviewer,
       }) + "\n");
     } finally {
       await handle.close();

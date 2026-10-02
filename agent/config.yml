@@ -3,13 +3,13 @@ theme:
   light: light
 setupVersion: 2
 extensions:
+  - ~/.omp/agent/extensions/agent-introspection-activity.ts
   - ~/.omp/agent/extensions/enable-command-centre.ts
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/codex-quota-gate.ts
   - ~/.omp/agent/extensions/jev-watchdog.ts
   - ~/.omp/agent/extensions/jev-guard.ts
-  - ~/.omp/agent/extensions/jev-subagent-policy.ts
   - ~/.omp/agent/extensions/jev-ask.ts
 modelRoles:
   plan: anthropic/claude-opus-5-5:medium
@@ -17,21 +17,22 @@ modelRoles:
   smol: openai-codex/gpt-6-luna:low
   task: anthropic/claude-sonnet-5-5:low
   tiny: openai-codex/gpt-6-luna:low
-  designer: anthropic/claude-opus-5-5:medium
+  designer: anthropic/claude-sonnet-5-5:medium
   advisor: openai-codex/gpt-6-astra:low
   commit: openai-codex/gpt-6-luna:low
-  vision: anthropic/claude-sonnet-5-5:low
-  completionist: openai-codex/gpt-6-sol:medium
+  vision: openai-codex/gpt-6.1-sol:low
+  completionist: openai-codex/gpt-6.1-sol:low
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   experiment-design: anthropic/claude-fable-5-1:high
   experiment-peer: anthropic/claude-opus-5-5:high
-  plan-judge: openai-codex/gpt-6-sol:medium
-  reviewer: openai-codex/gpt-6-sol:medium
-  test-judge: openai-codex/gpt-6-sol:medium
-  kiss: openai-codex/gpt-6-sol:medium
+  plan-judge: openai-codex/gpt-6.1-sol:low
+  reviewer: openai-codex/gpt-6.1-sol:low
+  test-judge: openai-codex/gpt-6.1-sol:low
+  kiss: openai-codex/gpt-6.1-sol:low
+  operator: openai-codex/gpt-6.1-sol:low
   web: openai-codex/gpt-6-luna
-  default: anthropic/claude-opus-5-5
+  default: anthropic/claude-opus-5-5:medium
 advisor:
   enabled: true
   syncBacklog: "1"

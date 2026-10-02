@@ -12,7 +12,7 @@
  * moment you need the code itself, and to grep/lsp/codegraph for exact symbols or text.
  */
 import { createHash } from "node:crypto";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -86,6 +86,12 @@ function inWorkspace(cwd: string, abs: string): boolean {
   return rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
 }
 
+/** True when the symlink-resolved path stays inside the real workspace root. */
+async function realInside(realRoot: string, abs: string): Promise<boolean> {
+  const real = await realpath(abs).catch(() => undefined);
+  return real !== undefined && inWorkspace(realRoot, real);
+}
+
 function ignoredSegment(rel: string): string | undefined {
   const parts = rel.split("/");
   const at = parts.findIndex((part, index) => index < parts.length - 1 && IGNORED_DIRS.has(part));
@@ -125,6 +131,7 @@ async function expandGlob(cwd: string, pattern: string, out: Candidate[], skippe
 export async function expandPaths(cwd: string, paths: string[]): Promise<{ files: Candidate[]; skipped: Skip[] }> {
   const found: Candidate[] = [];
   const skipped: Skip[] = [];
+  const realRoot = await realpath(cwd).catch(() => cwd);
   for (const input of paths) {
     const abs = resolve(cwd, input);
     const globbed = GLOB_CHARS.test(input);
@@ -135,12 +142,18 @@ export async function expandPaths(cwd: string, paths: string[]): Promise<{ files
     } else {
       const info = await stat(abs).catch(() => undefined);
       if (!info) skipped.push({ path: input, reason: "not found" });
+      else if (!(await realInside(realRoot, abs))) skipped.push({ path: input, reason: "outside the workspace" });
       else if (info.isDirectory()) await walk(cwd, abs, found, skipped);
       else found.push({ path: relative(cwd, abs), abs });
     }
   }
+  const contained: Candidate[] = [];
+  for (const file of found) {
+    if (await realInside(realRoot, file.abs)) contained.push(file);
+    else skipped.push({ path: file.path, reason: "outside the workspace" });
+  }
   const seen = new Set<string>();
-  const files = found.filter((file) => !seen.has(file.path) && seen.add(file.path));
+  const files = contained.filter((file) => !seen.has(file.path) && seen.add(file.path));
   if (files.length > MAX_FILES) {
     for (const extra of files.slice(MAX_FILES)) skipped.push({ path: extra.path, reason: `over the ${MAX_FILES}-file cap` });
     files.length = MAX_FILES;

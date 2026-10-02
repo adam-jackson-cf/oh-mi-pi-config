@@ -14,16 +14,22 @@ recommendation, not a silent edit.
 
 - Main orchestration, ideation, planning (`default`, `plan`, `slow`): Claude Opus (current: 5.5);
   reasoning ≤ medium.
-- Design (`designer`): Claude Opus; reasoning ≤ medium.
-- Code review (`reviewer`): a different family from the `task` author (current: GPT-6 Sol `medium`,
-  owner decision 2026-09-28 once `task` moved to Sonnet); Opus/Astra would stay ≤ medium.
+- Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
+  reasoning ≤ medium.
+- Code review (`reviewer`): an independent session with none of the author's context; same family
+  is fine; prefer GPT Sol (current: GPT-6.1 Sol `low`, owner decision 2026-09-30; independence rule
+  owner decision 2026-10-02).
 - Implementation with a fixed plan or todo list (`task`): Claude Sonnet (current: Sonnet 5.5, owner
-  decision 2026-09-28 after Sonnet `low` scored 9/9 vs GPT-6 Luna `medium` 6/9 on the hard fixed-plan
-  set); reasoning the lowest effort the fixed-plan experiment shows sufficient (`low`).
+  decision 2026-09-30 for Sonnet's ~10× shorter wall time over GPT-6.1 Sol and, at the time,
+  split-family review, which is no longer required); reasoning the lowest effort the fixed-plan
+  experiment shows sufficient (`low`).
+- Image reading (`vision`) and browser/computer use (`operator` agent): GPT Sol (current: GPT-6.1
+  Sol `low`, owner decision 2026-09-30).
 - Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`, `scout`): GPT Luna; reasoning
   lowest effort.
-- Judging Opus plans and Sonnet/Luna output (`plan-judge`, `test-judge`, `completionist`, `kiss`):
-  a different family from the author (current: GPT-6 Sol); reasoning as needed.
+- Judging plans and output (`plan-judge`, `test-judge`, `completionist`, `kiss`): an independent
+  session; prefer GPT Sol, same family as the author allowed (current: GPT-6.1 Sol `low`, owner
+  decision 2026-09-30); reasoning as needed.
 - Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.
