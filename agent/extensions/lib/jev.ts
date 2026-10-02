@@ -24,7 +24,10 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-export type NoulQuestion = { type: "noul"; instructions: string; criteria?: { true?: string; false?: string } };
+/** Structured forms per docs.typesafe.ai: a question with optional focus, criteria with what / not_for / examples. */
+export type JevInstructions = string | { question: string; focus?: string };
+export type JevCriterion = string | { what: string; not_for?: string; examples?: string[] };
+export type NoulQuestion = { type: "noul"; instructions: JevInstructions; criteria?: { true?: JevCriterion; false?: JevCriterion } };
 export type ChoiceQuestion = { type: "choice"; instructions: string; criteria: Record<string, string | null> };
 export type ScoreQuestion = { type: "score"; instructions: string; criteria: string[] };
 export type JevQuestion = NoulQuestion | ChoiceQuestion | ScoreQuestion;
@@ -57,6 +60,7 @@ export type JevResult = JevSuccess | JevFailure;
 export type JevRequestOptions = { signal?: AbortSignal; timeoutMs?: number };
 
 const QUESTION_ID = /^[a-z][a-z0-9_]{0,63}$/;
+const instructionsSchema = z.union([z.string().trim().min(1), z.object({ question: z.string().trim().min(1), focus: z.string().optional() })]);
 
 /** Rejects malformed question blocks before any network call; these are programmer errors. */
 export function validateQuestions(questions: JevQuestions): void {
@@ -64,7 +68,7 @@ export function validateQuestions(questions: JevQuestions): void {
   if (entries.length === 0) throw new Error("Jev needs at least one question.");
   for (const [id, question] of entries) {
     if (!QUESTION_ID.test(id)) throw new Error(`Jev question id "${id}" must match ${QUESTION_ID}.`);
-    if (!question.instructions.trim()) throw new Error(`Jev question "${id}" has empty instructions.`);
+    if (!instructionsSchema.safeParse(question.instructions).success) throw new Error(`Jev question "${id}" has empty instructions.`);
     if (question.type === "choice") {
       const options = Object.keys(question.criteria);
       if (options.length < 2 || options.length > 255) throw new Error(`Jev choice "${id}" needs 2-255 options.`);

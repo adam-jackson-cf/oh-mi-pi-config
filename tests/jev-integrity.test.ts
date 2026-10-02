@@ -1,30 +1,30 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { commitPlans, createJevGuard, INTEGRITY_POLICY, INTEGRITY_SUSPECT_POLICY } from "../agent/extensions/jev-guard.ts";
-import { fixtureMatches, parseFixtures, parseRules, parseUnifiedDiff, routeOf } from "../agent/extensions/lib/integrity.ts";
-import { JEV_PINNED_MODEL, type DecisionRecord, type JevQuestions, type PolicyMode } from "../agent/extensions/lib/jev.ts";
+import { fixtureMatches, p1Allows, parseFixtures, parseRules, parseUnifiedDiff, routeOf } from "../agent/extensions/lib/integrity.ts";
+import { JEV_PINNED_MODEL, type DecisionRecord, type JevQuestions, type JsonValue, type PolicyMode } from "../agent/extensions/lib/jev.ts";
 
 const RULES_DIR = join(import.meta.dir, "..", "agent", "integrity");
 let root = "";
 let repo = "";
 let auditDir = "";
 let policiesFile = "";
-const saved = { audit: process.env.JEV_AUDIT_DIR, policies: process.env.JEV_POLICIES_FILE, dir: process.env.JEV_INTEGRITY_DIR,
-  maintainer: process.env.JEV_INTEGRITY_MAINTAINER };
+const saved = { audit: process.env.JEV_AUDIT_DIR, policies: process.env.JEV_POLICIES_FILE, dir: process.env.JEV_INTEGRITY_DIR };
 
 before(() => {
-  root = mkdtempSync(join(tmpdir(), "jev-integrity-"));
+  // Not under the OS temp dir: the hack policy treats /tmp and /var/folders work as scratch and never escalates it.
+  // `tests/*` is gitignored, so a crashed run leaves nothing committable.
+  root = mkdtempSync(join(import.meta.dir, ".jev-integrity-"));
   auditDir = join(root, "audit");
   policiesFile = join(root, "policies.json");
   process.env.JEV_AUDIT_DIR = auditDir;
   process.env.JEV_POLICIES_FILE = policiesFile;
   process.env.JEV_INTEGRITY_DIR = RULES_DIR;
-  delete process.env.JEV_INTEGRITY_MAINTAINER;
 });
 after(() => {
   const restore = (name: string, value: string | undefined) => {
@@ -34,7 +34,6 @@ after(() => {
   restore("JEV_AUDIT_DIR", saved.audit);
   restore("JEV_POLICIES_FILE", saved.policies);
   restore("JEV_INTEGRITY_DIR", saved.dir);
-  restore("JEV_INTEGRITY_MAINTAINER", saved.maintainer);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -56,9 +55,12 @@ type ToolInput = { command?: string; path?: string; content?: string };
 type Outcome = { block?: boolean; reason?: string } | undefined;
 type FakeEvent = { type: string; toolName: string; input: ToolInput };
 type Handler = (event: FakeEvent, ctx: ExtensionContext) => Promise<Outcome>;
-type JevRequestBody = { questions: JevQuestions };
+type JevRequestBody = { state: JsonValue; questions: JevQuestions };
+/** Jev's noul for one question id given the serialized state it was sent. */
+type Answerer = (id: string, state: string) => number;
 type Harness = { call: (toolName: string, input: ToolInput, ctx?: ExtensionContext) => Promise<Outcome>; jevCalls: () => number;
   idle: () => Promise<void> };
+const fixed = (answers: Record<string, number>): Answerer => (id) => answers[id] ?? 0;
 
 function makeCtx(kind: "main" | "sub", hasUI: boolean, confirms: string[] = [], approve = false): ExtensionContext {
   // SAFETY: tests provide only the context members the extension reads.
@@ -70,7 +72,7 @@ function makeCtx(kind: "main" | "sub", hasUI: boolean, confirms: string[] = [], 
   });
 }
 
-async function withGuard(mode: PolicyMode, noul: number, run: (h: Harness) => Promise<void>, suspectMode: PolicyMode = mode): Promise<void> {
+async function withGuard(mode: PolicyMode, answer: Answerer, run: (h: Harness) => Promise<void>, suspectMode: PolicyMode = mode): Promise<void> {
   rmSync(auditDir, { recursive: true, force: true });
   writeFileSync(policiesFile, JSON.stringify({ [INTEGRITY_POLICY]: mode, [INTEGRITY_SUSPECT_POLICY]: suspectMode,
     "guard.bash": "off", "guard.write": "off", "guard.result": "off" }));
@@ -78,9 +80,9 @@ async function withGuard(mode: PolicyMode, noul: number, run: (h: Harness) => Pr
   let calls = 0;
   globalThis.fetch = Object.assign(async (_url: URL | RequestInfo, init?: RequestInit) => {
     calls++;
-    // SAFETY: the Jev client always sends a JSON body with a `questions` block.
-    const { questions } = JSON.parse(String(init?.body)) as JevRequestBody;
-    const answers = Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul }]));
+    // SAFETY: the Jev client always sends a JSON body with `state` and `questions`.
+    const { state, questions } = JSON.parse(String(init?.body)) as JevRequestBody;
+    const answers = Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul: answer(id, JSON.stringify(state)) }]));
     return new Response(JSON.stringify({ id: "resp_1", model: JEV_PINNED_MODEL, usage: { input_tokens: 10, output_tokens: 1, cost: 0.00001 }, answers }),
       { status: 200 });
   }, { preconnect: realFetch.preconnect });
@@ -145,16 +147,26 @@ test("diff parser: statuses, renames and hunk lines that look like headers", () 
   assert.deepEqual(changes[1]?.added, ["+++ an added line starting with pluses"]);
 });
 
-test("commit plans: cd, git -C, same-command staging and -a", () => {
+test("commit plans: cd, git -C, global options, same-command staging and -a", () => {
   assert.deepEqual(commitPlans("cd sub && git add -A && git commit -m 'x -a'", "/r"), [{ repoDir: "/r/sub", stagesInCommand: true, allTracked: false }]);
   assert.deepEqual(commitPlans("git -C /other commit -am fix", "/r"), [{ repoDir: "/other", stagesInCommand: false, allTracked: true }]);
+  assert.deepEqual(commitPlans("git -c user.email=t@e -c user.name=t -C a -C b commit -m x", "/r"), [{ repoDir: "/r/a/b", stagesInCommand: false, allTracked: false }]);
   assert.deepEqual(commitPlans("git commit -C HEAD --amend", "/r"), [{ repoDir: "/r", stagesInCommand: false, allTracked: false }]);
-  assert.deepEqual(commitPlans("git status && git log", "/r"), []);
+  assert.deepEqual(commitPlans("git status && git log -c", "/r"), []);
+});
+
+test("P1 allows rule-coded line directives except escape-hatch codes and file-level forms", () => {
+  assert.equal(p1Allows("import helper  # noqa: E402"), true);
+  assert.equal(p1Allows("// eslint-disable-next-line no-await-in-loop"), true);
+  assert.equal(p1Allows("// eslint-disable-next-line @typescript-eslint/no-explicit-any"), false);
+  assert.equal(p1Allows("#[allow(dead_code)]"), false);
+  assert.equal(p1Allows("#![allow(clippy::needless_return)]"), false);
+  assert.equal(p1Allows("x = 1  # type: ignore"), false);
 });
 
 test("enforce: a certain hook bypass blocks a subagent and tells it to escalate, without asking Jev", async () => {
   freshRepo();
-  await withGuard("enforce", 0, async (h) => {
+  await withGuard("enforce", fixed({}), async (h) => {
     const outcome = await h.call("bash", { command: "git commit --no-verify -m wip" });
     assert.equal(outcome?.block, true);
     assert.match(outcome?.reason ?? "", /git-no-verify[\s\S]*orchestrator, which asks the user/);
@@ -164,25 +176,59 @@ test("enforce: a certain hook bypass blocks a subagent and tells it to escalate,
   assert.equal(checked?.verdict, "block");
 });
 
-test("enforce: a staged suspect suppression escalates only when Jev rates it a violation", async () => {
+test("enforce: a staged blanket suppression escalates when Jev finds it live and unexplained, not when a reason is stated", async () => {
   freshRepo();
   writeFileSync(join(repo, "app.py"), "def total(items):  # noqa\n    return sum(items)\n");
   git("add", "app.py");
-  await withGuard("enforce", 0.9, async (h) => {
+  await withGuard("enforce", fixed({ d_live: 0.9 }), async (h) => {
     const outcome = await h.call("bash", { command: "git commit -m 'tidy'" });
     assert.equal(outcome?.block, true);
-    assert.match(outcome?.reason ?? "", /py-suppress \(suppression\)[\s\S]*Jev suppression 0\.90/);
+    assert.match(outcome?.reason ?? "", /py-suppress \(suppression\)[\s\S]*Jev directive: d_live 0\.90, s_reason_stated 0\.00/);
   });
-  await withGuard("enforce", 0.1, async (h) => {
+  assert.equal(records().find((r) => r.rule === "commit-checked")?.verdict, "block");
+  await withGuard("enforce", fixed({ d_live: 0.9, s_reason_stated: 0.8 }), async (h) => {
     assert.equal(await h.call("bash", { command: "git commit -m 'tidy'" }), undefined);
     assert.equal(h.jevCalls(), 1);
+  });
+});
+
+test("enforce: a rule-coded line suppression is allowed (P1), and Jev's state carries no user request", async () => {
+  freshRepo();
+  writeFileSync(join(repo, "app.py"), "import sys\nsys.path.insert(0, 'lib')\nimport helper  # noqa: E402\n");
+  git("add", "app.py");
+  let judged = "";
+  await withGuard("enforce", (id, state) => { judged = state; return id === "d_live" ? 0.9 : 0; }, async (h) => {
+    assert.equal(await h.call("bash", { command: "git commit -m 'helper'" }), undefined);
+    assert.equal(h.jevCalls(), 1);
+  });
+  assert.doesNotMatch(judged, /user_request/);
+});
+
+test("enforce: a blanket suppression added after a rule-coded one is still judged and escalates", async () => {
+  freshRepo();
+  writeFileSync(join(repo, "app.py"), "import sys  # noqa: E402\nx = 1  # type: ignore\n");
+  git("add", "app.py");
+  let judged = "";
+  await withGuard("enforce", (id, state) => { judged = state; return id === "d_live" ? 0.9 : 0; }, async (h) => {
+    assert.equal((await h.call("bash", { command: "git commit -m 'lines'" }))?.block, true);
+  });
+  assert.match(judged, /"matched_line":"x = 1  # type: ignore"/);
+});
+
+test("enforce: SKIP= on a manual pre-commit run is not a bypass (P2); a deselected run Jev calls final is", async () => {
+  freshRepo();
+  await withGuard("enforce", fixed({ g_bypass_final: 0.9 }), async (h) => {
+    assert.equal(await h.call("bash", { command: "SKIP=terraform_fmt pre-commit run --all-files" }), undefined);
+    const deselected = await h.call("bash", { command: "pytest --deselect tests/test_api.py::test_retry" });
+    assert.equal(deselected?.block, true);
+    assert.match(deselected?.reason ?? "", /pytest-deselect[\s\S]*Jev bypass: g_bypass_final 0\.90/);
   });
 });
 
 test("enforce: files staged by the same command are screened, including untracked ones", async () => {
   freshRepo();
   writeFileSync(join(repo, "test_cart.py"), "import pytest\n\n@pytest.mark.skip\ndef test_cart():\n    assert False\n");
-  await withGuard("enforce", 0.8, async (h) => {
+  await withGuard("enforce", fixed({}), async (h) => {
     const outcome = await h.call("bash", { command: "git add -A && git commit -m cart" });
     assert.equal(outcome?.block, true);
     assert.match(outcome?.reason ?? "", /test_cart\.py: test-skip-marker/);
@@ -192,7 +238,7 @@ test("enforce: files staged by the same command are screened, including untracke
 test("enforce: the main agent asks the user; a declined change is re-blocked without asking again", async () => {
   freshRepo();
   const confirms: string[] = [];
-  await withGuard("enforce", 0, async (h) => {
+  await withGuard("enforce", fixed({}), async (h) => {
     const ctx = makeCtx("main", true, confirms, false);
     const first = await h.call("bash", { command: "HUSKY=0 git commit -m x" }, ctx);
     assert.match(first?.reason ?? "", /The user declined/);
@@ -210,7 +256,7 @@ test("enforce: once the user approves editing a guard file, later edits to that 
   const policies = join(homedir(), ".omp", "agent", "jev-policies.json");
   const guardFile = join(homedir(), ".omp", "agent", "extensions", "jev-guard.ts");
   const confirms: string[] = [];
-  await withGuard("enforce", 0, async (h) => {
+  await withGuard("enforce", fixed({}), async (h) => {
     assert.equal(await h.call("write", { path: policies, content: "{}" }, makeCtx("main", true, confirms, true)), undefined);
     assert.equal(await h.call("write", { path: policies, content: "{ }" }, makeCtx("main", true, confirms, false)), undefined);
     assert.equal(confirms.length, 1);
@@ -220,26 +266,37 @@ test("enforce: once the user approves editing a guard file, later edits to that 
   });
 });
 
-test("enforce: editing the guard escalates; the maintainer may edit only the rules data", async () => {
+test("enforce: changing the live guard or rules escalates; a worktree copy of the rules matches no rule", async () => {
   freshRepo();
   const policies = join(homedir(), ".omp", "agent", "jev-policies.json");
   const rulesPath = join(homedir(), ".omp", "agent", "integrity", "rules.json");
-  await withGuard("enforce", 0, async (h) => {
+  const regressPath = join(homedir(), ".omp", "agent", "integrity", "regress.ts");
+  await withGuard("enforce", fixed({}), async (h) => {
     assert.equal((await h.call("write", { path: policies, content: "{}" }))?.block, true);
-    process.env.JEV_INTEGRITY_MAINTAINER = "1";
-    try {
-      assert.equal(await h.call("write", { path: rulesPath, content: "{}" }), undefined);
-      assert.equal((await h.call("write", { path: policies, content: "{}" }))?.block, true);
-    } finally {
-      delete process.env.JEV_INTEGRITY_MAINTAINER;
-    }
     assert.equal((await h.call("write", { path: rulesPath, content: "{}" }))?.block, true);
+    assert.equal((await h.call("write", { path: regressPath, content: "x" }))?.block, true);
+    assert.equal(await h.call("write", { path: join(repo, "agent", "integrity", "rules.json"), content: "{}" }), undefined);
+  });
+});
+
+test("enforce: reading the maintainer's files asks the user once per path; a subagent is blocked", async () => {
+  freshRepo();
+  const prompt = join(homedir(), ".omp", "integrity-maintainer", "references", "integrity-maintainer.md");
+  const confirms: string[] = [];
+  await withGuard("enforce", fixed({}), async (h) => {
+    const sub = await h.call("read", { path: `${prompt}:1-20` });
+    assert.match(sub?.reason ?? "", /maintainer-read/);
+    assert.equal(await h.call("grep", { path: join(homedir(), ".omp", "agent") }), undefined);
+    assert.equal(await h.call("read", { path: `${prompt}:1-20` }, makeCtx("main", true, confirms, true)), undefined);
+    assert.equal(await h.call("read", { path: `${prompt}:1-20` }, makeCtx("main", true, confirms, false)), undefined);
+    assert.equal(confirms.length, 1);
+    assert.equal((await h.call("bash", { command: "cat ~/.omp/integrity-maintainer/scripts/integrity-maintain.sh" }))?.block, true);
   });
 });
 
 test("shadow: findings are recorded but nothing is blocked", async () => {
   freshRepo();
-  await withGuard("shadow", 0.9, async (h) => {
+  await withGuard("shadow", fixed({}), async (h) => {
     assert.equal(await h.call("bash", { command: "git commit -n -m wip" }), undefined);
     assert.equal(await h.call("bash", { command: "bun test 2>&1 | tail -5" }), undefined);
     await h.idle();
@@ -254,7 +311,7 @@ test("enforce with the Jev tier in shadow: certain matches still escalate, Jev-j
   freshRepo();
   writeFileSync(join(repo, "app.py"), "def total(items):  # noqa\n    return sum(items)\n");
   git("add", "app.py");
-  await withGuard("enforce", 0.9, async (h) => {
+  await withGuard("enforce", fixed({ d_live: 0.9 }), async (h) => {
     assert.equal(await h.call("bash", { command: "git commit -m 'tidy'" }), undefined);
     assert.equal((await h.call("bash", { command: "git commit --no-verify -m tidy" }))?.block, true);
     await h.idle();

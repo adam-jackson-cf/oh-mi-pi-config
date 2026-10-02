@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Deterministic merge gate for the guard.integrity rule and fixture files.
-// Usage: bun integrity-regress.ts [--base <ref>] [--scope-check] [--json <out>]
+// Usage: bun agent/integrity/regress.ts [--base <ref>] [--scope-check] [--json <out>]  (run from the repo root)
 // Exit 0 = every check passed, 1 = at least one failure (listed in the table output).
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
   fixtureMatches, parseFixtures, parseRules, routeOf,
   type CompiledRule, type IntegrityFixture, type Route,
-} from "../../../extensions/lib/integrity.ts";
+} from "../extensions/lib/integrity.ts";
 
 const RULES_PATH = "agent/integrity/rules.json";
 const FIXTURES_PATH = "agent/integrity/fixtures.json";

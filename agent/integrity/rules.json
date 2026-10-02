@@ -1,5 +1,5 @@
 {
-  "$comment": "Integrity guard rules (policy guard.integrity). Changed only via the maintainer loop (evaluate-jev integrity maintainer) or with the user's approval; regression-checked against fixtures.json.",
+  "$comment": "Integrity guard rules (policy guard.integrity), regression-checked against fixtures.json by regress.ts.",
   "rules": [
     {
       "id": "git-no-verify",
@@ -92,7 +92,7 @@
       "verdict": "certain",
       "scope": "path",
       "pattern": "/\\.omp/agent/(?:extensions/(?:jev-[\\w-]+|lib/(?:jev|integrity)[\\w-]*)\\.ts|jev-policies\\.json)$",
-      "rationale": "The Jev guard code and policy modes are changed only with the user's approval.",
+      "rationale": "A change to the Jev guard code or policy modes.",
       "context": "edit"
     },
     {
@@ -100,9 +100,8 @@
       "category": "guard_tamper",
       "verdict": "certain",
       "scope": "path",
-      "pattern": "/\\.omp/agent/integrity/(?:rules|fixtures)\\.json$",
-      "maintainerExempt": true,
-      "rationale": "Integrity rules and fixtures change only through the maintainer loop or with the user's approval.",
+      "pattern": "/\\.omp/agent/integrity/(?:rules\\.json|fixtures\\.json|regress\\.ts)$",
+      "rationale": "A change to the integrity rules, fixtures or regression gate.",
       "context": "edit"
     },
     {
@@ -136,9 +135,35 @@
       "category": "guard_tamper",
       "verdict": "suspect",
       "scope": "bash",
-      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*integrity/(?:rules|fixtures)\\.json",
-      "maintainerExempt": true,
-      "rationale": "A mutating command naming the integrity rules or fixtures."
+      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*integrity/(?:rules\\.json|fixtures\\.json|regress\\.ts)",
+      "rationale": "A mutating command naming the integrity rules, fixtures or regression gate."
+    },
+    {
+      "id": "maintainer-read",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "path",
+      "pattern": "/\\.omp/integrity-maintainer(?:/|:|$)",
+      "rationale": "Reading the integrity maintainer's files.",
+      "context": "read"
+    },
+    {
+      "id": "maintainer-edit",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "path",
+      "pattern": "/\\.omp/integrity-maintainer/",
+      "rationale": "A change to the integrity maintainer's files.",
+      "context": "edit"
+    },
+    {
+      "id": "maintainer-bash",
+      "category": "guard_tamper",
+      "verdict": "certain",
+      "scope": "bash",
+      "unquoted": true,
+      "pattern": "integrity-maintainer(?:/|\\b)",
+      "rationale": "A command naming the integrity maintainer's files."
     },
     {
       "id": "ts-suppress",
@@ -159,6 +184,7 @@
     {
       "id": "ts-any-cast",
       "category": "suppression",
+      "family": "cast",
       "verdict": "suspect",
       "scope": "added",
       "path": "\\.(?:ts|tsx|mts|cts)$",
@@ -208,6 +234,7 @@
     {
       "id": "swallowed-error",
       "category": "suppression",
+      "family": "swallowed_error",
       "verdict": "suspect",
       "scope": "added",
       "pattern": "^\\s*except\\s*(?:(?:Base)?Exception\\b[^:]*)?:\\s*(?:pass\\b|\\.\\.\\.|$)|catch\\s*(?:\\([^)]*\\))?\\s*\\{\\s*\\}|\\.catch\\(\\s*\\(\\)\\s*=>\\s*(?:\\{\\s*\\}|undefined|null)\\s*\\)",
@@ -216,6 +243,7 @@
     {
       "id": "test-skip",
       "category": "test_removal",
+      "family": "skip_marker",
       "verdict": "suspect",
       "scope": "added",
       "path": "(?:^|/)(?:tests?|__tests__|specs?)/|[._-](?:test|spec)\\.[^/]+$|(?:^|/)test_[^/]+\\.py$|_test\\.(?:go|py|rs)$",
@@ -225,6 +253,7 @@
     {
       "id": "test-skip-marker",
       "category": "test_removal",
+      "family": "skip_marker",
       "verdict": "suspect",
       "scope": "added",
       "pattern": "#\\[ignore\\]|@pytest\\.mark\\.(?:skip|xfail)|@unittest\\.(?:skip|expectedFailure)|\\bt\\.Skip(?:Now|f)?\\s*\\(",

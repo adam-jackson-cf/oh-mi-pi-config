@@ -3,9 +3,10 @@ import { join } from "node:path";
 import { z } from "zod";
 import { appendLabel } from "../../agent/extensions/lib/jev";
 import type { LabelReviewer } from "../../agent/extensions/lib/jev";
+import { foldLabel, headlineScore, type EffectiveLabel } from "../../agent/skills/evaluate-jev/scripts/cases.ts";
 import {
-  answerSchema, binaryUncertainty, choiceUncertainty, foldLabel, jsonValue, LabError, questionsSchema,
-  type EffectiveLabel, type LabAnswer, type LabCase, type LabPaths,
+  answerSchema, binaryUncertainty, choiceUncertainty, jsonValue, LabError, questionsSchema,
+  type LabAnswer, type LabCase, type LabPaths,
 } from "./types";
 
 export const POLICY_PREFIX = "policy:";
@@ -62,12 +63,9 @@ async function readJsonl<T>(file: string, schema: z.ZodType<T>): Promise<T[]> {
 type Headline = { score?: number; uncertainty: number };
 
 function headline(answers: LabAnswer[]): Headline {
-  const first = answers[0];
-  if (!first) return { uncertainty: 1 };
-  if (first.type === "noul" && first.noul !== undefined) return { score: first.noul, uncertainty: binaryUncertainty(first.noul) };
-  const yes = first.probabilities?.yes;
-  if (yes !== undefined) return { score: yes, uncertainty: binaryUncertainty(yes) };
-  return { uncertainty: choiceUncertainty(first.probabilities) };
+  const score = headlineScore(answers);
+  if (score !== undefined) return { score, uncertainty: binaryUncertainty(score) };
+  return { uncertainty: choiceUncertainty(answers[0]?.probabilities) };
 }
 
 /** Load every decision of one policy with its (single) human label attached. */
@@ -92,7 +90,7 @@ export async function loadPolicyCases(paths: LabPaths, policy: string): Promise<
         stage: row.stage,
         verdict: row.verdict,
         ...headline(answers),
-        policyVersion: row.policyVersion,
+        version: row.policyVersion,
         state: row.state ?? null,
         questions: row.questions,
         answers,

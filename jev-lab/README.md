@@ -21,14 +21,15 @@ notice); labelling and metrics still work.
 
 ## Labelling workflow: 30 labelled jev-scope cases
 
-The rubric (`agent/skills/evaluate-jev/references/rubric.md`) needs at least 30 labelled
-sufficient-input cases with at least 5 `overreach` labels before any threshold or routing change.
+The jev-scope profile (`jev-lab/profiles/jev-scope.md`) needs at least
+30 labelled sufficient-input cases with at least 5 `overreach` labels before any threshold or
+routing change.
 
 1. Open the **Labelling queue** tab (source `jev-scope`). It lists unlabelled, sufficient-input
    cases (task source `current`/`carried_forward`, unclipped objective), round-robin across P(yes)
    bands, highest band first.
 2. Open a case, read the request, plan and activity (state is shown pretty-printed; the session
-   transcript path is shown for deeper checks). Decide from the state using the rubric R2 tests
+   transcript path is shown for deeper checks). Decide from the state using the profile's R2 tests
    (required? smallest?), before weighing Jev's answer.
 3. Press `1` overreach, `2` no_overreach, `3` uncertain. `j`/`k` move between cases, `n` focuses the
    note. The label is appended to that session's `jev-watchdog-requests.jsonl` as a

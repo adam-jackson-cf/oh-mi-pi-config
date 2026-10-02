@@ -9,8 +9,9 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { auditRoot, decide, type JevAnswers, type JevQuestions, type JevResult, type JsonValue } from "../agent/extensions/lib/jev";
 import { scoreExpected, readCaseRows, saveCase, caseRow, toLabAnswers } from "./lib/caseset";
-import { buildProposalQueue, buildQueue, computeMetrics, scopeProgress } from "./lib/metrics";
-import { casesForVersion, CURRENT_VERSION, MIN_POSITIVE, MIN_SUFFICIENT, SCOPE_SOURCE, SCOPE_THRESHOLD, scopeVersions } from "./lib/scope";
+import { casesForVersion, computeMetrics, CURRENT_VERSION, versionsOf } from "../agent/skills/evaluate-jev/scripts/cases.ts";
+import { buildProposalQueue, buildQueue, scopeProgress } from "./lib/metrics";
+import { MIN_POSITIVE, MIN_SUFFICIENT, SCOPE_SOURCE, SCOPE_THRESHOLD } from "./lib/scope";
 import { applyLabel, listSources, loadCases } from "./lib/sources";
 import { jsonValue, LabError, questionsSchema, type LabAnswer, type LabPaths } from "./lib/types";
 
@@ -130,7 +131,7 @@ export function createHandler(deps: LabDeps): (req: Request) => Promise<Response
     if (req.method === "GET" && path === "/api/cases") {
       const source = url.searchParams.get("source") ?? "";
       let cases = await loadCases(paths, source);
-      const versions = source === SCOPE_SOURCE ? scopeVersions(cases) : undefined;
+      const versions = source === SCOPE_SOURCE ? versionsOf(cases) : undefined;
       if (versions) cases = casesForVersion(cases, url.searchParams.get("version") ?? CURRENT_VERSION);
       return json(JSON.stringify({ versions, cases: cases.map(({ state: _s, questions: _q, answers: _a, ...summary }) => summary) }));
     }

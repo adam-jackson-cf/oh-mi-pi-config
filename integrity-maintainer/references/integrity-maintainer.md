@@ -44,30 +44,36 @@ category, new code, or a different mechanism is out of scope: reject it in the P
   "flags": "optional, any of i m s",
   "path": "optional regex limiting added/removed rules to matching file paths",
   "status": "optional: added | deleted | modified | renamed",
-  "maintainerExempt": false,
   "unquoted": "optional, bash only: match with quoted strings blanked",
-  "context": "optional, change rules only: edit | commit",
-  "rationale": "why this pattern indicates gate weakening"
+  "context": "optional, change rules only: edit | commit | read",
+  "family": "optional, suspect rules: question family, see Verdicts",
+  "rationale": "the condition the pattern detects, as a plain statement with no exceptions"
 }
 ```
 
 Scope: `bash` matches the command text; `added`/`removed` match single lines added to or removed
-from a file; `path` matches the file path (optionally filtered by `status`). Ids are unique.
+from a file; `path` matches the file path (optionally filtered by `status`). Ids are unique. A rule
+is binary: it states what it detects and nothing about who may do it. Never write exceptions for
+the user, the maintainer or any other actor into a pattern or rationale; approval is the guard's
+confirm prompt.
 
 Verdicts:
 
 - `certain`: escalates to the user without asking Jev; this tier is enforced. Use only for patterns
   with no legitimate use at all. If you can imagine a legitimate command or code line it would hit,
   it is not `certain`.
-- `suspect`: Jev is asked the category question. This tier is in shadow (recorded, not escalated)
-  because Jev did not separate real hacks from legitimate work; prefer `suspect` for anything
-  ambiguous, and add `certain` rules only when a structural pattern is unambiguous.
+- `suspect`: Jev answers the atomic questions of the rule's family (`directive`, `cast`,
+  `swallowed_error`, `skip_marker`, `test_removal`, `assertion`, `config`, `bypass`, `tamper`;
+  default from the category) and code composes them under the hack policy (included below this
+  prompt). This tier is enforced: an escalation asks the user (or blocks a subagent), so a new
+  `suspect` rule widens what the user is asked about. Prefer `suspect`
+  for anything ambiguous, and add `certain` rules only when a structural pattern is unambiguous.
 - `record`: audit only, no behaviour change. Use for patterns you want evidence on before
   promoting.
 
 ## Regression gate (enforced after you; run it yourself first)
 
-`bun <script dir>/integrity-regress.ts --scope-check --base origin/main` (exact command is in the
+`bun <repo>/agent/integrity/regress.ts --scope-check --base origin/main` (exact command is in the
 run section). It fails when:
 
 1. A file does not parse, or a rule regex is invalid or an id is duplicated.

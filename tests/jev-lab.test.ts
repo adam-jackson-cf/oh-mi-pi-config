@@ -7,11 +7,12 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { appendDecision, type JsonValue, type NewDecision } from "../agent/extensions/lib/jev";
 import { scoreExpected } from "../jev-lab/lib/caseset";
-import { buildProposalQueue, buildQueue, computeMetrics, scopeProgress, thresholdSweep } from "../jev-lab/lib/metrics";
+import { casesForVersion, computeMetrics, thresholdSweep, versionsOf } from "../agent/skills/evaluate-jev/scripts/cases.ts";
+import { buildProposalQueue, buildQueue, scopeProgress } from "../jev-lab/lib/metrics";
 import { loadProposals } from "../jev-lab/lib/proposals";
 import { loadCases } from "../jev-lab/lib/sources";
 import { appendPolicyLabel, loadPolicyCases } from "../jev-lab/lib/policy";
-import { appendScopeLabel, casesForVersion, isSufficient, loadScopeCases, scopeVersions } from "../jev-lab/lib/scope";
+import { appendScopeLabel, loadScopeCases } from "../jev-lab/lib/scope";
 import type { LabCase, LabPaths } from "../jev-lab/lib/types";
 import { createHandler } from "../jev-lab/server";
 
@@ -76,7 +77,7 @@ test("jev-scope join keeps legacy records and marks missing outcomes and errors"
     assert.equal(byId.get("r1")?.label, null);
     assert.equal(byId.get("r22")?.label, "no_overreach");
     assert.equal(byId.get("r55555")?.label, "overreach");
-    assert.equal(byId.get("r333")?.policyVersion, "unversioned");
+    assert.equal(byId.get("r333")?.version, "unversioned");
     assert.equal(byId.get("r333")?.verdict, "no-outcome");
     assert.equal(byId.get("r333")?.sufficient, false);
     assert.equal(byId.get("r666666")?.verdict, "error:error");
@@ -84,24 +85,42 @@ test("jev-scope join keeps legacy records and marks missing outcomes and errors"
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
-test("input-sufficiency matches the fields summarize.ts reports and the rubric rule", async () => {
+test("exported lab cases summarize in the portable format, defaulting to the current version", async () => {
   const f = await fixture();
+  const decision = (requestId: string, policyVersion: string, timestamp: string, verdict: string) => JSON.stringify({
+    schema: 1, type: "decision", timestamp, requestId, policy: "guard.demo", policyVersion, mode: "shadow", stage: "jev",
+    subject: "cmd", verdict, enforced: false, labels: ["correct", "false_positive", "false_negative", "uncertain"],
+  });
+  const previous = process.env.JEV_AUDIT_DIR;
+  process.env.JEV_AUDIT_DIR = f.paths.auditDir;
   try {
-    const out = join(f.root, "cases.jsonl");
-    await run("bun", [join(import.meta.dirname, "..", "agent/skills/evaluate-jev/scripts/summarize.ts"), "--root", f.paths.sessionsDir, "--cases", out]);
-    const summarized = (await readFile(out, "utf8")).trim().split("\n").map(l => JSON.parse(l));
-    const { cases } = await loadScopeCases(f.paths);
-    assert.equal(summarized.length, cases.length);
-    for (const s of summarized) {
-      const mine = cases.find(c => c.id === s.requestId);
-      assert.ok(mine, s.requestId);
-      assert.equal(mine.taskSource, s.taskSource);
-      assert.equal(mine.verdict, s.choice);
-      assert.equal(mine.label, s.humanLabel);
-      assert.equal(mine.sufficient, isSufficient(s.taskSource, s.userRequests.length, s.clipped));
-    }
-    assert.deepEqual(cases.filter(c => c.sufficient).map(c => c.id).sort(), ["r1", "r55555", "r666666"]);
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+    await mkdir(join(f.paths.auditDir, "guard.demo"), { recursive: true });
+    await writeFile(join(f.paths.auditDir, "guard.demo", "2026-10-01.jsonl"), [
+      decision("old", "v1", "2026-10-01T00:00:00Z", "block"),
+      decision("allow", "v2", "2026-10-01T01:00:00Z", "allow"),
+      decision("block", "v2", "2026-10-01T02:00:00Z", "block"),
+    ].join("\n") + "\n", { mode: 0o600 });
+    await appendPolicyLabel(f.paths, "guard.demo", "block", "false_positive", "human");
+    await appendPolicyLabel(f.paths, "guard.demo", "allow", "correct", "agent");
+    const cases = join(f.root, "cases.jsonl");
+    await run("bun", [join(import.meta.dirname, "..", "jev-lab/scripts/export-cases.ts"),
+      "--sessions", f.paths.sessionsDir, "--audit", f.paths.auditDir, "--source", "policy:guard.demo", "--out", cases]);
+    const summarize = async (...extra: string[]) => JSON.parse((await run("bun", [
+      join(import.meta.dirname, "..", "agent/skills/evaluate-jev/scripts/summarize.ts"), "--cases-in", cases, ...extra,
+    ])).stdout);
+    const current = await summarize();
+    assert.equal(current.filters.resolvedVersion, "v2");
+    assert.equal(current.total, 2);
+    assert.deepEqual(current.verdictByLabel, { allow: { correct: 1 }, block: { false_positive: 1 } });
+    assert.deepEqual(current.labels.byReviewer, { agent: 1, human: 1 });
+    const all = await summarize("--version", "all");
+    assert.equal(all.total, 3);
+    assert.equal(all.byVerdict.block, 2);
+    assert.equal(all.labels.byReviewer.unlabelled, 1);
+  } finally {
+    if (previous === undefined) delete process.env.JEV_AUDIT_DIR; else process.env.JEV_AUDIT_DIR = previous;
+    await rm(f.root, { recursive: true, force: true });
+  }
 });
 
 test("current policy version comes from the newest case; queue, progress and metrics exclude older versions unless asked", async () => {
@@ -115,7 +134,7 @@ test("current policy version comes from the newest case; queue, progress and met
     const lines = [...extra("old1", "p0", "2026-01-01T00:00:00Z", 0.95), ...extra("new1", "p2", "2026-12-01T00:00:00Z", 0.95)];
     await appendFile(f.auditFile, lines.map(l => JSON.stringify(l)).join("\n") + "\n");
     const { cases } = await loadScopeCases(f.paths);
-    assert.deepEqual(scopeVersions(cases).current, "p2");
+    assert.deepEqual(versionsOf(cases).current, "p2");
     assert.deepEqual(casesForVersion(cases, "current").map(c => c.id), ["new1"]);
     // r333 is an unversioned legacy record, so it belongs to no policy version.
     assert.deepEqual(casesForVersion(cases, "p1").map(c => c.id).sort(), ["r1", "r22", "r4444", "r55555", "r666666"]);
@@ -439,7 +458,7 @@ test("accepting a proposal goes through the human label path with the single-lab
 });
 
 
-test("nested subagent audits are discovered by the lab and summarize, keep their identity, and label in place", async () => {
+test("nested subagent audits are discovered by the lab, keep their identity, and label in place", async () => {
   const root = await mkdtemp(join(tmpdir(), "jev-lab-sub-"));
   try {
     const paths: LabPaths = {
@@ -469,14 +488,6 @@ test("nested subagent audits are discovered by the lab and summarize, keep their
     assert.deepEqual([byId.get("s1")?.sessionKind, byId.get("s1")?.agentId, byId.get("s1")?.subject], ["sub", "EditA", "sub assignment"]);
     assert.equal(byId.get("s1")?.transcriptPath, sub.sessionFile);
     assert.deepEqual([byId.get("m1")?.sessionKind, byId.get("m1")?.agentId], ["main", "Main"]);
-
-    const out = join(root, "cases.jsonl");
-    const summary = JSON.parse((await run("bun", [join(import.meta.dirname, "..", "agent/skills/evaluate-jev/scripts/summarize.ts"),
-      "--root", paths.sessionsDir, "--cases", out])).stdout.split("\ncases written")[0]!);
-    assert.deepEqual(summary.bySessionKind, { main: 1, sub: 1 });
-    const summarized = (await readFile(out, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-    assert.deepEqual(summarized.map(c => [c.requestId, c.sessionKind, c.agentId, c.session]).sort(),
-      [["m1", "main", "Main", join("proj", "main")], ["s1", "sub", "EditA", join("proj", "main", "EditA")]]);
 
     // A label lands in the file holding the request, under the subagent's identity.
     await appendScopeLabel(paths, "s1", "overreach", "human");

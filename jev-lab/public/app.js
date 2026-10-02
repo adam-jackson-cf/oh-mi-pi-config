@@ -168,7 +168,7 @@ function renderDetail(replay) {
   }
   box.replaceChildren(
     h("h3", {}, c.subject),
-    h("div", { class: "muted" }, [c.id, c.stage, c.policyVersion, c.taskSource ? `task source: ${c.taskSource}` : "",
+    h("div", { class: "muted" }, [c.id, c.stage, c.version, c.taskSource ? `task source: ${c.taskSource}` : "",
       c.sufficient === undefined ? "" : c.sufficient ? "sufficient input" : "insufficient input"].filter(Boolean).join(" · ")),
     h("div", { class: "muted" }, [c.resolvedModel, c.costUsd !== undefined ? `$${c.costUsd}` : "", c.latencyMs !== undefined ? `${c.latencyMs} ms` : "",
       c.error ? `error: ${c.error}` : ""].filter(Boolean).join(" · ")),

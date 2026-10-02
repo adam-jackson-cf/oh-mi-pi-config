@@ -35,6 +35,9 @@ tools/oxlint/*
 adr/*
 !adr/2026-09-27T141651+0100-jev-deterministic-scope-review.md
 
+!integrity-maintainer/
+!integrity-maintainer/**
+
 !agent/
 agent/*
 !agent/AGENTS.md
@@ -46,6 +49,7 @@ agent/*
 agent/integrity/*
 !agent/integrity/rules.json
 !agent/integrity/fixtures.json
+!agent/integrity/regress.ts
 
 !agent/skills/
 agent/skills/*
@@ -94,6 +98,7 @@ tests/*
 !tests/jev-ask.test.ts
 !tests/jev-lab.test.ts
 !tests/jev-integrity.test.ts
+!tests/evaluate-jev.test.ts
 
 # Jev lab: workbench source is owned; upstream clone, case sets and runs are runtime-only.
 !jev-lab/
@@ -104,9 +109,12 @@ jev-lab/*
 !jev-lab/lib/**
 !jev-lab/public/
 !jev-lab/public/**
+!jev-lab/profiles/
+!jev-lab/profiles/**
 !jev-lab/scripts/
 jev-lab/scripts/*
 !jev-lab/scripts/upstream-lab.sh
+!jev-lab/scripts/export-cases.ts
 
 !.omp/
 .omp/*

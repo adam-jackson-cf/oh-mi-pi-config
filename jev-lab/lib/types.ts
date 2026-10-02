@@ -46,7 +46,7 @@ export type LabCase = {
   /** Rubric input sufficiency; only defined for jev-scope. */
   sufficient?: boolean;
   taskSource?: string;
-  policyVersion?: string;
+  version?: string;
   /** jev-scope only: whether the audited session was a main session or a subagent, and the subagent's id. */
   sessionKind?: "main" | "sub";
   agentId?: string;
@@ -87,11 +87,4 @@ export function binaryUncertainty(p: number): number {
 export function choiceUncertainty(probabilities: Record<string, number> | undefined): number {
   const values = Object.values(probabilities ?? {});
   return values.length ? 1 - Math.max(...values) : 1;
-}
-
-export type EffectiveLabel = { label: string; by: LabelReviewer; note?: string };
-
-/** Fold label rows in file order: the latest human label wins, else the latest agent label. */
-export function foldLabel(current: EffectiveLabel | undefined, next: EffectiveLabel): EffectiveLabel {
-  return current?.by === "human" && next.by === "agent" ? current : next;
 }

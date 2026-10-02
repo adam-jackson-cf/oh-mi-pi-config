@@ -3,7 +3,8 @@ import { open, readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import type { LabelReviewer } from "../../agent/extensions/lib/jev";
-import { binaryUncertainty, foldLabel, jsonValue, LabError, type EffectiveLabel, type LabCase, type LabPaths } from "./types";
+import { foldLabel, UNVERSIONED, type EffectiveLabel } from "../../agent/skills/evaluate-jev/scripts/cases.ts";
+import { binaryUncertainty, jsonValue, LabError, type LabCase, type LabPaths } from "./types";
 
 export const SCOPE_SOURCE = "jev-scope";
 export const SCOPE_LABELS = ["overreach", "no_overreach", "uncertain"];
@@ -48,8 +49,8 @@ const taskContext = z.object({
 const stateView = z.object({ policy_version: z.string().optional(), task_context: taskContext.optional() });
 
 /**
- * Rubric R1 "Sufficient": task source is current or carried_forward, and an unclipped
- * objective is present. Inputs mirror the fields `evaluate-jev/scripts/summarize.ts` emits.
+ * Rubric R1 "Sufficient" for the jev-scope profile: task source is current or carried_forward,
+ * and an unclipped objective is present.
  */
 export function isSufficient(taskSource: string, userRequestCount: number, clipped: boolean): boolean {
   return (taskSource === "current" || taskSource === "carried_forward") && userRequestCount > 0 && !clipped;
@@ -99,29 +100,6 @@ export async function loadScopeCases(paths: LabPaths): Promise<ScopeIndex> {
   return { cases, malformed };
 }
 
-const UNVERSIONED = "unversioned";
-export const CURRENT_VERSION = "current";
-
-export type ScopeVersions = { current: string | null; versions: string[] };
-
-/** Current = policy_version of the newest case by timestamp, ignoring unversioned; never hard-coded. Current is listed first. */
-export function scopeVersions(cases: LabCase[]): ScopeVersions {
-  let newest: LabCase | undefined;
-  for (const c of cases) {
-    if (c.policyVersion === undefined || c.policyVersion === UNVERSIONED) continue;
-    if (!newest || (c.timestamp ?? "") > (newest.timestamp ?? "")) newest = c;
-  }
-  const current = newest?.policyVersion ?? null;
-  const others = [...new Set(cases.map(c => c.policyVersion ?? UNVERSIONED))].filter(v => v !== current).sort().reverse();
-  return { current, versions: current === null ? others : [current, ...others] };
-}
-
-/** `requested` is "current" (or empty) for the derived current version, else an exact version. No current version leaves cases unfiltered. */
-export function casesForVersion(cases: LabCase[], requested: string): LabCase[] {
-  const target = requested === "" || requested === CURRENT_VERSION ? scopeVersions(cases).current : requested;
-  return target === null ? cases : cases.filter(c => (c.policyVersion ?? UNVERSIONED) === target);
-}
-
 function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label: EffectiveLabel | undefined, rel: string): LabCase {
   const state = request.request?.state ?? null;
   const view = stateView.safeParse(state);
@@ -142,7 +120,7 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
     uncertainty: yes === undefined ? 1 : binaryUncertainty(yes),
     sufficient: isSufficient(taskSource, userRequests.length, Boolean(context.clipped_requests)),
     taskSource,
-    policyVersion: (view.success ? view.data.policy_version : undefined) ?? "unversioned",
+    version: (view.success ? view.data.policy_version : undefined) ?? UNVERSIONED,
     sessionKind: request.sessionKind,
     agentId: request.agentId,
     state,

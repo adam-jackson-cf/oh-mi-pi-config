@@ -1,9 +1,9 @@
 {
-  "$comment": "Per-policy mode for the Jev policy extensions: off | shadow | enforce. Shadow logs decisions to agent/jev-audit without changing behaviour. Promotion evidence: agent/skills/evaluate-jev/references/policies.md. Read at session start; restart OMP after editing.",
+  "$comment": "Per-policy mode for the Jev policy extensions: off | shadow | enforce. Shadow logs decisions to agent/jev-audit without changing behaviour. Promotion evidence: jev-lab/profiles/policies.md. Read at session start; restart OMP after editing.",
   "guard.bash": "enforce",
   "guard.write": "enforce",
   "guard.result": "enforce",
   "guard.integrity": "enforce",
-  "guard.integrity.suspect": "shadow",
+  "guard.integrity.suspect": "enforce",
   "jev-scope": "shadow"
 }

@@ -1,130 +1,133 @@
 #!/usr/bin/env bun
-// Summarize Jev watchdog audit logs for rubric-based evaluation.
-// Usage: bun summarize.ts [--root <sessionsDir>] [--policy <policy_version>] [--since <ISO>] [--cases <out.jsonl>]
-// Reads only request/outcome/reviewer_outcome records; never prints provider bodies or credentials.
-import { Glob } from "bun";
-import { homedir } from "node:os";
-import { join } from "node:path";
+// Summarize Jev decision cases in the portable case format (references/case-format.md).
+// Needs only `zod`: run with `bun summarize.ts …` (Bun installs it on first use) or with Node >= 23.6 where zod is installed.
+// Usage: summarize.ts --cases-in <cases.jsonl> [--labels-in <labels.jsonl>] [--version current|all|<v>]
+//          [--since <ISO>] [--until <ISO>] [--threshold <0..1>] [--cases-out <out.jsonl>]
+// Prints aggregates only; --cases-out writes the filtered cases with effective labels (mode 0600).
+import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
+import {
+  casesForVersion, computeMetrics, CURRENT_VERSION, foldLabel, headlineScore, versionsOf,
+  type EffectiveLabel, type LabelBy, type MetricCase,
+} from "./cases.ts";
+
+const labelBy = z.enum(["human", "agent"]);
+const answerLine = z.object({
+  id: z.string().optional(), type: z.enum(["noul", "choice", "score"]).optional(), noul: z.number().optional(),
+  choice: z.string().optional(), probabilities: z.record(z.string(), z.number()).optional(),
+  score: z.number().optional(), confidence: z.number().optional(),
+});
+// Fields outside the case format are ignored and not copied to --cases-out.
+const caseLine = z.object({
+  type: z.literal("case").optional(), id: z.string(), verdict: z.string(),
+  timestamp: z.string().optional(), version: z.string().optional(), stage: z.string().optional(), subject: z.string().optional(),
+  state: z.json().optional(), questions: z.json().optional(), answers: z.array(answerLine).optional(), score: z.number().optional(),
+  label: z.string().optional(), labelBy: labelBy.optional(), labelOptions: z.array(z.string()).optional(),
+  positiveLabel: z.string().optional(), sufficient: z.boolean().optional(), group: z.string().optional(),
+  evidence: z.string().optional(), resolvedModel: z.string().optional(), error: z.string().optional(),
+  costUsd: z.number().optional(), latencyMs: z.number().optional(),
+});
+const failureLine = z.object({ type: z.literal("failure"), timestamp: z.string().optional(), reason: z.string().optional() });
+const labelLine = z.object({ id: z.string(), label: z.string(), by: labelBy.optional() });
+
+type Case = Omit<z.infer<typeof caseLine>, "label" | "labelBy"> & MetricCase;
 
 const args = new Map<string, string>();
-for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i]!.replace(/^--/, ""), process.argv[i + 1] ?? "");
-const root = args.get("root") ?? join(homedir(), ".omp/agent/sessions");
-const policy = args.get("policy");
+for (let i = 2; i < process.argv.length; i++) {
+  const key = process.argv[i]!.replace(/^--/, "");
+  const next = process.argv[i + 1];
+  if (next === undefined || next.startsWith("--")) args.set(key, "");
+  else { args.set(key, next); i++; }
+}
+const casesIn = args.get("cases-in");
+if (!casesIn) {
+  console.error("--cases-in <cases.jsonl> is required (format: references/case-format.md)");
+  process.exit(2);
+}
+const version = args.get("version") || CURRENT_VERSION;
 const since = args.get("since");
+const until = args.get("until");
+const threshold = Number(args.get("threshold") || 0.5);
+const inWindow = (timestamp: string | undefined) =>
+  (!since || (timestamp ?? "") >= since) && (!until || (timestamp ?? "") < until);
 
-// Every field is optional: session header lines and older records omit most of them.
-const AuditLine = z.object({
-  type: z.string().optional(),
-  requestId: z.string().optional(),
-  timestamp: z.string().optional(),
-  sessionKind: z.enum(["main", "sub"]).optional(),
-  agentId: z.string().optional(),
-  reason: z.string().optional(),
-  label: z.string().optional(),
-  request: z.object({
-    state: z.object({
-      policy_version: z.string().optional(),
-      task_context: z.object({
-        source: z.string().optional(),
-        recent_user_requests: z.array(z.string()).optional(),
-        omitted_earlier_requests: z.boolean().optional(),
-        clipped_requests: z.boolean().optional(),
-      }).optional(),
-      constraints: z.object({
-        recent_instructions: z.array(z.string()).optional(),
-        omitted_earlier_instructions: z.boolean().optional(),
-        clipped_instructions: z.boolean().optional(),
-        source: z.string().optional(),
-      }).optional(),
-      approved_plan: z.object({
-        path: z.string().nullable().optional(),
-        origin: z.string().nullable().optional(),
-        excerpt: z.string().optional(),
-        clipped: z.boolean().optional(),
-        todo_items: z.string().optional(),
-        source: z.string().optional(),
-      }).optional(),
-      agent_activity: z.object({ excerpt: z.string().optional() }).optional(),
-    }).optional(),
-  }).optional(),
-  decision: z.object({
-    choice: z.string().optional(),
-    probabilities: z.record(z.string(), z.number()).optional(),
-    reviewCandidate: z.boolean().optional(),
-  }).optional(),
-  error: z.object({ stopReason: z.string().optional(), reason: z.string().optional() }).optional(),
-  resolvedModel: z.string().optional(),
-});
-type Row = z.infer<typeof AuditLine> & { file: string };
-const rows: Row[] = [];
 let malformed = 0;
-for (const rel of new Glob("**/jev-watchdog-requests.jsonl").scanSync({ cwd: root, dot: true })) {
-  for (const line of (await Bun.file(join(root, rel)).text()).split("\n")) {
-    if (!line) continue;
-    try {
-      const parsed = AuditLine.safeParse(JSON.parse(line));
-      if (parsed.success) rows.push({ file: rel, ...parsed.data });
-      else malformed++;
-    } catch { malformed++; }
+const failures: Record<string, number> = {};
+const loaded: Case[] = [];
+for (const line of (await readFile(casesIn, "utf8")).split("\n")) {
+  if (!line.trim()) continue;
+  let raw: unknown;
+  try { raw = JSON.parse(line); } catch { malformed++; continue; }
+  const failure = failureLine.safeParse(raw);
+  if (failure.success) {
+    if (inWindow(failure.data.timestamp)) {
+      const reason = failure.data.reason ?? "unknown";
+      failures[reason] = (failures[reason] ?? 0) + 1;
+    }
+    continue;
+  }
+  const parsed = caseLine.safeParse(raw);
+  if (!parsed.success) { malformed++; continue; }
+  const { label, labelBy: by, ...rest } = parsed.data;
+  loaded.push({ ...rest, label: label ?? null, labelBy: label === undefined ? null : by ?? "human",
+    score: rest.score ?? headlineScore(rest.answers ?? []) });
+}
+
+const labelsIn = args.get("labels-in");
+if (labelsIn) {
+  const effective = new Map<string, EffectiveLabel>();
+  for (const c of loaded) if (c.label !== null) effective.set(c.id, { label: c.label, by: c.labelBy ?? "human" });
+  for (const line of (await readFile(labelsIn, "utf8")).split("\n")) {
+    if (!line.trim()) continue;
+    let raw: unknown;
+    try { raw = JSON.parse(line); } catch { malformed++; continue; }
+    const row = labelLine.safeParse(raw);
+    if (!row.success) { malformed++; continue; }
+    const by: LabelBy = row.data.by ?? "human";
+    effective.set(row.data.id, foldLabel(effective.get(row.data.id), { label: row.data.label, by }));
+  }
+  for (const c of loaded) {
+    const applied = effective.get(c.id);
+    if (applied) { c.label = applied.label; c.labelBy = applied.by; }
   }
 }
 
-const outcomes = new Map(rows.filter(r => r.type === "outcome").map(r => [r.requestId, r]));
-const labels = new Map(rows.filter(r => r.type === "reviewer_outcome").map(r => [r.requestId, r.label]));
-const cases = rows
-  .filter(r => r.type === "request")
-  .filter(r => !policy || r.request?.state?.policy_version === policy)
-  .filter(r => !since || (r.timestamp ?? "") >= since)
-  .map(r => {
-    const o = outcomes.get(r.requestId);
-    const tc = r.request?.state?.task_context ?? {};
-    return {
-      requestId: r.requestId,
-      timestamp: r.timestamp,
-      session: r.file.replace(/\/jev-watchdog-requests\.jsonl$/, ""),
-      // Records written before subagent advisors carry no kind; they are main sessions.
-      sessionKind: r.sessionKind ?? "main",
-      agentId: r.agentId ?? null,
-      policy: r.request?.state?.policy_version ?? "unversioned",
-      taskSource: tc.source ?? "absent",
-      userRequests: (tc.recent_user_requests ?? []).map((s: string) => s.slice(0, 300)),
-      omittedEarlier: Boolean(tc.omitted_earlier_requests),
-      clipped: Boolean(tc.clipped_requests),
-      constraints: r.request?.state?.constraints ?? [],
-      approvedPlan: r.request?.state?.approved_plan ?? null,
-      activity: String(r.request?.state?.agent_activity?.excerpt ?? "").slice(0, 1200),
-      choice: o?.decision?.choice ?? (o?.error ? `error:${o.error.reason ?? o.error.stopReason}` : "no-outcome"),
-      probabilities: o?.decision?.probabilities,
-      reviewCandidate: Boolean(o?.decision?.reviewCandidate),
-      resolvedModel: o?.resolvedModel ?? "absent",
-      humanLabel: labels.get(r.requestId) ?? null,
-    };
-  });
-
-const tally = (f: (c: (typeof cases)[number]) => string) =>
-  cases.reduce<Record<string, number>>((m, c) => ((m[f(c)] = (m[f(c)] ?? 0) + 1), m), {});
-const yesP = cases.map(c => c.probabilities?.yes).filter((p): p is number => Number.isFinite(p)).sort((a, b) => a - b);
+const versions = versionsOf(loaded);
+const cases = (version === "all" ? loaded : casesForVersion(loaded, version)).filter(c => inWindow(c.timestamp));
+const tally = (f: (c: Case) => string | undefined) =>
+  cases.reduce<Record<string, number>>((m, c) => { const k = f(c) ?? "absent"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+const scores = cases.map(c => c.score).filter((p): p is number => p !== undefined).sort((a, b) => a - b);
+const unresolved = cases.filter(c => c.error !== undefined || c.stage === "jev_error" || c.stage === "no_outcome");
+const withSufficiency = cases.filter(c => c.sufficient !== undefined);
+const { sweep, ...metrics } = computeMetrics(cases, threshold);
 
 console.log(JSON.stringify({
-  root, filters: { policy: policy ?? null, since: since ?? null }, malformedLines: malformed,
-  requests: cases.length,
-  // Reviews that failed before any request was logged (state building, key, policy slot); unaffected by --policy.
-  failuresBeforeRequest: rows.filter(r => r.type === "failure" && (!since || (r.timestamp ?? "") >= since))
-    .reduce<Record<string, number>>((m, r) => ((m[r.reason ?? "unknown"] = (m[r.reason ?? "unknown"] ?? 0) + 1), m), {}),
-  byPolicy: tally(c => c.policy),
-  bySessionKind: tally(c => c.sessionKind),
-  byChoice: tally(c => c.choice),
-  byTaskSource: tally(c => c.taskSource),
-  choiceByTaskSource: tally(c => `${c.taskSource}:${c.choice}`),
+  casesIn,
+  filters: { version, resolvedVersion: version === CURRENT_VERSION ? versions.current : version, since: since ?? null, until: until ?? null, threshold },
+  versionsSeen: versions.versions,
+  malformedLines: malformed,
+  failuresBeforeCase: failures,
+  byVersion: tally(c => c.version),
+  byStage: tally(c => c.stage),
+  byVerdict: tally(c => c.verdict),
   byResolvedModel: tally(c => c.resolvedModel),
-  reviewCandidates: cases.filter(c => c.reviewCandidate).length,
-  humanLabelled: cases.filter(c => c.humanLabel).length,
-  pYes: yesP.length ? { min: yesP[0], median: yesP[yesP.length >> 1], max: yesP.at(-1), atLeast0_5: yesP.filter(p => p >= 0.5).length } : null,
+  byGroup: tally(c => c.group),
+  unresolved: { count: unresolved.length, byError: unresolved.reduce<Record<string, number>>((m, c) => {
+    const k = c.error ?? c.verdict; m[k] = (m[k] ?? 0) + 1; return m;
+  }, {}) },
+  labels: { options: [...new Set(cases.flatMap(c => c.labelOptions ?? []))], byReviewer: tally(c => c.labelBy ?? "unlabelled") },
+  inputSufficiency: withSufficiency.length ? { sufficient: withSufficiency.filter(c => c.sufficient).length, of: withSufficiency.length } : null,
+  ...metrics,
+  // Headline score: the first answer's noul, else its P(yes). Near 0.5 means yes and no are similarly likely.
+  score: scores.length ? {
+    n: scores.length, min: scores[0], median: scores[scores.length >> 1], max: scores.at(-1),
+    atOrAboveThreshold: scores.filter(p => p >= threshold).length, coinFlip0_4to0_6: scores.filter(p => p >= 0.4 && p <= 0.6).length,
+  } : null,
+  sweep,
 }, null, 2));
 
-const out = args.get("cases");
+const out = args.get("cases-out");
 if (out) {
-  await Bun.write(out, cases.map(c => JSON.stringify(c)).join("\n") + "\n");
+  await writeFile(out, cases.map(c => JSON.stringify(c)).join("\n") + "\n", { mode: 0o600 });
   console.log(`cases written: ${out}`);
 }

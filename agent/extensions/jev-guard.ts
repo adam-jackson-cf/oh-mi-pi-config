@@ -51,8 +51,9 @@ import {
 } from "./lib/jev.ts";
 import { loadJevApiKey } from "./lib/jev-auth.ts";
 import {
-  escalatesOn, loadRules, matchBash, matchChange, parseUnifiedDiff, questionsFor, routeOf, scoresOf,
-  type CompiledRule, type FileChange, type IntegrityCategory, type JevScores, type MatchOptions, type RuleMatch,
+  directiveLines, escalatingFamilies, FAMILY_QUESTIONS, loadRules, matchBash, matchChange, noulsOf, parseUnifiedDiff, questionsFor, routeOf,
+  suspectState,
+  type CompiledRule, type FileChange, type IntegrityFamily, type NoulAnswers, type RuleMatch, type SuspectSubject,
 } from "./lib/integrity.ts";
 
 // ---- Policies, versions and thresholds (reviewable in one place) ---------------------
@@ -64,7 +65,7 @@ export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
 export const BASH_POLICY_VERSION = "guard-bash-2026-10-02.2";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.2";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.2";
-export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.2";
+export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.5";
 // Chosen on the 2026-10-02 round-1 corpora and canaries; validated on the held-out round-2 corpora
 // (.todo/artifacts/021026-jev-promotion/report.md).
 export const BASH_BLOCK_IRREVERSIBLE = 0.6;
@@ -81,9 +82,6 @@ const RESULT_TEXT_LIMIT = 6_000;
 // Short outputs can carry a whole injection; only trivially short text is skipped.
 const RESULT_MIN_CHARS = 40;
 const ENFORCE_TIMEOUT_MS = 8_000;
-const INTEGRITY_ADDED_LIMIT = 6_000;
-const INTEGRITY_REMOVED_LIMIT = 3_000;
-const INTEGRITY_OTHER_FILES_LIMIT = 200;
 // More suspect files than this in one commit are not all judged; the commit escalates instead.
 const INTEGRITY_JEV_FILE_LIMIT = 60;
 const INTEGRITY_JEV_CONCURRENCY = 8;
@@ -103,11 +101,11 @@ type Judged = {
 };
 type Verdict = "allow" | "flag" | "confirm" | "block";
 type Assessment = { verdict: Verdict; reason: string };
-type IntegrityKind = "command" | "edit";
-/** One screened thing: a bash command or one changed file, with its rule matches and Jev state. */
-type IntegrityUnit = { label: string; matches: RuleMatch[]; state: JsonValue };
+type IntegrityKind = "command" | "edit" | "read";
+/** One screened thing: a bash command or one changed file, with its rule matches, masked subject and Jev state. */
+type IntegrityUnit = { label: string; matches: RuleMatch[]; subject: SuspectSubject; state: JsonValue };
 type UnitOutcome = {
-  unit: IntegrityUnit; escalate: boolean; categories: IntegrityCategory[]; judged?: Judged; scores?: JevScores; note?: string;
+  unit: IntegrityUnit; escalate: boolean; families: IntegrityFamily[]; judged?: Judged; answers?: NoulAnswers; note?: string;
 };
 type UserDecision = "approved" | "declined";
 type Escalation = { block?: Block; userDecision?: UserDecision };
@@ -565,6 +563,27 @@ function fileKind(path: string): string {
 /** A `git commit` in a command: the directory it runs in and whether the same command stages more first. */
 export type CommitPlan = { repoDir: string; stagesInCommand: boolean; allTracked: boolean };
 const GIT_STAGING_SUBCOMMANDS = new Set(["add", "rm", "mv", "stage"]);
+// Global options that take their value as the next argument; `--opt=value` forms need no entry.
+const GIT_GLOBALS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--attr-source"]);
+
+/** A git subcommand with its arguments and the `-C` directories given before it. */
+type GitInvocation = { sub: string; rest: string[]; dirs: string[] };
+
+/**
+ * Screening view of a git invocation: every global option is skipped (unlike `gitSubcommand`, which
+ * stops at options that can run code), so `git -c k=v commit` is still seen as a commit.
+ */
+function gitInvocation(args: string[]): GitInvocation | undefined {
+  const dirs: string[] = [];
+  let i = 0;
+  while (i < args.length && (args[i] ?? "").startsWith("-")) {
+    const arg = args[i] ?? "";
+    if (arg === "-C" && args[i + 1] !== undefined) dirs.push(args[i + 1] ?? "");
+    i += GIT_GLOBALS_WITH_VALUE.has(arg) ? 2 : 1;
+  }
+  const sub = args[i];
+  return sub ? { sub, rest: args.slice(i + 1), dirs } : undefined;
+}
 
 function expandHome(path: string): string {
   return path === "~" || path.startsWith("~/") ? homedir() + path.slice(1) : path;
@@ -582,11 +601,10 @@ export function commitPlans(command: string, cwd: string): CommitPlan[] {
       continue;
     }
     if (program !== "git") continue;
-    const parsed = gitSubcommand(args);
+    const parsed = gitInvocation(args);
     if (!parsed) continue;
-    const globals = args.slice(0, args.length - parsed.rest.length - 1);
-    const at = globals.lastIndexOf("-C");
-    const repoDir = at >= 0 && globals[at + 1] ? resolve(dir, expandHome(globals[at + 1] ?? "")) : dir;
+    // Successive `-C` options compose, as in git itself.
+    const repoDir = parsed.dirs.reduce((current, next) => resolve(current, expandHome(next)), dir);
     if (GIT_STAGING_SUBCOMMANDS.has(parsed.sub)) staged = true;
     if (parsed.sub !== "commit") continue;
     const allTracked = parsed.rest.some((arg) => arg === "--all" || /^-[a-zA-Z]*a[a-zA-Z]*$/.test(arg));
@@ -778,6 +796,9 @@ export function untrustedSource(toolName: string, input: ResultInput): string | 
 // ---- Extension -----------------------------------------------------------------------
 const bashInput = z.object({ command: z.string() });
 const writeInput = z.object({ path: z.string(), content: z.string() });
+/** Read-like tools: one path, or several separated by `;`; selectors after the path are harmless to rule patterns. */
+const readInput = z.object({ path: z.string().optional() });
+const READ_TOOLS = new Set(["read", "grep", "glob", "find"]);
 const editEntry = z.object({
   rename: z.string().optional(), diff: z.string().optional(), new_string: z.string().optional(),
 });
@@ -812,8 +833,9 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   let rulesError = "not loaded";
   /** Fingerprints of escalations the user declined this session: re-blocked without asking again. */
   const declined = new Set<string>();
-  /** Guard files the user approved editing this session; later edits to them do not ask again. */
+  /** Guard files the user approved editing, and paths the user approved reading, this session: not asked again. */
   const approvedEditPaths = new Set<string>();
+  const approvedReadPaths = new Set<string>();
 
   const modeFor = (policy: string): PolicyMode => policyMode(modes, policy);
 
@@ -954,30 +976,26 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   }
 
   // ---- integrity
-  const maintainer = (): boolean => process.env.JEV_INTEGRITY_MAINTAINER === "1";
+  // Joined before masking so multi-line secrets (private key blocks) are caught.
+  const maskLines = (lines: string[]): string[] => (lines.length === 0 ? [] : maskKnownSecrets(lines.join("\n"), apiKey).split("\n"));
+  const maskChange = (change: FileChange): FileChange => ({ ...change, added: maskLines(change.added), removed: maskLines(change.removed) });
 
-  const fileState = (change: FileChange, matches: RuleMatch[], others: FileChange[], repo: string | undefined): JsonValue => {
-    const shown = (path: string): string => (repo ? relative(repo, path) : path);
-    return {
-      path: shown(change.path), file_status: change.status,
-      matched_rules: matches.map((m) => ({ id: m.ruleId, category: m.category, verdict: m.verdict, rationale: m.rationale, line: m.excerpt })),
-      added_lines: clip(maskKnownSecrets(change.added.join("\n"), apiKey), INTEGRITY_ADDED_LIMIT).text,
-      removed_lines: clip(maskKnownSecrets(change.removed.join("\n"), apiKey), INTEGRITY_REMOVED_LIMIT).text,
-      other_changed_files: others.filter((other) => other !== change).slice(0, INTEGRITY_OTHER_FILES_LIMIT)
-        .map((other) => ({ path: shown(other.path), status: other.status })),
-    };
+  /** Jev sees only masked text: the subject's fields and the rule excerpts are masked before the state is built. */
+  const integrityUnit = (label: string, matches: RuleMatch[], subject: SuspectSubject): IntegrityUnit => {
+    const masked = matches.map((match) => ({ ...match, excerpt: maskKnownSecrets(match.excerpt, apiKey) }));
+    return { label, matches, subject, state: suspectState(subject, masked) };
   };
 
   async function judgeUnit(unit: IntegrityUnit, enforcing: boolean): Promise<UnitOutcome> {
     const route = routeOf(unit.matches);
-    if (route !== "suspect") return { unit, escalate: route === "certain", categories: [] };
+    if (route !== "suspect") return { unit, escalate: route === "certain", families: [] };
     const questions = questionsFor(unit.matches);
     const recorded = redactValue(unit.state, apiKey);
     const judged = await askJev(apiKey, unit.state, recorded, questions, enforcing ? ENFORCE_TIMEOUT_MS : undefined);
-    if (!judged.answers) return { unit, judged, escalate: true, categories: [] };
-    const scores = scoresOf(judged.answers);
-    const categories = escalatesOn(scores).filter((category) => category in questions);
-    return { unit, judged, scores, escalate: categories.length > 0, categories };
+    if (!judged.answers) return { unit, judged, escalate: true, families: [] };
+    const answers = noulsOf(judged.answers);
+    const families = escalatingFamilies(unit.subject, unit.matches, answers);
+    return { unit, judged, answers, escalate: families.length > 0, families };
   }
 
   async function judgeUnits(units: IntegrityUnit[], enforcing: boolean): Promise<UnitOutcome[]> {
@@ -986,7 +1004,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const queue: IntegrityUnit[] = [];
     for (const unit of units) {
       if (routeOf(unit.matches) === "suspect" && ++suspects > INTEGRITY_JEV_FILE_LIMIT) {
-        outcomes.push({ unit, escalate: true, categories: [], note: `more than ${INTEGRITY_JEV_FILE_LIMIT} suspect files; not judged` });
+        outcomes.push({ unit, escalate: true, families: [], note: `more than ${INTEGRITY_JEV_FILE_LIMIT} suspect files; not judged` });
       } else {
         queue.push(unit);
       }
@@ -1005,7 +1023,8 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   const describe = (outcome: UnitOutcome): string => {
     const rulesText = outcome.unit.matches.filter((m) => m.verdict !== "record")
       .map((m) => `${m.ruleId} (${m.category}): ${m.rationale}`).join("; ");
-    const jev = outcome.categories.map((category) => `${category} ${(outcome.scores?.[category] ?? 0).toFixed(2)}`).join(", ");
+    const jev = outcome.families.map((family) => `${family}: ${Object.keys(FAMILY_QUESTIONS[family])
+      .map((id) => `${id} ${(outcome.answers?.[id] ?? 0).toFixed(2)}`).join(", ")}`).join("; ");
     const failed = outcome.judged && !outcome.judged.answers ? " [Jev unavailable, so this escalates]" : "";
     return `- ${subjectOf(outcome.unit.label)}: ${rulesText}${jev ? ` [Jev ${jev}]` : ""}${failed}${outcome.note ? ` [${outcome.note}]` : ""}`;
   };
@@ -1019,15 +1038,16 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     if (declined.has(key)) return { userDecision: "declined", block: { block: true, reason: declinedReason("already ") } };
     if (ctx.hasUI && ctx.agent.kind === "main") {
       const approved = await ctx.ui.confirm("Jev integrity guard: approve?",
-        `This ${kind} looks like it weakens a quality gate or the guard itself.\n\n${clip(summary, 1_500).text}`).catch(() => false);
+        `This ${kind} matches guarded integrity rules.\n\n${clip(summary, 1_500).text}`).catch(() => false);
       if (approved) {
         if (kind === "edit") for (const outcome of outcomes) approvedEditPaths.add(outcome.unit.label);
+        if (kind === "read") for (const outcome of outcomes) approvedReadPaths.add(outcome.unit.label);
         return { userDecision: "approved" };
       }
       declined.add(key);
       return { userDecision: "declined", block: { block: true, reason: declinedReason("") } };
     }
-    return { block: { block: true, reason: `Jev integrity guard blocked this ${kind}: it looks like it weakens a quality gate or the guard itself.\n` +
+    return { block: { block: true, reason: `Jev integrity guard blocked this ${kind}: it matches guarded integrity rules.\n` +
       `${summary}\nStop. Do not retry, reword or work around this. Ask the user to decide; a subagent must return this ` +
       "finding to the orchestrator, which asks the user." } };
   }
@@ -1071,13 +1091,15 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 
   /**
    * Certain and record matches follow `guard.integrity`; suspect (Jev-judged) units follow
-   * `guard.integrity.suspect`, never stricter than the parent, so the deterministic tier can
-   * enforce while the Jev tier stays in shadow.
+   * `guard.integrity.suspect`, never stricter than the parent. When both tiers share a mode they
+   * are screened together, so one escalation covers the command and `commit-checked` records the
+   * combined outcome; otherwise the deterministic tier runs first and the Jev tier after it.
    */
   async function screenTiers(kind: IntegrityKind, fingerprint: string, units: IntegrityUnit[], commits: CommitRecord[],
     ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
     const suspectSetting = modeFor(INTEGRITY_SUSPECT_POLICY);
     const suspectMode: PolicyMode = suspectSetting === "off" ? "off" : mode === "enforce" && suspectSetting === "enforce" ? "enforce" : "shadow";
+    if (suspectMode === mode) return screenIntegrity(kind, fingerprint, units, commits, ctx, mode);
     const suspects = units.filter((unit) => routeOf(unit.matches) === "suspect");
     const others = units.filter((unit) => routeOf(unit.matches) !== "suspect");
     const blocked = await screenIntegrity(kind, fingerprint, others, commits, ctx, mode);
@@ -1086,13 +1108,11 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   }
 
   async function screenIntegrityBash(command: string, ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
-    const options: MatchOptions = { maintainer: maintainer(), context: "commit" };
     const units: IntegrityUnit[] = [];
-    const bashMatches = rules ? matchBash(command, rules, options) : [];
-    const masked = clip(maskKnownSecrets(command, apiKey), BASH_COMMAND_LIMIT).text;
+    const bashMatches = rules ? matchBash(command, rules) : [];
     if (bashMatches.length > 0) {
-      units.push({ label: command, matches: bashMatches, state: { command: masked, cwd: redact(ctx.cwd, apiKey),
-        matched_rules: bashMatches.map((m) => ({ id: m.ruleId, category: m.category, rationale: m.rationale })) } });
+      units.push(integrityUnit(command, bashMatches, { command: clip(maskKnownSecrets(command, apiKey), BASH_COMMAND_LIMIT).text,
+        directives: [], otherPaths: [], cwd: ctx.cwd }));
     }
     const commits: CommitRecord[] = [];
     let fingerprint = command;
@@ -1102,13 +1122,17 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       commits.push({ repo: found.repo, tree: found.tree, files: found.changes.length, command });
       fingerprint += `\0${found.fingerprint}`;
       if (!rules) {
-        units.push({ label: `${found.repo} (commit)`, state: { repo: found.repo }, matches: [{ ruleId: "rules-unavailable", category: "guard_tamper",
-          verdict: "certain", rationale: `integrity rules could not be loaded (${rulesError}), so this commit cannot be screened`, excerpt: "" }] });
+        units.push(integrityUnit(`${found.repo} (commit)`, [{ ruleId: "rules-unavailable", category: "guard_tamper", verdict: "certain",
+          rationale: `integrity rules could not be loaded (${rulesError}), so this commit cannot be screened`, excerpt: "" }],
+        { directives: [], otherPaths: [], cwd: ctx.cwd }));
         continue;
       }
       for (const change of found.changes) {
-        const matches = matchChange(change, rules, options);
-        if (matches.length > 0) units.push({ label: change.path, matches, state: fileState(change, matches, found.changes, found.repo) });
+        const matches = matchChange(change, rules, "commit");
+        if (matches.length === 0) continue;
+        const otherPaths = found.changes.filter((other) => other !== change).map((other) => relative(found.repo, other.path));
+        units.push(integrityUnit(change.path, matches, { change: maskChange(change), directives: maskLines(directiveLines(change, matches, rules)),
+          otherPaths, cwd: ctx.cwd }));
       }
     }
     return screenTiers("command", fingerprint, units, commits, ctx, mode);
@@ -1116,17 +1140,30 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 
   async function screenIntegrityEdits(targets: WriteTarget[], ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
     if (!rules) return undefined;
-    const options: MatchOptions = { maintainer: maintainer(), context: "edit" };
     const units: IntegrityUnit[] = [];
     for (const target of targets) {
       const change: FileChange = { path: resolve(ctx.cwd, expandHome(target.path)), status: "modified", added: target.added.split("\n"), removed: [] };
-      const matches = matchChange(change, rules, options).filter((m) => m.category === "guard_tamper");
+      const matches = matchChange(change, rules, "edit").filter((m) => m.category === "guard_tamper");
       if (matches.length > 0 && !approvedEditPaths.has(change.path)) {
-        units.push({ label: change.path, matches, state: fileState(change, matches, [], undefined) });
+        units.push(integrityUnit(change.path, matches, { change: maskChange(change), directives: [], otherPaths: [], cwd: ctx.cwd }));
       }
     }
     const fingerprint = targets.map((target) => `${target.path}\0${target.added}`).join("\0");
     return screenTiers("edit", fingerprint, units, [], ctx, mode);
+  }
+
+  /** Read-like tool targets against `read` rules; internal URLs (`scheme://`) are not filesystem paths. */
+  async function screenIntegrityReads(paths: string[], ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
+    if (!rules) return undefined;
+    const units: IntegrityUnit[] = [];
+    for (const raw of paths) {
+      const change: FileChange = { path: resolve(ctx.cwd, expandHome(raw)), status: "modified", added: [], removed: [] };
+      const matches = matchChange(change, rules, "read");
+      if (matches.length > 0 && !approvedReadPaths.has(change.path)) {
+        units.push(integrityUnit(change.path, matches, { change, directives: [], otherPaths: [], cwd: ctx.cwd }));
+      }
+    }
+    return screenTiers("read", paths.join("\0"), units, [], ctx, mode);
   }
 
   // ---- result
@@ -1173,6 +1210,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     pi.on("tool_call", async (event, ctx) => {
       let command: string | undefined;
       let targets: WriteTarget[] | undefined;
+      let reads: string[] | undefined;
       if (event.toolName === "bash") {
         const parsed = bashInput.safeParse(event.input);
         if (parsed.success) command = parsed.data.command;
@@ -1182,12 +1220,16 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       } else if (event.toolName === "edit") {
         const parsed = editInput.safeParse(event.input);
         if (parsed.success) targets = editTargets(parsed.data);
+      } else if (READ_TOOLS.has(event.toolName)) {
+        const parsed = readInput.safeParse(event.input);
+        reads = (parsed.success ? parsed.data.path ?? "" : "").split(";").map((p) => p.trim()).filter((p) => p && !p.includes("://"));
       }
       const integrityMode = modeFor(INTEGRITY_POLICY);
       if (integrityMode !== "off") {
         try {
           const blocked = command !== undefined ? await screenIntegrityBash(command, ctx, integrityMode)
-            : targets ? await screenIntegrityEdits(targets, ctx, integrityMode) : undefined;
+            : targets ? await screenIntegrityEdits(targets, ctx, integrityMode)
+            : reads?.length ? await screenIntegrityReads(reads, ctx, integrityMode) : undefined;
           if (blocked) return blocked;
         } catch {
           const closed = failClosed(integrityMode);

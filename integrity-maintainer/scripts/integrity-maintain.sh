@@ -10,8 +10,10 @@ set -euo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+MAINTAINER_DIR="$(dirname "$SCRIPT_DIR")"
 OMP_HOME="${OMP_HOME:-$HOME/.omp}"
+REGRESS="$OMP_HOME/agent/integrity/regress.ts"
+HACK_POLICY="$OMP_HOME/jev-lab/profiles/guard-integrity.md"
 PROPOSER_MODEL="${INTEGRITY_PROPOSER_MODEL:-anthropic/claude-opus-5-5:medium}"
 VERIFIER_MODEL="${INTEGRITY_VERIFIER_MODEL:-openai-codex/gpt-6.1-sol:low}"
 AGENT_TIMEOUT="${INTEGRITY_AGENT_TIMEOUT:-2700}"
@@ -154,7 +156,7 @@ fi
 # --- 2. worktree from origin/main ---
 git -C "$OMP_HOME" fetch origin main 2>&1 | tee -a "$RUN/maintain.log"
 BASE_SHA="$(git -C "$OMP_HOME" rev-parse origin/main)"
-for path in "${DATA_PATHS[@]}" agent/skills/evaluate-jev/scripts/integrity-regress.ts; do
+for path in "${DATA_PATHS[@]}" agent/extensions/lib/integrity.ts; do
   git -C "$OMP_HOME" cat-file -e "origin/main:$path" 2>/dev/null \
     || die "origin/main lacks $path; merge the integrity feature to main before the first run"
 done
@@ -164,7 +166,9 @@ git -C "$OMP_HOME" worktree add "$WT" -b "$BRANCH" origin/main 2>&1 | tee -a "$R
 
 # --- 3. proposer ---
 {
-  cat "$SKILL_DIR/references/integrity-maintainer.md"
+  cat "$MAINTAINER_DIR/references/integrity-maintainer.md"
+  printf '\n## Hack policy\n\n'
+  cat "$HACK_POLICY"
   cat <<EOF
 
 ## This run
@@ -174,13 +178,13 @@ git -C "$OMP_HOME" worktree add "$WT" -b "$BRANCH" origin/main 2>&1 | tee -a "$R
 - Worktree (your cwd; edit only the two data files here): $WT
 - Candidates: $RUN/candidates.json
 - Digest: $RUN/digest.md
-- Regression gate: \`bun $SCRIPT_DIR/integrity-regress.ts --scope-check --base origin/main\`
+- Regression gate: \`bun $REGRESS --scope-check --base origin/main\`
 - Write the PR body to: $RUN/pr-body.md
 - Write the proposal summary to: $RUN/proposal.json as {"changed": <bool>, "summary": "<one line>"}
 EOF
 } >"$RUN/proposer-prompt.md"
 log "proposer: $PROPOSER_MODEL"
-(cd "$WT" && JEV_INTEGRITY_MAINTAINER=1 run_limited omp -p --model "$PROPOSER_MODEL" --cwd "$WT" "$(cat "$RUN/proposer-prompt.md")" </dev/null) \
+(cd "$WT" && run_limited omp -p --model "$PROPOSER_MODEL" --cwd "$WT" "$(cat "$RUN/proposer-prompt.md")" </dev/null) \
   >"$RUN/proposer.log" 2>&1 || die "proposer failed (see $RUN/proposer.log)"
 jq -e '(.changed | type == "boolean") and (.summary | type == "string")' "$RUN/proposal.json" >/dev/null 2>&1 \
   || die "proposer wrote no valid proposal.json"
@@ -198,7 +202,7 @@ fi
 # --- 4. authoritative regression gate (trusted script, worktree cwd) ---
 git -C "$WT" add -A
 REGRESS_OK=1
-(cd "$WT" && bun "$SCRIPT_DIR/integrity-regress.ts" --scope-check --base origin/main --json "$RUN/regress.json") \
+(cd "$WT" && bun "$REGRESS" --scope-check --base origin/main --json "$RUN/regress.json") \
   >"$RUN/regress.md" 2>&1 || REGRESS_OK=0
 log "regress passed=$REGRESS_OK"
 git -C "$WT" diff --cached origin/main >"$RUN/proposal.diff"
@@ -206,7 +210,7 @@ SNAPSHOT="$(git -C "$WT" diff --cached origin/main | shasum | cut -d' ' -f1)$(gi
 
 # --- 5. verifier (independent session: fresh omp -p, no shared context; prefers GPT-6.1 Sol) ---
 {
-  cat "$SKILL_DIR/references/integrity-verifier.md"
+  cat "$MAINTAINER_DIR/references/integrity-verifier.md"
   cat <<EOF
 
 ## This run
@@ -221,7 +225,7 @@ EOF
 } >"$RUN/verifier-prompt.md"
 log "verifier: $VERIFIER_MODEL"
 rm -f "$RUN/verdict.json"
-(cd "$WT" && JEV_INTEGRITY_MAINTAINER=1 run_limited omp -p --model "$VERIFIER_MODEL" --cwd "$WT" "$(cat "$RUN/verifier-prompt.md")" </dev/null) \
+(cd "$WT" && run_limited omp -p --model "$VERIFIER_MODEL" --cwd "$WT" "$(cat "$RUN/verifier-prompt.md")" </dev/null) \
   >"$RUN/verifier.log" 2>&1 || log "verifier process failed; treating as reject"
 AFTER="$(git -C "$WT" diff --cached origin/main | shasum | cut -d' ' -f1)$(git -C "$WT" status --porcelain | shasum | cut -d' ' -f1)"
 if [[ "$AFTER" != "$SNAPSHOT" ]]; then
@@ -283,7 +287,7 @@ for path in "${DATA_PATHS[@]}"; do
   git -C "$OMP_HOME" show "origin/main:$path" >"$OMP_HOME/$path.tmp-deploy"
   mv "$OMP_HOME/$path.tmp-deploy" "$OMP_HOME/$path"
 done
-if ! (cd "$OMP_HOME" && bun "$SCRIPT_DIR/integrity-regress.ts" --base origin/main >"$RUN/deploy-regress.md" 2>&1); then
+if ! (cd "$OMP_HOME" && bun "$REGRESS" --base origin/main >"$RUN/deploy-regress.md" 2>&1); then
   for path in "${DATA_PATHS[@]}"; do
     if [[ -f "$RUN/deploy-backup/$(basename "$path")" ]]; then cp "$RUN/deploy-backup/$(basename "$path")" "$OMP_HOME/$path"; fi
   done
