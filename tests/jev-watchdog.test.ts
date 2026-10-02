@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import { isUsageLimit } from "@oh-my-pi/pi-ai/error";
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
-import jevWatchdog, { labelOutcome, streamJev } from "../agent/extensions/jev-watchdog";
+import jevWatchdog, { composeScope, labelOutcome, streamJev } from "../agent/extensions/jev-watchdog";
 
 const model: Model = {
   id: "~typesafe/jev-latest", name: "Jev fixture", provider: "jev-watchdog", api: "jev-decisions",
@@ -27,7 +27,9 @@ function decision(drift = 1) {
   return {
     id: "fixture", model: "typesafe/jev-1.13-20260917", provider: "fixture",
     answers: {
-      drift: choice("yes", { yes: drift, no: 1 - drift, unknown: 0 }),
+      outside_scope: choice("yes", { yes: drift, no: 1 - drift, unknown: 0 }),
+      required: choice("no", { yes: 0, no: 1, unknown: 0 }),
+      repaired: choice("no", { yes: 0, no: 1, unknown: 0 }),
     }, usage: { input_tokens: 100, output_tokens: 20, cost: 0.001 },
   };
 }
@@ -217,6 +219,41 @@ test("split rendered updates select the task and current agent evidence only", a
     assert.equal(result.stopReason, "stop");
     assert.equal(requests, 1);
   } finally { globalThis.fetch = original; }
+});
+
+test("eval and truncated bash calls mark the activity hidden; a plain edit does not", async () => {
+  const original = globalThis.fetch;
+  const hidden: boolean[] = [];
+  // SAFETY: This test stub returns a Response and restores the original fetch afterward.
+  globalThis.fetch = (async (_url, options) => {
+    hidden.push(JSON.parse(String(options!.body)).state.activity_hidden);
+    return Response.json(decision(0));
+  }) as typeof fetch;
+  try {
+    const update = (extra: string): Context => ({ ...context, messages: [context.messages[0]!,
+      { role: "user", content: `**agent**:\n→ edit(src/db.ts) ⇒ ok · 3 lines\n${extra}`, timestamp: 1 }] });
+    for (const extra of ["", "→ eval(py) ⇒ ok · 15 lines", "→ bash(cd repo; for c in 1 2 3; do mkdir -…) ⇒ error · 1 line"]) {
+      await streamJev(model, update(extra), { apiKey: "test-placeholder" }).result();
+    }
+    assert.deepEqual(hidden, [false, true, true]);
+  } finally { globalThis.fetch = original; }
+});
+
+test("composed scope verdict abstains when activity is hidden and requires all three conditions", () => {
+  const answer = (probabilities: Record<string, number>) => ({ choice: "x", probabilities, confidence: 1 });
+  const clear = answer({ yes: 0, no: 1, unknown: 0 });
+  const outside = answer({ yes: 0.9, no: 0.1, unknown: 0 });
+  const unneeded = answer({ yes: 0.2, no: 0.8, unknown: 0 });
+  const unrepaired = answer({ yes: 0, no: 1, unknown: 0 });
+  const repairs = answer({ yes: 1, no: 0, unknown: 0 });
+  const none = answer({ yes: 0, no: 1, unknown: 0 });
+  const flagged = composeScope({ outside_scope: outside, required: unneeded, repaired: unrepaired }, false);
+  assert.equal(flagged.choice, "yes");
+  assert.ok(Math.abs(flagged.probabilities.yes! - 0.72) < 1e-9);
+  assert.equal(composeScope({ outside_scope: outside, required: unneeded, repaired: repairs }, false).choice, "no");
+  assert.equal(composeScope({ outside_scope: none, required: clear, repaired: clear }, false).choice, "no");
+  assert.equal(composeScope({ outside_scope: none, required: clear, repaired: clear }, true).choice, "unknown");
+  assert.equal(composeScope({ outside_scope: outside, required: unneeded, repaired: unrepaired }, true).choice, "yes");
 });
 
 test("non-filesystem writes and edits are not implementation steps", async () => {
@@ -409,10 +446,15 @@ test("audit joins transmitted request and decision to the native advisor trace",
       assert.equal(outcome.traceResponseId, request.requestId);
       assert.equal(outcome.providerResponseId, "fixture");
       assert.equal(outcome.resolvedModel, "typesafe/jev-1.13-20260917");
-      assert.deepEqual(outcome.decision, {
+      const { components, activityHidden, ...decided } = outcome.decision;
+      assert.deepEqual(decided, {
         choice: "yes", probabilities: { yes: i ? 0.9 : 0.89, no: 1 - (i ? 0.9 : 0.89), unknown: 0 },
         confidence: 1, threshold: 0.9, reviewCandidate: i === 1,
       });
+      assert.equal(activityHidden, false);
+      assert.deepEqual(Object.keys(components), ["outside_scope", "required", "repaired"]);
+      assert.deepEqual(outcome.usage, { inputTokens: 100, outputTokens: 20, costUsd: 0.001 });
+      assert.ok(outcome.latencyMs >= 0);
       assert.equal(responses[i].stopReason, "stop");
     }
     assert.notEqual(rows[0].requestId, rows[2].requestId);

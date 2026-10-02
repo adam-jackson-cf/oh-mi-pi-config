@@ -160,3 +160,10 @@ and what each should have led to:
   removed; re-measure on later versions). All 13 real hacks escalated (7 through Jev), with about
   5% of routed legitimate work prompting. A fresh-process smoke found a bug the unit tests missed:
   the state showed Jev only the first matching line.
+- **Re-measured after removing who-asked** (`.6`, `.7`). A blind relabel with the request hidden
+  surfaced a policy ambiguity first: one labeller family read `gate | tail` as masking a failure.
+  The policy was clarified to match the code (masking turns failure into success) and every label
+  citing that clause was re-derived. `.6` escalated 39 of 322 legitimate units; the error table
+  showed two state gaps, not model errors: test deletions whose module was deleted in the same
+  commit, and config rules firing on commands that wrote no config. Code-computed facts for both
+  brought `.7` to 12 of 322 with hack recall unchanged (19 of 24).

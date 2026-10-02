@@ -25,6 +25,7 @@ const line = z.object({
   agentId: z.string().optional(),
   label: z.string().optional(),
   reviewer: z.enum(["human", "agent"]).optional(),
+  basis: z.string().optional(),
   request: z.object({
     model: z.string().optional(),
     state: jsonValue.optional(),
@@ -35,8 +36,14 @@ const line = z.object({
     probabilities: z.record(z.string(), z.number()).optional(),
     confidence: z.number().optional(),
     reviewCandidate: z.boolean().optional(),
+    activityHidden: z.boolean().optional(),
+    components: z.record(z.string(), z.object({
+      choice: z.string(), probabilities: z.record(z.string(), z.number()), confidence: z.number().optional(),
+    })).optional(),
   }).optional(),
-  error: z.object({ stopReason: z.string().optional(), httpStatus: z.number().optional() }).optional(),
+  usage: z.object({ inputTokens: z.number().optional(), outputTokens: z.number().optional(), costUsd: z.number().optional() }).optional(),
+  latencyMs: z.number().optional(),
+  error: z.object({ stopReason: z.string().optional(), httpStatus: z.number().optional(), reason: z.string().optional() }).optional(),
   resolvedModel: z.string().optional(),
 });
 type Line = z.infer<typeof line>;
@@ -88,13 +95,20 @@ export async function loadScopeCases(paths: LabPaths): Promise<ScopeIndex> {
     malformed += parsed.malformed;
     const outcomes = new Map(parsed.rows.filter(r => r.type === "outcome" && r.requestId).map(r => [r.requestId, r]));
     const labels = new Map<string, EffectiveLabel>();
+    const bases = new Map<string, string>();
     for (const row of parsed.rows) {
       if (row.type !== "reviewer_outcome" || !row.requestId || !row.label) continue;
-      labels.set(row.requestId, foldLabel(labels.get(row.requestId), { label: row.label, by: row.reviewer ?? "human" }));
+      const by = row.reviewer ?? "human";
+      const folded = foldLabel(labels.get(row.requestId), { label: row.label, by });
+      labels.set(row.requestId, folded);
+      if (folded.label === row.label && folded.by === by) {
+        if (row.basis) bases.set(row.requestId, row.basis); else bases.delete(row.requestId);
+      }
     }
     for (const request of parsed.rows) {
       if (request.type !== "request" || !request.requestId) continue;
-      cases.push(toCase(paths, request, outcomes.get(request.requestId), labels.get(request.requestId), rel));
+      cases.push({ ...toCase(paths, request, outcomes.get(request.requestId), labels.get(request.requestId), rel),
+        labelBasis: bases.get(request.requestId) });
     }
   }
   return { cases, malformed };
@@ -130,7 +144,11 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
     answers: decision ? [{
       id: "decision", type: "choice", choice: decision.choice, probabilities: decision.probabilities,
       confidence: decision.confidence,
-    }] : [],
+    }, ...Object.entries(decision.components ?? {}).map(([id, part]) => ({
+      id, type: "choice" as const, choice: part.choice, probabilities: part.probabilities, confidence: part.confidence,
+    }))] : [],
+    costUsd: outcome?.usage?.costUsd,
+    latencyMs: outcome?.latencyMs,
     resolvedModel: outcome?.resolvedModel,
     error: outcome?.error ? `${outcome.error.stopReason ?? "error"}${outcome.error.httpStatus ? ` (${outcome.error.httpStatus})` : ""}` : undefined,
     transcriptPath: request.sessionFile ?? join(paths.sessionsDir, rel.replace(/\/jev-watchdog-requests\.jsonl$/, ".jsonl")),
@@ -144,9 +162,13 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
 /**
  * Append a `reviewer_outcome` to the session audit with the exact fields `labelOutcome` writes.
  * A human label is final; an agent label is a first pass a human may replace and no later agent
- * label may overwrite. Rejects a missing outcome.
+ * label may overwrite. Rejects a missing outcome. The optional `basis` records how the label was
+ * produced (e.g. `agent_first_pass_agreement`, `human_transcript_review`) so reports can grade
+ * label provenance; it is omitted from the record when not given.
  */
-export async function appendScopeLabel(paths: LabPaths, requestId: string, label: string, reviewer: LabelReviewer): Promise<void> {
+export async function appendScopeLabel(
+  paths: LabPaths, requestId: string, label: string, reviewer: LabelReviewer, basis?: string,
+): Promise<void> {
   if (!SCOPE_LABELS.includes(label)) throw new LabError(`Label must be one of ${SCOPE_LABELS.join(", ")}.`, 400);
   for (const rel of await scopeAuditFiles(paths.sessionsDir)) {
     const file = join(paths.sessionsDir, rel);
@@ -171,7 +193,7 @@ export async function appendScopeLabel(paths: LabPaths, requestId: string, label
         timestamp: new Date().toISOString(),
         sessionId: request.sessionId, sessionFile: request.sessionFile,
         sessionKind: request.sessionKind, agentId: request.agentId,
-        type: "reviewer_outcome", requestId, label, reviewer,
+        type: "reviewer_outcome", requestId, label, reviewer, basis, // undefined is dropped by JSON.stringify
       }) + "\n");
     } finally {
       await handle.close();

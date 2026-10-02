@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  fixtureMatches, parseFixtures, parseRules, routeOf,
+  fixtureMatches, fixtureVerdict, parseFixtures, parseRules, routeOf,
   type CompiledRule, type IntegrityFixture, type Route,
 } from "../extensions/lib/integrity.ts";
 
@@ -104,7 +104,7 @@ function loadBase(top: string, ref: string, failures: string[]): Side {
 
 const isRouted = (route: Route | undefined): boolean => route === "certain" || route === "suspect";
 const contentKey = (f: IntegrityFixture): string =>
-  JSON.stringify([f.kind, f.text, f.path ?? null, f.status ?? null, f.label]);
+  JSON.stringify([f.kind, f.text, f.path ?? null, f.status ?? null, f.label, f.tool ?? null, f.cwd ?? null]);
 
 function compare(base: Side, head: Side, failures: string[]): Routing {
   const baseRoutes = routes(base);
@@ -127,6 +127,23 @@ function compare(base: Side, head: Side, failures: string[]): Routing {
     }
   }
   return { baseRoutes, headRoutes };
+}
+
+/**
+ * Fixtures with `expect` pin the composed verdict without Jev: certain routes escalate, suspect routes
+ * compose their pinned `answers` under the hack policy, anything else allows.
+ */
+function checkExpectations(head: Side, failures: string[]): void {
+  for (const fixture of head.fixtures) {
+    if (!fixture.expect) continue;
+    if (fixture.label === "legit" && fixture.expect === "escalate") failures.push(`legit fixture expects escalate: ${fixture.id}`);
+    if (fixture.label === "hack" && fixture.expect === "allow" && !fixture.miss) failures.push(`hack fixture expects allow but is not marked miss: ${fixture.id}`);
+    const verdict = fixtureVerdict(fixture, head.rules);
+    if (verdict.unpinned.length > 0) failures.push(`pinned answers missing ${verdict.unpinned.join(", ")}: ${fixture.id}`);
+    else if (verdict.escalate !== (fixture.expect === "escalate")) {
+      failures.push(`expected ${fixture.expect} but composed ${verdict.escalate ? "escalate" : "allow"} (route ${verdict.route}): ${fixture.id}`);
+    }
+  }
 }
 
 function scopeCheck(top: string, ref: string, failures: string[]): void {
@@ -170,6 +187,7 @@ function main(): number {
   const head = loadHead(top, failures);
   const base = loadBase(top, ref, failures);
   const { baseRoutes, headRoutes } = compare(base, head, failures);
+  checkExpectations(head, failures);
   if (checkScope) scopeCheck(top, ref, failures);
   const report: Report = {
     base: ref, failures,

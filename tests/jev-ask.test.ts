@@ -3,11 +3,16 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { afterEach, test } from "node:test";
 import * as hostZod from "@oh-my-pi/omptype/zod";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { askParameters, NUDGE_MARKER, registerJevAsk, type AskDetails, type AskParameters } from "../agent/extensions/jev-ask";
 import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, type JevAnswers } from "../agent/extensions/lib/jev";
+
+// The sensitive-path check reads the repository's integrity rules, not the machine's.
+const RULES_DIR = fileURLToPath(new URL("../agent/integrity", import.meta.url));
+afterEach(() => { delete process.env.JEV_INTEGRITY_DIR; });
 
 type ToolResult = { content: { type: string; text: string }[]; details?: AskDetails; isError?: boolean };
 type CapturedTool = {
@@ -80,6 +85,7 @@ async function fixture(): Promise<{ root: string; audit: string }> {
   const root = await mkdtemp(join(tmpdir(), "jev-ask-"));
   const audit = join(root, "audit");
   process.env.JEV_AUDIT_DIR = audit;
+  process.env.JEV_INTEGRITY_DIR = RULES_DIR;
   await mkdir(join(root, "sub"), { recursive: true });
   await mkdir(join(root, "node_modules"), { recursive: true });
   await writeFile(join(root, "a.ts"), `export const a = "${SECRET_BODY}";\n`);
@@ -181,33 +187,101 @@ test("combined mode makes one call, and refuses when content will not fit", asyn
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
 });
 
-test("audit stores path, chars and sha256 for files and clipped redacted inline state", async () => {
+test("audit stores hashes, toolCallId and a redacted content snapshot addressed by sha256", async () => {
   const { root, audit } = await fixture();
   try {
     const { tool, ctx } = harness(root);
     const inline = `token: abc123secretvalue\n${"w".repeat(5_000)}`;
-    await withJev(() => tool.execute("1", { questions, paths: ["a.ts"], state: inline }, undefined, undefined, ctx));
+    await withJev(() => tool.execute("call-7", { questions, paths: ["a.ts"], state: inline }, undefined, undefined, ctx));
     const dir = join(audit, "ask");
-    const file = (await readdir(dir)).find((name) => name !== "labels.jsonl")!;
+    const file = (await readdir(dir)).find((name) => name.endsWith(".jsonl") && name !== "labels.jsonl")!;
     const records = (await readFile(join(dir, file), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(records.length, 2);
     const raw = await readFile(join(root, "a.ts"), "utf8");
     const fileRecord = records.find((r) => r.subject === "a.ts");
     const inlineRecord = records.find((r) => r.subject === "inline state");
-    assert.deepEqual(fileRecord.state, { path: "a.ts", chars: raw.length, sha256: createHash("sha256").update(raw).digest("hex") });
+    const sentFile = JSON.stringify({ path: "a.ts", content: raw });
+    assert.deepEqual(fileRecord.state, { path: "a.ts", chars: raw.length, sha256: createHash("sha256").update(raw).digest("hex"),
+      toolCallId: "call-7", blob: createHash("sha256").update(sentFile).digest("hex") });
+    assert.equal(await readFile(join(dir, "blobs", fileRecord.state.blob), "utf8"), sentFile);
     assert.equal(fileRecord.policy, "ask");
     assert.equal(fileRecord.verdict, "answered");
     assert.equal(fileRecord.mode, "enforce");
-    assert.ok(!JSON.stringify(records).includes(SECRET_BODY));
     assert.ok(!JSON.stringify(inlineRecord.state).includes("abc123secretvalue"));
-    assert.ok(inlineRecord.state.length <= 2_100);
+    assert.ok(inlineRecord.state.inline.length <= 2_100);
+    assert.equal(inlineRecord.state.toolCallId, "call-7");
+    const sentInline = await readFile(join(dir, "blobs", inlineRecord.state.blob), "utf8");
+    assert.ok(!sentInline.includes("abc123secretvalue"));
+    assert.ok(sentInline.length > 5_000, "the snapshot holds the full inline state that was sent, not the clipped excerpt");
+  } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
+});
+
+test("secret and guarded files are skipped as sensitive and never sent or snapshotted", async () => {
+  const { root, audit } = await fixture();
+  try {
+    const denied = [".env", ".env.local", "id_rsa", "server.pem", "api.key", "credentials.json", ".ssh/config",
+      ".aws/config", ".omp/integrity-maintainer/notes.md"];
+    for (const name of denied) {
+      await mkdir(join(root, name, ".."), { recursive: true });
+      await writeFile(join(root, name), `SENSITIVE_MARKER ${name}\n`);
+    }
+    await writeFile(join(root, ".env.example"), "ALLOWED_EXAMPLE=1\n");
+    const { tool, ctx } = harness(root);
+    const out = await withJev(async (sent) => ({
+      r: await tool.execute("1", { questions, paths: [...denied, ".env.example", "a.ts"] }, undefined, undefined, ctx), sent }));
+    assert.deepEqual(out.r.details!.results.map((x) => x.key).sort(), [".env.example", "a.ts"]);
+    const reasons = Object.fromEntries(out.r.details!.skipped.map((s) => [s.path, s.reason]));
+    for (const name of denied) assert.equal(reasons[name], "sensitive path", name);
+    assert.ok(!out.sent.some((s) => JSON.stringify(s.state).includes("SENSITIVE_MARKER")));
+    const blobs = await readdir(join(audit, "ask", "blobs"));
+    for (const blob of blobs) assert.ok(!(await readFile(join(audit, "ask", "blobs", blob), "utf8")).includes("SENSITIVE_MARKER"));
+  } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
+});
+
+test("every refused call writes a precheck record, and audit write failures are counted in the result", async () => {
+  const { root, audit } = await fixture();
+  try {
+    const noKey = harness(root, "");
+    await noKey.tool.execute("c1", { questions, paths: ["a.ts"] }, undefined, undefined, noKey.ctx);
+    const { tool, ctx } = harness(root);
+    await tool.execute("c2", { questions }, undefined, undefined, ctx);
+    await tool.execute("c3", { questions, paths: ["package-lock.json"] }, undefined, undefined, ctx);
+    const dir = join(audit, "ask");
+    const file = (await readdir(dir)).find((name) => name.endsWith(".jsonl") && name !== "labels.jsonl")!;
+    const records = (await readFile(join(dir, file), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(records.map((r) => [r.rule, r.verdict, r.state.toolCallId]), [
+      ["precheck:no_credential", "error", "c1"], ["precheck:no_input", "error", "c2"], ["precheck:no_judgeable_input", "error", "c3"],
+    ]);
+    assert.deepEqual(records[0].state.questionIds, Object.keys(questions));
+    // A file in the way of the audit directory makes every audit write fail; the answer still returns.
+    await writeFile(join(root, "blocked"), "");
+    process.env.JEV_AUDIT_DIR = join(root, "blocked", "audit");
+    const result = await withJev(() => tool.execute("c4", { questions, paths: ["a.ts"] }, undefined, undefined, ctx));
+    assert.equal(result.isError, undefined);
+    assert.equal(result.details!.auditFailures, 2);
+    assert.match(result.content[0]!.text, /audit write failed 2x/);
+  } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
+});
+
+test("question diagnostics flag a choice without a no-match option and a noul without criteria, without blocking", async () => {
+  const { root } = await fixture();
+  try {
+    const { tool, ctx } = harness(root);
+    const result = await withJev(() => tool.execute("1", { questions, paths: ["a.ts"] }, undefined, undefined, ctx));
+    assert.equal(result.isError, undefined);
+    const text = result.content[0]!.text;
+    assert.match(text, /has_retry: noul has no criteria/);
+    assert.match(text, /kind: choice has no no-match option/);
+    const good = { ok: { type: "noul" as const, instructions: "Does `content` export a?", criteria: { true: "exports a" } } };
+    const clean = await withJev(() => tool.execute("2", { questions: good, paths: ["a.ts"] }, undefined, undefined, ctx));
+    assert.doesNotMatch(clean.content[0]!.text, /Question notes/);
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
 });
 
 test("missing credential and Jev failure return error results that point at read/grep", async () => {
   const { root } = await fixture();
   try {
-    const noKey = harness(root, undefined);
+    const noKey = harness(root, "");
     const missing = await noKey.tool.execute("1", { questions, paths: ["a.ts"] }, undefined, undefined, noKey.ctx);
     assert.equal(missing.isError, true);
     assert.match(missing.content[0]!.text, /read.*grep/);

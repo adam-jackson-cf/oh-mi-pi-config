@@ -12,19 +12,20 @@
  * moment you need the code itself, and to grep/lsp/codegraph for exact symbols or text.
  */
 import { createHash } from "node:crypto";
-import { readdir, realpath, stat } from "node:fs/promises";
+import { mkdir, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "zod";
 import {
-  appendDecision, clip, decide, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
-  type JevAnswer, type JevAnswers, type JevQuestion, type JevQuestions, type JevResult, type JsonValue,
+  appendDecision, auditRoot, clip, decide, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
+  type JevAnswer, type JevAnswers, type JevQuestion, type JevQuestions, type JevResult, type JsonValue, type NewDecision,
 } from "./lib/jev.ts";
 import { loadJevApiKey } from "./lib/jev-auth.ts";
+import { loadRules, matchChange, type CompiledRule } from "./lib/integrity.ts";
 
 export const ASK_POLICY = "ask";
-export const ASK_POLICY_VERSION = "ask-2026-09-29";
+export const ASK_POLICY_VERSION = "ask-2026-10-02.1";
 export const MAX_FILES = 64;
 export const MAX_QUESTIONS = 8;
 export const MAX_INLINE_CHARS = 8_000;
@@ -41,7 +42,9 @@ export const NUDGE_TEXT = `${NUDGE_MARKER}
 Prefer the cheapest evidence that settles the question:
 1. Deterministic: codegraph (structure, callers, impact, affected tests), lsp, grep/glob, git, tests.
 2. Jev (fast, ~$0.00001): \`find\` locates behaviour by description when names are unknown; \`jev_ask\` judges files or captured output you have not read; eval \`judge()\`/\`judge_batch\` and the \`jevify\` keyword classify in bulk.
-3. LLM context: \`read\` only ranges you must edit, quote or reason over in depth.`;
+3. LLM context: \`read\` only ranges you must edit, quote or reason over in depth.
+
+\`jev_ask\` is an xd:// device: read \`xd://jev_ask\` once for the schema, then write JSON to it, e.g. \`{"questions":{"retries":{"type":"noul","instructions":"Does \`content\` implement retry with backoff?"}},"paths":["src/**/*.ts"]}\`.`;
 
 const noulQuestion = z.object({
   type: z.literal("noul"), instructions: z.string(),
@@ -67,11 +70,14 @@ export type AskParameters = z.infer<typeof askParameters>;
 export type Skip = { path: string; reason: string };
 export type Candidate = { path: string; abs: string };
 export type LoadedFile = { path: string; content: string };
-export type Unit = { key: string; state: JsonValue; audit: JsonValue; subject: string };
+export type AuditFields = { [key: string]: JsonValue };
+export type Unit = { key: string; state: JsonValue; audit: AuditFields; subject: string };
 export type UnitOutcome = { key: string; answers?: JevAnswers; error?: string };
 export type AskDetails = {
   mode: "per_file" | "combined"; questions: string[];
   results: UnitOutcome[]; skipped: Skip[]; costUsd: number; calls: number;
+  /** Audit writes (records or content snapshots) that failed during this call. */
+  auditFailures: number;
 };
 export type LoadKey = () => Promise<string | undefined>;
 
@@ -161,10 +167,22 @@ export async function expandPaths(cwd: string, paths: string[]): Promise<{ files
   return { files, skipped };
 }
 
+/**
+ * Deterministic sensitive-path check. Guarded paths come from the integrity rules' read-context
+ * matcher (one list); secret file names are matched here because those rules cover guard files only.
+ */
+const SECRET_FILE = /(?:^|\/)(?:\.env(?:\.(?!(?:example|sample|template|dist)$)[^/]+)?|\.netrc|\.npmrc|\.pgpass|\.git-credentials|id_(?:rsa|dsa|ecdsa|ed25519)|credentials(?:\.(?:json|ya?ml|toml|ini|xml))?|[^/]+\.(?:pem|key|p12|pfx|keystore|jks|kdbx|ppk))$|(?:^|\/)\.(?:ssh|aws|gnupg)\//i;
+
+function sensitivePath(file: Candidate, rules: CompiledRule[]): boolean {
+  if (SECRET_FILE.test(file.path) || SECRET_FILE.test(file.abs)) return true;
+  return matchChange({ path: file.abs, status: "modified", added: [], removed: [] }, rules, "read").length > 0;
+}
+
 /** Deterministic pre-filter: returns the file content or the reason it cannot be judged. */
-async function loadFile(file: Candidate): Promise<LoadedFile | Skip> {
+async function loadFile(file: Candidate, rules: CompiledRule[]): Promise<LoadedFile | Skip> {
   const ignored = ignoredSegment(file.path);
   if (ignored) return { path: file.path, reason: "ignored directory" };
+  if (sensitivePath(file, rules)) return { path: file.path, reason: "sensitive path" };
   if (LOCKFILE.test(file.path)) return { path: file.path, reason: "lockfile" };
   const handle = Bun.file(file.abs);
   const bytes = handle.size;
@@ -183,13 +201,13 @@ function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-function fileAudit(file: LoadedFile): JsonValue {
+function fileAudit(file: LoadedFile) {
   return { path: file.path, chars: file.content.length, sha256: sha256(file.content) };
 }
 
 type BuiltUnits = { calls: Unit[]; error?: string };
 type CombinedState = { files: LoadedFile[]; inline?: string };
-type CombinedAudit = { files: JsonValue[]; inline?: string };
+type CombinedAudit = { files: AuditFields[]; inline?: string };
 
 /** Build the Jev calls: one per file, one combined call, and/or one inline-state call. */
 function buildUnits(files: LoadedFile[], inline: string | undefined, mode: "per_file" | "combined",
@@ -214,7 +232,8 @@ function buildUnits(files: LoadedFile[], inline: string | undefined, mode: "per_
       audit: fileAudit(file), subject: redact(file.path, apiKey) });
   }
   if (redactedInline !== undefined) {
-    calls.push({ key: "(inline)", state: redactedInline, audit: inlineAudit, subject: "inline state" });
+    calls.push({ key: "(inline)", state: redactedInline,
+      audit: { inline: inlineAudit, chars: redactedInline.length }, subject: "inline state" });
   }
   return { calls };
 }
@@ -249,62 +268,143 @@ function renderTable(ids: string[], questions: JevQuestions, results: UnitOutcom
   return lines.join("\n");
 }
 
-async function auditCall(unit: Unit, questions: JevQuestions, outcome: JevResult,
-  ctx: ExtensionContext): Promise<void> {
+/** Content-addressed snapshot of exactly what Jev was sent (redacted, bounded by the state limit). */
+async function writeBlob(text: string): Promise<string> {
+  const hash = sha256(text);
+  if (process.env.JEV_AUDIT === "0") return hash;
+  const dir = join(auditRoot(), ASK_POLICY, "blobs");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   try {
-    await appendDecision({
-      policy: ASK_POLICY, policyVersion: ASK_POLICY_VERSION, mode: "enforce",
-      sessionId: ctx.sessionManager?.getSessionId?.(), agentKind: ctx.agent?.kind, agentName: ctx.agent?.name,
-      stage: outcome.ok ? "jev" : "jev_error", subject: unit.subject, state: unit.audit, questions,
-      answers: outcome.ok ? outcome.answers : undefined,
-      resolvedModel: outcome.resolvedModel,
-      providerResponseId: outcome.ok ? outcome.providerResponseId : undefined,
-      costUsd: outcome.ok ? outcome.costUsd : undefined, latencyMs: outcome.latencyMs,
-      error: outcome.ok ? undefined : outcome.error, httpStatus: outcome.ok ? undefined : outcome.httpStatus,
-      verdict: outcome.ok ? "answered" : "error", enforced: true, labels: ["correct", "incorrect", "uncertain"],
-    });
-  } catch {
-    // Audit is best effort; it must never turn an answered question into a tool failure.
+    await writeFile(join(dir, hash), text, { flag: "wx", mode: 0o600 });
+  } catch (cause) {
+    if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
   }
+  return hash;
+}
+
+/** Audit is best effort and never fails the tool call; failures are counted and surfaced in the result. */
+type AuditSink = { failures: number };
+
+async function writeRecord(record: NewDecision, sink: AuditSink): Promise<void> {
+  try {
+    await appendDecision(record);
+  } catch {
+    sink.failures++;
+  }
+}
+
+async function auditCall(unit: Unit, questions: JevQuestions, outcome: JevResult, toolCallId: string | undefined,
+  ctx: ExtensionContext, sink: AuditSink): Promise<void> {
+  const base = { ...unit.audit, toolCallId: toolCallId ?? null };
+  let blob: string | undefined;
+  try {
+    blob = await writeBlob(JSON.stringify(unit.state));
+  } catch {
+    sink.failures++;
+  }
+  const state = blob === undefined ? base : { ...base, blob };
+  await writeRecord({
+    policy: ASK_POLICY, policyVersion: ASK_POLICY_VERSION, mode: "enforce",
+    sessionId: ctx.sessionManager?.getSessionId?.(), agentKind: ctx.agent?.kind, agentName: ctx.agent?.name,
+    stage: outcome.ok ? "jev" : "jev_error", subject: unit.subject, state, questions,
+    answers: outcome.ok ? outcome.answers : undefined,
+    resolvedModel: outcome.resolvedModel,
+    providerResponseId: outcome.ok ? outcome.providerResponseId : undefined,
+    costUsd: outcome.ok ? outcome.costUsd : undefined, latencyMs: outcome.latencyMs,
+    error: outcome.ok ? undefined : outcome.error, httpStatus: outcome.ok ? undefined : outcome.httpStatus,
+    verdict: outcome.ok ? "answered" : "error", enforced: true, labels: ["correct", "incorrect", "uncertain"],
+  }, sink);
+}
+
+type PrecheckContext = { ctx: ExtensionContext; toolCallId: string | undefined; sink: AuditSink; questions: JevQuestions };
+
+/** Records a refused call (no Jev request was made) so unused, unavailable and failing stay distinguishable. */
+async function precheck(pre: PrecheckContext, reason: string, message: string, validQuestions: boolean,
+  skipped: Skip[] = []): Promise<AgentToolResult<AskDetails>> {
+  const ids = Object.keys(pre.questions);
+  await writeRecord({
+    policy: ASK_POLICY, policyVersion: ASK_POLICY_VERSION, mode: "enforce",
+    sessionId: pre.ctx.sessionManager?.getSessionId?.(), agentKind: pre.ctx.agent?.kind, agentName: pre.ctx.agent?.name,
+    stage: "skipped", rule: `precheck:${reason}`, subject: `precheck ${reason}`,
+    state: { toolCallId: pre.toolCallId ?? null, questionIds: ids, skipped: skipped.map((s) => ({ ...s })) },
+    questions: validQuestions ? pre.questions : undefined,
+    error: message, verdict: "error", enforced: true, labels: ["uncertain"],
+  }, pre.sink);
+  const details: AskDetails = { mode: "per_file", questions: ids, results: [], skipped, costUsd: 0, calls: 0,
+    auditFailures: pre.sink.failures };
+  const note = pre.sink.failures > 0 ? `\n(audit write failed ${pre.sink.failures}x)` : "";
+  return { ...failure(`${message}${note}`), details };
+}
+
+const NO_MATCH_OPTION = /^(?:none|other|no_match|neither|unknown|n_a|na|not_applicable)\b/i;
+
+/** Non-blocking question-quality diagnostics (jev-design: criteria define every answer; choices need a no-match). */
+function questionNotes(questions: JevQuestions): string[] {
+  const notes: string[] = [];
+  for (const [id, q] of Object.entries(questions)) {
+    if (q.type === "noul" && !q.criteria?.true && !q.criteria?.false) {
+      notes.push(`${id}: noul has no criteria; state what counts as true and as false.`);
+    }
+    if (q.type === "choice") {
+      const options = Object.keys(q.criteria);
+      if (!options.some((option) => NO_MATCH_OPTION.test(option))) {
+        notes.push(`${id}: choice has no no-match option (e.g. "none"); a forced pick will be wrong when nothing fits.`);
+      }
+      if (options.some((option) => !q.criteria[option])) notes.push(`${id}: choice options without a description are ambiguous.`);
+    }
+  }
+  return notes;
 }
 
 /** Execute one jev_ask call. Exported for tests; the registered tool wraps it. */
 export async function runAsk(params: AskParameters, signal: AbortSignal | undefined, ctx: ExtensionContext,
-  loadKey: LoadKey): Promise<AgentToolResult<AskDetails>> {
+  loadKey: LoadKey, toolCallId?: string): Promise<AgentToolResult<AskDetails>> {
   const questions: JevQuestions = params.questions;
+  const sink: AuditSink = { failures: 0 };
+  const pre: PrecheckContext = { ctx, toolCallId, sink, questions };
   try {
     validateQuestions(questions);
   } catch (cause) {
-    return failure(cause instanceof Error ? cause.message : "Invalid Jev questions.");
+    return precheck(pre, "invalid_questions", cause instanceof Error ? cause.message : "Invalid Jev questions.", false);
   }
-  if (!params.paths?.length && params.state === undefined) return failure("Provide `paths` and/or `state` to judge.");
+  if (!params.paths?.length && params.state === undefined) {
+    return precheck(pre, "no_input", "Provide `paths` and/or `state` to judge.", true);
+  }
   let apiKey: string | undefined;
   try {
     apiKey = await loadKey();
   } catch {
     apiKey = undefined;
   }
-  if (!apiKey) return failure(`Jev is unavailable: no OpenRouter credential (run /login openrouter). ${FALLBACK}`);
+  if (!apiKey) {
+    return precheck(pre, "no_credential", `Jev is unavailable: no OpenRouter credential (run /login openrouter). ${FALLBACK}`, true);
+  }
+  let rules: CompiledRule[];
+  try {
+    rules = await loadRules();
+  } catch {
+    return precheck(pre, "rules_unavailable", `Sensitive-path rules are unavailable, so no file can be judged. ${FALLBACK}`, true);
+  }
 
   const expanded = params.paths?.length ? await expandPaths(ctx.cwd, params.paths) : { files: [], skipped: [] };
   const skipped = [...expanded.skipped];
   const files: LoadedFile[] = [];
-  for (const outcome of await runPool(expanded.files, CONCURRENCY, loadFile)) {
+  for (const outcome of await runPool(expanded.files, CONCURRENCY, (file) => loadFile(file, rules))) {
     if ("content" in outcome) files.push(outcome);
     else skipped.push(outcome);
   }
   const mode = params.mode ?? "per_file";
   const built = buildUnits(files, params.state, mode, apiKey);
-  if (built.error !== undefined) return failure(`${built.error} ${FALLBACK}`);
+  if (built.error !== undefined) return precheck(pre, "combined_too_large", `${built.error} ${FALLBACK}`, true, skipped);
   const units = built.calls;
   if (units.length === 0) {
-    return failure(`No judgeable input.\n${skippedLines(skipped)}\n${FALLBACK}`);
+    return precheck(pre, "no_judgeable_input", `No judgeable input.\n${skippedLines(skipped)}\n${FALLBACK}`, true, skipped);
   }
 
   const ids = Object.keys(questions);
   const outcomes = await runPool(units, CONCURRENCY, async (unit) => {
     const result = await decide(apiKey, unit.state, questions, { signal });
-    await auditCall(unit, questions, result, ctx);
+    await auditCall(unit, questions, result, toolCallId, ctx, sink);
     return result;
   });
   const results: UnitOutcome[] = units.map((unit, index) => {
@@ -312,15 +412,19 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
     return outcome.ok ? { key: unit.key, answers: outcome.answers } : { key: unit.key, error: outcome.error };
   });
   const costUsd = outcomes.reduce((sum, outcome) => sum + (outcome.ok ? outcome.costUsd : 0), 0);
-  const details: AskDetails = { mode, questions: ids, results, skipped, costUsd, calls: units.length };
+  const details: AskDetails = { mode, questions: ids, results, skipped, costUsd, calls: units.length,
+    auditFailures: sink.failures };
   const failed = results.filter((result) => result.error);
+  const auditNote = sink.failures > 0 ? ` (audit write failed ${sink.failures}x)` : "";
   if (failed.length === results.length) {
-    return { ...failure(`Jev failed: ${failed[0].error} ${FALLBACK}`), details };
+    return { ...failure(`Jev failed: ${failed[0].error} ${FALLBACK}${auditNote}`), details };
   }
   const text = [renderTable(ids, questions, results)];
   for (const item of failed) text.push(`failed ${item.key}: ${item.error}`);
   if (skipped.length > 0) text.push(`Skipped:\n${skippedLines(skipped)}`);
-  text.push(`cost $${costUsd.toFixed(6)}, ${units.length} call${units.length === 1 ? "" : "s"}`);
+  const notes = questionNotes(questions);
+  if (notes.length > 0) text.push(`Question notes:\n${notes.map((note) => `- ${note}`).join("\n")}`);
+  text.push(`cost $${costUsd.toFixed(6)}, ${units.length} call${units.length === 1 ? "" : "s"}${auditNote}`);
   return { content: [{ type: "text", text: text.join("\n") }], details };
 }
 
@@ -328,10 +432,16 @@ function skippedLines(skipped: Skip[]): string {
   return skipped.map((item) => `- ${item.path}: ${item.reason}`).join("\n");
 }
 
-const DESCRIPTION = `Ask Jev (a fast, ~$0.00001 typed decision model) questions about files or inline text WITHOUT loading their content into your context. Answers are probabilities: noul (yes/no), choice (labelled option), score (0..n-1 level).
-Use it to: learn whether a file or many files do X; rank or filter candidates; check an assumption about command output you already captured (pass it as \`state\`).
-Do NOT use it for exact symbol/text lookup (use grep, lsp, codegraph) or when you need the code to edit or quote (use read with ranges). Treat low-confidence answers as unknown and read.
-\`paths\` accepts files, directories and globs under the workspace (max ${MAX_FILES} files; binaries, lockfiles, node_modules/.git/dist/build/coverage/.venv and files over ${JEV_STATE_CHAR_LIMIT} chars are skipped and reported). \`mode\`: per_file (default; one row per file) or combined (all files in one judgment when they fit). Max ${MAX_QUESTIONS} questions; ids are lower_snake_case.`;
+const DESCRIPTION = `Ask Jev questions about files you have not read: write JSON to xd://jev_ask (read it for the schema). Answers are probabilities (noul yes/no, choice, score), not file content.
+Jev is a fast, ~$0.00001 typed decision model. Use it to: learn whether a file or many files do X; rank or filter candidates; check an assumption about command output you already captured (pass it as \`state\`).
+Do NOT use it for exact symbol/text lookup (use grep, lsp, codegraph) or when you need the code to edit or quote (use read with ranges). A noul between 0.4 and 0.6, or a weak choice, means unknown: read the file.
+\`paths\` accepts files, directories and globs under the workspace (max ${MAX_FILES} files; binaries, lockfiles, node_modules/.git/dist/build/coverage/.venv, secret and guarded files (dotenv, keys, credentials, integrity-maintainer) and files over ${JEV_STATE_CHAR_LIMIT} chars are skipped and reported). Max ${MAX_QUESTIONS} questions; ids are lower_snake_case.
+\`mode\` and the state the questions see (cite fields by backticked name in instructions):
+- per_file (default): one row per file; state \`{path, content}\`.
+- combined: one judgment and one answer for the whole set; state \`{files: [{path, content}], inline?}\`. Use per_file when you need an answer per file.
+- \`state\` text alone: the state is that bare string.
+Writing questions: ask one narrow judgment per question; the id is not sent, so the instructions carry the whole meaning and name the field they inspect. Give criteria that define every answer, write boundary cases literally, and use noul for a yes/no condition, choice for a defined set (always include a "none" option for no match), score only for described ordered levels.
+Example: \`{"questions":{"retries":{"type":"noul","instructions":"Does \`content\` retry a failed network request in code that runs in this file?","criteria":{"true":"A loop or helper re-sends the request after a failure","false":"No re-send, or retry appears only in comments, strings or tests"}},"kind":{"type":"choice","instructions":"Which best describes \`content\`?","criteria":{"source":"Executable code","docs":"Prose documentation","none":"Neither"}}},"paths":["src/**/*.ts"]}\``;
 
 /** Host-side (omptype) schema for the tool contract; `askParameters` re-validates the limits at execute time. */
 function hostParameters(z: ExtensionAPI["zod"]) {
@@ -360,10 +470,10 @@ export function registerJevAsk(pi: ExtensionAPI, loadKey: LoadKey): void {
     description: DESCRIPTION,
     parameters: hostParameters(pi.zod),
     approval: "read",
-    execute: async (_id, params, signal, _onUpdate, ctx) => {
+    execute: async (toolCallId, params, signal, _onUpdate, ctx) => {
       const parsed = askParameters.safeParse(params);
       if (!parsed.success) return failure(`Invalid jev_ask arguments: ${parsed.error.issues[0]?.message ?? "unknown problem"}.`);
-      return runAsk(parsed.data, signal, ctx, loadKey);
+      return runAsk(parsed.data, signal, ctx, loadKey, toolCallId);
     },
   });
   pi.on("before_agent_start", (event) => {

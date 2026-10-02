@@ -9,7 +9,9 @@ older records lack them and are main sessions. A subagent's audit sits beside it
 `export-cases.ts` scan recursively (the summary's `byGroup` tallies them). Every failure carries a non-secret
 `reason` (`policy_slot`, `state_build`, `missing_key`, `no_update`, `no_advisor_tool`, `network`,
 `timeout`, `http_error`, `credits`, `invalid_response`, `model_mismatch`, `invalid_choices`,
-`no_owner`); the exporter writes them as failure lines, tallied as `failuresBeforeCase`.
+`aborted`, `no_owner`, `unexpected`); the exporter writes them as failure lines, tallied as
+`failuresBeforeCase`. A successful `outcome` also records `usage` (`inputTokens`, `outputTokens`,
+`costUsd`) and `latencyMs` (the Jev request), which the loader maps to `costUsd`/`latencyMs`.
 
 - **Mode (`jev-scope` in `jev-policies.json`, read at session start).** `off`: the advisor replies
   `continue` with no Jev call and no audit. `shadow` (default): the review is audited and
@@ -31,8 +33,10 @@ older records lack them and are main sessions. A subagent's audit sits beside it
   later `xd://resolve` is not shown), and `bash` whose visible command edits files (`sed -i`,
   redirection, `tee`, `mv`/`cp`/`rm`/`mkdir`/`touch`, `git apply|checkout|restore`). Other
   `scheme://` targets, reads, and the plan file are excluded. `eval` code is not rendered to the
-  advisor, so eval file writes are not visible; long bash commands are truncated by OMP before the
-  watchdog sees them.
+  advisor, so eval file writes are not visible; long bash commands are truncated by OMP (`…`)
+  before the watchdog sees them. Code sets `state.activity_hidden` when the update contains an
+  `eval` call or a truncated bash command (fenced result text is ignored); the composed verdict
+  then abstains (`unknown`) instead of `no`.
 - **Plan source, latest in branch order wins:** `plan_mode` (`mode_change` with
   `data.planFilePath`), `plan_approval` (the `Plan approved.` developer message with
   `<plan path=…>`; "Approve and execute" opens a fresh session, so the request being planned is

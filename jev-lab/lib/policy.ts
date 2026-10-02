@@ -102,6 +102,7 @@ export async function loadPolicyCases(paths: LabPaths, policy: string): Promise<
         label: applied?.label ?? null,
         labelBy: applied?.by ?? null,
         labelNote: applied?.note,
+        rule: row.rule,
         note: [row.rule ? `rule ${row.rule}` : "", row.mode ? `mode ${row.mode}` : ""].filter(Boolean).join(" · ") || undefined,
       });
     }

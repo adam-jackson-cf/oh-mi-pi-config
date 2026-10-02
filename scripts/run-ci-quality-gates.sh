@@ -82,7 +82,9 @@ else
   fi
 fi
 bunx tsc --noEmit
-bun test
+# A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
+# would otherwise write into this repository's index.
+(unset "${!GIT_@}"; bun test)
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do

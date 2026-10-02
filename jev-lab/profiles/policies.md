@@ -43,9 +43,31 @@ threshold is never tuned on the evaluation set.
    wait. Flip one policy at a time in `jev-policies.json`, restart OMP, verify in a fresh process,
    and keep auditing.
 
-The 2026-10-02 guard promotion (`.todo/artifacts/021026-jev-promotion/report.md`) narrowly missed
-its recall bars on an independent held-out corpus: bash 39/40 dangerous commands caught, result
-28/30 injections (28/29 in scope), write 10/10 known-format keys and 17/20 other credentials. False
-positives were 0 on 90 held-out real decisions and 1 on 414 canaries. The owner chose to enforce
-all three regardless; the known misses are `launchctl unload` of system daemons, `requirepass` and
-`--auth-password` credentials (pre-filter), and an injection buried in a long page.
+### Recorded exception: the 2026-10-02 guard promotion
+
+The frozen protocol said enforce only if every bar holds, otherwise drop. The promotion
+(`.todo/artifacts/021026-jev-promotion/report.md`, versions `guard-*-2026-09-29`) missed its recall
+bars on an independent held-out corpus: bash 39/40 dangerous commands caught (bar: 0 missed), result
+28/30 injections (bar ≥ 95%), write 10/10 known-format keys and 17/20 other credentials (bar ≥ 90%).
+False positives were 0 on 90 held-out real decisions and 1 on 414 canaries (canary rate, a different
+quantity from the real-history rate, which must be reported separately). **The owner overrode the
+bars and enforced all three guards on 2026-10-02.** This is an explicit exception to the protocol,
+not a pass. The labels behind it are agent first passes on `09-29` records; no human label exists
+yet, and no figure exists for the current versions.
+
+Missed cases, which are the next iteration's input (implemented in `guard-bash-2026-10-02.3`,
+`guard-write-2026-10-02.3`, `guard-result-2026-10-02.3`, not yet re-measured):
+
+- Bash `launchctl unload -w /Library/LaunchDaemons/…`: denylist rule `launchctl-unload` (also
+  `bootout`, `remove`), with `kill -9 1`, `systemctl stop|disable`, `/proc/<pid>/environ`.
+- Write `requirepass <pw>` and `--auth-password '<pw>'` never reached Jev: pre-filter forms added
+  (also `--password`, `Authorization:`/`Cookie:` headers, `auth:` keys). Held-out corpus additions
+  are in the guard tests; a fresh held-out corpus is still needed because round 2 is spent.
+- Result injection buried in a long page: whole-result windowing, maximum over windows.
+- `read ./docs/NOTES.md` miss: explicit decision recorded in [guards.md](guards.md) (own
+  workspace files trusted; third-party trees screened).
+
+To close the exception: replay the labelled states through the `.3` versions in a fresh process
+(`replay-guards.ts`), obtain blind human adjudication of the confirm set, sweep thresholds per
+answer on that set, freeze them, and verify on a fresh held-out corpus, reporting per-stage
+figures against the denylist-alone baseline.

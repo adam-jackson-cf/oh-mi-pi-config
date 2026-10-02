@@ -64,9 +64,13 @@ export type LabCase = {
   /** Who wrote the effective label: a human always wins over an agent first-pass label. */
   labelBy: LabelReviewer | null;
   labelNote?: string;
+  /** How the effective label was produced (e.g. agent_first_pass_agreement); absent for legacy labels. */
+  labelBasis?: string;
   proposal?: Proposal;
   expected?: Record<string, string | number | boolean>;
   note?: string;
+  /** Policy decisions: the deterministic rule id, when a rule decided. */
+  rule?: string;
 };
 
 export type LabPaths = { sessionsDir: string; auditDir: string; casesetDir: string; runsDir: string };

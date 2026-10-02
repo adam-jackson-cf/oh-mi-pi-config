@@ -12,6 +12,7 @@ import { buildProposalQueue, buildQueue, scopeProgress } from "../jev-lab/lib/me
 import { loadProposals } from "../jev-lab/lib/proposals";
 import { loadCases } from "../jev-lab/lib/sources";
 import { appendPolicyLabel, loadPolicyCases } from "../jev-lab/lib/policy";
+import { bandOf, stratifiedSample } from "../jev-lab/scripts/sample-scope";
 import { appendScopeLabel, loadScopeCases } from "../jev-lab/lib/scope";
 import type { LabCase, LabPaths } from "../jev-lab/lib/types";
 import { createHandler } from "../jev-lab/server";
@@ -169,6 +170,33 @@ test("scope label append uses the labelOutcome record shape, mode 0600, and reje
     const { cases } = await loadScopeCases(f.paths);
     assert.equal(cases.find(c => c.id === "r1")?.label, "overreach");
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("scope cases carry recorded cost, latency and label basis", async () => {
+  const f = await fixture();
+  try {
+    await appendFile(f.auditFile, JSON.stringify({ ...JSON.parse((await readFile(f.auditFile, "utf8")).split("\n")[2]!),
+      usage: { inputTokens: 10, outputTokens: 2, costUsd: 0.0004 }, latencyMs: 812 }) + "\n");
+    await appendScopeLabel(f.paths, "r1", "overreach", "agent", "agent_first_pass_agreement");
+    const r1 = (await loadScopeCases(f.paths)).cases.find(c => c.id === "r1");
+    assert.deepEqual([r1?.costUsd, r1?.latencyMs, r1?.labelBasis], [0.0004, 812, "agent_first_pass_agreement"]);
+    await appendScopeLabel(f.paths, "r1", "no_overreach", "human");
+    const human = (await loadScopeCases(f.paths)).cases.find(c => c.id === "r1");
+    assert.deepEqual([human?.labelBy, human?.labelBasis], ["human", undefined]);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("scope sampler keeps every case above the cutoff and spreads the rest across bands and groups", () => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    id: `c${i}`, verdict: "no", score: (i % 10) / 10 + 0.05, sufficient: true, group: Math.floor(i / 10) % 2 ? "sub" : "main",
+  }));
+  const sample = stratifiedSample(rows, 40, 0.7, 7);
+  const high = rows.filter(r => r.score >= 0.7).map(r => r.id);
+  assert.ok(high.every(id => sample.some(r => r.id === id)));
+  assert.equal(sample.length, 40);
+  const cells = new Set(sample.filter(r => r.score < 0.7).map(r => `${bandOf(r.score)}|${r.group}`));
+  assert.equal(cells.size, 8);
+  assert.deepEqual(stratifiedSample(rows, 40, 0.7, 7).map(r => r.id), sample.map(r => r.id));
 });
 
 test("policy audit decisions load with labels and labels are appended once via appendLabel", async () => {

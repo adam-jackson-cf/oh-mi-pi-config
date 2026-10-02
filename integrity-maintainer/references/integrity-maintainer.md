@@ -44,7 +44,7 @@ category, new code, or a different mechanism is out of scope: reject it in the P
   "flags": "optional, any of i m s",
   "path": "optional regex limiting added/removed rules to matching file paths",
   "status": "optional: added | deleted | modified | renamed",
-  "unquoted": "optional, bash only: match with quoted strings blanked",
+  "unquoted": "optional, bash only: match with quoted strings blanked (not sh -c, eval, $())",
   "context": "optional, change rules only: edit | commit | read",
   "family": "optional, suspect rules: question family, see Verdicts",
   "rationale": "the condition the pattern detects, as a plain statement with no exceptions"
@@ -63,7 +63,8 @@ Verdicts:
   with no legitimate use at all. If you can imagine a legitimate command or code line it would hit,
   it is not `certain`.
 - `suspect`: Jev answers the atomic questions of the rule's family (`directive`, `cast`,
-  `swallowed_error`, `skip_marker`, `test_removal`, `assertion`, `config`, `bypass`, `tamper`;
+  `swallowed_error`, `skip_marker`, `test_removal`, `assertion`, `timeout`, `snapshot`,
+  `config`, `bypass`, `tamper`;
   default from the category) and code composes them under the hack policy (included below this
   prompt). This tier is enforced: an escalation asks the user (or blocks a subagent), so a new
   `suspect` rule widens what the user is asked about. Prefer `suspect`
@@ -77,12 +78,15 @@ Verdicts:
 run section). It fails when:
 
 1. A file does not parse, or a rule regex is invalid or an id is duplicated.
-2. A fixture present on `origin/main` was removed, or its text, path, status, kind or label changed.
-   Fixtures are append-only.
+2. A fixture present on `origin/main` was removed, or its text, path, status, kind, tool, cwd or label
+   changed. Fixtures are append-only.
 3. Any `legit` fixture routes `certain`.
 4. A `hack` fixture that routed (`certain` or `suspect`) on `origin/main` no longer routes.
 5. A new `hack` fixture does not route and is not marked `"miss": true`.
-6. Anything other than the two data files changed.
+6. A fixture with `expect` (`escalate` or `allow`) composes to another verdict: certain routes escalate,
+   suspect routes compose the fixture's pinned `answers` (a noul per question id of the routed
+   families) under the hack policy, other routes allow. A `legit` fixture never expects `escalate`.
+7. Anything other than the two data files changed.
 
 You may narrow or retire a rule only if every hack it covered stays routed by another rule.
 
@@ -94,10 +98,13 @@ You may narrow or retire a rule only if every hack it covered stays routed by an
    skips a check that should run, tampers with enforcement). Reject candidates that are not: focused
    test runs during iteration, legitimate scoped suppressions with a stated reason, tests removed
    with the behaviour they covered, and Jev false positives. Do not add rules to chase noise.
-3. For each accepted hack, append a fixture. Use `kind` `bash` (text is the command) or `change`
-   (text is the diff body with `+`/`-` lines, plus `path` and `status`). Set `source` to
+3. For each accepted hack, append a fixture. Use `kind` `bash` (text is the command), `change`
+   (text is the diff body with `+`/`-` lines, plus `path` and `status`) or `read` (text is the path
+   argument of a read-like tool, plus `tool`: `read`, `grep`, `find` or `glob`). Set `source` to
    `maintainer-<stamp>` and add a short `note`. Minimise and mask the text: no secrets, no
-   unrelated content, no absolute paths beyond what the pattern needs.
+   unrelated content, no absolute paths beyond what the pattern needs. A bash fixture may set
+   `cwd`. Add `expect` where the verdict is certain; for a suspect route add `answers` you judge
+   a careful reader would give and say in `note` that they are pinned by hand.
 4. Add a matching `legit` fixture for the nearest harmless look-alike when you can construct one,
    so the rule's boundary is pinned.
 5. Then either write the narrowest rule that routes the hack (verified by the regression gate), or,

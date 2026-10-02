@@ -50,6 +50,7 @@ agent/integrity/*
 !agent/integrity/rules.json
 !agent/integrity/fixtures.json
 !agent/integrity/regress.ts
+!agent/integrity/replay.ts
 
 !agent/skills/
 agent/skills/*
@@ -115,6 +116,10 @@ jev-lab/*
 jev-lab/scripts/*
 !jev-lab/scripts/upstream-lab.sh
 !jev-lab/scripts/export-cases.ts
+!jev-lab/scripts/sample-scope.ts
+!jev-lab/scripts/ask-adoption.ts
+!jev-lab/scripts/replay-guards.ts
+!jev-lab/scripts/replay-scope.ts
 
 !.omp/
 .omp/*

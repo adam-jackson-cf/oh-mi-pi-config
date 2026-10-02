@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { commitPlans, createJevGuard, INTEGRITY_POLICY, INTEGRITY_SUSPECT_POLICY } from "../agent/extensions/jev-guard.ts";
-import { fixtureMatches, p1Allows, parseFixtures, parseRules, parseUnifiedDiff, routeOf } from "../agent/extensions/lib/integrity.ts";
+import { fixtureMatches, fixtureVerdict, matchBash, p1Allows, parseFixtures, parseRules, parseUnifiedDiff, readTargets, routeOf } from "../agent/extensions/lib/integrity.ts";
 import { JEV_PINNED_MODEL, type DecisionRecord, type JevQuestions, type JsonValue, type PolicyMode } from "../agent/extensions/lib/jev.ts";
 
 const RULES_DIR = join(import.meta.dir, "..", "agent", "integrity");
@@ -217,11 +217,11 @@ test("enforce: a blanket suppression added after a rule-coded one is still judge
 
 test("enforce: SKIP= on a manual pre-commit run is not a bypass (P2); a deselected run Jev calls final is", async () => {
   freshRepo();
-  await withGuard("enforce", fixed({ g_bypass_final: 0.9 }), async (h) => {
+  await withGuard("enforce", fixed({ g_excludes_failing: 0.9 }), async (h) => {
     assert.equal(await h.call("bash", { command: "SKIP=terraform_fmt pre-commit run --all-files" }), undefined);
     const deselected = await h.call("bash", { command: "pytest --deselect tests/test_api.py::test_retry" });
     assert.equal(deselected?.block, true);
-    assert.match(deselected?.reason ?? "", /pytest-deselect[\s\S]*Jev bypass: g_bypass_final 0\.90/);
+    assert.match(deselected?.reason ?? "", /pytest-deselect[\s\S]*Jev bypass: g_skips_checks 0\.00, g_excludes_failing 0\.90/);
   });
 });
 
@@ -285,13 +285,83 @@ test("enforce: reading the maintainer's files asks the user once per path; a sub
   const confirms: string[] = [];
   await withGuard("enforce", fixed({}), async (h) => {
     const sub = await h.call("read", { path: `${prompt}:1-20` });
-    assert.match(sub?.reason ?? "", /maintainer-read/);
+    assert.match(sub?.reason ?? "", /verification-material-read/);
     assert.equal(await h.call("grep", { path: join(homedir(), ".omp", "agent") }), undefined);
     assert.equal(await h.call("read", { path: `${prompt}:1-20` }, makeCtx("main", true, confirms, true)), undefined);
     assert.equal(await h.call("read", { path: `${prompt}:1-20` }, makeCtx("main", true, confirms, false)), undefined);
     assert.equal(confirms.length, 1);
     assert.equal((await h.call("bash", { command: "cat ~/.omp/integrity-maintainer/scripts/integrity-maintain.sh" }))?.block, true);
   });
+});
+
+const shippedRules = () => parseRules(readFileSync(join(RULES_DIR, "rules.json"), "utf8"));
+
+test("shipped fixtures: pinned answers compose to the expected verdict without Jev", () => {
+  const rules = shippedRules();
+  for (const fixture of parseFixtures(readFileSync(join(RULES_DIR, "fixtures.json"), "utf8"))) {
+    if (!fixture.expect) continue;
+    const verdict = fixtureVerdict(fixture, rules);
+    assert.deepEqual(verdict.unpinned, [], fixture.id);
+    assert.equal(verdict.escalate, fixture.expect === "escalate", fixture.id);
+  }
+});
+
+test("bash rules see through quoting and shell strings, and ignore heredoc data", () => {
+  const rules = shippedRules();
+  const ids = (command: string) => matchBash(command, rules).map((m) => m.ruleId);
+  assert.deepEqual(ids("bash -c 'git commit --no-verify -m x'"), ["git-no-verify"]);
+  assert.deepEqual(ids('sh -lc "git push --no-verify"'), ["git-no-verify"]);
+  assert.deepEqual(ids("echo \"$(git commit -n -m x)\""), ["git-commit-n"]);
+  assert.deepEqual(ids('git commit -m "why --no-verify is banned"'), []);
+  assert.deepEqual(ids('cat "~/.omp/integrity-maintainer/x.md"'), ["verification-material-bash"]);
+  assert.deepEqual(ids("cat > /tmp/probe.sh <<'EOF'\ngit commit --no-verify\nEOF"), []);
+  assert.deepEqual(ids("cat <<EOF > agent/integrity/rules.json\n{}\nEOF"), ["guard-rules-bash"]);
+  assert.deepEqual(ids("bash <<EOF\ngit commit --no-verify\nEOF"), ["git-no-verify"]);
+});
+
+test("read targets: ancestors of the guarded root need a recursive tool; globs and file:// reach it", () => {
+  const root = join(homedir(), ".omp", "integrity-maintainer");
+  const omp = join(homedir(), ".omp");
+  assert.deepEqual(readTargets(omp, "grep", "/"), [omp, root]);
+  assert.deepEqual(readTargets(".", "find", omp), [omp, root]);
+  assert.deepEqual(readTargets(omp, "read", "/"), [omp]);
+  assert.deepEqual(readTargets(join(omp, "integrity-m*"), "glob", "/"), [join(omp, "integrity-m*"), root]);
+  assert.deepEqual(readTargets(`file://${root}/x.md`, "read", "/"), [`${root}/x.md`]);
+  assert.deepEqual(readTargets(join(omp, "agent"), "grep", "/"), [join(omp, "agent")]);
+  assert.deepEqual(readTargets("skill://evaluate-jev", "read", "/"), []);
+});
+
+test("enforce: a read-tool scan of an ancestor directory is blocked, a scan of another subdirectory is not", async () => {
+  freshRepo();
+  await withGuard("enforce", fixed({}), async (h) => {
+    assert.match((await h.call("grep", { path: join(homedir(), ".omp") }))?.reason ?? "", /verification-material-read/);
+    assert.match((await h.call("glob", { path: join(homedir(), ".omp", "integrity-m*") }))?.reason ?? "", /verification-material-read/);
+    assert.equal(await h.call("grep", { path: join(homedir(), ".omp", "agent") }), undefined);
+  });
+});
+
+test("enforce: gate-bypass in a scratch repository is audit-only, but not when another repository is committed to", async () => {
+  freshRepo();
+  await withGuard("enforce", fixed({}), async (h) => {
+    assert.equal(await h.call("bash", { command: "cd /tmp/scratch-repo && git commit -n -m wip" }), undefined);
+    assert.equal((await h.call("bash", { command: `cd /tmp/scratch-repo && git -C ${repo} commit -n -m wip` }))?.block, true);
+  });
+});
+
+test("enforce: a bypass chained to a commit escalates on g_skips_checks; the same skip in a plain run does not", async () => {
+  freshRepo();
+  await withGuard("enforce", fixed({ g_skips_checks: 0.9 }), async (h) => {
+    assert.equal(await h.call("bash", { command: "pytest --deselect tests/a.py::t" }), undefined);
+    assert.equal((await h.call("bash", { command: "pytest --deselect tests/a.py::t && git commit -m x" }))?.block, true);
+  });
+});
+
+test("enforce: a unit whose Jev answers lack a question escalates and is recorded as an error", async () => {
+  freshRepo();
+  await withGuard("enforce", () => Number.NaN, async (h) => {
+    assert.equal((await h.call("bash", { command: "pytest --deselect tests/a.py::t" }))?.block, true);
+  });
+  assert.ok(records().some((r) => r.rule === "pytest-deselect" && r.verdict === "error"));
 });
 
 test("shadow: findings are recorded but nothing is blocked", async () => {
