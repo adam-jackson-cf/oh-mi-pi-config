@@ -1,11 +1,13 @@
 # Jev lab
 
-Two things live here:
+Three things live here:
 
 - **Upstream demo lab**: the lab shown in the "10 Levels of Jev" video, cloned at a pinned commit
   into `upstream/` (runtime-only, gitignored). It is a demo; nothing you label there is kept.
 - **Workbench** (`server.ts`, `lib/`, `public/`): the local labelling and evaluation tool for every
   Jev use in this repo. **This is where labels live.** Original code, no build step.
+- **Fastino benchmark** (`fastino-bench/`): replays Jev decisions against Fastino GLiDE and
+  GLiNER-2.5-Decide; see `fastino-bench/README.md` and `fastino-bench/results/REPORT.md`.
 
 ## Start
 
@@ -26,8 +28,9 @@ The jev-scope profile (`jev-lab/profiles/jev-scope.md`) needs at least
 routing change.
 
 1. Open the **Labelling queue** tab (source `jev-scope`). It lists unlabelled, sufficient-input
-   cases (task source `current`/`carried_forward`, unclipped objective), round-robin across P(yes)
-   bands, highest band first.
+   cases (a user request present and no changed text cut; legacy versions: task source
+   `current`/`carried_forward`, unclipped objective), round-robin across P(yes) bands, highest
+   band first.
 2. Open a case, read the request, plan and activity (state is shown pretty-printed; the session
    transcript path is shown for deeper checks). Decide from the state using the profile's R2 tests
    (required? smallest?), before weighing Jev's answer.

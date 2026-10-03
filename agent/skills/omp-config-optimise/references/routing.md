@@ -62,13 +62,14 @@ Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
   secret-read denylist, then Jev effect/intent/exposure), `guard.write`
   (secret paths and literals, then Jev `contains_secret` on credential-like
   assignments), `guard.result` (Jev `prompt_injection` on web, MCP and
-  network-fetch output only). All `shadow`.
+  network-fetch output only), `guard.integrity` (gate-weakening rules, then
+  per-family Jev questions on suspect matches). Current modes are in
+  `agent/jev-policies.json`.
 - `jev-ask.ts`: `jev_ask` tool (judge files or captured output without reading
   them into context) plus the evidence-ladder system-prompt nudge. Always on;
   every call is audited under `ask`.
-- Promotion to `enforce`: ≥ 30 labelled decisions per policy (≥ 5 of the
-  minority label), a frozen threshold chosen on the labelled set, and a
-  regression check on frozen corpora with benign canaries.
+- Promotion to `enforce`: `jev-lab/profiles/policies.md` ("Promotion to
+  enforce").
 
 ## Watch items
 

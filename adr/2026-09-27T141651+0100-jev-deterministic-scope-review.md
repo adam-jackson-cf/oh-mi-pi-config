@@ -109,6 +109,29 @@ selected the supplied label in all six; `P(yes)` differed slightly in several ca
 constructed set demonstrates route and question behavior, not superiority, calibration, or
 production accuracy. Collect independently labelled real outcomes before changing routing.
 
+Update 2026-10-02 (`proportionality-item-2026-10-02.1`): the review moved from a native advisor
+(every update, main and subagent sessions, about 943 reviews on 2026-10-02) to an extension hook on
+the main session's todo `done`, judging the work done for that one item against the item, the todo
+list, the request and the approved plan. The bounded per-field template was replaced by one token
+budget near Jev's capacity with priority-ordered cutting (nothing was cut on 180 real items), and
+the three composed questions by one (`beyond_item`). WATCHDOG.yml no longer lists `jev-scope`.
+Measured on the Fastino benchmark (E4, `jev-lab/fastino-bench/results/REPORT.md`): AUROC 0.779 on
+169 labelled real items (11 overreach), no better than the clipped advisor state; the gains are
+cost (one call per completed item), no clipping, and a usable 0.6–0.8 probability band. Precision
+at 0.6 is 0.16 on real items, so the policy stays in `shadow` and the reevaluation rules above
+still apply.
+
+Update 2026-10-02 (`proportionality-item-2026-10-02.3`): code now decides before Jev. A shell
+`git commit`/`push` that nothing in scope asks for flags at P(yes) = 1 without a call (`rule`);
+items with no unmentioned path, system, git or dependency change are not sent (`router`, P = 0);
+the rest ask one Choice, `worst_change`, with P(yes) = P(oversized) + P(outside), at 0.7/0.8.
+Edits are shown as result diffs. Evidence: a replay of every main session (1,155 items), split by
+session, 556 two-family blind labels (21 overreach); chosen on dev, scored once on test: AUROC
+0.976 against 0.772 for `.1`, 6/7 caught with 4/157 false at 0.8, Jev called on ~2/3 of items
+(`jev-lab/fastino-bench/results/REPORT.md` finding 9). Weak spot: oversized changes inside files
+the request names (13/40 injected caught). Mode stays `shadow` until the owner decides on
+`enforce`.
+
 Reference:
 `/Users/adamjackson/Projects/inflight/code-research/articles/2026-09-27-jev-effective-use.md`
 (review guidance).

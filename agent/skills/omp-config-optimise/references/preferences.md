@@ -50,9 +50,10 @@ recommendation, not a silent edit.
   tests first; a Jev decision (`find`, `jev_ask`, eval `judge()`, the Jev policy
   extensions) only for what rules cannot settle; an LLM or subagent only when
   Jev is unsure or the policy escalates.
-- Jev policies ship in shadow mode (`agent/jev-policies.json`) and move to
-  enforce only after a frozen experiment on human-labelled decisions from the
-  Jev lab (`~/.omp/jev-lab`).
+- Jev policies go to enforce as soon as replayed, blind-labelled history shows
+  value over their baseline at an accepted burden; unmet targets are iteration
+  input, not a reason to park a policy in shadow (`skill://evaluate-jev`,
+  development.md). Shadow is only for events with no replayable history.
 - Compaction stays on the native mechanism until an experiment shows a Jev
   boundary signal beats it.
 

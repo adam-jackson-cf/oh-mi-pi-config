@@ -60,6 +60,8 @@ agent/skills/*
 !agent/skills/omp-config-optimise/**
 !agent/skills/workflow-templates/
 !agent/skills/workflow-templates/**
+!agent/skills/fastino-glide/
+!agent/skills/fastino-glide/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -89,6 +91,7 @@ agent/extensions/lib/*
 !agent/extensions/lib/jev.ts
 !agent/extensions/lib/jev-auth.ts
 !agent/extensions/lib/integrity.ts
+!agent/extensions/lib/proportionality.ts
 
 
 !tests/
@@ -119,7 +122,20 @@ jev-lab/scripts/*
 !jev-lab/scripts/sample-scope.ts
 !jev-lab/scripts/ask-adoption.ts
 !jev-lab/scripts/replay-guards.ts
-!jev-lab/scripts/replay-scope.ts
+# Fastino benchmark: source and write-up are owned; datasets (transcript-derived), labels, runs and logs are runtime-only.
+!jev-lab/fastino-bench/
+jev-lab/fastino-bench/*
+!jev-lab/fastino-bench/README.md
+!jev-lab/fastino-bench/run.ts
+!jev-lab/fastino-bench/report.ts
+!jev-lab/fastino-bench/scorecard.ts
+!jev-lab/fastino-bench/lib/
+!jev-lab/fastino-bench/lib/**
+!jev-lab/fastino-bench/builders/
+!jev-lab/fastino-bench/builders/**
+!jev-lab/fastino-bench/results/
+jev-lab/fastino-bench/results/*
+!jev-lab/fastino-bench/results/REPORT.md
 
 !.omp/
 .omp/*

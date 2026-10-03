@@ -32,6 +32,8 @@ const line = z.object({
     questions: jsonValue.optional(),
   }).optional(),
   decision: z.object({
+    /** `.2`+: `rule`/`router` decided by code without a Jev call; absent before `.2` (always Jev). */
+    stage: z.enum(["rule", "router", "jev"]).optional(),
     choice: z.string().optional(),
     probabilities: z.record(z.string(), z.number()).optional(),
     confidence: z.number().optional(),
@@ -53,7 +55,12 @@ const taskContext = z.object({
   recent_user_requests: z.array(z.string()).optional(),
   clipped_requests: z.boolean().optional(),
 });
-const stateView = z.object({ policy_version: z.string().optional(), task_context: taskContext.optional() });
+// Item-state reviews (todo done, proportionality-item-*) carry user_request/completeness instead of task_context.
+const itemRequest = z.object({ original: z.string().nullable().optional(), latest: z.string().optional() });
+const stateView = z.object({
+  policy_version: z.string().optional(), task_context: taskContext.optional(),
+  user_request: itemRequest.optional(), completeness: z.object({ complete: z.boolean() }).optional(),
+});
 
 /**
  * Rubric R1 "Sufficient" for the jev-scope profile: task source is current or carried_forward,
@@ -118,8 +125,9 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
   const state = request.request?.state ?? null;
   const view = stateView.safeParse(state);
   const context = view.success ? view.data.task_context ?? {} : {};
-  const taskSource = context.source ?? "absent";
-  const userRequests = context.recent_user_requests ?? [];
+  const item = view.success ? view.data.user_request : undefined;
+  const taskSource = item ? "todo_done" : context.source ?? "absent";
+  const userRequests = item ? [item.original, item.latest].filter((r): r is string => !!r) : context.recent_user_requests ?? [];
   const decision = outcome?.decision;
   const yes = decision?.probabilities?.yes;
   const questions = z.record(z.string(), z.any()).safeParse(request.request?.questions);
@@ -128,11 +136,13 @@ function toCase(paths: LabPaths, request: Line, outcome: Line | undefined, label
     id: request.requestId ?? "",
     timestamp: request.timestamp,
     subject: userRequests[0]?.slice(0, 120) ?? "(no user request)",
-    stage: outcome?.error ? "jev_error" : outcome ? "jev" : "no_outcome",
+    stage: outcome?.error ? "jev_error" : outcome ? decision?.stage ?? "jev" : "no_outcome",
     verdict: decision?.choice ?? (outcome?.error ? `error:${outcome.error.stopReason ?? "unknown"}` : "no-outcome"),
     score: yes,
     uncertainty: yes === undefined ? 1 : binaryUncertainty(yes),
-    sufficient: isSufficient(taskSource, userRequests.length, Boolean(context.clipped_requests)),
+    // An item review is sufficient when it has a user request and nothing in the implementation was cut.
+    sufficient: item ? userRequests.length > 0 && view.success && view.data.completeness?.complete !== false
+      : isSufficient(taskSource, userRequests.length, Boolean(context.clipped_requests)),
     taskSource,
     version: (view.success ? view.data.policy_version : undefined) ?? UNVERSIONED,
     sessionKind: request.sessionKind,
