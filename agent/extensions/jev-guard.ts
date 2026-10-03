@@ -8,8 +8,14 @@
  * Policies (modes come from `agent/jev-policies.json`, read at `session_start`,
  * fallback `shadow`):
  *  - `guard.bash`   `tool_call` for `bash`: read-only allowlist (allow, unrecorded),
- *                   denylist (recorded, `rule` id), otherwise Jev `effect` /
- *                   `destructive_intent` / `secret_exposure`.
+ *                   denylist (recorded, `rule` id), project-recoverable allowances (recorded
+ *                   `project-recoverable`, no Jev: deletions of tracked-clean or regenerable
+ *                   build-output files inside the session's repository or of paths this session
+ *                   created, git-safe housekeeping, overwrites of clean tracked files, build-tool
+ *                   `clean`), otherwise Jev `effect` / `destructive_intent` / `secret_exposure`.
+ *                   A main agent with a UI is asked (never hard-blocked) when Jev scores reach the
+ *                   destructive/irreversible block thresholds; secret exposure and the denylist
+ *                   still block. Every confirm prompt records `userDecision`.
  *  - `guard.write`  `tool_call` for `write` and `edit`: secret-file and secret-literal
  *                   rules, outside-workspace flag, and Jev `contains_secret` only for
  *                   text that assigns a credential-like key or holds a high-entropy literal.
@@ -37,10 +43,10 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -62,7 +68,7 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-02.3";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-02.4";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.3";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.7";
@@ -110,7 +116,8 @@ type Judged = {
   failed: boolean;
 };
 type Verdict = "allow" | "flag" | "confirm" | "block";
-type Assessment = { verdict: Verdict; reason: string };
+/** `promotable`: a Jev block (not secret exposure) that a main agent with a UI may be asked about instead. */
+type Assessment = { verdict: Verdict; reason: string; promotable?: boolean };
 type IntegrityKind = "command" | "edit" | "read";
 /** One screened thing: a bash command or one changed file, with its rule matches, masked subject and Jev state. */
 type IntegrityUnit = { label: string; matches: RuleMatch[]; subject: SuspectSubject; state: JsonValue };
@@ -611,6 +618,364 @@ export async function bashFacts(command: string, cwd: string): Promise<BashFacts
   }
 }
 
+// ---- Bash: project-recoverable allowances ---------------------------------------------
+// A destructive command skips Jev when code can show that every effect is recoverable inside the
+// session's repository (tracked and clean in git, or a regenerable build output) or confined to paths
+// this session created. Conditions of the command and filesystem/git state only, never who asked.
+const RECOVERABLE_FILE_LIMIT = 20_000;
+const RECOVERABLE_TARGET_LIMIT = 200;
+const REPORTED_TARGET_LIMIT = 20;
+const GENERATED_NAMES = new Set([
+  "node_modules", "dist", "build", "out", "target", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".cache",
+  "coverage", ".nyc_output", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".venv", "venv", ".gradle",
+]);
+const GENERATED_SUFFIX = /\.(?:pyc|egg-info)$/;
+const CLEAN_COMMANDS = new Set([
+  "make clean", "cargo clean", "npm run clean", "bun run clean", "pnpm clean", "pnpm run clean", "yarn clean", "yarn run clean",
+  "mvn clean", "gradle clean", "./gradlew clean", "go clean", "dotnet clean",
+]);
+const RECOVERABLE_DELETERS = new Set(["rm", "rmdir", "unlink"]);
+const GLOB_CHARS = /[*?[\]{}]/;
+const MKDIR_VALUE_FLAGS = new Set(["-m", "--mode"]);
+const TOUCH_VALUE_FLAGS = new Set(["-t", "-d", "-r", "--date", "--reference"]);
+const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
+const CLONE_VALUE_FLAGS = new Set(["-b", "--branch", "--depth", "-o", "--origin", "--reference", "--reference-if-able", "-c", "--config",
+  "--template", "-j", "--jobs", "--separate-git-dir", "-u", "--upload-pack", "--filter", "--shallow-since", "--shallow-exclude",
+  "--server-option", "--revision"]);
+
+export type TargetClass = "tracked_clean" | "ignored_generated" | "session_created" | "untracked" | "tracked_dirty" | "outside_project" | "unresolved";
+export type TargetReport = { path: string; class: TargetClass };
+export type RecoverableAssessment = { qualifies: boolean; segments: number; targets: TargetReport[] };
+type Project = { cwd: string; top: string };
+type Step = { segment: string; program: string; args: string[]; dir: string | undefined };
+type Plan = { ok: boolean; qualifying: boolean; deletes: string[]; overwrites: string[]; unresolved: string[] };
+const QUALIFYING_DELETION = new Set<TargetClass>(["tracked_clean", "ignored_generated", "session_created"]);
+
+function isGeneratedPath(path: string): boolean {
+  return path.split("/").some((part) => GENERATED_NAMES.has(part) || GENERATED_SUFFIX.test(part));
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function existsNoFollow(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Absolute path with the nearest existing ancestor's symlinks resolved, so a link cannot lead out of the project. */
+function canonical(path: string): string {
+  const absolute = resolve(path);
+  let parent = dirname(absolute);
+  let tail = basename(absolute);
+  for (;;) {
+    try {
+      return join(realpathSync(parent), tail);
+    } catch {
+      const up = dirname(parent);
+      if (up === parent) return absolute;
+      tail = join(basename(parent), tail);
+      parent = up;
+    }
+  }
+}
+
+/** Topmost missing ancestor-or-self of `path` (canonical), or undefined when `path` already exists. */
+function missingRoot(path: string): string | undefined {
+  let current = resolve(path);
+  if (existsSync(current)) return undefined;
+  for (;;) {
+    const parent = dirname(current);
+    if (parent === current || existsSync(parent)) return canonical(current);
+    current = parent;
+  }
+}
+
+function isSessionCreated(path: string, pool: ReadonlySet<string>): boolean {
+  for (let current = path; ; ) {
+    if (pool.has(current)) return true;
+    const up = dirname(current);
+    if (up === current) return false;
+    current = up;
+  }
+}
+
+/** Like `resolveArg`, but a relative argument with an unknown directory is unresolved. */
+function resolveAt(arg: string, dir: string | undefined): string | undefined {
+  if (dir !== undefined) return resolveArg(arg, dir);
+  return /^(?:\/|~|\$\{?HOME\}?(?:\/|$))/.test(arg) ? resolveArg(arg, "/") : undefined;
+}
+
+/** The directory after a `cd`; undefined when the destination cannot be known or does not exist (the `cd` may fail). */
+function changeDir(dir: string | undefined, args: string[]): string | undefined {
+  const arg = args.filter((a) => a !== "-P" && a !== "-L" && a !== "--")[0];
+  const target = arg === undefined ? homedir() : arg === "-" ? undefined : resolveAt(arg, dir);
+  return target !== undefined && isDirectory(target) ? target : undefined;
+}
+
+/** Each simple command with the directory it runs in, following `cd`. */
+function stepsOf(scan: Scan, cwd: string): Step[] {
+  const steps: Step[] = [];
+  let dir: string | undefined = cwd;
+  for (const segment of scan.segments) {
+    const { program, args } = commandOf(segment);
+    steps.push({ segment, program, args, dir });
+    if (program === "cd") dir = changeDir(dir, args);
+  }
+  return steps;
+}
+
+/** The directory a git invocation works in after its `-C` options. */
+function gitDirOf(dir: string | undefined, dirs: string[]): string | undefined {
+  return dirs.reduce<string | undefined>((current, next) => (current === undefined ? undefined : resolveAt(next, current)), dir);
+}
+
+function positionalsSkipping(args: string[], valueFlags: ReadonlySet<string>): string[] {
+  const found: string[] = [];
+  let literal = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (literal) found.push(arg);
+    else if (arg === "--") literal = true;
+    else if (valueFlags.has(arg)) i++;
+    else if (!arg.startsWith("-")) found.push(arg);
+  }
+  return found;
+}
+
+/** Absolute paths an argument names; globs are expanded against the filesystem. Undefined when unresolvable or too many. */
+async function expandTarget(arg: string, dir: string | undefined): Promise<string[] | undefined> {
+  const path = resolveAt(arg, dir);
+  if (path === undefined) return undefined;
+  if (!GLOB_CHARS.test(path)) return [path];
+  const parts = path.split("/");
+  const first = parts.findIndex((part) => GLOB_CHARS.test(part));
+  const base = parts.slice(0, first).join("/") || "/";
+  const matches: string[] = [];
+  try {
+    for await (const match of new Bun.Glob(parts.slice(first).join("/")).scan({ cwd: base, onlyFiles: false, dot: false })) {
+      if (matches.length >= RECOVERABLE_TARGET_LIMIT) return undefined;
+      matches.push(join(base, match));
+    }
+  } catch {
+    return [];
+  }
+  return matches;
+}
+
+/** Sources and destination files of a `cp` or `mv`; undefined when the destination cannot be worked out. */
+async function transferPaths(args: string[], dir: string | undefined): Promise<{ sources: string[]; dests: string[] } | undefined> {
+  if (args.some((a) => a === "-t" || a === "-T" || a.startsWith("--target-directory") || a === "--no-target-directory")) return undefined;
+  const positionals = positionalArgs(args);
+  const last = positionals.length >= 2 ? resolveAt(positionals[positionals.length - 1] ?? "", dir) : undefined;
+  if (last === undefined) return undefined;
+  const sources: string[] = [];
+  for (const arg of positionals.slice(0, -1)) {
+    const expanded = await expandTarget(arg, dir);
+    if (!expanded) return undefined;
+    sources.push(...expanded);
+  }
+  if (isDirectory(last)) return { sources, dests: sources.map((source) => join(last, basename(source))) };
+  return sources.length === 1 ? { sources, dests: [last] } : undefined;
+}
+
+/** Paths the command will create (as written; some may already exist): redirects, mkdir, touch, cp/mv destinations, worktrees, clones. */
+export async function creationTargets(command: string, cwd: string): Promise<string[]> {
+  const scan = scanCommand(command);
+  const found: string[] = [];
+  const add = (arg: string | undefined, dir: string | undefined) => {
+    const path = arg === undefined ? undefined : resolveAt(arg, dir);
+    if (path !== undefined) found.push(path);
+  };
+  for (const target of scan.redirectTargets) add(target, cwd);
+  for (const { program, args, dir } of stepsOf(scan, cwd)) {
+    if (program === "mkdir") for (const arg of positionalsSkipping(args, MKDIR_VALUE_FLAGS)) add(arg, dir);
+    else if (program === "touch") for (const arg of positionalsSkipping(args, TOUCH_VALUE_FLAGS)) add(arg, dir);
+    else if (program === "cp" || program === "mv") found.push(...(await transferPaths(args, dir))?.dests ?? []);
+    else if (program === "git") {
+      const git = gitInvocation(args);
+      const gitDir = git ? gitDirOf(dir, git.dirs) : undefined;
+      if (!git) continue;
+      if (git.sub === "worktree" && git.rest[0] === "add") add(positionalsSkipping(git.rest.slice(1), WORKTREE_ADD_VALUE_FLAGS)[0], gitDir);
+      if (git.sub === "clone") {
+        const [url, destination] = positionalsSkipping(git.rest, CLONE_VALUE_FLAGS);
+        add(destination ?? url?.replace(/\/+$/, "").replace(/\.git$/, "").split(/[/:]/).pop(), gitDir);
+      }
+    }
+  }
+  return found;
+}
+
+async function projectOf(cwd: string): Promise<Project | undefined> {
+  try {
+    const top = realpathSync((await runGit(cwd, ["rev-parse", "--show-toplevel"])).trim());
+    return { cwd: realpathSync(cwd), top };
+  } catch {
+    return undefined;
+  }
+}
+
+function parseStatus(output: string): { path: string; untracked: boolean }[] {
+  const fields = output.split("\0");
+  const entries: { path: string; untracked: boolean }[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i] ?? "";
+    if (field.length < 4) continue;
+    const xy = field.slice(0, 2);
+    entries.push({ path: field.slice(3), untracked: xy === "??" });
+    if (/[RC]/.test(xy)) entries.push({ path: fields[++i] ?? "", untracked: false });
+  }
+  return entries;
+}
+
+/** Whether git path `entry` (a file, or an ignored directory with a trailing `/`) lies under, or contains, `rel`. */
+function owns(rel: string, entry: string): boolean {
+  const target = `${rel}/`;
+  const listed = entry.endsWith("/") ? entry : `${entry}/`;
+  return listed.startsWith(target) || target.startsWith(listed);
+}
+
+/**
+ * Class of each path: session-created (anywhere), otherwise inside `project.cwd` and classified from git plumbing scoped to
+ * the paths. A path qualifies when every file under it is tracked and clean, or ignored and a known build output.
+ */
+async function classifyPaths(paths: readonly string[], project: Project | undefined, pool: ReadonlySet<string>): Promise<Map<string, TargetClass>> {
+  const classes = new Map<string, TargetClass>();
+  const queued: { path: string; rel: string }[] = [];
+  for (const path of new Set(paths)) {
+    const canon = canonical(path);
+    if (isSessionCreated(canon, pool)) classes.set(path, "session_created");
+    else if (!project || canon === project.cwd || !within(project.cwd, canon)) classes.set(path, "outside_project");
+    else if (!existsNoFollow(canon)) classes.set(path, "untracked");
+    else {
+      const rel = relative(project.top, canon).split(sep).join("/");
+      if (rel.split("/").includes(".git")) classes.set(path, "untracked");
+      else if (queued.length >= RECOVERABLE_TARGET_LIMIT) classes.set(path, "unresolved");
+      else queued.push({ path, rel });
+    }
+  }
+  if (!project || queued.length === 0) return classes;
+  try {
+    const rels = queued.map((q) => q.rel);
+    const git = (args: string[]) => runGit(project.top, ["--literal-pathspecs", ...args, "--", ...rels]);
+    const [listed, status, others] = await Promise.all([
+      git(["ls-files", "-z", "-s"]), git(["status", "--porcelain=v1", "-z"]),
+      git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]),
+    ]);
+    const tracked = listed.split("\0").filter(Boolean).map((line) => ({ path: line.slice(line.indexOf("\t") + 1), gitlink: line.startsWith("160000 ") }));
+    const changes = parseStatus(status);
+    const ignored = others.split("\0").filter(Boolean);
+    if (tracked.length + changes.length + ignored.length > RECOVERABLE_FILE_LIMIT) {
+      for (const { path } of queued) classes.set(path, "unresolved");
+      return classes;
+    }
+    for (const { path, rel } of queued) {
+      const underTracked = tracked.filter((entry) => owns(rel, entry.path));
+      const underChanges = changes.filter((entry) => owns(rel, entry.path));
+      const underIgnored = ignored.filter((entry) => owns(rel, entry));
+      const ignoredOutsideBuild = underIgnored.some((entry) => !isGeneratedPath(entry) && !isGeneratedPath(rel));
+      classes.set(path, underChanges.some((entry) => entry.untracked) || ignoredOutsideBuild ? "untracked"
+        : underChanges.length > 0 || underTracked.some((entry) => entry.gitlink) ? "tracked_dirty"
+          : underTracked.length > 0 ? "tracked_clean" : underIgnored.length > 0 ? "ignored_generated" : "untracked");
+    }
+  } catch {
+    for (const { path } of queued) classes.set(path, "unresolved");
+  }
+  return classes;
+}
+
+const FORCE_FLAG = /^-[a-zA-Z]*[Df][a-zA-Z]*$/;
+const DELETE_FLAG = /^-[a-zA-Z]*d[a-zA-Z]*$/;
+
+/** `git worktree remove|prune` without force and `git branch -d`: git itself refuses to lose work. */
+function gitHousekeeping(git: GitInvocation): boolean {
+  const forced = git.rest.some((arg) => arg === "--force" || FORCE_FLAG.test(arg));
+  if (git.sub === "worktree") return git.rest[0] === "prune" || (git.rest[0] === "remove" && !forced);
+  return git.sub === "branch" && !forced && git.rest.some((arg) => arg === "--delete" || DELETE_FLAG.test(arg));
+}
+
+/**
+ * Whether code can show that every segment of `command` is allowlisted, git-safe housekeeping, a project clean command, or a
+ * deletion/overwrite whose targets are recoverable (see `classifyPaths`) or session-created (`created`, plus paths this
+ * command creates). `targets` lists each deletion and overwrite target with its class, whether or not the command qualifies.
+ */
+export async function assessRecoverable(command: string, cwd: string, created: ReadonlySet<string>): Promise<RecoverableAssessment> {
+  const scan = scanCommand(command);
+  const steps = stepsOf(scan, cwd);
+  const pool = new Set(created);
+  for (const path of await creationTargets(command, cwd)) {
+    const root = missingRoot(path);
+    if (root !== undefined) pool.add(root);
+  }
+  let projectLookup: Promise<Project | undefined> | undefined;
+  const project = () => (projectLookup ??= projectOf(cwd));
+  let ok = steps.length > 0 && !DYNAMIC_CODE.test(command);
+  for (const target of scan.redirectTargets) {
+    const path = resolveAt(target, cwd);
+    if (path === undefined || !isSessionCreated(canonical(path), pool)) ok = false;
+  }
+  const planStep = async (step: Step): Promise<Plan> => {
+    const plan: Plan = { ok: false, qualifying: false, deletes: [], overwrites: [], unresolved: [] };
+    if (secretExpansion(step.segment)) return plan;
+    const git = step.program === "git" ? gitInvocation(step.args) : undefined;
+    const gitDir = git ? gitDirOf(step.dir, git.dirs) : undefined;
+    const deleteArgs = RECOVERABLE_DELETERS.has(step.program) ? positionalArgs(step.args)
+      : git?.sub === "rm" ? positionalArgs(git.rest) : undefined;
+    if (deleteArgs !== undefined) {
+      const blind = git?.rest.some((arg) => arg.startsWith("--pathspec-from-file")) ?? false;
+      for (const arg of deleteArgs) {
+        const expanded = await expandTarget(arg, git ? gitDir : step.dir);
+        if (expanded) plan.deletes.push(...expanded);
+        else plan.unresolved.push(arg);
+      }
+      return { ...plan, ok: !blind && plan.unresolved.length === 0, qualifying: true };
+    }
+    if (git && gitHousekeeping(git)) return { ...plan, ok: true, qualifying: true };
+    if (step.program === "mv" || step.program === "cp") {
+      const moved = await transferPaths(step.args, step.dir);
+      if (!moved) return plan;
+      plan.overwrites = moved.dests.filter(existsNoFollow);
+      if (step.program === "mv") plan.deletes = moved.sources;
+      return { ...plan, ok: plan.overwrites.length > 0 && !plan.overwrites.some(isDirectory), qualifying: true };
+    }
+    if (CLEAN_COMMANDS.has([step.program, ...step.args].join(" "))) {
+      const found = await project();
+      return { ...plan, ok: found !== undefined && step.dir !== undefined && within(found.top, canonical(step.dir)), qualifying: true };
+    }
+    return { ...plan, ok: segmentIsReadOnly(step.segment) };
+  };
+  const plans: Plan[] = [];
+  for (const step of steps) plans.push(await planStep(step));
+  const found = plans.some((plan) => plan.deletes.length > 0 || plan.overwrites.length > 0) ? await project() : undefined;
+  const deleteClasses = await classifyPaths(plans.flatMap((plan) => plan.deletes), found, pool);
+  const overwriteClasses = await classifyPaths(plans.flatMap((plan) => plan.overwrites), found, new Set());
+  const targets: TargetReport[] = [];
+  let segments = 0;
+  let allOk = ok;
+  for (const plan of plans) {
+    const classes = [
+      ...plan.unresolved.map((path): TargetReport => ({ path, class: "unresolved" })),
+      ...plan.deletes.map((path): TargetReport => ({ path, class: deleteClasses.get(path) ?? "unresolved" })),
+      ...plan.overwrites.map((path): TargetReport => ({ path, class: overwriteClasses.get(path) ?? "unresolved" })),
+    ];
+    targets.push(...classes);
+    const passes = plan.ok && plan.deletes.every((path) => QUALIFYING_DELETION.has(deleteClasses.get(path) ?? "unresolved"))
+      && plan.overwrites.every((path) => overwriteClasses.get(path) === "tracked_clean");
+    if (!passes) allOk = false;
+    else if (plan.qualifying) segments++;
+  }
+  return { qualifies: allOk && segments > 0, segments, targets: targets.slice(0, REPORTED_TARGET_LIMIT) };
+}
+
 // ---- Write: deterministic rules ------------------------------------------------------
 const KNOWN_KEY_FORMAT_SOURCE = String.raw`\b(?:sk-[\w-]{20,}|gh[pousr]_[\w-]{8,}|github_pat_[\w-]{8,}|AKIA[0-9A-Z]{16}|xox[baprs]-[\w-]{8,}|AIza[0-9A-Za-z_-]{35}|eyJ[\w-]+\.[\w-]+\.[\w-]+)`;
 export const PRIVATE_KEY_HEADER = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
@@ -924,8 +1289,9 @@ export function assessBash(answers: JevAnswers, facts: BashFacts): Assessment {
   const exposure = facts.secret_value_possible ? rawExposure : 0;
   const summary = `irreversible ${irreversible.toFixed(2)}, destructive ${broad.toFixed(2)}, secret exposure ${rawExposure.toFixed(2)}` +
     (facts.secret_value_possible ? "" : " (not counted: no credential value can reach output)");
-  if (irreversible >= BASH_BLOCK_IRREVERSIBLE || broad >= BASH_BLOCK_DESTRUCTIVE || exposure >= BASH_BLOCK_SECRET_EXPOSURE) {
-    return { verdict: "block", reason: `Jev rates this command high-risk (${summary}).` };
+  if (exposure >= BASH_BLOCK_SECRET_EXPOSURE) return { verdict: "block", reason: `Jev rates this command high-risk (${summary}).` };
+  if (irreversible >= BASH_BLOCK_IRREVERSIBLE || broad >= BASH_BLOCK_DESTRUCTIVE) {
+    return { verdict: "block", reason: `Jev rates this command high-risk (${summary}).`, promotable: true };
   }
   if (irreversible >= BASH_CONFIRM_IRREVERSIBLE || broad >= BASH_CONFIRM_DESTRUCTIVE) {
     return { verdict: "confirm", reason: `Jev is unsure this command is safe (${summary}).` };
@@ -946,10 +1312,19 @@ export function assessResult(answers: JevAnswers): Assessment {
 }
 
 /** The redacted state Jev is shown for a bash command, with the code-computed facts it is judged against. */
-export async function bashJevState(command: string, cwd: string, apiKey?: string): Promise<{ state: JsonValue; facts: BashFacts }> {
+export async function bashJevState(command: string, cwd: string, apiKey?: string, code?: Pick<RecoverableAssessment, "segments" | "targets">):
+  Promise<{ state: JsonValue; facts: BashFacts }> {
   const facts = await bashFacts(command, cwd);
-  const state = redactValue({ command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd, ...facts }, apiKey);
+  const recoverable: { [key: string]: JsonValue } = code && (code.targets.length > 0 || code.segments > 0)
+    ? { deletion_targets: code.targets.slice(0, REPORTED_TARGET_LIMIT), recoverable_segments: code.segments } : {};
+  const state = redactValue({ command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd, ...facts, ...recoverable }, apiKey);
   return { state, facts };
+}
+
+/** The recorded state with the user's answer to a confirm prompt (`null` when nobody could be asked). */
+function withUserDecision(state: JsonValue | undefined, userDecision: UserDecision | null, extra: { [key: string]: JsonValue } = {}): JsonValue {
+  const base = state instanceof Object && !Array.isArray(state) ? state : { state: state ?? null };
+  return { ...base, ...extra, userDecision };
 }
 
 /** The state Jev is shown for added text: file kind and path, known-format key facts, and the masked excerpt. */
@@ -1147,6 +1522,14 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   /** Guard files the user approved editing, and paths the user approved reading, this session: not asked again. */
   const approvedEditPaths = new Set<string>();
   const approvedReadPaths = new Set<string>();
+  /** Per session: absolute paths that did not exist when the session first targeted them (see `assessRecoverable`). */
+  const sessionCreated = new Map<string, Set<string>>();
+  const createdBy = (ctx: ExtensionContext): Set<string> => {
+    const key = whoOf(ctx).sessionId ?? "";
+    const found = sessionCreated.get(key) ?? new Set<string>();
+    sessionCreated.set(key, found);
+    return found;
+  };
 
   const modeFor = (policy: string): PolicyMode => policyMode(modes, policy);
 
@@ -1201,12 +1584,14 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       }
       return undefined;
     }
-    const askUser = async (reason: string): Promise<Block | undefined> => {
-      if (ctx.hasUI && ctx.agent.kind === "main") {
+    const canAsk = ctx.hasUI && ctx.agent.kind === "main";
+    const askUser = async (reason: string): Promise<Escalation> => {
+      if (canAsk) {
         const approved = await ctx.ui.confirm("Jev guard: confirm command", `${reason}\n\n${clip(command, 600).text}`).catch(() => false);
-        return approved ? undefined : { block: true, reason: "The user declined this command at the Jev guard confirmation." };
+        return approved ? { userDecision: "approved" }
+          : { userDecision: "declined", block: { block: true, reason: "The user declined this command at the Jev guard confirmation." } };
       }
-      return { block: true, reason: `Jev guard needs confirmation. ${reason} Ask the user to approve this command before retrying.` };
+      return { block: { block: true, reason: `Jev guard needs confirmation. ${reason} Ask the user to approve this command before retrying.` } };
     };
     if (verdict.kind === "deny") {
       await record(make({ stage: "deterministic", rule: verdict.rule, state: { ...baseState, reason: verdict.reason },
@@ -1214,19 +1599,28 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       return enforcing ? { block: true, reason: `Jev guard blocked this command (${verdict.rule}): ${verdict.reason}` } : undefined;
     }
     if (verdict.kind === "confirm") {
-      await record(make({ stage: "deterministic", rule: verdict.rule, state: { ...baseState, reason: verdict.reason },
-        verdict: enforcing ? "confirm" : "flag", enforced: enforcing }));
-      return enforcing ? askUser(`Jev cannot judge this command: ${verdict.reason}.`) : undefined;
+      const asked: Escalation = enforcing ? await askUser(`Jev cannot judge this command: ${verdict.reason}.`) : {};
+      await record(make({ stage: "deterministic", rule: verdict.rule,
+        state: { ...baseState, reason: verdict.reason, userDecision: asked.userDecision ?? null },
+        verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
+      return asked.block;
+    }
+    const recoverable = await assessRecoverable(command, ctx.cwd, createdBy(ctx));
+    if (recoverable.qualifies) {
+      await record(make({ stage: "deterministic", rule: "project-recoverable",
+        state: redactValue({ ...baseState, recoverable_segments: recoverable.segments, deletion_targets: recoverable.targets }, apiKey),
+        verdict: "allow", enforced: false }));
+      return undefined;
     }
     if (!enforcing) {
-      background(bashJevState(command, ctx.cwd, apiKey).then(async ({ state, facts }) => {
+      background(bashJevState(command, ctx.cwd, apiKey, recoverable).then(async ({ state, facts }) => {
         const judged = await askJev(apiKey, state, state, BASH_QUESTIONS);
         const assessed = judged.answers ? assessBash(judged.answers, facts) : undefined;
         await record(make({ ...judged.fields, verdict: assessed?.verdict ?? "error", enforced: false }));
       }));
       return undefined;
     }
-    const { state, facts } = await bashJevState(command, ctx.cwd, apiKey);
+    const { state, facts } = await bashJevState(command, ctx.cwd, apiKey, recoverable);
     const judged = await askJev(apiKey, state, state, BASH_QUESTIONS, ENFORCE_TIMEOUT_MS);
     if (!judged.answers) {
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
@@ -1238,12 +1632,16 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       await record(make({ ...judged.fields, verdict: "allow", enforced: false }));
       return undefined;
     }
-    if (assessed.verdict === "block") {
+    // A main agent with a UI is asked rather than hard-blocked on Jev scores; secret exposure and the denylist still block.
+    const promoted = assessed.verdict === "block" && assessed.promotable === true && canAsk;
+    if (assessed.verdict === "block" && !promoted) {
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard blocked this command. ${assessed.reason} Ask the user before running anything like it.` };
     }
-    await record(make({ ...judged.fields, verdict: "confirm", enforced: true }));
-    return askUser(assessed.reason);
+    const asked = await askUser(promoted ? `${assessed.reason} This is high-risk, so approve only if you intend it.` : assessed.reason);
+    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked.userDecision ?? null, promoted ? { promoted_from_block: true } : {}),
+      verdict: "confirm", enforced: asked.userDecision !== "approved" }));
+    return asked.block;
   }
 
   // ---- write / edit
@@ -1592,12 +1990,24 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       const policy = event.toolName === "bash" ? BASH_POLICY : event.toolName === "write" || event.toolName === "edit" ? WRITE_POLICY : undefined;
       if (!policy) return undefined;
       const mode = modeFor(policy);
-      if (mode === "off") return undefined;
-      try {
-        if (policy === WRITE_POLICY) {
-          return targets ? await screenWrite(targets, ctx, mode) : await screenUnparseable(event.toolName, ctx, mode);
+      const remember = async (): Promise<void> => {
+        const paths = command !== undefined ? await creationTargets(command, ctx.cwd)
+          : (targets ?? []).filter((target) => !target.path.includes("://")).map((target) => resolve(ctx.cwd, expandHome(target.path)));
+        const known = createdBy(ctx);
+        for (const path of paths) {
+          const root = missingRoot(path);
+          if (root !== undefined) known.add(root);
         }
-        return command !== undefined ? await screenBash(command, ctx, mode) : undefined;
+      };
+      if (mode === "off") {
+        await remember().catch(() => undefined);
+        return undefined;
+      }
+      try {
+        const blocked = policy === WRITE_POLICY ? (targets ? await screenWrite(targets, ctx, mode) : await screenUnparseable(event.toolName, ctx, mode))
+          : command !== undefined ? await screenBash(command, ctx, mode) : undefined;
+        if (!blocked) await remember().catch(() => undefined);
+        return blocked;
       } catch {
         return failClosed(mode);
       }

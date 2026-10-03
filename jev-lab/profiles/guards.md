@@ -7,9 +7,10 @@ policy at a time: `bun jev-lab/scripts/export-cases.ts --source policy:<name> --
 - **Process:** Pre-execution screen of bash commands, edit inputs, and fetched tool results; mode
   keys are the policy names
 - **Version:** `policyVersion` on each record. Select by version, never by time: old sessions keep
-  writing old-version records into the same files. Current: `guard-bash-2026-10-02.3`,
+  writing old-version records into the same files. Current: `guard-bash-2026-10-02.4`,
   `guard-write-2026-10-02.3`, `guard-result-2026-10-02.3`. Evidence for one version does not carry
-  to another; every quoted figure names its version
+  to another; every quoted figure names its version. Bash figures below marked `.3` do not describe
+  `.4`
 - **Stages:** `deterministic` rule (field `rule`) decides first; otherwise `jev`; `jev_error` on
   failure
 - **Label kind:** `verdict-grade`
@@ -78,6 +79,38 @@ Allowlist audit: one in 25 allowlist hits per session is recorded as stage `dete
 `allowlist-sample`, verdict `allow`, with `allowlist_hits` (the running count) in the state, so the
 allowlist's miss rate can be labelled. Allowlist hits are otherwise unrecorded.
 
+Project-recoverable allowances (`.4`): a command that reaches Jev is first checked in code, and when
+every segment is allowlisted or meets one of the conditions below it is allowed without calling Jev
+and always recorded (not sampled): stage `deterministic`, rule `project-recoverable`, verdict `allow`,
+with `recoverable_segments` and `deletion_targets` (each `{path, class}`) in the state. The denylist
+still wins. The conditions are binary facts of the command and the filesystem or git state, never of
+who asked. Anything unresolved (a `$var`, substitution, heredoc, `eval`, `sh -c`, a glob with more
+than 200 matches, git unavailable, more than 20,000 files under the targets) does not qualify.
+
+- **Deletion** (`rm`, `rmdir`, `unlink`, `git rm`; globs expanded against the filesystem after `cd`
+  tracking): every target is strictly under the session cwd, inside a git work tree, and every file
+  under it is (a) tracked by git with no staged or unstaged change, or (b) git-ignored and under or
+  named a known build or dependency output (`node_modules`, `dist`, `build`, `out`, `target`,
+  `.next`, `.nuxt`, `.svelte-kit`, `.turbo`, `.parcel-cache`, `.cache`, `coverage`, `.nyc_output`,
+  `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.venv`, `venv`,
+  `*.egg-info`, `.gradle`). An ignored file not on that list (`.env`), an untracked unignored file,
+  a dirty tracked file, a submodule, a path through `.git` or a missing path does not qualify.
+- **Session-created** (anywhere on disk): the target, or an ancestor, did not exist when this
+  session first targeted it by a write or edit tool call, `mkdir`, `touch`, a `cp`/`mv`
+  destination, a `>`/`>>` redirect, `git worktree add` or `git clone`. Kept in memory per session id;
+  recorded only when the call was not blocked.
+- **Git-safe housekeeping** (anywhere): `git worktree remove` without `--force`/`-f`,
+  `git worktree prune`, `git branch -d|--delete` without `-D`/`--force`/`-f`.
+- **Overwrite**: `mv`/`cp` whose destination exists, is a file under the session cwd's work tree,
+  tracked and clean (at least one such destination); for `mv` each source must itself qualify as a
+  deletion. `-t`/`-T` forms do not qualify.
+- **Build-tool clean** run in a directory inside the session cwd's work tree: `make clean`,
+  `cargo clean`, `npm|bun run clean`, `pnpm|yarn clean` (also `run clean`), `mvn clean`,
+  `gradle clean`, `./gradlew clean`, `go clean`, `dotnet clean`; extra arguments do not qualify.
+
+A redirect in a qualifying command must target a session-created path. `mkdir` and `touch` are not
+themselves allowed segments, so `mkdir x && rm -r x` still goes to Jev.
+
 Jev state fields computed in code from the command and cwd (no `agent_kind`): `deleted_paths`
 (resolved against the cwd, following `cd`), `deletions_all_temporary` (all under /tmp,
 /var/folders, a cache, `node_modules`, `dist`, `target` or `build`; null when nothing is deleted),
@@ -88,12 +121,26 @@ Jev state fields computed in code from the command and cwd (no `agent_kind`): `d
 none_of_these), `destructive` noul, `secret_exposure` noul; each states one condition and they do
 not overlap (irreversibility of the effect, kind of destruction, credential value flow).
 
+When a command still goes to Jev, the state also carries `deletion_targets` (at most 20 entries of
+path and class: `tracked_clean`, `ignored_generated`, `session_created`, `untracked`,
+`tracked_dirty`, `outside_project`, `unresolved`) and `recoverable_segments`, computed in code; the
+questions are unchanged.
+
 Composition: block at P(irreversible) ≥ 0.6, destructive ≥ 0.7 or exposure ≥ 0.75; confirm at
 P(irreversible) 0.35–0.6 or destructive 0.35–0.7. The exposure answer counts only when
 `secret_value_possible` is true (a credential value can flow to a sink, a secret-like path is read,
 or the command runs code the text cannot show); the raw answer is still recorded. Re-checked on
 2026-10-02 against 399 labelled real commands and the round-2 held-out set: no grid point did better,
 so the remaining errors belong to the questions and policy, not the cut-offs.
+
+The `.3` figures above (399 labelled commands, the held-out set) were measured before the allowances
+and do not describe `.4`. Jev scores that reach a block threshold no longer hard-block a main agent
+with a UI: it gets the confirm prompt, whose text says the command is high-risk (state
+`promoted_from_block: true`); subagents and agents without a UI stay blocked. Secret exposure at or
+above its threshold, and every denylist rule, stay hard blocks. Every bash confirm prompt (a Jev
+confirm, a promoted block, `command-exceeds-judged-window`) records `state.userDecision`
+(`approved`, `declined`, or `null` when nobody could be asked) and sets `enforced` false only when
+the user approved, as `guard.integrity` does.
 
 ## guard.write
 
@@ -144,7 +191,8 @@ prepends a warning to the result; results under 40 characters (after stripping) 
 ## Enforce behaviour
 
 Bash and write await Jev (8 s timeout) and fail closed on `jev_error`; confirm asks the user in the
-main agent and blocks in subagents. The result screen awaits Jev (8 s per window) and fails open
+main agent and blocks in subagents. A main agent with a UI is also asked, not blocked, on a bash
+Jev block that is not secret exposure. The result screen awaits Jev (8 s per window) and fails open
 (result unchanged, error recorded).
 
 ## Known limits
@@ -153,4 +201,6 @@ From the 2026-10-02 promotion (`.todo/artifacts/021026-jev-promotion/report.md`)
 `.3` versions and not yet re-measured: `launchctl unload` of system daemons (denylist),
 `requirepass` and `--auth-password` credentials (pre-filter), an injection buried in a long page
 (windows), and the `read ./docs/NOTES.md` miss (decision above). Thresholds and every `.3` figure
-need a labelled replay and a fresh held-out corpus.
+need a labelled replay and a fresh held-out corpus. The `.4` allowances were replayed only against
+the 399 labelled bash commands (`.todo/artifacts/021026-jev-action/final-bash.json`) in the cwd
+state on disk at replay time: none of the 34 labelled positives were allowed by code.

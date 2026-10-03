@@ -10,7 +10,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
-  assessBash, assessResult, assessWrite, BASH_POLICY_VERSION, BASH_QUESTIONS, bashJevState, classifyBash, isSecretPath,
+  assessBash, assessRecoverable, assessResult, assessWrite, BASH_POLICY_VERSION, BASH_QUESTIONS, bashJevState, classifyBash, isSecretPath,
   needsSecretJudgement, PRIVATE_KEY_HEADER, RESULT_POLICY_VERSION, RESULT_QUESTIONS, resultWindows, stripHarnessText,
   WRITE_POLICY_VERSION, WRITE_QUESTIONS, writeJevState,
 } from "../../agent/extensions/jev-guard.ts";
@@ -66,7 +66,10 @@ async function replayBash(state: z.infer<typeof bashState>): Promise<Outcome> {
   if (verdict.kind === "deny") return { stage: "deterministic", verdict: "block", rule: verdict.rule };
   if (verdict.kind === "confirm") return { stage: "deterministic", verdict: "confirm", rule: verdict.rule };
   if (verdict.kind === "allow") return { stage: "deterministic", verdict: "allow", rule: "allowlist" };
-  const built = await bashJevState(command, state.cwd || process.cwd(), apiKey);
+  // No session history exists in a replay, so only the cwd's current git state and the command text decide.
+  const recoverable = await assessRecoverable(command, state.cwd || process.cwd(), new Set());
+  if (recoverable.qualifies) return { stage: "deterministic", verdict: "allow", rule: "project-recoverable", state: recoverable.targets };
+  const built = await bashJevState(command, state.cwd || process.cwd(), apiKey, recoverable);
   const judged = await ask(built.state, BASH_QUESTIONS);
   if (!judged.answers) return { stage: "jev_error", verdict: "error", state: built.state, ...judged };
   const assessed = assessBash(judged.answers, built.facts);
