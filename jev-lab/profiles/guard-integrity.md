@@ -132,7 +132,8 @@ as `state.userDecision`. Apply the first rule that decides:
   is not asked again for that path that session.
 - **Regression gate.** `agent/integrity/regress.ts` checks routing per fixture and, for fixtures
   with `expect`, the composed verdict from pinned `answers` without calling Jev. Pinned answers
-  are written by hand until a labelled replay supplies them.
+  are written by hand until a labelled replay supplies them. It also fails any rule that takes
+  over 100 ms on a 4,000-character input (the bash command limit).
 - **Record-tier flags** (`gate-masked-pipe`) are reported separately from decisions: they dominate
   record counts and are not a decision rate. Records from smoke runs (repositories named
   `jev-smoke-*`) are left out of `export-cases.ts` unless `--include-smoke` is given.

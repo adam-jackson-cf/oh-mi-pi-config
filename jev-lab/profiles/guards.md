@@ -7,10 +7,10 @@ policy at a time: `bun jev-lab/scripts/export-cases.ts --source policy:<name> --
 - **Process:** Pre-execution screen of bash commands, edit inputs, and fetched tool results; mode
   keys are the policy names
 - **Version:** `policyVersion` on each record. Select by version, never by time: old sessions keep
-  writing old-version records into the same files. Current: `guard-bash-2026-10-02.4`,
+  writing old-version records into the same files. Current: `guard-bash-2026-10-03.5`,
   `guard-write-2026-10-02.3`, `guard-result-2026-10-02.3`. Evidence for one version does not carry
   to another; every quoted figure names its version. Bash figures below marked `.3` do not describe
-  `.4`
+  `.4` and `.5` (`.5` only adds `.jev-regenerable`)
 - **Stages:** `deterministic` rule (field `rule`) decides first; otherwise `jev`; `jev_error` on
   failure
 - **Label kind:** `verdict-grade`
@@ -93,8 +93,14 @@ than 200 matches, git unavailable, more than 20,000 files under the targets) doe
   named a known build or dependency output (`node_modules`, `dist`, `build`, `out`, `target`,
   `.next`, `.nuxt`, `.svelte-kit`, `.turbo`, `.parcel-cache`, `.cache`, `coverage`, `.nyc_output`,
   `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.venv`, `venv`,
-  `*.egg-info`, `.gradle`). An ignored file not on that list (`.env`), an untracked unignored file,
+  `*.egg-info`, `.gradle`), or (c) git-ignored and matched by a pattern in `.jev-regenerable` (see
+  below). An ignored file not on that list or declared (`.env`), an untracked unignored file,
   a dirty tracked file, a submodule, a path through `.git` or a missing path does not qualify.
+  `.jev-regenerable` sits at the git work-tree root in gitignore syntax (comments, blank lines,
+  `!` negation, directory patterns). It counts only when tracked by git with no staged or unstaged
+  change; its content is read from `git show HEAD:.jev-regenerable`, so uncommitted edits never
+  matter. Absent, untracked or dirty means it is ignored entirely. A declared folder still needs the
+  target to be git-ignored; the class reported is `ignored_generated`.
 - **Session-created** (anywhere on disk): the target, or an ancestor, did not exist when this
   session first targeted it by a write or edit tool call, `mkdir`, `touch`, a `cp`/`mv`
   destination, a `>`/`>>` redirect, `git worktree add` or `git clone`. Kept in memory per session id;

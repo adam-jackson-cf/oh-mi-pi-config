@@ -10,7 +10,9 @@
  *  - `guard.bash`   `tool_call` for `bash`: read-only allowlist (allow, unrecorded),
  *                   denylist (recorded, `rule` id), project-recoverable allowances (recorded
  *                   `project-recoverable`, no Jev: deletions of tracked-clean or regenerable
- *                   build-output files inside the session's repository or of paths this session
+ *                   build-output files (built-in names, or git-ignored paths that a tracked, clean
+ *                   `.jev-regenerable` in the repository root declares in gitignore syntax)
+ *                   inside the session's repository or of paths this session
  *                   created, git-safe housekeeping, overwrites of clean tracked files, build-tool
  *                   `clean`), otherwise Jev `effect` / `destructive_intent` / `secret_exposure`.
  *                   A main agent with a UI is asked (never hard-blocked) when Jev scores reach the
@@ -43,7 +45,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -68,7 +70,7 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-02.4";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-03.5";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.3";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.7";
@@ -837,6 +839,57 @@ function parseStatus(output: string): { path: string; untracked: boolean }[] {
   return entries;
 }
 
+const REGENERABLE_FILE = ".jev-regenerable";
+const CHECK_IGNORE_BATCH = 500;
+
+/**
+ * Entries (git-relative, directories with a trailing `/`) that match a pattern of the repository's `.jev-regenerable`.
+ * The file counts only when tracked and clean; its content is read from HEAD. Patterns are matched by git itself in a
+ * throwaway repository whose only ignore file is that content, so the repository's own ignore rules never interfere.
+ */
+async function declaredRegenerable(top: string, entries: readonly string[]): Promise<Set<string>> {
+  const matched = new Set<string>();
+  if (entries.length === 0) return matched;
+  let sandbox: string | undefined;
+  try {
+    const pathspec = ["--literal-pathspecs"];
+    if ((await runGit(top, [...pathspec, "ls-files", "-z", "--", REGENERABLE_FILE])).length === 0) return matched;
+    if ((await runGit(top, [...pathspec, "status", "--porcelain=v1", "-z", "--", REGENERABLE_FILE])).length > 0) return matched;
+    const declaration = await runGit(top, ["show", `HEAD:${REGENERABLE_FILE}`]);
+    sandbox = mkdtempSync(join(tmpdir(), "jev-regenerable-"));
+    await runGit(sandbox, ["init", "-q"]);
+    writeFileSync(join(sandbox, ".gitignore"), declaration);
+    for (const entry of entries) {
+      const target = join(sandbox, entry);
+      if (entry.endsWith("/")) mkdirSync(target, { recursive: true });
+      else {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, "");
+      }
+    }
+    // Directories are queried without their trailing slash (git matches `dir/*` against `dir/`); they exist, so `dir/` patterns apply.
+    const byQuery = new Map(entries.map((entry) => [entry.replace(/\/$/, ""), entry]));
+    const queries = [...byQuery.keys()];
+    for (let i = 0; i < queries.length; i += CHECK_IGNORE_BATCH) {
+      const batch = queries.slice(i, i + CHECK_IGNORE_BATCH);
+      try {
+        const out = await runGit(sandbox, ["-c", "core.excludesFile=/dev/null", "-c", "core.quotePath=false", "check-ignore", "--no-index", "--", ...batch]);
+        for (const path of out.split("\n")) {
+          const entry = byQuery.get(path);
+          if (entry !== undefined) matched.add(entry);
+        }
+      } catch {
+        // exit status 1: no path in this batch matched
+      }
+    }
+  } catch {
+    matched.clear();
+  } finally {
+    if (sandbox !== undefined) rmSync(sandbox, { recursive: true, force: true });
+  }
+  return matched;
+}
+
 /** Whether git path `entry` (a file, or an ignored directory with a trailing `/`) lies under, or contains, `rel`. */
 function owns(rel: string, entry: string): boolean {
   const target = `${rel}/`;
@@ -878,11 +931,17 @@ async function classifyPaths(paths: readonly string[], project: Project | undefi
       for (const { path } of queued) classes.set(path, "unresolved");
       return classes;
     }
+    const unlisted = new Set<string>();
+    for (const { rel } of queued) {
+      if (isGeneratedPath(rel)) continue;
+      for (const entry of ignored) if (owns(rel, entry) && !isGeneratedPath(entry)) unlisted.add(entry);
+    }
+    const declared = await declaredRegenerable(project.top, [...unlisted]);
     for (const { path, rel } of queued) {
       const underTracked = tracked.filter((entry) => owns(rel, entry.path));
       const underChanges = changes.filter((entry) => owns(rel, entry.path));
       const underIgnored = ignored.filter((entry) => owns(rel, entry));
-      const ignoredOutsideBuild = underIgnored.some((entry) => !isGeneratedPath(entry) && !isGeneratedPath(rel));
+      const ignoredOutsideBuild = underIgnored.some((entry) => !isGeneratedPath(entry) && !isGeneratedPath(rel) && !declared.has(entry));
       classes.set(path, underChanges.some((entry) => entry.untracked) || ignoredOutsideBuild ? "untracked"
         : underChanges.length > 0 || underTracked.some((entry) => entry.gitlink) ? "tracked_dirty"
           : underTracked.length > 0 ? "tracked_clean" : underIgnored.length > 0 ? "ignored_generated" : "untracked");

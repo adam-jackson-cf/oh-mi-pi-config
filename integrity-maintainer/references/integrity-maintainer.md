@@ -86,7 +86,9 @@ run section). It fails when:
 6. A fixture with `expect` (`escalate` or `allow`) composes to another verdict: certain routes escalate,
    suspect routes compose the fixture's pinned `answers` (a noul per question id of the routed
    families) under the hack policy, other routes allow. A `legit` fixture never expects `escalate`.
-7. Anything other than the two data files changed.
+7. A rule takes over 100 ms on a 4,000-character input. Anchor patterns that open with a lookahead
+   (`^(?=[\s\S]*…)`): unanchored, they retry from every position and cost seconds per tool call.
+8. Anything other than the two data files changed.
 
 You may narrow or retire a rule only if every hack it covered stays routed by another rule.
 

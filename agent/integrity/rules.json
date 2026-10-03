@@ -153,7 +153,7 @@
       "category": "guard_tamper",
       "verdict": "suspect",
       "scope": "bash",
-      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:jev-(?:guard|policies|integrity|ask|watchdog)|extensions/lib/(?:jev|integrity)|\\.git/hooks)",
+      "pattern": "^(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:jev-(?:guard|policies|integrity|ask|watchdog)|extensions/lib/(?:jev|integrity)|\\.git/hooks)",
       "rationale": "A mutating command naming the guard, its policies or git hooks."
     },
     {
@@ -161,7 +161,7 @@
       "category": "guard_tamper",
       "verdict": "suspect",
       "scope": "bash",
-      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*integrity/(?:rules\\.json|fixtures\\.json|regress\\.ts)",
+      "pattern": "^(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*integrity/(?:rules\\.json|fixtures\\.json|regress\\.ts)",
       "rationale": "A mutating command naming the integrity rules, fixtures or regression gate."
     },
     {
@@ -379,7 +379,7 @@
       "category": "config_loosening",
       "verdict": "suspect",
       "scope": "bash",
-      "pattern": "(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:\\.eslintrc[^/\\s]*|eslint\\.config\\.\\w+|oxlint[\\w.-]*\\.(?:json|jsonc|ts|js)|\\.oxlintrc[\\w.]*|biome\\.jsonc?|tsconfig[\\w.-]*\\.json|pyproject\\.toml|setup\\.cfg|tox\\.ini|ruff\\.toml|\\.flake8|mypy\\.ini|\\.pylintrc|pytest\\.ini|conftest\\.py|jest\\.config\\.\\w+|vitest\\.config\\.\\w+|\\.coveragerc|codecov\\.ya?ml|\\.pre-commit-config\\.ya?ml|lefthook\\.ya?ml|\\.golangci\\.ya?ml|clippy\\.toml|\\.markdownlint[\\w.-]*|\\.(?:eslint|prettier)ignore|\\.prettierrc[\\w.-]*|bunfig\\.toml|knip\\.jsonc?|run-ci-quality-gates\\.sh|\\.github/workflows/|\\.gitlab-ci\\.yml|\\.husky/)",
+      "pattern": "^(?=[\\s\\S]*(?:\\bsed\\s+-[a-zA-Z]*i|\\bperl\\s+-\\w*i|\\b(?:mv|cp|rm|tee|chmod|chflags|chown|ln|truncate|install|unlink)\\b|\\bgit\\s+(?:checkout|restore|stash|rm|mv|reset)\\b|\\b(?:python3?|node|bun|ruby|deno)\\s+-[ce]\\b|(?<![0-9&>])>(?![&>])))[\\s\\S]*(?:\\.eslintrc[^/\\s]*|eslint\\.config\\.\\w+|oxlint[\\w.-]*\\.(?:json|jsonc|ts|js)|\\.oxlintrc[\\w.]*|biome\\.jsonc?|tsconfig[\\w.-]*\\.json|pyproject\\.toml|setup\\.cfg|tox\\.ini|ruff\\.toml|\\.flake8|mypy\\.ini|\\.pylintrc|pytest\\.ini|conftest\\.py|jest\\.config\\.\\w+|vitest\\.config\\.\\w+|\\.coveragerc|codecov\\.ya?ml|\\.pre-commit-config\\.ya?ml|lefthook\\.ya?ml|\\.golangci\\.ya?ml|clippy\\.toml|\\.markdownlint[\\w.-]*|\\.(?:eslint|prettier)ignore|\\.prettierrc[\\w.-]*|bunfig\\.toml|knip\\.jsonc?|run-ci-quality-gates\\.sh|\\.github/workflows/|\\.gitlab-ci\\.yml|\\.husky/)",
       "rationale": "A mutating shell command on lint, type, test, coverage, CI or hook configuration."
     }
   ]

@@ -16,7 +16,10 @@ const PRIVATE_KEY = ["-----BEGIN RSA", "PRIVATE KEY-----"].join(" ");
 let root = "";
 let auditDir = "";
 let policiesFile = "";
-const savedEnv = { audit: process.env.JEV_AUDIT_DIR, policies: process.env.JEV_POLICIES_FILE, off: process.env.JEV_AUDIT };
+const savedEnv = {
+  audit: process.env.JEV_AUDIT_DIR, policies: process.env.JEV_POLICIES_FILE, off: process.env.JEV_AUDIT,
+  dir: process.env.JEV_INTEGRITY_DIR,
+};
 
 before(() => {
   root = mkdtempSync(join(tmpdir(), "jev-guard-"));
@@ -25,6 +28,8 @@ before(() => {
   process.env.JEV_AUDIT_DIR = auditDir;
   process.env.JEV_POLICIES_FILE = policiesFile;
   delete process.env.JEV_AUDIT;
+  // The rules under test, not whatever is installed in ~/.omp.
+  process.env.JEV_INTEGRITY_DIR = join(import.meta.dir, "..", "agent", "integrity");
 });
 after(() => {
   const restore = (name: string, value: string | undefined) => {
@@ -34,6 +39,7 @@ after(() => {
   restore("JEV_AUDIT_DIR", savedEnv.audit);
   restore("JEV_POLICIES_FILE", savedEnv.policies);
   restore("JEV_AUDIT", savedEnv.off);
+  restore("JEV_INTEGRITY_DIR", savedEnv.dir);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -640,7 +646,7 @@ test("recoverable deletions: tracked-clean files and ignored build output skip J
     const allowed = recs.filter((r) => r.rule === "project-recoverable");
     assert.equal(allowed.length, 7);
     assert.ok(allowed.every((r) => r.stage === "deterministic" && r.verdict === "allow" && !r.enforced));
-    assert.ok(allowed.every((r) => r.policyVersion === "guard-bash-2026-10-02.4"));
+    assert.ok(allowed.every((r) => r.policyVersion === "guard-bash-2026-10-03.5"));
     const classes = (rec: DecisionRecord | undefined) => (rec?.state && "deletion_targets" in rec.state ? JSON.stringify(rec.state.deletion_targets) : "");
     assert.match(classes(allowed[0]), /"class":"tracked_clean"/);
     assert.match(classes(allowed[3]), /"class":"ignored_generated"/);
@@ -651,6 +657,49 @@ test("recoverable deletions: tracked-clean files and ignored build output skip J
     assert.match(classes(recs.find((r) => r.subject === "rm -rf private")), /"class":"untracked"/);
     assert.match(JSON.stringify(dirty?.state), /"recoverable_segments":0/);
   });
+});
+
+test("recoverable deletions: a committed .jev-regenerable declares extra regenerable folders", async () => {
+  const declared = mkdtempSync(join(import.meta.dir, ".jev-bash-declared-"));
+  const dgit = (...args: string[]) => execFileSync("git", ["-C", declared, "-c", "user.email=t@example.com", "-c", "user.name=t",
+    "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" });
+  try {
+    dgit("init", "-q");
+    writeFileSync(join(declared, ".gitignore"), "runs/\nlogs/\nkeep/\n");
+    writeFileSync(join(declared, "base.txt"), "x\n");
+    dgit("add", "-A");
+    dgit("commit", "-q", "-m", "init");
+    for (const file of ["runs/a", "logs/b", "keep/c", "other/d.txt"]) {
+      mkdirSync(join(declared, file, ".."), { recursive: true });
+      writeFileSync(join(declared, file), "x\n");
+    }
+    writeFileSync(join(declared, ".gitignore"), "runs/\nlogs/\nkeep/\n");
+    const ctx = inRepo("session-1", declared);
+    await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
+      // Absent file: nothing declared.
+      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
+      // Present but untracked: ignored.
+      writeFileSync(join(declared, ".jev-regenerable"), "# outputs\nruns/\n\nlogs/*\n!logs/b\n");
+      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
+      // Committed and clean: declared and git-ignored folders qualify.
+      dgit("add", ".jev-regenerable");
+      dgit("commit", "-q", "-m", "declare");
+      assert.deepEqual(await screen(h, "rm runs/a", ctx), { jev: 0, blocked: false });
+      assert.deepEqual(await screen(h, "rm -rf runs", ctx), { jev: 0, blocked: false });
+      // Negated, undeclared, and not-ignored paths still go to Jev.
+      assert.equal((await screen(h, "rm logs/b", ctx)).blocked, true);
+      assert.equal((await screen(h, "rm keep/c", ctx)).blocked, true);
+      assert.equal((await screen(h, "rm other/d.txt", ctx)).blocked, true);
+      // Modified file: ignored entirely, even though HEAD still declares runs/.
+      mkdirSync(join(declared, "runs"), { recursive: true });
+      writeFileSync(join(declared, "runs/a"), "x\n");
+      writeFileSync(join(declared, ".jev-regenerable"), "runs/\nkeep/\n");
+      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
+      assert.equal((await screen(h, "rm keep/c", ctx)).blocked, true);
+    });
+  } finally {
+    rmSync(declared, { recursive: true, force: true });
+  }
 });
 
 test("recoverable deletions: only paths under the session cwd qualify, and globs are expanded first", async () => {
@@ -770,8 +819,7 @@ test("a main agent with a UI is asked, never hard-blocked, on a high Jev destruc
   });
 });
 
-// The integrity rules' regexes take seconds on a command past the judged window, hence the longer timeout.
-test("every bash confirm prompt records the user's decision and whether it was enforced", { timeout: 40_000 }, async () => {
+test("every bash confirm prompt records the user's decision and whether it was enforced", async () => {
   const decided = (rec: DecisionRecord | undefined) => (rec?.state && "userDecision" in rec.state ? rec.state.userDecision : "absent");
   await withGuard("enforce", { irreversible: 0.5 }, async (h) => {
     await call(h, "bash", { command: "npm publish" }, makeCtx("main", true, [], true));

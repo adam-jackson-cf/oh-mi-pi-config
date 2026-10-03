@@ -146,6 +146,31 @@ function checkExpectations(head: Side, failures: string[]): void {
   }
 }
 
+// Commands the guard sees run to 4,000 characters (BASH_COMMAND_LIMIT). An unanchored leading
+// `(?=[\s\S]*…)` retries from every position and took over a second per rule at that length.
+const COST_PROBES = [
+  "rm " + "alpha beta gamma ".repeat(240),
+  "python3 -c '" + "x = 1; ".repeat(560) + "'",
+  "cp " + "/Users/someone/project/src/a/b ".repeat(130),
+];
+const RULE_BUDGET_MS = 100;
+
+/** Every rule must test a worst-case-length command within budget, or each tool call stalls. */
+function checkRuleCost(head: Side, failures: string[]): void {
+  for (const rule of head.rules) {
+    for (const probe of COST_PROBES) {
+      const start = performance.now();
+      rule.regex.test(probe);
+      rule.pathRegex?.test(probe);
+      const elapsed = performance.now() - start;
+      if (elapsed > RULE_BUDGET_MS) {
+        failures.push(`rule ${rule.id} took ${Math.round(elapsed)} ms on a ${probe.length}-character input (budget ${RULE_BUDGET_MS} ms)`);
+        break;
+      }
+    }
+  }
+}
+
 function scopeCheck(top: string, ref: string, failures: string[]): void {
   const committed = git(["diff", "--name-only", `${ref}...HEAD`], top);
   if (!committed.ok) failures.push(`scope-check: git diff ${ref}...HEAD failed`);
@@ -188,6 +213,7 @@ function main(): number {
   const base = loadBase(top, ref, failures);
   const { baseRoutes, headRoutes } = compare(base, head, failures);
   checkExpectations(head, failures);
+  checkRuleCost(head, failures);
   if (checkScope) scopeCheck(top, ref, failures);
   const report: Report = {
     base: ref, failures,
