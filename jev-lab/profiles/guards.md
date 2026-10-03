@@ -7,10 +7,10 @@ policy at a time: `bun jev-lab/scripts/export-cases.ts --source policy:<name> --
 - **Process:** Pre-execution screen of bash commands, edit inputs, and fetched tool results; mode
   keys are the policy names
 - **Version:** `policyVersion` on each record. Select by version, never by time: old sessions keep
-  writing old-version records into the same files. Current: `guard-bash-2026-10-03.5`,
+  writing old-version records into the same files. Current: `guard-bash-2026-10-03.6`,
   `guard-write-2026-10-02.3`, `guard-result-2026-10-02.3`. Evidence for one version does not carry
   to another; every quoted figure names its version. Bash figures below marked `.3` do not describe
-  `.4` and `.5` (`.5` only adds `.jev-regenerable`)
+  `.4` or later; `.6` replaced the `.4`/`.5` git-state conditions with the working-folder rule
 - **Stages:** `deterministic` rule (field `rule`) decides first; otherwise `jev`; `jev_error` on
   failure
 - **Label kind:** `verdict-grade`
@@ -79,43 +79,35 @@ Allowlist audit: one in 25 allowlist hits per session is recorded as stage `dete
 `allowlist-sample`, verdict `allow`, with `allowlist_hits` (the running count) in the state, so the
 allowlist's miss rate can be labelled. Allowlist hits are otherwise unrecorded.
 
-Project-recoverable allowances (`.4`): a command that reaches Jev is first checked in code, and when
-every segment is allowlisted or meets one of the conditions below it is allowed without calling Jev
-and always recorded (not sampled): stage `deterministic`, rule `project-recoverable`, verdict `allow`,
+Working-folder allowances (`.6`): a command that reaches Jev is first checked in code, and when every
+segment is allowlisted or meets one of the conditions below it is allowed without calling Jev and
+always recorded (not sampled): stage `deterministic`, rule `project-recoverable`, verdict `allow`,
 with `recoverable_segments` and `deletion_targets` (each `{path, class}`) in the state. The denylist
-still wins. The conditions are binary facts of the command and the filesystem or git state, never of
-who asked. Anything unresolved (a `$var`, substitution, heredoc, `eval`, `sh -c`, a glob with more
-than 200 matches, git unavailable, more than 20,000 files under the targets) does not qualify.
+still wins. The conditions are binary facts of the command and the filesystem, never of who asked.
+Anything unresolved (a `$var`, substitution, heredoc, `eval`, `sh -c`, a glob with more than 200
+matches) does not qualify.
 
-- **Deletion** (`rm`, `rmdir`, `unlink`, `git rm`; globs expanded against the filesystem after `cd`
-  tracking): every target is strictly under the session cwd, inside a git work tree, and every file
-  under it is (a) tracked by git with no staged or unstaged change, or (b) git-ignored and under or
-  named a known build or dependency output (`node_modules`, `dist`, `build`, `out`, `target`,
-  `.next`, `.nuxt`, `.svelte-kit`, `.turbo`, `.parcel-cache`, `.cache`, `coverage`, `.nyc_output`,
-  `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.venv`, `venv`,
-  `*.egg-info`, `.gradle`), or (c) git-ignored and matched by a pattern in `.jev-regenerable` (see
-  below). An ignored file not on that list or declared (`.env`), an untracked unignored file,
-  a dirty tracked file, a submodule, a path through `.git` or a missing path does not qualify.
-  `.jev-regenerable` sits at the git work-tree root in gitignore syntax (comments, blank lines,
-  `!` negation, directory patterns). It counts only when tracked by git with no staged or unstaged
-  change; its content is read from `git show HEAD:.jev-regenerable`, so uncommitted edits never
-  matter. Absent, untracked or dirty means it is ignored entirely. A declared folder still needs the
-  target to be git-ignored; the class reported is `ignored_generated`.
+- **Deletion and overwrite** (`rm`, `rmdir`, `unlink`, `git rm`; `mv`/`cp` onto an existing path
+  and the `mv` sources; `truncate`; a `>`/`>>` redirect onto an existing file; globs expanded after
+  `cd` tracking): every target is session-created (below), or lies in the session's working folder
+  (the session cwd, itself included) whatever its git state, except when the working folder is the
+  home directory, `/` or a top-level directory (class `restricted_folder`), or the target reaches git
+  metadata (class `git_metadata`: a path through `.git`, a directory holding `.git`, or the
+  repository root, so `rm -rf .` at a repository root does not qualify). Otherwise the class is
+  `outside_folder`. A redirect to `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/tty` is not a
+  target. `-t`/`-T` copy forms do not qualify.
 - **Session-created** (anywhere on disk): the target, or an ancestor, did not exist when this
   session first targeted it by a write or edit tool call, `mkdir`, `touch`, a `cp`/`mv`
   destination, a `>`/`>>` redirect, `git worktree add` or `git clone`. Kept in memory per session id;
   recorded only when the call was not blocked.
 - **Git-safe housekeeping** (anywhere): `git worktree remove` without `--force`/`-f`,
   `git worktree prune`, `git branch -d|--delete` without `-D`/`--force`/`-f`.
-- **Overwrite**: `mv`/`cp` whose destination exists, is a file under the session cwd's work tree,
-  tracked and clean (at least one such destination); for `mv` each source must itself qualify as a
-  deletion. `-t`/`-T` forms do not qualify.
-- **Build-tool clean** run in a directory inside the session cwd's work tree: `make clean`,
+- **Build-tool clean** run in a directory inside an unrestricted working folder: `make clean`,
   `cargo clean`, `npm|bun run clean`, `pnpm|yarn clean` (also `run clean`), `mvn clean`,
   `gradle clean`, `./gradlew clean`, `go clean`, `dotnet clean`; extra arguments do not qualify.
 
-A redirect in a qualifying command must target a session-created path. `mkdir` and `touch` are not
-themselves allowed segments, so `mkdir x && rm -r x` still goes to Jev.
+Git discards (`git reset --hard`, `git clean`, `git checkout|restore -- <paths>`) are not covered.
+`mkdir` and `touch` are not themselves allowed segments, so `mkdir x && rm -r x` still goes to Jev.
 
 Jev state fields computed in code from the command and cwd (no `agent_kind`): `deleted_paths`
 (resolved against the cwd, following `cd`), `deletions_all_temporary` (all under /tmp,
@@ -128,9 +120,9 @@ none_of_these), `destructive` noul, `secret_exposure` noul; each states one cond
 not overlap (irreversibility of the effect, kind of destruction, credential value flow).
 
 When a command still goes to Jev, the state also carries `deletion_targets` (at most 20 entries of
-path and class: `tracked_clean`, `ignored_generated`, `session_created`, `untracked`,
-`tracked_dirty`, `outside_project`, `unresolved`) and `recoverable_segments`, computed in code; the
-questions are unchanged.
+path and class: `session_created`, `in_working_folder`, `git_metadata`, `restricted_folder`,
+`outside_folder`, `unresolved`) and `recoverable_segments`, computed in code; the questions are
+unchanged.
 
 Composition: block at P(irreversible) ≥ 0.6, destructive ≥ 0.7 or exposure ≥ 0.75; confirm at
 P(irreversible) 0.35–0.6 or destructive 0.35–0.7. The exposure answer counts only when
@@ -209,4 +201,6 @@ From the 2026-10-02 promotion (`.todo/artifacts/021026-jev-promotion/report.md`)
 (windows), and the `read ./docs/NOTES.md` miss (decision above). Thresholds and every `.3` figure
 need a labelled replay and a fresh held-out corpus. The `.4` allowances were replayed only against
 the 399 labelled bash commands (`.todo/artifacts/021026-jev-action/final-bash.json`) in the cwd
-state on disk at replay time: none of the 34 labelled positives were allowed by code.
+state on disk at replay time: none of the 34 labelled positives were allowed by code. The `.6`
+working-folder rule has not been replayed: it allows by design deletions the label policy counts as
+destructive (untracked or dirty files inside the working folder).

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -633,83 +633,46 @@ async function screen(h: Harness, command: string, ctx = inRepo()) {
   return { jev: h.bodies.length - before, blocked: outcome?.block === true };
 }
 
-test("recoverable deletions: tracked-clean files and ignored build output skip Jev, everything else is judged", async () => {
+test("working folder: deletions and overwrites inside the session's folder skip Jev whatever their git state", async () => {
   await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
-    for (const command of ["rm src/a.ts", "rm -rf src", "git rm src/a.ts", "rm -rf node_modules", "rm -rf node_modules/pkg", "rm -rf dist",
-      "rm -rf dist node_modules src/b.ts"]) {
+    for (const command of ["rm src/a.ts", "rm dirty.txt", "rm scratch.txt", "rm -rf private", "rm -rf node_modules",
+      "git rm src/b.ts", "rm src/missing.ts", "truncate -s 0 notes.txt", "printf x > notes.txt", "cp Makefile notes.txt"]) {
       assert.deepEqual(await screen(h, command), { jev: 0, blocked: false }, command);
     }
-    for (const command of ["rm dirty.txt", "rm scratch.txt", "rm .env", "rm -rf private", "rm -rf .", "rm src/missing.ts", "rm -rf src dirty.txt"]) {
-      assert.equal((await screen(h, command)).blocked, true, command);
-    }
-    const recs = records("guard.bash");
-    const allowed = recs.filter((r) => r.rule === "project-recoverable");
-    assert.equal(allowed.length, 7);
+    const allowed = records("guard.bash").filter((r) => r.rule === "project-recoverable");
+    assert.equal(allowed.length, 10);
     assert.ok(allowed.every((r) => r.stage === "deterministic" && r.verdict === "allow" && !r.enforced));
-    assert.ok(allowed.every((r) => r.policyVersion === "guard-bash-2026-10-03.5"));
-    const classes = (rec: DecisionRecord | undefined) => (rec?.state && "deletion_targets" in rec.state ? JSON.stringify(rec.state.deletion_targets) : "");
-    assert.match(classes(allowed[0]), /"class":"tracked_clean"/);
-    assert.match(classes(allowed[3]), /"class":"ignored_generated"/);
-    // Judged commands carry the code facts into the Jev state.
-    const dirty = recs.find((r) => r.subject === "rm dirty.txt");
-    assert.match(classes(dirty), /"class":"tracked_dirty"/);
-    assert.match(classes(recs.find((r) => r.subject === "rm scratch.txt")), /"class":"untracked"/);
-    assert.match(classes(recs.find((r) => r.subject === "rm -rf private")), /"class":"untracked"/);
-    assert.match(JSON.stringify(dirty?.state), /"recoverable_segments":0/);
+    assert.ok(allowed.every((r) => r.policyVersion === "guard-bash-2026-10-03.6"));
+    assert.match(JSON.stringify(allowed[1]?.state), /"class":"in_working_folder"/);
   });
 });
 
-test("recoverable deletions: a committed .jev-regenerable declares extra regenerable folders", async () => {
-  const declared = mkdtempSync(join(import.meta.dir, ".jev-bash-declared-"));
-  const dgit = (...args: string[]) => execFileSync("git", ["-C", declared, "-c", "user.email=t@example.com", "-c", "user.name=t",
-    "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" });
-  try {
-    dgit("init", "-q");
-    writeFileSync(join(declared, ".gitignore"), "runs/\nlogs/\nkeep/\n");
-    writeFileSync(join(declared, "base.txt"), "x\n");
-    dgit("add", "-A");
-    dgit("commit", "-q", "-m", "init");
-    for (const file of ["runs/a", "logs/b", "keep/c", "other/d.txt"]) {
-      mkdirSync(join(declared, file, ".."), { recursive: true });
-      writeFileSync(join(declared, file), "x\n");
+test("working folder: git metadata and a home, root or top-level folder still go to Jev", async () => {
+  await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
+    // `.` and the repository root hold `.git`; paths through `.git` are git metadata. (The denylist may block first.)
+    for (const command of ["rm -rf .", `rm -rf ${repo}`, "rm -rf .git", "rm .git/HEAD", "printf x > .git/HEAD"]) {
+      assert.notDeepEqual(await screen(h, command), { jev: 0, blocked: false }, command);
     }
-    writeFileSync(join(declared, ".gitignore"), "runs/\nlogs/\nkeep/\n");
-    const ctx = inRepo("session-1", declared);
-    await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
-      // Absent file: nothing declared.
-      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
-      // Present but untracked: ignored.
-      writeFileSync(join(declared, ".jev-regenerable"), "# outputs\nruns/\n\nlogs/*\n!logs/b\n");
-      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
-      // Committed and clean: declared and git-ignored folders qualify.
-      dgit("add", ".jev-regenerable");
-      dgit("commit", "-q", "-m", "declare");
-      assert.deepEqual(await screen(h, "rm runs/a", ctx), { jev: 0, blocked: false });
-      assert.deepEqual(await screen(h, "rm -rf runs", ctx), { jev: 0, blocked: false });
-      // Negated, undeclared, and not-ignored paths still go to Jev.
-      assert.equal((await screen(h, "rm logs/b", ctx)).blocked, true);
-      assert.equal((await screen(h, "rm keep/c", ctx)).blocked, true);
-      assert.equal((await screen(h, "rm other/d.txt", ctx)).blocked, true);
-      // Modified file: ignored entirely, even though HEAD still declares runs/.
-      mkdirSync(join(declared, "runs"), { recursive: true });
-      writeFileSync(join(declared, "runs/a"), "x\n");
-      writeFileSync(join(declared, ".jev-regenerable"), "runs/\nkeep/\n");
-      assert.equal((await screen(h, "rm runs/a", ctx)).blocked, true);
-      assert.equal((await screen(h, "rm keep/c", ctx)).blocked, true);
-    });
-  } finally {
-    rmSync(declared, { recursive: true, force: true });
-  }
+    // A subfolder of the repository does not contain the repository's `.git`.
+    assert.deepEqual(await screen(h, "rm -rf pkg", inRepo("session-1", join(repo, "src"))), { jev: 0, blocked: false });
+    const metadata = records("guard.bash").find((r) => r.subject === "rm .git/HEAD");
+    assert.match(JSON.stringify(metadata?.state), /"class":"git_metadata"/);
+    for (const folder of [homedir(), "/", "/Users"]) {
+      assert.notDeepEqual(await screen(h, `rm ${join(folder, "jev-guard-test-nonexistent.txt")}`, inRepo("session-1", folder)),
+        { jev: 0, blocked: false }, folder);
+    }
+    assert.match(JSON.stringify(records("guard.bash").at(-1)?.state), /"class":"restricted_folder"/);
+  });
 });
 
-test("recoverable deletions: only paths under the session cwd qualify, and globs are expanded first", async () => {
+test("working folder: only paths under the session cwd qualify, and globs are expanded first", async () => {
   await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
     assert.equal((await screen(h, "rm ../notes.txt", inRepo("session-1", join(repo, "src")))).blocked, true);
     assert.equal((await screen(h, `rm ${join(repo, "notes.txt")}`, inRepo("session-1", join(repo, "src")))).blocked, true);
     assert.equal((await screen(h, `rm ${join(scratch, "x.txt")}`)).blocked, true);
     assert.deepEqual(await screen(h, "rm src/*.ts"), { jev: 0, blocked: false });
     assert.deepEqual(await screen(h, "cd src && rm a.ts"), { jev: 0, blocked: false });
-    assert.equal((await screen(h, "rm *.txt")).blocked, true);
+    assert.deepEqual(await screen(h, "rm *.txt"), { jev: 0, blocked: false });
     assert.equal((await screen(h, 'rm "$TARGET"')).blocked, true);
     assert.equal((await screen(h, "cd $SOMEWHERE && rm a.ts")).blocked, true);
   });
@@ -752,25 +715,28 @@ test("git-safe housekeeping qualifies anywhere unless forced", async () => {
   });
 });
 
-test("overwriting a clean tracked file qualifies; dirty, untracked, new and unqualified sources do not", async () => {
+test("overwrites qualify inside the working folder or on session-created paths; elsewhere they go to Jev", async () => {
+  const foreign = join(scratch, "foreign.txt");
+  writeFileSync(foreign, "x\n");
   await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
-    assert.deepEqual(await screen(h, "cp src/a.ts notes.txt"), { jev: 0, blocked: false });
-    assert.deepEqual(await screen(h, "mv src/b.ts notes.txt"), { jev: 0, blocked: false });
-    assert.deepEqual(await screen(h, "cp src/a.ts src/"), { jev: 0, blocked: false });
-    for (const command of ["cp src/a.ts dirty.txt", "mv scratch.txt notes.txt", "cp src/a.ts brand-new.txt", "cp src/a.ts scratch.txt",
-      "mv dirty.txt notes.txt", "cp -t src src/a.ts"]) {
+    for (const command of ["cp src/a.ts notes.txt", "mv src/b.ts notes.txt", "cp src/a.ts src/", "cp src/a.ts dirty.txt",
+      "mv scratch.txt notes.txt"]) {
+      assert.deepEqual(await screen(h, command), { jev: 0, blocked: false }, command);
+    }
+    for (const command of [`cp src/a.ts ${foreign}`, `mv ${foreign} notes.txt`, `truncate -s 0 ${foreign}`, "cp src/a.ts brand-new.txt",
+      "cp -t src src/a.ts"]) {
       assert.equal((await screen(h, command)).jev, 1, command);
     }
   });
 });
 
-test("build-tool clean commands qualify only inside the session repository", async () => {
+test("build-tool clean commands qualify only inside an unrestricted working folder", async () => {
   await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
     for (const command of ["make clean", "cargo clean", "npm run clean", "bun run clean", "pnpm clean", "pnpm run clean", "yarn clean",
       "yarn run clean", "mvn clean", "gradle clean", "./gradlew clean", "go clean", "dotnet clean", "cd src && make clean"]) {
       assert.deepEqual(await screen(h, command), { jev: 0, blocked: false }, command);
     }
-    assert.equal((await screen(h, "make clean", inRepo("session-1", outside))).jev, 1);
+    assert.equal((await screen(h, "make clean", inRepo("session-1", homedir()))).jev, 1);
     assert.equal((await screen(h, `cd ${outside} && make clean`)).jev, 1);
     assert.equal((await screen(h, "make clean-all")).jev, 1);
     assert.equal((await screen(h, "make clean DESTDIR=/")).jev, 1);
@@ -782,9 +748,12 @@ test("composition: the denylist still blocks, and one unqualified segment sends 
     const reset = await call(h, "bash", { command: "git reset --hard && rm src/a.ts" }, inRepo());
     assert.match(reset?.reason ?? "", /git-reset-hard/);
     assert.equal(h.bodies.length, 0);
-    assert.equal((await screen(h, "rm -rf node_modules; rm scratch.txt")).jev, 1);
+    const foreign = join(scratch, "composition.txt");
+    writeFileSync(foreign, "x\n");
+    assert.equal((await screen(h, `rm -rf node_modules; rm ${foreign}`)).jev, 1);
     assert.equal((await screen(h, "rm src/a.ts && npm publish")).jev, 1);
-    assert.equal((await screen(h, "rm src/a.ts > notes.txt")).jev, 1);
+    assert.equal((await screen(h, `rm src/a.ts > ${foreign}`)).jev, 1);
+    assert.deepEqual(await screen(h, "rm src/a.ts > /dev/null"), { jev: 0, blocked: false });
     assert.equal((await screen(h, "rm $(echo src/a.ts)")).jev, 1);
     assert.deepEqual(await screen(h, "ls src && rm src/a.ts | cat"), { jev: 0, blocked: false });
   });

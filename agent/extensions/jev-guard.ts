@@ -8,13 +8,13 @@
  * Policies (modes come from `agent/jev-policies.json`, read at `session_start`,
  * fallback `shadow`):
  *  - `guard.bash`   `tool_call` for `bash`: read-only allowlist (allow, unrecorded),
- *                   denylist (recorded, `rule` id), project-recoverable allowances (recorded
- *                   `project-recoverable`, no Jev: deletions of tracked-clean or regenerable
- *                   build-output files (built-in names, or git-ignored paths that a tracked, clean
- *                   `.jev-regenerable` in the repository root declares in gitignore syntax)
- *                   inside the session's repository or of paths this session
- *                   created, git-safe housekeeping, overwrites of clean tracked files, build-tool
- *                   `clean`), otherwise Jev `effect` / `destructive_intent` / `secret_exposure`.
+ *                   denylist (recorded, `rule` id), working-folder allowances (recorded
+ *                   `project-recoverable`, no Jev: deletions and overwrites — rm/rmdir/unlink/git rm,
+ *                   mv/cp onto existing paths, truncate, `>` onto existing files — whose targets lie
+ *                   in the session's working folder or were created by this session anywhere; not
+ *                   when the folder is home, `/` or top-level, nor for git metadata), git-safe
+ *                   housekeeping and build-tool `clean` in the folder; otherwise Jev `effect` /
+ *                   `destructive_intent` / `secret_exposure`.
  *                   A main agent with a UI is asked (never hard-blocked) when Jev scores reach the
  *                   destructive/irreversible block thresholds; secret exposure and the denylist
  *                   still block. Every confirm prompt records `userDecision`.
@@ -45,7 +45,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -70,7 +70,7 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-03.5";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-03.6";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.3";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.7";
@@ -620,23 +620,20 @@ export async function bashFacts(command: string, cwd: string): Promise<BashFacts
   }
 }
 
-// ---- Bash: project-recoverable allowances ---------------------------------------------
-// A destructive command skips Jev when code can show that every effect is recoverable inside the
-// session's repository (tracked and clean in git, or a regenerable build output) or confined to paths
-// this session created. Conditions of the command and filesystem/git state only, never who asked.
-const RECOVERABLE_FILE_LIMIT = 20_000;
+// ---- Bash: working-folder allowances --------------------------------------------------
+// A destructive command skips Jev when code can show that every deletion and overwrite lands inside the
+// session's working folder (not the home directory, the filesystem root or a top-level directory, and not
+// git metadata) or on paths this session created anywhere on disk. Conditions of the command and the
+// filesystem only, never who asked.
 const RECOVERABLE_TARGET_LIMIT = 200;
 const REPORTED_TARGET_LIMIT = 20;
-const GENERATED_NAMES = new Set([
-  "node_modules", "dist", "build", "out", "target", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".cache",
-  "coverage", ".nyc_output", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".venv", "venv", ".gradle",
-]);
-const GENERATED_SUFFIX = /\.(?:pyc|egg-info)$/;
 const CLEAN_COMMANDS = new Set([
   "make clean", "cargo clean", "npm run clean", "bun run clean", "pnpm clean", "pnpm run clean", "yarn clean", "yarn run clean",
   "mvn clean", "gradle clean", "./gradlew clean", "go clean", "dotnet clean",
 ]);
 const RECOVERABLE_DELETERS = new Set(["rm", "rmdir", "unlink"]);
+const TRUNCATE_VALUE_FLAGS = new Set(["-s", "--size", "-r", "--reference"]);
+const DEVICE_SINKS = new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"]);
 const GLOB_CHARS = /[*?[\]{}]/;
 const MKDIR_VALUE_FLAGS = new Set(["-m", "--mode"]);
 const TOUCH_VALUE_FLAGS = new Set(["-t", "-d", "-r", "--date", "--reference"]);
@@ -645,17 +642,12 @@ const CLONE_VALUE_FLAGS = new Set(["-b", "--branch", "--depth", "-o", "--origin"
   "--template", "-j", "--jobs", "--separate-git-dir", "-u", "--upload-pack", "--filter", "--shallow-since", "--shallow-exclude",
   "--server-option", "--revision"]);
 
-export type TargetClass = "tracked_clean" | "ignored_generated" | "session_created" | "untracked" | "tracked_dirty" | "outside_project" | "unresolved";
+export type TargetClass = "session_created" | "in_working_folder" | "git_metadata" | "restricted_folder" | "outside_folder" | "unresolved";
 export type TargetReport = { path: string; class: TargetClass };
 export type RecoverableAssessment = { qualifies: boolean; segments: number; targets: TargetReport[] };
-type Project = { cwd: string; top: string };
 type Step = { segment: string; program: string; args: string[]; dir: string | undefined };
 type Plan = { ok: boolean; qualifying: boolean; deletes: string[]; overwrites: string[]; unresolved: string[] };
-const QUALIFYING_DELETION = new Set<TargetClass>(["tracked_clean", "ignored_generated", "session_created"]);
-
-function isGeneratedPath(path: string): boolean {
-  return path.split("/").some((part) => GENERATED_NAMES.has(part) || GENERATED_SUFFIX.test(part));
-}
+const QUALIFYING = new Set<TargetClass>(["session_created", "in_working_folder"]);
 
 function isDirectory(path: string): boolean {
   try {
@@ -817,137 +809,39 @@ export async function creationTargets(command: string, cwd: string): Promise<str
   return found;
 }
 
-async function projectOf(cwd: string): Promise<Project | undefined> {
-  try {
-    const top = realpathSync((await runGit(cwd, ["rev-parse", "--show-toplevel"])).trim());
-    return { cwd: realpathSync(cwd), top };
-  } catch {
-    return undefined;
+/** A working folder too broad to allow wholesale: the home directory, the filesystem root or a top-level directory. */
+function isRestrictedFolder(dir: string): boolean {
+  return dir === canonical(homedir()) || dirname(dir) === dir || dirname(dir) === sep;
+}
+
+/** Nearest ancestor-or-self of `dir` holding a `.git` entry: the repository the working folder belongs to. */
+function repositoryRoot(dir: string): string | undefined {
+  for (let current = dir; ; current = dirname(current)) {
+    if (existsNoFollow(join(current, ".git"))) return current;
+    if (dirname(current) === current) return undefined;
   }
 }
 
-function parseStatus(output: string): { path: string; untracked: boolean }[] {
-  const fields = output.split("\0");
-  const entries: { path: string; untracked: boolean }[] = [];
-  for (let i = 0; i < fields.length; i++) {
-    const field = fields[i] ?? "";
-    if (field.length < 4) continue;
-    const xy = field.slice(0, 2);
-    entries.push({ path: field.slice(3), untracked: xy === "??" });
-    if (/[RC]/.test(xy)) entries.push({ path: fields[++i] ?? "", untracked: false });
-  }
-  return entries;
-}
-
-const REGENERABLE_FILE = ".jev-regenerable";
-const CHECK_IGNORE_BATCH = 500;
-
-/**
- * Entries (git-relative, directories with a trailing `/`) that match a pattern of the repository's `.jev-regenerable`.
- * The file counts only when tracked and clean; its content is read from HEAD. Patterns are matched by git itself in a
- * throwaway repository whose only ignore file is that content, so the repository's own ignore rules never interfere.
- */
-async function declaredRegenerable(top: string, entries: readonly string[]): Promise<Set<string>> {
-  const matched = new Set<string>();
-  if (entries.length === 0) return matched;
-  let sandbox: string | undefined;
-  try {
-    const pathspec = ["--literal-pathspecs"];
-    if ((await runGit(top, [...pathspec, "ls-files", "-z", "--", REGENERABLE_FILE])).length === 0) return matched;
-    if ((await runGit(top, [...pathspec, "status", "--porcelain=v1", "-z", "--", REGENERABLE_FILE])).length > 0) return matched;
-    const declaration = await runGit(top, ["show", `HEAD:${REGENERABLE_FILE}`]);
-    sandbox = mkdtempSync(join(tmpdir(), "jev-regenerable-"));
-    await runGit(sandbox, ["init", "-q"]);
-    writeFileSync(join(sandbox, ".gitignore"), declaration);
-    for (const entry of entries) {
-      const target = join(sandbox, entry);
-      if (entry.endsWith("/")) mkdirSync(target, { recursive: true });
-      else {
-        mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, "");
-      }
-    }
-    // Directories are queried without their trailing slash (git matches `dir/*` against `dir/`); they exist, so `dir/` patterns apply.
-    const byQuery = new Map(entries.map((entry) => [entry.replace(/\/$/, ""), entry]));
-    const queries = [...byQuery.keys()];
-    for (let i = 0; i < queries.length; i += CHECK_IGNORE_BATCH) {
-      const batch = queries.slice(i, i + CHECK_IGNORE_BATCH);
-      try {
-        const out = await runGit(sandbox, ["-c", "core.excludesFile=/dev/null", "-c", "core.quotePath=false", "check-ignore", "--no-index", "--", ...batch]);
-        for (const path of out.split("\n")) {
-          const entry = byQuery.get(path);
-          if (entry !== undefined) matched.add(entry);
-        }
-      } catch {
-        // exit status 1: no path in this batch matched
-      }
-    }
-  } catch {
-    matched.clear();
-  } finally {
-    if (sandbox !== undefined) rmSync(sandbox, { recursive: true, force: true });
-  }
-  return matched;
-}
-
-/** Whether git path `entry` (a file, or an ignored directory with a trailing `/`) lies under, or contains, `rel`. */
-function owns(rel: string, entry: string): boolean {
-  const target = `${rel}/`;
-  const listed = entry.endsWith("/") ? entry : `${entry}/`;
-  return listed.startsWith(target) || target.startsWith(listed);
+/** Whether deleting or overwriting `path` reaches git metadata: a path through `.git`, a `.git` inside it, or the repository itself. */
+function touchesGitMetadata(path: string, repo: string | undefined): boolean {
+  return path.split(sep).includes(".git") || existsNoFollow(join(path, ".git")) || (repo !== undefined && within(path, repo));
 }
 
 /**
- * Class of each path: session-created (anywhere), otherwise inside `project.cwd` and classified from git plumbing scoped to
- * the paths. A path qualifies when every file under it is tracked and clean, or ignored and a known build output.
+ * Class of each path: session-created (anywhere on disk), otherwise inside the working folder unless that folder is
+ * restricted or the path reaches git metadata. Only `session_created` and `in_working_folder` qualify.
  */
-async function classifyPaths(paths: readonly string[], project: Project | undefined, pool: ReadonlySet<string>): Promise<Map<string, TargetClass>> {
+function classifyPaths(paths: readonly string[], cwd: string, pool: ReadonlySet<string>): Map<string, TargetClass> {
   const classes = new Map<string, TargetClass>();
-  const queued: { path: string; rel: string }[] = [];
+  const folder = canonical(cwd);
+  const repo = repositoryRoot(folder);
   for (const path of new Set(paths)) {
     const canon = canonical(path);
     if (isSessionCreated(canon, pool)) classes.set(path, "session_created");
-    else if (!project || canon === project.cwd || !within(project.cwd, canon)) classes.set(path, "outside_project");
-    else if (!existsNoFollow(canon)) classes.set(path, "untracked");
-    else {
-      const rel = relative(project.top, canon).split(sep).join("/");
-      if (rel.split("/").includes(".git")) classes.set(path, "untracked");
-      else if (queued.length >= RECOVERABLE_TARGET_LIMIT) classes.set(path, "unresolved");
-      else queued.push({ path, rel });
-    }
-  }
-  if (!project || queued.length === 0) return classes;
-  try {
-    const rels = queued.map((q) => q.rel);
-    const git = (args: string[]) => runGit(project.top, ["--literal-pathspecs", ...args, "--", ...rels]);
-    const [listed, status, others] = await Promise.all([
-      git(["ls-files", "-z", "-s"]), git(["status", "--porcelain=v1", "-z"]),
-      git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]),
-    ]);
-    const tracked = listed.split("\0").filter(Boolean).map((line) => ({ path: line.slice(line.indexOf("\t") + 1), gitlink: line.startsWith("160000 ") }));
-    const changes = parseStatus(status);
-    const ignored = others.split("\0").filter(Boolean);
-    if (tracked.length + changes.length + ignored.length > RECOVERABLE_FILE_LIMIT) {
-      for (const { path } of queued) classes.set(path, "unresolved");
-      return classes;
-    }
-    const unlisted = new Set<string>();
-    for (const { rel } of queued) {
-      if (isGeneratedPath(rel)) continue;
-      for (const entry of ignored) if (owns(rel, entry) && !isGeneratedPath(entry)) unlisted.add(entry);
-    }
-    const declared = await declaredRegenerable(project.top, [...unlisted]);
-    for (const { path, rel } of queued) {
-      const underTracked = tracked.filter((entry) => owns(rel, entry.path));
-      const underChanges = changes.filter((entry) => owns(rel, entry.path));
-      const underIgnored = ignored.filter((entry) => owns(rel, entry));
-      const ignoredOutsideBuild = underIgnored.some((entry) => !isGeneratedPath(entry) && !isGeneratedPath(rel) && !declared.has(entry));
-      classes.set(path, underChanges.some((entry) => entry.untracked) || ignoredOutsideBuild ? "untracked"
-        : underChanges.length > 0 || underTracked.some((entry) => entry.gitlink) ? "tracked_dirty"
-          : underTracked.length > 0 ? "tracked_clean" : underIgnored.length > 0 ? "ignored_generated" : "untracked");
-    }
-  } catch {
-    for (const { path } of queued) classes.set(path, "unresolved");
+    else if (!within(folder, canon)) classes.set(path, "outside_folder");
+    else if (isRestrictedFolder(folder)) classes.set(path, "restricted_folder");
+    else if (touchesGitMetadata(canon, repo)) classes.set(path, "git_metadata");
+    else classes.set(path, "in_working_folder");
   }
   return classes;
 }
@@ -963,9 +857,9 @@ function gitHousekeeping(git: GitInvocation): boolean {
 }
 
 /**
- * Whether code can show that every segment of `command` is allowlisted, git-safe housekeeping, a project clean command, or a
- * deletion/overwrite whose targets are recoverable (see `classifyPaths`) or session-created (`created`, plus paths this
- * command creates). `targets` lists each deletion and overwrite target with its class, whether or not the command qualifies.
+ * Whether code can show that every segment of `command` is allowlisted, git-safe housekeeping, a clean command run in the
+ * working folder, or a deletion/overwrite whose targets qualify (see `classifyPaths`; `created`, plus paths this command
+ * creates, are session-created). `targets` lists each deletion and overwrite target with its class either way.
  */
 export async function assessRecoverable(command: string, cwd: string, created: ReadonlySet<string>): Promise<RecoverableAssessment> {
   const scan = scanCommand(command);
@@ -975,12 +869,13 @@ export async function assessRecoverable(command: string, cwd: string, created: R
     const root = missingRoot(path);
     if (root !== undefined) pool.add(root);
   }
-  let projectLookup: Promise<Project | undefined> | undefined;
-  const project = () => (projectLookup ??= projectOf(cwd));
+  const folder = canonical(cwd);
   let ok = steps.length > 0 && !DYNAMIC_CODE.test(command);
+  const redirects: string[] = [];
   for (const target of scan.redirectTargets) {
     const path = resolveAt(target, cwd);
-    if (path === undefined || !isSessionCreated(canonical(path), pool)) ok = false;
+    if (path === undefined) ok = false;
+    else if (!DEVICE_SINKS.has(path)) redirects.push(path);
   }
   const planStep = async (step: Step): Promise<Plan> => {
     const plan: Plan = { ok: false, qualifying: false, deletes: [], overwrites: [], unresolved: [] };
@@ -1004,31 +899,37 @@ export async function assessRecoverable(command: string, cwd: string, created: R
       if (!moved) return plan;
       plan.overwrites = moved.dests.filter(existsNoFollow);
       if (step.program === "mv") plan.deletes = moved.sources;
-      return { ...plan, ok: plan.overwrites.length > 0 && !plan.overwrites.some(isDirectory), qualifying: true };
+      return { ...plan, ok: !plan.overwrites.some(isDirectory), qualifying: plan.overwrites.length > 0 || plan.deletes.length > 0 };
+    }
+    if (step.program === "truncate") {
+      for (const arg of positionalsSkipping(step.args, TRUNCATE_VALUE_FLAGS)) {
+        const path = resolveAt(arg, step.dir);
+        if (path === undefined) plan.unresolved.push(arg);
+        else plan.overwrites.push(path);
+      }
+      return { ...plan, ok: plan.unresolved.length === 0, qualifying: true };
     }
     if (CLEAN_COMMANDS.has([step.program, ...step.args].join(" "))) {
-      const found = await project();
-      return { ...plan, ok: found !== undefined && step.dir !== undefined && within(found.top, canonical(step.dir)), qualifying: true };
+      const inFolder = step.dir !== undefined && within(folder, canonical(step.dir)) && !isRestrictedFolder(folder);
+      return { ...plan, ok: inFolder, qualifying: true };
     }
     return { ...plan, ok: segmentIsReadOnly(step.segment) };
   };
   const plans: Plan[] = [];
   for (const step of steps) plans.push(await planStep(step));
-  const found = plans.some((plan) => plan.deletes.length > 0 || plan.overwrites.length > 0) ? await project() : undefined;
-  const deleteClasses = await classifyPaths(plans.flatMap((plan) => plan.deletes), found, pool);
-  const overwriteClasses = await classifyPaths(plans.flatMap((plan) => plan.overwrites), found, new Set());
-  const targets: TargetReport[] = [];
-  let segments = 0;
-  let allOk = ok;
+  const classes = classifyPaths([...plans.flatMap((plan) => [...plan.deletes, ...plan.overwrites]), ...redirects], cwd, pool);
+  const classOf = (path: string): TargetClass => classes.get(path) ?? "unresolved";
+  const targets: TargetReport[] = redirects.filter(existsNoFollow).map((path) => ({ path, class: classOf(path) }));
+  const allowedRedirects = redirects.every((path) => QUALIFYING.has(classOf(path)));
+  // An existing file a redirect overwrites is itself an allowed overwrite.
+  let segments = allowedRedirects && redirects.some(existsNoFollow) ? 1 : 0;
+  let allOk = ok && allowedRedirects;
   for (const plan of plans) {
-    const classes = [
+    targets.push(
       ...plan.unresolved.map((path): TargetReport => ({ path, class: "unresolved" })),
-      ...plan.deletes.map((path): TargetReport => ({ path, class: deleteClasses.get(path) ?? "unresolved" })),
-      ...plan.overwrites.map((path): TargetReport => ({ path, class: overwriteClasses.get(path) ?? "unresolved" })),
-    ];
-    targets.push(...classes);
-    const passes = plan.ok && plan.deletes.every((path) => QUALIFYING_DELETION.has(deleteClasses.get(path) ?? "unresolved"))
-      && plan.overwrites.every((path) => overwriteClasses.get(path) === "tracked_clean");
+      ...[...plan.deletes, ...plan.overwrites].map((path): TargetReport => ({ path, class: classOf(path) })),
+    );
+    const passes = plan.ok && [...plan.deletes, ...plan.overwrites].every((path) => QUALIFYING.has(classOf(path)));
     if (!passes) allOk = false;
     else if (plan.qualifying) segments++;
   }
