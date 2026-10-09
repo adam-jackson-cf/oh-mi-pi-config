@@ -23,13 +23,8 @@ export const answerSchema = z.object({
 });
 export type LabAnswer = z.infer<typeof answerSchema> & { id: string };
 
-export type SourceKind = "jev-scope" | "policy" | "caseset";
+export type SourceKind = "policy" | "caseset";
 export type Source = { id: string; kind: SourceKind; title: string; count: number };
-
-export type Proposal = {
-  label: string; agreement: "agreed" | "disputed"; rationale: string; namedChange?: string; evidence?: string;
-  labellers: Record<string, string>;
-};
 
 /** One reviewable Jev decision, normalised across all source kinds. */
 export type LabCase = {
@@ -43,13 +38,7 @@ export type LabCase = {
   score?: number;
   /** 0 (certain) .. 1 (coin flip). */
   uncertainty: number;
-  /** Rubric input sufficiency; only defined for jev-scope. */
-  sufficient?: boolean;
-  taskSource?: string;
   version?: string;
-  /** jev-scope only: whether the audited session was a main session or a subagent, and the subagent's id. */
-  sessionKind?: "main" | "sub";
-  agentId?: string;
   state: JsonValue;
   questions?: JevQuestions;
   answers: LabAnswer[];
@@ -66,14 +55,13 @@ export type LabCase = {
   labelNote?: string;
   /** How the effective label was produced (e.g. agent_first_pass_agreement); absent for legacy labels. */
   labelBasis?: string;
-  proposal?: Proposal;
   expected?: Record<string, string | number | boolean>;
   note?: string;
   /** Policy decisions: the deterministic rule id, when a rule decided. */
   rule?: string;
 };
 
-export type LabPaths = { sessionsDir: string; auditDir: string; casesetDir: string; runsDir: string };
+export type LabPaths = { auditDir: string; casesetDir: string; runsDir: string };
 
 export class LabError extends Error {
   constructor(message: string, readonly status: number) {

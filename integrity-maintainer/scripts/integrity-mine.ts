@@ -166,7 +166,7 @@ async function discoverSessions(since: Date): Promise<{ mains: SessionInfo[]; fi
   const files: string[] = [];
   for await (const path of new Glob("**/*.jsonl").scan({ cwd: SESSIONS_ROOT, absolute: true })) {
     const name = basename(path);
-    if (name.startsWith("__advisor") || name.startsWith("jev-watchdog") || name === "labels.jsonl") continue;
+    if (name.startsWith("__advisor") || name === "labels.jsonl") continue;
     const mtime = statSync(path).mtimeMs;
     if (mtime < since.getTime()) continue;
     const segments = relative(SESSIONS_ROOT, path).split("/");

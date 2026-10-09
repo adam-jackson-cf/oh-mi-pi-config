@@ -57,12 +57,11 @@ recommendation, not a silent edit.
 - Compaction stays on the native mechanism until an experiment shows a Jev
   boundary signal beats it.
 
-## Fixed settings
+## Removed setups
 
-- `modelRoles.advisor` stays `openai-codex/gpt-6-astra:low`. It belongs to the
-  advisor watchdog setup that runs with the Jev classifier extension
-  (`agent/extensions/jev-watchdog.ts`, `agent/WATCHDOG.yml`). Do not re-route
-  it for cost or family reasons.
+- No advisor or proportionality watchdog (owner decision 2026-10-03): the Jev
+  scope watchdog, `WATCHDOG.yml`, `modelRoles.advisor`, `advisor.*` and
+  `task.agentAdvisor` were removed. Do not reintroduce them in routing reviews.
 
 ## Working agreements
 

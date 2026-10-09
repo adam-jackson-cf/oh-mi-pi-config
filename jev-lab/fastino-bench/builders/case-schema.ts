@@ -1,4 +1,4 @@
-// Shared zod boundary for the E4 builders: parses dataset JSONL lines into BenchCase.
+// Shared zod boundary for dataset builders: parses dataset JSONL lines into BenchCase.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { BenchCase, JsonValue } from "../lib/types";
@@ -32,7 +32,7 @@ export const benchCase = z.object({
   positive: z.string().optional(),
   meta: z.record(z.string(), jsonValue).optional(),
   act: z.object({
-    truth: z.boolean(), risk: z.array(z.string()), mode: z.enum(["max", "product", "sum"]).optional(),
+    truth: z.boolean(), risk: z.array(z.string()), mode: z.enum(["max", "product"]).optional(),
   }).optional(),
 });
 

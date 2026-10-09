@@ -41,7 +41,6 @@ adr/*
 !agent/
 agent/*
 !agent/AGENTS.md
-!agent/WATCHDOG.yml
 !agent/config.yml
 !agent/lsp.json
 !agent/jev-policies.json
@@ -83,7 +82,6 @@ agent/agents/*
 agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/jev-watchdog.ts
 !agent/extensions/jev-guard.ts
 !agent/extensions/jev-ask.ts
 !agent/extensions/lib/
@@ -91,14 +89,13 @@ agent/extensions/lib/*
 !agent/extensions/lib/jev.ts
 !agent/extensions/lib/jev-auth.ts
 !agent/extensions/lib/integrity.ts
-!agent/extensions/lib/proportionality.ts
+!agent/extensions/lib/system-paths.ts
 
 
 !tests/
 tests/*
 !tests/agent-autocomplete.test.ts
 !tests/jev-guard.test.ts
-!tests/jev-watchdog.test.ts
 !tests/jev-ask.test.ts
 !tests/jev-lab.test.ts
 !tests/jev-integrity.test.ts

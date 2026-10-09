@@ -69,15 +69,17 @@ async function replayBash(state: z.infer<typeof bashState>): Promise<Outcome> {
   // No session history exists in a replay, so only the cwd's current git state and the command text decide.
   const recoverable = await assessRecoverable(command, state.cwd || process.cwd(), new Set());
   if (recoverable.qualifies) return { stage: "deterministic", verdict: "allow", rule: "project-recoverable", state: recoverable.targets };
-  const built = await bashJevState(command, state.cwd || process.cwd(), apiKey, recoverable);
+  const built = bashJevState(command, state.cwd || process.cwd(), apiKey, recoverable);
   const judged = await ask(built.state, BASH_QUESTIONS);
   if (!judged.answers) return { stage: "jev_error", verdict: "error", state: built.state, ...judged };
-  const assessed = assessBash(judged.answers, built.facts);
+  const assessed = assessBash(judged.answers, built.facts, recoverable.settled);
   const exposure = judged.answers.secret_exposure;
   const effect = judged.answers.effect;
   const destructive = judged.answers.destructive;
+  // Mirrors assessBash: `destructive` does not count once code has settled every deletion and overwrite.
+  const destructiveCounts = !recoverable.settled || !["none", "pid"].includes(built.facts.kill_pattern);
   const score = Math.max(effect?.type === "choice" ? (effect.probabilities.irreversible ?? 0) : 0,
-    destructive?.type === "noul" ? destructive.noul : 0,
+    destructiveCounts && destructive?.type === "noul" ? destructive.noul : 0,
     built.facts.secret_value_possible && exposure?.type === "noul" ? exposure.noul : 0);
   return { stage: "jev", verdict: assessed.verdict, state: built.state, score, ...judged };
 }

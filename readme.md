@@ -11,9 +11,7 @@ The configuration favors evidence before assertion, verification proportional to
 risk, and clean cutovers over compatibility layers. Changes should solve the
 underlying problem, preserve canonical wording where it matters, migrate callers
 when a design changes, and remove obsolete paths rather than carry them forward.
-`agent/AGENTS.md` and `agent/WATCHDOG.yml` hold the durable operating policy;
-the advisor is intended to challenge disproportionate solution complexity, not
-replace those rules.
+`agent/AGENTS.md` holds the durable operating policy.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -68,7 +66,6 @@ source.
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.
 - `agent/AGENTS.md` — engineering, verification, and response rules.
-- `agent/WATCHDOG.yml` — review and escalation policy.
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.

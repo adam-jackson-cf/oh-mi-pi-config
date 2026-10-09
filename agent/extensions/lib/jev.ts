@@ -170,25 +170,33 @@ export function clip(text: string, limit: number): Clipped {
 
 export type PolicyMode = "off" | "shadow" | "enforce";
 const policyModes = z.record(z.string(), z.enum(["off", "shadow", "enforce"]));
+/** How much `guard.bash` (and its write/edit system-folder check) guards: everything (`strict`) or only system folders. */
+export type BashScope = "strict" | "system-only";
+export const BASH_SCOPE_KEY = "guard.bash.scope";
+const bashScope = z.enum(["strict", "system-only"]);
+export type PolicySettings = { modes: Record<string, PolicyMode>; bashScope: BashScope };
 
 export function policiesFile(): string {
   return process.env.JEV_POLICIES_FILE ?? join(homedir(), ".omp", "agent", "jev-policies.json");
 }
 
 /**
- * Per-policy modes from `agent/jev-policies.json` (keys starting with `$` are
- * comments). A missing file means every policy uses its fallback; a malformed
- * file throws so the misconfiguration is visible at load.
+ * Per-policy modes and the `guard.bash.scope` setting from `agent/jev-policies.json` (keys starting with `$`
+ * are comments). A missing file means every policy uses its fallback and the scope is `strict`; a malformed
+ * file throws so the caller can surface the misconfiguration.
  */
-export async function readPolicyModes(file = policiesFile()): Promise<Record<string, PolicyMode>> {
+export async function readPolicySettings(file = policiesFile()): Promise<PolicySettings> {
   let raw: string;
   try {
     raw = await readFile(file, "utf8");
   } catch {
-    return {};
+    return { modes: {}, bashScope: "strict" };
   }
-  const decoded = z.record(z.string(), z.string()).parse(JSON.parse(raw));
-  return policyModes.parse(Object.fromEntries(Object.entries(decoded).filter(([key]) => !key.startsWith("$"))));
+  const entries = Object.entries(z.record(z.string(), z.string()).parse(JSON.parse(raw))).filter(([key]) => !key.startsWith("$"));
+  return {
+    modes: policyModes.parse(Object.fromEntries(entries.filter(([key]) => key !== BASH_SCOPE_KEY))),
+    bashScope: bashScope.parse(entries.find(([key]) => key === BASH_SCOPE_KEY)?.[1] ?? "strict"),
+  };
 }
 
 export function policyMode(modes: Record<string, PolicyMode>, policy: string, fallback: PolicyMode = "shadow"): PolicyMode {

@@ -10,8 +10,6 @@ import { z } from "zod";
 import { auditRoot, decide, type JevAnswers, type JevQuestions, type JevResult, type JsonValue } from "../agent/extensions/lib/jev";
 import { scoreExpected, readCaseRows, saveCase, caseRow, toLabAnswers } from "./lib/caseset";
 import { casesForVersion, computeMetrics, CURRENT_VERSION, versionsOf } from "../agent/skills/evaluate-jev/scripts/cases.ts";
-import { buildProposalQueue, buildQueue, scopeProgress } from "./lib/metrics";
-import { MIN_POSITIVE, MIN_SUFFICIENT, SCOPE_SOURCE, SCOPE_THRESHOLD } from "./lib/scope";
 import { applyLabel, listSources, loadCases } from "./lib/sources";
 import { jsonValue, LabError, questionsSchema, type LabAnswer, type LabPaths } from "./lib/types";
 
@@ -20,6 +18,7 @@ const PORT = 4398;
 const TOKEN_HEADER = "x-jev-lab-token";
 const MAX_BODY = 2_000_000;
 const MAX_CASESET_RUN = 200;
+const DEFAULT_THRESHOLD = 0.5;
 const HOST = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
 const STATIC = new Map([["/app.js", "text/javascript"], ["/style.css", "text/css"]]);
 
@@ -27,7 +26,6 @@ export type LabDeps = { paths: LabPaths; token: string; apiKey?: string };
 
 export function defaultPaths(): LabPaths {
   return {
-    sessionsDir: join(homedir(), ".omp", "agent", "sessions"),
     auditDir: auditRoot(),
     casesetDir: join(LAB_DIR, "casesets"),
     runsDir: join(LAB_DIR, "runs"),
@@ -129,11 +127,9 @@ export function createHandler(deps: LabDeps): (req: Request) => Promise<Response
 
     if (req.method === "GET" && path === "/api/sources") return json(JSON.stringify({ sources: await listSources(paths), live: Boolean(apiKey) }));
     if (req.method === "GET" && path === "/api/cases") {
-      const source = url.searchParams.get("source") ?? "";
-      let cases = await loadCases(paths, source);
-      const versions = source === SCOPE_SOURCE ? versionsOf(cases) : undefined;
-      if (versions) cases = casesForVersion(cases, url.searchParams.get("version") ?? CURRENT_VERSION);
-      return json(JSON.stringify({ versions, cases: cases.map(({ state: _s, questions: _q, answers: _a, ...summary }) => summary) }));
+      const all = await loadCases(paths, url.searchParams.get("source") ?? "");
+      const cases = casesForVersion(all, url.searchParams.get("version") ?? CURRENT_VERSION);
+      return json(JSON.stringify({ versions: versionsOf(all), cases: cases.map(({ state: _s, questions: _q, answers: _a, ...summary }) => summary) }));
     }
     if (req.method === "GET" && path === "/api/case") {
       const found = (await loadCases(paths, url.searchParams.get("source") ?? "")).find(c => c.id === url.searchParams.get("id"));
@@ -141,23 +137,11 @@ export function createHandler(deps: LabDeps): (req: Request) => Promise<Response
       return json(JSON.stringify({ case: found }));
     }
     if (req.method === "GET" && path === "/api/metrics") {
-      const source = url.searchParams.get("source") ?? "";
-      const requested = Number(url.searchParams.get("threshold") ?? SCOPE_THRESHOLD);
-      const threshold = Number.isFinite(requested) ? requested : SCOPE_THRESHOLD;
-      let cases = await loadCases(paths, source);
-      let version: string | undefined;
-      if (source === SCOPE_SOURCE) {
-        version = url.searchParams.get("version") ?? CURRENT_VERSION;
-        cases = casesForVersion(cases, version);
-        if (url.searchParams.get("sufficientOnly") !== "0") cases = cases.filter(c => c.sufficient === true);
-      }
+      const requested = Number(url.searchParams.get("threshold") ?? DEFAULT_THRESHOLD);
+      const threshold = Number.isFinite(requested) ? requested : DEFAULT_THRESHOLD;
+      const version = url.searchParams.get("version") ?? CURRENT_VERSION;
+      const cases = casesForVersion(await loadCases(paths, url.searchParams.get("source") ?? ""), version);
       return json(JSON.stringify({ threshold, version, metrics: computeMetrics(cases, threshold) }));
-    }
-    if (req.method === "GET" && path === "/api/queue") {
-      const cases = casesForVersion(await loadCases(paths, SCOPE_SOURCE), CURRENT_VERSION);
-      const build = url.searchParams.get("order") === "proposals" ? buildProposalQueue : buildQueue;
-      const queue = build(cases, 50).map(({ state: _s, questions: _q, answers: _a, ...summary }) => summary);
-      return json(JSON.stringify({ progress: scopeProgress(cases, MIN_SUFFICIENT, MIN_POSITIVE), queue }));
     }
 
     if (req.method !== "POST") throw new LabError("Not found.", 404);

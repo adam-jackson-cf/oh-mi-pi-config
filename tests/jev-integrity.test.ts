@@ -89,8 +89,10 @@ async function withGuard(mode: PolicyMode, answer: Answerer, run: (h: Harness) =
   try {
     const guard = createJevGuard({ loadKey: async () => "or-test-key-0123456789abcdef" });
     const handlers = new Map<string, Handler>();
-    // SAFETY: only `on` is exercised by the extension; the rest of ExtensionAPI is unused here.
-    const pi = Object.assign({} as ExtensionAPI, { on: (name: string, handler: Handler) => { handlers.set(name, handler); } });
+    // SAFETY: only `on` and `registerCommand` are exercised by the extension; the rest of ExtensionAPI is unused here.
+    const pi = Object.assign({} as ExtensionAPI, {
+      on: (name: string, handler: Handler) => { handlers.set(name, handler); }, registerCommand: () => undefined,
+    });
     await guard.extension(pi);
     await handlers.get("session_start")?.({ type: "session_start", toolName: "", input: {} }, makeCtx("sub", false));
     const toolCall = handlers.get("tool_call");

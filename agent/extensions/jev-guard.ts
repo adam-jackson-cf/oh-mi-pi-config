@@ -6,18 +6,30 @@
  * a human (or an LLM) is involved only when the verdict is `confirm` or Jev fails.
  *
  * Policies (modes come from `agent/jev-policies.json`, read at `session_start`,
- * fallback `shadow`):
- *  - `guard.bash`   `tool_call` for `bash`: read-only allowlist (allow, unrecorded),
- *                   denylist (recorded, `rule` id), working-folder allowances (recorded
- *                   `project-recoverable`, no Jev: deletions and overwrites — rm/rmdir/unlink/git rm,
- *                   mv/cp onto existing paths, truncate, `>` onto existing files — whose targets lie
- *                   in the session's working folder or were created by this session anywhere; not
- *                   when the folder is home, `/` or top-level, nor for git metadata), git-safe
- *                   housekeeping and build-tool `clean` in the folder; otherwise Jev `effect` /
- *                   `destructive_intent` / `secret_exposure`.
- *                   A main agent with a UI is asked (never hard-blocked) when Jev scores reach the
- *                   destructive/irreversible block thresholds; secret exposure and the denylist
- *                   still block. Every confirm prompt records `userDecision`.
+ * fallback `shadow`; a file that cannot be parsed makes every policy enforce and is
+ * reported to the user):
+ *  - `guard.bash`   `tool_call` for `bash`, in one of two scopes (`guard.bash.scope` in the
+ *                   policies file, overridden per process by `/guard-scope`):
+ *                   `strict` (default): read-only allowlist (allow, unrecorded), denylist
+ *                   (recorded, `rule` id), working-folder allowances (recorded `project-recoverable`,
+ *                   no Jev: deletions and overwrites — rm/rmdir/unlink/shred/trash/git rm, mv/cp onto
+ *                   existing paths, truncate, `>` onto existing files — whose targets cannot lose
+ *                   anything: temporary, created by this session, missing, a cache in the folder, or
+ *                   in the working folder with git able to restore all of it; never home, `/`, a
+ *                   top-level folder or git metadata), git-safe housekeeping and build-tool `clean`
+ *                   in the folder; otherwise Jev `effect` / `destructive` / `secret_exposure`, judged
+ *                   against facts from the same target analysis. `destructive` does not count when
+ *                   code has settled every deletion and overwrite as recoverable.
+ *                   `system-only`: the credential rules and pipe-to-shell still block; a known
+ *                   writer or system program acting on an operating-system or protected folder
+ *                   (`lib/system-paths.ts`, macOS and Windows) asks the user, as does a write/edit
+ *                   there (checked under `guard.write`); inline code that names or reaches such a
+ *                   folder, and write targets behind unassigned variables, go to Jev
+ *                   `touches_system`; everything else runs unscreened.
+ *                   An agent that can reach the user is asked (never hard-blocked) when Jev scores
+ *                   reach the destructive/irreversible block thresholds; secret exposure and the
+ *                   denylist still block. Subagents reach the user through the main session's UI.
+ *                   Every confirm prompt records `userDecision`.
  *  - `guard.write`  `tool_call` for `write` and `edit`: secret-file and secret-literal
  *                   rules, outside-workspace flag, and Jev `contains_secret` only for
  *                   text that assigns a credential-like key or holds a high-entropy literal.
@@ -54,9 +66,10 @@ import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "zod";
 import {
-  appendDecision, clip, decide, policyMode, readPolicyModes, redact, redactValue,
-  type AgentKind, type JevAnswers, type JevQuestions, type JsonValue, type NewDecision, type PolicyMode,
+  appendDecision, BASH_SCOPE_KEY, type BashScope, clip, decide, policyMode, readPolicySettings, redact, redactValue,
+  type AgentKind, type JevAnswers, type JevQuestion, type JevQuestions, type JsonValue, type NewDecision, type PolicyMode,
 } from "./lib/jev.ts";
+import { isSystemPlatform, literalPaths, protectedRootOf, protectedRoots, type SystemPlatform } from "./lib/system-paths.ts";
 import { loadJevApiKey } from "./lib/jev-auth.ts";
 import {
   directiveLines, escalatingFamilies, FAMILY_QUESTIONS, loadRules, matchBash, matchChange, missingAnswerIds, noulsOf, parseUnifiedDiff, questionsFor,
@@ -70,10 +83,14 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-03.6";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-09.1";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.3";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.7";
+/** `guard.bash` decisions made under the system-only scope: a different rule set, so a different version. */
+export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-09.1";
+// Uncalibrated at release (2026-10-09): enforced from the start by the user's choice; recalibrate on labelled audit records.
+export const BASH_CONFIRM_SYSTEM = 0.5;
 // Bash: chosen on the 2026-10-02 round-1 corpora; re-checked 2026-10-02 on 399 labelled real commands plus
 // the round-2 held-out set, where no grid point did better. Write and result: re-chosen 2026-10-02 on 174
 // and 215 labelled real inputs plus the round-2 held-out positives (.todo/artifacts/021026-jev-promotion).
@@ -100,6 +117,10 @@ export const WRITE_FLAG_POLICY = "guard.write.flags";
 // Short outputs can carry a whole injection; only trivially short text is skipped.
 const RESULT_MIN_CHARS = 40;
 const ENFORCE_TIMEOUT_MS = 8_000;
+// OMP stops a `tool_call` handler after `extensionHandlers.toolCallTimeoutMs` (default 30 s) and pauses that clock only
+// for dialogs on the handler's own UI. A subagent asks through the main session's UI, so its prompt must close in time.
+const SUBAGENT_PROMPT_WINDOW_MS = 25_000;
+const SUBAGENT_PROMPT_MIN_MS = 5_000;
 // More suspect files than this in one commit are not all judged; the commit escalates instead.
 const INTEGRITY_JEV_FILE_LIMIT = 60;
 const INTEGRITY_JEV_CONCURRENCY = 8;
@@ -134,11 +155,27 @@ export type BashClass =
   | { kind: "deny"; rule: string; reason: string }
   | { kind: "jev" }
   | { kind: "confirm"; rule: string; reason: string };
+/** A file a redirect writes: `append` for `>>`, otherwise it replaces the file; `segment` indexes the command it belongs to. */
+type Redirect = { target: string; append: boolean; segment: number };
 /** `piped[i]` is true when segment `i` feeds its stdout into another command through a single `|`. */
-type Scan = { segments: string[]; piped: boolean[]; unsafe: boolean; redirectTargets: string[] };
+type Scan = { segments: string[]; piped: boolean[]; unsafe: boolean; redirects: Redirect[] };
 type Heredoc = { delimiter: string; stripTabs: boolean };
 type WriteTarget = { path: string; added: string };
-export type JevGuardOptions = { loadKey?: () => Promise<string | undefined> };
+type DecisionMaker = (rest: Pick<NewDecision, "stage" | "verdict" | "enforced"> & Partial<NewDecision>) => NewDecision;
+/**
+ * State shared by every guard instance in one OMP process. Subagents run headless in the main session's process, each
+ * with its own guard instance, so the interactive main session's UI (`mainUi`) asks the user on a subagent's behalf;
+ * `queue` puts one prompt on screen at a time; `scopeOverride` is the `/guard-scope` choice for this process.
+ */
+export type GuardShared = { mainUi?: ExtensionContext["ui"]; queue: Promise<unknown>; scopeOverride?: BashScope };
+/** `shared` defaults to state private to this guard instance; the loaded extension shares one across sessions. */
+export type JevGuardOptions = { loadKey?: () => Promise<string | undefined>; shared?: GuardShared };
+const PROCESS_SHARED: GuardShared = { queue: Promise.resolve() };
+const BASH_SCOPES: BashScope[] = ["strict", "system-only"];
+const SCOPE_DESCRIPTIONS = {
+  strict: "Every destructive command is screened; deletions git cannot restore go to Jev and may ask you.",
+  "system-only": "Only actions on operating-system and protected folders (and system programs) ask you; credential rules still apply.",
+} satisfies Record<BashScope, string>;
 
 // ---- Bash: scanning ------------------------------------------------------------------
 const REDIRECT_TARGET_END = /[\s;&|<>]/;
@@ -146,7 +183,8 @@ const REDIRECT_TARGET_END = /[\s;&|<>]/;
 /** Reads the redirect starting at `at` (a `>`); returns the index after it and whether it writes a file. */
 function readRedirect(command: string, at: number, scan: Scan): number {
   let j = at + 1;
-  if (command[j] === ">") j++;
+  const append = command[j] === ">";
+  if (append || command[j] === "|") j++;
   if (command[j] === "&" && /[\d-]/.test(command[j + 1] ?? "")) return j + 2;
   while (command[j] === " " || command[j] === "\t") j++;
   let target = "";
@@ -154,14 +192,14 @@ function readRedirect(command: string, at: number, scan: Scan): number {
   const bare = target.replace(/^["']|["']$/g, "");
   if (bare !== "/dev/null") {
     scan.unsafe = true;
-    scan.redirectTargets.push(bare);
+    scan.redirects.push({ target: bare, append, segment: scan.segments.length });
   }
   return j;
 }
 
 /** Quote-aware split into simple-command segments, flagging anything that can write or run nested code. */
 export function scanCommand(command: string): Scan {
-  const scan: Scan = { segments: [], piped: [], unsafe: false, redirectTargets: [] };
+  const scan: Scan = { segments: [], piped: [], unsafe: false, redirects: [] };
   let current = "";
   let quote = "";
   const heredocs: Heredoc[] = [];
@@ -208,6 +246,8 @@ export function scanCommand(command: string): Scan {
       scan.unsafe = true;
       current += ch;
     } else if (ch === ">" || (ch === "&" && next === ">")) {
+      // A file-descriptor number written against the operator (`2>&1`, `2>err.log`) belongs to the redirect, not the arguments.
+      if (ch === ">") current = current.replace(/(^|\s)\d+$/, "$1");
       i = readRedirect(command, ch === ">" ? i : i + 1, scan) - 1;
     } else if (ch === ";" || ch === "\n" || ch === "|" || ch === "&") {
       const single = ch === "|" && next !== "|";
@@ -387,6 +427,10 @@ function secretReadDenial(segment: string): Denial | undefined {
 }
 
 type Denial = { rule: string; reason: string };
+/** Every denylist rule a command breaks, and whether credential handling needs Jev to judge exposure. */
+type DenialScan = { denials: Denial[]; secretsUnclear: boolean };
+/** The redacted state shown to Jev with the code-computed facts it is judged against. */
+type JevState<Facts> = { state: JsonValue; facts: Facts };
 
 function denyGit(sub: string, rest: string[]): Denial | undefined {
   if (sub === "push" && rest.some((arg) => arg === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(arg))) {
@@ -453,45 +497,56 @@ function denySegment(segment: string): Denial | undefined {
 }
 
 /**
+ * Every denylist rule `command` breaks, in command order, and whether the handling of a credential (a piped
+ * environment dump, a secret-named expansion) needs Jev to judge exposure.
+ */
+function bashDenials(command: string, scan: Scan): DenialScan {
+  const denials: Denial[] = [];
+  if (PIPE_TO_SHELL.test(command)) denials.push({ rule: "pipe-to-shell", reason: "piping a network download into a shell runs unreviewed code" });
+  if (PROC_ENVIRON.test(command)) {
+    denials.push({ rule: "proc-environ", reason: "/proc/<pid>/environ holds the process environment, including credentials" });
+  }
+  if (scan.redirects.some((redirect) => isSecretPath(redirect.target))) {
+    denials.push({ rule: "secret-file-write", reason: "writing credentials to a secret file" });
+  }
+  let secretsUnclear = false;
+  for (const [index, segment] of scan.segments.entries()) {
+    for (const denied of [denySegment(segment), secretReadDenial(segment)]) if (denied) denials.push(denied);
+    const { program, args } = commandOf(segment);
+    if (ENV_DUMP_PROGRAMS.has(program) && args.length === 0) {
+      if (scan.piped[index]) secretsUnclear = true;
+      else denials.push({ rule: "env-dump", reason: "dumping the whole environment exposes credentials" });
+    }
+    if (secretExpansion(segment)) secretsUnclear = true;
+  }
+  return { denials, secretsUnclear };
+}
+
+/** The confirm for a command too long for the window Jev judges. */
+function longCommand(command: string): BashClass & { kind: "confirm" } {
+  return { kind: "confirm", rule: "command-exceeds-judged-window",
+    reason: `the command is ${command.length} characters, longer than the ${BASH_COMMAND_LIMIT}-character window Jev judges` };
+}
+
+/**
  * Stage A/B classifier: `allow` (read-only, unrecorded), `deny` (denylist rule) or `jev`
  * (rules cannot settle it). Denylist wins over the allowlist.
  */
 export function classifyBash(command: string): BashClass {
   const scan = scanCommand(command);
-  if (PIPE_TO_SHELL.test(command)) {
-    return { kind: "deny", rule: "pipe-to-shell", reason: "piping a network download into a shell runs unreviewed code" };
-  }
-  if (PROC_ENVIRON.test(command)) {
-    return { kind: "deny", rule: "proc-environ", reason: "/proc/<pid>/environ holds the process environment, including credentials" };
-  }
-  if (scan.redirectTargets.some(isSecretPath)) {
-    return { kind: "deny", rule: "secret-file-write", reason: "writing credentials to a secret file" };
-  }
-  let needsJev = false;
-  for (const [index, segment] of scan.segments.entries()) {
-    const denied = denySegment(segment) ?? secretReadDenial(segment);
-    if (denied) return { kind: "deny", ...denied };
-    const { program, args } = commandOf(segment);
-    if (ENV_DUMP_PROGRAMS.has(program) && args.length === 0) {
-      if (!scan.piped[index]) return { kind: "deny", rule: "env-dump", reason: "dumping the whole environment exposes credentials" };
-      needsJev = true;
-    }
-    if (secretExpansion(segment)) needsJev = true;
-  }
-  if (needsJev || scan.unsafe || scan.segments.length === 0 || !scan.segments.every(segmentIsReadOnly)) {
-    if (command.length > BASH_COMMAND_LIMIT) {
-      return { kind: "confirm", rule: "command-exceeds-judged-window",
-        reason: `the command is ${command.length} characters, longer than the ${BASH_COMMAND_LIMIT}-character window Jev judges` };
-    }
-    return { kind: "jev" };
+  const { denials, secretsUnclear } = bashDenials(command, scan);
+  const [denied] = denials;
+  if (denied) return { kind: "deny", ...denied };
+  if (secretsUnclear || scan.unsafe || scan.segments.length === 0 || !scan.segments.every(segmentIsReadOnly)) {
+    return command.length > BASH_COMMAND_LIMIT ? longCommand(command) : { kind: "jev" };
   }
   return { kind: "allow" };
 }
 
 // ---- Bash: facts computed in code and passed to Jev as state fields -------------------
-const TEMP_ROOTS = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"];
+const TEMP_ROOTS = ["/tmp", "/private/tmp"];
+// Build outputs and caches: temporary only inside the working folder (matched on the path relative to it).
 const CACHE_SEGMENT = /(?:^|\/)(?:\.cache|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.turbo|\.next|Caches|node_modules|dist|target|build)(?:\/|$)/;
-const DELETE_PROGRAMS = new Set(["rm", "rmdir", "unlink", "shred", "trash"]);
 const KILL_PATTERN_RANK = ["none", "pid", "exact_name", "explicit_path", "broad_pattern"] as const;
 type KillPattern = (typeof KILL_PATTERN_RANK)[number];
 const KILL_VALUE_FLAGS = new Set(["-u", "-U", "-g", "-G", "-P", "-s", "-t", "-n", "-o", "-F"]);
@@ -504,13 +559,21 @@ const NETWORK_PROGRAMS = new Set(["curl", "wget", "http", "https", "xh", "httpie
 const DYNAMIC_CODE = /\$\(|`|<<|<\(|\beval\b|\b(?:ba|z|da)?sh\s+-c\b|\b(?:python3?|node|bun|perl|ruby|deno)\s+(?:-[ce]\b|-\s)/;
 const PROC_ENVIRON = /\/proc\/[^\s/]+\/environ/;
 
+/**
+ * Deletion and overwrite fields come from the same target analysis as the working-folder allowance
+ * (`assessRecoverable`), so the code allowance and Jev are told the same thing about every path.
+ */
 export type BashFacts = {
   deleted_paths: string[];
-  /** null when the command deletes nothing. */
+  /** null when the command deletes nothing; true when every deletion is temporary, a cache in the working folder, absent or created by this session. */
   deletions_all_temporary: boolean | null;
-  /** null when nothing is deleted outside temporary locations or git could not be asked. */
+  /**
+   * Over the deletions that are not temporary: true when git tracks every one with no uncommitted or untracked content,
+   * false when one holds content git cannot restore, null when there are none or one cannot be checked (outside the folder, unresolved).
+   */
   deleted_paths_git_tracked: boolean | null;
   kill_pattern: KillPattern;
+  /** An existing file is overwritten that is not temporary, created by this session, or restorable from git. */
   overwrites_existing_outside_temp: boolean;
   secret_names_referenced: string[];
   secret_value_sinks: string[];
@@ -520,10 +583,6 @@ export type BashFacts = {
 function within(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-function isTempOrCache(path: string): boolean {
-  return [tmpdir(), realTmp(), ...TEMP_ROOTS].some((root) => within(root, path)) || CACHE_SEGMENT.test(path);
 }
 
 /** Absolute path of a command argument, or undefined when it holds a variable or substitution the code cannot resolve. */
@@ -547,35 +606,20 @@ function killPatternOf(program: string, args: string[]): KillPattern {
   return pattern.includes("/") ? "explicit_path" : "broad_pattern";
 }
 
-/** Everything about the command that code can settle without git or Jev. */
-function commandFacts(command: string, cwd: string): BashFacts & { toCheckTracked: string[] } {
+type CommandFacts = Pick<BashFacts, "kill_pattern" | "secret_names_referenced" | "secret_value_sinks" | "secret_value_possible">;
+
+/** Process and credential facts code can settle from the command text alone. */
+function commandFacts(command: string): CommandFacts {
   const scan = scanCommand(command);
-  let dir = cwd;
-  const deleted: string[] = [];
-  let allTemporary = true;
   let kill: KillPattern = "none";
-  let overwrites = false;
   const names = new Set<string>();
   const sinks = new Set<string>();
   let readsSecretLike = false;
   for (const segment of scan.segments) {
     const { program, args } = commandOf(segment);
-    const positionals = positionalArgs(args);
-    if (program === "cd" && args[0]) dir = resolve(dir, expandHome(args[0]));
-    if (DELETE_PROGRAMS.has(program)) {
-      for (const arg of positionals) {
-        const path = resolveArg(arg, dir);
-        deleted.push(path ?? arg);
-        if (path === undefined || !isTempOrCache(path)) allTemporary = false;
-      }
-    }
     if (program === "pkill" || program === "killall" || program === "kill") {
       const found = killPatternOf(program, args);
       if (KILL_PATTERN_RANK.indexOf(found) > KILL_PATTERN_RANK.indexOf(kill)) kill = found;
-    }
-    if ((program === "mv" || program === "cp") && positionals.length >= 2) {
-      const path = resolveArg(positionals[positionals.length - 1] ?? "", dir);
-      if (path !== undefined && existsSync(path) && !isTempOrCache(path)) overwrites = true;
     }
     if (program === "printenv") {
       for (const arg of args) if (SECRET_ENV_NAME.test(arg)) names.add(arg);
@@ -587,51 +631,63 @@ function commandFacts(command: string, cwd: string): BashFacts & { toCheckTracke
       if (match[1] === "#" || /^:?\+/.test(match[3] ?? "")) continue;
       if (PRINT_PROGRAMS.has(program)) sinks.add("stdout");
       else if (NETWORK_PROGRAMS.has(program)) sinks.add("network");
-      else if (scan.redirectTargets.length > 0) sinks.add("file");
+      else if (scan.redirects.length > 0) sinks.add("file");
       else sinks.add("argument");
     }
     const git = program === "git" ? gitInvocation(args) : undefined;
     const reads = FILE_READERS.has(program) || (git !== undefined && GIT_CONTENT_READERS.has(git.sub));
     if (reads && args.some((arg) => !arg.startsWith("-") && SECRET_LIKE_PATH.test(arg))) readsSecretLike = true;
   }
-  const secretValuePossible = sinks.size > 0 || readsSecretLike || DYNAMIC_CODE.test(command);
   return {
-    deleted_paths: deleted.slice(0, 20),
-    deletions_all_temporary: deleted.length === 0 ? null : allTemporary,
-    deleted_paths_git_tracked: null,
     kill_pattern: kill,
-    overwrites_existing_outside_temp: overwrites,
     secret_names_referenced: [...names].slice(0, 10),
     secret_value_sinks: [...sinks],
-    secret_value_possible: secretValuePossible,
-    toCheckTracked: deleted.length > 0 && !allTemporary ? deleted.filter((path) => isAbsolute(path)).slice(0, 20) : [],
+    secret_value_possible: sinks.size > 0 || readsSecretLike || DYNAMIC_CODE.test(command),
   };
 }
 
-/** Command facts plus whether any deleted path outside temporary locations is tracked by git in `cwd`. */
-export async function bashFacts(command: string, cwd: string): Promise<BashFacts> {
-  const { toCheckTracked, ...facts } = commandFacts(command, cwd);
-  if (toCheckTracked.length === 0) return facts;
-  try {
-    const tracked = await runGit(cwd, ["ls-files", "--", ...toCheckTracked]);
-    return { ...facts, deleted_paths_git_tracked: tracked.trim().length > 0 };
-  } catch {
-    return facts;
-  }
+/** Classes whose content the command cannot lose: temporary, created by this session, or missing. */
+const SCRATCH = new Set<TargetClass>(["temporary", "session_created", "absent"]);
+
+/** `deleted_paths_git_tracked` over lasting deletions: false when one holds unrestorable content, null when git could not judge them all. */
+function gitTrackedFact(lasting: readonly TargetReport[]): boolean | null {
+  if (lasting.some((target) => target.class === "unversioned")) return false;
+  return lasting.length > 0 && lasting.every((target) => target.class === "versioned") ? true : null;
+}
+
+/** Command facts plus the deletion and overwrite facts of the target analysis (`assessRecoverable`). */
+export function bashFacts(command: string, code: Pick<RecoverableAssessment, "targets">): BashFacts {
+  const deletions = code.targets.filter((target) => target.effect === "delete");
+  const lasting = deletions.filter((target) => !SCRATCH.has(target.class));
+  return {
+    deleted_paths: deletions.map((target) => target.path).slice(0, REPORTED_TARGET_LIMIT),
+    deletions_all_temporary: deletions.length === 0 ? null : lasting.length === 0,
+    deleted_paths_git_tracked: gitTrackedFact(lasting),
+    overwrites_existing_outside_temp: code.targets.some((target) =>
+      target.effect === "overwrite" && !SCRATCH.has(target.class) && target.class !== "versioned"),
+    ...commandFacts(command),
+  };
 }
 
 // ---- Bash: working-folder allowances --------------------------------------------------
-// A destructive command skips Jev when code can show that every deletion and overwrite lands inside the
-// session's working folder (not the home directory, the filesystem root or a top-level directory, and not
-// git metadata) or on paths this session created anywhere on disk. Conditions of the command and the
-// filesystem only, never who asked.
+// A destructive command skips Jev when code can show that every deletion and overwrite can lose nothing: the
+// path is strictly inside a temporary root, was created by this session anywhere on disk, does not exist, is a
+// cache or build output inside the working folder, or lies in the working folder and git can restore all of it
+// (tracked, no uncommitted change, nothing untracked or ignored beneath it). Never the home directory, `/`, a
+// top-level directory or git metadata. Conditions of the command and the filesystem only, never who asked.
 const RECOVERABLE_TARGET_LIMIT = 200;
 const REPORTED_TARGET_LIMIT = 20;
 const CLEAN_COMMANDS = new Set([
   "make clean", "cargo clean", "npm run clean", "bun run clean", "pnpm clean", "pnpm run clean", "yarn clean", "yarn run clean",
   "mvn clean", "gradle clean", "./gradlew clean", "go clean", "dotnet clean",
 ]);
-const RECOVERABLE_DELETERS = new Set(["rm", "rmdir", "unlink"]);
+const DELETE_PROGRAMS = new Set(["rm", "rmdir", "unlink", "shred", "trash"]);
+// Programs that can delete or overwrite paths the code does not enumerate.
+const OPAQUE_PROGRAMS = new Set(["xargs", "rsync", "find", "dd", "docker", "podman", "kubectl", "helm", "terraform", "launchctl",
+  "systemctl", "gh", "aws", "gcloud", "az", "brew", "parallel", "watchman"]);
+// git subcommands that cannot lose work beyond what the code enumerates (`rm`) or git itself refuses (housekeeping).
+const GIT_SAFE_SUBCOMMANDS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "add", "commit", "fetch", "push",
+  "mv", "init", "clone", "grep", "describe", "shortlog"]);
 const TRUNCATE_VALUE_FLAGS = new Set(["-s", "--size", "-r", "--reference"]);
 const DEVICE_SINKS = new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"]);
 const GLOB_CHARS = /[*?[\]{}]/;
@@ -642,12 +698,20 @@ const CLONE_VALUE_FLAGS = new Set(["-b", "--branch", "--depth", "-o", "--origin"
   "--template", "-j", "--jobs", "--separate-git-dir", "-u", "--upload-pack", "--filter", "--shallow-since", "--shallow-exclude",
   "--server-option", "--revision"]);
 
-export type TargetClass = "session_created" | "in_working_folder" | "git_metadata" | "restricted_folder" | "outside_folder" | "unresolved";
-export type TargetReport = { path: string; class: TargetClass };
-export type RecoverableAssessment = { qualifies: boolean; segments: number; targets: TargetReport[] };
+export type TargetClass = "session_created" | "temporary" | "absent" | "versioned" | "unversioned" | "git_metadata" | "restricted_folder"
+  | "outside_folder" | "unresolved";
+/** `move`: an `mv` source; its content survives at the destination, so only its location matters. */
+export type TargetReport = { path: string; class: TargetClass; effect: "delete" | "overwrite" | "move" };
+/**
+ * `qualifies`: the whole command passes the working-folder allowance. `settled`: every deletion and overwrite the
+ * command makes is listed in `targets` and qualifies, though other segments may still need Jev. `targets` is complete.
+ */
+export type RecoverableAssessment = { qualifies: boolean; settled: boolean; segments: number; targets: TargetReport[] };
 type Step = { segment: string; program: string; args: string[]; dir: string | undefined };
-type Plan = { ok: boolean; qualifying: boolean; deletes: string[]; overwrites: string[]; unresolved: string[] };
-const QUALIFYING = new Set<TargetClass>(["session_created", "in_working_folder"]);
+/** `opaque`: the step may delete or overwrite paths the code could not list. */
+type Plan = { ok: boolean; qualifying: boolean; opaque: boolean; deletes: string[]; overwrites: string[]; moves: string[];
+  unresolved: TargetReport[] };
+const QUALIFYING = new Set<TargetClass>(["session_created", "temporary", "absent", "versioned"]);
 
 function isDirectory(path: string): boolean {
   try {
@@ -790,8 +854,9 @@ export async function creationTargets(command: string, cwd: string): Promise<str
     const path = arg === undefined ? undefined : resolveAt(arg, dir);
     if (path !== undefined) found.push(path);
   };
-  for (const target of scan.redirectTargets) add(target, cwd);
-  for (const { program, args, dir } of stepsOf(scan, cwd)) {
+  const steps = stepsOf(scan, cwd);
+  for (const redirect of scan.redirects) add(redirect.target, steps[redirect.segment]?.dir);
+  for (const { program, args, dir } of steps) {
     if (program === "mkdir") for (const arg of positionalsSkipping(args, MKDIR_VALUE_FLAGS)) add(arg, dir);
     else if (program === "touch") for (const arg of positionalsSkipping(args, TOUCH_VALUE_FLAGS)) add(arg, dir);
     else if (program === "cp" || program === "mv") found.push(...(await transferPaths(args, dir))?.dests ?? []);
@@ -828,21 +893,65 @@ function touchesGitMetadata(path: string, repo: string | undefined): boolean {
 }
 
 /**
- * Class of each path: session-created (anywhere on disk), otherwise inside the working folder unless that folder is
- * restricted or the path reaches git metadata. Only `session_created` and `in_working_folder` qualify.
+ * Which of `paths` (existing, canonical, inside `repo`'s working tree) git can restore completely: no entry of
+ * `git status` (untracked, ignored other than caches, staged or modified) lies at, under or above the path.
+ * Every path is unrestorable when there is no repository or git fails.
  */
-function classifyPaths(paths: readonly string[], cwd: string, pool: ReadonlySet<string>): Map<string, TargetClass> {
+async function restorablePaths(paths: readonly string[], repo: string | undefined): Promise<Set<string>> {
+  const restorable = new Set<string>();
+  if (repo === undefined || paths.length === 0) return restorable;
+  let status: string;
+  try {
+    status = await runGit(repo, ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching",
+      "--", ...paths]);
+  } catch {
+    return restorable;
+  }
+  const unrestorable: string[] = [];
+  const fields = status.split("\0");
+  for (let i = 0; i < fields.length; i++) {
+    const entry = fields[i] ?? "";
+    if (entry.length < 4) continue;
+    const code = entry.slice(0, 2);
+    // Renames and copies carry their source path in the next field.
+    if (code.startsWith("R") || code.startsWith("C")) i++;
+    const rel = entry.slice(3).replace(/\/$/, "");
+    if (code === "!!" && CACHE_SEGMENT.test(rel)) continue;
+    unrestorable.push(join(repo, rel));
+  }
+  for (const path of paths) {
+    if (!unrestorable.some((entry) => within(path, entry) || within(entry, path))) restorable.add(path);
+  }
+  return restorable;
+}
+
+/**
+ * Class of each path, first match wins: created by this session (anywhere), strictly inside a temporary root,
+ * outside the working folder, in a restricted working folder, git metadata, missing, a cache or build output in
+ * the folder, else `versioned` when git can restore all of it and `unversioned` when it cannot.
+ */
+async function classifyPaths(paths: readonly string[], cwd: string, pool: ReadonlySet<string>): Promise<Map<string, TargetClass>> {
   const classes = new Map<string, TargetClass>();
   const folder = canonical(cwd);
   const repo = repositoryRoot(folder);
+  const restricted = isRestrictedFolder(folder);
+  const tempRoots = [tmpdir(), realTmp(), ...TEMP_ROOTS];
+  const toCheck = new Map<string, string>();
   for (const path of new Set(paths)) {
     const canon = canonical(path);
-    if (isSessionCreated(canon, pool)) classes.set(path, "session_created");
-    else if (!within(folder, canon)) classes.set(path, "outside_folder");
-    else if (isRestrictedFolder(folder)) classes.set(path, "restricted_folder");
-    else if (touchesGitMetadata(canon, repo)) classes.set(path, "git_metadata");
-    else classes.set(path, "in_working_folder");
+    const found: TargetClass | undefined = isSessionCreated(canon, pool) ? "session_created"
+      : tempRoots.some((root) => canon !== root && within(root, canon)) ? "temporary"
+      : !within(folder, canon) ? "outside_folder"
+      : restricted ? "restricted_folder"
+      : touchesGitMetadata(canon, repo) ? "git_metadata"
+      : !existsNoFollow(canon) ? "absent"
+      : CACHE_SEGMENT.test(relative(folder, canon)) ? "temporary"
+      : undefined;
+    if (found) classes.set(path, found);
+    else toCheck.set(path, canon);
   }
+  const restorable = await restorablePaths([...new Set(toCheck.values())], repo);
+  for (const [path, canon] of toCheck) classes.set(path, restorable.has(canon) ? "versioned" : "unversioned");
   return classes;
 }
 
@@ -856,10 +965,18 @@ function gitHousekeeping(git: GitInvocation): boolean {
   return git.sub === "branch" && !forced && git.rest.some((arg) => arg === "--delete" || DELETE_FLAG.test(arg));
 }
 
+/** A git step whose losses the code cannot list: anything but safe subcommands, `rm` (listed), housekeeping, or a plain branch create. */
+function gitIsOpaque(git: GitInvocation | undefined): boolean {
+  if (git === undefined) return true;
+  if (GIT_SAFE_SUBCOMMANDS.has(git.sub) || git.sub === "rm" || gitHousekeeping(git)) return false;
+  return !(git.sub === "branch" && !git.rest.some((arg) => GIT_BRANCH_MUTATORS.has(arg)));
+}
+
 /**
  * Whether code can show that every segment of `command` is allowlisted, git-safe housekeeping, a clean command run in the
  * working folder, or a deletion/overwrite whose targets qualify (see `classifyPaths`; `created`, plus paths this command
- * creates, are session-created). `targets` lists each deletion and overwrite target with its class either way.
+ * creates, are session-created). `targets` lists every deletion and overwrite target with its class either way, and
+ * `settled` says whether that list is complete and wholly qualifying even when other segments still need Jev.
  */
 export async function assessRecoverable(command: string, cwd: string, created: ReadonlySet<string>): Promise<RecoverableAssessment> {
   const scan = scanCommand(command);
@@ -870,70 +987,229 @@ export async function assessRecoverable(command: string, cwd: string, created: R
     if (root !== undefined) pool.add(root);
   }
   const folder = canonical(cwd);
-  let ok = steps.length > 0 && !DYNAMIC_CODE.test(command);
-  const redirects: string[] = [];
-  for (const target of scan.redirectTargets) {
-    const path = resolveAt(target, cwd);
-    if (path === undefined) ok = false;
-    else if (!DEVICE_SINKS.has(path)) redirects.push(path);
+  const dynamic = DYNAMIC_CODE.test(command);
+  const replaced: string[] = [];
+  const appended: string[] = [];
+  const targets: TargetReport[] = [];
+  for (const redirect of scan.redirects) {
+    const path = resolveAt(redirect.target, steps[redirect.segment]?.dir);
+    if (path === undefined) targets.push({ path: redirect.target, class: "unresolved", effect: "overwrite" });
+    else if (!DEVICE_SINKS.has(path)) (redirect.append ? appended : replaced).push(path);
   }
   const planStep = async (step: Step): Promise<Plan> => {
-    const plan: Plan = { ok: false, qualifying: false, deletes: [], overwrites: [], unresolved: [] };
+    const plan: Plan = { ok: false, qualifying: false, opaque: false, deletes: [], overwrites: [], moves: [], unresolved: [] };
     if (secretExpansion(step.segment)) return plan;
     const git = step.program === "git" ? gitInvocation(step.args) : undefined;
     const gitDir = git ? gitDirOf(step.dir, git.dirs) : undefined;
-    const deleteArgs = RECOVERABLE_DELETERS.has(step.program) ? positionalArgs(step.args)
+    const deleteArgs = DELETE_PROGRAMS.has(step.program) ? positionalArgs(step.args)
       : git?.sub === "rm" ? positionalArgs(git.rest) : undefined;
     if (deleteArgs !== undefined) {
       const blind = git?.rest.some((arg) => arg.startsWith("--pathspec-from-file")) ?? false;
       for (const arg of deleteArgs) {
         const expanded = await expandTarget(arg, git ? gitDir : step.dir);
         if (expanded) plan.deletes.push(...expanded);
-        else plan.unresolved.push(arg);
+        else plan.unresolved.push({ path: arg, class: "unresolved", effect: "delete" });
       }
-      return { ...plan, ok: !blind && plan.unresolved.length === 0, qualifying: true };
+      return { ...plan, ok: !blind && plan.unresolved.length === 0, opaque: blind, qualifying: true };
     }
     if (git && gitHousekeeping(git)) return { ...plan, ok: true, qualifying: true };
     if (step.program === "mv" || step.program === "cp") {
       const moved = await transferPaths(step.args, step.dir);
-      if (!moved) return plan;
+      if (!moved) return { ...plan, opaque: true };
       plan.overwrites = moved.dests.filter(existsNoFollow);
-      if (step.program === "mv") plan.deletes = moved.sources;
-      return { ...plan, ok: !plan.overwrites.some(isDirectory), qualifying: plan.overwrites.length > 0 || plan.deletes.length > 0 };
+      if (step.program === "mv") plan.moves = moved.sources;
+      // Copying onto an existing directory merges into it: the files it replaces are not listed.
+      const merges = plan.overwrites.some(isDirectory);
+      return { ...plan, ok: !merges, opaque: merges, qualifying: plan.overwrites.length > 0 || plan.moves.length > 0 };
     }
     if (step.program === "truncate") {
       for (const arg of positionalsSkipping(step.args, TRUNCATE_VALUE_FLAGS)) {
         const path = resolveAt(arg, step.dir);
-        if (path === undefined) plan.unresolved.push(arg);
+        if (path === undefined) plan.unresolved.push({ path: arg, class: "unresolved", effect: "overwrite" });
         else plan.overwrites.push(path);
       }
       return { ...plan, ok: plan.unresolved.length === 0, qualifying: true };
     }
     if (CLEAN_COMMANDS.has([step.program, ...step.args].join(" "))) {
       const inFolder = step.dir !== undefined && within(folder, canonical(step.dir)) && !isRestrictedFolder(folder);
-      return { ...plan, ok: inFolder, qualifying: true };
+      return { ...plan, ok: inFolder, opaque: !inFolder, qualifying: true };
     }
-    return { ...plan, ok: segmentIsReadOnly(step.segment) };
+    const opaque = OPAQUE_PROGRAMS.has(step.program) || (step.program === "git" && gitIsOpaque(git));
+    return { ...plan, ok: segmentIsReadOnly(step.segment), opaque };
   };
   const plans: Plan[] = [];
   for (const step of steps) plans.push(await planStep(step));
-  const classes = classifyPaths([...plans.flatMap((plan) => [...plan.deletes, ...plan.overwrites]), ...redirects], cwd, pool);
+  const classes = await classifyPaths([...plans.flatMap((plan) => [...plan.deletes, ...plan.overwrites, ...plan.moves]), ...replaced, ...appended],
+    cwd, pool);
   const classOf = (path: string): TargetClass => classes.get(path) ?? "unresolved";
-  const targets: TargetReport[] = redirects.filter(existsNoFollow).map((path) => ({ path, class: classOf(path) }));
-  const allowedRedirects = redirects.every((path) => QUALIFYING.has(classOf(path)));
-  // An existing file a redirect overwrites is itself an allowed overwrite.
-  let segments = allowedRedirects && redirects.some(existsNoFollow) ? 1 : 0;
-  let allOk = ok && allowedRedirects;
+  // A moved or appended-to path loses nothing, so uncommitted content there is fine as long as the location qualifies.
+  const qualifies = (target: TargetReport): boolean => QUALIFYING.has(target.class) || (target.effect === "move" && target.class === "unversioned");
+  targets.push(...replaced.filter(existsNoFollow).map((path): TargetReport => ({ path, class: classOf(path), effect: "overwrite" })));
+  // An append loses nothing; it only has to land where the working-folder allowance reaches.
+  const appendsAllowed = appended.every((path) => QUALIFYING.has(classOf(path)) || classOf(path) === "unversioned");
+  const redirectsAllowed = targets.every(qualifies) && replaced.every((path) => QUALIFYING.has(classOf(path))) && appendsAllowed;
+  // An existing file a redirect overwrites or appends to is itself an allowed write.
+  let segments = redirectsAllowed && [...replaced, ...appended].some(existsNoFollow) ? 1 : 0;
+  let allOk = steps.length > 0 && !dynamic && redirectsAllowed;
+  let opaque = dynamic;
   for (const plan of plans) {
-    targets.push(
-      ...plan.unresolved.map((path): TargetReport => ({ path, class: "unresolved" })),
-      ...[...plan.deletes, ...plan.overwrites].map((path): TargetReport => ({ path, class: classOf(path) })),
-    );
-    const passes = plan.ok && [...plan.deletes, ...plan.overwrites].every((path) => QUALIFYING.has(classOf(path)));
+    const listed = [
+      ...plan.deletes.map((path): TargetReport => ({ path, class: classOf(path), effect: "delete" })),
+      ...plan.overwrites.map((path): TargetReport => ({ path, class: classOf(path), effect: "overwrite" })),
+      ...plan.moves.map((path): TargetReport => ({ path, class: classOf(path), effect: "move" })),
+    ];
+    targets.push(...plan.unresolved, ...listed);
+    opaque ||= plan.opaque;
+    const passes = plan.ok && listed.every(qualifies);
     if (!passes) allOk = false;
     else if (plan.qualifying) segments++;
   }
-  return { qualifies: allOk && segments > 0, segments, targets: targets.slice(0, REPORTED_TARGET_LIMIT) };
+  const settled = !opaque && appendsAllowed && targets.length > 0 && targets.every(qualifies);
+  return { qualifies: allOk && segments > 0, settled, segments, targets };
+}
+
+// ---- Bash: system-only scope ----------------------------------------------------------
+// Under `guard.bash.scope: system-only` the guard asks the user only about actions against operating-system and
+// protected folders (`lib/system-paths.ts`) and about system-level programs; project-level destruction is not
+// screened. The credential rules and pipe-to-shell hold in every scope.
+export const ALWAYS_RULES = new Set(["pipe-to-shell", "proc-environ", "secret-file-write", "env-dump", "secret-read"]);
+// Programs that change the machine itself, keyed by lower-cased name without `.exe`; the test says whether these arguments change anything.
+const LAUNCHCTL_CHANGES = new Set(["bootout", "bootstrap", "unload", "load", "remove", "enable", "disable", "kill", "kickstart"]);
+const SYSTEMCTL_CHANGES = new Set(["stop", "start", "restart", "disable", "enable", "mask", "kill", "isolate", "poweroff", "reboot", "halt"]);
+const SYSTEM_PROGRAMS = new Map<string, (args: string[]) => boolean>([
+  ...["sudo", "doas", "su", "pkexec", "runas", "shutdown", "reboot", "halt", "kextload", "kextunload", "takeown", "format", "diskpart",
+    "set-executionpolicy", "stop-service", "set-service", "remove-service", "new-service"].map((name): [string, () => boolean] => [name, () => true]),
+  ["launchctl", (args) => args.some((arg) => LAUNCHCTL_CHANGES.has(arg))],
+  ["systemctl", (args) => !args.includes("--user") && args.some((arg) => SYSTEMCTL_CHANGES.has(arg))],
+  ["diskutil", (args) => args.some((arg) =>
+    /^(?:erase|zero|random|secure|partition|split|merge|resize|rename|repair|unmount|eject|mount|delete|add|reformat|enable|disable|encrypt|decrypt|change|set|unlock|lock|create)/i
+      .test(arg))],
+  ["csrutil", (args) => args[0] !== "status"],
+  ["nvram", (args) => args.some((arg) => arg.includes("=") || arg === "-d" || arg === "-c")],
+  ["tmutil", (args) => /^(?:delete|disable|enable|setdestination|removedestination|thinlocalsnapshots|deletelocalsnapshots|addexclusion|removeexclusion)$/
+    .test(args[0] ?? "")],
+  ["spctl", (args) => args.some((arg) => /^--(?:master-disable|global-disable|add|remove|enable|disable)$/.test(arg))],
+  ["pmset", (args) => args.length > 0 && !(args[0] ?? "").startsWith("-g")],
+  ["defaults", (args) => args.some((arg) => /^(?:write|delete|import|rename)$/.test(arg))],
+  ["scutil", (args) => args.includes("--set")],
+  ["networksetup", (args) => args.some((arg) => /^-(?:set|add|remove|delete|create)/.test(arg))],
+  ["kmutil", (args) => /^(?:load|unload|install|clear-staging)$/.test(args[0] ?? "")],
+  ["reg", (args) => /^(?:add|delete|import|copy|restore|load|unload)$/i.test(args[0] ?? "")],
+  ["bcdedit", (args) => args.some((arg) => !/^\/(?:enum|v)$/i.test(arg))],
+  ["sc", (args) => /^(?:create|delete|config|stop|failure|sdset)$/i.test(args[0] ?? "")],
+  ["icacls", (args) => args.some((arg) => /^\/(?:grant|deny|remove|reset|setowner|setintegritylevel|restore)/i.test(arg))],
+  ["schtasks", (args) => args.some((arg) => /^\/(?:create|delete|change)$/i.test(arg))],
+  ["net", (args) => /^(?:user|localgroup|share)$/i.test(args[0] ?? "") && args.length > 1],
+  ["dd", (args) => args.some((arg) => arg.startsWith("of=/dev/"))],
+  // `kill 1` / `kill -9 -1`: init or every process (a leading `-1` alone is the HUP signal).
+  ["kill", (args) => positionalArgs(args).includes("1") || (args.length > 1 && args.at(-1) === "-1")],
+]);
+// Programs whose every positional argument is written, and those that write only their last one (the destination).
+const ALL_ARG_WRITERS = new Set([...DELETE_PROGRAMS, "mv", "chmod", "chown", "chgrp", "chflags", "xattr", "setfacl", "touch", "mkdir", "truncate",
+  "tee"]);
+const LAST_ARG_WRITERS = new Set(["cp", "install", "rsync", "ditto", "ln"]);
+/** The folder a segment runs in; `explained` when an unknown folder comes from a variable the command itself assigns. */
+type Place = { dir: string | undefined; explained: boolean };
+
+// Shell grammar words and function definitions that `commandOf` reports as programs.
+const SHELL_WORDS = new Set(["for", "while", "until", "if", "elif", "case", "esac", "fi", "done", "function", "select", "{", "}"]);
+// Constructs in inline code that can reach a protected folder or the machine without naming a protected path literally.
+const SYSTEM_HINT = new RegExp(String.raw`\b(?:sudo|doas|launchctl|systemctl|diskutil|csrutil|nvram|kextload|kmutil|bcdedit|schtasks|icacls|takeown|` +
+  String.raw`expanduser|homedir|USERPROFILE|APPDATA|LOCALAPPDATA|SystemRoot|windir|ProgramData|ProgramFiles)\b|Path\.home\(|` +
+  String.raw`\bdefaults\s+(?:write|delete)\b|\breg\s+(?:add|delete)\b`, "i");
+
+/**
+ * `certain`: a known writer or system program acts on a protected folder or the machine. `mentions`: protected paths an
+ * unknown program or inline code names. `unresolved`: write targets or folders hidden behind a variable the command does
+ * not assign itself. `hinted`: inline code uses a construct that can reach a protected folder without naming it.
+ */
+export type SystemAssessment = { certain: string[]; mentions: string[]; unresolved: string[]; hinted: boolean };
+
+/** The arguments a known writer writes, or undefined for a program whose writes the code cannot tell. */
+function writtenArgs(program: string, args: string[]): string[] | undefined {
+  if (ALL_ARG_WRITERS.has(program)) return positionalArgs(args);
+  if (LAST_ARG_WRITERS.has(program)) return positionalArgs(args).slice(-1);
+  if (program === "dd") return args.filter((arg) => arg.startsWith("of=")).map((arg) => arg.slice(3));
+  if (program === "git") return [];
+  return undefined;
+}
+
+/**
+ * Whether every variable `text` expands is assigned (`NAME=…`) or looped over (`for NAME in`) inside `command`: its
+ * value is then text of the same command, which the literal scan has already checked.
+ */
+function variablesAssignedIn(text: string, command: string): boolean {
+  const names = [...text.matchAll(/\$\{?([A-Za-z_]\w*)/g)].map((match) => match[1] ?? "");
+  if (names.length === 0 || /\$\(|`/.test(text)) return false;
+  return names.every((name) => new RegExp(String.raw`(?:^|[\s;&|(])(?:export\s+|local\s+)?${name}=|\bfor\s+${name}\s+in\b`).test(command));
+}
+
+/**
+ * System-only screening facts: what each non-read-only segment writes or runs, checked against the protected folders
+ * of `platform`. Folders are followed through `cd` whether or not they exist yet. See `SystemAssessment`.
+ */
+export function assessSystem(command: string, cwd: string, platform: SystemPlatform, home: string): SystemAssessment {
+  const scan = scanCommand(command);
+  const roots = protectedRoots(platform, home);
+  const rootOf = (path: string) => protectedRootOf(platform, roots, canonical(path));
+  // A home folder or drive root (`self`) is protected from removal only; naming it or working in it is not an action against it.
+  const reaching = (path: string) => {
+    const root = rootOf(path);
+    return root && root.reach !== "self" ? root : undefined;
+  };
+  const result: SystemAssessment = { certain: [], mentions: [], unresolved: [], hinted: false };
+  const places: Place[] = [];
+  let place: Place = { dir: cwd, explained: true };
+  for (const segment of scan.segments) {
+    places.push(place);
+    const { program, args } = commandOf(segment);
+    if (program !== "cd") continue;
+    const target = args.find((arg) => arg !== "-P" && arg !== "-L" && arg !== "--");
+    const dir = target === undefined ? home : target === "-" ? undefined : resolveAt(target, place.dir);
+    place = { dir, explained: dir !== undefined || (target !== undefined && variablesAssignedIn(target, command)) };
+  }
+  /** Records `arg` as unresolved unless the command explains it (its variables, or its folder's, are assigned in the command). */
+  const unresolved = (arg: string, at: Pick<Place, "explained">) => {
+    if (/\$/.test(arg) ? !variablesAssignedIn(arg, command) : !at.explained) result.unresolved.push(arg);
+  };
+  for (const redirect of scan.redirects) {
+    const at = places[redirect.segment] ?? place;
+    const path = resolveAt(redirect.target, at.dir);
+    const root = path === undefined || DEVICE_SINKS.has(path) ? undefined : rootOf(path);
+    if (path === undefined) unresolved(redirect.target, at);
+    else if (root) result.certain.push(`writes ${path} (protected: ${root.path})`);
+  }
+  for (const [index, segment] of scan.segments.entries()) {
+    const { program, args } = commandOf(segment);
+    if (segmentIsReadOnly(segment) || SHELL_WORDS.has(program) || program.endsWith("()")) continue;
+    const at = places[index] ?? place;
+    const name = program.toLowerCase().replace(/\.exe$/, "");
+    if (SYSTEM_PROGRAMS.get(name)?.(args) || /^(?:mkfs|newfs)/.test(name)) result.certain.push(`runs a system program: ${clip(segment, 200).text}`);
+    const git = program === "git" ? gitInvocation(args) : undefined;
+    const workDir = git ? gitDirOf(at.dir, git.dirs) : at.dir;
+    const workRoot = workDir === undefined ? undefined : reaching(workDir);
+    if (workDir === undefined && !at.explained) result.unresolved.push(`${program} in an unknown folder`);
+    else if (workRoot) result.certain.push(`${program} runs in ${workDir} (protected: ${workRoot.path})`);
+    const written = writtenArgs(program, args);
+    if (!written) {
+      for (const path of literalPaths(platform, args.join(" "), home)) if (reaching(path)) result.mentions.push(path);
+      continue;
+    }
+    for (const arg of written) {
+      const path = resolveAt(arg, workDir);
+      // A glob is judged by the folder it expands in, so `rm -rf ~/*` counts as acting on the home folder itself.
+      const base = path === undefined || !GLOB_CHARS.test(path) ? path : dirname(path.slice(0, path.search(GLOB_CHARS) + 1));
+      const root = base === undefined ? undefined : rootOf(base);
+      if (path === undefined) unresolved(arg, { explained: workDir !== undefined || at.explained });
+      else if (root) result.certain.push(`${program} writes ${path} (protected: ${root.path})`);
+    }
+  }
+  if (DYNAMIC_CODE.test(command)) {
+    // Inline code is data to the scanner: check all of its text for protected paths and for constructs that reach them.
+    for (const path of literalPaths(platform, command, home)) if (reaching(path) && !result.mentions.includes(path)) result.mentions.push(path);
+    result.hinted = SYSTEM_HINT.test(command);
+  }
+  return result;
 }
 
 // ---- Write: deterministic rules ------------------------------------------------------
@@ -1179,6 +1455,14 @@ export async function commitChanges(plan: CommitPlan): Promise<CommitChanges | u
 }
 
 // ---- Jev questions and verdicts ------------------------------------------------------
+const SECRET_EXPOSURE_QUESTION: JevQuestion = {
+  type: "noul",
+  instructions: "Does running this command put the value of a credential (API key, token, password, private key, credential file contents) into its output, a file, or a network request? `secret_names_referenced` lists names only; `secret_value_sinks` lists where a secret-named variable's value flows.",
+  criteria: {
+    true: "A credential value, or the contents of a credential file, reaches the command's output, a file it writes, or a network request.",
+    false: "No credential value reaches output, files or requests: a credential is only named, tested for being set, measured by length, masked, or referenced inside data or test code.",
+  },
+};
 export const BASH_QUESTIONS: JevQuestions = {
   effect: {
     type: "choice",
@@ -1198,14 +1482,19 @@ export const BASH_QUESTIONS: JevQuestions = {
       false: "The command reads, builds, tests, lints or formats; edits tracked source in place; appends; creates new files; moves or renames within a repository; commits or pushes normally; kills one explicit PID; or deletes only temporary paths (`deletions_all_temporary` is true).",
     },
   },
-  secret_exposure: {
+  secret_exposure: SECRET_EXPOSURE_QUESTION,
+};
+/** Asked under the system-only scope when code cannot settle a command: dynamic code, unresolved targets, protected paths an unknown program names, or credential handling. */
+export const SYSTEM_QUESTIONS: JevQuestions = {
+  touches_system: {
     type: "noul",
-    instructions: "Does running this command put the value of a credential (API key, token, password, private key, credential file contents) into its output, a file, or a network request? `secret_names_referenced` lists names only; `secret_value_sinks` lists where a secret-named variable's value flows.",
+    instructions: "Does running this command, including any code it runs inline, create, delete, overwrite, move, or change the permissions or ownership of anything inside a protected operating-system folder, or change system services, startup items, the registry, disks, boot or security settings? `protected_folders` lists the protected folders on this machine, `protected_paths_mentioned` the protected paths the command names, and `unresolved_targets` the write targets code could not resolve.",
     criteria: {
-      true: "A credential value, or the contents of a credential file, reaches the command's output, a file it writes, or a network request.",
-      false: "No credential value reaches output, files or requests: a credential is only named, tested for being set, measured by length, masked, or referenced inside data or test code.",
+      true: "The command writes, deletes, moves or re-permissions a path inside one of `protected_folders`, removes the home folder, the Users folder or a drive root, or changes services, launch agents, the registry, disks, boot or security settings.",
+      false: "The command only reads or lists protected locations, or writes only inside project, temporary or other user folders that are not in `protected_folders`.",
     },
   },
+  secret_exposure: SECRET_EXPOSURE_QUESTION,
 };
 export const WRITE_QUESTIONS: JevQuestions = {
   contains_secret: {
@@ -1241,13 +1530,19 @@ function choiceProbability(answers: JevAnswers, id: string, choice: string): num
 /**
  * Bash Jev verdict from the three answers using the thresholds at the top of the file. The exposure
  * answer counts only when code found that a credential value can reach output, a file or the network.
+ * The `destructive` answer describes the action ("does it delete"), not whether it can be undone, so it
+ * does not count when code has settled every deletion and overwrite as recoverable (`settled`) and no
+ * process is killed by name; `effect` still judges the rest of the command.
  */
-export function assessBash(answers: JevAnswers, facts: BashFacts): Assessment {
+export function assessBash(answers: JevAnswers, facts: BashFacts, settled: boolean): Assessment {
   const irreversible = choiceProbability(answers, "effect", "irreversible");
-  const broad = noulOf(answers, "destructive");
+  const rawBroad = noulOf(answers, "destructive");
+  const broadSettled = settled && (facts.kill_pattern === "none" || facts.kill_pattern === "pid");
+  const broad = broadSettled ? 0 : rawBroad;
   const rawExposure = noulOf(answers, "secret_exposure");
   const exposure = facts.secret_value_possible ? rawExposure : 0;
-  const summary = `irreversible ${irreversible.toFixed(2)}, destructive ${broad.toFixed(2)}, secret exposure ${rawExposure.toFixed(2)}` +
+  const summary = `irreversible ${irreversible.toFixed(2)}, destructive ${rawBroad.toFixed(2)}` +
+    (broadSettled ? " (not counted: every deletion and overwrite is recoverable)" : "") + `, secret exposure ${rawExposure.toFixed(2)}` +
     (facts.secret_value_possible ? "" : " (not counted: no credential value can reach output)");
   if (exposure >= BASH_BLOCK_SECRET_EXPOSURE) return { verdict: "block", reason: `Jev rates this command high-risk (${summary}).` };
   if (irreversible >= BASH_BLOCK_IRREVERSIBLE || broad >= BASH_BLOCK_DESTRUCTIVE) {
@@ -1257,6 +1552,31 @@ export function assessBash(answers: JevAnswers, facts: BashFacts): Assessment {
     return { verdict: "confirm", reason: `Jev is unsure this command is safe (${summary}).` };
   }
   return { verdict: "allow", reason: summary };
+}
+
+/**
+ * System-only Jev verdict: block on credential exposure (counted only when code found a value can reach output),
+ * ask the user when `touches_system` reaches BASH_CONFIRM_SYSTEM, otherwise allow.
+ */
+export function assessSystemAnswers(answers: JevAnswers, secretValuePossible: boolean): Assessment {
+  const touches = noulOf(answers, "touches_system");
+  const rawExposure = noulOf(answers, "secret_exposure");
+  const summary = `touches system ${touches.toFixed(2)}, secret exposure ${rawExposure.toFixed(2)}` +
+    (secretValuePossible ? "" : " (not counted: no credential value can reach output)");
+  if (secretValuePossible && rawExposure >= BASH_BLOCK_SECRET_EXPOSURE) return { verdict: "block", reason: `Jev rates this command high-risk (${summary}).` };
+  if (touches >= BASH_CONFIRM_SYSTEM) return { verdict: "confirm", reason: `Jev rates this command as acting on a protected system folder (${summary}).` };
+  return { verdict: "allow", reason: summary };
+}
+
+/** The redacted state Jev is shown under the system-only scope. */
+export function systemJevState(command: string, cwd: string, apiKey: string | undefined, system: SystemAssessment, platform: SystemPlatform,
+  home: string): JevState<CommandFacts> {
+  const facts = commandFacts(command);
+  const folders = protectedRoots(platform, home).filter((root) => root.reach === "subtree").map((root) => root.path);
+  const state = redactValue({ command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd, platform, protected_folders: folders,
+    protected_paths_mentioned: system.mentions.slice(0, REPORTED_TARGET_LIMIT), unresolved_targets: system.unresolved.slice(0, REPORTED_TARGET_LIMIT),
+    ...facts }, apiKey);
+  return { state, facts };
 }
 
 /** Write verdict: block when the Jev `contains_secret` answer reaches the threshold. */
@@ -1272,10 +1592,9 @@ export function assessResult(answers: JevAnswers): Assessment {
 }
 
 /** The redacted state Jev is shown for a bash command, with the code-computed facts it is judged against. */
-export async function bashJevState(command: string, cwd: string, apiKey?: string, code?: Pick<RecoverableAssessment, "segments" | "targets">):
-  Promise<{ state: JsonValue; facts: BashFacts }> {
-  const facts = await bashFacts(command, cwd);
-  const recoverable: { [key: string]: JsonValue } = code && (code.targets.length > 0 || code.segments > 0)
+export function bashJevState(command: string, cwd: string, apiKey: string | undefined, code: RecoverableAssessment): JevState<BashFacts> {
+  const facts = bashFacts(command, code);
+  const recoverable: { [key: string]: JsonValue } = code.targets.length > 0 || code.segments > 0
     ? { deletion_targets: code.targets.slice(0, REPORTED_TARGET_LIMIT), recoverable_segments: code.segments } : {};
   const state = redactValue({ command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd, ...facts, ...recoverable }, apiKey);
   return { state, facts };
@@ -1473,6 +1792,9 @@ function editTargets(input: EditInput): WriteTarget[] | undefined {
 
 export function createJevGuard(options: JevGuardOptions = {}) {
   const pending = new Set<Promise<void>>();
+  const shared = options.shared ?? { queue: Promise.resolve() };
+  /** `guard.bash.scope` from the policies file; `/guard-scope` overrides it for the process through `shared`. */
+  let fileScope: BashScope = "strict";
   let modes: Record<string, PolicyMode> = {};
   let apiKey: string | undefined;
   let rules: CompiledRule[] | undefined;
@@ -1491,7 +1813,63 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     return found;
   };
 
-  const modeFor = (policy: string): PolicyMode => policyMode(modes, policy);
+  /** Set when `agent/jev-policies.json` cannot be read as policy modes: every policy then enforces (fail closed). */
+  let policyError: string | undefined;
+  const modeFor = (policy: string): PolicyMode => (policyError === undefined ? policyMode(modes, policy) : "enforce");
+
+  /**
+   * The system-only platform when that scope is in force (the `/guard-scope` choice, else the policies file), or
+   * undefined under strict. A platform without a protected-folder list stays strict.
+   */
+  const systemOnly = (): SystemPlatform | undefined =>
+    (shared.scopeOverride ?? fileScope) === "system-only" && isSystemPlatform(process.platform) ? process.platform : undefined;
+
+  /** When each `tool_call` handler run started, keyed by its handler-scoped context (one object per run). */
+  const handlerStarts = new WeakMap<ExtensionContext, number>();
+
+  /**
+   * Asks the user on behalf of `ctx`: through its own UI in an interactive main agent, through the main session's UI
+   * for a subagent (prompts queue one at a time); undefined when nobody can be asked. Resolves to undefined when a
+   * subagent's prompt could not be answered in time: OMP pauses a handler's timeout only for dialogs on its own UI, so
+   * a subagent's prompt must close before SUBAGENT_PROMPT_WINDOW_MS from the start of its handler run.
+   */
+  const userPrompt = (ctx: ExtensionContext): ((title: string, message: string) => Promise<boolean | undefined>) | undefined => {
+    if (ctx.hasUI && ctx.agent.kind === "main") {
+      const ui = ctx.ui;
+      return (title, message) => {
+        const asked = shared.queue.then(() => ui.confirm(title, message)).catch(() => false);
+        shared.queue = asked;
+        return asked;
+      };
+    }
+    const ui = ctx.agent.kind === "sub" ? shared.mainUi : undefined;
+    if (!ui) return undefined;
+    const deadline = (handlerStarts.get(ctx) ?? Date.now()) + SUBAGENT_PROMPT_WINDOW_MS;
+    return (title, message) => {
+      const asked = shared.queue.then(async () => {
+        const remaining = deadline - Date.now();
+        if (remaining < SUBAGENT_PROMPT_MIN_MS) return undefined;
+        const signal = AbortSignal.timeout(remaining);
+        let timedOut = false;
+        const answer = await ui.confirm(`${title} (subagent ${ctx.agent.name})`, `${message}\n\nAnswer within ${Math.floor(remaining / 1000)} s.`,
+          { timeout: remaining, signal, onTimeout: () => { timedOut = true; } });
+        return timedOut || signal.aborted ? undefined : answer;
+      }).catch(() => undefined);
+      shared.queue = asked;
+      return asked;
+    };
+  };
+  const noteMainUi = (ctx: ExtensionContext): void => {
+    if (ctx.hasUI && ctx.agent.kind === "main") shared.mainUi = ctx.ui;
+  };
+
+  /** Asks the user to approve `subject`; without an answer, a block telling the agent to get approval first. */
+  const confirmWithUser = async (ctx: ExtensionContext, what: "command" | "write", subject: string, reason: string): Promise<Escalation> => {
+    const answer = await userPrompt(ctx)?.(`Jev guard: confirm ${what}`, `${reason}\n\n${clip(subject, 600).text}`);
+    if (answer === true) return { userDecision: "approved" };
+    if (answer === false) return { userDecision: "declined", block: { block: true, reason: `The user declined this ${what} at the Jev guard confirmation.` } };
+    return { block: { block: true, reason: `Jev guard needs confirmation. ${reason} Ask the user to approve this ${what} before retrying.` } };
+  };
 
   const whoOf = (ctx: ExtensionContext): Who => {
     let sessionId: string | undefined;
@@ -1530,11 +1908,13 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   // ---- bash
   let allowlistHits = 0;
   async function screenBash(command: string, ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
+    const platform = systemOnly();
     const verdict = classifyBash(command);
     const who = whoOf(ctx);
     const subject = subjectOf(command);
     const enforcing = mode === "enforce";
-    const make = (rest: Parameters<typeof decision>[5]) => decision(BASH_POLICY, BASH_POLICY_VERSION, mode, who, subject, rest);
+    const version = platform ? BASH_SYSTEM_POLICY_VERSION : BASH_POLICY_VERSION;
+    const make: DecisionMaker = (rest) => decision(BASH_POLICY, version, mode, who, subject, rest);
     const baseState = { command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd: redact(ctx.cwd, apiKey) };
     if (verdict.kind === "allow") {
       // Allowlist hits are otherwise unrecorded; a sample keeps its miss rate auditable.
@@ -1544,15 +1924,9 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       }
       return undefined;
     }
-    const canAsk = ctx.hasUI && ctx.agent.kind === "main";
-    const askUser = async (reason: string): Promise<Escalation> => {
-      if (canAsk) {
-        const approved = await ctx.ui.confirm("Jev guard: confirm command", `${reason}\n\n${clip(command, 600).text}`).catch(() => false);
-        return approved ? { userDecision: "approved" }
-          : { userDecision: "declined", block: { block: true, reason: "The user declined this command at the Jev guard confirmation." } };
-      }
-      return { block: { block: true, reason: `Jev guard needs confirmation. ${reason} Ask the user to approve this command before retrying.` } };
-    };
+    if (platform) return screenBashSystem(command, ctx, enforcing, platform, make, baseState);
+    const prompt = userPrompt(ctx);
+    const askUser = (reason: string): Promise<Escalation> => confirmWithUser(ctx, "command", command, reason);
     if (verdict.kind === "deny") {
       await record(make({ stage: "deterministic", rule: verdict.rule, state: { ...baseState, reason: verdict.reason },
         verdict: enforcing ? "block" : "flag", enforced: enforcing }));
@@ -1568,32 +1942,33 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const recoverable = await assessRecoverable(command, ctx.cwd, createdBy(ctx));
     if (recoverable.qualifies) {
       await record(make({ stage: "deterministic", rule: "project-recoverable",
-        state: redactValue({ ...baseState, recoverable_segments: recoverable.segments, deletion_targets: recoverable.targets }, apiKey),
+        state: redactValue({ ...baseState, recoverable_segments: recoverable.segments,
+          deletion_targets: recoverable.targets.slice(0, REPORTED_TARGET_LIMIT) }, apiKey),
         verdict: "allow", enforced: false }));
       return undefined;
     }
     if (!enforcing) {
-      background(bashJevState(command, ctx.cwd, apiKey, recoverable).then(async ({ state, facts }) => {
-        const judged = await askJev(apiKey, state, state, BASH_QUESTIONS);
-        const assessed = judged.answers ? assessBash(judged.answers, facts) : undefined;
+      const { state, facts } = bashJevState(command, ctx.cwd, apiKey, recoverable);
+      background(askJev(apiKey, state, state, BASH_QUESTIONS).then(async (judged) => {
+        const assessed = judged.answers ? assessBash(judged.answers, facts, recoverable.settled) : undefined;
         await record(make({ ...judged.fields, verdict: assessed?.verdict ?? "error", enforced: false }));
       }));
       return undefined;
     }
-    const { state, facts } = await bashJevState(command, ctx.cwd, apiKey, recoverable);
+    const { state, facts } = bashJevState(command, ctx.cwd, apiKey, recoverable);
     const judged = await askJev(apiKey, state, state, BASH_QUESTIONS, ENFORCE_TIMEOUT_MS);
     if (!judged.answers) {
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard could not assess this command (${judged.fields.error ?? "Jev unavailable"}), so it was blocked. ` +
         "Retry later or ask the user to run it." };
     }
-    const assessed = assessBash(judged.answers, facts);
+    const assessed = assessBash(judged.answers, facts, recoverable.settled);
     if (assessed.verdict === "allow") {
       await record(make({ ...judged.fields, verdict: "allow", enforced: false }));
       return undefined;
     }
-    // A main agent with a UI is asked rather than hard-blocked on Jev scores; secret exposure and the denylist still block.
-    const promoted = assessed.verdict === "block" && assessed.promotable === true && canAsk;
+    // An agent that can reach the user is asked rather than hard-blocked on Jev scores; secret exposure and the denylist still block.
+    const promoted = assessed.verdict === "block" && assessed.promotable === true && prompt !== undefined;
     if (assessed.verdict === "block" && !promoted) {
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard blocked this command. ${assessed.reason} Ask the user before running anything like it.` };
@@ -1604,12 +1979,85 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     return asked.block;
   }
 
+  /**
+   * System-only scope: the credential rules and pipe-to-shell still block; a known writer or system program acting on a
+   * protected folder asks the user; dynamic code, unresolved targets, protected paths an unknown program names, and
+   * unclear credential handling go to Jev (`SYSTEM_QUESTIONS`); everything else runs unscreened.
+   */
+  async function screenBashSystem(command: string, ctx: ExtensionContext, enforcing: boolean, platform: SystemPlatform, make: DecisionMaker,
+    baseState: { command: string; cwd: string }): Promise<Block | undefined> {
+    const state = { ...baseState, scope: "system-only" };
+    const askUser = (reason: string): Promise<Escalation> => confirmWithUser(ctx, "command", command, reason);
+    const { denials, secretsUnclear } = bashDenials(command, scanCommand(command));
+    const always = denials.find((denial) => ALWAYS_RULES.has(denial.rule));
+    if (always) {
+      await record(make({ stage: "deterministic", rule: always.rule, state: { ...state, reason: always.reason },
+        verdict: enforcing ? "block" : "flag", enforced: enforcing }));
+      return enforcing ? { block: true, reason: `Jev guard blocked this command (${always.rule}): ${always.reason}` } : undefined;
+    }
+    const system = assessSystem(command, ctx.cwd, platform, homedir());
+    const escalate = async (rule: string, reason: string, extra: { [key: string]: JsonValue }): Promise<Block | undefined> => {
+      const asked: Escalation = enforcing ? await askUser(reason) : {};
+      await record(make({ stage: "deterministic", rule, state: redactValue({ ...state, ...extra, userDecision: asked.userDecision ?? null }, apiKey),
+        verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
+      return asked.block;
+    };
+    if (system.certain.length > 0) {
+      return escalate("system-folder", `This command acts on a protected system location: ${system.certain.slice(0, 3).join("; ")}.`,
+        { findings: system.certain.slice(0, REPORTED_TARGET_LIMIT) });
+    }
+    if (!system.hinted && system.unresolved.length === 0 && system.mentions.length === 0 && !secretsUnclear) return undefined;
+    if (command.length > BASH_COMMAND_LIMIT) {
+      const long = longCommand(command);
+      return escalate(long.rule, `Jev cannot judge this command: ${long.reason}.`, {});
+    }
+    const built = systemJevState(command, ctx.cwd, apiKey, system, platform, homedir());
+    if (!enforcing) {
+      background(askJev(apiKey, built.state, built.state, SYSTEM_QUESTIONS).then(async (judged) => {
+        const assessed = judged.answers ? assessSystemAnswers(judged.answers, built.facts.secret_value_possible) : undefined;
+        await record(make({ ...judged.fields, verdict: assessed?.verdict ?? "error", enforced: false }));
+      }));
+      return undefined;
+    }
+    const judged = await askJev(apiKey, built.state, built.state, SYSTEM_QUESTIONS, ENFORCE_TIMEOUT_MS);
+    if (!judged.answers) {
+      await record(make({ ...judged.fields, verdict: "block", enforced: true }));
+      return { block: true, reason: `Jev guard could not assess this command (${judged.fields.error ?? "Jev unavailable"}), so it was blocked. ` +
+        "Retry later or ask the user to run it." };
+    }
+    const assessed = assessSystemAnswers(judged.answers, built.facts.secret_value_possible);
+    if (assessed.verdict === "allow" || assessed.verdict === "block") {
+      const blocked = assessed.verdict === "block";
+      await record(make({ ...judged.fields, verdict: assessed.verdict, enforced: blocked }));
+      return blocked ? { block: true, reason: `Jev guard blocked this command. ${assessed.reason} Ask the user before running anything like it.` } : undefined;
+    }
+    const asked = await askUser(assessed.reason);
+    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked.userDecision ?? null),
+      verdict: "confirm", enforced: asked.userDecision !== "approved" }));
+    return asked.block;
+  }
+
+  /** System-only scope: a write or edit inside a protected folder asks the user. Undefined when it is not one, or approved. */
+  async function screenSystemWrite(target: WriteTarget, ctx: ExtensionContext, enforcing: boolean, make: DecisionMaker,
+    platform: SystemPlatform): Promise<Block | undefined> {
+    if (target.path.includes("://")) return undefined;
+    const path = canonical(resolve(ctx.cwd, expandHome(target.path)));
+    const root = protectedRootOf(platform, protectedRoots(platform, homedir()), path);
+    if (!root) return undefined;
+    const reason = `This writes inside the protected system folder ${root.path}.`;
+    const asked: Escalation = enforcing ? await confirmWithUser(ctx, "write", path, reason) : {};
+    await record(make({ stage: "deterministic", rule: "system-folder",
+      state: redactValue({ path, protected: root.path, scope: "system-only", userDecision: asked.userDecision ?? null }, apiKey),
+      verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
+    return asked.block;
+  }
+
   // ---- write / edit
   async function screenWriteTarget(target: WriteTarget, ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
     const who = whoOf(ctx);
     const subject = subjectOf(target.path);
     const enforcing = mode === "enforce";
-    const make = (rest: Parameters<typeof decision>[5]) => decision(WRITE_POLICY, WRITE_POLICY_VERSION, mode, who, subject, rest);
+    const make: DecisionMaker = (rest) => decision(WRITE_POLICY, WRITE_POLICY_VERSION, mode, who, subject, rest);
     // Only a private key block or a live key blocks without Jev; other key-shaped literals go to Jev with the file kind.
     const rule = isSecretPath(target.path) ? { id: "secret-file", reason: "this path holds credentials" }
       : PRIVATE_KEY_HEADER.test(target.added) || (apiKey !== undefined && target.added.includes(apiKey))
@@ -1617,6 +2065,11 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     if (rule) {
       await record(make({ stage: "deterministic", rule: rule.id, verdict: enforcing ? "block" : "flag", enforced: enforcing }));
       return enforcing ? { block: true, reason: `Jev guard blocked this write (${rule.id}): ${rule.reason}. Use an env var or secret manager reference instead.` } : undefined;
+    }
+    const platform = systemOnly();
+    if (platform) {
+      const blocked = await screenSystemWrite(target, ctx, enforcing, make, platform);
+      if (blocked) return blocked;
     }
     if (outsideWorkspace(target.path, ctx.cwd)) {
       // Informational: never a decision, so it is recorded apart from guard.write decisions.
@@ -1720,21 +2173,21 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     return `- ${subjectOf(outcome.unit.label)}: ${rulesText}${jev ? ` [Jev ${jev}]` : ""}${failed}${outcome.note ? ` [${outcome.note}]` : ""}`;
   };
 
-  /** Escalation goes to the user: `confirm` in the main agent with a UI, otherwise a block telling the agent to ask. */
+  /** Escalation goes to the user (directly, or through the main session's UI for a subagent), otherwise a block telling the agent to ask. */
   async function escalate(kind: IntegrityKind, fingerprint: string, outcomes: UnitOutcome[], ctx: ExtensionContext): Promise<Escalation> {
     const key = createHash("sha256").update(`${kind}\0${fingerprint}`).digest("hex");
     const summary = outcomes.map(describe).join("\n");
     const declinedReason = (already: string) => `The user ${already}declined this ${kind} at the Jev integrity guard. ` +
       `Do not retry, reword or work around it; continue only as the user directs.\n${summary}`;
     if (declined.has(key)) return { userDecision: "declined", block: { block: true, reason: declinedReason("already ") } };
-    if (ctx.hasUI && ctx.agent.kind === "main") {
-      const approved = await ctx.ui.confirm("Jev integrity guard: approve?",
-        `This ${kind} matches guarded integrity rules.\n\n${clip(summary, 1_500).text}`).catch(() => false);
-      if (approved) {
-        if (kind === "edit") for (const outcome of outcomes) approvedEditPaths.add(outcome.unit.label);
-        if (kind === "read") for (const outcome of outcomes) approvedReadPaths.add(outcome.unit.label);
-        return { userDecision: "approved" };
-      }
+    const answer = await userPrompt(ctx)?.("Jev integrity guard: approve?",
+      `This ${kind} matches guarded integrity rules.\n\n${clip(summary, 1_500).text}`);
+    if (answer === true) {
+      if (kind === "edit") for (const outcome of outcomes) approvedEditPaths.add(outcome.unit.label);
+      if (kind === "read") for (const outcome of outcomes) approvedReadPaths.add(outcome.unit.label);
+      return { userDecision: "approved" };
+    }
+    if (answer === false) {
       declined.add(key);
       return { userDecision: "declined", block: { block: true, reason: declinedReason("") } };
     }
@@ -1901,12 +2354,21 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     } catch {
       apiKey = undefined;
     }
-    pi.on("session_start", async () => {
+    const showScope = (ctx: ExtensionContext): void => {
+      if (ctx.hasUI) ctx.ui.setStatus("jev-guard-scope", systemOnly() ? "guard: system-only" : undefined);
+    };
+    pi.on("session_start", async (_event, ctx) => {
+      noteMainUi(ctx);
       try {
-        modes = await readPolicyModes();
-      } catch {
+        ({ modes, bashScope: fileScope } = await readPolicySettings());
+        policyError = undefined;
+      } catch (error) {
         modes = {};
+        fileScope = "strict";
+        policyError = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(`Jev guard: agent/jev-policies.json is invalid, so every guard enforces until it is fixed (${policyError}).`, "error");
       }
+      showScope(ctx);
       try {
         rules = await loadRules();
       } catch (error) {
@@ -1914,7 +2376,34 @@ export function createJevGuard(options: JevGuardOptions = {}) {
         rulesError = error instanceof Error ? error.message : String(error);
       }
     });
+    pi.registerCommand("guard-scope", {
+      description: "Show or set the Jev bash guard scope for this OMP process: strict, or system-only (ask only about system folders)",
+      getArgumentCompletions: (prefix) => BASH_SCOPES.filter((scope) => scope.startsWith(prefix.trim()))
+        .map((scope) => ({ value: scope, label: scope, description: SCOPE_DESCRIPTIONS[scope] })),
+      handler: async (args, ctx) => {
+        const wanted = args.trim();
+        const current = systemOnly() ? "system-only" : "strict";
+        if (wanted === "") {
+          ctx.ui.notify(`Jev guard scope: ${current}. ${SCOPE_DESCRIPTIONS[current]}`, "info");
+          return;
+        }
+        if (wanted !== "strict" && wanted !== "system-only") {
+          ctx.ui.notify(`Jev guard scope must be strict or system-only, not "${wanted}".`, "error");
+          return;
+        }
+        if (wanted === "system-only" && !isSystemPlatform(process.platform)) {
+          ctx.ui.notify(`Jev guard: system-only needs macOS or Windows; ${process.platform} has no protected-folder list, so the scope stays strict.`, "error");
+          return;
+        }
+        shared.scopeOverride = wanted;
+        showScope(ctx);
+        ctx.ui.notify(`Jev guard scope: ${wanted} for this OMP process until restart. To keep it, set "${BASH_SCOPE_KEY}": "${wanted}" ` +
+          "in agent/jev-policies.json.", "info");
+      },
+    });
     pi.on("tool_call", async (event, ctx) => {
+      handlerStarts.set(ctx, Date.now());
+      noteMainUi(ctx);
       let command: string | undefined;
       let targets: WriteTarget[] | undefined;
       let reads: string[] | undefined;
@@ -1991,5 +2480,5 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 type ContentPart = TextContent | ImageContent;
 
 export default function jevGuard(pi: ExtensionAPI): Promise<void> {
-  return createJevGuard({ loadKey: loadJevApiKey }).extension(pi);
+  return createJevGuard({ loadKey: loadJevApiKey, shared: PROCESS_SHARED }).extension(pi);
 }

@@ -19,7 +19,7 @@ import {
 } from "../../../agent/extensions/lib/integrity.ts";
 import { clip, JEV_ENDPOINT, JEV_PINNED_MODEL, type JevAnswers, type JevQuestions, type JsonValue } from "../../../agent/extensions/lib/jev.ts";
 import type { BenchCase } from "../lib/types";
-import { benchCase, jsonValue } from "./e4-case-schema";
+import { benchCase, jsonValue } from "./case-schema";
 
 const BENCH = join(import.meta.dir, "..");
 const REPO = join(BENCH, "..", "..");
@@ -110,8 +110,10 @@ async function captureGuards(items: Item[]): Promise<Map<string, Captured[]>> {
   installFetchStub();
   const guard = createJevGuard({ loadKey: async () => "offline-stub" });
   const handlers = new Map<string, Handler>();
-  // SAFETY: the guard only calls `on` during registration.
-  const pi = Object.assign({} as ExtensionAPI, { on: (name: string, handler: Handler) => { handlers.set(name, handler); } });
+  // SAFETY: the guard only calls `on` and `registerCommand` during registration.
+  const pi = Object.assign({} as ExtensionAPI, {
+    on: (name: string, handler: Handler) => { handlers.set(name, handler); }, registerCommand: () => undefined,
+  });
   await guard.extension(pi);
   // SAFETY: the guard reads only the fields supplied below.
   const ctx = (cwd: string): ExtensionContext => Object.assign({} as ExtensionContext, {

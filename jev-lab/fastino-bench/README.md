@@ -52,21 +52,6 @@ AUROC is the fair comparison.
     guard's 6k windows
   - Builder: `builders/e3-longctx.ts`
   - Truth: by construction
-- `e4-proportionality`
-  - Question: Main-thread todo item marked done: did the implementation exceed the plan item?
-    State/question variants: legacy watchdog state (`builders/legacy-watchdog.json`, frozen
-    pre-cutover definition), todo state, and
-    `real-itemstate`/`perturbed-itemstate`/`history-itemstate` built by the shipped watchdog builder
-    (`agent/extensions/lib/proportionality.ts`). `history-itemstate` replays every main session
-    (`builders/e4-history.ts`; split by session hash: test = mod 3 = 0, else dev; ≤ 8 items per
-    session in `meta.label_sample`). `bun e4-process.ts --split dev|test|all [--dataset …]` scores
-    the shipped rule → router → Jev process at the watchdog's thresholds
-  - Builder: `builders/e4-proportionality.ts`, `builders/e4-itemstate.ts`, `builders/e4-history.ts`
-    (+ `builders/e4-history-packets.ts` for label packets), then `builders/e4-apply-labels.ts`
-  - Truth: two-family blind labels by the rubric `builders/e4-policy.md`
-    (`datasets/e4-proportionality/labels/`; `*-item.jsonl` relabel the unclipped item state; `hist/`
-    the history sample, `hist/r2-*` the uncertain/disputed relabelled under policy v2, replacing
-    round 1), orchestrator adjudication, and injected perturbations
 
 ## Run
 

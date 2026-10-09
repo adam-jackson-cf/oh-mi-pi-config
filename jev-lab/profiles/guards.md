@@ -7,10 +7,12 @@ policy at a time: `bun jev-lab/scripts/export-cases.ts --source policy:<name> --
 - **Process:** Pre-execution screen of bash commands, edit inputs, and fetched tool results; mode
   keys are the policy names
 - **Version:** `policyVersion` on each record. Select by version, never by time: old sessions keep
-  writing old-version records into the same files. Current: `guard-bash-2026-10-03.6`,
-  `guard-write-2026-10-02.3`, `guard-result-2026-10-02.3`. Evidence for one version does not carry
-  to another; every quoted figure names its version. Bash figures below marked `.3` do not describe
-  `.4` or later; `.6` replaced the `.4`/`.5` git-state conditions with the working-folder rule
+  writing old-version records into the same files. Current: `guard-bash-2026-10-09.1` (scope
+  `strict`), `guard-bash-system-2026-10-09.1` (scope `system-only`), `guard-write-2026-10-02.3`,
+  `guard-result-2026-10-02.3`. Evidence for one version does not carry to another; every quoted
+  figure names its version. Bash figures below marked `.3` do not describe `.4` or later; `.6`
+  replaced the `.4`/`.5` git-state conditions with the working-folder rule, and `2026-10-09.1`
+  limits that rule to content git can restore
 - **Stages:** `deterministic` rule (field `rule`) decides first; otherwise `jev`; `jev_error` on
   failure
 - **Label kind:** `verdict-grade`
@@ -79,23 +81,29 @@ Allowlist audit: one in 25 allowlist hits per session is recorded as stage `dete
 `allowlist-sample`, verdict `allow`, with `allowlist_hits` (the running count) in the state, so the
 allowlist's miss rate can be labelled. Allowlist hits are otherwise unrecorded.
 
-Working-folder allowances (`.6`): a command that reaches Jev is first checked in code, and when every
-segment is allowlisted or meets one of the conditions below it is allowed without calling Jev and
-always recorded (not sampled): stage `deterministic`, rule `project-recoverable`, verdict `allow`,
-with `recoverable_segments` and `deletion_targets` (each `{path, class}`) in the state. The denylist
-still wins. The conditions are binary facts of the command and the filesystem, never of who asked.
-Anything unresolved (a `$var`, substitution, heredoc, `eval`, `sh -c`, a glob with more than 200
-matches) does not qualify.
+Working-folder allowances (`2026-10-09.1`): a command that reaches Jev is first checked in code, and
+when every segment is allowlisted or meets one of the conditions below it is allowed without calling
+Jev and always recorded (not sampled): stage `deterministic`, rule `project-recoverable`, verdict
+`allow`, with `recoverable_segments` and `deletion_targets` (each `{path, class, effect}`) in the
+state. The denylist still wins. The conditions are binary facts of the command and the filesystem,
+never of who asked. Anything unresolved (a `$var`, substitution, heredoc, `eval`, `sh -c`, a glob
+with more than 200 matches) does not qualify.
 
-- **Deletion and overwrite** (`rm`, `rmdir`, `unlink`, `git rm`; `mv`/`cp` onto an existing path
-  and the `mv` sources; `truncate`; a `>`/`>>` redirect onto an existing file; globs expanded after
-  `cd` tracking): every target is session-created (below), or lies in the session's working folder
-  (the session cwd, itself included) whatever its git state, except when the working folder is the
-  home directory, `/` or a top-level directory (class `restricted_folder`), or the target reaches git
-  metadata (class `git_metadata`: a path through `.git`, a directory holding `.git`, or the
-  repository root, so `rm -rf .` at a repository root does not qualify). Otherwise the class is
-  `outside_folder`. A redirect to `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/tty` is not a
-  target. `-t`/`-T` copy forms do not qualify.
+- **Deletion and overwrite** (`rm`, `rmdir`, `unlink`, `shred`, `trash`, `git rm`; `mv`/`cp` onto an
+  existing path; `truncate`; a `>` redirect onto an existing file; globs expanded after `cd`
+  tracking, redirects resolved in the folder of their own segment): every target can lose nothing.
+  Classes, first match wins: `session_created` (below), `temporary` (strictly inside `/tmp`,
+  `/private/tmp` or the process temp folder, or a cache/build output such as `node_modules`, `dist`,
+  `target`, `build` inside the working folder), `outside_folder`, `restricted_folder` (the working
+  folder is home, `/` or a top-level directory), `git_metadata` (a path through `.git`, a directory
+  holding `.git`, or the repository root), `absent` (does not exist), then `versioned` when git can
+  restore all of it (no `git status` entry — untracked, ignored other than caches, staged or
+  modified — at, under or above it) and `unversioned` otherwise (including a working folder that is
+  not a repository). `session_created`, `temporary`, `absent` and `versioned` qualify. A redirect to
+  `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/tty` is not a target. `-t`/`-T` copy forms do
+  not qualify.
+- **Moves and appends** lose nothing: an `mv` source (effect `move`) and a `>>` target qualify by
+  location alone, so `unversioned` is allowed for them.
 - **Session-created** (anywhere on disk): the target, or an ancestor, did not exist when this
   session first targeted it by a write or edit tool call, `mkdir`, `touch`, a `cp`/`mv`
   destination, a `>`/`>>` redirect, `git worktree add` or `git clone`. Kept in memory per session id;
@@ -109,36 +117,87 @@ matches) does not qualify.
 Git discards (`git reset --hard`, `git clean`, `git checkout|restore -- <paths>`) are not covered.
 `mkdir` and `touch` are not themselves allowed segments, so `mkdir x && rm -r x` still goes to Jev.
 
-Jev state fields computed in code from the command and cwd (no `agent_kind`): `deleted_paths`
-(resolved against the cwd, following `cd`), `deletions_all_temporary` (all under /tmp,
-/var/folders, a cache, `node_modules`, `dist`, `target` or `build`; null when nothing is deleted),
-`deleted_paths_git_tracked`, `kill_pattern` (`none`, `pid`, `exact_name`, `explicit_path`,
-`broad_pattern`), `overwrites_existing_outside_temp` (`mv`/`cp` onto an existing file),
-`secret_names_referenced`, `secret_value_sinks` (`stdout`, `network`, `file`, `argument`) and
-`secret_value_possible`. Questions: `effect` choice (read_only, reversible, irreversible,
-none_of_these), `destructive` noul, `secret_exposure` noul; each states one condition and they do
-not overlap (irreversibility of the effect, kind of destruction, credential value flow).
+Jev state fields computed in code, from the same target analysis as the allowances, so code and Jev
+are told the same thing about every path (no `agent_kind`): `deleted_paths`,
+`deletions_all_temporary` (every deletion is `temporary`, `session_created` or `absent`; null when
+nothing is deleted), `deleted_paths_git_tracked` (over the other deletions: true when every one is
+`versioned`, false when one is `unversioned`, null otherwise), `kill_pattern` (`none`, `pid`,
+`exact_name`, `explicit_path`, `broad_pattern`), `overwrites_existing_outside_temp` (an overwrite
+target that is not scratch, session-created or `versioned`), `secret_names_referenced`,
+`secret_value_sinks` (`stdout`, `network`, `file`, `argument`) and `secret_value_possible`.
+Questions: `effect` choice (read_only, reversible, irreversible, none_of_these), `destructive` noul,
+`secret_exposure` noul; each states one condition and they do not overlap (irreversibility of the
+effect, kind of destruction, credential value flow).
 
 When a command still goes to Jev, the state also carries `deletion_targets` (at most 20 entries of
-path and class: `session_created`, `in_working_folder`, `git_metadata`, `restricted_folder`,
-`outside_folder`, `unresolved`) and `recoverable_segments`, computed in code; the questions are
-unchanged.
+path, class and effect) and `recoverable_segments`; the questions are unchanged.
 
 Composition: block at P(irreversible) ≥ 0.6, destructive ≥ 0.7 or exposure ≥ 0.75; confirm at
-P(irreversible) 0.35–0.6 or destructive 0.35–0.7. The exposure answer counts only when
-`secret_value_possible` is true (a credential value can flow to a sink, a secret-like path is read,
+P(irreversible) 0.35–0.6 or destructive 0.35–0.7. `destructive` describes the action, not whether it
+can be undone, so it does not count when code has settled the command (every deletion and overwrite
+listed and qualifying, no opaque step — `xargs`, `rsync`, `find`, `docker`, `launchctl`, a git
+subcommand other than read-only ones, `add`, `commit`, `fetch`, `push`, `mv`, `rm` or housekeeping —
+no inline code, and `kill_pattern` `none` or `pid`); `effect` still judges the rest. The exposure
+answer counts only when `secret_value_possible` is true (a credential value can flow to a sink, a
+secret-like path is read,
 or the command runs code the text cannot show); the raw answer is still recorded. Re-checked on
 2026-10-02 against 399 labelled real commands and the round-2 held-out set: no grid point did better,
 so the remaining errors belong to the questions and policy, not the cut-offs.
 
 The `.3` figures above (399 labelled commands, the held-out set) were measured before the allowances
-and do not describe `.4`. Jev scores that reach a block threshold no longer hard-block a main agent
-with a UI: it gets the confirm prompt, whose text says the command is high-risk (state
-`promoted_from_block: true`); subagents and agents without a UI stay blocked. Secret exposure at or
-above its threshold, and every denylist rule, stay hard blocks. Every bash confirm prompt (a Jev
-confirm, a promoted block, `command-exceeds-judged-window`) records `state.userDecision`
-(`approved`, `declined`, or `null` when nobody could be asked) and sets `enforced` false only when
-the user approved, as `guard.integrity` does.
+and do not describe `.4`. Jev scores that reach a block threshold do not hard-block an agent that can
+reach the user: a main agent with a UI, or a subagent once the main session's UI has been seen in
+the same process (the prompt title names the subagent; prompts queue one at a time). OMP stops a
+`tool_call` handler after `extensionHandlers.toolCallTimeoutMs` (default 30 s) and pauses that clock
+only for dialogs on the handler's own UI, so a subagent's prompt closes 25 s after its handler
+started (it shows the seconds left, and is not shown with under 5 s left); an unanswered prompt
+blocks telling the subagent to ask, recorded with `userDecision: null`. It gets the
+confirm prompt, whose text says the command is high-risk (state `promoted_from_block: true`);
+agents with nobody to ask stay blocked. Secret exposure at or above its threshold, and every
+denylist rule, stay hard blocks. Every bash confirm prompt (a Jev confirm, a promoted block,
+`command-exceeds-judged-window`) records `state.userDecision` (`approved`, `declined`, or `null`
+when nobody could be asked) and sets `enforced` false only when the user approved, as
+`guard.integrity` does.
+
+### Scope `system-only`
+
+Set `"guard.bash.scope": "system-only"` in `agent/jev-policies.json` (default `strict`), or switch
+for the running process with `/guard-scope strict|system-only` (no argument shows the scope). On a
+platform without a protected-folder list (not macOS or Windows) the scope stays `strict`. Records
+carry version `guard-bash-system-2026-10-09.1` and `state.scope`.
+
+Protected folders (`agent/extensions/lib/system-paths.ts`, compared case-insensitively, symlinked
+ancestors resolved): macOS `/System`, `/bin`, `/sbin`, `/usr` (not `/usr/local`), `/etc`,
+`/private/etc`, `/var` and `/private/var` (not their `folders` and `tmp`), `/Library`,
+`/Applications`, `/cores`, `~/Library`, `~/.ssh`, `~/.gnupg`, and as themselves only `/`, `/private`,
+`/Users`, the home folder and `/Volumes` with its mount points; Windows the system drive root and
+`Users` folder and the home folder themselves, `%SystemRoot%`, the Program Files folders,
+`%ProgramData%`, `System Volume Information`, `$Recycle.Bin`, `Recovery`, `Boot`, the page, hibernate
+and swap files, and the profile's `AppData`, `.ssh` and `NTUSER.DAT` (`C:\…`, `C:/…`, `/c/…`,
+`/cygdrive/c/…`, `%VAR%` and `$env:VAR` spellings).
+
+Decisions: the credential rules (`secret-read`, `env-dump`, `secret-file-write`, `proc-environ`) and
+`pipe-to-shell` block as in `strict`; every other denylist rule is dropped. Rule `system-folder`
+asks the user when a known writer (`rm`, `mv`, `chmod`, `chown`, `touch`, `mkdir`, `tee`, …; `cp`,
+`install`, `rsync`, `ditto`, `ln` destinations; `dd of=`; redirects) targets a protected folder (a
+glob counts as acting on the folder it expands in, so `rm -rf ~/*` acts on home), a non-read-only
+program runs inside a protected subtree, or a system program changes the machine (`sudo`, `doas`,
+`launchctl` load/unload/…, `systemctl` changes, `diskutil` erase/partition/…, `csrutil`, `nvram`
+writes, `tmutil` changes, `spctl`, `pmset`, `defaults write|delete`, `scutil --set`,
+`networksetup -set…`, `kextload`, `kmutil`, `shutdown`, `reboot`, `mkfs`, `dd of=/dev/…`,
+`kill 1`; Windows `reg add|delete|…`, `bcdedit`, `sc create|delete|…`, `takeown`, `icacls` grants,
+`format`, `diskpart`, `schtasks /create|/delete`, `net user|localgroup`, service cmdlets). A
+`write`/`edit` inside a protected folder asks the same way, under `guard.write`'s mode. Jev
+`touches_system` (with `secret_exposure`) is asked only when code cannot settle it: a protected path
+an unknown program names, inline code that names a protected path or uses a reaching construct
+(`expanduser`, `homedir`, `Path.home(`, `%APPDATA%`, `sudo`, …), a write target or folder behind a
+variable the command does not assign itself, or unclear credential handling. `touches_system` ≥ 0.5
+asks the user (uncalibrated at release, enforced from the start by decision), exposure ≥ 0.75 with
+`secret_value_possible` blocks; everything else runs unscreened.
+
+Replay (2026-10-09, deterministic stage only, 3,683 unique commands from `guard.bash` audit records,
+cwd state at replay time): 3,653 run unscreened, 27 go to Jev, 3 block on `secret-read`, 0 ask on
+`system-folder` (the corpus holds no system-folder writes).
 
 ## guard.write
 
@@ -188,10 +247,12 @@ prepends a warning to the result; results under 40 characters (after stripping) 
 
 ## Enforce behaviour
 
-Bash and write await Jev (8 s timeout) and fail closed on `jev_error`; confirm asks the user in the
-main agent and blocks in subagents. A main agent with a UI is also asked, not blocked, on a bash
-Jev block that is not secret exposure. The result screen awaits Jev (8 s per window) and fails open
-(result unchanged, error recorded).
+Bash and write await Jev (8 s timeout) and fail closed on `jev_error`; confirm asks the user — in the
+main agent directly, in a subagent through the main session's UI once it has been seen — and blocks
+when nobody can be asked. An agent that can ask is also asked, not blocked, on a bash Jev block that
+is not secret exposure. The result screen awaits Jev (8 s per window) and fails open (result
+unchanged, error recorded). A `jev-policies.json` that cannot be parsed makes every policy enforce
+and notifies the user at session start.
 
 ## Known limits
 
@@ -201,6 +262,8 @@ From the 2026-10-02 promotion (`.todo/artifacts/021026-jev-promotion/report.md`)
 (windows), and the `read ./docs/NOTES.md` miss (decision above). Thresholds and every `.3` figure
 need a labelled replay and a fresh held-out corpus. The `.4` allowances were replayed only against
 the 399 labelled bash commands (`.todo/artifacts/021026-jev-action/final-bash.json`) in the cwd
-state on disk at replay time: none of the 34 labelled positives were allowed by code. The `.6`
-working-folder rule has not been replayed: it allows by design deletions the label policy counts as
-destructive (untracked or dirty files inside the working folder).
+state on disk at replay time: none of the 34 labelled positives were allowed by code. The
+`2026-10-09.1` rule was replayed with live Jev over the 20 escalations recorded under `.6`: both
+deliberate destructive smoke tests (`rm .git/HEAD`, a deletion outside the folder) still block, and
+6 of 7 subagent blocks on project files now allow; many of those files no longer exist, so their
+targets replayed as `absent`, which overstates the gain. Thresholds are unchanged and unrecalibrated.

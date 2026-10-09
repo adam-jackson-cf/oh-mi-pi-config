@@ -33,11 +33,6 @@ Last reviewed 2026-09-30 (GPT-6.1 Sol launch, OMP 18.4.4). Source of truth is
   `medium` 48/48, 9 s median.
 - `operator` → GPT-6.1 Sol : low. Used by the `operator` agent (browser and computer preludes).
   OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-09-30.
-- `advisor` → GPT-6 Astra : low. Used by advisor watchdog runtime alongside the Jev classifier
-  extension. Owner-fixed; not a routing lever. Leave unchanged in reviews.
-  `task.agentAdvisor: { task: "on" }` (2026-09-29) gives bundled `task` subagents the watchdog so
-  implementation work in subagents is reviewed and audited under the subagent's own session;
-  reviewers, scouts and judges stay unadvised. Leave `task` on unless the owner asks otherwise.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner: Opus-led council.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
@@ -58,8 +53,11 @@ Extensions in `agent/extensions/` follow the evidence ladder (deterministic >
 Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
 `agent/jev-audit/<policy>/` and are labelled in the Jev lab (`~/.omp/jev-lab`).
 
-- `jev-guard.ts`: `guard.bash` (read-only allowlist, destructive and
-  secret-read denylist, then Jev effect/intent/exposure), `guard.write`
+- `jev-guard.ts`: `guard.bash` (scope `strict`: read-only allowlist, destructive and
+  secret-read denylist, git-restorable working-folder allowances, then Jev
+  effect/intent/exposure; scope `system-only`, set by `guard.bash.scope` or
+  `/guard-scope`: asks only about operating-system and protected folders),
+  `guard.write`
   (secret paths and literals, then Jev `contains_secret` on credential-like
   assignments), `guard.result` (Jev `prompt_injection` on web, MCP and
   network-fetch output only), `guard.integrity` (gate-weakening rules, then

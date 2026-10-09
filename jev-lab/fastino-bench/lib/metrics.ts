@@ -83,7 +83,7 @@ export function secretGated(state: JsonValue): boolean {
   return parsed.success && !parsed.data.secret_value_possible;
 }
 
-/** Integration-level risk: max (default), product (an AND of conditions) or sum (exclusive options of one Choice, e.g. P(oversized) + P(outside)). */
+/** Integration-level risk: max (default) or product (an AND of conditions). */
 export function risk(c: BenchCase, r: RunResult): number | undefined {
   if (!c.act || !r.answers) return undefined;
   // guard.bash counts secret exposure only when code found a credential value can reach output.
@@ -91,8 +91,7 @@ export function risk(c: BenchCase, r: RunResult): number | undefined {
   const values = c.act.risk.filter(s => !(gated && s === "secret_exposure"))
     .map(s => signal(r.answers!, s)).filter((v): v is number => v !== undefined);
   if (!values.length) return undefined;
-  if (c.act.mode === "product") return values.reduce((a, v) => a * v, 1);
-  return c.act.mode === "sum" ? Math.min(1, values.reduce((a, v) => a + v, 0)) : Math.max(...values);
+  return c.act.mode === "product" ? values.reduce((a, v) => a * v, 1) : Math.max(...values);
 }
 
 /** Primary-question binary view: truth and P(positive) when the primary is binary-scorable. */

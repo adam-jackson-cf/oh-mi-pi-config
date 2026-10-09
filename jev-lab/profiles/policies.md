@@ -16,7 +16,6 @@ redacted). Labels are appended to `<policy>/labels.jsonl` from the Jev lab workb
 
 Per-process rules, thresholds, label vocabularies and evaluation criteria:
 
-- [Scope watchdog](jev-scope.md) (`jev-scope`)
 - [Tool guards](guards.md) (`guard.bash`, `guard.write`, `guard.result`)
 - [Integrity guard](guard-integrity.md) (`guard.integrity`)
 - [`jev_ask` tool](ask.md) (`ask`)

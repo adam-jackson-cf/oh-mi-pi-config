@@ -24,9 +24,9 @@ export type BenchCase = {
   /**
    * Integration-level truth when per-question truth is unknown (e.g. a guard should block/flag).
    * `risk` lists the signals: "q" = P(true) of noul q, "q:opt" = P(opt) of choice q; combined by
-   * max() (default: any signal acts), product (all conditions must hold) or sum (exclusive options of one Choice).
+   * max() (default: any signal acts) or product (all conditions must hold).
    */
-  act?: { truth: boolean; risk: string[]; mode?: "max" | "product" | "sum" };
+  act?: { truth: boolean; risk: string[]; mode?: "max" | "product" };
   /** Free-form stratification fields, e.g. { bucket: "8k", depth: 0.75, kind: "temporal" }. */
   meta?: Record<string, JsonValue>;
 };
@@ -91,7 +91,7 @@ export const benchCaseSchema = z.object({
   truth: z.record(z.string(), z.union([z.boolean(), z.string(), z.number()])),
   primary: z.string(),
   positive: z.string().optional(),
-  act: z.object({ truth: z.boolean(), risk: z.array(z.string()), mode: z.enum(["max", "product", "sum"]).optional() }).optional(),
+  act: z.object({ truth: z.boolean(), risk: z.array(z.string()), mode: z.enum(["max", "product"]).optional() }).optional(),
   meta: z.record(z.string(), jsonValueSchema).optional(),
 }) satisfies z.ZodType<BenchCase>;
 

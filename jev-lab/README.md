@@ -21,56 +21,14 @@ The workbench key is `OPENROUTER_API_KEY` if set, otherwise the stdout of `omp t
 captured at startup. Without a key, Replay, Playground and case-set runs are disabled (visible
 notice); labelling and metrics still work.
 
-## Labelling workflow: 30 labelled jev-scope cases
-
-The jev-scope profile (`jev-lab/profiles/jev-scope.md`) needs at least
-30 labelled sufficient-input cases with at least 5 `overreach` labels before any threshold or
-routing change.
-
-1. Open the **Labelling queue** tab (source `jev-scope`). It lists unlabelled, sufficient-input
-   cases (a user request present and no changed text cut; legacy versions: task source
-   `current`/`carried_forward`, unclipped objective), round-robin across P(yes) bands, highest
-   band first.
-2. Open a case, read the request, plan and activity (state is shown pretty-printed; the session
-   transcript path is shown for deeper checks). Decide from the state using the profile's R2 tests
-   (required? smallest?), before weighing Jev's answer.
-3. Press `1` overreach, `2` no_overreach, `3` uncertain. `j`/`k` move between cases, `n` focuses the
-   note. The label is appended to that session's `jev-watchdog-requests.jsonl` as a
-   `reviewer_outcome` record, the same format `/jev-label` writes. A second human label or a
-   request with no outcome is rejected. Notes cannot be stored in that record, so they go to
-   `runs/scope-notes.jsonl`.
-4. Watch the progress bar until both minimums are met, then open **Metrics** for the confusion
-   matrix at your chosen threshold (default 0.9) and the 0.50-0.95 sweep. Uncertain labels are
-   excluded from the matrix; unlabelled cases are excluded.
-
-### Agent first-pass labels
+## Agent first-pass labels
 
 Labels written by blind LLM labellers carry `reviewer: "agent"`. They count toward the metrics and
-progress (reported separately as `agentLabelled` and `humanConfirmed`) and show as `agent: <label>`
-until you confirm or override them; the latest human label always wins, and a human label is never
-overwritten by an agent one. Apply a batch with
+show as `agent: <label>` until you confirm or override them; the latest human label always wins, and
+a human label is never overwritten by an agent one. Apply a batch with
 `bun jev-lab/scripts/apply-agent-labels.ts <labels.jsonl>`, one `{source, id, label, note}` per line
-(`source` is `jev-scope` or `policy:<name>`); cases that already carry a label are skipped. The
-**Cases** filter `agent` lists them, and **Review proposals** keeps them in the queue.
-
-### Policy versions
-
-The current jev-scope policy version is derived from the data: the `policy_version` of the newest
-case by timestamp (`unversioned` is ignored). The Labelling queue and its progress counts use
-current-version cases only, whatever the selector says. Cases and Metrics default to the current
-version; the version selector lists every other version as "legacy" so those cases stay inspectable
-(`version=` on `/api/cases` and `/api/metrics` takes `current` or an exact version).
-
-### Reviewing first-pass proposals
-
-If `runs/scope-proposals.jsonl` exists (one row per case: `id`, `label`, `agreement`
-agreed/disputed, `rationale`, `namedChange`, `evidence`, `labellers`), each case shows a "First-pass
-proposal" panel above Jev's answer. Proposals are never labels. Press `a` (or "Accept proposal") to
-write the proposed label through the normal human path with the note `accepted first-pass proposal`,
-or `1`/`2`/`3` to override; an owner label that differs from the proposal is shown as overridden. In
-the Labelling queue choose the "Review proposals" order (disputed first, then proposed `overreach`,
-then the rest by P(yes)); the progress line adds "proposals reviewed: X / Y". Malformed rows are
-skipped.
+(`source` is `policy:<name>`); cases that already carry a label are skipped. The **Cases** filter
+`agent` lists them.
 
 ## Policy sources
 

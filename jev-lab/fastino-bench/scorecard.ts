@@ -21,9 +21,6 @@ const SLICES: { label: string; experiment: string; dataset: string }[] = [
   { label: "E1 guard.integrity", experiment: "e1-baseline", dataset: "guard.integrity" },
   { label: "E2 reasoning", experiment: "e2-reasoning", dataset: "reasoning" },
   { label: "E3 long page", experiment: "e3-longctx", dataset: "full" },
-  { label: "E4 real (todo state)", experiment: "e4-proportionality", dataset: "real" },
-  { label: "E4 real (watchdog state)", experiment: "e4-proportionality", dataset: "real-watchdogstate" },
-  { label: "E4 injected", experiment: "e4-proportionality", dataset: "perturbed" },
 ];
 
 type Row = { auroc?: number; accuracy?: number; n: number; costPer1k: number; p50: number; p95: number; p99: number; overBudget: number };
@@ -94,7 +91,7 @@ const PROFILES: Profile[] = [
     note: "E1 slices; the guard waits 8 s and blocks, so each 1% of calls over 8 s costs 10 speed points" },
   { name: "Advisory / offline", slices: SLICES.filter(s => s.experiment !== "e1-baseline").map(s => s.label),
     weights: { quality: 0.8, speed: 0, cost: 0.2 }, failClosed: false,
-    note: "E2–E4 slices; latency-tolerant uses such as the proportionality watchdog or batch review" },
+    note: "E2–E3 slices; latency-tolerant uses such as batch review" },
   { name: "Balanced", slices: SLICES.map(s => s.label), weights: { quality: 0.5, speed: 0.25, cost: 0.25 }, failClosed: false,
     note: "every slice" },
 ];
