@@ -86,7 +86,8 @@ async function withGuard(mode: PolicyMode, jev: Jev, run: (h: Harness) => Promis
   }, { preconnect: realFetch.preconnect });
   try {
     const shared: GuardShared = { queue: Promise.resolve() };
-    const guard = createJevGuard({ loadKey: async () => API_KEY, shared });
+    // The macOS protected-folder list on every host, so the system-only scope is exercised in Linux CI too.
+    const guard = createJevGuard({ loadKey: async () => API_KEY, shared, platform: "darwin" });
     const handlers = new Map<string, Handler>();
     const commands = new Map<string, Command>();
     const on = (name: string, handler: Handler) => { handlers.set(name, handler); };
@@ -895,7 +896,7 @@ test("protected folders: system subtrees, their exceptions, and home or drive ro
   assert.deepEqual(literalPaths("darwin", `cp a ~/Library/x; sed s/a/b/ "$HOME/.gnupg/k"`, home), [`${home}/Library/x`, `${home}/.gnupg/k`]);
 });
 
-test("system-only: project-level destruction runs unscreened; acting on system folders or the machine asks the user", { skip: process.platform !== "darwin" }, async () => {
+test("system-only: project-level destruction runs unscreened; acting on system folders or the machine asks the user", async () => {
   await withGuard("enforce", {}, async (h) => {
     for (const command of ["rm -rf src", "rm dirty.txt", "git reset --hard", "git push --force origin main", "rm -rf node_modules dist",
       "cp /etc/hosts ./hosts", "cp notes.txt /usr/local/bin/notes", `rm -rf ${join(scratch, "anything")}`, "npm publish",
@@ -922,7 +923,7 @@ test("system-only: project-level destruction runs unscreened; acting on system f
   }, "system-only");
 });
 
-test("system-only: dynamic code, unresolved targets and protected paths named by unknown programs go to the Jev system question", { skip: process.platform !== "darwin" }, async () => {
+test("system-only: dynamic code, unresolved targets and protected paths named by unknown programs go to the Jev system question", async () => {
   const dynamic = `python3 -c "import shutil; shutil.rmtree('/Library/x')"`;
   await withGuard("enforce", { system: 0.9 }, async (h) => {
     for (const command of [dynamic, 'rm -rf "$TARGET"', "node build.js --out /Library/x"]) {
@@ -937,7 +938,7 @@ test("system-only: dynamic code, unresolved targets and protected paths named by
   }, "system-only");
 });
 
-test("system-only: writes and edits inside a protected folder ask the user; project writes do not", { skip: process.platform !== "darwin" }, async () => {
+test("system-only: writes and edits inside a protected folder ask the user; project writes do not", async () => {
   await withGuard("enforce", {}, async (h) => {
     assert.equal((await call(h, "write", { path: "~/Library/jev-guard-test.txt", content: "x" }))?.block, true);
     const confirms: ConfirmCall[] = [];
@@ -950,7 +951,7 @@ test("system-only: writes and edits inside a protected folder ask the user; proj
   });
 });
 
-test("/guard-scope switches the scope for the process and rejects anything but strict or system-only", { skip: process.platform !== "darwin" }, async () => {
+test("/guard-scope switches the scope for the process and rejects anything but strict or system-only", async () => {
   await withGuard("enforce", { irreversible: 0.9 }, async (h) => {
     const command = h.commands.get("guard-scope");
     assert.ok(command);

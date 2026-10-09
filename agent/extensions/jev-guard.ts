@@ -168,8 +168,11 @@ type DecisionMaker = (rest: Pick<NewDecision, "stage" | "verdict" | "enforced"> 
  * `queue` puts one prompt on screen at a time; `scopeOverride` is the `/guard-scope` choice for this process.
  */
 export type GuardShared = { mainUi?: ExtensionContext["ui"]; queue: Promise<unknown>; scopeOverride?: BashScope };
-/** `shared` defaults to state private to this guard instance; the loaded extension shares one across sessions. */
-export type JevGuardOptions = { loadKey?: () => Promise<string | undefined>; shared?: GuardShared };
+/**
+ * `shared` defaults to state private to this guard instance; the loaded extension shares one across sessions.
+ * `platform` (default `process.platform`) picks the protected-folder list for the system-only scope.
+ */
+export type JevGuardOptions = { loadKey?: () => Promise<string | undefined>; shared?: GuardShared; platform?: string };
 const PROCESS_SHARED: GuardShared = { queue: Promise.resolve() };
 const BASH_SCOPES: BashScope[] = ["strict", "system-only"];
 const SCOPE_DESCRIPTIONS = {
@@ -1793,6 +1796,7 @@ function editTargets(input: EditInput): WriteTarget[] | undefined {
 export function createJevGuard(options: JevGuardOptions = {}) {
   const pending = new Set<Promise<void>>();
   const shared = options.shared ?? { queue: Promise.resolve() };
+  const hostPlatform = options.platform ?? process.platform;
   /** `guard.bash.scope` from the policies file; `/guard-scope` overrides it for the process through `shared`. */
   let fileScope: BashScope = "strict";
   let modes: Record<string, PolicyMode> = {};
@@ -1822,7 +1826,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
    * undefined under strict. A platform without a protected-folder list stays strict.
    */
   const systemOnly = (): SystemPlatform | undefined =>
-    (shared.scopeOverride ?? fileScope) === "system-only" && isSystemPlatform(process.platform) ? process.platform : undefined;
+    (shared.scopeOverride ?? fileScope) === "system-only" && isSystemPlatform(hostPlatform) ? hostPlatform : undefined;
 
   /** When each `tool_call` handler run started, keyed by its handler-scoped context (one object per run). */
   const handlerStarts = new WeakMap<ExtensionContext, number>();
@@ -2391,8 +2395,8 @@ export function createJevGuard(options: JevGuardOptions = {}) {
           ctx.ui.notify(`Jev guard scope must be strict or system-only, not "${wanted}".`, "error");
           return;
         }
-        if (wanted === "system-only" && !isSystemPlatform(process.platform)) {
-          ctx.ui.notify(`Jev guard: system-only needs macOS or Windows; ${process.platform} has no protected-folder list, so the scope stays strict.`, "error");
+        if (wanted === "system-only" && !isSystemPlatform(hostPlatform)) {
+          ctx.ui.notify(`Jev guard: system-only needs macOS or Windows; ${hostPlatform} has no protected-folder list, so the scope stays strict.`, "error");
           return;
         }
         shared.scopeOverride = wanted;
