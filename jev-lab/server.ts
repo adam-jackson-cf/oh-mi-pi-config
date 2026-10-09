@@ -4,7 +4,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { auditRoot, decide, type JevAnswers, type JevQuestions, type JevResult, type JsonValue } from "../agent/extensions/lib/jev";
