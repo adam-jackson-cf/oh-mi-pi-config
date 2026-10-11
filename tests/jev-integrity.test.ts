@@ -117,6 +117,11 @@ function records(): DecisionRecord[] {
   }
 }
 
+function stateField(record: DecisionRecord, key: string): JsonValue | undefined {
+  const state = record.state;
+  return state instanceof Object && !Array.isArray(state) ? state[key] : undefined;
+}
+
 test("shipped rules: no legitimate fixture escalates without Jev, every non-miss hack is routed", () => {
   const rules = parseRules(readFileSync(join(RULES_DIR, "rules.json"), "utf8"));
   const fixtures = parseFixtures(readFileSync(join(RULES_DIR, "fixtures.json"), "utf8"));
@@ -237,7 +242,7 @@ test("enforce: files staged by the same command are screened, including untracke
   });
 });
 
-test("enforce: the main agent asks the user; a declined change is re-blocked without asking again", async () => {
+test("enforce: the main agent asks the user; an answered change is not asked about again", async () => {
   freshRepo();
   const confirms: string[] = [];
   await withGuard("enforce", fixed({}), async (h) => {
@@ -249,8 +254,21 @@ test("enforce: the main agent asks the user; a declined change is re-blocked wit
     assert.equal(confirms.length, 1);
     const approved = await h.call("bash", { command: "SKIP=mypy git commit -m y" }, makeCtx("main", true, confirms, true));
     assert.equal(approved, undefined);
+    assert.equal(confirms.length, 2);
+    const retried = await h.call("bash", { command: "SKIP=mypy git commit -m y" }, makeCtx("main", true, confirms, false));
+    assert.equal(retried, undefined);
+    assert.equal(confirms.length, 2);
   });
-  assert.ok(records().some((r) => r.rule === "hook-skip-env" && r.verdict === "confirm"));
+  assert.ok(records().some((r) => r.rule === "hook-skip-env" && r.verdict === "confirm" && stateField(r, "remembered") === true));
+});
+
+test("enforce: an escalation nobody can answer records why and tells the agent", async () => {
+  freshRepo();
+  await withGuard("enforce", fixed({}), async (h) => {
+    const unasked = await h.call("bash", { command: "SKIP=ruff git commit -m z" }, makeCtx("sub", false));
+    assert.match(unasked?.reason ?? "", /no session UI could reach the user/);
+  });
+  assert.ok(records().some((r) => r.rule === "hook-skip-env" && r.verdict === "block" && stateField(r, "unanswered") === "no-ui"));
 });
 
 test("enforce: once the user approves editing a guard file, later edits to that file in the session do not ask again", async () => {
@@ -321,13 +339,16 @@ test("bash rules see through quoting and shell strings, and ignore heredoc data"
   assert.deepEqual(ids("bash <<EOF\ngit commit --no-verify\nEOF"), ["git-no-verify"]);
 });
 
-test("read targets: ancestors of the guarded root need a recursive tool; globs and file:// reach it", () => {
+test("read targets: ancestors need a recursive content tool; globs reach the root only by naming it; file:// reaches it", () => {
   const root = join(homedir(), ".omp", "integrity-maintainer");
   const omp = join(homedir(), ".omp");
   assert.deepEqual(readTargets(omp, "grep", "/"), [omp, root]);
   assert.deepEqual(readTargets(".", "find", omp), [omp, root]);
   assert.deepEqual(readTargets(omp, "read", "/"), [omp]);
   assert.deepEqual(readTargets(join(omp, "integrity-m*"), "glob", "/"), [join(omp, "integrity-m*"), root]);
+  assert.deepEqual(readTargets("~/*/integrity-maintainer/*.md", "glob", "/"), [join(homedir(), "*", "integrity-maintainer", "*.md"), root]);
+  assert.deepEqual(readTargets("~/**/by-request/", "glob", "/"), [join(homedir(), "**", "by-request")]);
+  assert.deepEqual(readTargets(".", "glob", omp), [omp]);
   assert.deepEqual(readTargets(`file://${root}/x.md`, "read", "/"), [`${root}/x.md`]);
   assert.deepEqual(readTargets(join(omp, "agent"), "grep", "/"), [join(omp, "agent")]);
   assert.deepEqual(readTargets("skill://evaluate-jev", "read", "/"), []);

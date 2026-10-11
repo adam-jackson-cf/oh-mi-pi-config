@@ -279,7 +279,9 @@ export function routeOf(matches: RuleMatch[]): Route {
 
 const homePath = (path: string): string => (path === "~" || path.startsWith("~/") ? homedir() + path.slice(1) : path);
 const READ_ROOT = join(homedir(), ".omp", "integrity-maintainer");
-const RECURSIVE_READ_TOOLS = new Set(["grep", "find", "glob"]);
+// `grep` and `find` read content, so scanning an ancestor reaches the guarded root. `glob` lists names only: it reaches the
+// root only when its pattern names it, not by scanning an ancestor.
+const RECURSIVE_READ_TOOLS = ["grep", "find"];
 const GLOB_CHARS = /[*?[{]/;
 const READ_SELECTOR = /(?::raw|:\d[\d,+:-]*)+$/;
 
@@ -296,8 +298,8 @@ function segmentMatches(glob: string, name: string): boolean {
 
 /**
  * The paths a read-like tool call can reach that `read` rules should see: the path itself, plus the
- * guarded root when a glob can match it or a recursive tool (grep, find, glob) scans an ancestor of
- * it. `file://` paths are filesystem paths; other schemes are not.
+ * guarded root when a recursive content tool (grep, find) scans an ancestor of it, or when a pattern
+ * names it without first passing through `**`. `file://` paths are filesystem paths; other schemes are not.
  */
 export function readTargets(raw: string, tool: string, cwd: string): string[] {
   let text = raw;
@@ -313,12 +315,18 @@ export function readTargets(raw: string, tool: string, cwd: string): string[] {
   if (path === READ_ROOT || path.startsWith(`${READ_ROOT}/`) || path.startsWith(`${READ_ROOT}:`)) return [path];
   const parts = path.replace(READ_SELECTOR, "").split("/").filter(Boolean);
   const root = READ_ROOT.split("/").filter(Boolean);
+  let named = parts.length >= root.length;
   for (const [i, part] of parts.entries()) {
-    if (part === "**" || i >= root.length) break;
+    if (i >= root.length) break;
+    if (part === "**") {
+      named = false;
+      break;
+    }
     if (!segmentMatches(part, root[i] ?? "")) return [path];
   }
+  if (tool === "glob") return named ? [path, READ_ROOT] : [path];
   const ancestor = parts.length < root.length && !parts.includes("**");
-  return ancestor && !RECURSIVE_READ_TOOLS.has(tool) ? [path] : [path, READ_ROOT];
+  return ancestor && !RECURSIVE_READ_TOOLS.includes(tool) ? [path] : [path, READ_ROOT];
 }
 
 /** Bash fixtures as commands, read fixtures as tool paths; change fixtures in their context, or both when unset. */
@@ -737,8 +745,8 @@ type SubjectFacts = {
   scratch: boolean; fixture: boolean; codedDirectives: boolean; manualSkip: boolean; chainedToCommit: boolean; masksExit: boolean;
   /** Policy rule 4: the removed test lines import a source file deleted in the same change. */
   testTargetsDeleted: boolean;
-  /** That, and every removed assertion sits in a removed or deleted test (no assertion precedes the first removed test definition). */
-  assertionsInTestsWithDeletedTargets: boolean;
+  /** Every removed assertion sits in a removed or deleted test. */
+  assertionsInRemovedTests: boolean;
   /** A bash subject writes, moves or deletes a configuration path; change subjects are the written config itself. */
   configWritten: boolean;
 };
@@ -753,7 +761,10 @@ const ESCALATES = {
   swallowed_error: (yes, f) => yes("e_swallows") && !yes("e_intentional") && !f.fixture && !f.scratch,
   skip_marker: (yes, f) => !yes("k_reason") && !f.fixture && !f.scratch,
   test_removal: (yes, f) => !yes("t_behaviour_gone") && !yes("t_replaced") && !f.scratch && !f.testTargetsDeleted,
-  assertion: (yes, f) => !f.scratch && !f.assertionsInTestsWithDeletedTargets && (yes("a_broken_value") || (!yes("a_equivalent") && !yes("a_tracks_behaviour"))),
+  // Rule 4: assertions that leave with their own removed tests follow the test-removal verdict (code-settled or Jev-cleared).
+  assertion: (yes, f) => !f.scratch &&
+    !(f.assertionsInRemovedTests && (f.testTargetsDeleted || yes("t_behaviour_gone") || yes("t_replaced"))) &&
+    (yes("a_broken_value") || (!yes("a_equivalent") && !yes("a_tracks_behaviour"))),
   timeout: (yes, f) => !f.scratch && yes("a_timeout_large"),
   snapshot: (yes, f) => !f.scratch && (yes("a_broken_value") || !yes("a_tracks_behaviour")),
   config: (yes, f) => yes("c_loosens") && !f.fixture && !f.scratch && f.configWritten,
@@ -772,7 +783,7 @@ export function escalatingFamilies(subject: SuspectSubject, matches: RuleMatch[]
     codedDirectives: subject.directives.length > 0 && subject.directives.every((line) => p1Allows(line)),
     manualSkip: isManualPrecommitSkip(subject.command ?? ""), chainedToCommit: chainedToGitCommitOrPush(subject.command ?? ""),
     masksExit: masksExitStatus(subject.command ?? ""),
-    testTargetsDeleted: targetsDeleted.length > 0, assertionsInTestsWithDeletedTargets: removedAssertionsInRemovedTests(subject.change) && targetsDeleted.length > 0,
+    testTargetsDeleted: targetsDeleted.length > 0, assertionsInRemovedTests: removedAssertionsInRemovedTests(subject.change),
     configWritten: subject.command === undefined || writtenConfigPaths(subject.command).length > 0,
   };
   const yes: Yes = (id) => (answers[id] ?? 0) >= INTEGRITY_YES;

@@ -154,15 +154,22 @@ if [[ "$CANDIDATES" -eq 0 && "$NARROWING" -eq 0 ]]; then
 fi
 
 # --- 2. worktree from origin/main ---
+# The PR targets origin/main, so the run starts there. A live checkout ahead of it would make the
+# proposer work on stale rules and the deploy refuse the merged result, so stop before any model runs.
 git -C "$OMP_HOME" fetch origin main 2>&1 | tee -a "$RUN/maintain.log"
 BASE_SHA="$(git -C "$OMP_HOME" rev-parse origin/main)"
 for path in "${DATA_PATHS[@]}" agent/extensions/lib/integrity.ts; do
   git -C "$OMP_HOME" cat-file -e "origin/main:$path" 2>/dev/null \
     || die "origin/main lacks $path; merge the integrity feature to main before the first run"
+  git -C "$OMP_HOME" show "origin/main:$path" | cmp -s - "$OMP_HOME/$path" \
+    || die "$path differs from origin/main in $OMP_HOME; commit and push it so the run proposes against the live rules"
 done
 WT_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/integrity-wt.XXXXXX")"
 WT="$WT_PARENT/wt"
 git -C "$OMP_HOME" worktree add "$WT" -b "$BRANCH" origin/main 2>&1 | tee -a "$RUN/maintain.log"
+# The commit's quality gates type-check the worktree, which needs its own dependencies.
+(cd "$WT" && bun install --frozen-lockfile) >>"$RUN/maintain.log" 2>&1 || die "bun install failed in the worktree (see $RUN/maintain.log)"
+log "worktree $BASE_SHA dependencies installed"
 
 # --- 3. proposer ---
 {

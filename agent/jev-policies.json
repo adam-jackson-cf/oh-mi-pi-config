@@ -5,5 +5,5 @@
   "guard.write": "enforce",
   "guard.result": "enforce",
   "guard.integrity": "enforce",
-  "guard.integrity.suspect": "enforce"
+  "guard.integrity.suspect": "shadow"
 }

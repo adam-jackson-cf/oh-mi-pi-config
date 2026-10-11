@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { Glob } from "bun";
 import { loadJevApiKey } from "../../agent/extensions/lib/jev-auth.ts";
-import { auditRoot, decide, redact, redactValue } from "../../agent/extensions/lib/jev.ts";
+import { auditRoot, clip, decide, redact, redactValue } from "../../agent/extensions/lib/jev.ts";
 import type { JevQuestions, JsonValue, NoulQuestion } from "../../agent/extensions/lib/jev.ts";
 import { loadRules, matchBash, matchChange, parseUnifiedDiff, routeOf } from "../../agent/extensions/lib/integrity.ts";
 import type { CompiledRule, FileChange, Route } from "../../agent/extensions/lib/integrity.ts";
@@ -21,6 +21,9 @@ const STATE_CLIP = 6000;
 const COMMAND_CLIP = 4000;
 const RECONCILE_LOOKBACK_MS = 10 * 60_000;
 const NARROWING_APPROVALS = 3;
+// Approved escalations kept per narrowing candidate, so the proposer and verifier see what the user approved.
+const NARROWING_EXAMPLES = 10;
+const EXAMPLE_CLIP = 600;
 const SESSIONS_ROOT = join(homedir(), ".omp", "agent", "sessions");
 const MISS_ROUTES: Route[] = ["none", "record"];
 // A broad discovery noul at or above this makes an unrouted command or commit a miss candidate.
@@ -104,10 +107,15 @@ type Counters = { jevCalls: number; jevErrors: number; commandsScanned: number; 
 type AuditRecord = {
   timestamp: string; rule: string | null; verdict: string; subject: string;
   repo: string | null; tree: string | null; userDecision: string | null;
+  /** The approval reused an earlier answer for the identical command or change, so it is not a separate approval. */
+  remembered: boolean;
+  excerpt: string | null; answers: Scores | null;
 };
 type GitResult = { ok: boolean; out: string };
 type CliArgs = { since: Date; out: string };
-type Escalations = { rows: EscalationRow[]; narrowing: string[] };
+type NarrowingExample = { subject: string; excerpt: string | null; answers: Scores | null };
+type NarrowingCandidate = { rule: string; approvals: number; examples: NarrowingExample[] };
+type Escalations = { rows: EscalationRow[]; narrowing: NarrowingCandidate[] };
 type EscalationRow = { rule: string; verdict: string; userDecision: string; count: number };
 
 function parseArgs(argv: string[]): CliArgs {
@@ -329,13 +337,17 @@ async function readAudit(since: Date): Promise<AuditRecord[]> {
       try {
         // SAFETY: lines are DecisionRecord JSON written by the guard; fields read defensively.
         const raw = JSON.parse(line) as {
-          timestamp?: string; rule?: string; verdict?: string; subject?: string;
-          state?: { repo?: string; tree?: string | null; userDecision?: string };
+          timestamp?: string; rule?: string; verdict?: string; subject?: string; answers?: Record<string, { noul?: number }>;
+          state?: { repo?: string; tree?: string | null; userDecision?: string; remembered?: boolean; matches?: { ruleId?: string; excerpt?: string }[] };
         };
         if (!raw.timestamp || Date.parse(raw.timestamp) < since.getTime()) continue;
+        const answers = raw.answers ? Object.fromEntries(Object.entries(raw.answers)
+          .flatMap(([id, answer]) => (answer.noul === undefined ? [] : [[id, answer.noul]]))) : null;
+        const excerpt = raw.state?.matches?.find((match) => match.ruleId === raw.rule)?.excerpt ?? null;
         records.push({
           timestamp: raw.timestamp, rule: raw.rule ?? null, verdict: raw.verdict ?? "", subject: raw.subject ?? "",
           repo: raw.state?.repo ?? null, tree: raw.state?.tree ?? null, userDecision: raw.state?.userDecision ?? null,
+          remembered: raw.state?.remembered === true, excerpt, answers,
         });
       } catch {
         continue;
@@ -347,17 +359,27 @@ async function readAudit(since: Date): Promise<AuditRecord[]> {
 
 function escalationStats(records: AuditRecord[]): Escalations {
   const counts = new Map<string, EscalationRow>();
+  const approvals = new Map<string, NarrowingCandidate>();
   for (const record of records) {
-    if (!record.rule || record.rule === "commit-checked" || record.rule === "gate-masked-pipe") continue;
+    if (!record.rule || record.rule === "commit-checked" || record.rule === "gate-masked-pipe" || record.remembered) continue;
     const userDecision = record.userDecision ?? "none";
     const key = `${record.rule}\t${record.verdict}\t${userDecision}`;
     const row = counts.get(key) ?? { rule: record.rule, verdict: record.verdict, userDecision, count: 0 };
     row.count++;
     counts.set(key, row);
+    if (userDecision !== "approved") continue;
+    const candidate = approvals.get(record.rule) ?? { rule: record.rule, approvals: 0, examples: [] };
+    candidate.approvals++;
+    // Clipped only: the whole candidates object is redacted before it touches disk.
+    const example: NarrowingExample = { subject: clip(record.subject, EXAMPLE_CLIP).text,
+      excerpt: record.excerpt === null ? null : clip(record.excerpt, EXAMPLE_CLIP).text, answers: record.answers };
+    const seen = candidate.examples.some((other) => other.subject === example.subject && other.excerpt === example.excerpt);
+    if (!seen && candidate.examples.length < NARROWING_EXAMPLES) candidate.examples.push(example);
+    approvals.set(record.rule, candidate);
   }
   const rows = [...counts.values()].sort((a, b) => b.count - a.count);
-  const narrowing = rows.filter((r) => r.userDecision === "approved" && r.count >= NARROWING_APPROVALS).map((r) => r.rule);
-  return { rows, narrowing: [...new Set(narrowing)] };
+  const narrowing = [...approvals.values()].filter((c) => c.approvals >= NARROWING_APPROVALS).sort((a, b) => b.approvals - a.approvals);
+  return { rows, narrowing };
 }
 
 function reconcile(
@@ -405,13 +427,14 @@ function toplevel(cwd: string): string {
 
 type Mined = {
   since: string; generated: string; counters: Counters; bash: BashCandidate[]; commits: CommitCandidate[];
-  unreconciled: Unreconciled[]; escalations: EscalationRow[]; narrowing_candidates: string[];
+  unreconciled: Unreconciled[]; escalations: EscalationRow[]; narrowing_candidates: NarrowingCandidate[];
   gate_masking: { count: number; examples: string[] };
 };
 
 function digest(mined: Mined, repos: number, sessions: number): string {
   const top = <T extends { scores: Scores }>(items: T[]): T[] => [...items].sort((a, b) => maxScore(b.scores) - maxScore(a.scores)).slice(0, 10);
   const fmt = (scores: Scores): string => Object.entries(scores).filter(([, s]) => s >= MINE_FLAG).map(([k, s]) => `${k} ${s.toFixed(2)}`).join(", ");
+  const fmtAll = (scores: Scores): string => Object.entries(scores).map(([k, s]) => `${k} ${s.toFixed(2)}`).join(", ");
   const inline = (text: string): string => `\`${text.replace(/`/g, "'").replace(/\s+/g, " ").slice(0, 160)}\``;
   const c = mined.counters;
   const lines = [
@@ -432,8 +455,9 @@ function digest(mined: Mined, repos: number, sessions: number): string {
     ...mined.unreconciled.slice(0, 10).map((u) => `- ${u.repo} ${u.sha.slice(0, 10)} at ${u.committed}`),
     "", "## Escalations (rule, verdict, user decision)", "",
     ...mined.escalations.slice(0, 15).map((e) => `- ${e.rule} / ${e.verdict} / ${e.userDecision}: ${e.count}`),
-    "", "## Narrowing candidates", "",
-    ...mined.narrowing_candidates.map((r) => `- ${r}`),
+    "", "## Narrowing candidates (rule, distinct approvals, approved examples)", "",
+    ...mined.narrowing_candidates.flatMap((n) => [`- ${n.rule}: ${n.approvals}`,
+      ...n.examples.map((e) => `  - ${inline(e.subject)}${e.excerpt ? ` matched ${inline(e.excerpt)}` : ""}${e.answers ? ` [${fmtAll(e.answers)}]` : ""}`)]),
     "",
   ];
   return lines.join("\n");

@@ -84,9 +84,9 @@ export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
 export const BASH_POLICY_VERSION = "guard-bash-2026-10-09.1";
-export const WRITE_POLICY_VERSION = "guard-write-2026-10-02.3";
+export const WRITE_POLICY_VERSION = "guard-write-2026-10-11.1";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
-export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-02.7";
+export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-11.1";
 /** `guard.bash` decisions made under the system-only scope: a different rule set, so a different version. */
 export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-09.1";
 // Uncalibrated at release (2026-10-09): enforced from the start by the user's choice; recalibrate on labelled audit records.
@@ -121,8 +121,9 @@ const ENFORCE_TIMEOUT_MS = 8_000;
 // for dialogs on the handler's own UI. A subagent asks through the main session's UI, so its prompt must close in time.
 const SUBAGENT_PROMPT_WINDOW_MS = 25_000;
 const SUBAGENT_PROMPT_MIN_MS = 5_000;
-// More suspect files than this in one commit are not all judged; the commit escalates instead.
-const INTEGRITY_JEV_FILE_LIMIT = 60;
+// Suspect files past this in one commit are not judged; the commit escalates instead. Jev answers in ~0.3 s (p95 ~0.5 s,
+// audit 2026-10-11) at INTEGRITY_JEV_CONCURRENCY, so the limit keeps judging well inside OMP's 30 s tool_call handler budget.
+const INTEGRITY_JEV_FILE_LIMIT = 240;
 const INTEGRITY_JEV_CONCURRENCY = 8;
 const MIN_ENTROPY_LITERAL = 24;
 const MIN_LITERAL_ENTROPY_BITS = 3.5;
@@ -148,7 +149,12 @@ type UnitOutcome = {
   unit: IntegrityUnit; escalate: boolean; families: IntegrityFamily[]; judged?: Judged; answers?: NoulAnswers; note?: string; missing?: string[];
 };
 type UserDecision = "approved" | "declined";
-type Escalation = { block?: Block; userDecision?: UserDecision };
+/** Why nobody answered: no UI could be reached, a subagent's handler window was spent before asking, or the dialog timed out. */
+type Unanswered = "no-ui" | "window-spent" | "timed-out";
+type PromptAnswer = boolean | Exclude<Unanswered, "no-ui">;
+type Escalation = { block?: Block; userDecision?: UserDecision; unanswered?: Unanswered; remembered?: true };
+/** The prompt outcome recorded in audit state; `unanswered` names why when nobody answered. */
+type AuditAnswer = { userDecision: UserDecision | null; unanswered: Unanswered | null };
 type CommitRecord = { repo: string; tree?: string; files: number; command: string };
 export type BashClass =
   | { kind: "allow" }
@@ -1603,10 +1609,15 @@ export function bashJevState(command: string, cwd: string, apiKey: string | unde
   return { state, facts };
 }
 
-/** The recorded state with the user's answer to a confirm prompt (`null` when nobody could be asked). */
-function withUserDecision(state: JsonValue | undefined, userDecision: UserDecision | null, extra: { [key: string]: JsonValue } = {}): JsonValue {
+/** The user's answer to a confirm prompt for the audit state. */
+function answerOf(asked: Escalation): AuditAnswer {
+  return { userDecision: asked.userDecision ?? null, unanswered: asked.unanswered ?? null };
+}
+
+/** The recorded state with the user's answer to a confirm prompt. */
+function withUserDecision(state: JsonValue | undefined, asked: Escalation, extra: { [key: string]: JsonValue } = {}): JsonValue {
   const base = state instanceof Object && !Array.isArray(state) ? state : { state: state ?? null };
-  return { ...base, ...extra, userDecision };
+  return { ...base, ...extra, ...answerOf(asked) };
 }
 
 /** The state Jev is shown for added text: file kind and path, known-format key facts, and the masked excerpt. */
@@ -1763,7 +1774,8 @@ export function resultWindows(text: string) {
 
 // ---- Extension -----------------------------------------------------------------------
 const bashInput = z.object({ command: z.string() });
-const writeInput = z.object({ path: z.string(), content: z.string() });
+// OMP's write tool makes `content` optional (an empty file, or deleting a database row); there is nothing to screen then.
+const writeInput = z.object({ path: z.string(), content: z.string().default("") });
 /** Read-like tools: one path, or several separated by `;`; selectors after the path are harmless to rule patterns. */
 const readInput = z.object({ path: z.string().optional() });
 const READ_TOOLS = new Set(["read", "grep", "glob", "find"]);
@@ -1803,8 +1815,9 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   let apiKey: string | undefined;
   let rules: CompiledRule[] | undefined;
   let rulesError = "not loaded";
-  /** Fingerprints of escalations the user declined this session: re-blocked without asking again. */
+  /** Fingerprints of escalations the user answered this session: the same command or change is not asked about again. */
   const declined = new Set<string>();
+  const approved = new Set<string>();
   /** Guard files the user approved editing, and paths the user approved reading, this session: not asked again. */
   const approvedEditPaths = new Set<string>();
   const approvedReadPaths = new Set<string>();
@@ -1833,11 +1846,11 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 
   /**
    * Asks the user on behalf of `ctx`: through its own UI in an interactive main agent, through the main session's UI
-   * for a subagent (prompts queue one at a time); undefined when nobody can be asked. Resolves to undefined when a
-   * subagent's prompt could not be answered in time: OMP pauses a handler's timeout only for dialogs on its own UI, so
-   * a subagent's prompt must close before SUBAGENT_PROMPT_WINDOW_MS from the start of its handler run.
+   * for a subagent (prompts queue one at a time); undefined when nobody can be asked. A subagent's prompt resolves to
+   * why it went unanswered when it could not be answered in time: OMP pauses a handler's timeout only for dialogs on
+   * its own UI, so a subagent's prompt must close before SUBAGENT_PROMPT_WINDOW_MS from the start of its handler run.
    */
-  const userPrompt = (ctx: ExtensionContext): ((title: string, message: string) => Promise<boolean | undefined>) | undefined => {
+  const userPrompt = (ctx: ExtensionContext): ((title: string, message: string) => Promise<PromptAnswer>) | undefined => {
     if (ctx.hasUI && ctx.agent.kind === "main") {
       const ui = ctx.ui;
       return (title, message) => {
@@ -1850,29 +1863,38 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     if (!ui) return undefined;
     const deadline = (handlerStarts.get(ctx) ?? Date.now()) + SUBAGENT_PROMPT_WINDOW_MS;
     return (title, message) => {
-      const asked = shared.queue.then(async () => {
+      const asked = shared.queue.then(async (): Promise<PromptAnswer> => {
         const remaining = deadline - Date.now();
-        if (remaining < SUBAGENT_PROMPT_MIN_MS) return undefined;
+        if (remaining < SUBAGENT_PROMPT_MIN_MS) return "window-spent";
         const signal = AbortSignal.timeout(remaining);
         let timedOut = false;
         const answer = await ui.confirm(`${title} (subagent ${ctx.agent.name})`, `${message}\n\nAnswer within ${Math.floor(remaining / 1000)} s.`,
           { timeout: remaining, signal, onTimeout: () => { timedOut = true; } });
-        return timedOut || signal.aborted ? undefined : answer;
-      }).catch(() => undefined);
+        return timedOut || signal.aborted ? "timed-out" : answer;
+      }).catch((): PromptAnswer => "timed-out");
       shared.queue = asked;
       return asked;
     };
   };
+  /** Runs a prompt; a missing prompt or a non-boolean answer becomes the reason nobody answered. */
+  const ask = async (ctx: ExtensionContext, title: string, message: string): Promise<boolean | Unanswered> =>
+    (await userPrompt(ctx)?.(title, message)) ?? "no-ui";
+  const UNANSWERED_TEXT = {
+    "no-ui": "no session UI could reach the user",
+    "window-spent": `the subagent's ${SUBAGENT_PROMPT_WINDOW_MS / 1000} s prompt window was used up before the user could be asked`,
+    "timed-out": "the user did not answer in time",
+  } satisfies Record<Unanswered, string>;
   const noteMainUi = (ctx: ExtensionContext): void => {
     if (ctx.hasUI && ctx.agent.kind === "main") shared.mainUi = ctx.ui;
   };
 
   /** Asks the user to approve `subject`; without an answer, a block telling the agent to get approval first. */
   const confirmWithUser = async (ctx: ExtensionContext, what: "command" | "write", subject: string, reason: string): Promise<Escalation> => {
-    const answer = await userPrompt(ctx)?.(`Jev guard: confirm ${what}`, `${reason}\n\n${clip(subject, 600).text}`);
+    const answer = await ask(ctx, `Jev guard: confirm ${what}`, `${reason}\n\n${clip(subject, 600).text}`);
     if (answer === true) return { userDecision: "approved" };
     if (answer === false) return { userDecision: "declined", block: { block: true, reason: `The user declined this ${what} at the Jev guard confirmation.` } };
-    return { block: { block: true, reason: `Jev guard needs confirmation. ${reason} Ask the user to approve this ${what} before retrying.` } };
+    return { unanswered: answer, block: { block: true, reason: `Jev guard needs confirmation, but ${UNANSWERED_TEXT[answer]}. ${reason} ` +
+      `Ask the user to approve this ${what} before retrying.` } };
   };
 
   const whoOf = (ctx: ExtensionContext): Who => {
@@ -1939,7 +1961,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     if (verdict.kind === "confirm") {
       const asked: Escalation = enforcing ? await askUser(`Jev cannot judge this command: ${verdict.reason}.`) : {};
       await record(make({ stage: "deterministic", rule: verdict.rule,
-        state: { ...baseState, reason: verdict.reason, userDecision: asked.userDecision ?? null },
+        state: { ...baseState, reason: verdict.reason, ...answerOf(asked) },
         verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
       return asked.block;
     }
@@ -1978,7 +2000,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       return { block: true, reason: `Jev guard blocked this command. ${assessed.reason} Ask the user before running anything like it.` };
     }
     const asked = await askUser(promoted ? `${assessed.reason} This is high-risk, so approve only if you intend it.` : assessed.reason);
-    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked.userDecision ?? null, promoted ? { promoted_from_block: true } : {}),
+    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked, promoted ? { promoted_from_block: true } : {}),
       verdict: "confirm", enforced: asked.userDecision !== "approved" }));
     return asked.block;
   }
@@ -2002,7 +2024,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const system = assessSystem(command, ctx.cwd, platform, homedir());
     const escalate = async (rule: string, reason: string, extra: { [key: string]: JsonValue }): Promise<Block | undefined> => {
       const asked: Escalation = enforcing ? await askUser(reason) : {};
-      await record(make({ stage: "deterministic", rule, state: redactValue({ ...state, ...extra, userDecision: asked.userDecision ?? null }, apiKey),
+      await record(make({ stage: "deterministic", rule, state: redactValue({ ...state, ...extra, ...answerOf(asked) }, apiKey),
         verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
       return asked.block;
     };
@@ -2036,7 +2058,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       return blocked ? { block: true, reason: `Jev guard blocked this command. ${assessed.reason} Ask the user before running anything like it.` } : undefined;
     }
     const asked = await askUser(assessed.reason);
-    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked.userDecision ?? null),
+    await record(make({ ...judged.fields, state: withUserDecision(judged.fields.state, asked),
       verdict: "confirm", enforced: asked.userDecision !== "approved" }));
     return asked.block;
   }
@@ -2051,7 +2073,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const reason = `This writes inside the protected system folder ${root.path}.`;
     const asked: Escalation = enforcing ? await confirmWithUser(ctx, "write", path, reason) : {};
     await record(make({ stage: "deterministic", rule: "system-folder",
-      state: redactValue({ path, protected: root.path, scope: "system-only", userDecision: asked.userDecision ?? null }, apiKey),
+      state: redactValue({ path, protected: root.path, scope: "system-only", ...answerOf(asked) }, apiKey),
       verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
     return asked.block;
   }
@@ -2177,16 +2199,21 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     return `- ${subjectOf(outcome.unit.label)}: ${rulesText}${jev ? ` [Jev ${jev}]` : ""}${failed}${outcome.note ? ` [${outcome.note}]` : ""}`;
   };
 
-  /** Escalation goes to the user (directly, or through the main session's UI for a subagent), otherwise a block telling the agent to ask. */
+  /**
+   * Escalation goes to the user (directly, or through the main session's UI for a subagent), otherwise a block telling the
+   * agent to ask. An answer is remembered for the session by fingerprint, so the identical command or change (a commit
+   * retried after a hook failure) is not asked about again.
+   */
   async function escalate(kind: IntegrityKind, fingerprint: string, outcomes: UnitOutcome[], ctx: ExtensionContext): Promise<Escalation> {
     const key = createHash("sha256").update(`${kind}\0${fingerprint}`).digest("hex");
     const summary = outcomes.map(describe).join("\n");
     const declinedReason = (already: string) => `The user ${already}declined this ${kind} at the Jev integrity guard. ` +
       `Do not retry, reword or work around it; continue only as the user directs.\n${summary}`;
-    if (declined.has(key)) return { userDecision: "declined", block: { block: true, reason: declinedReason("already ") } };
-    const answer = await userPrompt(ctx)?.("Jev integrity guard: approve?",
-      `This ${kind} matches guarded integrity rules.\n\n${clip(summary, 1_500).text}`);
+    if (declined.has(key)) return { userDecision: "declined", remembered: true, block: { block: true, reason: declinedReason("already ") } };
+    if (approved.has(key)) return { userDecision: "approved", remembered: true };
+    const answer = await ask(ctx, "Jev integrity guard: approve?", `This ${kind} matches guarded integrity rules.\n\n${clip(summary, 1_500).text}`);
     if (answer === true) {
+      approved.add(key);
       if (kind === "edit") for (const outcome of outcomes) approvedEditPaths.add(outcome.unit.label);
       if (kind === "read") for (const outcome of outcomes) approvedReadPaths.add(outcome.unit.label);
       return { userDecision: "approved" };
@@ -2195,9 +2222,9 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       declined.add(key);
       return { userDecision: "declined", block: { block: true, reason: declinedReason("") } };
     }
-    return { block: { block: true, reason: `Jev integrity guard blocked this ${kind}: it matches guarded integrity rules.\n` +
-      `${summary}\nStop. Do not retry, reword or work around this. Ask the user to decide; a subagent must return this ` +
-      "finding to the orchestrator, which asks the user." } };
+    return { unanswered: answer, block: { block: true, reason: `Jev integrity guard blocked this ${kind}: it matches guarded integrity rules, ` +
+      `and ${UNANSWERED_TEXT[answer]}.\n${summary}\nStop. Do not retry, reword or work around this. Ask the user to decide; a subagent must ` +
+      "return this finding to the orchestrator, which asks the user." } };
   }
 
   async function screenIntegrity(kind: IntegrityKind, fingerprint: string, units: IntegrityUnit[], commits: CommitRecord[],
@@ -2216,7 +2243,8 @@ export function createJevGuard(options: JevGuardOptions = {}) {
         const verdict = unjudged ? "error" : outcome.escalate ? escalatedVerdict : routeOf(outcome.unit.matches) === "record" ? "flag" : "allow";
         const state = { kind, unit: subjectOf(outcome.unit.label), matches: outcome.unit.matches.map((m) => ({ ...m, excerpt: subjectOf(m.excerpt) })),
           jev_state: outcome.judged?.fields.state ?? null,
-          userDecision: outcome.escalate ? escalation.userDecision ?? null : null, note: outcome.note ?? null };
+          ...(outcome.escalate ? answerOf(escalation) : { userDecision: null, unanswered: null }),
+          remembered: outcome.escalate && escalation.remembered === true, note: outcome.note ?? null };
         await record(decision(INTEGRITY_POLICY, INTEGRITY_POLICY_VERSION, mode, who, subjectOf(outcome.unit.label), {
           ...(outcome.judged?.fields ?? { stage: "deterministic" }), rule: top?.ruleId, state,
           verdict, enforced: enforcing && outcome.escalate && escalation.userDecision !== "approved" }));
@@ -2225,7 +2253,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
         await record(decision(INTEGRITY_POLICY, INTEGRITY_POLICY_VERSION, mode, who, subjectOf(`git commit ${commit.repo}`), {
           stage: "deterministic", rule: "commit-checked",
           state: { repo: commit.repo, tree: commit.tree ?? null, files: commit.files, command: subjectOf(commit.command), escalated: escalated.length,
-            userDecision: escalation.userDecision ?? null },
+            ...answerOf(escalation), remembered: escalation.remembered === true },
           verdict: escalated.length === 0 ? "allow" : escalatedVerdict, enforced: enforcing && escalation.block !== undefined }));
       }
       return escalation.block;
