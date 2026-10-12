@@ -80,9 +80,10 @@ agent/agents/*
 
 !agent/extensions/
 agent/extensions/*
+!agent/extensions/AGENTS.md
 !agent/extensions/analyse.ts
 !agent/extensions/agent-autocomplete.ts
-!agent/extensions/codex-quota-gate.ts
+!agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/jev-guard.ts
 !agent/extensions/jev-ask.ts
@@ -96,7 +97,7 @@ agent/extensions/lib/*
 
 !tests/
 tests/*
-!tests/codex-quota-gate.test.ts
+!tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
 !tests/jev-guard.test.ts
 !tests/jev-ask.test.ts
