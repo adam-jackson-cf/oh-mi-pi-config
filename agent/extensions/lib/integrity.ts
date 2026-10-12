@@ -9,7 +9,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { z } from "zod";
+import { z } from "@oh-my-pi/omptype/zod";
 import type { JevAnswers, JevQuestions, JsonValue, NoulQuestion } from "./jev.ts";
 
 export const INTEGRITY_CATEGORIES = [

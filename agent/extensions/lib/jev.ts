@@ -12,7 +12,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { z } from "zod";
+import { z } from "@oh-my-pi/omptype/zod";
 
 export const JEV_MODEL = "~typesafe/jev-latest";
 // OpenRouter rejects versioned selectors; the resolved model is checked instead.
@@ -42,7 +42,7 @@ const scoreAnswer = z.object({
   type: z.literal("score"), score: z.number().nonnegative(), probabilities: z.record(z.string(), probability),
   confidence: probability, legend: z.record(z.string(), z.string()).optional(),
 });
-const answer = z.discriminatedUnion("type", [noulAnswer, choiceAnswer, scoreAnswer]);
+const answer = z.union([noulAnswer, choiceAnswer, scoreAnswer]);
 export type JevAnswer = z.infer<typeof answer>;
 export type JevAnswers = Record<string, JevAnswer>;
 const decisionResponse = z.object({

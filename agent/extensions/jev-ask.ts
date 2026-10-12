@@ -16,7 +16,7 @@ import { mkdir, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { z } from "zod";
+import { z } from "@oh-my-pi/omptype/zod";
 import {
   appendDecision, auditRoot, clip, decide, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
   type JevAnswer, type JevAnswers, type JevQuestion, type JevQuestions, type JevResult, type JsonValue, type NewDecision,
@@ -54,7 +54,7 @@ const choiceQuestion = z.object({
   type: z.literal("choice"), instructions: z.string(), criteria: z.record(z.string(), z.string().nullable()),
 });
 const scoreQuestion = z.object({ type: z.literal("score"), instructions: z.string(), criteria: z.array(z.string()) });
-const question = z.discriminatedUnion("type", [noulQuestion, choiceQuestion, scoreQuestion]);
+const question = z.union([noulQuestion, choiceQuestion, scoreQuestion]);
 const QUESTION_ID = /^[a-z][a-z0-9_]{0,63}$/;
 
 export const askParameters = z.object({

@@ -64,7 +64,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { promisify } from "node:util";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { z } from "zod";
+import { z } from "@oh-my-pi/omptype/zod";
 import {
   appendDecision, BASH_SCOPE_KEY, type BashScope, clip, decide, policyMode, readPolicySettings, redact, redactValue,
   type AgentKind, type JevAnswers, type JevQuestion, type JevQuestions, type JsonValue, type NewDecision, type PolicyMode,
@@ -1786,9 +1786,8 @@ const replaceOrPatchInput = z.object({
   path: z.string(), new_string: z.string().optional(), edits: z.array(editEntry).optional(),
 }).refine((value) => value.new_string !== undefined || value.edits !== undefined);
 const textInput = z.object({ input: z.string() });
-const editInput = z.union([textInput, replaceOrPatchInput]);
-
-type EditInput = z.infer<typeof editInput>;
+// Tried in order rather than as one union: OMP's zod-compatible builder rejects unions whose object branches overlap.
+type EditInput = z.infer<typeof textInput> | z.infer<typeof replaceOrPatchInput>;
 
 /** Targets for every supported edit mode: replace, patch, hashline and apply_patch. Undefined = no target found. */
 function editTargets(input: EditInput): WriteTarget[] | undefined {
@@ -2447,8 +2446,10 @@ export function createJevGuard(options: JevGuardOptions = {}) {
         const parsed = writeInput.safeParse(event.input);
         if (parsed.success) targets = [{ path: parsed.data.path, added: parsed.data.content }];
       } else if (event.toolName === "edit") {
-        const parsed = editInput.safeParse(event.input);
-        if (parsed.success) targets = editTargets(parsed.data);
+        const text = textInput.safeParse(event.input);
+        const replaceOrPatch = text.success ? undefined : replaceOrPatchInput.safeParse(event.input);
+        if (text.success) targets = editTargets(text.data);
+        else if (replaceOrPatch?.success) targets = editTargets(replaceOrPatch.data);
       } else if (READ_TOOLS.has(event.toolName)) {
         const parsed = readInput.safeParse(event.input);
         const given = (parsed.success ? parsed.data.path ?? "" : "").split(";").map((p) => p.trim()).filter(Boolean);
