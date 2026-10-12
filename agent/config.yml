@@ -3,7 +3,6 @@ theme:
   light: light
 setupVersion: 2
 extensions:
-  - ~/.omp/agent/extensions/agent-introspection-activity.ts
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/quota-gate.ts
