@@ -66,8 +66,14 @@ match the label policy used for blind labelling (`/tmp/jev-action/guard-policy-v
 Deterministic, in order: a denylist (destructive commands, `find -delete`, `secret-read`,
 `env-dump`, `launchctl bootout|unload|remove`, `kill -9 1`, `systemctl stop|disable|mask|kill` of
 non-`--user` units, `/proc/<pid>/environ`), then a read-only allowlist that allows without Jev, then
-a window rule. `secret-read` denies credential files, `printenv SECRET_NAME`, and a secret-named
-`$NAME`/`${NAME}` expansion only in an `echo`/`printf` segment. The same expansion in a test segment
+a window rule. `secret-read` denies a credential file named by a command that can show its content,
+`printenv SECRET_NAME`, and a secret-named `$NAME`/`${NAME}` expansion only in an `echo`/`printf`
+segment. A credential file named to a metadata command (`ls`, `stat`, `test`, `wc`, `file`, `du`),
+a silent search (`grep -c|-l|-L|-q`, `rg -c|-l|-q`) or a git subcommand that prints no file content
+(anything but `show`, `cat-file`, `diff`, `log`, `grep`, `blame`) is not denied, unless the segment
+holds a command substitution; one copied by `cp`, `mv`, `ditto`, `install` or `rsync` goes to Jev.
+A grep/rg/sed/awk/jq pattern or script argument and any argument whose basename holds whitespace
+(prose such as a commit message) are not file names. The same expansion in a test segment
 (`[`, `[[`, `test`) or as `${#NAME}`, `${NAME:+…}`, `${NAME+…}` is not denied; anywhere else it goes
 to Jev, never the allowlist. Heredoc bodies are data, not shell segments, so their text is never
 denied; the command stays non-read-only and goes to Jev. `env-dump` (`env`, `printenv`, `set` with

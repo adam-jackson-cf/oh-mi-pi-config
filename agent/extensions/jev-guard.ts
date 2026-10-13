@@ -88,12 +88,12 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-09.1";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-13.1";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-11.1";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-11.1";
 /** `guard.bash` decisions made under the system-only scope: a different rule set, so a different version. */
-export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-09.1";
+export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-13.1";
 // Uncalibrated at release (2026-10-09): enforced from the start by the user's choice; recalibrate on labelled audit records.
 export const BASH_CONFIRM_SYSTEM = 0.5;
 // Bash: chosen on the 2026-10-02 round-1 corpora; re-checked 2026-10-02 on 399 labelled real commands plus
@@ -392,7 +392,7 @@ const PIPE_TO_SHELL = /\b(?:curl|wget)\b[^;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?s
 
 const SECRET_BASENAME = [
   /^\.env(?:\.(?!(?:example|sample|template)$)[^/]+)?$/i,
-  /\.pem$/i, /\.key$/i, /^id_rsa/i, /^id_ed25519/i, /^\.npmrc$/i, /^\.pypirc$/i, /credentials/i, /\.p12$/i,
+  /\.pem$/i, /\.key$/i, /^id_rsa/i, /^id_ed25519/i, /^\.npmrc$/i, /^\.pypirc$/i, /(?:^|[._-])credentials(?:[._-]|$)/i, /\.p12$/i,
 ];
 
 /** True for secret-bearing files (`.env`, keys, tokens files); example/sample/template env files are not. */
@@ -432,18 +432,68 @@ function secretExpansion(segment: string): "deny" | "jev" | undefined {
   return found;
 }
 
-/** Read-only commands that still put credentials into model context: secret files and `echo`ed secret env vars. */
-function secretReadDenial(segment: string): Denial | undefined {
-  const { program, args } = commandOf(segment);
-  const reason = "reading credentials would expose them to the model and provider";
-  if (program === "printenv" && args.some((arg) => SECRET_ENV_NAME.test(arg))) return { rule: "secret-read", reason };
-  for (const arg of args) {
-    if (arg.endsWith(".pub")) continue;
-    const path = arg.replace(/^(?:\$\{HOME\}|\$HOME)\//, "~/");
-    if (isSecretPath(path) || SECRET_HOME_PATHS.some((pattern) => pattern.test(path))) return { rule: "secret-read", reason };
+// Programs whose output describes their file arguments (names, sizes, counts, times) and never their content.
+const METADATA_PROGRAMS = new Set(["ls", "stat", "test", "[", "[[", "wc", "file", "du", "readlink", "realpath", "dirname", "basename"]);
+// Programs that copy a file's content to another path without printing it: Jev judges where the copy goes.
+const COPY_PROGRAMS = new Set(["cp", "mv", "ditto", "install", "rsync"]);
+// Options with which a grep-family program prints only counts, file names or an exit status (`rg -L` follows links).
+const GREP_SILENT = /^(?:-[A-Za-z]*[clLq][A-Za-z]*|--(?:count|files-with-matches|files-without-match|quiet|silent))$/;
+const SILENT_SEARCH = new Map<string, RegExp>([
+  ["grep", GREP_SILENT], ["egrep", GREP_SILENT], ["fgrep", GREP_SILENT],
+  ["rg", /^(?:-[A-Za-z]*[clq][A-Za-z]*|--(?:count|files-with-matches|files-without-match|quiet))$/],
+]);
+// Programs whose first positional argument is a pattern or script, not a file, unless one of these options supplies it.
+const GREP_SCRIPT = /^(?:-[A-Za-z]*[ef][A-Za-z]*|--(?:regexp|file)(?:=.*)?)$/;
+const SCRIPT_OPTIONS = new Map<string, RegExp>([
+  ["grep", GREP_SCRIPT], ["egrep", GREP_SCRIPT], ["fgrep", GREP_SCRIPT], ["rg", GREP_SCRIPT],
+  ["sed", /^(?:-[A-Za-z]*[ef][A-Za-z]*|--(?:expression|file)(?:=.*)?)$/],
+  ["awk", /^(?:-f|--file(?:=.*)?)$/],
+  ["jq", /^(?:-f|--from-file(?:=.*)?)$/],
+]);
+
+/** Index of the argument that is the program's pattern or script, or -1 when there is none. */
+function scriptIndex(program: string, args: string[]): number {
+  const supplied = SCRIPT_OPTIONS.get(program);
+  if (!supplied || args.some((arg) => supplied.test(arg))) return -1;
+  return args.findIndex((arg) => !arg.startsWith("-"));
+}
+
+/** True when an argument names a credential file; a basename with whitespace is prose (a message), not a file. */
+function namesSecretFile(arg: string): boolean {
+  const path = arg.replace(/^--?[\w-]+=/, "").replace(/^(?:\$\{HOME\}|\$HOME)\//, "~/");
+  if (path.endsWith(".pub")) return false;
+  return (!/\s/.test(basename(path)) && isSecretPath(path)) || SECRET_HOME_PATHS.some((pattern) => pattern.test(path));
+}
+
+/**
+ * Whether a segment that names a credential file can show its content: `deny` when it can, `jev` when it only copies
+ * it elsewhere, undefined when it reports metadata (`ls`, `stat`, `test`, `wc`, `grep -c|-l|-q`), runs a git
+ * subcommand that prints no file content, or names none. A command substitution voids the exemptions.
+ */
+function secretFileRead(segment: string, program: string, args: string[]): "deny" | "jev" | undefined {
+  const script = scriptIndex(program, args);
+  if (!args.some((arg, index) => index !== script && namesSecretFile(arg))) return undefined;
+  if (!/\$\(|`/.test(segment)) {
+    if (METADATA_PROGRAMS.has(program)) return undefined;
+    const silent = SILENT_SEARCH.get(program);
+    if (silent && args.some((arg) => silent.test(arg))) return undefined;
+    const git = program === "git" ? gitInvocation(args) : undefined;
+    if (git && !GIT_CONTENT_READERS.has(git.sub)) return undefined;
   }
-  if (secretExpansion(segment) === "deny") return { rule: "secret-read", reason };
-  return undefined;
+  return COPY_PROGRAMS.has(program) ? "jev" : "deny";
+}
+
+/**
+ * Commands that put credentials into model context: printed credential files and `echo`ed secret env vars (`deny`),
+ * or a credential file copied elsewhere (`jev`).
+ */
+function secretRead(segment: string): Denial | "jev" | undefined {
+  const { program, args } = commandOf(segment);
+  const denial = { rule: "secret-read", reason: "reading credentials would expose them to the model and provider" };
+  if (program === "printenv" && args.some((arg) => SECRET_ENV_NAME.test(arg))) return denial;
+  const file = secretFileRead(segment, program, args);
+  if (file === "deny" || secretExpansion(segment) === "deny") return denial;
+  return file;
 }
 
 type Denial = { rule: string; reason: string };
@@ -531,7 +581,11 @@ function bashDenials(command: string, scan: Scan): DenialScan {
   }
   let secretsUnclear = false;
   for (const [index, segment] of scan.segments.entries()) {
-    for (const denied of [denySegment(segment), secretReadDenial(segment)]) if (denied) denials.push(denied);
+    const denied = denySegment(segment);
+    if (denied) denials.push(denied);
+    const read = secretRead(segment);
+    if (read === "jev") secretsUnclear = true;
+    else if (read) denials.push(read);
     const { program, args } = commandOf(segment);
     if (ENV_DUMP_PROGRAMS.has(program) && args.length === 0) {
       if (scan.piped[index]) secretsUnclear = true;
@@ -572,7 +626,7 @@ type KillPattern = (typeof KILL_PATTERN_RANK)[number];
 const KILL_VALUE_FLAGS = new Set(["-u", "-U", "-g", "-G", "-P", "-s", "-t", "-n", "-o", "-F"]);
 const FILE_READERS = new Set(["cat", "head", "tail", "less", "more", "sed", "awk", "grep", "egrep", "fgrep", "rg", "base64", "xxd",
   "strings", "jq", "cp", "source", ".", "nl", "od", "bat"]);
-const GIT_CONTENT_READERS = new Set(["show", "cat-file", "diff", "log", "grep"]);
+const GIT_CONTENT_READERS = new Set(["show", "cat-file", "diff", "log", "grep", "blame"]);
 const SECRET_LIKE_PATH = /auth|token|secret|credential|passw|api[_-]?key|\.env\b|\.pem$|\.key$|id_rsa|id_ed25519|\.netrc|keychain/i;
 const NETWORK_PROGRAMS = new Set(["curl", "wget", "http", "https", "xh", "httpie", "nc", "ncat", "scp", "ssh", "rsync", "gh"]);
 // Constructs whose effect cannot be read from the command text alone.
