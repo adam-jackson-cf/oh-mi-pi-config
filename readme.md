@@ -80,9 +80,10 @@ Not carried by this repository, so set up on the NUC separately:
 - Skills in `~/.agents/skills` and `~/.agents/by-request` (listed in
   `agent/config.yml`) are pulled daily from the Mac over Tailscale SSH by the
   systemd user timer `agents-sync.timer`, which runs `~/.local/bin/agents-sync`
-  (`rsync` without `--delete`, so NUC-only skills survive). Paths listed in
-  `~/.config/agents-sync/excludes` are never copied: the Mac's `roles` link and
-  the Mac-only skills `paperclip`, `macos-package-install-defaults`,
+  (`rsync --delete`, so the NUC mirrors the Mac). Paths listed in
+  `~/.config/agents-sync/excludes` are neither copied nor deleted: the Mac's
+  `roles` link, the NUC-only `omarchy` and `diagnose-crash` skills, and the
+  Mac-only skills `paperclip`, `macos-package-install-defaults`,
   `codify-pr-reviews`, and `setup-code-precommit-checks`.
 - The Jev credential: there is no OpenRouter key on the NUC. Until Jev can use
   the Agent Vault proxy, `agent/jev-policies.json` is kept in `shadow` locally
