@@ -85,9 +85,10 @@ Not carried by this repository, so set up on the NUC separately:
   `roles` link, the NUC-only `omarchy` and `diagnose-crash` skills, and the
   Mac-only skills `paperclip`, `macos-package-install-defaults`,
   `codify-pr-reviews`, and `setup-code-precommit-checks`.
-- The Jev credential: there is no OpenRouter key on the NUC. Until Jev can use
-  the Agent Vault proxy, `agent/jev-policies.json` is kept in `shadow` locally
-  and must not be committed.
+- The Jev credential: there is no OpenRouter key on the NUC. `omp` resolves to
+  the launcher `~/.local/bin/omp` (put first on `PATH` by `[env] _.path` in
+  `~/.config/mise/config.toml`), which starts the real binary under
+  `agent-vault-launch`; the vault adds the OpenRouter key to Jev's requests.
 
 ## Repository map
 
