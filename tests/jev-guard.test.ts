@@ -54,7 +54,11 @@ type ImagePart = { type: "image"; data: string; mimeType: string; text?: undefin
 type FakeEvent = { type: string; toolName: string; input: ToolInput; content?: (TextPart | ImagePart)[]; isError?: boolean };
 type Outcome = { block?: boolean; reason?: string; content?: (TextPart | ImagePart)[] } | undefined;
 type Handler = (event: FakeEvent, ctx: ExtensionContext) => Promise<Outcome>;
-type Jev = { irreversible?: number; destructive?: number; exposure?: number; secret?: number; injection?: number; system?: number; fail?: boolean };
+type Jev = {
+  irreversible?: number; destructive?: number; exposure?: number; secret?: number; injection?: number; system?: number; fail?: boolean;
+  /** HTTP status every Jev call returns instead of an answer. */
+  status?: number;
+};
 type ConfirmCall = { title: string };
 type Command = { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> };
 
@@ -82,12 +86,13 @@ async function withGuard(mode: PolicyMode, jev: Jev, run: (h: Harness) => Promis
   const bodies: string[] = [];
   globalThis.fetch = Object.assign(async (_url: URL | RequestInfo, init?: RequestInit) => {
     bodies.push(String(init?.body));
-    return jev.fail ? new Response("nope", { status: 500 }) : new Response(jevBody(jev), { status: 200 });
+    const status = jev.status ?? (jev.fail ? 500 : 200);
+    return status !== 200 ? new Response("nope", { status }) : new Response(jevBody(jev), { status: 200 });
   }, { preconnect: realFetch.preconnect });
   try {
     const shared: GuardShared = { queue: Promise.resolve() };
     // The macOS protected-folder list on every host, so the system-only scope is exercised in Linux CI too.
-    const guard = createJevGuard({ loadKey: async () => API_KEY, shared, platform: "darwin" });
+    const guard = createJevGuard({ loadCredential: async () => ({ kind: "key", key: API_KEY }), shared, platform: "darwin" });
     const handlers = new Map<string, Handler>();
     const commands = new Map<string, Command>();
     const on = (name: string, handler: Handler) => { handlers.set(name, handler); };
@@ -584,24 +589,61 @@ test("audit never contains raw secrets from commands or results", async () => {
   });
 });
 
-test("policy off skips everything; missing key records jev_error without throwing", async () => {
+test("policy off skips everything; with no credential Jev is disabled, so enforce allows and records why", async () => {
   rmSync(auditDir, { recursive: true, force: true });
   writeFileSync(policiesFile, JSON.stringify({ "guard.bash": "off" }));
-  const guard = createJevGuard({ loadKey: async () => undefined });
+  const guard = createJevGuard({ loadCredential: async () => undefined });
   const handlers = new Map<string, Handler>();
   const on = (name: string, handler: Handler) => { handlers.set(name, handler); };
   // SAFETY: only `on` and `registerCommand` are exercised by the extension.
   await guard.extension(Object.assign({} as ExtensionAPI, { on, registerCommand: () => undefined }));
-  const ctx = makeCtx("sub", false, []);
+  const notes: string[] = [];
+  const ctx = makeCtx("main", true, [], false, "session-1", root, notes);
   await handlers.get("session_start")?.({ type: "session_start", toolName: "", input: {} }, ctx);
   assert.equal(await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx), undefined);
   await guard.idle();
   assert.equal(records("guard.bash").length, 0);
   writeFileSync(policiesFile, JSON.stringify({ "guard.bash": "enforce" }));
   await handlers.get("session_start")?.({ type: "session_start", toolName: "", input: {} }, ctx);
-  const outcome = await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx);
-  assert.equal(outcome?.block, true);
-  assert.equal(records("guard.bash")[0]?.stage, "jev_error");
+  assert.equal(await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx), undefined);
+  const rec = records("guard.bash")[0];
+  assert.equal(rec?.stage, "jev_error");
+  assert.equal(rec?.verdict, "allow");
+  assert.equal(rec?.enforced, false);
+  assert.match(rec?.error ?? "", /disabled.*no OpenRouter credential/);
+  // Deterministic rules still block, and the user is told once however many sessions start.
+  assert.match((await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "git reset --hard" } }, ctx))?.reason ?? "",
+    /git-reset-hard/);
+  assert.equal(notes.filter((note) => /Jev is disabled/.test(note)).length, 1);
+});
+
+test("a credential or billing refusal disables Jev for the process; other Jev failures still fail closed", async () => {
+  for (const status of [401, 402, 407]) {
+    await withGuard("enforce", { status }, async (h) => {
+      const notes: string[] = [];
+      const main = makeCtx("main", true, [], false, "session-1", root, notes);
+      assert.equal(await call(h, "bash", { command: "npm publish" }, main), undefined, `HTTP ${status}`);
+      assert.equal(h.bodies.length, 1);
+      // Later Jev checks, from any guard instance sharing the process state, allow without another request.
+      assert.equal(await call(h, "write", { path: "tests/redaction.test.ts", content: `const fixture = "${TOKEN}";` }), undefined);
+      assert.equal(await call(h, "bash", { command: "npm publish" }), undefined);
+      assert.equal(h.bodies.length, 1);
+      assert.match((await call(h, "bash", { command: "git reset --hard" }))?.reason ?? "", /git-reset-hard/);
+      assert.match(h.shared.jevDisabled?.reason ?? "", new RegExp(`HTTP ${status}`));
+      assert.equal(notes.filter((note) => /Jev is disabled/.test(note)).length, 1);
+      const judged = [...records("guard.bash"), ...records("guard.write")].filter((r) => r.stage === "jev_error");
+      assert.equal(judged.length, 3);
+      assert.ok(judged.every((r) => r.verdict === "allow" && !r.enforced));
+    });
+  }
+  for (const status of [403, 429, 503]) {
+    await withGuard("enforce", { status }, async (h) => {
+      assert.equal((await call(h, "bash", { command: "npm publish" }))?.block, true, `HTTP ${status}`);
+      assert.equal((await call(h, "bash", { command: "npm publish" }))?.block, true);
+      assert.equal(h.bodies.length, 2);
+      assert.equal(h.shared.jevDisabled, undefined);
+    });
+  }
 });
 
 test("an invalid policies file enforces every guard and tells the user, instead of silently falling back to shadow", async () => {

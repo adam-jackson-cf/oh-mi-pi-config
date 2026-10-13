@@ -18,10 +18,11 @@ import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/omptype/zod";
 import {
-  appendDecision, auditRoot, clip, decide, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
-  type JevAnswer, type JevAnswers, type JevQuestion, type JevQuestions, type JevResult, type JsonValue, type NewDecision,
+  appendDecision, auditRoot, clip, credentialSecret, decide, disablingReason, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
+  type JevAnswer, type JevAnswers, type JevCredential, type JevQuestion, type JevQuestions, type JevResult, type JsonValue,
+  type NewDecision,
 } from "./lib/jev.ts";
-import { loadJevApiKey } from "./lib/jev-auth.ts";
+import { loadJevCredential } from "./lib/jev-auth.ts";
 import { loadRules, matchChange, type CompiledRule } from "./lib/integrity.ts";
 
 export const ASK_POLICY = "ask";
@@ -79,7 +80,9 @@ export type AskDetails = {
   /** Audit writes (records or content snapshots) that failed during this call. */
   auditFailures: number;
 };
-export type LoadKey = () => Promise<string | undefined>;
+export type LoadCredential = () => Promise<JevCredential | undefined>;
+/** Per-process state: `disabled` says why Jev is off after a credential or billing refusal (see `disablingReason`). */
+export type AskSession = { disabled?: string };
 
 function failure(text: string): AgentToolResult<AskDetails> {
   return { content: [{ type: "text", text }], isError: true };
@@ -211,13 +214,13 @@ type CombinedAudit = { files: AuditFields[]; inline?: string };
 
 /** Build the Jev calls: one per file, one combined call, and/or one inline-state call. */
 function buildUnits(files: LoadedFile[], inline: string | undefined, mode: "per_file" | "combined",
-  apiKey: string): BuiltUnits {
+  secret: string | undefined): BuiltUnits {
   const calls: Unit[] = [];
-  const redactedInline = inline === undefined ? undefined : redact(inline, apiKey);
+  const redactedInline = inline === undefined ? undefined : redact(inline, secret);
   const inlineAudit = redactedInline === undefined ? "" : clip(redactedInline, INLINE_AUDIT_LIMIT).text;
   if (mode === "combined" && files.length > 0) {
     const state: CombinedState = {
-      files: files.map((file) => ({ path: file.path, content: redact(file.content, apiKey) })) };
+      files: files.map((file) => ({ path: file.path, content: redact(file.content, secret) })) };
     if (redactedInline !== undefined) state.inline = redactedInline;
     if (JSON.stringify(state).length > JEV_STATE_CHAR_LIMIT) {
       return { calls, error: `Combined content exceeds ${JEV_STATE_CHAR_LIMIT} characters; use mode per_file or fewer paths.` };
@@ -228,8 +231,8 @@ function buildUnits(files: LoadedFile[], inline: string | undefined, mode: "per_
     return { calls };
   }
   for (const file of files) {
-    calls.push({ key: file.path, state: { path: file.path, content: redact(file.content, apiKey) },
-      audit: fileAudit(file), subject: redact(file.path, apiKey) });
+    calls.push({ key: file.path, state: { path: file.path, content: redact(file.content, secret) },
+      audit: fileAudit(file), subject: redact(file.path, secret) });
   }
   if (redactedInline !== undefined) {
     calls.push({ key: "(inline)", state: redactedInline,
@@ -358,7 +361,7 @@ function questionNotes(questions: JevQuestions): string[] {
 
 /** Execute one jev_ask call. Exported for tests; the registered tool wraps it. */
 export async function runAsk(params: AskParameters, signal: AbortSignal | undefined, ctx: ExtensionContext,
-  loadKey: LoadKey, toolCallId?: string): Promise<AgentToolResult<AskDetails>> {
+  loadCredential: LoadCredential, toolCallId?: string, session: AskSession = {}): Promise<AgentToolResult<AskDetails>> {
   const questions: JevQuestions = params.questions;
   const sink: AuditSink = { failures: 0 };
   const pre: PrecheckContext = { ctx, toolCallId, sink, questions };
@@ -370,14 +373,18 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
   if (!params.paths?.length && params.state === undefined) {
     return precheck(pre, "no_input", "Provide `paths` and/or `state` to judge.", true);
   }
-  let apiKey: string | undefined;
-  try {
-    apiKey = await loadKey();
-  } catch {
-    apiKey = undefined;
+  if (session.disabled !== undefined) {
+    return precheck(pre, "jev_disabled", `Jev is disabled for this OMP process: ${session.disabled} ${FALLBACK}`, true);
   }
-  if (!apiKey) {
-    return precheck(pre, "no_credential", `Jev is unavailable: no OpenRouter credential (run /login openrouter). ${FALLBACK}`, true);
+  let credential: JevCredential | undefined;
+  try {
+    credential = await loadCredential();
+  } catch {
+    credential = undefined;
+  }
+  if (!credential) {
+    return precheck(pre, "no_credential",
+      `Jev is unavailable: no OpenRouter credential (run /login openrouter, or start OMP with agent-vault-launch). ${FALLBACK}`, true);
   }
   let rules: CompiledRule[];
   try {
@@ -394,7 +401,7 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
     else skipped.push(outcome);
   }
   const mode = params.mode ?? "per_file";
-  const built = buildUnits(files, params.state, mode, apiKey);
+  const built = buildUnits(files, params.state, mode, credentialSecret(credential));
   if (built.error !== undefined) return precheck(pre, "combined_too_large", `${built.error} ${FALLBACK}`, true, skipped);
   const units = built.calls;
   if (units.length === 0) {
@@ -403,10 +410,11 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
 
   const ids = Object.keys(questions);
   const outcomes = await runPool(units, CONCURRENCY, async (unit) => {
-    const result = await decide(apiKey, unit.state, questions, { signal });
+    const result = await decide(credential, unit.state, questions, { signal });
     await auditCall(unit, questions, result, toolCallId, ctx, sink);
     return result;
   });
+  session.disabled ??= outcomes.map(disablingReason).find((reason) => reason !== undefined);
   const results: UnitOutcome[] = units.map((unit, index) => {
     const outcome = outcomes[index];
     return outcome.ok ? { key: unit.key, answers: outcome.answers } : { key: unit.key, error: outcome.error };
@@ -462,8 +470,12 @@ function hostParameters(z: ExtensionAPI["zod"]) {
   });
 }
 
-/** Register the tool and the evidence-ladder nudge; `loadKey` is injectable for tests. */
-export function registerJevAsk(pi: ExtensionAPI, loadKey: LoadKey): void {
+/**
+ * Register the tool and the evidence-ladder nudge; `loadCredential` is injectable for tests. With no credential, or
+ * once Jev is disabled for the process, the nudge is withheld (and removed) so the model stops reaching for Jev.
+ */
+export function registerJevAsk(pi: ExtensionAPI, loadCredential: LoadCredential): void {
+  const session: AskSession = {};
   pi.registerTool({
     name: "jev_ask",
     label: "Jev ask",
@@ -473,15 +485,17 @@ export function registerJevAsk(pi: ExtensionAPI, loadKey: LoadKey): void {
     execute: async (toolCallId, params, signal, _onUpdate, ctx) => {
       const parsed = askParameters.safeParse(params);
       if (!parsed.success) return failure(`Invalid jev_ask arguments: ${parsed.error.issues[0]?.message ?? "unknown problem"}.`);
-      return runAsk(parsed.data, signal, ctx, loadKey, toolCallId);
+      return runAsk(parsed.data, signal, ctx, loadCredential, toolCallId, session);
     },
   });
-  pi.on("before_agent_start", (event) => {
-    if (event.systemPrompt.some((part) => part.includes(NUDGE_MARKER))) return undefined;
-    return { systemPrompt: [...event.systemPrompt, NUDGE_TEXT] };
+  pi.on("before_agent_start", async (event) => {
+    const nudged = event.systemPrompt.some((part) => part.includes(NUDGE_MARKER));
+    const available = session.disabled === undefined && (await loadCredential().catch(() => undefined)) !== undefined;
+    if (available) return nudged ? undefined : { systemPrompt: [...event.systemPrompt, NUDGE_TEXT] };
+    return nudged ? { systemPrompt: event.systemPrompt.filter((part) => part !== NUDGE_TEXT) } : undefined;
   });
 }
 
 export default function jevAsk(pi: ExtensionAPI): void {
-  registerJevAsk(pi, loadJevApiKey);
+  registerJevAsk(pi, loadJevCredential);
 }

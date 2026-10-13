@@ -124,7 +124,7 @@ export function jevBackend(apiKey: string): Backend {
   return {
     id: "jev",
     async call(state, questions) {
-      const r = await jevDecide(apiKey, state, questions, { timeoutMs: 120_000 });
+      const r = await jevDecide({ kind: "key", key: apiKey }, state, questions, { timeoutMs: 120_000 });
       if (!r.ok) return { ok: false, error: r.error, httpStatus: r.httpStatus, latencyMs: r.latencyMs, model: r.resolvedModel };
       const answers: Record<string, NormAnswer> = {};
       for (const [id, q] of Object.entries(questions)) {

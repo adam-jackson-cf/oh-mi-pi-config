@@ -254,6 +254,14 @@ is not secret exposure. The result screen awaits Jev (8 s per window) and fails 
 unchanged, error recorded). A `jev-policies.json` that cannot be parsed makes every policy enforce
 and notifies the user at session start.
 
+Jev is disabled for the OMP process when no credential exists at startup (neither a `/login
+openrouter` key nor Agent Vault via `agent-vault-launch`), or after a call returns HTTP 401 (key
+rejected), 402 (credit or spending limit) or 407 (vault session token rejected). Every
+Jev-dependent check then allows and records `jev_error` with verdict `allow`, `enforced: false`;
+no further Jev request is made, deterministic rules still decide, and the main session shows
+`Jev: disabled` and one notice. Timeouts, 403, 429 and 5xx still fail closed. Restart OMP once the
+credential works.
+
 ## Known limits
 
 From the 2026-10-02 promotion (`.todo/artifacts/021026-jev-promotion/report.md`), addressed in the
