@@ -62,6 +62,28 @@ source.
    registration checks alone are not behavioral proof.
 5. Keep the durable source concise and leave generated runtime state untracked.
 
+## NUC branch (`nuc-config`)
+
+This branch is the configuration for the Linux NUC (`adam-ai`); rebase it on
+`main` to take upstream changes. It differs from `main` only in:
+
+- `agent/AGENTS.md` — the `~/Projects/` folder-structure rule, so work started
+  remotely on the NUC (worktrees included) lands in the right category folder.
+- `agent/lsp.json` and `.omp/lsp.json` — language servers are bare command names
+  resolved on `PATH`, not macOS install paths. `pyright` and
+  `typescript-language-server` are installed with the mise Node
+  (`npm install -g pyright typescript-language-server typescript`).
+  `rust-analyzer` is not installed; the server stays inactive until it is.
+
+Not carried by this repository, so set up on the NUC separately:
+
+- Skills in `~/.agents/skills` and `~/.agents/by-request` (listed in
+  `agent/config.yml`) are copied from the Mac, without `--delete` so NUC-only
+  skills survive: `rsync -av ~/.agents/ adam-ai@<nuc>:~/.agents/`.
+- The Jev credential: there is no OpenRouter key on the NUC. Until Jev can use
+  the Agent Vault proxy, `agent/jev-policies.json` is kept in `shadow` locally
+  and must not be committed.
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.

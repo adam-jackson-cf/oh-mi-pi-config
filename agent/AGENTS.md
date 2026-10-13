@@ -104,3 +104,25 @@ your response:
   changed-file list, replay individual failed attempts, add filler, or restate
   other sections.
     <!-- OMP_GLOBAL_RULES_END -->
+
+## Projects folder structure
+
+Use `~/Projects/` for projects on this machine. Place each project in one of
+these four folders according to its purpose and maturity:
+
+- `inflight/`: Prototypes, experiments, ideas, and newly started projects that
+  have not yet reached version 1 (their first completed usable version).
+- `complete/`: Projects that have reached version 1. Move these projects from
+  `inflight/` to `complete/` when their initial version is complete. Keep ongoing
+  maintenance and new feature work here; completed does not mean archived.
+- `tools/`: Skills repositories, workflows, scheduled jobs, automations, and
+  small bespoke tools that support day-to-day work. These belong here regardless
+  of version or maturity.
+- `examples/`: A temporary area for repositories and other reference projects
+  pulled down to study, learn from, or use as examples.
+
+Create or clone projects into the appropriate category rather than directly
+under `~/Projects/`. Default new product or application ideas to `inflight/`,
+day-to-day tooling to `tools/`, and learning references to `examples/`.
+When moving a version 1 project into `complete/`, update any affected local
+paths, scripts, shortcuts, or automation references.
