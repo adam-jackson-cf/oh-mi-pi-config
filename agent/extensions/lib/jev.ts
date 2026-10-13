@@ -59,6 +59,40 @@ export type JevFailure = { ok: false; error: string; httpStatus?: number; resolv
 export type JevResult = JevSuccess | JevFailure;
 export type JevRequestOptions = { signal?: AbortSignal; timeoutMs?: number };
 
+/**
+ * How a Jev request is authorised: an OpenRouter key sent as a bearer token, or Agent Vault, whose proxy adds the
+ * key (the program then holds only the vault session token, which travels as proxy credentials in `HTTPS_PROXY`).
+ */
+export type JevCredential = { kind: "key"; key: string } | { kind: "vault"; token: string };
+const VAULT_PROXY_USER = "x-agent-vault";
+
+/** The Agent Vault credential when `agent-vault-launch` started this process (`HTTPS_PROXY=http://x-agent-vault:<token>@…`). */
+export function vaultCredential(env: Record<string, string | undefined> = process.env): JevCredential | undefined {
+  const proxy = env.HTTPS_PROXY ?? env.https_proxy;
+  if (!proxy) return undefined;
+  let url: URL;
+  try {
+    url = new URL(proxy);
+  } catch {
+    return undefined;
+  }
+  return url.username === VAULT_PROXY_USER && url.password ? { kind: "vault", token: url.password } : undefined;
+}
+
+/** The secret a credential carries, for masking in state, audit and output. */
+export function credentialSecret(credential: JevCredential | undefined): string | undefined {
+  return credential?.kind === "key" ? credential.key : credential?.token;
+}
+
+/**
+ * Why Jev cannot work for the rest of the session, or undefined for a failure a later call may not repeat. Only
+ * credential and billing refusals qualify: 401 (key rejected), 402 (credit or spending limit), 407 (vault token
+ * rejected). Callers stop calling Jev and stop gating on it; timeouts, 403 (moderation), 429 and 5xx do not qualify.
+ */
+export function disablingReason(result: JevResult): string | undefined {
+  return !result.ok && (result.httpStatus === 401 || result.httpStatus === 402 || result.httpStatus === 407) ? result.error : undefined;
+}
+
 const QUESTION_ID = /^[a-z][a-z0-9_]{0,63}$/;
 const instructionsSchema = z.union([z.string().trim().min(1), z.object({ question: z.string().trim().min(1), focus: z.string().optional() })]);
 
@@ -89,11 +123,17 @@ function answerMatches(question: JevQuestion, given: JevAnswer | undefined): boo
   return true;
 }
 
+const FAILURE_TEXT = new Map([
+  [401, "OpenRouter rejected the Jev credential (HTTP 401): no key reached it, or the key is invalid or revoked."],
+  [402, "OpenRouter is out of credits or at its spending limit (HTTP 402)."],
+  [407, "Agent Vault rejected the session token (HTTP 407)."],
+]);
+
 /**
  * One Jev decision. Never throws for transport, provider or schema failures; returns
  * `ok: false` with a safe message and no provider body (bodies can echo input).
  */
-export async function decide(apiKey: string, state: JsonValue, questions: JevQuestions,
+export async function decide(credential: JevCredential, state: JsonValue, questions: JevQuestions,
   options?: JevRequestOptions): Promise<JevResult> {
   validateQuestions(questions);
   const started = Date.now();
@@ -101,9 +141,11 @@ export async function decide(apiKey: string, state: JsonValue, questions: JevQue
   const signal = options?.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response;
   try {
+    // Vault mode sends no Authorization header: the request leaves through HTTPS_PROXY and the vault adds the key.
+    const auth: Record<string, string> = credential.kind === "key" ? { Authorization: `Bearer ${credential.key}` } : {};
     response = await fetch(JEV_ENDPOINT, {
       method: "POST", signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: { ...auth, "Content-Type": "application/json" },
       body: JSON.stringify({ model: JEV_MODEL, state, questions }),
     });
   } catch (cause) {
@@ -112,9 +154,7 @@ export async function decide(apiKey: string, state: JsonValue, questions: JevQue
       latencyMs: Date.now() - started };
   }
   if (!response.ok) {
-    const error = response.status === 402
-      ? "OpenRouter is out of credits or at its spending limit (HTTP 402)."
-      : `Jev Decisions API returned HTTP ${response.status}.`;
+    const error = FAILURE_TEXT.get(response.status) ?? `Jev Decisions API returned HTTP ${response.status}.`;
     return { ok: false, error, httpStatus: response.status, latencyMs: Date.now() - started };
   }
   let parsed: z.infer<typeof decisionResponse>;

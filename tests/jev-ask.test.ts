@@ -8,7 +8,7 @@ import { afterEach, test } from "node:test";
 import * as hostZod from "@oh-my-pi/omptype/zod";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { askParameters, NUDGE_MARKER, registerJevAsk, type AskDetails, type AskParameters } from "../agent/extensions/jev-ask";
-import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, type JevAnswers } from "../agent/extensions/lib/jev";
+import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, vaultCredential, type JevAnswers } from "../agent/extensions/lib/jev";
 
 // The sensitive-path check reads the repository's integrity rules, not the machine's.
 const RULES_DIR = fileURLToPath(new URL("../agent/integrity", import.meta.url));
@@ -25,7 +25,7 @@ type FakePi = {
   on(event: string, handler: PromptHandler): void;
 };
 type PromptEvent = { systemPrompt: string[] };
-type PromptHandler = (event: PromptEvent) => { systemPrompt?: string[] } | undefined;
+type PromptHandler = (event: PromptEvent) => Promise<{ systemPrompt?: string[] } | undefined>;
 type Harness = { tool: CapturedTool; nudge: PromptHandler; ctx: ExtensionContext };
 
 const SECRET_BODY = "PRIVATE_FILE_BODY_MARKER";
@@ -39,7 +39,7 @@ function harness(cwd: string, key: string | undefined = "sk-test-key-000000"): H
     on: (_event, handler) => { handlers.push(handler); },
   };
   // SAFETY: The extension only touches zod, registerTool and on; FakePi provides exactly those.
-  registerJevAsk(pi as ExtensionAPI, async () => key);
+  registerJevAsk(pi as ExtensionAPI, async () => (key ? { kind: "key", key } : undefined));
   // SAFETY: The tool reads cwd, agent and sessionManager from the context; the fake provides those.
   const ctx = { cwd, agent: { kind: "main", name: "main" }, sessionManager: { getSessionId: () => "session-1" } } as ExtensionContext;
   return { tool: tools[0]!, nudge: handlers[0]!, ctx };
@@ -61,14 +61,14 @@ function answersFor(asked: AskParameters["questions"]): JevAnswers {
 
 type Sent = { state: { path?: string; content?: string; files?: { path: string }[] } | string };
 
-async function withJev<T>(run: (sent: Sent[]) => Promise<T>, fail = false): Promise<T> {
+async function withJev<T>(run: (sent: Sent[]) => Promise<T>, status = 200): Promise<T> {
   const original = globalThis.fetch;
   const sent: Sent[] = [];
   // SAFETY: This test stub returns a real Response and the original fetch is restored below.
   globalThis.fetch = (async (_url, options) => {
     const body = JSON.parse(String(options!.body));
     sent.push({ state: body.state });
-    if (fail) return new Response("provider echoed PRIVATE_FILE_BODY_MARKER", { status: 500 });
+    if (status !== 200) return new Response("provider echoed PRIVATE_FILE_BODY_MARKER", { status });
     return Response.json({ id: `resp-${sent.length}`, model: JEV_PINNED_MODEL, answers: answersFor(body.questions),
       usage: { input_tokens: 10, output_tokens: 2, cost: 0.00001 } });
   }) as typeof fetch;
@@ -151,10 +151,33 @@ test("decide latency includes reading the response body", async () => {
     start(controller) { setTimeout(() => { controller.enqueue(new TextEncoder().encode(body)); controller.close(); }, 120); },
   }), { status: 200 }), { preconnect: original.preconnect });
   try {
-    const result = await decide("sk-test-key-000000", "state", asked);
+    const result = await decide({ kind: "key", key: "sk-test-key-000000" }, "state", asked);
     assert.ok(result.ok);
     assert.ok(result.latencyMs >= 100, `latency ${result.latencyMs} should include the delayed body`);
   } finally { globalThis.fetch = original; }
+});
+
+test("a key is sent as a bearer token; under Agent Vault no Authorization header leaves the process", async () => {
+  const original = globalThis.fetch;
+  const asked: AskParameters["questions"] = { q: { type: "noul", instructions: "ok?" } };
+  const headers: Headers[] = [];
+  // SAFETY: This test stub returns a real Response and the original fetch is restored below.
+  globalThis.fetch = (async (_url, init) => {
+    headers.push(new Headers(init?.headers));
+    return Response.json({ id: "r1", model: JEV_PINNED_MODEL, answers: answersFor(asked), usage: { input_tokens: 1, output_tokens: 1, cost: 0 } });
+  }) as typeof fetch;
+  try {
+    assert.ok((await decide({ kind: "key", key: "sk-test-key-000000" }, "state", asked)).ok);
+    const vault = vaultCredential({ HTTPS_PROXY: "http://x-agent-vault:vault-session-token@100.80.132.50:17323" });
+    assert.deepEqual(vault, { kind: "vault", token: "vault-session-token" });
+    assert.ok((await decide(vault!, "state", asked)).ok);
+    assert.equal(headers[0]?.get("authorization"), "Bearer sk-test-key-000000");
+    assert.equal(headers[1]?.get("authorization"), null);
+  } finally { globalThis.fetch = original; }
+  // Only the launcher's proxy user with a token is Agent Vault; any other proxy is not.
+  assert.equal(vaultCredential({ HTTPS_PROXY: "http://user:pass@proxy.example:8080" }), undefined);
+  assert.equal(vaultCredential({ HTTPS_PROXY: "http://x-agent-vault@100.80.132.50:17323" }), undefined);
+  assert.equal(vaultCredential({}), undefined);
 });
 
 test("per-file answers keep input order, format each level, and never echo file content", async () => {
@@ -286,10 +309,39 @@ test("missing credential and Jev failure return error results that point at read
     assert.equal(missing.isError, true);
     assert.match(missing.content[0]!.text, /read.*grep/);
     const { tool, ctx } = harness(root);
-    const failed = await withJev(() => tool.execute("2", { questions, paths: ["a.ts"] }, undefined, undefined, ctx), true);
+    const failed = await withJev(() => tool.execute("2", { questions, paths: ["a.ts"] }, undefined, undefined, ctx), 500);
     assert.equal(failed.isError, true);
     assert.match(failed.content[0]!.text, /read.*grep/);
     assert.ok(!failed.content[0]!.text.includes(SECRET_BODY));
+  } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
+});
+
+test("a credential or billing refusal disables jev_ask for the process and withdraws the nudge; other failures do not", async () => {
+  const { root, audit } = await fixture();
+  try {
+    const nudgeText = (await harness(root).nudge({ systemPrompt: [] }))!.systemPrompt![0]!;
+    const transient = harness(root);
+    for (const status of [500, 403, 429]) {
+      await withJev(() => transient.tool.execute("t", { questions, paths: ["a.ts"] }, undefined, undefined, transient.ctx), status);
+    }
+    const retried = await withJev(async (sent) => ({ r: await transient.tool.execute("t2", { questions, paths: ["a.ts"] }, undefined, undefined, transient.ctx), sent }));
+    assert.equal(retried.sent.length, 1);
+    assert.equal(retried.r.isError, undefined);
+    for (const status of [401, 402, 407]) {
+      const { tool, ctx, nudge } = harness(root);
+      const refused = await withJev(() => tool.execute("r", { questions, paths: ["a.ts"] }, undefined, undefined, ctx), status);
+      assert.equal(refused.isError, true);
+      assert.match(refused.content[0]!.text, new RegExp(`HTTP ${status}`));
+      const later = await withJev(async (sent) => ({ r: await tool.execute("d", { questions, paths: ["a.ts"] }, undefined, undefined, ctx), sent }));
+      assert.equal(later.sent.length, 0, `HTTP ${status}: no request once disabled`);
+      assert.match(later.r.content[0]!.text, /disabled for this OMP process.*read.*grep/s);
+      assert.equal(await nudge({ systemPrompt: ["base"] }), undefined);
+      assert.deepEqual((await nudge({ systemPrompt: ["base", nudgeText] }))?.systemPrompt, ["base"]);
+    }
+    const dir = join(audit, "ask");
+    const file = (await readdir(dir)).find((name) => name.endsWith(".jsonl") && name !== "labels.jsonl")!;
+    const rules = (await readFile(join(dir, file), "utf8")).trim().split("\n").map((line) => JSON.parse(line).rule);
+    assert.equal(rules.filter((rule) => rule === "precheck:jev_disabled").length, 3);
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
 });
 
@@ -314,12 +366,13 @@ test("a one-level score question is rejected before any call", async () => {
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
 });
 
-test("the evidence-ladder nudge is appended once across repeated invocations", () => {
+test("the evidence-ladder nudge is appended once across repeated invocations, and never without a credential", async () => {
   const { nudge, tool } = harness(tmpdir());
   const base = ["base prompt"];
-  const first = nudge({ systemPrompt: base })!.systemPrompt!;
+  const first = (await nudge({ systemPrompt: base }))!.systemPrompt!;
   assert.equal(first.length, 2);
-  assert.equal(nudge({ systemPrompt: first }), undefined);
+  assert.equal(await nudge({ systemPrompt: first }), undefined);
+  assert.equal(await harness(tmpdir(), "").nudge({ systemPrompt: base }), undefined);
   const joined = first.join("\n");
   assert.equal(joined.split(NUDGE_MARKER).length - 1, 1);
   assert.ok(first[1]!.length < 900);

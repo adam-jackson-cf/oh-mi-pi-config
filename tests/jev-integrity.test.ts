@@ -87,7 +87,7 @@ async function withGuard(mode: PolicyMode, answer: Answerer, run: (h: Harness) =
       { status: 200 });
   }, { preconnect: realFetch.preconnect });
   try {
-    const guard = createJevGuard({ loadKey: async () => "or-test-key-0123456789abcdef" });
+    const guard = createJevGuard({ loadCredential: async () => ({ kind: "key", key: "or-test-key-0123456789abcdef" }) });
     const handlers = new Map<string, Handler>();
     // SAFETY: only `on` and `registerCommand` are exercised by the extension; the rest of ExtensionAPI is unused here.
     const pi = Object.assign({} as ExtensionAPI, {

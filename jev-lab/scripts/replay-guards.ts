@@ -14,8 +14,8 @@ import {
   needsSecretJudgement, PRIVATE_KEY_HEADER, RESULT_POLICY_VERSION, RESULT_QUESTIONS, resultWindows, stripHarnessText,
   WRITE_POLICY_VERSION, WRITE_QUESTIONS, writeJevState,
 } from "../../agent/extensions/jev-guard.ts";
-import { loadJevApiKey } from "../../agent/extensions/lib/jev-auth.ts";
-import { decide, type JevAnswers, type JevQuestions, type JsonValue } from "../../agent/extensions/lib/jev.ts";
+import { loadJevCredential } from "../../agent/extensions/lib/jev-auth.ts";
+import { credentialSecret, decide, type JevAnswers, type JevCredential, type JevQuestions, type JsonValue } from "../../agent/extensions/lib/jev.ts";
 
 const POLICIES = {
   bash: { policy: "guard.bash", version: BASH_POLICY_VERSION, questions: BASH_QUESTIONS },
@@ -47,11 +47,13 @@ const spec = POLICIES[name];
 const casesIn = args.get("cases-in");
 const out = args.get("out");
 if (!casesIn || !out) throw new Error("--cases-in and --out are required");
-const apiKey = await loadJevApiKey();
-if (!apiKey) throw new Error("No Jev credential available.");
+const loaded = await loadJevCredential();
+if (!loaded) throw new Error("No Jev credential available.");
+const credential: JevCredential = loaded;
+const credentialValue = credentialSecret(credential);
 
 async function ask(state: JsonValue, questions: JevQuestions): Promise<Asked> {
-  const result = await decide(apiKey ?? "", state, questions);
+  const result = await decide(credential, state, questions);
   return result.ok ? { answers: result.answers, costUsd: result.costUsd, latencyMs: result.latencyMs, resolvedModel: result.resolvedModel }
     : { error: result.error, latencyMs: result.latencyMs };
 }
@@ -69,7 +71,7 @@ async function replayBash(state: z.infer<typeof bashState>): Promise<Outcome> {
   // No session history exists in a replay, so only the cwd's current git state and the command text decide.
   const recoverable = await assessRecoverable(command, state.cwd || process.cwd(), new Set());
   if (recoverable.qualifies) return { stage: "deterministic", verdict: "allow", rule: "project-recoverable", state: recoverable.targets };
-  const built = bashJevState(command, state.cwd || process.cwd(), apiKey, recoverable);
+  const built = bashJevState(command, state.cwd || process.cwd(), credentialValue, recoverable);
   const judged = await ask(built.state, BASH_QUESTIONS);
   if (!judged.answers) return { stage: "jev_error", verdict: "error", state: built.state, ...judged };
   const assessed = assessBash(judged.answers, built.facts, recoverable.settled);
@@ -91,7 +93,7 @@ async function replayWrite(state: z.infer<typeof writeState>): Promise<Outcome> 
   if (PRIVATE_KEY_HEADER.test(added)) return { stage: "deterministic", verdict: "block", rule: "secret-literal" };
   if (!needsSecretJudgement(added)) return { stage: "deterministic", verdict: "allow", rule: "prefilter-no-match" };
   // Stored excerpts have known-format keys already masked, so their format facts cannot be rebuilt.
-  const built = writeJevState(path, added, apiKey);
+  const built = writeJevState(path, added, credentialValue);
   const judged = await ask(built, WRITE_QUESTIONS);
   if (!judged.answers) return { stage: "jev_error", verdict: "error", state: built, ...judged };
   const secret = judged.answers.contains_secret;

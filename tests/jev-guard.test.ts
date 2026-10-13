@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
-  INJECTION_WARNING, classifyBash, createJevGuard, isSecretPath, needsSecretJudgement, parseHashlineEdit, type GuardShared,
+  BASH_POLICY_VERSION, BASH_SYSTEM_POLICY_VERSION, INJECTION_WARNING, classifyBash, createJevGuard, isSecretPath, needsSecretJudgement,
+  parseHashlineEdit, type GuardShared,
 } from "../agent/extensions/jev-guard.ts";
 import { JEV_PINNED_MODEL, type BashScope, type DecisionRecord, type PolicyMode } from "../agent/extensions/lib/jev.ts";
 import { literalPaths, protectedRootOf, protectedRoots } from "../agent/extensions/lib/system-paths.ts";
@@ -54,7 +55,11 @@ type ImagePart = { type: "image"; data: string; mimeType: string; text?: undefin
 type FakeEvent = { type: string; toolName: string; input: ToolInput; content?: (TextPart | ImagePart)[]; isError?: boolean };
 type Outcome = { block?: boolean; reason?: string; content?: (TextPart | ImagePart)[] } | undefined;
 type Handler = (event: FakeEvent, ctx: ExtensionContext) => Promise<Outcome>;
-type Jev = { irreversible?: number; destructive?: number; exposure?: number; secret?: number; injection?: number; system?: number; fail?: boolean };
+type Jev = {
+  irreversible?: number; destructive?: number; exposure?: number; secret?: number; injection?: number; system?: number; fail?: boolean;
+  /** HTTP status every Jev call returns instead of an answer. */
+  status?: number;
+};
 type ConfirmCall = { title: string };
 type Command = { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> };
 
@@ -82,12 +87,13 @@ async function withGuard(mode: PolicyMode, jev: Jev, run: (h: Harness) => Promis
   const bodies: string[] = [];
   globalThis.fetch = Object.assign(async (_url: URL | RequestInfo, init?: RequestInit) => {
     bodies.push(String(init?.body));
-    return jev.fail ? new Response("nope", { status: 500 }) : new Response(jevBody(jev), { status: 200 });
+    const status = jev.status ?? (jev.fail ? 500 : 200);
+    return status !== 200 ? new Response("nope", { status }) : new Response(jevBody(jev), { status: 200 });
   }, { preconnect: realFetch.preconnect });
   try {
     const shared: GuardShared = { queue: Promise.resolve() };
     // The macOS protected-folder list on every host, so the system-only scope is exercised in Linux CI too.
-    const guard = createJevGuard({ loadKey: async () => API_KEY, shared, platform: "darwin" });
+    const guard = createJevGuard({ loadCredential: async () => ({ kind: "key", key: API_KEY }), shared, platform: "darwin" });
     const handlers = new Map<string, Handler>();
     const commands = new Map<string, Command>();
     const on = (name: string, handler: Handler) => { handlers.set(name, handler); };
@@ -216,6 +222,25 @@ test("bash classifier: read-only commands that print secrets are denied before t
   for (const command of ["cat README.md", "cat ~/.ssh/id_ed25519.pub", "cat ~/.ssh/known_hosts", "cat .env.example", "echo $HOME",
     "echo '$API_KEY'"]) {
     assert.equal(classifyBash(command).kind, "allow", command);
+  }
+});
+
+test("bash classifier: secret-read denies only commands that can show a credential file's content", () => {
+  const denied = ["grep token .env", "grep -o token .env", "rg -L token .env", "sed -n 1p ~/.aws/credentials", "cat ~/.git-credentials",
+    "cat config/gcp_credentials.json", "git show HEAD:.env", "git diff -- .env", 'ls "$(cat ~/.aws/credentials)"'];
+  for (const command of denied) {
+    const verdict = classifyBash(command);
+    assert.equal(verdict.kind === "deny" ? verdict.rule : verdict.kind, "secret-read", command);
+  }
+  // Text that names credentials, and metadata or silent searches of credential files, show no value.
+  const allowed = ['grep -rn "credentials" src', "jq '.disabledCredentials[]?.provider' u.json", 'echo "credentials rotated"',
+    "ls ~/.aws/credentials", "stat -f '%Sm %N' ~/.omp/.env", "test -f ~/.git-credentials", "wc -l < ~/.git-credentials",
+    "grep -c github.com ~/.git-credentials", "grep -q '^X=' .env", "grep -lsr X ~/.omp/.env ~/.zshrc"];
+  for (const command of allowed) assert.equal(classifyBash(command).kind, "allow", command);
+  // Not read-only, so Jev judges them: a commit message naming credentials, git metadata of a secret file, a copy of one.
+  for (const command of ['git commit -q -m "S11: provenance credentials; vault settings"', "git -C ~/.omp check-ignore -q .env",
+    "git credential-store --file ~/.git-credentials erase", "cp -p ~/.omp/.env /tmp/backup.env"]) {
+    assert.equal(classifyBash(command).kind, "jev", command);
   }
 });
 
@@ -584,24 +609,61 @@ test("audit never contains raw secrets from commands or results", async () => {
   });
 });
 
-test("policy off skips everything; missing key records jev_error without throwing", async () => {
+test("policy off skips everything; with no credential Jev is disabled, so enforce allows and records why", async () => {
   rmSync(auditDir, { recursive: true, force: true });
   writeFileSync(policiesFile, JSON.stringify({ "guard.bash": "off" }));
-  const guard = createJevGuard({ loadKey: async () => undefined });
+  const guard = createJevGuard({ loadCredential: async () => undefined });
   const handlers = new Map<string, Handler>();
   const on = (name: string, handler: Handler) => { handlers.set(name, handler); };
   // SAFETY: only `on` and `registerCommand` are exercised by the extension.
   await guard.extension(Object.assign({} as ExtensionAPI, { on, registerCommand: () => undefined }));
-  const ctx = makeCtx("sub", false, []);
+  const notes: string[] = [];
+  const ctx = makeCtx("main", true, [], false, "session-1", root, notes);
   await handlers.get("session_start")?.({ type: "session_start", toolName: "", input: {} }, ctx);
   assert.equal(await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx), undefined);
   await guard.idle();
   assert.equal(records("guard.bash").length, 0);
   writeFileSync(policiesFile, JSON.stringify({ "guard.bash": "enforce" }));
   await handlers.get("session_start")?.({ type: "session_start", toolName: "", input: {} }, ctx);
-  const outcome = await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx);
-  assert.equal(outcome?.block, true);
-  assert.equal(records("guard.bash")[0]?.stage, "jev_error");
+  assert.equal(await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "npm publish" } }, ctx), undefined);
+  const rec = records("guard.bash")[0];
+  assert.equal(rec?.stage, "jev_error");
+  assert.equal(rec?.verdict, "allow");
+  assert.equal(rec?.enforced, false);
+  assert.match(rec?.error ?? "", /disabled.*no OpenRouter credential/);
+  // Deterministic rules still block, and the user is told once however many sessions start.
+  assert.match((await handlers.get("tool_call")?.({ type: "tool_call", toolName: "bash", input: { command: "git reset --hard" } }, ctx))?.reason ?? "",
+    /git-reset-hard/);
+  assert.equal(notes.filter((note) => /Jev is disabled/.test(note)).length, 1);
+});
+
+test("a credential or billing refusal disables Jev for the process; other Jev failures still fail closed", async () => {
+  for (const status of [401, 402, 407]) {
+    await withGuard("enforce", { status }, async (h) => {
+      const notes: string[] = [];
+      const main = makeCtx("main", true, [], false, "session-1", root, notes);
+      assert.equal(await call(h, "bash", { command: "npm publish" }, main), undefined, `HTTP ${status}`);
+      assert.equal(h.bodies.length, 1);
+      // Later Jev checks, from any guard instance sharing the process state, allow without another request.
+      assert.equal(await call(h, "write", { path: "tests/redaction.test.ts", content: `const fixture = "${TOKEN}";` }), undefined);
+      assert.equal(await call(h, "bash", { command: "npm publish" }), undefined);
+      assert.equal(h.bodies.length, 1);
+      assert.match((await call(h, "bash", { command: "git reset --hard" }))?.reason ?? "", /git-reset-hard/);
+      assert.match(h.shared.jevDisabled?.reason ?? "", new RegExp(`HTTP ${status}`));
+      assert.equal(notes.filter((note) => /Jev is disabled/.test(note)).length, 1);
+      const judged = [...records("guard.bash"), ...records("guard.write")].filter((r) => r.stage === "jev_error");
+      assert.equal(judged.length, 3);
+      assert.ok(judged.every((r) => r.verdict === "allow" && !r.enforced));
+    });
+  }
+  for (const status of [403, 429, 503]) {
+    await withGuard("enforce", { status }, async (h) => {
+      assert.equal((await call(h, "bash", { command: "npm publish" }))?.block, true, `HTTP ${status}`);
+      assert.equal((await call(h, "bash", { command: "npm publish" }))?.block, true);
+      assert.equal(h.bodies.length, 2);
+      assert.equal(h.shared.jevDisabled, undefined);
+    });
+  }
 });
 
 test("an invalid policies file enforces every guard and tells the user, instead of silently falling back to shadow", async () => {
@@ -666,7 +728,7 @@ test("working folder: deletions and overwrites skip Jev only when git can restor
     const allowed = records("guard.bash").filter((r) => r.rule === "project-recoverable");
     assert.equal(allowed.length, 11);
     assert.ok(allowed.every((r) => r.stage === "deterministic" && r.verdict === "allow" && !r.enforced));
-    assert.ok(allowed.every((r) => r.policyVersion === "guard-bash-2026-10-09.1"));
+    assert.ok(allowed.every((r) => r.policyVersion === BASH_POLICY_VERSION));
     assert.match(JSON.stringify(allowed[0]?.state), /"class":"versioned"/);
     // The fd number in `2>&1` is not a deletion target.
     assert.doesNotMatch(JSON.stringify(allowed.at(-1)?.state), /"path":"[^"]*\/2"/);
@@ -918,7 +980,7 @@ test("system-only: project-level destruction runs unscreened; acting on system f
     assert.equal(await call(h, "bash", { command: "rm -rf /Library/Caches/x" }, makeCtx("main", true, confirms, true, "s", repo)), undefined);
     assert.equal(confirms.length, 1);
     const decided = records("guard.bash").filter((r) => r.rule === "system-folder");
-    assert.ok(decided.every((r) => r.policyVersion === "guard-bash-system-2026-10-09.1"));
+    assert.ok(decided.every((r) => r.policyVersion === BASH_SYSTEM_POLICY_VERSION));
     assert.equal(decided.at(-1)?.enforced, false);
   }, "system-only");
 });

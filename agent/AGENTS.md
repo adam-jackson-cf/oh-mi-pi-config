@@ -35,7 +35,7 @@ comparison. Prefer prose when a visual would add no clarity.
   - tasks that are part of these skill workflows: `analyze-code-quality`,
   `analyze-architecture`, `analyse-security`, `analyze-codebase-integrity`,
   `analyze-agentic-readiness`, `deep-interview`, `experiment-observations`,
-  `fault-catalog`, `intent-plan`
+  `fault-catalog`
   - results surfaced to a user by a skill with a defined output template. The
   skill template takes precedence and must remain unchanged; do not add,
   remove, rename, reorder, or wrap its sections to satisfy completion response
@@ -103,7 +103,7 @@ your response:
   Omit this whole section if no changed file qualifies. Never include a generic
   changed-file list, replay individual failed attempts, add filler, or restate
   other sections.
-    <!-- OMP_GLOBAL_RULES_END -->
+        <!-- OMP_GLOBAL_RULES_END -->
 
 ## Projects folder structure
 

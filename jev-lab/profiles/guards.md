@@ -66,8 +66,14 @@ match the label policy used for blind labelling (`/tmp/jev-action/guard-policy-v
 Deterministic, in order: a denylist (destructive commands, `find -delete`, `secret-read`,
 `env-dump`, `launchctl bootout|unload|remove`, `kill -9 1`, `systemctl stop|disable|mask|kill` of
 non-`--user` units, `/proc/<pid>/environ`), then a read-only allowlist that allows without Jev, then
-a window rule. `secret-read` denies credential files, `printenv SECRET_NAME`, and a secret-named
-`$NAME`/`${NAME}` expansion only in an `echo`/`printf` segment. The same expansion in a test segment
+a window rule. `secret-read` denies a credential file named by a command that can show its content,
+`printenv SECRET_NAME`, and a secret-named `$NAME`/`${NAME}` expansion only in an `echo`/`printf`
+segment. A credential file named to a metadata command (`ls`, `stat`, `test`, `wc`, `file`, `du`),
+a silent search (`grep -c|-l|-L|-q`, `rg -c|-l|-q`) or a git subcommand that prints no file content
+(anything but `show`, `cat-file`, `diff`, `log`, `grep`, `blame`) is not denied, unless the segment
+holds a command substitution; one copied by `cp`, `mv`, `ditto`, `install` or `rsync` goes to Jev.
+A grep/rg/sed/awk/jq pattern or script argument and any argument whose basename holds whitespace
+(prose such as a commit message) are not file names. The same expansion in a test segment
 (`[`, `[[`, `test`) or as `${#NAME}`, `${NAME:+…}`, `${NAME+…}` is not denied; anywhere else it goes
 to Jev, never the allowlist. Heredoc bodies are data, not shell segments, so their text is never
 denied; the command stays non-read-only and goes to Jev. `env-dump` (`env`, `printenv`, `set` with
@@ -253,6 +259,14 @@ when nobody can be asked. An agent that can ask is also asked, not blocked, on a
 is not secret exposure. The result screen awaits Jev (8 s per window) and fails open (result
 unchanged, error recorded). A `jev-policies.json` that cannot be parsed makes every policy enforce
 and notifies the user at session start.
+
+Jev is disabled for the OMP process when no credential exists at startup (neither a `/login
+openrouter` key nor Agent Vault via `agent-vault-launch`), or after a call returns HTTP 401 (key
+rejected), 402 (credit or spending limit) or 407 (vault session token rejected). Every
+Jev-dependent check then allows and records `jev_error` with verdict `allow`, `enforced: false`;
+no further Jev request is made, deterministic rules still decide, and the main session shows
+`Jev: disabled` and one notice. Timeouts, 403, 429 and 5xx still fail closed. Restart OMP once the
+credential works.
 
 ## Known limits
 

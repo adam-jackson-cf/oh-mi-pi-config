@@ -15,7 +15,7 @@ import {
   type CompiledRule, type FileChange, type NoulAnswers, type RuleMatch, type SuspectSubject,
 } from "../extensions/lib/integrity.ts";
 import { decide } from "../extensions/lib/jev.ts";
-import { loadJevApiKey } from "../extensions/lib/jev-auth.ts";
+import { loadJevCredential } from "../extensions/lib/jev-auth.ts";
 
 const statusSchema = z.enum(["added", "deleted", "modified", "renamed"]);
 const unitSchema = z.object({
@@ -99,8 +99,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out || (!args.units && !args.fixtures)) throw new Error("usage: bun agent/integrity/replay.ts --units <units.json> --out <rows.json> [--fixtures] [--no-jev]");
   const rules = await loadRules(import.meta.dir);
-  const key = args.noJev ? undefined : await loadJevApiKey();
-  if (!args.noJev && !key) throw new Error("no Jev key; pass --no-jev for a deterministic-only replay");
+  const credential = args.noJev ? undefined : await loadJevCredential();
+  if (!args.noJev && !credential) throw new Error("no Jev credential; pass --no-jev for a deterministic-only replay");
   const prepared: Prepared[] = [];
   if (args.units) {
     const { units } = z.object({ units: z.array(unitSchema) }).parse(JSON.parse(readFileSync(args.units, "utf8")));
@@ -125,8 +125,8 @@ async function main(): Promise<void> {
       }
       const questions = questionsFor(matches);
       let answers: NoulAnswers | undefined = unit.answers;
-      if (!answers && key) {
-        const judged = await decide(key, suspectState(subject, matches), questions, { timeoutMs: 30_000 });
+      if (!answers && credential) {
+        const judged = await decide(credential, suspectState(subject, matches), questions, { timeoutMs: 30_000 });
         answers = judged.ok ? noulsOf(judged.answers) : undefined;
         if (!judged.ok) {
           rows.push({ ...base, families: [], answers: {}, missing: [], verdict: "error" });

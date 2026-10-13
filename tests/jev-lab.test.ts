@@ -192,7 +192,7 @@ test("mutating and live endpoints require the token; the API key never appears i
     answers: { on_topic: { type: "noul", noul: 0.8 } }, usage: { input_tokens: 10, output_tokens: 2, cost: 0.00001 },
   }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
   try {
-    const handler = createHandler({ paths: f.paths, token: TOKEN, apiKey: KEY });
+    const handler = createHandler({ paths: f.paths, token: TOKEN, credential: { kind: "key", key: KEY } });
     const send = async (req: Request) => {
       const res = await handler(req);
       const text = await res.text();

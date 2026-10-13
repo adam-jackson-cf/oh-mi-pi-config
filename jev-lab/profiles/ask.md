@@ -14,10 +14,12 @@
   binary, empty and oversized files, and sensitive paths (dotenv, key and credential files,
   `.ssh`/`.aws`/`.gnupg`, plus every path the integrity rules' read-context matcher selects, such
   as `integrity-maintainer/`; skip reason `sensitive path`). Every remaining unit asks Jev
-  (`jev`, or `jev_error`). A call refused before any request (invalid questions, no input, no
-  credential, unavailable rules, combined content too large, no judgeable input) writes a record
-  with stage `skipped`, rule `precheck:<reason>` and verdict `error`; audit write failures are
-  counted in the result (`details.auditFailures`)
+  (`jev`, or `jev_error`). A call refused before any request (invalid questions, no input, Jev
+  disabled, no credential, unavailable rules, combined content too large, no judgeable input)
+  writes a record with stage `skipped`, rule `precheck:<reason>` and verdict `error`; audit write
+  failures are counted in the result (`details.auditFailures`). HTTP 401, 402 or 407 disables
+  jev_ask for the OMP process (`precheck:jev_disabled`, no further request) and withdraws the
+  evidence-ladder nudge, which is also withheld while no credential exists
 - **Verdict mapping:** `answered` or `error`; the agent decides what to do with the answers
 - **Label kind:** `verdict-grade`
 - **Labels:** `correct`, `incorrect`, `uncertain`

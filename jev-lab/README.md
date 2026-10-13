@@ -17,8 +17,9 @@ bun ~/.omp/jev-lab/server.ts            # workbench, http://127.0.0.1:4398
 ~/.omp/jev-lab/scripts/upstream-lab.sh run     # upstream demo, http://localhost:4399
 ```
 
-The workbench key is `OPENROUTER_API_KEY` if set, otherwise the stdout of `omp token openrouter`
-captured at startup. Without a key, Replay, Playground and case-set runs are disabled (visible
+The workbench credential is Agent Vault when started through `agent-vault-launch` (no key; the
+vault adds it at the proxy), else `OPENROUTER_API_KEY`, else the stdout of `omp token openrouter`,
+captured at startup. Without one, Replay, Playground and case-set runs are disabled (visible
 notice); labelling and metrics still work.
 
 ## Agent first-pass labels

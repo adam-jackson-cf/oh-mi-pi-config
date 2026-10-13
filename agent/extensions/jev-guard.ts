@@ -51,6 +51,10 @@
  * agent with a UI) or blocks telling the agent to ask, and a Jev outage blocks (gates
  * fail closed). The result screen prepends an untrusted-data warning; on a Jev outage it
  * leaves the result unchanged (it cannot make a result worse than not screening it).
+ * Disabled Jev: with no credential at startup, or after OpenRouter or Agent Vault refuses the credential or
+ * the account (HTTP 401, 402, 407), Jev is off for the OMP process: every Jev-dependent check allows and is
+ * recorded, deterministic rules still apply, and the main session shows `Jev: disabled`. Other outages still
+ * fail closed.
  *
  * Every recorded decision goes through `appendDecision` (redacted); audit failures
  * never reach the tool path.
@@ -66,11 +70,12 @@ import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/omptype/zod";
 import {
-  appendDecision, BASH_SCOPE_KEY, type BashScope, clip, decide, policyMode, readPolicySettings, redact, redactValue,
-  type AgentKind, type JevAnswers, type JevQuestion, type JevQuestions, type JsonValue, type NewDecision, type PolicyMode,
+  appendDecision, BASH_SCOPE_KEY, type BashScope, clip, credentialSecret, decide, disablingReason, policyMode, readPolicySettings, redact,
+  redactValue, type AgentKind, type JevAnswers, type JevCredential, type JevQuestion, type JevQuestions, type JsonValue, type NewDecision,
+  type PolicyMode,
 } from "./lib/jev.ts";
 import { isSystemPlatform, literalPaths, protectedRootOf, protectedRoots, type SystemPlatform } from "./lib/system-paths.ts";
-import { loadJevApiKey } from "./lib/jev-auth.ts";
+import { loadJevCredential } from "./lib/jev-auth.ts";
 import {
   directiveLines, escalatingFamilies, FAMILY_QUESTIONS, loadRules, matchBash, matchChange, missingAnswerIds, noulsOf, parseUnifiedDiff, questionsFor,
   readTargets, routeOf, suspectState, withScratchExemption,
@@ -83,12 +88,12 @@ export const WRITE_POLICY = "guard.write";
 export const RESULT_POLICY = "guard.result";
 export const INTEGRITY_POLICY = "guard.integrity";
 export const INTEGRITY_SUSPECT_POLICY = "guard.integrity.suspect";
-export const BASH_POLICY_VERSION = "guard-bash-2026-10-09.1";
+export const BASH_POLICY_VERSION = "guard-bash-2026-10-13.1";
 export const WRITE_POLICY_VERSION = "guard-write-2026-10-11.1";
 export const RESULT_POLICY_VERSION = "guard-result-2026-10-02.3";
 export const INTEGRITY_POLICY_VERSION = "guard-integrity-2026-10-11.1";
 /** `guard.bash` decisions made under the system-only scope: a different rule set, so a different version. */
-export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-09.1";
+export const BASH_SYSTEM_POLICY_VERSION = "guard-bash-system-2026-10-13.1";
 // Uncalibrated at release (2026-10-09): enforced from the start by the user's choice; recalibrate on labelled audit records.
 export const BASH_CONFIRM_SYSTEM = 0.5;
 // Bash: chosen on the 2026-10-02 round-1 corpora; re-checked 2026-10-02 on 399 labelled real commands plus
@@ -138,6 +143,8 @@ type Judged = {
     | "costUsd" | "latencyMs" | "error" | "httpStatus">;
   answers?: JevAnswers;
   failed: boolean;
+  /** Set when Jev is disabled for the process (no credential, or a credential or billing refusal): gates allow, not block. */
+  disabled?: string;
 };
 type Verdict = "allow" | "flag" | "confirm" | "block";
 /** `promotable`: a Jev block (not secret exposure) that a main agent with a UI may be asked about instead. */
@@ -171,15 +178,19 @@ type DecisionMaker = (rest: Pick<NewDecision, "stage" | "verdict" | "enforced"> 
 /**
  * State shared by every guard instance in one OMP process. Subagents run headless in the main session's process, each
  * with its own guard instance, so the interactive main session's UI (`mainUi`) asks the user on a subagent's behalf;
- * `queue` puts one prompt on screen at a time; `scopeOverride` is the `/guard-scope` choice for this process.
+ * `queue` puts one prompt on screen at a time; `scopeOverride` is the `/guard-scope` choice for this process;
+ * `jevDisabled` says why Jev is off for this process and whether the user has been told.
  */
-export type GuardShared = { mainUi?: ExtensionContext["ui"]; queue: Promise<unknown>; scopeOverride?: BashScope };
+export type GuardShared = {
+  mainUi?: ExtensionContext["ui"]; queue: Promise<unknown>; scopeOverride?: BashScope; jevDisabled?: { reason: string; shown: boolean };
+};
 /**
  * `shared` defaults to state private to this guard instance; the loaded extension shares one across sessions.
  * `platform` (default `process.platform`) picks the protected-folder list for the system-only scope.
  */
-export type JevGuardOptions = { loadKey?: () => Promise<string | undefined>; shared?: GuardShared; platform?: string };
+export type JevGuardOptions = { loadCredential?: () => Promise<JevCredential | undefined>; shared?: GuardShared; platform?: string };
 const PROCESS_SHARED: GuardShared = { queue: Promise.resolve() };
+const NO_CREDENTIAL = "no OpenRouter credential (neither `/login openrouter` nor agent-vault-launch provided one).";
 const BASH_SCOPES: BashScope[] = ["strict", "system-only"];
 const SCOPE_DESCRIPTIONS = {
   strict: "Every destructive command is screened; deletions git cannot restore go to Jev and may ask you.",
@@ -381,7 +392,7 @@ const PIPE_TO_SHELL = /\b(?:curl|wget)\b[^;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?s
 
 const SECRET_BASENAME = [
   /^\.env(?:\.(?!(?:example|sample|template)$)[^/]+)?$/i,
-  /\.pem$/i, /\.key$/i, /^id_rsa/i, /^id_ed25519/i, /^\.npmrc$/i, /^\.pypirc$/i, /credentials/i, /\.p12$/i,
+  /\.pem$/i, /\.key$/i, /^id_rsa/i, /^id_ed25519/i, /^\.npmrc$/i, /^\.pypirc$/i, /(?:^|[._-])credentials(?:[._-]|$)/i, /\.p12$/i,
 ];
 
 /** True for secret-bearing files (`.env`, keys, tokens files); example/sample/template env files are not. */
@@ -421,18 +432,68 @@ function secretExpansion(segment: string): "deny" | "jev" | undefined {
   return found;
 }
 
-/** Read-only commands that still put credentials into model context: secret files and `echo`ed secret env vars. */
-function secretReadDenial(segment: string): Denial | undefined {
-  const { program, args } = commandOf(segment);
-  const reason = "reading credentials would expose them to the model and provider";
-  if (program === "printenv" && args.some((arg) => SECRET_ENV_NAME.test(arg))) return { rule: "secret-read", reason };
-  for (const arg of args) {
-    if (arg.endsWith(".pub")) continue;
-    const path = arg.replace(/^(?:\$\{HOME\}|\$HOME)\//, "~/");
-    if (isSecretPath(path) || SECRET_HOME_PATHS.some((pattern) => pattern.test(path))) return { rule: "secret-read", reason };
+// Programs whose output describes their file arguments (names, sizes, counts, times) and never their content.
+const METADATA_PROGRAMS = new Set(["ls", "stat", "test", "[", "[[", "wc", "file", "du", "readlink", "realpath", "dirname", "basename"]);
+// Programs that copy a file's content to another path without printing it: Jev judges where the copy goes.
+const COPY_PROGRAMS = new Set(["cp", "mv", "ditto", "install", "rsync"]);
+// Options with which a grep-family program prints only counts, file names or an exit status (`rg -L` follows links).
+const GREP_SILENT = /^(?:-[A-Za-z]*[clLq][A-Za-z]*|--(?:count|files-with-matches|files-without-match|quiet|silent))$/;
+const SILENT_SEARCH = new Map<string, RegExp>([
+  ["grep", GREP_SILENT], ["egrep", GREP_SILENT], ["fgrep", GREP_SILENT],
+  ["rg", /^(?:-[A-Za-z]*[clq][A-Za-z]*|--(?:count|files-with-matches|files-without-match|quiet))$/],
+]);
+// Programs whose first positional argument is a pattern or script, not a file, unless one of these options supplies it.
+const GREP_SCRIPT = /^(?:-[A-Za-z]*[ef][A-Za-z]*|--(?:regexp|file)(?:=.*)?)$/;
+const SCRIPT_OPTIONS = new Map<string, RegExp>([
+  ["grep", GREP_SCRIPT], ["egrep", GREP_SCRIPT], ["fgrep", GREP_SCRIPT], ["rg", GREP_SCRIPT],
+  ["sed", /^(?:-[A-Za-z]*[ef][A-Za-z]*|--(?:expression|file)(?:=.*)?)$/],
+  ["awk", /^(?:-f|--file(?:=.*)?)$/],
+  ["jq", /^(?:-f|--from-file(?:=.*)?)$/],
+]);
+
+/** Index of the argument that is the program's pattern or script, or -1 when there is none. */
+function scriptIndex(program: string, args: string[]): number {
+  const supplied = SCRIPT_OPTIONS.get(program);
+  if (!supplied || args.some((arg) => supplied.test(arg))) return -1;
+  return args.findIndex((arg) => !arg.startsWith("-"));
+}
+
+/** True when an argument names a credential file; a basename with whitespace is prose (a message), not a file. */
+function namesSecretFile(arg: string): boolean {
+  const path = arg.replace(/^--?[\w-]+=/, "").replace(/^(?:\$\{HOME\}|\$HOME)\//, "~/");
+  if (path.endsWith(".pub")) return false;
+  return (!/\s/.test(basename(path)) && isSecretPath(path)) || SECRET_HOME_PATHS.some((pattern) => pattern.test(path));
+}
+
+/**
+ * Whether a segment that names a credential file can show its content: `deny` when it can, `jev` when it only copies
+ * it elsewhere, undefined when it reports metadata (`ls`, `stat`, `test`, `wc`, `grep -c|-l|-q`), runs a git
+ * subcommand that prints no file content, or names none. A command substitution voids the exemptions.
+ */
+function secretFileRead(segment: string, program: string, args: string[]): "deny" | "jev" | undefined {
+  const script = scriptIndex(program, args);
+  if (!args.some((arg, index) => index !== script && namesSecretFile(arg))) return undefined;
+  if (!/\$\(|`/.test(segment)) {
+    if (METADATA_PROGRAMS.has(program)) return undefined;
+    const silent = SILENT_SEARCH.get(program);
+    if (silent && args.some((arg) => silent.test(arg))) return undefined;
+    const git = program === "git" ? gitInvocation(args) : undefined;
+    if (git && !GIT_CONTENT_READERS.has(git.sub)) return undefined;
   }
-  if (secretExpansion(segment) === "deny") return { rule: "secret-read", reason };
-  return undefined;
+  return COPY_PROGRAMS.has(program) ? "jev" : "deny";
+}
+
+/**
+ * Commands that put credentials into model context: printed credential files and `echo`ed secret env vars (`deny`),
+ * or a credential file copied elsewhere (`jev`).
+ */
+function secretRead(segment: string): Denial | "jev" | undefined {
+  const { program, args } = commandOf(segment);
+  const denial = { rule: "secret-read", reason: "reading credentials would expose them to the model and provider" };
+  if (program === "printenv" && args.some((arg) => SECRET_ENV_NAME.test(arg))) return denial;
+  const file = secretFileRead(segment, program, args);
+  if (file === "deny" || secretExpansion(segment) === "deny") return denial;
+  return file;
 }
 
 type Denial = { rule: string; reason: string };
@@ -520,7 +581,11 @@ function bashDenials(command: string, scan: Scan): DenialScan {
   }
   let secretsUnclear = false;
   for (const [index, segment] of scan.segments.entries()) {
-    for (const denied of [denySegment(segment), secretReadDenial(segment)]) if (denied) denials.push(denied);
+    const denied = denySegment(segment);
+    if (denied) denials.push(denied);
+    const read = secretRead(segment);
+    if (read === "jev") secretsUnclear = true;
+    else if (read) denials.push(read);
     const { program, args } = commandOf(segment);
     if (ENV_DUMP_PROGRAMS.has(program) && args.length === 0) {
       if (scan.piped[index]) secretsUnclear = true;
@@ -561,7 +626,7 @@ type KillPattern = (typeof KILL_PATTERN_RANK)[number];
 const KILL_VALUE_FLAGS = new Set(["-u", "-U", "-g", "-G", "-P", "-s", "-t", "-n", "-o", "-F"]);
 const FILE_READERS = new Set(["cat", "head", "tail", "less", "more", "sed", "awk", "grep", "egrep", "fgrep", "rg", "base64", "xxd",
   "strings", "jq", "cp", "source", ".", "nl", "od", "bat"]);
-const GIT_CONTENT_READERS = new Set(["show", "cat-file", "diff", "log", "grep"]);
+const GIT_CONTENT_READERS = new Set(["show", "cat-file", "diff", "log", "grep", "blame"]);
 const SECRET_LIKE_PATH = /auth|token|secret|credential|passw|api[_-]?key|\.env\b|\.pem$|\.key$|id_rsa|id_ed25519|\.netrc|keychain/i;
 const NETWORK_PROGRAMS = new Set(["curl", "wget", "http", "https", "xh", "httpie", "nc", "ncat", "scp", "ssh", "rsync", "gh"]);
 // Constructs whose effect cannot be read from the command text alone.
@@ -1664,22 +1729,6 @@ function writeExcerpt(added: string, apiKey?: string) {
     credential_lines_omitted: Math.max(0, credential.length - CREDENTIAL_LINE_LIMIT) };
 }
 
-async function askJev(apiKey: string | undefined, state: JsonValue, recorded: JsonValue, questions: JevQuestions,
-  timeoutMs?: number): Promise<Judged> {
-  const base = { state: recorded, questions };
-  if (!apiKey) {
-    return { failed: true, fields: { ...base, stage: "jev_error", error: "No OpenRouter credential available for Jev." } };
-  }
-  const result = await decide(apiKey, state, questions, timeoutMs === undefined ? undefined : { timeoutMs });
-  if (!result.ok) {
-    return { failed: true, fields: { ...base, stage: "jev_error", error: result.error, resolvedModel: result.resolvedModel,
-      httpStatus: result.httpStatus, latencyMs: result.latencyMs } };
-  }
-  return { failed: false, answers: result.answers, fields: { ...base, stage: "jev", answers: result.answers,
-    resolvedModel: result.resolvedModel, providerResponseId: result.providerResponseId, costUsd: result.costUsd,
-    latencyMs: result.latencyMs } };
-}
-
 // ---- Result screening ----------------------------------------------------------------
 const resultInput = z.object({ command: z.string().optional(), path: z.string().optional(), url: z.string().optional(),
   query: z.string().optional() });
@@ -1811,7 +1860,9 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   /** `guard.bash.scope` from the policies file; `/guard-scope` overrides it for the process through `shared`. */
   let fileScope: BashScope = "strict";
   let modes: Record<string, PolicyMode> = {};
-  let apiKey: string | undefined;
+  let credential: JevCredential | undefined;
+  /** The credential's secret (OpenRouter key or vault session token), masked wherever text is sent or stored. */
+  let secret: string | undefined;
   let rules: CompiledRule[] | undefined;
   let rulesError = "not loaded";
   /** Fingerprints of escalations the user answered this session: the same command or change is not asked about again. */
@@ -1906,7 +1957,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     return { sessionId, agentKind: ctx.agent.kind, agentName: ctx.agent.name };
   };
 
-  const subjectOf = (text: string): string => clip(redact(text, apiKey), SUBJECT_LIMIT).text;
+  const subjectOf = (text: string): string => clip(redact(text, secret), SUBJECT_LIMIT).text;
 
   /** Audit failures never reach the tool path. */
   const record = async (decision: NewDecision): Promise<void> => {
@@ -1930,6 +1981,43 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   const failClosed = (mode: PolicyMode): Block | undefined =>
     mode === "enforce" ? { block: true, reason: "Jev guard hit an internal error and blocked this call (fail closed)." } : undefined;
 
+  /** Shows Jev's state on the main session's UI: the status line every time, the disabled notice once per process. */
+  const showJevState = (ui: ExtensionContext["ui"]): void => {
+    const off = shared.jevDisabled;
+    ui.setStatus("jev-guard-jev", off ? "Jev: disabled" : undefined);
+    if (!off || off.shown) return;
+    off.shown = true;
+    ui.notify(`Jev is disabled for this OMP process: ${off.reason} Jev checks no longer screen or block; deterministic guard rules ` +
+      "still apply. Restart OMP once the credential works.", "warning");
+  };
+  const disableJev = (reason: string): void => {
+    if (shared.jevDisabled) return;
+    shared.jevDisabled = { reason, shown: false };
+    if (shared.mainUi) showJevState(shared.mainUi);
+  };
+
+  /**
+   * One Jev call, unless Jev is disabled for this process. A refusal no retry can fix (`disablingReason`: credential or
+   * billing) disables it: from then on every Jev-dependent check allows instead of blocking.
+   */
+  async function askJev(state: JsonValue, recorded: JsonValue, questions: JevQuestions, timeoutMs?: number): Promise<Judged> {
+    const base = { state: recorded, questions };
+    if (shared.jevDisabled || !credential) {
+      const reason = shared.jevDisabled?.reason ?? NO_CREDENTIAL;
+      return { failed: true, disabled: reason, fields: { ...base, stage: "jev_error", error: `Jev is disabled for this OMP process: ${reason}` } };
+    }
+    const result = await decide(credential, state, questions, timeoutMs === undefined ? undefined : { timeoutMs });
+    if (!result.ok) {
+      const disabled = disablingReason(result);
+      if (disabled !== undefined) disableJev(disabled);
+      return { failed: true, disabled, fields: { ...base, stage: "jev_error", error: result.error, resolvedModel: result.resolvedModel,
+        httpStatus: result.httpStatus, latencyMs: result.latencyMs } };
+    }
+    return { failed: false, answers: result.answers, fields: { ...base, stage: "jev", answers: result.answers,
+      resolvedModel: result.resolvedModel, providerResponseId: result.providerResponseId, costUsd: result.costUsd,
+      latencyMs: result.latencyMs } };
+  }
+
   // ---- bash
   let allowlistHits = 0;
   async function screenBash(command: string, ctx: ExtensionContext, mode: PolicyMode): Promise<Block | undefined> {
@@ -1940,7 +2028,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const enforcing = mode === "enforce";
     const version = platform ? BASH_SYSTEM_POLICY_VERSION : BASH_POLICY_VERSION;
     const make: DecisionMaker = (rest) => decision(BASH_POLICY, version, mode, who, subject, rest);
-    const baseState = { command: clip(redact(command, apiKey), BASH_COMMAND_LIMIT).text, cwd: redact(ctx.cwd, apiKey) };
+    const baseState = { command: clip(redact(command, secret), BASH_COMMAND_LIMIT).text, cwd: redact(ctx.cwd, secret) };
     if (verdict.kind === "allow") {
       // Allowlist hits are otherwise unrecorded; a sample keeps its miss rate auditable.
       if (++allowlistHits % ALLOWLIST_SAMPLE_EVERY === 0) {
@@ -1968,21 +2056,25 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     if (recoverable.qualifies) {
       await record(make({ stage: "deterministic", rule: "project-recoverable",
         state: redactValue({ ...baseState, recoverable_segments: recoverable.segments,
-          deletion_targets: recoverable.targets.slice(0, REPORTED_TARGET_LIMIT) }, apiKey),
+          deletion_targets: recoverable.targets.slice(0, REPORTED_TARGET_LIMIT) }, secret),
         verdict: "allow", enforced: false }));
       return undefined;
     }
     if (!enforcing) {
-      const { state, facts } = bashJevState(command, ctx.cwd, apiKey, recoverable);
-      background(askJev(apiKey, state, state, BASH_QUESTIONS).then(async (judged) => {
+      const { state, facts } = bashJevState(command, ctx.cwd, secret, recoverable);
+      background(askJev(state, state, BASH_QUESTIONS).then(async (judged) => {
         const assessed = judged.answers ? assessBash(judged.answers, facts, recoverable.settled) : undefined;
         await record(make({ ...judged.fields, verdict: assessed?.verdict ?? "error", enforced: false }));
       }));
       return undefined;
     }
-    const { state, facts } = bashJevState(command, ctx.cwd, apiKey, recoverable);
-    const judged = await askJev(apiKey, state, state, BASH_QUESTIONS, ENFORCE_TIMEOUT_MS);
+    const { state, facts } = bashJevState(command, ctx.cwd, secret, recoverable);
+    const judged = await askJev(state, state, BASH_QUESTIONS, ENFORCE_TIMEOUT_MS);
     if (!judged.answers) {
+      if (judged.disabled !== undefined) {
+        await record(make({ ...judged.fields, verdict: "allow", enforced: false }));
+        return undefined;
+      }
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard could not assess this command (${judged.fields.error ?? "Jev unavailable"}), so it was blocked. ` +
         "Retry later or ask the user to run it." };
@@ -2023,7 +2115,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const system = assessSystem(command, ctx.cwd, platform, homedir());
     const escalate = async (rule: string, reason: string, extra: { [key: string]: JsonValue }): Promise<Block | undefined> => {
       const asked: Escalation = enforcing ? await askUser(reason) : {};
-      await record(make({ stage: "deterministic", rule, state: redactValue({ ...state, ...extra, ...answerOf(asked) }, apiKey),
+      await record(make({ stage: "deterministic", rule, state: redactValue({ ...state, ...extra, ...answerOf(asked) }, secret),
         verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
       return asked.block;
     };
@@ -2036,16 +2128,20 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       const long = longCommand(command);
       return escalate(long.rule, `Jev cannot judge this command: ${long.reason}.`, {});
     }
-    const built = systemJevState(command, ctx.cwd, apiKey, system, platform, homedir());
+    const built = systemJevState(command, ctx.cwd, secret, system, platform, homedir());
     if (!enforcing) {
-      background(askJev(apiKey, built.state, built.state, SYSTEM_QUESTIONS).then(async (judged) => {
+      background(askJev(built.state, built.state, SYSTEM_QUESTIONS).then(async (judged) => {
         const assessed = judged.answers ? assessSystemAnswers(judged.answers, built.facts.secret_value_possible) : undefined;
         await record(make({ ...judged.fields, verdict: assessed?.verdict ?? "error", enforced: false }));
       }));
       return undefined;
     }
-    const judged = await askJev(apiKey, built.state, built.state, SYSTEM_QUESTIONS, ENFORCE_TIMEOUT_MS);
+    const judged = await askJev(built.state, built.state, SYSTEM_QUESTIONS, ENFORCE_TIMEOUT_MS);
     if (!judged.answers) {
+      if (judged.disabled !== undefined) {
+        await record(make({ ...judged.fields, verdict: "allow", enforced: false }));
+        return undefined;
+      }
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard could not assess this command (${judged.fields.error ?? "Jev unavailable"}), so it was blocked. ` +
         "Retry later or ask the user to run it." };
@@ -2072,7 +2168,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const reason = `This writes inside the protected system folder ${root.path}.`;
     const asked: Escalation = enforcing ? await confirmWithUser(ctx, "write", path, reason) : {};
     await record(make({ stage: "deterministic", rule: "system-folder",
-      state: redactValue({ path, protected: root.path, scope: "system-only", ...answerOf(asked) }, apiKey),
+      state: redactValue({ path, protected: root.path, scope: "system-only", ...answerOf(asked) }, secret),
       verdict: enforcing ? "confirm" : "flag", enforced: enforcing && asked.userDecision !== "approved" }));
     return asked.block;
   }
@@ -2085,7 +2181,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const make: DecisionMaker = (rest) => decision(WRITE_POLICY, WRITE_POLICY_VERSION, mode, who, subject, rest);
     // Only a private key block or a live key blocks without Jev; other key-shaped literals go to Jev with the file kind.
     const rule = isSecretPath(target.path) ? { id: "secret-file", reason: "this path holds credentials" }
-      : PRIVATE_KEY_HEADER.test(target.added) || (apiKey !== undefined && target.added.includes(apiKey))
+      : PRIVATE_KEY_HEADER.test(target.added) || (secret !== undefined && target.added.includes(secret))
         ? { id: "secret-literal", reason: "the text contains a private key block or a live credential" } : undefined;
     if (rule) {
       await record(make({ stage: "deterministic", rule: rule.id, verdict: enforcing ? "block" : "flag", enforced: enforcing }));
@@ -2102,19 +2198,23 @@ export function createJevGuard(options: JevGuardOptions = {}) {
         { stage: "deterministic", rule: "outside-workspace", verdict: "flag", enforced: false }));
     }
     if (!needsSecretJudgement(target.added)) return undefined;
-    const state = writeJevState(target.path, target.added, apiKey);
-    const recorded = redactValue(state, apiKey);
+    const state = writeJevState(target.path, target.added, secret);
+    const recorded = redactValue(state, secret);
     const finish = (judged: Judged): WriteOutcome => {
       const assessed = judged.answers ? assessWrite(judged.answers) : undefined;
       return { blocked: assessed?.verdict === "block", verdict: assessed?.verdict ?? "error" };
     };
     if (!enforcing) {
-      background(askJev(apiKey, state, recorded, WRITE_QUESTIONS).then((judged) =>
+      background(askJev(state, recorded, WRITE_QUESTIONS).then((judged) =>
         record(make({ ...judged.fields, verdict: finish(judged).verdict, enforced: false }))));
       return undefined;
     }
-    const judged = await askJev(apiKey, state, recorded, WRITE_QUESTIONS, ENFORCE_TIMEOUT_MS);
+    const judged = await askJev(state, recorded, WRITE_QUESTIONS, ENFORCE_TIMEOUT_MS);
     if (!judged.answers) {
+      if (judged.disabled !== undefined) {
+        await record(make({ ...judged.fields, verdict: "allow", enforced: false }));
+        return undefined;
+      }
       await record(make({ ...judged.fields, verdict: "block", enforced: true }));
       return { block: true, reason: `Jev guard could not assess this write (${judged.fields.error ?? "Jev unavailable"}), so it was blocked. ` +
         "Retry later or ask the user." };
@@ -2143,12 +2243,12 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 
   // ---- integrity
   // Joined before masking so multi-line secrets (private key blocks) are caught.
-  const maskLines = (lines: string[]): string[] => (lines.length === 0 ? [] : maskKnownSecrets(lines.join("\n"), apiKey).split("\n"));
+  const maskLines = (lines: string[]): string[] => (lines.length === 0 ? [] : maskKnownSecrets(lines.join("\n"), secret).split("\n"));
   const maskChange = (change: FileChange): FileChange => ({ ...change, added: maskLines(change.added), removed: maskLines(change.removed) });
 
   /** Jev sees only masked text: the subject's fields and the rule excerpts are masked before the state is built. */
   const integrityUnit = (label: string, matches: RuleMatch[], subject: SuspectSubject): IntegrityUnit => {
-    const masked = withScratchExemption(subject, matches).map((match) => ({ ...match, excerpt: maskKnownSecrets(match.excerpt, apiKey) }));
+    const masked = withScratchExemption(subject, matches).map((match) => ({ ...match, excerpt: maskKnownSecrets(match.excerpt, secret) }));
     return { label, matches: masked, subject, state: suspectState(subject, masked) };
   };
 
@@ -2156,9 +2256,10 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const route = routeOf(unit.matches);
     if (route !== "suspect") return { unit, escalate: route === "certain", families: [] };
     const questions = questionsFor(unit.matches);
-    const recorded = redactValue(unit.state, apiKey);
-    const judged = await askJev(apiKey, unit.state, recorded, questions, enforcing ? ENFORCE_TIMEOUT_MS : undefined);
-    if (!judged.answers) return { unit, judged, escalate: true, families: [] };
+    const recorded = redactValue(unit.state, secret);
+    const judged = await askJev(unit.state, recorded, questions, enforcing ? ENFORCE_TIMEOUT_MS : undefined);
+    // Unavailable Jev escalates, unless Jev is disabled for the process: then the Jev-judged tier allows.
+    if (!judged.answers) return { unit, judged, escalate: judged.disabled === undefined, families: [] };
     const answers = noulsOf(judged.answers);
     const missing = missingAnswerIds(unit.matches, answers);
     // One failure direction for unjudged units: missing answers escalate, like an unavailable Jev.
@@ -2286,7 +2387,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     const units: IntegrityUnit[] = [];
     const bashMatches = rules ? matchBash(command, rules) : [];
     if (bashMatches.length > 0) {
-      units.push(integrityUnit(command, bashMatches, { command: clip(maskKnownSecrets(command, apiKey), BASH_COMMAND_LIMIT).text,
+      units.push(integrityUnit(command, bashMatches, { command: clip(maskKnownSecrets(command, secret), BASH_COMMAND_LIMIT).text,
         directives: [], otherFiles: [], cwd: ctx.cwd }));
     }
     const commits: CommitRecord[] = [];
@@ -2358,8 +2459,8 @@ export function createJevGuard(options: JevGuardOptions = {}) {
       const judgedWindows: { judged: Judged; state: { source: string; text: string }; score: number }[] = [];
       for (let i = 0; i < windows.length; i += RESULT_WINDOW_CONCURRENCY) {
         const batch = windows.slice(i, i + RESULT_WINDOW_CONCURRENCY).map(async (window) => {
-          const state = { source: subject, text: redact(window, apiKey) };
-          const judged = await askJev(apiKey, state, state, RESULT_QUESTIONS, enforcing ? ENFORCE_TIMEOUT_MS : undefined);
+          const state = { source: subject, text: redact(window, secret) };
+          const judged = await askJev(state, state, RESULT_QUESTIONS, enforcing ? ENFORCE_TIMEOUT_MS : undefined);
           return { judged, state, score: judged.answers ? noulOf(judged.answers, "prompt_injection") : -1 };
         });
         judgedWindows.push(...(await Promise.all(batch)));
@@ -2381,15 +2482,18 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 
   async function extension(pi: ExtensionAPI): Promise<void> {
     try {
-      apiKey = await options.loadKey?.();
+      credential = await options.loadCredential?.();
     } catch {
-      apiKey = undefined;
+      credential = undefined;
     }
+    secret = credentialSecret(credential);
+    if (!credential) disableJev(NO_CREDENTIAL);
     const showScope = (ctx: ExtensionContext): void => {
       if (ctx.hasUI) ctx.ui.setStatus("jev-guard-scope", systemOnly() ? "guard: system-only" : undefined);
     };
     pi.on("session_start", async (_event, ctx) => {
       noteMainUi(ctx);
+      if (ctx.hasUI && ctx.agent.kind === "main") showJevState(ctx.ui);
       try {
         ({ modes, bashScope: fileScope } = await readPolicySettings());
         policyError = undefined;
@@ -2513,5 +2617,5 @@ export function createJevGuard(options: JevGuardOptions = {}) {
 type ContentPart = TextContent | ImageContent;
 
 export default function jevGuard(pi: ExtensionAPI): Promise<void> {
-  return createJevGuard({ loadKey: loadJevApiKey, shared: PROCESS_SHARED }).extension(pi);
+  return createJevGuard({ loadCredential: loadJevCredential, shared: PROCESS_SHARED }).extension(pi);
 }

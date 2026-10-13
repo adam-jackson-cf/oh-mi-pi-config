@@ -108,7 +108,7 @@ async function captureGuards(items: Item[]): Promise<Map<string, Captured[]>> {
     "guard.bash": "enforce", "guard.write": "enforce", "guard.result": "enforce", "guard.integrity": "off", "guard.integrity.suspect": "off",
   }));
   installFetchStub();
-  const guard = createJevGuard({ loadKey: async () => "offline-stub" });
+  const guard = createJevGuard({ loadCredential: async () => ({ kind: "key", key: "offline-stub" }) });
   const handlers = new Map<string, Handler>();
   // SAFETY: the guard only calls `on` and `registerCommand` during registration.
   const pi = Object.assign({} as ExtensionAPI, {
