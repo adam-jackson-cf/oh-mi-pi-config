@@ -78,8 +78,12 @@ This branch is the configuration for the Linux NUC (`adam-ai`); rebase it on
 Not carried by this repository, so set up on the NUC separately:
 
 - Skills in `~/.agents/skills` and `~/.agents/by-request` (listed in
-  `agent/config.yml`) are copied from the Mac, without `--delete` so NUC-only
-  skills survive: `rsync -av ~/.agents/ adam-ai@<nuc>:~/.agents/`.
+  `agent/config.yml`) are pulled daily from the Mac over Tailscale SSH by the
+  systemd user timer `agents-sync.timer`, which runs `~/.local/bin/agents-sync`
+  (`rsync` without `--delete`, so NUC-only skills survive). Paths listed in
+  `~/.config/agents-sync/excludes` are never copied: the Mac's `roles` link and
+  the Mac-only skills `paperclip`, `macos-package-install-defaults`,
+  `codify-pr-reviews`, and `setup-code-precommit-checks`.
 - The Jev credential: there is no OpenRouter key on the NUC. Until Jev can use
   the Agent Vault proxy, `agent/jev-policies.json` is kept in `shadow` locally
   and must not be committed.
