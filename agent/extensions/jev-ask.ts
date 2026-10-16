@@ -18,7 +18,7 @@ import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/omptype/zod";
 import {
-  appendDecision, auditRoot, clip, credentialSecret, decide, disablingReason, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
+  appendDecision, auditRoot, clip, decide, disablingReason, JEV_STATE_CHAR_LIMIT, redact, validateQuestions,
   type JevAnswer, type JevAnswers, type JevCredential, type JevQuestion, type JevQuestions, type JevResult, type JsonValue,
   type NewDecision,
 } from "./lib/jev.ts";
@@ -384,7 +384,7 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
   }
   if (!credential) {
     return precheck(pre, "no_credential",
-      `Jev is unavailable: no OpenRouter credential (run /login openrouter, or start OMP with agent-vault-launch). ${FALLBACK}`, true);
+      `Jev is unavailable: no OpenRouter credential (run /login openrouter, or set OPENROUTER_API_KEY). ${FALLBACK}`, true);
   }
   let rules: CompiledRule[];
   try {
@@ -401,7 +401,7 @@ export async function runAsk(params: AskParameters, signal: AbortSignal | undefi
     else skipped.push(outcome);
   }
   const mode = params.mode ?? "per_file";
-  const built = buildUnits(files, params.state, mode, credentialSecret(credential));
+  const built = buildUnits(files, params.state, mode, credential.key);
   if (built.error !== undefined) return precheck(pre, "combined_too_large", `${built.error} ${FALLBACK}`, true, skipped);
   const units = built.calls;
   if (units.length === 0) {

@@ -15,7 +15,7 @@ import {
   WRITE_POLICY_VERSION, WRITE_QUESTIONS, writeJevState,
 } from "../../agent/extensions/jev-guard.ts";
 import { loadJevCredential } from "../../agent/extensions/lib/jev-auth.ts";
-import { credentialSecret, decide, type JevAnswers, type JevCredential, type JevQuestions, type JsonValue } from "../../agent/extensions/lib/jev.ts";
+import { decide, type JevAnswers, type JevCredential, type JevQuestions, type JsonValue } from "../../agent/extensions/lib/jev.ts";
 
 const POLICIES = {
   bash: { policy: "guard.bash", version: BASH_POLICY_VERSION, questions: BASH_QUESTIONS },
@@ -50,7 +50,7 @@ if (!casesIn || !out) throw new Error("--cases-in and --out are required");
 const loaded = await loadJevCredential();
 if (!loaded) throw new Error("No Jev credential available.");
 const credential: JevCredential = loaded;
-const credentialValue = credentialSecret(credential);
+const credentialValue = credential.key;
 
 async function ask(state: JsonValue, questions: JevQuestions): Promise<Asked> {
   const result = await decide(credential, state, questions);

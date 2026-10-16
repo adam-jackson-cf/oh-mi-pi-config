@@ -7,7 +7,7 @@ import { mkdir, open, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
-  auditRoot, credentialSecret, decide, vaultCredential, type JevAnswers, type JevCredential, type JevQuestions, type JevResult, type JsonValue,
+  auditRoot, decide, type JevAnswers, type JevCredential, type JevQuestions, type JevResult, type JsonValue,
 } from "../agent/extensions/lib/jev";
 import { scoreExpected, readCaseRows, saveCase, caseRow, toLabAnswers } from "./lib/caseset";
 import { casesForVersion, computeMetrics, CURRENT_VERSION, versionsOf } from "../agent/skills/evaluate-jev/scripts/cases.ts";
@@ -87,7 +87,7 @@ function publicOutcome(outcome: LiveOutcome): PublicOutcome {
 /** Request handler; exported so tests can drive it without a socket. */
 export function createHandler(deps: LabDeps): (req: Request) => Promise<Response> {
   const { paths, token, credential } = deps;
-  const secret = credentialSecret(credential);
+  const secret = credential?.key;
 
   function respond(body: string, status: number, type: string): Response {
     let text = body;
@@ -215,10 +215,8 @@ export function createHandler(deps: LabDeps): (req: Request) => Promise<Response
   };
 }
 
-/** Agent Vault when started by agent-vault-launch, else OPENROUTER_API_KEY, else `omp token openrouter` stdout; undefined disables live features. */
+/** OPENROUTER_API_KEY, else `omp token openrouter` stdout; undefined disables live features. */
 async function resolveCredential(): Promise<JevCredential | undefined> {
-  const vault = vaultCredential();
-  if (vault) return vault;
   const fromEnv = process.env.OPENROUTER_API_KEY?.trim();
   if (fromEnv) return { kind: "key", key: fromEnv };
   try {
@@ -233,6 +231,6 @@ if (import.meta.main) {
   const token = randomBytes(24).toString("hex");
   const server = Bun.serve({ hostname: "127.0.0.1", port: PORT, fetch: createHandler({ paths: defaultPaths(), token, credential }) });
   console.log(`Jev lab workbench: http://127.0.0.1:${server.port}`);
-  console.log(credential ? `Live Jev calls: enabled (${credential.kind === "vault" ? "Agent Vault" : "OpenRouter key"})`
+  console.log(credential ? "Live Jev calls: enabled (OpenRouter key)"
     : "Live Jev calls: DISABLED (no OpenRouter credential found)");
 }

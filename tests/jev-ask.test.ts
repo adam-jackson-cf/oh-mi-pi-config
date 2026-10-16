@@ -8,7 +8,7 @@ import { afterEach, test } from "node:test";
 import * as hostZod from "@oh-my-pi/omptype/zod";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { askParameters, NUDGE_MARKER, registerJevAsk, type AskDetails, type AskParameters } from "../agent/extensions/jev-ask";
-import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, vaultCredential, type JevAnswers } from "../agent/extensions/lib/jev";
+import { decide, JEV_PINNED_MODEL, JEV_STATE_CHAR_LIMIT, type JevAnswers } from "../agent/extensions/lib/jev";
 
 // The sensitive-path check reads the repository's integrity rules, not the machine's.
 const RULES_DIR = fileURLToPath(new URL("../agent/integrity", import.meta.url));
@@ -157,27 +157,21 @@ test("decide latency includes reading the response body", async () => {
   } finally { globalThis.fetch = original; }
 });
 
-test("a key is sent as a bearer token; under Agent Vault no Authorization header leaves the process", async () => {
+test("a request sends the key as a bearer token and names the pinned Jev version", async () => {
   const original = globalThis.fetch;
   const asked: AskParameters["questions"] = { q: { type: "noul", instructions: "ok?" } };
-  const headers: Headers[] = [];
+  const sent: RequestInit[] = [];
   // SAFETY: This test stub returns a real Response and the original fetch is restored below.
   globalThis.fetch = (async (_url, init) => {
-    headers.push(new Headers(init?.headers));
+    sent.push(init ?? {});
     return Response.json({ id: "r1", model: JEV_PINNED_MODEL, answers: answersFor(asked), usage: { input_tokens: 1, output_tokens: 1, cost: 0 } });
   }) as typeof fetch;
   try {
     assert.ok((await decide({ kind: "key", key: "sk-test-key-000000" }, "state", asked)).ok);
-    const vault = vaultCredential({ HTTPS_PROXY: "http://x-agent-vault:vault-session-token@100.80.132.50:17323" });
-    assert.deepEqual(vault, { kind: "vault", token: "vault-session-token" });
-    assert.ok((await decide(vault!, "state", asked)).ok);
-    assert.equal(headers[0]?.get("authorization"), "Bearer sk-test-key-000000");
-    assert.equal(headers[1]?.get("authorization"), null);
+    assert.equal(new Headers(sent[0]?.headers).get("authorization"), "Bearer sk-test-key-000000");
+    // A floating selector such as ~typesafe/jev-latest would let a newer, unevaluated Jev answer.
+    assert.equal(JSON.parse(String(sent[0]?.body)).model, JEV_PINNED_MODEL);
   } finally { globalThis.fetch = original; }
-  // Only the launcher's proxy user with a token is Agent Vault; any other proxy is not.
-  assert.equal(vaultCredential({ HTTPS_PROXY: "http://user:pass@proxy.example:8080" }), undefined);
-  assert.equal(vaultCredential({ HTTPS_PROXY: "http://x-agent-vault@100.80.132.50:17323" }), undefined);
-  assert.equal(vaultCredential({}), undefined);
 });
 
 test("per-file answers keep input order, format each level, and never echo file content", async () => {
@@ -327,7 +321,7 @@ test("a credential or billing refusal disables jev_ask for the process and withd
     const retried = await withJev(async (sent) => ({ r: await transient.tool.execute("t2", { questions, paths: ["a.ts"] }, undefined, undefined, transient.ctx), sent }));
     assert.equal(retried.sent.length, 1);
     assert.equal(retried.r.isError, undefined);
-    for (const status of [401, 402, 407]) {
+    for (const status of [401, 402]) {
       const { tool, ctx, nudge } = harness(root);
       const refused = await withJev(() => tool.execute("r", { questions, paths: ["a.ts"] }, undefined, undefined, ctx), status);
       assert.equal(refused.isError, true);
@@ -341,7 +335,7 @@ test("a credential or billing refusal disables jev_ask for the process and withd
     const dir = join(audit, "ask");
     const file = (await readdir(dir)).find((name) => name.endsWith(".jsonl") && name !== "labels.jsonl")!;
     const rules = (await readFile(join(dir, file), "utf8")).trim().split("\n").map((line) => JSON.parse(line).rule);
-    assert.equal(rules.filter((rule) => rule === "precheck:jev_disabled").length, 3);
+    assert.equal(rules.filter((rule) => rule === "precheck:jev_disabled").length, 2);
   } finally { delete process.env.JEV_AUDIT_DIR; await rm(root, { recursive: true, force: true }); }
 });
 

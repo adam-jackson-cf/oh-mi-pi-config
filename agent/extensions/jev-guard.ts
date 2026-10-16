@@ -51,8 +51,8 @@
  * agent with a UI) or blocks telling the agent to ask, and a Jev outage blocks (gates
  * fail closed). The result screen prepends an untrusted-data warning; on a Jev outage it
  * leaves the result unchanged (it cannot make a result worse than not screening it).
- * Disabled Jev: with no credential at startup, or after OpenRouter or Agent Vault refuses the credential or
- * the account (HTTP 401, 402, 407), Jev is off for the OMP process: every Jev-dependent check allows and is
+ * Disabled Jev: with no credential at startup, or after OpenRouter refuses the credential or
+ * the account (HTTP 401, 402), Jev is off for the OMP process: every Jev-dependent check allows and is
  * recorded, deterministic rules still apply, and the main session shows `Jev: disabled`. Other outages still
  * fail closed.
  *
@@ -70,7 +70,7 @@ import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/omptype/zod";
 import {
-  appendDecision, BASH_SCOPE_KEY, type BashScope, clip, credentialSecret, decide, disablingReason, policyMode, readPolicySettings, redact,
+  appendDecision, BASH_SCOPE_KEY, type BashScope, clip, decide, disablingReason, policyMode, readPolicySettings, redact,
   redactValue, type AgentKind, type JevAnswers, type JevCredential, type JevQuestion, type JevQuestions, type JsonValue, type NewDecision,
   type PolicyMode,
 } from "./lib/jev.ts";
@@ -190,7 +190,7 @@ export type GuardShared = {
  */
 export type JevGuardOptions = { loadCredential?: () => Promise<JevCredential | undefined>; shared?: GuardShared; platform?: string };
 const PROCESS_SHARED: GuardShared = { queue: Promise.resolve() };
-const NO_CREDENTIAL = "no OpenRouter credential (neither `/login openrouter` nor agent-vault-launch provided one).";
+const NO_CREDENTIAL = "no OpenRouter credential (neither `/login openrouter` nor OPENROUTER_API_KEY provided one).";
 const BASH_SCOPES: BashScope[] = ["strict", "system-only"];
 const SCOPE_DESCRIPTIONS = {
   strict: "Every destructive command is screened; deletions git cannot restore go to Jev and may ask you.",
@@ -1861,7 +1861,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
   let fileScope: BashScope = "strict";
   let modes: Record<string, PolicyMode> = {};
   let credential: JevCredential | undefined;
-  /** The credential's secret (OpenRouter key or vault session token), masked wherever text is sent or stored. */
+  /** The OpenRouter key, masked wherever text is sent or stored. */
   let secret: string | undefined;
   let rules: CompiledRule[] | undefined;
   let rulesError = "not loaded";
@@ -2486,7 +2486,7 @@ export function createJevGuard(options: JevGuardOptions = {}) {
     } catch {
       credential = undefined;
     }
-    secret = credentialSecret(credential);
+    secret = credential?.key;
     if (!credential) disableJev(NO_CREDENTIAL);
     const showScope = (ctx: ExtensionContext): void => {
       if (ctx.hasUI) ctx.ui.setStatus("jev-guard-scope", systemOnly() ? "guard: system-only" : undefined);
