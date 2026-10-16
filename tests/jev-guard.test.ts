@@ -638,7 +638,7 @@ test("policy off skips everything; with no credential Jev is disabled, so enforc
 });
 
 test("a credential or billing refusal disables Jev for the process; other Jev failures still fail closed", async () => {
-  for (const status of [401, 402, 407]) {
+  for (const status of [401, 402]) {
     await withGuard("enforce", { status }, async (h) => {
       const notes: string[] = [];
       const main = makeCtx("main", true, [], false, "session-1", root, notes);

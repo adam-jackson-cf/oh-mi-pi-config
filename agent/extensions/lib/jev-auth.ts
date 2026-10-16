@@ -4,15 +4,10 @@
  * loading the OMP runtime package.
  */
 import { discoverAuthStorage } from "@oh-my-pi/pi-coding-agent";
-import { vaultCredential, type JevCredential } from "./jev.ts";
+import type { JevCredential } from "./jev.ts";
 
-/**
- * Agent Vault when `agent-vault-launch` started this process (no key on this machine), else the key
- * `/login openrouter` stores; undefined when neither is available.
- */
+/** The OpenRouter key `/login openrouter` stores (or `OPENROUTER_API_KEY`); undefined when there is none. */
 export async function loadJevCredential(): Promise<JevCredential | undefined> {
-  const vault = vaultCredential();
-  if (vault) return vault;
   const auth = await discoverAuthStorage();
   try {
     const key = await auth.getApiKey("openrouter");
