@@ -85,10 +85,10 @@ Not carried by this repository, so set up on the NUC separately:
   `roles` link, the NUC-only `omarchy` and `diagnose-crash` skills, and the
   Mac-only skills `paperclip`, `macos-package-install-defaults`,
   `codify-pr-reviews`, and `setup-code-precommit-checks`.
-- The Jev credential: there is no OpenRouter key on the NUC. `omp` resolves to
-  the launcher `~/.local/bin/omp` (put first on `PATH` by `[env] _.path` in
-  `~/.config/mise/config.toml`), which starts the real binary under
-  `agent-vault-launch`; the vault adds the OpenRouter key to Jev's requests.
+- The Jev credential: `omp` resolves to the mise shim, with no wrapper. The
+  OpenRouter key is omp's stored credential, imported from Infisical (project
+  `dev`, environment dev) with `omp auth import -`; `omp token openrouter`
+  confirms it. Agent Vault is retired.
 
 ## Repository map
 
