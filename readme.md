@@ -85,10 +85,10 @@ Not carried by this repository, so set up on the NUC separately:
   `roles` link, the NUC-only `omarchy` and `diagnose-crash` skills, and the
   Mac-only skills `paperclip`, `macos-package-install-defaults`,
   `codify-pr-reviews`, and `setup-code-precommit-checks`.
-- The Jev credential: `omp` resolves to the mise shim, with no wrapper. The
-  OpenRouter key is omp's stored credential, imported from Infisical (project
-  `dev`, environment dev) with `omp auth import -`; `omp token openrouter`
-  confirms it. Agent Vault is retired.
+- The OpenRouter credential: `omp` resolves to the mise shim, with no wrapper.
+  The key is omp's stored credential, imported from Infisical (project `dev`,
+  environment dev) with `omp auth import -`; `omp token openrouter` confirms it.
+  Agent Vault is retired.
 
 ## Repository map
 
