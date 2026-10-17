@@ -1,9 +1,0 @@
-{
-  "$comment": "Per-policy mode for the Jev policy extensions: off | shadow | enforce. Shadow logs decisions to agent/jev-audit without changing behaviour. guard.bash.scope: strict (every destructive command is screened) | system-only (only actions on operating-system and protected folders ask; /guard-scope switches it for the running process). Promotion evidence: jev-lab/profiles/policies.md. Read at session start; restart OMP after editing. A file that cannot be parsed makes every policy enforce.",
-  "guard.bash": "enforce",
-  "guard.bash.scope": "system-only",
-  "guard.write": "enforce",
-  "guard.result": "enforce",
-  "guard.integrity": "enforce",
-  "guard.integrity.suspect": "shadow"
-}

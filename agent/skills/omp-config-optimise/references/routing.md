@@ -47,28 +47,6 @@ credits, measured ~20% lower wall time on the fixture set. `task` runs on
 Sonnet at standard tier; it is already ~10× faster than 6.1 Sol, and Anthropic
 priority billing on the subscription is unverified.
 
-## Jev policies
-
-Extensions in `agent/extensions/` follow the evidence ladder (deterministic >
-Jev > LLM). Modes live in `agent/jev-policies.json`; decisions go to
-`agent/jev-audit/<policy>/` and are labelled in the Jev lab (`~/.omp/jev-lab`).
-
-- `jev-guard.ts`: `guard.bash` (scope `strict`: read-only allowlist, destructive and
-  secret-read denylist, git-restorable working-folder allowances, then Jev
-  effect/intent/exposure; scope `system-only`, set by `guard.bash.scope` or
-  `/guard-scope`: asks only about operating-system and protected folders),
-  `guard.write`
-  (secret paths and literals, then Jev `contains_secret` on credential-like
-  assignments), `guard.result` (Jev `prompt_injection` on web, MCP and
-  network-fetch output only), `guard.integrity` (gate-weakening rules, then
-  per-family Jev questions on suspect matches). Current modes are in
-  `agent/jev-policies.json`.
-- `jev-ask.ts`: `jev_ask` tool (judge files or captured output without reading
-  them into context) plus the evidence-ladder system-prompt nudge. Always on;
-  every call is audited under `ask`.
-- Promotion to `enforce`: `jev-lab/profiles/policies.md` ("Promotion to
-  enforce").
-
 ## Watch items
 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped

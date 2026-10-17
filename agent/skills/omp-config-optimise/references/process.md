@@ -21,7 +21,7 @@ and spend by model. Then refresh the external figures in
 - A quota that peaked near 100% while the other provider had headroom.
 - Roles pointing at models absent from the catalog or scheduled to retire.
 - Performance evidence: failed or retried subagent runs, judge verdicts,
-  experiment results, `evaluate-jev` findings.
+  experiment results.
 
 ## 3. Decide against the preferences
 
