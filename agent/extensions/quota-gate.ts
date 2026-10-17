@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { z } from "@oh-my-pi/omptype/zod";
+import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 const USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const USAGE_COMMAND_TIMEOUT_MS = 30 * 1000;

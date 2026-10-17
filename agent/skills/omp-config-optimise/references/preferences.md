@@ -46,22 +46,21 @@ recommendation, not a silent edit.
 ## Evidence ladder
 
 - Decide with the cheapest mechanism that settles the question: **deterministic
-  process > Jev classifier > LLM**. Rules, parsers, codegraph, LSP, grep, git and
-  tests first; a Jev decision (`find`, `jev_ask`, eval `judge()`, the Jev policy
-  extensions) only for what rules cannot settle; an LLM or subagent only when
-  Jev is unsure or the policy escalates.
-- Jev policies go to enforce as soon as replayed, blind-labelled history shows
-  value over their baseline at an accepted burden; unmet targets are iteration
-  input, not a reason to park a policy in shadow (`skill://evaluate-jev`,
-  development.md). Shadow is only for events with no replayable history.
-- Compaction stays on the native mechanism until an experiment shows a Jev
-  boundary signal beats it.
+  process > OMP's native Jev judgments > LLM**. Rules, parsers, codegraph, LSP,
+  grep, git and tests first; native `find` or eval `judge()` only for what rules
+  cannot settle; an LLM or subagent only when those are unsure.
+- Compaction stays on the native mechanism until an experiment shows a better
+  boundary signal.
 
 ## Removed setups
 
 - No advisor or proportionality watchdog (owner decision 2026-10-03): the Jev
   scope watchdog, `WATCHDOG.yml`, `modelRoles.advisor`, `advisor.*` and
   `task.agentAdvisor` were removed. Do not reintroduce them in routing reviews.
+- No Jev policy extensions (owner decision 2026-10-17): `jev-guard`,
+  `jev-ask`/`jev_ask`, `agent/jev-policies.json`, the integrity rules and their
+  weekly maintainer job, the Jev lab and the `evaluate-jev` skill were removed.
+  Do not reintroduce them in routing reviews.
 
 ## Working agreements
 

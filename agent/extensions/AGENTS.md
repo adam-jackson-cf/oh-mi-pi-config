@@ -2,27 +2,30 @@
 
 ## No npm package imports in extensions
 
-Extensions in this folder, and the `lib/` modules they import, MUST NOT import packages from
-`node_modules` (for example `zod`). Use what OMP itself provides:
+Extensions in this folder MUST NOT import packages from `node_modules` (for example `zod` or
+`@oh-my-pi/omptype`). Use what the OMP binary itself provides:
 
-- Validation: `import { z } from "@oh-my-pi/omptype/zod"` (zod-compatible) or
-  `@oh-my-pi/omptype`.
-- Host APIs: `@oh-my-pi/*` packages (type imports or runtime), and `node:` built-ins.
+- Validation: `import { z } from "@oh-my-pi/pi-coding-agent"` (zod-compatible, omptype) or
+  `import { type } from "@oh-my-pi/pi-ai"` (ArkType-compatible, omptype).
+- Host APIs: `@oh-my-pi/*` packages the binary provides (type imports or runtime), and `node:`
+  built-ins.
 
-Why: OMP 18.4.x's extension loader pays roughly 0.1 s per module it loads from `node_modules`,
+Why: the extension loader pays roughly 0.1–0.3 s per module it loads from `node_modules`,
 synchronously, before the TUI accepts input. `zod` alone is about 80 modules, so each extension
-importing it added about 10 s to startup; three of them added 30–110 s. The same zod code
-pre-bundled into one file loads in 0.1 s, and `@oh-my-pi/omptype` loads in about 1 s.
+importing it added about 10 s to startup. `@oh-my-pi/omptype` is not provided by the binary: it
+resolves to the dev-dependency copy in `~/.omp/node_modules` and cost about 4 s per extension in
+OMP 18.11 (11 s total across four extensions). The same omptype code reached through
+`@oh-my-pi/pi-coding-agent` or `@oh-my-pi/pi-ai` is host-provided and loads in ~0 s.
 
-`@oh-my-pi/omptype/zod` gaps to work around:
+omptype's zod API gaps to work around:
 
 - No `.loose()`: use `.passthrough()`, or let unknown keys strip if they are not read.
 - No `discriminatedUnion`: use `z.union` with `z.literal` tags.
 - `z.union` rejects object branches that overlap (for example two objects that both strip
   unknown keys): `safeParse` each schema in order instead.
 
-Standalone scripts run directly with `bun` (`jev-lab/`, `fastino-bench/`, skill scripts) are not
-loaded by OMP and may keep using `zod`.
+Standalone scripts run directly with `bun` (skill scripts) are not loaded by OMP and may keep
+using `zod`.
 
 ## Verify startup after changing an extension
 
