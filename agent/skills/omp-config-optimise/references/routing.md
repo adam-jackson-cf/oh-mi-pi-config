@@ -1,6 +1,6 @@
 # Current routing
 
-Last reviewed 2026-09-30 (GPT-6.1 Sol launch, OMP 18.4.4). Source of truth is
+Last reviewed 2026-10-27 (GPT-6.1 Terra launch, OMP 18.13.1). Source of truth is
 `~/.omp/agent/config.yml`; this list records why. Update both together.
 
 ## Roles
@@ -29,10 +29,12 @@ Last reviewed 2026-09-30 (GPT-6.1 Sol launch, OMP 18.4.4). Source of truth is
 - `plan-judge`, `test-judge`, `completionist`, `kiss` → GPT-6.1 Sol : low. Used by judges.
   Review-detection 2026-09-30 (above); `plan-judge` and `kiss` by extrapolation (the harness judges
   code, not plans).
-- `vision` → GPT-6.1 Sol : low. Used by image reading. Vision-reading 2026-09-30: `low` and
-  `medium` 48/48, 9 s median.
-- `operator` → GPT-6.1 Sol : low. Used by the `operator` agent (browser and computer preludes).
-  OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-09-30.
+- `vision` → GPT-6.1 Terra : low. Used by image reading. Vision-reading 2026-10-27: Terra `low`
+  and `off` 48/48, $0.005, 4 s median vs 6.1 Sol `low` 48/48, $0.0128, 9 s (ceiling; cost and
+  latency decide). Owner decision 2026-10-27.
+- `operator` → GPT-6.1 Terra : low. Used by the `operator` agent (browser and computer preludes).
+  OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-10-27,
+  untested on operator work: OpenAI positions Terra for computer use at half 6.1 Sol's price.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner: Opus-led council.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.

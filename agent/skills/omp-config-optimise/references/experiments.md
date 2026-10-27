@@ -158,3 +158,8 @@ any checkpoint. Use it to compare models; OMP is only the vehicle.
   so single-run gaps under ~10 points are ties. Sonnet fastest (13 min, $1.85); GPT-6.1 Sol
   cheapest Codex model in the top group (≈43 credits). No routing change. Artifact:
   `~/.omp/.todo/artifacts/300926-scbench-pilot/report.md`.
+- 2026-10-27 — Can GPT-6.1 Terra take `vision`? G0 probe: Terra `:off` emits no reasoning (unlike
+  Luna). Vision-reading on the 2026-09-30 items: Terra `off` and `low` 48/48, $0.005, 4–5 s median
+  vs 6.1 Sol `low` 48/48, $0.0128, 9 s. Ceiling; cost and latency decide. Owner moved `vision`
+  and, untested, `operator` to Terra `low`. Artifact:
+  `~/.omp/.todo/artifacts/271026-terra61-vision/report.md`.
