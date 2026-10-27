@@ -23,8 +23,8 @@ recommendation, not a silent edit.
   decision 2026-09-30 for Sonnet's ~10× shorter wall time over GPT-6.1 Sol and, at the time,
   split-family review, which is no longer required); reasoning the lowest effort the fixed-plan
   experiment shows sufficient (`low`).
-- Image reading (`vision`) and browser/computer use (`operator` agent): GPT Sol (current: GPT-6.1
-  Sol `low`, owner decision 2026-09-30).
+- Image reading (`vision`) and browser/computer use (`operator` agent): GPT Terra (current: GPT-6.1
+  Terra `low`, owner decision 2026-10-27; `operator` moved without an operator-task experiment).
 - Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`, `scout`): GPT Luna; reasoning
   lowest effort.
 - Judging plans and output (`plan-judge`, `test-judge`, `completionist`, `kiss`): an independent

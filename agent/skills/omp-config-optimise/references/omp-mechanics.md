@@ -24,6 +24,8 @@ the docs live at `omp://models.md`, `omp://settings.md`,
   reasoning and 65–110 output tokens, matching `medium`. `:minimal` clamps to
   `low`, the lowest reachable effort, which emitted zero reasoning on the same
   probes. Probe any new model the same way before trusting `:off`.
+  `openai-codex/gpt-6.1-terra` differs: `:off` emitted 5 output tokens (answer only, no
+  reasoning) on OMP 18.13.1, 2026-10-27; OpenAI documents `none` for Terra.
 
 ## Tasks and workflows
 

@@ -14,7 +14,7 @@ modelRoles:
   tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
-  vision: openai-codex/gpt-6.1-sol:low
+  vision: openai-codex/gpt-6.1-terra:low
   completionist: openai-codex/gpt-6.1-sol:low
   innovation-council: anthropic/claude-fable-5-1:high
   innovation-challenger: openai-codex/gpt-6-astra:high
@@ -24,7 +24,7 @@ modelRoles:
   reviewer: openai-codex/gpt-6.1-sol:low
   test-judge: openai-codex/gpt-6.1-sol:low
   kiss: openai-codex/gpt-6.1-sol:low
-  operator: openai-codex/gpt-6.1-sol:low
+  operator: openai-codex/gpt-6.1-terra:low
   web: openai-codex/gpt-6-luna
   default: anthropic/claude-opus-5-5:medium
 dev:
