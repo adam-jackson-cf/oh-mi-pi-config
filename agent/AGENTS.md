@@ -56,9 +56,26 @@ messages.
   `Activity Summary` that states the outcome, work carried out, changed files
   or areas, and verification. Describe agent or tool activity only when it
   materially affects confidence in the outcome.
-  - Make the completion response independently understandable zoomed out view. Establish the
-  objective, relevant prior state, resulting state, and practical consequence
-  before relying on project-specific detail.
+  - Make the completion response understandable on its own, as a zoomed-out
+  view. Establish the objective, relevant prior state, resulting state, and
+  practical consequence before relying on project-specific detail.
+  - Write each sentence for a reader who did not do the work or see its tool
+  output:
+    - Name the concrete file, symbol, command, or behaviour instead of a
+    pointer such as "the fix", "as above", or a label invented during the work.
+    - For a change, state the behaviour before, the behaviour after, and what
+    the user will notice. Never report only the action taken.
+    - Quote or summarise any tool output that a claim depends on.
+    - Use one term for each thing. Name the actor and use active voice unless
+    the actor is unknown.
+    - Write one claim per sentence, in under about 25 words, in a simple
+    tense. Use a numbered list for three or more steps or conditions.
+    - Keep the words that define scope, limit noun stacks to three words, and
+    use verbs rather than noun forms for actions.
+    - Keep stated confidence unchanged. Never add a cause or certainty that
+    was not observed.
+    - Omit stacked hedges, phrasal verbs, and quality adjectives such as
+    "robust". Stop shortening once a sentence is unambiguous.
   - Identify and surface only the key points needed to answer, decide, or act.
   Label them `K1`, `K2`, and so on; use the natural number of qualifying
   points rather than filling a quota.
@@ -126,3 +143,5 @@ under `~/Projects/`. Default new product or application ideas to `inflight/`,
 day-to-day tooling to `tools/`, and learning references to `examples/`.
 When moving a version 1 project into `complete/`, update any affected local
 paths, scripts, shortcuts, or automation references.
+Git: agents own branch → PR → review → merge without asking, unless `.omp/gate.json` sets
+`"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.

@@ -85,6 +85,7 @@ bunx tsc --noEmit
 # A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
 # would otherwise write into this repository's index.
 (unset "${!GIT_@}"; bun test)
+(unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do

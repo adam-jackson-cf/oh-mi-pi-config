@@ -1,0 +1,15 @@
+[Unit]
+Description=Deploy tracked OMP configuration on the Linux NUC
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+ConditionHost=omarchy
+ConditionPathExists=%h/Projects/tools/omp-nuc-config/scripts/omp-config-sync.py
+
+[Service]
+Type=oneshot
+TimeoutStartSec=20min
+Restart=on-failure
+RestartSec=1min
+UMask=0077
+Environment="PATH=%h/.local/share/mise/installs/bun/1.3.0/bin:%h/.local/share/mise/shims:%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 %h/Projects/tools/omp-nuc-config/scripts/omp-config-sync.py

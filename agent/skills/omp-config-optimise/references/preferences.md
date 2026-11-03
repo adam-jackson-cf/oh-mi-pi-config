@@ -16,20 +16,24 @@ recommendation, not a silent edit.
   reasoning ≤ medium.
 - Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
   reasoning ≤ medium.
-- Code review (`reviewer`): an independent session with none of the author's context; same family
-  is fine; prefer GPT Sol (current: GPT-6.1 Sol `low`, owner decision 2026-09-30; independence rule
-  owner decision 2026-10-02).
-- Implementation with a fixed plan or todo list (`task`): Claude Sonnet (current: Sonnet 5.5, owner
-  decision 2026-09-30 for Sonnet's ~10× shorter wall time over GPT-6.1 Sol and, at the time,
-  split-family review, which is no longer required); reasoning the lowest effort the fixed-plan
-  experiment shows sufficient (`low`).
-- Image reading (`vision`) and browser/computer use (`operator` agent): GPT Terra (current: GPT-6.1
-  Terra `low`, owner decision 2026-10-27; `operator` moved without an operator-task experiment).
-- Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`, `scout`): GPT Luna; reasoning
+- Code review (`reviewer`): Claude Sonnet 5.5 `medium`, in an independent session with none of the
+  author's context; a different model family from the author is required (owner decision
+  2026-11-03). Sonnet reviews GPT-6.1 Sol implementation.
+- Implementation with a fixed plan or todo list (`task`): GPT-6.1 Sol `medium` with Codex
+  `priority` service tier (owner decision 2026-11-03).
+- Image reading (`vision`): GPT Terra (current: GPT-6.1 Terra `low`, owner decision 2026-10-27).
+- Browser/computer use (`operator`): GPT-6.1 Terra `off` (owner decision 2026-11-03);
+  operator-task performance remains untested here.
+- Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`): GPT Luna; reasoning
   lowest effort.
-- Judging plans and output (`plan-judge`, `test-judge`, `completionist`, `kiss`): an independent
-  session; prefer GPT Sol, same family as the author allowed (current: GPT-6.1 Sol `low`, owner
-  decision 2026-09-30); reasoning as needed.
+- Codebase discovery (`scout`): Claude Haiku 5.5 `medium` (owner decision 2026-11-03).
+- Judging implementation tests and completeness (`test-judge`, `completionist`): Claude Sonnet
+  5.5 `medium`, in independent sessions; a different model family from the author is required
+  (owner decision 2026-11-03).
+- Judging Opus-authored plans/code (`plan-judge`, `kiss`): GPT-6.1 Sol `low`, in independent
+  sessions with a different model family from the author (owner decision 2026-11-03).
+- Codex `priority` service tier applies to exactly `task`, `plan-judge`, `kiss` and `sonic`
+  (owner decision 2026-11-03).
 - Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.
@@ -41,7 +45,8 @@ recommendation, not a silent edit.
   needs rigorous input, route it to `innovation-council`.
 - Above-medium reasoning outside those two is a deliberate, per-turn user
   choice for a distinctly unique problem, not a configured default.
-- Work that arrives with a fixed plan or todo list does not need reasoning.
+- Fixed-plan implementation uses the configured `task` route at `medium` (owner decision
+  2026-11-03); historical lower-effort trials do not override the current route.
 
 ## Evidence ladder
 
@@ -68,4 +73,6 @@ recommendation, not a silent edit.
   for the change directly.
 - Test claims about model behaviour with a frozen experiment before routing on
   them (see `experiments.md`).
-- Commits and pushes need separate explicit permission.
+- Agents may create `agent/*` branches, commit, push, open PRs and rebase-merge them per
+  `skill://git-tool` unless `.omp/gate.json` sets `agentMerge: disabled`; never commit to main
+  (owner decision 2026-11-03).
