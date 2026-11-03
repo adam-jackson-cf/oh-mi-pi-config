@@ -2,7 +2,7 @@
 # agent and wait are OMP eval kernel globals, injected when this file is %load-ed.
 """Owner additions to OMP's native `workflowz` / `jevify` / `orchestrate` contracts.
 
-Load with `%load ~/.omp/agent/skills/workflow-templates/templates/workflows.py`. Both templates are
+Load with `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`. Both templates are
 dependency-coupled (each step needs the previous result), the case where the native contract allows
 `agent()` handles with `wait()`. Independent fan-out belongs in a native `workpool()`.
 """
