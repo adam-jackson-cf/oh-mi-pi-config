@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy tracked OMP configuration on the Linux NUC
+ConditionHost=omarchy
+ConditionPathExists=%h/Projects/tools/omp-nuc-config/scripts/omp-config-sync.py
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment="PATH=%h/.local/share/mise/installs/bun/1.3.0/bin:%h/.local/share/mise/shims:%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 %h/Projects/tools/omp-nuc-config/scripts/omp-config-sync.py

@@ -44,6 +44,22 @@ The boundaries are intentional:
 - **Extensions** implement runtime mechanics (`agent/extensions/`);
   `extension-health.ts` reports registration health, not runtime correctness.
 
+`skill-gate.ts` requires `skill://git-tool` for branch and integration commands,
+including commands with Git global options, shell separators and known command
+wrappers. Shell `-c` commands are inspected recursively; `cd` and `pushd` select
+the destination repository's policy. Unresolved directories fail closed for
+publishing. Quoted `echo` and search arguments do not trigger the gate.
+Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
+approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
+closed for those actions. Main-session handoff stays blocked until
+verification references are read, the exact `fastGate` has run after edits (any
+exit code), and failed `pathCheck` checks pass on retry (deleted paths are dropped).
+Working-tree fingerprints also detect delegated edits, including untracked file
+content and staged changes before the first commit; unchanged pre-existing dirt
+does not block Q&A. Fingerprinting uses two Git calls and reads at most 1,024
+untracked files totalling 16 MiB. Git/filesystem failures and those bounds disable
+only fingerprint enforcement, not explicit edit/reference/path checks.
+
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear
 beside tracked files. Treat only the explicitly reopened paths as
@@ -64,8 +80,9 @@ source.
 
 ## NUC branch (`nuc-config`)
 
-This branch is the configuration for the Linux NUC (`adam-ai`); rebase it on
-`main` to take upstream changes. It differs from `main` only in:
+This branch is the configuration for the Linux NUC (`adam-ai@omarchy.tailf3b31b.ts.net`).
+Merge `main` into `nuc-config` to
+take upstream changes while retaining these Linux settings:
 
 - `agent/AGENTS.md` — the `~/Projects/` folder-structure rule, so work started
   remotely on the NUC (worktrees included) lands in the right category folder.
@@ -74,6 +91,43 @@ This branch is the configuration for the Linux NUC (`adam-ai`); rebase it on
   `typescript-language-server` are installed with the mise Node
   (`npm install -g pyright typescript-language-server typescript`).
   `rust-analyzer` is not installed; the server stays inactive until it is.
+
+### Managed NUC source and runtime
+
+`~/Projects/tools/omp-nuc-config` is the clean `nuc-config` Git checkout.
+`~/.omp` is the deployed runtime, containing private authentication, sessions,
+and generated telemetry configuration. Never run Git or mirror with deletion in
+`~/.omp`. The source checkout stays clean; agent-introspection applies its managed
+telemetry overlay only to the runtime.
+
+`scripts/omp-config-sync.py` replaces the copy-only `~/.local/bin/omp-config-pull`
+script. It locks syncs, requires a clean `nuc-config` checkout, and pulls with
+`--ff-only`. It copies tracked files without `.git` and removes retired tracked
+files only when their bytes match the previous deployed source revision. A locally
+modified retired file stops deployment before runtime changes; preserve or resolve
+that file before retrying. Untracked authentication, sessions, and local skills
+remain in place. Private backups and the deployed revision live under
+`~/.local/state/omp-config-sync` with directory mode `0700` and backup files `0600`.
+On first use, run before updating the source manually: the pre-pull source revision
+provides the retirement baseline. For an already updated source, seed
+`deployment.json` in that private state directory with `{"revision":"<old-commit>"}`
+using the last deployed source commit, before running the helper.
+
+Requirements: Python 3, Git, Bun **1.3.0** at
+`~/.local/share/mise/installs/bun/1.3.0/bin/bun`, and
+`~/.local/bin/agent-introspection`. Dependency installation uses the explicit Bun
+path, adds it to `PATH`, and sets `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. The repository's
+OMP development dependency is **18.16.0**; update the separately installed NUC OMP
+binary from **18.15.0** before relying on new host APIs. The helper does not update
+the OMP binary. Restart existing OMP sessions after a successful deployment.
+
+Install the templates from `scripts/systemd/` into `~/.config/systemd/user/`,
+replace the old copy-only service if present, then run `systemctl --user daemon-reload`
+and `systemctl --user enable --now omp-config-pull.timer`. The service is restricted
+to Linux hostname `omarchy` and runs the versioned helper directly. Run
+`systemctl --user start omp-config-pull.service` for an immediate sync and inspect
+`systemctl --user status omp-config-pull.service` for completion. These are user
+services; no root service or system configuration changes are required.
 
 Not carried by this repository, so set up on the NUC separately:
 

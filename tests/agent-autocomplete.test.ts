@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, test } from "node:test";
-import { type AgentAutocompleteAPI, registerAgentCommand } from "../agent/extensions/agent-autocomplete";
+import {
+	type AgentAutocompleteAPI,
+	discoverAgentDefinitions,
+	registerAgentCommand,
+} from "../agent/extensions/agent-autocomplete";
 import type { AutocompleteItem, AutocompleteProvider } from "@oh-my-pi/pi-tui";
 
 const agents = [
@@ -294,4 +301,29 @@ describe("agent autocomplete", () => {
 			assert.deepEqual(harness.notifications, []);
 		});
 	}
+
+	test("reads multi-line YAML descriptions from agent frontmatter", () => {
+		const root = mkdtempSync(join(tmpdir(), "agent-autocomplete-"));
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		try {
+			const projectAgents = join(root, "project", ".omp", "agents");
+			mkdirSync(projectAgents, { recursive: true });
+			mkdirSync(join(root, "user", "agents"), { recursive: true });
+			process.env.PI_CODING_AGENT_DIR = join(root, "user");
+			writeFileSync(
+				join(projectAgents, "judge.md"),
+				'---\nname: judge\ndescription:\n  "Read-only judge. Validates\n  delivered work."\ntools:\n  - read\n---\nBody\n',
+			);
+			writeFileSync(join(projectAgents, "folded.md"), "---\nname: folded\ndescription: >-\n  Folded text\n  continues here\n---\n");
+
+			assert.deepEqual(discoverAgentDefinitions(join(root, "project")), [
+				{ name: "folded", description: "Folded text continues here" },
+				{ name: "judge", description: "Read-only judge. Validates delivered work." },
+			]);
+		} finally {
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 });

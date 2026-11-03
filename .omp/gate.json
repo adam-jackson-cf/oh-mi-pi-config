@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "fastGate": ["bash", "scripts/run-ci-quality-gates.sh"],
+  "gate": ["bash", "scripts/run-ci-quality-gates.sh"],
+  "agentMerge": "allowed"
+}

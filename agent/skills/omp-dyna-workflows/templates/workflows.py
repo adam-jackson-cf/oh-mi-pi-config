@@ -2,7 +2,7 @@
 # agent and wait are OMP eval kernel globals, injected when this file is %load-ed.
 """Owner additions to OMP's native `workflowz` / `jevify` / `orchestrate` contracts.
 
-Load with `%load ~/.omp/agent/skills/workflow-templates/templates/workflows.py`. Both templates are
+Load with `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`. Both templates are
 dependency-coupled (each step needs the previous result), the case where the native contract allows
 `agent()` handles with `wait()`. Independent fan-out belongs in a native `workpool()`.
 """
@@ -31,7 +31,8 @@ VERDICT = {"type": "object", "required": ["verdict", "findings"], "additionalPro
 
 def adversarial_verify(objective, repo, check_cmd, max_rounds=3, author="task", judge_agent="reviewer"):
     """Implement -> repo check must pass -> independent review session -> fix, until pass or max_rounds.
-    Each agent() spawn is a fresh session with no shared context; same model family is allowed."""
+    Each agent() spawn is a fresh session with no shared context. The judge must use a different
+    model family from the author; preserve this requirement when overriding author or judge_agent."""
     history, feedback = [], ""
     for rnd in range(1, max_rounds + 1):
         brief = (f"Work in {repo}. Objective: {objective}\n" +

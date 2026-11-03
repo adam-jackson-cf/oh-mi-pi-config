@@ -1,0 +1,38 @@
+references:
+  firstEdit:
+    - skill://coding-guidance/references/implementation-integrity.md
+  newFile:
+    - skill://coding-guidance/references/structure-and-grouping.md
+    - skill://coding-guidance/references/naming.md
+  test:
+    - skill://test-guidance/references/tiers.md
+  discovery:
+    - skill://codegraph/references/readiness-and-bootstrap.md
+    - skill://codegraph/references/query-selection.md
+  verification:
+    - skill://coding-guidance/references/verification.md
+  workflow:
+    - skill://omp-dyna-workflows
+  git:
+    - skill://git-tool
+testGlobs:
+  - '**/*.{test,spec}.*'
+  - '**/{test,tests,__tests__}/**'
+codeGlobs:
+  - '**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}'
+discoveryTools: [find, grep, glob, ast_grep]
+editTools: [write, edit, ast_edit]
+# Applied to parsed command positions after env assignments and git global options.
+# Quoted echo/rg arguments are not commands and do not trigger this gate.
+gitCommand: '^(git (commit|push|merge|rebase|cherry-pick)\b|git worktree add\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge)\b)'
+pathFields:
+  read: [path]
+  write: [path]
+  edit: [path, paths]
+  ast_edit: [paths]
+  find: [path]
+  grep: [path]
+  glob: [path]
+  ast_grep: [paths]
+resolveDevice: xd://resolve
+rejectDevice: xd://reject

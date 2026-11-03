@@ -31,8 +31,9 @@ check these invariants:
 - No Opus or Astra role above medium outside `innovation-council`,
   `experiment-design`, and their peers (`innovation-challenger`,
   `experiment-peer`).
-- Judges and reviewers run in an independent session (fresh subagent or process, no shared
-  context with the author); same model family is allowed; GPT Sol is preferred.
+- Judges and reviewers run in independent sessions (fresh subagent or process, no shared context
+  with the author) and must use a different model family (owner decision 2026-11-03): Sonnet 5.5
+  judges Sol-authored implementation; GPT-6.1 Sol judges Opus-authored plans/code.
 - Effort lives only in `config.yml` role suffixes, not agent frontmatter.
 - Every agent with `model: ["@x"]` has a `modelRoles.x`, and every custom role
   is used by some agent or built-in workload.
