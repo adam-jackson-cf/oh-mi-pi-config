@@ -6,25 +6,26 @@ extensions:
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/quota-gate.ts
+  - ~/.omp/agent/extensions/skill-gate.ts
 modelRoles:
   plan: anthropic/claude-opus-5-5:medium
   slow: anthropic/claude-opus-5-5:medium
   smol: openai-codex/gpt-6-luna:low
-  task: anthropic/claude-sonnet-5-5:low
+  task: openai-codex/gpt-6.1-sol:medium
   tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
-  completionist: openai-codex/gpt-6.1-sol:low
-  innovation-council: anthropic/claude-fable-5-1:high
+  completionist: anthropic/claude-sonnet-5-5:medium
+  innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   experiment-design: anthropic/claude-fable-5-1:high
   experiment-peer: anthropic/claude-opus-5-5:high
   plan-judge: openai-codex/gpt-6.1-sol:low
-  reviewer: openai-codex/gpt-6.1-sol:low
-  test-judge: openai-codex/gpt-6.1-sol:low
+  reviewer: anthropic/claude-sonnet-5-5:medium
+  test-judge: anthropic/claude-sonnet-5-5:medium
   kiss: openai-codex/gpt-6.1-sol:low
-  operator: openai-codex/gpt-6.1-terra:low
+  operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
   default: anthropic/claude-opus-5-5:medium
 dev:
@@ -48,14 +49,20 @@ lsp:
   diagnosticsOnEdit: true
 bashInterceptor:
   enabled: true
+bash:
+  gitGuard: true
 task:
   isolation:
     enabled: true
   enableLsp: true
   agentServiceTierOverrides:
     sonic: priority
+    task: priority
+    plan-judge: priority
+    kiss: priority
   agentModelOverrides:
     reviewer: "@reviewer"
+    scout: anthropic/claude-haiku-5-5:medium
 checkpoint:
   enabled: true
 memory:
