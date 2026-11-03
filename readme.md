@@ -102,12 +102,19 @@ telemetry overlay only to the runtime.
 
 `scripts/omp-config-sync.py` replaces the copy-only `~/.local/bin/omp-config-pull`
 script. It locks syncs, requires a clean `nuc-config` checkout, and pulls with
-`--ff-only`. It copies tracked files without `.git` and removes retired tracked
+`--ff-only`. It refuses local edits to tracked runtime files using stored SHA-256 hashes, then
+copies source changes without `.git` and removes retired tracked
 files only when their bytes match the previous deployed source revision. A locally
 modified retired file stops deployment before runtime changes; preserve or resolve
 that file before retrying. Untracked authentication, sessions, and local skills
-remain in place. Private backups and the deployed revision live under
+remain in place. Private backups, expected runtime hashes, and the deployed revision live under
 `~/.local/state/omp-config-sync` with directory mode `0700` and backup files `0600`.
+Backups contain only files changed by deployment; unchanged daily runs create none.
+The helper records hashes after deployment and after the managed telemetry command,
+including command failure, so retries preserve expected overlay changes. Unknown
+local edits stop sync; preserve them and reconcile with canonical source before retrying.
+Corrupt state or unavailable history stops with an explicit recovery message; restore
+the last deployed revision rather than adopting unknown runtime bytes.
 On first use, run before updating the source manually: the pre-pull source revision
 provides the retirement baseline. For an already updated source, seed
 `deployment.json` in that private state directory with `{"revision":"<old-commit>"}`
@@ -127,7 +134,11 @@ and `systemctl --user enable --now omp-config-pull.timer`. The service is restri
 to Linux hostname `omarchy` and runs the versioned helper directly. Run
 `systemctl --user start omp-config-pull.service` for an immediate sync and inspect
 `systemctl --user status omp-config-pull.service` for completion. These are user
-services; no root service or system configuration changes are required.
+services. Check `loginctl show-user adam-ai -p Linger` returns `Linger=yes` so
+the user manager runs after logout and reboot. Linger is already enabled on the
+NUC; enable it with `loginctl enable-linger adam-ai` only if the check fails.
+The service bounds subprocess runtimes and its total runtime, and retries failures
+after one minute, up to three starts per hour, before the next daily timer run.
 
 Not carried by this repository, so set up on the NUC separately:
 
