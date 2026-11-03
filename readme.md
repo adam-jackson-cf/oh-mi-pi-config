@@ -113,12 +113,25 @@ Backups contain only files changed by deployment; unchanged daily runs create no
 The helper records hashes after deployment and after the managed telemetry command,
 including command failure, so retries preserve expected overlay changes. Unknown
 local edits stop sync; preserve them and reconcile with canonical source before retrying.
+Before writing runtime files, the helper saves a private `pending.json` journal.
+An interrupted deployment resumes only bytes matching the known old or intended new
+source hashes. Unknown edits still stop recovery. Recovery runs before any pull and
+requires source HEAD to match the journal target; restore that revision if HEAD moved.
+After deployment state is saved, the journal is removed. SIGTERM permits the
+managed-overlay cleanup to record hashes. SIGKILL or power loss during the external
+overlay can leave unknown bytes; inspect and reconcile those files before retrying.
 Corrupt state or unavailable history stops with an explicit recovery message; restore
 the last deployed revision rather than adopting unknown runtime bytes.
 On first use, run before updating the source manually: the pre-pull source revision
 provides the retirement baseline. For an already updated source, seed
 `deployment.json` in that private state directory with `{"revision":"<old-commit>"}`
-using the last deployed source commit, before running the helper.
+using the last deployed source commit, before running the helper. Bootstrap expects
+tracked runtime files to match that source commit. Inspect and reconcile any
+mismatch first; only seed reviewed expected hashes for an explicitly approved
+managed overlay. Never adopt unknown runtime bytes automatically.
+
+The CLI deploys only to `~/.omp`; it is not a staging command because telemetry
+configuration targets the home runtime.
 
 Requirements: Python 3, Git, Bun **1.3.0** at
 `~/.local/share/mise/installs/bun/1.3.0/bin/bun`, and
@@ -139,6 +152,8 @@ the user manager runs after logout and reboot. Linger is already enabled on the
 NUC; enable it with `loginctl enable-linger adam-ai` only if the check fails.
 The service bounds subprocess runtimes and its total runtime, and retries failures
 after one minute, up to three starts per hour, before the next daily timer run.
+After correcting a failure that exhausted this limit, run
+`systemctl --user reset-failed omp-config-pull.service`, then start the service again.
 
 Not carried by this repository, so set up on the NUC separately:
 

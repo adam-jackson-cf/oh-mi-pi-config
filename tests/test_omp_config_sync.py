@@ -18,7 +18,7 @@ class DeploymentTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.source = self.root / 'source'
-        self.runtime = self.root / 'runtime'
+        self.runtime = self.root / '.omp'
         self.source.mkdir()
         self.runtime.mkdir()
         self.git('init', '-q')
@@ -146,7 +146,8 @@ class DeploymentTests(unittest.TestCase):
             return original_run(command, *args, **kwargs)
 
         argv = ['sync', '--source', str(self.source), '--runtime', str(self.runtime), '--state', str(state_dir)]
-        with patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
+        with patch.object(sync.Path, 'home', return_value=self.root), \
+             patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
              patch.object(sync, 'dependencies', return_value=(Path('/fixture/bun'), Path('/fixture/overlay'))), \
              patch.object(sync.subprocess, 'run', side_effect=managed_run):
             with self.assertRaises(subprocess.CalledProcessError):
@@ -161,7 +162,8 @@ class DeploymentTests(unittest.TestCase):
 
     def test_lock_prevents_overlapping_sync_before_source_or_runtime_mutation(self):
         argv = ['sync', '--source', str(self.source), '--runtime', str(self.runtime), '--state', str(self.root / 'state')]
-        with patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
+        with patch.object(sync.Path, 'home', return_value=self.root), \
+             patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
              patch.object(sync, 'dependencies', return_value=(Path('/fixture/bun'), Path('/fixture/overlay'))), \
              patch.object(sync.fcntl, 'flock', side_effect=BlockingIOError):
             with self.assertRaisesRegex(RuntimeError, 'Another configuration sync'):
@@ -172,6 +174,116 @@ class DeploymentTests(unittest.TestCase):
         with patch.object(sync.Path, 'is_file', return_value=False):
             with self.assertRaisesRegex(RuntimeError, 'Required executable is missing'):
                 sync.dependencies()
+
+    def interrupted_deployment(self):
+        self.rename()
+        journal = self.root / 'pending.json'
+        original_replace = Path.replace
+        interrupted = False
+
+        def interrupt_after_write(path, target):
+            nonlocal interrupted
+            result = original_replace(path, target)
+            if self.runtime in Path(target).parents and not interrupted:
+                interrupted = True
+                raise OSError('injected interruption')
+            return result
+
+        with patch.object(sync.Path, 'replace', interrupt_after_write):
+            with self.assertRaisesRegex(OSError, 'injected interruption'):
+                sync.deploy(self.source, self.runtime, self.previous, self.root / 'backups',
+                            journal_file=journal)
+        self.assertTrue(interrupted)
+        self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+        return journal
+
+    def test_partial_deployment_recovers_only_known_old_or_new_bytes(self):
+        journal = self.interrupted_deployment()
+        private = self.runtime / 'auth.json'
+        private.write_bytes(b'private fixture')
+        pending = sync.load_pending(self.source, journal)
+        revision = sync.deploy(self.source, self.runtime, pending['previous_revision'],
+                               self.root / 'backups', pending['hashes'], journal, recovering=True)
+        self.assertEqual(revision, pending['revision'])
+        self.assertEqual((self.runtime / 'agent/config.yml').read_bytes(), b'new config')
+        self.assertFalse((self.runtime / 'agent/skills/workflow-templates/SKILL.md').exists())
+        self.assertEqual(private.read_bytes(), b'private fixture')
+
+    def test_partial_deployment_refuses_third_hash_and_moved_head(self):
+        journal = self.interrupted_deployment()
+        pending = sync.load_pending(self.source, journal)
+        config = self.runtime / 'agent/config.yml'
+        config.write_bytes(b'third unknown edit')
+        with self.assertRaisesRegex(RuntimeError, 'Locally modified tracked file preserved'):
+            sync.deploy(self.source, self.runtime, pending['previous_revision'], self.root / 'backups',
+                        pending['hashes'], journal, recovering=True)
+        self.assertEqual(config.read_bytes(), b'third unknown edit')
+        self.write('extra', b'new source')
+        self.commit()
+        with self.assertRaisesRegex(RuntimeError, 'differs from source HEAD'):
+            sync.load_pending(self.source, journal)
+
+    def test_absent_state_persists_old_baseline_before_pull_then_completes(self):
+        self.git('branch', '-M', 'nuc-config')
+        state_dir = self.root / 'state'
+        state_file = state_dir / 'deployment.json'
+        original_run = subprocess.run
+
+        def managed_run(command, *args, **kwargs):
+            if command[0] == 'git' and 'pull' in command:
+                baseline = json.loads(state_file.read_text())
+                self.assertEqual(baseline, {'revision': self.previous, 'hashes': {}})
+                self.rename()
+                return subprocess.CompletedProcess(command, 0)
+            if command[0] in ['/fixture/bun', '/fixture/overlay']:
+                return subprocess.CompletedProcess(command, 0)
+            return original_run(command, *args, **kwargs)
+
+        argv = ['sync', '--source', str(self.source), '--state', str(state_dir)]
+        with patch.object(sync.Path, 'home', return_value=self.root), \
+             patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
+             patch.object(sync, 'dependencies', return_value=(Path('/fixture/bun'), Path('/fixture/overlay'))), \
+             patch.object(sync.subprocess, 'run', side_effect=managed_run):
+            sync.main()
+        completed = sync.load_state(self.source, state_file)
+        self.assertEqual(completed['revision'], self.git('rev-parse', 'HEAD').decode().strip())
+        self.assertEqual(completed['hashes'], sync.runtime_hashes(self.source, self.runtime))
+        self.assertFalse((state_dir / 'pending.json').exists())
+
+    def test_main_recovers_pending_target_before_any_pull(self):
+        journal = self.interrupted_deployment()
+        self.git('branch', '-M', 'nuc-config')
+        state_dir = self.root / 'state'
+        state_dir.mkdir()
+        journal.replace(state_dir / 'pending.json')
+        original_run = subprocess.run
+
+        def managed_run(command, *args, **kwargs):
+            if command[0] == 'git' and 'pull' in command:
+                self.fail('Recovery must not pull before completing its pinned target')
+            if command[0] in ['/fixture/bun', '/fixture/overlay']:
+                return subprocess.CompletedProcess(command, 0)
+            return original_run(command, *args, **kwargs)
+
+        argv = ['sync', '--source', str(self.source), '--state', str(state_dir)]
+        with patch.object(sync.Path, 'home', return_value=self.root), \
+             patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv), \
+             patch.object(sync, 'dependencies', return_value=(Path('/fixture/bun'), Path('/fixture/overlay'))), \
+             patch.object(sync.subprocess, 'run', side_effect=managed_run):
+            sync.main()
+        self.assertFalse((state_dir / 'pending.json').exists())
+        completed = sync.load_state(self.source, state_dir / 'deployment.json')
+        self.assertEqual(completed['revision'], self.git('rev-parse', 'HEAD').decode().strip())
+        self.assertEqual(completed['hashes'], sync.runtime_hashes(self.source, self.runtime))
+
+    def test_cli_rejects_staging_runtime_before_writes(self):
+        state_dir = self.root / 'state'
+        argv = ['sync', '--runtime', str(self.root / 'staging'), '--state', str(state_dir)]
+        with patch.object(sync.Path, 'home', return_value=self.root), \
+             patch.object(sync.sys, 'platform', 'linux'), patch.object(sync.sys, 'argv', argv):
+            with self.assertRaisesRegex(RuntimeError, 'does not support staging'):
+                sync.main()
+        self.assertFalse(state_dir.exists())
 
 
 if __name__ == '__main__':

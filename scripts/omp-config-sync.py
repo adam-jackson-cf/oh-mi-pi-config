@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,11 @@ def validate_revision(source, revision):
         raise RuntimeError('Previous deployed revision is unavailable; fetch its history or restore the correct deployment.json') from None
 
 
+def safe_path(name):
+    return (isinstance(name, str) and bool(name) and not Path(name).is_absolute()
+            and '..' not in Path(name).parts and '.git' not in Path(name).parts)
+
+
 def load_state(source, state_file):
     if not state_file.exists():
         return {'revision': git(source, 'rev-parse', 'HEAD').decode().strip()}
@@ -65,7 +71,7 @@ def load_state(source, state_file):
             raise ValueError()
         hashes = state.get('hashes', {})
         if not isinstance(hashes, dict) or any(
-            not isinstance(name, str) or not isinstance(value, str)
+            not safe_path(name) or not isinstance(value, str)
             or not re.fullmatch(r'[0-9a-f]{64}', value)
             for name, value in hashes.items()
         ):
@@ -76,11 +82,31 @@ def load_state(source, state_file):
     return state
 
 
+def save_json(path, value):
+    temporary = path.with_suffix('.json.tmp')
+    with temporary.open('w') as stream:
+        stream.write(json.dumps(value) + '\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.chmod(0o600)
+    temporary.replace(path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def save_state(state_file, revision, hashes):
-    temporary_state = state_file.with_suffix('.json.tmp')
-    temporary_state.write_text(json.dumps({'revision': revision, 'hashes': hashes}) + '\n')
-    temporary_state.chmod(0o600)
-    temporary_state.replace(state_file)
+    save_json(state_file, {'revision': revision, 'hashes': hashes})
+
+
+def load_pending(source, pending_file):
+    pending = load_state(source, pending_file)
+    validate_revision(source, pending.get('previous_revision'))
+    if git(source, 'rev-parse', 'HEAD').decode().strip() != pending['revision']:
+        raise RuntimeError('Pending deployment target differs from source HEAD; restore HEAD to the pending revision before retrying')
+    return pending
 
 
 def runtime_hashes(source, runtime):
@@ -88,10 +114,12 @@ def runtime_hashes(source, runtime):
             if destination(runtime, name).is_file()}
 
 
-def deploy(source, runtime, previous_revision, backup_root, expected_hashes=None):
+def deploy(source, runtime, previous_revision, backup_root, expected_hashes=None,
+           journal_file=None, recovering=False):
     """Refuse runtime divergence, back up changed files and deploy source changes."""
     validate_revision(source, previous_revision)
-    current = tracked(source, 'HEAD')
+    target_revision = git(source, 'rev-parse', 'HEAD').decode().strip()
+    current = tracked(source, target_revision)
     previous = tracked(source, previous_revision)
     expected_hashes = expected_hashes or {}
     retired = previous.keys() - current.keys()
@@ -108,7 +136,8 @@ def deploy(source, runtime, previous_revision, backup_root, expected_hashes=None
             continue
         if path.exists():
             expected = expected_hashes.get(name, digest(previous.get(name, current[name])[0]))
-            if digest(path.read_bytes()) != expected:
+            actual = digest(path.read_bytes())
+            if actual != expected and not (recovering and actual == digest(current[name][0])):
                 raise RuntimeError(f'Locally modified tracked file preserved: {name}')
             # Preserve the managed overlay when the corresponding source did not change.
             if name in previous and current[name] == previous[name]:
@@ -116,6 +145,12 @@ def deploy(source, runtime, previous_revision, backup_root, expected_hashes=None
             if path.read_bytes() == current[name][0] and path.stat().st_mode & 0o777 == current[name][1]:
                 continue
         changed.append(name)
+    if git(source, 'rev-parse', 'HEAD').decode().strip() != target_revision:
+        raise RuntimeError('Source HEAD changed during deployment; restore the pinned revision before retrying')
+    if journal_file is not None and not recovering:
+        # This records only known source/managed hashes, never arbitrary runtime bytes.
+        save_json(journal_file, {'revision': target_revision, 'previous_revision': previous_revision,
+                                 'hashes': expected_hashes})
     existing = [name for name in changed if destination(runtime, name).is_file()]
     if existing:
         backup_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -145,7 +180,7 @@ def deploy(source, runtime, previous_revision, backup_root, expected_hashes=None
                 temporary_path = Path(temporary.name)
             temporary_path.chmod(mode)
             temporary_path.replace(path)
-    return git(source, 'rev-parse', 'HEAD').decode().strip()
+    return target_revision
 
 
 def dependencies():
@@ -171,6 +206,8 @@ def main():
         parser.error('This deployment entry point is Linux NUC only')
     os.umask(0o077)
     source, runtime, state = (p.expanduser().resolve() for p in (args.source, args.runtime, args.state))
+    if runtime != (Path.home() / '.omp').resolve():
+        raise RuntimeError('Runtime must be ~/.omp; the CLI does not support staging because telemetry configures the home runtime')
     if source == runtime or source in runtime.parents or runtime in source.parents:
         parser.error('Source and runtime must be separate directories')
     bun, overlay = dependencies()
@@ -186,14 +223,26 @@ def main():
         if git(source, 'status', '--porcelain').strip():
             raise RuntimeError('Source checkout must be clean')
         state_file = state / 'deployment.json'
-        # Persist the pre-pull baseline so a failed pull/deployment can retry safely.
-        previous = load_state(source, state_file)
-        if not state_file.exists():
-            save_state(state_file, previous['revision'], {})
-        subprocess.run(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'nuc-config'],
-                       check=True, capture_output=True, timeout=120)
-        revision = deploy(source, runtime, previous['revision'], state / 'backups', previous.get('hashes'))
+        # A pending journal pins recovery before any network operation can move HEAD.
+        pending_file = state / 'pending.json'
+        if pending_file.exists():
+            pending = load_pending(source, pending_file)
+            previous_revision = pending['previous_revision']
+            expected = pending.get('hashes', {})
+            recovering = True
+        else:
+            previous = load_state(source, state_file)
+            if not state_file.exists():
+                save_state(state_file, previous['revision'], {})
+            subprocess.run(['git', '-C', str(source), 'pull', '--ff-only', 'origin', 'nuc-config'],
+                           check=True, capture_output=True, timeout=120)
+            previous_revision = previous['revision']
+            expected = previous.get('hashes', {})
+            recovering = False
+        revision = deploy(source, runtime, previous_revision, state / 'backups', expected,
+                          pending_file, recovering)
         save_state(state_file, revision, runtime_hashes(source, runtime))
+        pending_file.unlink()
         environment = os.environ.copy()
         environment['PATH'] = os.pathsep.join([str(bun.parent), str(Path.home() / '.local/share/mise/shims'), str(Path.home() / '.local/bin'), environment.get('PATH', '')])
         environment['SHARP_IGNORE_GLOBAL_LIBVIPS'] = '1'
@@ -204,11 +253,21 @@ def main():
         finally:
             # A failed overlay may still have changed tracked bytes. Record only hashes,
             # so retries accept changes made by this managed command, never secret values.
-            save_state(state_file, revision, runtime_hashes(source, runtime))
+            original_failure = sys.exc_info()[0] is not None
+            try:
+                save_state(state_file, revision, runtime_hashes(source, runtime))
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                if not original_failure:
+                    raise
         print('NUC configuration synchronized; restart OMP sessions to load changes.')
 
 
+def terminated(signum, frame):
+    raise RuntimeError('Configuration sync interrupted; retry to recover pending work')
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, terminated)
     try:
         main()
     except (RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as error:
