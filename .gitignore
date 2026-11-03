@@ -38,12 +38,16 @@ agent/*
 !agent/AGENTS.md
 !agent/config.yml
 !agent/lsp.json
+!agent/skill-gates.yml
+!agent/rules/
+agent/rules/*
+!agent/rules/skill-gate-*.md
 !agent/skills/
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/workflow-templates/
-!agent/skills/workflow-templates/**
+!agent/skills/omp-dyna-workflows/
+!agent/skills/omp-dyna-workflows/**
 !agent/skills/jev-actions/
 !agent/skills/jev-actions/**
 
@@ -71,11 +75,13 @@ agent/extensions/*
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/lsp-evidence-policy.ts
+!agent/extensions/skill-gate.ts
 
 !tests/
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
+!tests/skill-gate.test.ts
 
 !.omp/
 .omp/*
