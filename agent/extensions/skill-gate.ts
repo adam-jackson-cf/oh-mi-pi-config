@@ -1,8 +1,8 @@
-import { access, readFile, stat } from "node:fs/promises";
+import { access, lstat, readFile, readlink, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import {
 	z, type ExtensionAPI, type ExtensionContext, type ToolCallEvent, type ToolResultEvent,
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
@@ -142,34 +142,91 @@ function readReason(urls: string[]): string {
 	return `Skill gate: read ${urls.join(" and ")}, then retry.`;
 }
 
-// Parse command positions, not quoted prose/arguments. This is intentionally not a shell evaluator.
-function gitActions(command: string, cwd: string): { command: string; cwd: string }[] {
+const wrapperOptions = {
+	sudo: ["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-T", "--command-timeout", "-R", "--chroot"],
+	env: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"],
+	time: ["-f", "--format", "-o", "--output"],
+	command: [], nohup: [], nice: ["-n", "--adjustment"], exec: ["-a"],
+	xargs: ["-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-J", "-L", "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars"],
+	timeout: ["-k", "--kill-after", "-s", "--signal"],
+} satisfies Record<string, string[]>;
+
+// Parse command positions and known launchers, not quoted prose/arguments.
+// Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
+async function gitActions(command: string, cwd: string | undefined): Promise<{ command: string; cwd?: string }[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
-	const actions: { command: string; cwd: string }[] = [];
+	const actions: { command: string; cwd?: string }[] = [];
+	const directory = async (path: string | undefined, from: string | undefined) => {
+		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
+		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
+		return target && (await stat(target).catch(() => null))?.isDirectory() ? target : undefined;
+	};
 	let words: string[] = [];
-	const flush = () => {
-		while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
-		if (words[0] === "gh") actions.push({ command: words.join(" "), cwd });
-		if (words.shift() === "git") {
+	const flush = async () => {
+		while (words.length) {
+			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) words.shift();
+			const launcher = basename(words[0] ?? "");
+			if (!Object.hasOwn(wrapperOptions, launcher)) break;
+			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
+			const valued: string[] = wrapperOptions[launcher as keyof typeof wrapperOptions];
+			words.shift();
+			while (words[0]?.startsWith("-")) {
+				const option = words.shift()!;
+				if (option === "--") break;
+				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
+				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
+				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd));
+					words = []; return;
+				}
+				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
+					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
+			}
+			if (launcher === "timeout") words.shift();
+		}
+		const executable = basename(words.shift() ?? "");
+		if (["bash", "sh", "zsh"].includes(executable)) {
+			while (words[0]?.startsWith("-")) {
+				const option = words.shift()!;
+				if (/^-[^-]*c/.test(option)) {
+					if (words[0]) actions.push(...await gitActions(words[0], cwd));
+					break;
+				}
+				if (["-o", "+o", "-O"].includes(option)) words.shift();
+			}
+		} else if (["cd", "pushd", "popd"].includes(executable)) {
+			while (["-L", "-P", "--"].includes(words[0] ?? "")) words.shift();
+			cwd = executable === "popd" ? undefined : await directory(words.length === 1 ? words[0] : undefined, cwd);
+		} else if (executable === "git") {
 			let effective = cwd;
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
 					const value = words.shift();
-					if (option === "-C" && value) effective = resolve(effective, value);
-				} else if (option.startsWith("-C") && option.length > 2) effective = resolve(effective, option.slice(2));
+					if (option === "-C") effective = await directory(value, effective);
+				} else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
 			actions.push({ command: `git ${words.join(" ")}`, cwd: effective });
+		} else if (executable === "gh") {
+			while (words[0]?.startsWith("-")) {
+				const option = words.shift()!;
+				if (["-R", "--repo", "--hostname"].includes(option)) words.shift();
+			}
+			actions.push({ command: `gh ${words.join(" ")}`, cwd });
 		}
 		words = [];
 	};
+	const subshells: (string | undefined)[] = [];
 	for (const token of tokens) {
-		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) flush();
-		else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
+		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) {
+			await flush();
+			if (token === "(") subshells.push(cwd);
+			if (token === ")") cwd = subshells.pop();
+		} else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
 			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
-	flush();
+	await flush();
 	return actions;
 }
 
@@ -211,12 +268,37 @@ export default function skillGate(pi: ExtensionAPI): void {
 		}
 	}
 	async function fingerprint(root: string): Promise<string | undefined> {
-		const options = { cwd: root, timeout: 20000 };
-		const status = await pi.exec("git", ["status", "--porcelain=v1", "-z"], options);
-		if (status.code !== 0 || status.killed) return;
-		const diff = await pi.exec("git", ["diff", "HEAD", "--binary"], options);
-		if (diff.code !== 0 || diff.killed) throw new Error(`cannot fingerprint ${root}: ${diff.stderr}`);
-		return createHash("sha256").update(status.stdout).update("\0").update(diff.stdout).digest("hex");
+		try {
+			const options = { cwd: root, timeout: 20000 };
+			// v2 includes index blob IDs, so staged changes are covered without diffing against HEAD.
+			// Diffing index vs worktree also works before the repository's first commit.
+			const status = await pi.exec("git", ["status", "--porcelain=v2", "-z", "--untracked-files=all"], options);
+			if (status.code !== 0 || status.killed) return;
+			const diff = await pi.exec("git", ["diff", "--binary"], options);
+			if (diff.code !== 0 || diff.killed) return;
+			const hash = createHash("sha256").update(status.stdout).update("\0").update(diff.stdout);
+			const entries = status.stdout.split("\0");
+			let remaining = 16 * 1024 * 1024;
+			let files = 0;
+			for (let index = 0; index < entries.length; index++) {
+				const entry = entries[index];
+				if (entry.startsWith("2 ")) { index++; continue; } // rename's second NUL-delimited path
+				if (!entry.startsWith("? ")) continue;
+				if (++files > 1024) return;
+				const path = resolve(root, entry.slice(2));
+				const info = await lstat(path);
+				if (info.size > remaining || (!info.isFile() && !info.isSymbolicLink())) return;
+				remaining -= info.size;
+				const content = info.isSymbolicLink() ? await readlink(path)
+					: new Uint8Array(await Bun.file(path).slice(0, info.size).arrayBuffer());
+				hash.update("\0").update(entry).update("\0").update(content);
+			}
+			return hash.digest("hex");
+		} catch {
+			// Fingerprinting is supplemental: Git/filesystem failures or bounded-read limits fail
+			// open for this signal only; explicit edit, reference and pathCheck gates still apply.
+			return;
+		}
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
 		if (!gate.pathCheck) return;
@@ -356,15 +438,18 @@ export default function skillGate(pi: ExtensionAPI): void {
 			}
 			if (event.toolName === "bash" && event.input.command !== undefined) {
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
-				for (const action of gitActions(event.input.command, cwd)) {
+				for (const action of await gitActions(event.input.command, cwd)) {
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
+						if (!action.cwd) return {
+							block: true, reason: "Skill gate: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
+						};
 						const root = await repoRoot(action.cwd);
 						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
 						if (gate?.agentMerge === "disabled") return {
-							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner for approval before branch/push/PR/merge actions in this repository.",
+							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
 					}
 				}
@@ -404,7 +489,15 @@ export default function skillGate(pi: ExtensionAPI): void {
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
 				if (failedPaths && gate?.pathCheck) {
-					const error = await checkPaths(root, failedPaths, gate, state);
+					const existing: string[] = [];
+					for (const path of failedPaths) {
+						try { await lstat(path); existing.push(path); }
+						catch (error) {
+							const parsed = fileErrorSchema.safeParse(error);
+							if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
+						}
+					}
+					const error = await checkPaths(root, existing, gate, state);
 					if (error) reasons.push(error);
 				}
 				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
