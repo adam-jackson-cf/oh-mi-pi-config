@@ -44,6 +44,15 @@ The boundaries are intentional:
 - **Extensions** implement runtime mechanics (`agent/extensions/`);
   `extension-health.ts` reports registration health, not runtime correctness.
 
+`skill-gate.ts` requires `skill://git-tool` for branch and integration commands,
+including commands with Git global options or shell separators. Quoted `echo`
+and search arguments do not trigger it. Repository `.omp/gate.json` policies with
+`agentMerge: "disabled"` require owner approval for push and PR actions; invalid
+policies fail closed for those actions. Main-session handoff stays blocked until
+verification references are read, the exact `fastGate` has run after edits (any
+exit code), and failed `pathCheck` checks pass on retry. Working-tree fingerprints
+also detect delegated edits; unchanged pre-existing dirt does not block Q&A.
+
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear
 beside tracked files. Treat only the explicitly reopened paths as

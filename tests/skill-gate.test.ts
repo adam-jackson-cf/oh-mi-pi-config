@@ -19,7 +19,7 @@ const discovery = [
 ];
 type GateFixture = {
 	schemaVersion: 1; fastGate?: string[]; testGlobs?: string[];
-	pathCheck?: string[] | string; pathCheckTimeoutMs?: number;
+	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
 };
 type Input = { path?: string; paths?: string[]; content?: string; command?: string; cwd?: string };
 type Details = { exitCode?: number; applied?: boolean; files?: string[]; totalReplacements?: number };
@@ -152,7 +152,7 @@ describe("skill gate", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("handoff requires verification and an exact successful fast gate after the latest edit", async () => {
+	test("handoff remains blocked until verification and an exact fast gate run after the latest edit", async () => {
 		const h = harness();
 		try {
 			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
@@ -168,9 +168,10 @@ describe("skill gate", () => {
 			assert.equal(await h.emit("session_stop"), undefined);
 			await h.call("edit", { path: "existing.ts" });
 			await h.call("bash", { command: "bun check && echo done" }, { exitCode: 0 });
-			await h.call("bash", { command: "bun check" }, { exitCode: 1 }, true);
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			assert.equal(await h.emit("session_stop"), undefined, "refusal is once per edit revision");
+			assert.equal((await h.emit("session_stop"))?.decision, "block", "retry does not bypass unmet requirements");
+			await h.call("bash", { command: "bun check" }, { exitCode: 1 }, true);
+			assert.equal(await h.emit("session_stop"), undefined, "a failed gate still supplies verification evidence");
 		} finally { h.cleanup(); }
 	});
 
@@ -196,16 +197,99 @@ describe("skill gate", () => {
 	test("integration git commands need git-tool, while inspection and look-alikes pass", async () => {
 		const h = harness();
 		try {
-			for (const command of ["git status && git diff", "echo 'git commits'", "npm run gh-pr-merge"]) {
+			for (const command of [
+				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
+				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
+				"git -C /w status", "git -c k=v log", "gh pr view",
+			]) {
 				assert.equal(await h.call("bash", { command }), undefined, command);
 			}
-			for (const command of ["git commit -m 'feat: x'", "cd repo && git push -u origin agent/x", "gh pr merge 7 --rebase"]) {
+			for (const command of [
+				"git commit -m 'feat: x'", "cd repo && git push -u origin agent/x", "gh pr merge 7 --rebase",
+				"git -C /w commit", "git -c k=v commit", "git --no-pager commit", "git status\ngit commit",
+				"FOO=1 git push", "git switch -c agent/x", "git switch -C agent/x", "git switch --create=agent/x",
+				"git checkout -b agent/x", "git checkout -B agent/x", "git worktree add /w", "git cherry-pick abc",
+				"git --git-dir=/w/.git --work-tree=/w push", "git --git-dir /w/.git --work-tree /w push",
+				'git -C "/some path" -c core.pager=cat --no-pager push',
+				"git status; git merge x", "false || git rebase x", "true | git push", "(git push)",
+				"FOO=x BAR=y gh pr create",
+				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
+			]) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
 				assert.ok(blocked?.reason?.includes("skill://git-tool"));
 			}
 			await h.read("skill://git-tool");
 			assert.equal(await h.call("bash", { command: "git rebase origin/main" }), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("repo merge policy fails closed for publishing actions, respecting git -C", async () => {
+		const h = harness();
+		const other = harness();
+		try {
+			await h.read("skill://git-tool");
+			const commands = ["git push", "gh pr create", "gh pr merge 7"];
+			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
+			h.gate({ schemaVersion: 1 });
+			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
+			h.gate({ schemaVersion: 1, agentMerge: "disabled" });
+			for (const command of commands) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes("ask the owner"));
+			}
+			assert.equal(await h.call("bash", { command: "git commit -m fix" }), undefined);
+			assert.equal(await h.call("bash", { command: `git -C '${other.root}' push` }), undefined);
+			other.gate({ schemaVersion: 1, agentMerge: "disabled" });
+			assert.equal((await h.call("bash", { command: `git -C '${other.root}' push` }))?.block, true);
+			for (const invalid of ["{broken", '{"schemaVersion":2}']) {
+				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
+				for (const command of commands) {
+					const blocked = await h.call("bash", { command });
+					assert.equal(blocked?.block, true, command);
+					assert.ok(blocked?.reason?.includes("gate.json"));
+					assert.ok(blocked?.reason?.includes("Error"));
+				}
+			}
+		} finally { h.cleanup(); other.cleanup(); }
+	});
+
+	test("failed path checks persist at handoff and rerun to observe out-of-tool repairs", async () => {
+		const h = harness();
+		try {
+			const checker = join(h.root, "check.cjs");
+			writeFileSync(checker, "process.exit(1)");
+			h.gate({ schemaVersion: 1, pathCheck: [process.execPath, checker] });
+			await h.read(verification);
+			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("pathCheck failed"));
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			writeFileSync(checker, "process.exit(0)");
+			assert.equal(await h.emit("session_stop"), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("main handoff detects delegated tree changes but allows unchanged pre-existing dirt", async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			await execute("git", ["add", "existing.ts"], { cwd: h.root });
+			await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"], { cwd: h.root });
+			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
+			writeFileSync(join(h.root, "existing.ts"), "pre-existing dirt\n");
+			await h.emit("session_start");
+			assert.equal(await h.emit("session_stop"), undefined);
+			writeFileSync(join(h.root, "existing.ts"), "delegated edit\n");
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			await h.read(verification);
+			await h.call("bash", { command: "bun check" }, { exitCode: 1 }, true);
+			assert.equal(await h.emit("session_stop"), undefined);
+			writeFileSync(join(h.root, "existing.ts"), "another delegated edit\n");
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			await h.call("bash", { command: "bun check" }, { exitCode: 0 });
+			assert.equal(await h.emit("session_stop"), undefined);
 		} finally { h.cleanup(); }
 	});
 

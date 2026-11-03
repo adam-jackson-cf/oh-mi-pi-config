@@ -1,5 +1,6 @@
 import { access, readFile, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import {
@@ -64,9 +65,11 @@ interface State {
 	notes: Set<string>;
 	edits: Map<string, number>;
 	passed: Map<string, number>;
-	bashStarts: Map<string, { root: string; revision: number }>;
+	bashStarts: Map<string, { root: string; revision: number; fingerprint?: string }>;
+	baselines: Map<string, string>;
+	checkedTrees: Map<string, string>;
+	pathFailures: Map<string, string[]>;
 	revision: number;
-	stopBlocked: number;
 	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
@@ -95,7 +98,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Map(), passed: new Map(),
-		bashStarts: new Map(), revision: 0, stopBlocked: -1,
+		bashStarts: new Map(), baselines: new Map(), checkedTrees: new Map(), pathFailures: new Map(), revision: 0,
 		discovered: false, pointed: false, proposal: [],
 	};
 }
@@ -139,6 +142,37 @@ function readReason(urls: string[]): string {
 	return `Skill gate: read ${urls.join(" and ")}, then retry.`;
 }
 
+// Parse command positions, not quoted prose/arguments. This is intentionally not a shell evaluator.
+function gitActions(command: string, cwd: string): { command: string; cwd: string }[] {
+	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
+	const actions: { command: string; cwd: string }[] = [];
+	let words: string[] = [];
+	const flush = () => {
+		while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
+		if (words[0] === "gh") actions.push({ command: words.join(" "), cwd });
+		if (words.shift() === "git") {
+			let effective = cwd;
+			while (words[0]?.startsWith("-")) {
+				const option = words.shift()!;
+				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
+					const value = words.shift();
+					if (option === "-C" && value) effective = resolve(effective, value);
+				} else if (option.startsWith("-C") && option.length > 2) effective = resolve(effective, option.slice(2));
+			}
+			actions.push({ command: `git ${words.join(" ")}`, cwd: effective });
+		}
+		words = [];
+	};
+	for (const token of tokens) {
+		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) flush();
+		else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
+			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
+				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
+	}
+	flush();
+	return actions;
+}
+
 export default function skillGate(pi: ExtensionAPI): void {
 	// Factories are rebound to child sessions; never share mutable policy state at module scope.
 	const states = new Map<string, State>();
@@ -162,17 +196,39 @@ export default function skillGate(pi: ExtensionAPI): void {
 		state.notes.add(message);
 		ctx.ui.notify(message, "info");
 	};
-	async function gateAt(root: string, state: State, ctx: ExtensionContext): Promise<Gate | undefined> {
+	async function gateAt(root: string, state: State, ctx: ExtensionContext, strict = false): Promise<Gate | undefined> {
 		const path = resolve(root, ".omp/gate.json");
 		try {
 			const parsed = gateSchema.safeParse(JSON.parse(await readFile(path, "utf8")));
-			if (!parsed.success) throw new Error("invalid schemaVersion 1 gate");
+			if (!parsed.success) throw new Error(`invalid gate: ${parsed.error.message}`);
 			return parsed.data;
 		} catch (error) {
 			const parsedError = fileErrorSchema.safeParse(error);
 			const absent = parsedError.success && parsedError.data.code === "ENOENT";
+			if (!absent && strict) throw new Error(`${path}: ${String(error)}`);
 			note(state, ctx, `Skill gate: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference gates apply.`);
 			return;
+		}
+	}
+	async function fingerprint(root: string): Promise<string | undefined> {
+		const options = { cwd: root, timeout: 20000 };
+		const status = await pi.exec("git", ["status", "--porcelain=v1", "-z"], options);
+		if (status.code !== 0 || status.killed) return;
+		const diff = await pi.exec("git", ["diff", "HEAD", "--binary"], options);
+		if (diff.code !== 0 || diff.killed) throw new Error(`cannot fingerprint ${root}: ${diff.stderr}`);
+		return createHash("sha256").update(status.stdout).update("\0").update(diff.stdout).digest("hex");
+	}
+	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
+		if (!gate.pathCheck) return;
+		try {
+			const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changed], {
+				cwd: root, timeout: gate.pathCheckTimeoutMs ?? 20000,
+			});
+			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
+			state.pathFailures.delete(root);
+		} catch (error) {
+			state.pathFailures.set(root, changed);
+			return `Skill gate: pathCheck failed in ${root}: ${String(error)}`;
 		}
 	}
 	function recordRead(event: ToolEvent, state: State): void {
@@ -180,11 +236,16 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const url = event.input.path.replace(/:(?:raw|[\d,+-]+)(?::(?:raw|[\d,+-]+))*$/, "");
 		if (url.startsWith("skill://")) state.reads.add(url);
 	}
-	async function bashStart(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<void> {
+	async function bashStart(event: ToolEvent, ctx: ExtensionContext, state: State, live = true): Promise<void> {
 		if (event.toolName !== "bash") return;
 		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd);
 		const root = cwd && await repoRoot(cwd);
-		if (root) state.bashStarts.set(event.toolCallId, { root, revision: state.revision });
+		if (root) {
+			const gate = await gateAt(root, state, ctx);
+			const tree = live && ctx.agent.kind === "main" && gate?.fastGate?.join(" ") === event.input.command
+				? await fingerprint(root) : undefined;
+			state.bashStarts.set(event.toolCallId, { root, revision: state.revision, fingerprint: tree });
+		}
 	}
 	async function recordResult(event: ToolEvent, ctx: ExtensionContext, state: State, runCheck: boolean) {
 		recordRead(event, state);
@@ -192,10 +253,11 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (event.toolName === "bash") {
 			const started = state.bashStarts.get(event.toolCallId);
 			state.bashStarts.delete(event.toolCallId);
-			if (started && !event.isError && details.exitCode === 0) {
+			if (started && details.exitCode !== undefined) {
 				const gate = await gateAt(started.root, state, ctx);
 				if (gate?.fastGate?.join(" ") === event.input.command) {
 					state.passed.set(started.root, started.revision);
+					if (runCheck && started.fingerprint !== undefined) state.checkedTrees.set(started.root, started.fingerprint);
 				}
 			}
 			return;
@@ -229,22 +291,28 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (runCheck) for (const [root, changedPaths] of groups) {
 			const gate = await gateAt(root, state, ctx);
 			if (!gate?.pathCheck) continue;
-			try {
-				const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changedPaths], {
-					cwd: root, timeout: gate.pathCheckTimeoutMs ?? 20000,
-				});
-				if (result.code !== 0 || result.killed) errors.push(
-					`Skill gate: pathCheck failed in ${root}:\n${result.stdout}\n${result.stderr}`.trim(),
-				);
-			} catch (error) { errors.push(`Skill gate: pathCheck failed in ${root}: ${String(error)}`); }
+			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
+			const error = await checkPaths(root, changed, gate, state);
+			if (error) errors.push(error);
 		}
 		return errors.length ? { additionalContext: errors.join("\n") } : undefined;
 	}
 	async function rebuild(_event: SessionStartEvent | SessionSwitchEvent | SessionBranchEvent | SessionTreeEvent, ctx: ExtensionContext): Promise<void> {
 		const state = fresh();
-		state.pointed = states.get(ctx.sessionManager.getSessionId())?.pointed ?? false;
+		const previous = states.get(ctx.sessionManager.getSessionId());
+		state.pointed = previous?.pointed ?? false;
+		state.baselines = previous?.baselines ?? new Map();
+		state.checkedTrees = previous?.checkedTrees ?? new Map();
+		state.pathFailures = previous?.pathFailures ?? new Map();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
+		if (ctx.agent.kind === "main") {
+			const root = await repoRoot(ctx.cwd);
+			if (root && !state.baselines.has(root)) {
+				const tree = await fingerprint(root);
+				if (tree !== undefined) state.baselines.set(root, tree);
+			}
+		}
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type === "compaction") { state.reads.clear(); state.discovered = false; continue; }
@@ -254,7 +322,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 				if (block.type !== "toolCall") continue;
 				const call = policyEvent({ type: "tool_call", toolName: block.name, toolCallId: block.id, input: block.arguments });
 				calls.set(block.id, call);
-				await bashStart(call, ctx, state);
+				await bashStart(call, ctx, state, false);
 			}
 			// Persisted roles use camelCase, not the extension event name (omp://session.md).
 			if (message.role === "toolResult") {
@@ -286,10 +354,20 @@ export default function skillGate(pi: ExtensionAPI): void {
 					state.discovered = true;
 				}
 			}
-			if (event.toolName === "bash" && event.input.command !== undefined &&
-				new RegExp(map.gitCommand).test(event.input.command)) {
-				const urls = missing(state, map, ["git"]);
-				if (urls.length) return { block: true, reason: readReason(urls) };
+			if (event.toolName === "bash" && event.input.command !== undefined) {
+				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
+				for (const action of gitActions(event.input.command, cwd)) {
+					if (!new RegExp(map.gitCommand).test(action.command)) continue;
+					const urls = missing(state, map, ["git"]);
+					if (urls.length) return { block: true, reason: readReason(urls) };
+					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
+						const root = await repoRoot(action.cwd);
+						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
+						if (gate?.agentMerge === "disabled") return {
+							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner for approval before branch/push/PR/merge actions in this repository.",
+						};
+					}
+				}
 			}
 			if (!map.editTools.includes(event.toolName)) return;
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
@@ -318,19 +396,27 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (ctx.agent.kind !== "main") return;
 		if (loadError) return { decision: "block", reason: loadError };
 		const state = stateFor(ctx);
-		if (!state.edits.size || state.stopBlocked === state.revision) return;
 		try {
 			const reasons: string[] = [];
-			for (const [root, revision] of state.edits) {
+			let changedTree = false;
+			const roots = new Set([...state.edits.keys(), ...state.pathFailures.keys(), ...state.baselines.keys()]);
+			for (const root of roots) {
 				const gate = await gateAt(root, state, ctx);
-				if (gate?.fastGate && (state.passed.get(root) ?? -1) < revision) {
-					reasons.push(`run ${gate.fastGate.join(" ")} successfully in ${root} after the last edit`);
+				const failedPaths = state.pathFailures.get(root);
+				if (failedPaths && gate?.pathCheck) {
+					const error = await checkPaths(root, failedPaths, gate, state);
+					if (error) reasons.push(error);
+				}
+				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
+				const uncheckedTree = tree !== undefined && tree !== state.baselines.get(root) && tree !== state.checkedTrees.get(root);
+				changedTree ||= uncheckedTree;
+				if (gate?.fastGate && (uncheckedTree || (state.passed.get(root) ?? -1) < (state.edits.get(root) ?? -1))) {
+					reasons.push(`run ${gate.fastGate.join(" ")} in ${root} after the last edit (any exit code)`);
 				}
 			}
-			const urls = missing(state, map, ["verification"]);
+			const urls = state.edits.size || changedTree ? missing(state, map, ["verification"]) : [];
 			if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 			if (reasons.length) {
-				state.stopBlocked = state.revision;
 				return { decision: "block", reason: `Skill gate: ${reasons.join("; ")}, then retry handoff.` };
 			}
 		} catch (error) { return { decision: "block", reason: `Skill gate: handoff policy failed: ${String(error)}` }; }
