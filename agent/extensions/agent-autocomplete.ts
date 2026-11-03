@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type {
-	ExtensionHandler,
-	InputEvent,
-	InputEventResult,
-	SessionStartEvent,
+import {
+	z,
+	type ExtensionHandler,
+	type InputEvent,
+	type InputEventResult,
+	type SessionStartEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import type { AutocompleteItem, AutocompleteProvider } from "@oh-my-pi/pi-tui";
 
@@ -227,25 +228,10 @@ function findProjectAgentDirectory(cwd: string): string | undefined {
 	}
 }
 
-function parseFrontmatterValue(frontmatter: string, key: string): string | undefined {
-	const match = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(frontmatter);
-	if (!match) {
-		return undefined;
-	}
-
-	const value = match[1].trim();
-	if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-		try {
-			return JSON.parse(value);
-		} catch {
-			return value.slice(1, -1);
-		}
-	}
-	if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
-		return value.slice(1, -1).replace(/''/g, "'");
-	}
-	return value;
-}
+const agentFrontmatterSchema = z.object({
+	name: z.string().trim().min(1),
+	description: z.string().trim().min(1),
+});
 
 function readAgentDirectory(directory: string): AgentDefinition[] {
 	let entries: Dirent<string>[];
@@ -261,14 +247,13 @@ function readAgentDirectory(directory: string): AgentDefinition[] {
 		.flatMap(entry => {
 			try {
 				const content = readFileSync(join(directory, entry.name), "utf8");
-				const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content)?.[1];
-				if (!frontmatter) {
+				const source = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content)?.[1];
+				if (!source) {
 					return [];
 				}
 
-				const name = parseFrontmatterValue(frontmatter, "name");
-				const description = parseFrontmatterValue(frontmatter, "description");
-				return name && description ? [{ name, description }] : [];
+				const frontmatter = agentFrontmatterSchema.safeParse(Bun.YAML.parse(source));
+				return frontmatter.success ? [frontmatter.data] : [];
 			} catch {
 				return [];
 			}
