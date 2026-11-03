@@ -1,4 +1,5 @@
 ---
+agents: [main, task, sonic, designer]
 question: >-
   Does this reply announce that the assistant is replacing, renaming or migrating existing code
   now or next, as its own work? Answer no for instructions to another agent, reviews, questions,
