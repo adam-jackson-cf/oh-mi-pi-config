@@ -31,5 +31,7 @@ apply, then verify in a fresh process.
 ## Boundaries
 
 - Never print credentials or raw provider responses; use `--redact` on usage.
-- Do not edit preferences; propose changes to the owner.
-- Commits and pushes need separate explicit permission.
+- Change preferences only when the owner directs it; otherwise propose changes to the owner.
+- Agents may create `agent/*` branches, commit, push, open PRs and rebase-merge them per
+  `skill://git-tool` unless `.omp/gate.json` sets `agentMerge: disabled`; never commit to main
+  (owner decision 2026-11-03).
