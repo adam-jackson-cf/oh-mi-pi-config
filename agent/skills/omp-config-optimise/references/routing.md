@@ -35,7 +35,9 @@ Last reviewed 2026-10-27 (GPT-6.1 Terra launch, OMP 18.13.1). Source of truth is
 - `operator` → GPT-6.1 Terra : low. Used by the `operator` agent (browser and computer preludes).
   OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-10-27,
   untested on operator work: OpenAI positions Terra for computer use at half 6.1 Sol's price.
-- `innovation-council` → Opus 5.5 : high. Used by council lead. Owner: Opus-led council.
+- `innovation-council` → Opus 5.5 : high. Used by council lead. Owner decision 2026-10-30: the
+  council is Opus 5.5 high (lead, and `experiment-peer` when it spawns one) plus GPT-6 Astra high
+  (challenger); the lead had drifted to Fable 5.1 high in `config.yml` while this table said Opus.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
 - `experiment-design` → Fable 5.1 : high. Used by experiment lead. Owner: Fable leads novel-problem
