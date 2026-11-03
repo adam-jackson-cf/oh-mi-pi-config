@@ -1,7 +1,9 @@
 # Current routing
 
-Last reviewed 2026-10-27 (GPT-6.1 Terra launch, OMP 18.13.1). Source of truth is
-`~/.omp/agent/config.yml`; this list records why. Update both together.
+Last reconciled with `agent/config.yml` on 2026-11-03. The installed source of truth is
+`~/.omp/agent/config.yml`; update this reference alongside routing changes. Claude routes use
+`anthropic`; GPT routes use `openai-codex`. Historical experiments below are not fresh verification
+of the current routes.
 
 ## Roles
 
@@ -11,30 +13,28 @@ Last reviewed 2026-10-27 (GPT-6.1 Terra launch, OMP 18.13.1). Source of truth is
 - `slow` → Opus 5.5 : medium. Used by model cycling. Preference cap.
 - `designer` → Sonnet 5.5 : medium. Used by `designer` agent. Owner decision 2026-09-30; no design
   experiment exists.
-- `reviewer` → GPT-6.1 Sol : low. Used by bundled `reviewer` through
+- `reviewer` → Sonnet 5.5 : medium. Used by bundled `reviewer` through
   `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
-  model (fresh-process check 2026-09-28). Review-detection 2026-09-30: 6.1 Sol `low` 36/36, 0 clean
-  FP, $0.059, 76 s; GPT-6 Sol `medium` 36/36, 0.33 FP, $0.072, 109 s. Independence comes from the
-  fresh subagent session, not the model family.
-- `task` → Sonnet 5.5 : low, standard tier. Used by bundled `task`. Hard fixed-plan set: Sonnet
-  `low` 9/9, $0.112, 25 s median, 5 turns (2026-09-28); GPT-6.1 Sol `low` 9/9, $0.122, 238 s, 16
-  turns (2026-09-30). Cost includes caching. Owner kept Sonnet 2026-09-30 for speed (split-family
-  review was also a reason then; no longer required since 2026-10-02); it also keeps implementation
-  load on the Anthropic quota.
-- `smol` → GPT-6 Luna : low. Used by `sonic` (Fast), `scout`, `lsp-evidence`, prewalk. Lowest
-  effort; mechanical work.
+  model (fresh-process check 2026-09-28). Reviews run in independent sessions and must use a
+  different model family from the author: Sonnet reviews GPT-6.1 Sol implementation.
+- `task` → GPT-6.1 Sol : medium. Used by bundled `task` for implementation, including small
+  fixes delegated by the Opus main session. This keeps implementation and Sonnet review
+  cross-family; earlier Sonnet `low` fixed-plan measurements do not validate this route.
+- `smol` → GPT-6 Luna : low. Used by `sonic` (Fast), `lsp-evidence` and prewalk.
+  The `scout` agent is an exception: `task.agentModelOverrides.scout` explicitly selects
+  `anthropic/claude-haiku-5-5:medium`, not `@smol`.
 - `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest; replaced missing
   `gpt-5.4-mini`.
 - `web` → GPT-6 Luna. Used by `web_search`. Verified working 2026-09-28.
-- `plan-judge`, `test-judge`, `completionist`, `kiss` → GPT-6.1 Sol : low. Used by judges.
-  Review-detection 2026-09-30 (above); `plan-judge` and `kiss` by extrapolation (the harness judges
-  code, not plans).
+- `plan-judge`, `kiss` → GPT-6.1 Sol : low. Independent cross-family judges of Opus plans.
+- `test-judge`, `completionist` → Sonnet 5.5 : medium. Independent cross-family judges of
+  GPT-6.1 Sol implementation and its tests/completeness.
 - `vision` → GPT-6.1 Terra : low. Used by image reading. Vision-reading 2026-10-27: Terra `low`
   and `off` 48/48, $0.005, 4 s median vs 6.1 Sol `low` 48/48, $0.0128, 9 s (ceiling; cost and
   latency decide). Owner decision 2026-10-27.
-- `operator` → GPT-6.1 Terra : low. Used by the `operator` agent (browser and computer preludes).
-  OMP has no browser/computer model role; the agent carries the route. Owner decision 2026-10-27,
-  untested on operator work: OpenAI positions Terra for computer use at half 6.1 Sol's price.
+- `operator` → GPT-6.1 Terra : off. Used by the `operator` agent (browser and computer preludes).
+  OMP has no browser/computer model role; the agent carries the route. Terra `:off` supports
+  answer-only output (see `omp-mechanics.md`); operator-task performance remains untested here.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner decision 2026-10-30: the
   council is Opus 5.5 high (lead, and `experiment-peer` when it spawns one) plus GPT-6 Astra high
   (challenger); the lead had drifted to Fable 5.1 high in `config.yml` while this table said Opus.
@@ -46,24 +46,25 @@ Last reviewed 2026-10-27 (GPT-6.1 Terra launch, OMP 18.13.1). Source of truth is
 
 ## Service tiers
 
-`task.agentServiceTierOverrides`: `sonic` uses `priority` (Fast): 2.5× Codex
-credits, measured ~20% lower wall time on the fixture set. `task` runs on
-Sonnet at standard tier; it is already ~10× faster than 6.1 Sol, and Anthropic
-priority billing on the subscription is unverified.
+`task.agentServiceTierOverrides` explicitly sets `priority` for exactly four agents:
+`sonic`, `task`, `plan-judge` and `kiss`. Their routes are respectively GPT-6 Luna `low`,
+GPT-6.1 Sol `medium`, GPT-6.1 Sol `low` and GPT-6.1 Sol `low`. Other agents have no
+per-agent service-tier override in the current config.
+
+The historical `sonic` fixture measurement (~20% lower wall time at 2.5× Codex credits)
+does not establish a speedup or cost multiplier for the other priority agents.
 
 ## Watch items
 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped
   at 50% of it; keep `experiment-design` for genuinely novel problems.
-- GPT-5.5 retires from Codex on 2026-10-14; no route uses it.
-- `task: sonnet-5-5:low` rests on 9 trials per arm across three hard fixtures,
-  all arms at ceiling; rerun the hard set when the model changes or subagent
-  implementation failures rise. Review, judging, vision and `operator` draw
-  Codex (Team 7-day 62%, Pro 8% on 2026-09-30); implementation and `designer`
-  draw Anthropic (14%). Watch both.
-- Review-detection and vision-reading both hit their ceilings; judge, reviewer
-  and vision routes are cost decisions among equals. Add harder cases before
-  re-litigating them.
-- Open-ended work handed to `task` without a plan under-delivers at low effort
-  (a fixture-building task returned fixtures at a fifth of the requested size);
-  the orchestrator should plan before delegating to `task`.
+- Implementation (`task`), `sonic`, `plan-judge`, `kiss`, vision and `operator` draw Codex;
+  main/planning, `designer`, `reviewer`, `test-judge`, `completionist`, `scout` and the
+  Anthropic council/experiment roles draw Anthropic. Monitor both quotas; old quota snapshots
+  are not current capacity evidence.
+- The earlier fixed-plan and review-detection experiments evaluated superseded routes.
+  Do not use their ceiling scores to claim the current Sol `medium` implementation or
+  Sonnet `medium` review/judging routes were measured.
+- Vision-reading hit its ceiling; add harder cases before re-litigating that route.
+- Independent sessions alone do not satisfy the workflow's cross-family review requirement.
+  If overriding an author or judge model, preserve both session isolation and different families.

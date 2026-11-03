@@ -1,4 +1,5 @@
 ---
+agents: [main, task, sonic, designer]
 question: >-
   Is this reply announcing or making a change to correct incorrect runtime behaviour (a bug
   or regression)? Answer no for type, compile, lint or formatting errors, new features,

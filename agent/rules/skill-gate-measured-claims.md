@@ -1,4 +1,5 @@
 ---
+agents: [main, task, sonic, designer]
 question: >-
   Does this reply state a measured result from this session's own runs, such as a timing,
   speedup, latency, rate or accuracy figure, as a conclusion, without labelling it
