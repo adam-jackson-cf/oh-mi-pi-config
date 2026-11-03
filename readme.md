@@ -45,13 +45,20 @@ The boundaries are intentional:
   `extension-health.ts` reports registration health, not runtime correctness.
 
 `skill-gate.ts` requires `skill://git-tool` for branch and integration commands,
-including commands with Git global options or shell separators. Quoted `echo`
-and search arguments do not trigger it. Repository `.omp/gate.json` policies with
-`agentMerge: "disabled"` require owner approval for push and PR actions; invalid
-policies fail closed for those actions. Main-session handoff stays blocked until
+including commands with Git global options, shell separators and known command
+wrappers. Shell `-c` commands are inspected recursively; `cd` and `pushd` select
+the destination repository's policy. Unresolved directories fail closed for
+publishing. Quoted `echo` and search arguments do not trigger the gate.
+Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
+approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
+closed for those actions. Main-session handoff stays blocked until
 verification references are read, the exact `fastGate` has run after edits (any
-exit code), and failed `pathCheck` checks pass on retry. Working-tree fingerprints
-also detect delegated edits; unchanged pre-existing dirt does not block Q&A.
+exit code), and failed `pathCheck` checks pass on retry (deleted paths are dropped).
+Working-tree fingerprints also detect delegated edits, including untracked file
+content and staged changes before the first commit; unchanged pre-existing dirt
+does not block Q&A. Fingerprinting uses two Git calls and reads at most 1,024
+untracked files totalling 16 MiB. Git/filesystem failures and those bounds disable
+only fingerprint enforcement, not explicit edit/reference/path checks.
 
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear
