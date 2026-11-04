@@ -21,7 +21,7 @@ of the current routes.
   author (Sol by default); skill-gate enforces the family invariant (2026-11-04).
 - `task` → GPT-6.1 Sol : medium. Implementation, including small fixes delegated by main.
   Earlier Sonnet `low` fixed-plan measurements do not validate this route.
-- `smol` → GPT-6 Luna : low. Used by `sonic` (Fast), `lsp-evidence` and prewalk.
+- `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
   The `scout` agent is an exception: `task.agentModelOverrides.scout` explicitly selects
   `anthropic/claude-haiku-5-5:medium`, not `@smol`.
 - `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest; replaced missing

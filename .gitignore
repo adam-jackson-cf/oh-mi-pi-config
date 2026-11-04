@@ -77,7 +77,6 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/lsp-evidence-policy.ts
 !agent/extensions/skill-gate.ts
 
 !tests/
