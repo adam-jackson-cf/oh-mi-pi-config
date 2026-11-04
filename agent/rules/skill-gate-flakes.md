@@ -1,5 +1,5 @@
 ---
-agents: [main, task, sonic, designer]
+agents: [main]
 question: >-
   Is this reply diagnosing, retrying, quarantining or fixing a test that fails only some of
   the time (flaky, intermittent or order-dependent)? Answer no for deterministic failures,

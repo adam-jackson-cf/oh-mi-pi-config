@@ -56,16 +56,13 @@ agent/skills/instruct-eval/
 
 !agent/agents/
 agent/agents/*
-!agent/agents/completionist.md
-!agent/agents/designer.md
 !agent/agents/experiment-design.md
 !agent/agents/experiment-peer.md
 !agent/agents/innovation-challenger.md
 !agent/agents/innovation-council.md
 !agent/agents/kiss.md
 !agent/agents/operator.md
-!agent/agents/plan-judge.md
-!agent/agents/test-judge.md
+!agent/agents/verifier.md
 
 !agent/extensions/
 agent/extensions/*

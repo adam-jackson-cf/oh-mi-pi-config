@@ -20,14 +20,16 @@ const discovery = [
 type GateFixture = {
 	schemaVersion: 1; fastGate?: string[]; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
+	sensitive?: unknown;
 };
 type Input = { path?: string; paths?: string[]; content?: string; command?: string; cwd?: string };
 type Details = { exitCode?: number; applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
+	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string;
 };
-type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object };
+type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object; model?: string[] };
 type Handler = (event: Event, ctx: ExtensionContext) => Result | void | Promise<Result | void>;
 const execFailureSchema = z.object({
 	code: z.number().optional().catch(undefined),
@@ -61,6 +63,15 @@ function harness() {
 		agent: { kind: "main" },
 		ui: { notify(message: string) { notes.push(message); } },
 		sessionManager: { getSessionId: () => sessionId, getBranch: () => branch },
+		models: {
+			current: () => ({ provider: "openai", id: "gpt" }),
+			resolve: (pattern: string) => {
+				if (pattern === "@verifier") return { provider: "anthropic", id: "claude" };
+				const [provider, id] = pattern.split("/");
+				return id ? { provider, id } : undefined;
+			},
+			family: (model: { provider: string }) => model.provider,
+		},
 	};
 	const api = {
 		on(name: string, handler: Handler) { handlers.set(name, handler); },
@@ -426,6 +437,126 @@ describe("skill gate", () => {
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
 		} finally { h.cleanup(); }
 	});
+});
+
+for (const scenario of [
+	{ command: "gh pr merge 42", files: "auth/login.ts\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr merge", files: "src/public.ts\n", blocked: false, selector: undefined, repo: [] },
+	{ command: "gh -R owner/repo pr merge 42", files: "secrets.env.local\n", blocked: true, selector: "42", repo: ["-R", "owner/repo"] },
+	{ command: "gh pr merge 42 --repo=owner/repo", files: "authentication.ts\n", blocked: false, selector: "42", repo: ["--repo=owner/repo"] },
+	{ command: "cd nested && gh pr merge 42", files: "auth/a.ts\n", blocked: true, selector: "42", repo: [], nested: true },
+	{ command: "gh pr merge --subject 'release title' 42", files: "secrets.env\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr -R owner/repo merge 42", files: "src/a.ts\n", blocked: false, selector: "42", repo: ["-R", "owner/repo"] },
+	{ command: "gh pr merge 42", files: "src/auth/login.ts\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "config/secrets.env.local\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "src/authentication/x.ts\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "auth\nsrc/auth\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "config/secrets.env/public.ts\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: `${Array.from({ length: 112 }, (_, index) => `src/public-${index}.ts`).join("\n")}\nconfig/secrets.env\n`, blocked: true, selector: "42", repo: [] },
+]) {
+	test(`sensitive merge policy: ${scenario.command}`, async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			mkdirSync(join(h.root, "nested"));
+			h.gate({ schemaVersion: 1, sensitive: ["auth/", "secrets.env"] });
+			await h.read("skill://git-tool");
+			const exec = h.api.exec;
+			const queries: { args: string[]; cwd: string }[] = [];
+			h.api.exec = async (command, args, options) => {
+				if (command !== "gh") return exec(command, args, options);
+				queries.push({ args, cwd: options.cwd });
+				return {
+					code: 0, killed: false, stderr: "",
+					stdout: args[0] === "api" ? scenario.files : JSON.stringify({ number: 42, url: "https://github.com/owner/repo/pull/42" }),
+				};
+			};
+			const result = await h.call("bash", { command: scenario.command });
+			assert.equal(result?.block === true, scenario.blocked);
+			if (scenario.blocked) assert.ok(result?.reason?.includes("owner must merge PRs touching sensitive paths"));
+			assert.deepEqual(queries, [{
+				args: [...scenario.repo, "pr", "view", ...(scenario.selector ? [scenario.selector] : []), "--json", "number,url"],
+				cwd: scenario.nested ? join(h.root, "nested") : h.root,
+			}, {
+				args: ["api", "--hostname", "github.com", "--paginate", "repos/owner/repo/pulls/42/files", "--jq", ".[].filename"],
+				cwd: scenario.nested ? join(h.root, "nested") : h.root,
+			}]);
+		} finally { h.cleanup(); }
+	});
+}
+
+for (const stage of ["metadata", "files", "malformed-metadata", "invalid-repository", "metadata-timeout", "files-timeout"]) {
+	test(`sensitive merge fails closed on ${stage}`, async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			h.gate({ schemaVersion: 1, sensitive: ["auth/"] });
+			await h.read("skill://git-tool");
+			const exec = h.api.exec;
+			h.api.exec = async (command, args, options) => {
+				if (command !== "gh") return exec(command, args, options);
+				const files = args[0] === "api";
+				const failed = stage === (files ? "files" : "metadata");
+				const killed = stage === (files ? "files-timeout" : "metadata-timeout");
+				return {
+					code: failed ? 1 : 0, killed, stderr: failed ? "query failed" : "",
+					stdout: files ? "src/public.ts\n" : stage === "malformed-metadata" ? "broken" :
+						JSON.stringify({ number: 42, url: stage === "invalid-repository" ? "https://github.com/not-a-pr" : "https://github.com/owner/repo/pull/42" }),
+				};
+			};
+			const result = await h.call("bash", { command: "gh pr merge 42" });
+			assert.equal(result?.block, true);
+			assert.ok(result?.reason?.includes("policy could not be evaluated"));
+		} finally { h.cleanup(); }
+	});
+}
+
+for (const sensitive of ["auth/", 1, null, [true]]) {
+	test(`rejects invalid sensitive field: ${JSON.stringify(sensitive)}`, async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			h.gate({ schemaVersion: 1, sensitive });
+			await h.read("skill://git-tool");
+			const result = await h.call("bash", { command: "gh pr merge 42" });
+			assert.equal(result?.block, true);
+			assert.ok(result?.reason?.includes("invalid gate"));
+		} finally { h.cleanup(); }
+	});
+}
+
+for (const scenario of [
+	{ author: "task", patterns: ["anthropic/claude-author"], blocked: true },
+	{ author: "task", patterns: ["openai/gpt-author"], blocked: false },
+	{ author: "sonic", patterns: ["anthropic/claude-author"], blocked: true },
+	{ author: "sonic", patterns: ["openai/gpt-author"], blocked: false },
+	{ author: "scout", patterns: ["anthropic/claude-author"], blocked: false },
+	{ author: "task", patterns: [], blocked: false },
+	{ author: "task", patterns: ["openai/gpt-author", "anthropic/claude-fallback"], blocked: true },
+]) {
+	test(`verifier family policy: ${scenario.author} ${scenario.patterns.join(",")}`, async () => {
+		const h = harness();
+		try {
+			await h.emit("before_subagent_spawn", { agent: scenario.author, patterns: scenario.patterns, invocationKind: "task" });
+			await h.emit("session_tree");
+			const result = await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["@verifier"], invocationKind: "eval" });
+			assert.equal(result?.block === true, scenario.blocked);
+			if (scenario.blocked) assert.ok(result?.reason?.includes("different model family"));
+			h.setSession("other");
+			assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["@verifier"] }), undefined);
+		} finally { h.cleanup(); }
+	});
+}
+
+test("verifier filters same-family fallbacks from its model chain", async () => {
+	const h = harness();
+	try {
+		await h.emit("before_subagent_spawn", { agent: "task", patterns: ["openai/gpt"] });
+		const result = await h.emit("before_subagent_spawn", {
+			agent: "verifier", patterns: ["openai/gpt-review", "anthropic/claude-review"],
+		});
+		assert.deepEqual(result?.model, ["anthropic/claude-review"]);
+	} finally { h.cleanup(); }
 });
 
 test("skill gate rejects a fast gate started before an overlapping edit", async () => {
