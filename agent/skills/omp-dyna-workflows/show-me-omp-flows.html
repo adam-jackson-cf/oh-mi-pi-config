@@ -79,13 +79,15 @@
   .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
 
   /* Principles */
-  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-  .pcard { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--line));
-           border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
-  .pcard .n { font: 600 11px var(--mono); color: var(--dim); }
-  .pcard h3 { margin: 0; font-size: 14px; }
-  .pcard .why { color: var(--muted); }
-  .pcard .where { font-size: 12.5px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line); }
+  .plist { list-style: none; margin: 0; padding: 0; max-width: 78ch; }
+  .principle { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); padding: 16px 0; border-top: 1px solid var(--line); }
+  .principle:first-child { border-top: 0; padding-top: 4px; }
+  .principle .n { font: 600 12px/1.9 var(--mono); color: var(--muted); }
+  .principle > :not(.n) { grid-column: 2; margin: 0; }
+  .principle h3 { font-size: 15px; line-height: 1.4; letter-spacing: -.005em; }
+  .principle .why { color: var(--muted); margin-top: 4px; }
+  .principle .where { font-size: 12.5px; margin-top: 8px; }
+  .psub { margin-bottom: 14px; }
   .tag { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--c); color: var(--c); margin-right: 6px; white-space: nowrap; }
   .k-block { --c: var(--block); }
   .k-check { --c: var(--gate); }
@@ -104,7 +106,7 @@
     .loop { grid-template-columns: 1fr; }
     .step::after { display: none; }
     .tiers { grid-template-columns: 1fr; }
-    .pgrid { grid-template-columns: 1fr; }
+    .principle { grid-template-columns: 2rem minmax(0, 1fr); }
     td:first-child { white-space: normal; }
   }
 </style>
@@ -291,51 +293,51 @@
 <main id="principles">
 <section>
   <h2>Principles behind the proof-first flow</h2>
-  <div class="sub" style="margin-bottom:14px">
+  <div class="sub psub">
     Distilled from poteto's pstack (findings only count when a run proves them), OpenAI Pando (a branch per agent, risk-tiered review) and trunk-based development.
-    Each card names where the principle is enforced:
+    Each principle names where it is enforced:
     <span class="tag k-block">hard block</span>skill-gate refuses the action
     <span class="tag k-check">deterministic</span>a script decides
     <span class="tag k-instr">instruction</span>agents are told, nothing stops them.
   </div>
-  <div class="pgrid">
-    <article class="pcard k-block" style="--c:var(--gate)"><span class="n">01</span><h3>Proof over opinion</h3>
-      <div class="why">An abstract agent review is an opinion; a finding that carries the command and its output is evidence.</div>
-      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs the proofs; <span class="tag k-instr">instruction</span>verifier brief and blocking rule drop anything not run.</div></article>
-    <article class="pcard" style="--c:var(--warn)"><span class="n">02</span><h3>A plan is a draft until a spike answers its open questions</h3>
-      <div class="why">Least effort that answers a pass/fail predicate, written before anything runs, on the real surface.</div>
-      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows playbooks; <code>kiss</code> cuts questions first.</div></article>
-    <article class="pcard" style="--c:var(--gate)"><span class="n">03</span><h3>Proofs before code</h3>
-      <div class="why">A frozen manifest means the proof cannot be bent to fit the implementation afterwards.</div>
-      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> manifest and proof-file hashes; <span class="tag k-instr">instruction</span>proof task is spawned before the implementation task.</div></article>
-    <article class="pcard" style="--c:var(--gate)"><span class="n">04</span><h3>Red for the right reason, green twice</h3>
-      <div class="why">A <code>defect</code> proof that passes on the parent proves nothing, and one that passes once may be flaky. <code>preserve</code> proofs must pass at the parent; <code>new-surface</code> red at the parent is true by definition.</div>
-      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> parent overlay (<code>expectRed</code> substring) and two head runs.</div></article>
-    <article class="pcard" style="--c:var(--block)"><span class="n">05</span><h3>Independent, cross-family verification</h3>
-      <div class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</div>
-      <div class="where"><span class="tag k-block">hard block</span>skill-gate <code>before_subagent_spawn</code> refuses a verifier whose family matches any author.</div></article>
-    <article class="pcard" style="--c:var(--gate)"><span class="n">06</span><h3>Deterministic first, Jev second, judgement last</h3>
-      <div class="why">Cheap, repeatable checks settle what they can; Jev warns on patterns; a model judges only the remainder.</div>
-      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs before the verifier; <span class="tag k-instr">instruction</span>Jev TTSR rules warn.</div></article>
-    <article class="pcard" style="--c:var(--gate)"><span class="n">07</span><h3>Structure and naming are checks, not advice</h3>
-      <div class="why">A rule nobody runs decays; implementation needs a repo that can say no.</div>
-      <div class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code> and <code>fastGate</code>; <span class="tag k-instr">instruction</span>missing either routes through <code>setup-repository-guardrails</code> first.</div></article>
-    <article class="pcard" style="--c:var(--gate)"><span class="n">08</span><h3>The test suite is governed</h3>
-      <div class="why">Tiers, budgets, growth limits and placement keep the suite fast enough to run on every change.</div>
-      <div class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code>, <code>commitGate</code>, <code>gate</code>; <span class="tag k-block">hard block</span>without a <code>pathCheck</code>, skill-gate requires the tiers ref for a test path.</div></article>
-    <article class="pcard" style="--c:var(--warn)"><span class="n">09</span><h3>Trunk-based units</h3>
-      <div class="why">Short-lived <code>agent/*</code> branches, same-day merge, green on every commit; multi-phase work lands behind a flag with a removal criterion.</div>
-      <div class="where"><span class="tag k-check">deterministic</span><code>commitGate</code> keeps commits green; <span class="tag k-instr">instruction</span><code>skill://git-tool</code> branch model.</div></article>
-    <article class="pcard" style="--c:var(--block)"><span class="n">10</span><h3>Risk-tiered merge authority</h3>
-      <div class="why">Docs-only merges on green; verified work merges after one cross-family run; the owner merges sensitive paths.</div>
-      <div class="where"><span class="tag k-block">hard block</span>skill-gate on <code>gh pr merge</code> vs <code>sensitive</code>; <span class="tag k-check">deterministic</span><code>verify()</code> reports <code>needs_owner</code>.</div></article>
-    <article class="pcard" style="--c:var(--warn)"><span class="n">11</span><h3>Delegate code; the main agent never patches</h3>
-      <div class="why">Keeps the author family known, the main context small, and fixes inside the proof loop.</div>
-      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows and task briefs; the stop gate requires <code>fastGate</code> to have run after any tree change.</div></article>
-    <article class="pcard" style="--c:var(--warn)"><span class="n">12</span><h3>Least effort, delete dead weight</h3>
-      <div class="why">The cheapest correct change wins; cutting scope before a spike is cheaper than spiking it.</div>
-      <div class="where"><span class="tag k-instr">instruction</span><code>kiss</code> cuts criteria and open questions at Frame; clean-cutover rule.</div></article>
-  </div>
+  <ol class="plist" role="list">
+    <li class="principle"><span class="n" aria-hidden="true">01</span><h3>Proof over opinion</h3>
+      <p class="why">An abstract agent review is an opinion; a finding that carries the command and its output is evidence.</p>
+      <p class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs the proofs; <span class="tag k-instr">instruction</span>verifier brief and blocking rule drop anything not run.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">02</span><h3>A plan is a draft until a spike answers its open questions</h3>
+      <p class="why">Least effort that answers a pass/fail predicate, written before anything runs, on the real surface.</p>
+      <p class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows playbooks; <code>kiss</code> cuts questions first.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">03</span><h3>Proofs before code</h3>
+      <p class="why">A frozen manifest means the proof cannot be bent to fit the implementation afterwards.</p>
+      <p class="where"><span class="tag k-check">deterministic</span><code>verify()</code> manifest and proof-file hashes; <span class="tag k-instr">instruction</span>proof task is spawned before the implementation task.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">04</span><h3>Red for the right reason, green twice</h3>
+      <p class="why">A <code>defect</code> proof that passes on the parent proves nothing, and one that passes once may be flaky. <code>preserve</code> proofs must pass at the parent; <code>new-surface</code> red at the parent is true by definition.</p>
+      <p class="where"><span class="tag k-check">deterministic</span><code>verify()</code> parent overlay (<code>expectRed</code> substring) and two head runs.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">05</span><h3>Independent, cross-family verification</h3>
+      <p class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</p>
+      <p class="where"><span class="tag k-block">hard block</span>skill-gate <code>before_subagent_spawn</code> refuses a verifier whose family matches any author.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">06</span><h3>Deterministic first, Jev second, judgement last</h3>
+      <p class="why">Cheap, repeatable checks settle what they can; Jev warns on patterns; a model judges only the remainder.</p>
+      <p class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs before the verifier; <span class="tag k-instr">instruction</span>Jev TTSR rules warn.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">07</span><h3>Structure and naming are checks, not advice</h3>
+      <p class="why">A rule nobody runs decays; implementation needs a repo that can say no.</p>
+      <p class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code> and <code>fastGate</code>; <span class="tag k-instr">instruction</span>missing either routes through <code>setup-repository-guardrails</code> first.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">08</span><h3>The test suite is governed</h3>
+      <p class="why">Tiers, budgets, growth limits and placement keep the suite fast enough to run on every change.</p>
+      <p class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code>, <code>commitGate</code>, <code>gate</code>; <span class="tag k-block">hard block</span>without a <code>pathCheck</code>, skill-gate requires the tiers ref for a test path.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">09</span><h3>Trunk-based units</h3>
+      <p class="why">Short-lived <code>agent/*</code> branches, same-day merge, green on every commit; multi-phase work lands behind a flag with a removal criterion.</p>
+      <p class="where"><span class="tag k-check">deterministic</span><code>commitGate</code> keeps commits green; <span class="tag k-instr">instruction</span><code>skill://git-tool</code> branch model.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">10</span><h3>Risk-tiered merge authority</h3>
+      <p class="why">Docs-only merges on green; verified work merges after one cross-family run; the owner merges sensitive paths.</p>
+      <p class="where"><span class="tag k-block">hard block</span>skill-gate on <code>gh pr merge</code> vs <code>sensitive</code>; <span class="tag k-check">deterministic</span><code>verify()</code> reports <code>needs_owner</code>.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">11</span><h3>Delegate code; the main agent never patches</h3>
+      <p class="why">Keeps the author family known, the main context small, and fixes inside the proof loop.</p>
+      <p class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows and task briefs; the stop gate requires <code>fastGate</code> to have run after any tree change.</p></li>
+    <li class="principle"><span class="n" aria-hidden="true">12</span><h3>Least effort, delete dead weight</h3>
+      <p class="why">The cheapest correct change wins; cutting scope before a spike is cheaper than spiking it.</p>
+      <p class="where"><span class="tag k-instr">instruction</span><code>kiss</code> cuts criteria and open questions at Frame; clean-cutover rule.</p></li>
+  </ol>
 </section>
 </main>
 </body>
