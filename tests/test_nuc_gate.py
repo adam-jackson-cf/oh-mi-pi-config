@@ -1,4 +1,5 @@
 """Consumer contracts using real checkouts, fake Podman/systemd and local HTTP."""
+import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import fcntl
 import json
@@ -23,15 +24,22 @@ name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 root = pathlib.Path(os.environ['FAKE_ROOT'])
 with (root / (name + '.jsonl')).open('a') as out:
-    # git may legitimately receive an ephemeral authentication header.
-    out.write(json.dumps(['<redacted>' if 'Authorization:' in a else a for a in args]) + '\n')
+    out.write(json.dumps(args) + '\n')
 if name == 'git':
+    config = {key: value for key, value in os.environ.items() if key.startswith('GIT_CONFIG_')}
+    with (root / 'git-env.jsonl').open('a') as out:
+        out.write(json.dumps({'args': args, 'config': config}) + '\n')
+    if 'fetch' in args and os.environ.get('FAKE_REQUIRED_AUTH'):
+        if config.get('GIT_CONFIG_VALUE_0') != os.environ['FAKE_REQUIRED_AUTH']:
+            sys.exit(128)
     args = [os.environ['FAKE_REPO'] if a.startswith('https://github.com/') else a for a in args]
     sys.exit(subprocess.call([os.environ['REAL_GIT'], *args]))
 if name == 'systemd-run':
     (root / 'launched').write_text('yes')
     sys.exit(0)
 if name == 'infisical':
+    if os.environ.get('FAKE_INFISICAL_TOKEN'):
+        os.environ['NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'] = os.environ['FAKE_INFISICAL_TOKEN']
     sys.exit(subprocess.call(args[args.index('--') + 1:]))
 if args[:2] == ['image', 'exists']:
     sys.exit(0 if (root / ('image-' + args[-1].split(':')[-1])).exists() else 1)
@@ -73,12 +81,22 @@ class NucGateTests(unittest.TestCase):
         self.sha = self.commit()
         self.requests = []
         requests = self.requests
+        self.final_status_started = threading.Event()
+        self.release_final_status = threading.Event()
+        self.release_final_status.set()
+        self.final_status_code = 201
+        gate = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                requests.append({'path': self.path, 'headers': dict(self.headers),
-                                 'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))})
-                self.send_response(201)
+                request = {'path': self.path, 'headers': dict(self.headers),
+                           'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))}
+                final = request['body']['state'] != 'pending'
+                if final:
+                    gate.final_status_started.set()
+                    gate.release_final_status.wait(timeout=10)
+                requests.append(request)
+                self.send_response(gate.final_status_code if final else 201)
                 self.end_headers()
                 self.wfile.write(b'{}')
 
@@ -90,6 +108,7 @@ class NucGateTests(unittest.TestCase):
         thread.start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
+        self.addCleanup(self.release_final_status.set)
         binary = self.root / 'bin'
         binary.mkdir()
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
@@ -171,11 +190,63 @@ class NucGateTests(unittest.TestCase):
         self.assertNotIn('-e', args)
         self.assertNotIn('--env-host', args)
         self.assertNotIn(self.env[TOKEN_ENV], json.dumps(self.calls('podman')) + (self.job() / 'log').read_text())
+        for argv in self.calls('git'):
+            self.assertNotIn(self.env[TOKEN_ENV], json.dumps(argv))
+            self.assertFalse(any('Authorization:' in arg for arg in argv))
         self.cli('logs', REPO, self.sha, '--tail', 1)
         self.cli('wait', REPO, self.sha, '--timeout', 0)
         before = len(self.calls('systemd-run'))
         self.assertEqual(json.loads(self.submit().stdout), result)
         self.assertEqual(len(self.calls('systemd-run')), before)
+
+    def test_fetch_credentials_are_ephemeral_for_shell_and_infisical_tokens(self):
+        token = self.env[TOKEN_ENV]
+        header = 'Authorization: Basic ' + base64.b64encode(('x-access-token:' + token).encode()).decode()
+        inherited_config = {key: value for key, value in self.env.items() if key.startswith('GIT_CONFIG_')}
+        for mode in ('shell-private', 'infisical-private', 'public'):
+            with self.subTest(mode=mode):
+                (self.source / 'fetch-mode').write_text(mode)
+                sha = self.commit()
+                environment = {**self.env}
+                if mode != 'shell-private':
+                    del environment[TOKEN_ENV]
+                if mode == 'infisical-private':
+                    environment['FAKE_INFISICAL_TOKEN'] = token
+                if mode != 'public':
+                    environment['FAKE_REQUIRED_AUTH'] = header
+                self.cli('submit', REPO, sha, env=environment)
+                self.assertEqual(subprocess.check_output(
+                    ['git', '-C', str(self.job(sha) / 'src'), 'rev-parse', 'HEAD'], text=True).strip(), sha)
+                fetch = next(call for call in self.calls('git-env')
+                             if 'fetch' in call['args'] and call['args'][-1] == sha)
+                if mode == 'public':
+                    self.assertEqual(fetch['config'], inherited_config)
+                else:
+                    self.assertEqual(fetch['config'], {**inherited_config,
+                        'GIT_CONFIG_COUNT': '1',
+                        'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader',
+                        'GIT_CONFIG_VALUE_0': header})
+                if mode != 'shell-private':
+                    self.assertTrue(any(call[call.index('--') + 1:] ==
+                                        [sys.executable, str(SCRIPT), 'fetch', str(self.job(sha))]
+                                        for call in self.calls('infisical')))
+                if mode == 'infisical-private':
+                    self.assertEqual(self.requests[-1]['headers']['Authorization'], 'Bearer ' + token)
+                mirror = self.root / 'data/nuc-gate/mirrors' / (REPO + '.git')
+                config = (mirror / 'config').read_text()
+                self.assertNotIn('extraheader', config.lower())
+                self.assertNotIn(token, config)
+                self.assertNotIn(header, config)
+                for call in self.calls('git'):
+                    self.assertNotIn(token, json.dumps(call))
+                    self.assertNotIn(header, json.dumps(call))
+                    self.assertFalse(any('Authorization:' in arg for arg in call))
+                for call in self.calls('git-env'):
+                    if 'fetch' not in call['args']:
+                        self.assertEqual(call['config'], inherited_config)
+                self.assertNotIn(token, (self.job(sha) / 'log').read_text())
+                self.assertNotIn(header, (self.job(sha) / 'log').read_text())
+        self.assertNotIn(token, json.dumps(self.calls('systemd-run')))
 
     def test_running_resubmit_and_wait_timeout_do_not_relaunch(self):
         self.submit()
@@ -231,13 +302,55 @@ class NucGateTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'error')
                 self.assertEqual(self.requests[-1]['body']['state'], 'error')
 
-    def test_missing_token_preserves_result_and_reports_publication_failure(self):
-        self.submit()
-        del self.env[TOKEN_ENV]
-        result = self.cli('run', self.job(), expected=1)
-        self.assertIn('Missing GitHub token', result.stderr)
-        self.assertEqual(json.loads((self.job() / 'result.json').read_text())['state'], 'success')
-        self.assertFalse((self.job() / 'src').exists())
+    def test_publication_failure_preserves_gate_result_but_wait_fails(self):
+        for failure in ('missing-token', 'http-error'):
+            with self.subTest(failure=failure):
+                (self.source / 'publication-failure').write_text(failure)
+                sha = self.commit()
+                self.submit(sha)
+                environment = {**self.env}
+                if failure == 'missing-token':
+                    del environment[TOKEN_ENV]
+                    message = 'Missing GitHub token'
+                else:
+                    self.final_status_code = 503
+                    message = 'GitHub status publication failed'
+                result = self.cli('run', self.job(sha), expected=1, env=environment)
+                self.assertIn(message, result.stderr)
+                waited = self.cli('wait', REPO, sha, '--timeout', 0, expected=1)
+                self.assertIn(message, waited.stderr)
+                saved = json.loads(waited.stdout)
+                self.assertEqual(saved['state'], 'success')
+                self.assertIn(message, saved['publicationError'])
+                self.assertFalse((self.job(sha) / 'src').exists())
+                self.cli('status', REPO, sha, expected=1)
+                self.cli('run', self.job(sha), expected=1)
+
+    def test_wait_finishes_after_final_status_publication(self):
+        for exit_code, state in ((0, 'success'), (7, 'failure'), (125, 'error')):
+            with self.subTest(state=state):
+                (self.source / 'publication-state').write_text(state)
+                sha = self.commit()
+                self.submit(sha)
+                self.final_status_started.clear()
+                self.release_final_status.clear()
+                runner = subprocess.Popen([sys.executable, str(SCRIPT), 'run', str(self.job(sha))],
+                                          env={**self.env, 'GATE_EXIT': str(exit_code)},
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                self.children.append(runner)
+                try:
+                    self.assertTrue(self.final_status_started.wait(timeout=10))
+                    # The server has received the final POST but has not accepted it.
+                    self.cli('wait', REPO, sha, '--timeout', 0, expected=2)
+                    self.assertEqual(self.requests[-1]['body']['state'], 'pending')
+                    self.assertFalse((self.job(sha) / 'result.json').exists())
+                finally:
+                    self.release_final_status.set()
+                waited = self.cli('wait', REPO, sha, '--timeout', 10, expected=0 if state == 'success' else 1)
+                self.assertEqual(json.loads(waited.stdout)['state'], state)
+                self.assertEqual(self.requests[-1]['body']['state'], state)
+                self.assertEqual(runner.communicate(timeout=10)[1], '')
+                self.assertEqual(runner.returncode, 0 if state == 'success' else 1)
 
     def test_unchanged_dockerfile_reuses_image(self):
         self.submit()
