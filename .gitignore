@@ -56,7 +56,6 @@ agent/skills/instruct-eval/
 
 !agent/agents/
 agent/agents/*
-!agent/agents/designer.md
 !agent/agents/experiment-design.md
 !agent/agents/experiment-peer.md
 !agent/agents/innovation-challenger.md
