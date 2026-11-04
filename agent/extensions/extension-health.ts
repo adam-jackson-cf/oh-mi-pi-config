@@ -5,7 +5,6 @@ const defaultExtensions = [
   "analyse",
   "agent-autocomplete",
   "extension-health",
-  "lsp-evidence-policy",
   "skill-gate",
 ] as const
 const conditionalExtensions = [
@@ -17,7 +16,6 @@ const knownExtensions = {
   "analyse": true,
   "agent-autocomplete": true,
   "extension-health": true,
-  "lsp-evidence-policy": true,
   "skill-gate": true,
   "orca-agent-status": true,
   "orca-prefill": true,
