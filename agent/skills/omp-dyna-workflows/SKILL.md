@@ -29,6 +29,8 @@ description:
   If either is missing, route through `skill://setup-repository-guardrails` first.
 - Delegate every code change, including small fixes, to `task`. Each brief lists the exact
   reference URLs needed by its steps and requires reading them before the first edit.
+- Briefs must give absolute worktree paths; skill-gate rejects relative or symlink-escaping
+  writes from subagents.
 - Where this skill is silent, preserve existing content and make no irreversible write;
   ask once only when the choice changes the outcome, and state the choice in the result.
 - Runbook: [Feature](references/playbooks/feature.md).
