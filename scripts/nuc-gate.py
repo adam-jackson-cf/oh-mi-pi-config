@@ -164,8 +164,7 @@ def submit(repo, sha):
             if result['state'] != 'error':
                 print(json.dumps(result))
                 return 0
-            # A result is written before publication finishes. Wait for that run
-            # to release its lock before replacing its checkout or result.
+            # Wait for the previous run to release its lock before replacing its result.
             with lock(job / 'run.lock'):
                 shutil.rmtree(job / 'src', ignore_errors=True)
                 (job / 'result.json').unlink()
@@ -244,7 +243,8 @@ def run(job):
         raise RuntimeError('Job directory does not match configured state directory')
     with lock(job / 'run.lock'):
         if (job / 'result.json').exists():
-            return 0 if load(job / 'result.json')['state'] == 'success' else 1
+            result = load(job / 'result.json')
+            return 0 if result['state'] == 'success' and not result.get('publicationError') else 1
         return execute(job, metadata)
 
 
@@ -333,18 +333,20 @@ def execute(job, metadata):
                   'startedAt': started, 'finishedAt': now(), 'durationSeconds': duration}
         if reason:
             result['error'] = reason
-        save(job / 'result.json', result)
         shutil.rmtree(src, ignore_errors=True)
     description = f"{state}: {reason or 'gate'} ({duration:.1f}s)"
     try:
         publish(job, state, description)
     except (RuntimeError, OSError) as error:
         message = str(error) if isinstance(error, RuntimeError) else 'GitHub status publication failed'
+        result['publicationError'] = message
         print(message, file=sys.stderr)
         with (job / 'log').open('a') as log:
             log.write(message + '\n')
-        return 1
-    return 0 if state == 'success' else 1
+    finally:
+        # A completed result means both the gate and final publication have finished.
+        save(job / 'result.json', result)
+    return 0 if state == 'success' and not result.get('publicationError') else 1
 
 
 def main():
@@ -391,6 +393,9 @@ def main():
         if (job / 'result.json').exists():
             result = load(job / 'result.json')
             print(json.dumps(result))
+            if result.get('publicationError'):
+                print(result['publicationError'], file=sys.stderr)
+                return 1
             return 0 if result['state'] == 'success' else 1
         if args.command == 'status':
             if not (job / 'job.json').exists():

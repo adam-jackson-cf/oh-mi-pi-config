@@ -81,12 +81,22 @@ class NucGateTests(unittest.TestCase):
         self.sha = self.commit()
         self.requests = []
         requests = self.requests
+        self.final_status_started = threading.Event()
+        self.release_final_status = threading.Event()
+        self.release_final_status.set()
+        self.final_status_code = 201
+        gate = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                requests.append({'path': self.path, 'headers': dict(self.headers),
-                                 'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))})
-                self.send_response(201)
+                request = {'path': self.path, 'headers': dict(self.headers),
+                           'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))}
+                final = request['body']['state'] != 'pending'
+                if final:
+                    gate.final_status_started.set()
+                    gate.release_final_status.wait(timeout=10)
+                requests.append(request)
+                self.send_response(gate.final_status_code if final else 201)
                 self.end_headers()
                 self.wfile.write(b'{}')
 
@@ -98,6 +108,7 @@ class NucGateTests(unittest.TestCase):
         thread.start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
+        self.addCleanup(self.release_final_status.set)
         binary = self.root / 'bin'
         binary.mkdir()
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
@@ -291,13 +302,55 @@ class NucGateTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'error')
                 self.assertEqual(self.requests[-1]['body']['state'], 'error')
 
-    def test_missing_token_preserves_result_and_reports_publication_failure(self):
-        self.submit()
-        del self.env[TOKEN_ENV]
-        result = self.cli('run', self.job(), expected=1)
-        self.assertIn('Missing GitHub token', result.stderr)
-        self.assertEqual(json.loads((self.job() / 'result.json').read_text())['state'], 'success')
-        self.assertFalse((self.job() / 'src').exists())
+    def test_publication_failure_preserves_gate_result_but_wait_fails(self):
+        for failure in ('missing-token', 'http-error'):
+            with self.subTest(failure=failure):
+                (self.source / 'publication-failure').write_text(failure)
+                sha = self.commit()
+                self.submit(sha)
+                environment = {**self.env}
+                if failure == 'missing-token':
+                    del environment[TOKEN_ENV]
+                    message = 'Missing GitHub token'
+                else:
+                    self.final_status_code = 503
+                    message = 'GitHub status publication failed'
+                result = self.cli('run', self.job(sha), expected=1, env=environment)
+                self.assertIn(message, result.stderr)
+                waited = self.cli('wait', REPO, sha, '--timeout', 0, expected=1)
+                self.assertIn(message, waited.stderr)
+                saved = json.loads(waited.stdout)
+                self.assertEqual(saved['state'], 'success')
+                self.assertIn(message, saved['publicationError'])
+                self.assertFalse((self.job(sha) / 'src').exists())
+                self.cli('status', REPO, sha, expected=1)
+                self.cli('run', self.job(sha), expected=1)
+
+    def test_wait_finishes_after_final_status_publication(self):
+        for exit_code, state in ((0, 'success'), (7, 'failure'), (125, 'error')):
+            with self.subTest(state=state):
+                (self.source / 'publication-state').write_text(state)
+                sha = self.commit()
+                self.submit(sha)
+                self.final_status_started.clear()
+                self.release_final_status.clear()
+                runner = subprocess.Popen([sys.executable, str(SCRIPT), 'run', str(self.job(sha))],
+                                          env={**self.env, 'GATE_EXIT': str(exit_code)},
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                self.children.append(runner)
+                try:
+                    self.assertTrue(self.final_status_started.wait(timeout=10))
+                    # The server has received the final POST but has not accepted it.
+                    self.cli('wait', REPO, sha, '--timeout', 0, expected=2)
+                    self.assertEqual(self.requests[-1]['body']['state'], 'pending')
+                    self.assertFalse((self.job(sha) / 'result.json').exists())
+                finally:
+                    self.release_final_status.set()
+                waited = self.cli('wait', REPO, sha, '--timeout', 10, expected=0 if state == 'success' else 1)
+                self.assertEqual(json.loads(waited.stdout)['state'], state)
+                self.assertEqual(self.requests[-1]['body']['state'], state)
+                self.assertEqual(runner.communicate(timeout=10)[1], '')
+                self.assertEqual(runner.returncode, 0 if state == 'success' else 1)
 
     def test_unchanged_dockerfile_reuses_image(self):
         self.submit()
