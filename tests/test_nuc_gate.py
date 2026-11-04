@@ -162,6 +162,11 @@ class NucGateTests(unittest.TestCase):
             self.assertIn(self.sha, request['path'])
         args = next(args for args in self.calls('podman') if args[0] == 'run')
         self.assertIn('--runtime-flag=ignore-cgroups', args)
+        self.assertEqual(args[args.index('--runtime') + 1], '/usr/local/bin/runsc')
+        build = next(argv for argv in self.calls('podman') if argv[0] == 'build')
+        self.assertNotIn('--runtime', build)
+        self.assertFalse(any(arg.startswith('--runtime') for arg in build))
+        self.assertNotIn('/usr/local/bin/runsc', build)
         self.assertIn("echo 'setup words' && bash 'gate script.sh' 'a'\"'\"'b'", args)
         self.assertNotIn('-e', args)
         self.assertNotIn('--env-host', args)
@@ -186,6 +191,26 @@ class NucGateTests(unittest.TestCase):
         result = json.loads(self.cli('wait', REPO, self.sha, expected=1).stdout)
         self.assertEqual((result['state'], result['exitCode']), ('failure', 7))
         self.assertEqual(self.requests[-1]['body']['state'], 'failure')
+        self.assertEqual(json.loads(self.submit().stdout), result)
+        self.assertEqual(len(self.calls('systemd-run')), 1)
+
+    def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self):
+        self.submit()
+        self.cli('run', self.job(), expected=1, env={**self.env, 'FAIL_BUILD': '1'})
+        self.assertEqual(json.loads((self.job() / 'result.json').read_text())['state'], 'error')
+        self.assertFalse((self.job() / 'src').exists())
+        retried = json.loads(self.submit().stdout)
+        self.assertEqual(retried['state'], 'running')
+        self.assertFalse((self.job() / 'result.json').exists())
+        self.assertTrue((self.job() / 'src/.git').is_dir())
+        self.assertEqual(len(self.calls('systemd-run')), 2)
+        units = [argv[argv.index('--unit') + 1] for argv in self.calls('systemd-run')]
+        self.assertNotEqual(units[0], units[1])
+        self.cli('run', self.job())
+        result = json.loads(self.cli('wait', REPO, self.sha).stdout)
+        self.assertEqual((result['state'], result['sha']), ('success', self.sha))
+        self.assertEqual([request['body']['state'] for request in self.requests],
+                         ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
         for failure in ('missing-gate', 'build', 'podman'):

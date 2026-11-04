@@ -133,9 +133,19 @@ def submit(repo, sha):
     job = job_path(repo, sha)
     job.mkdir(parents=True, exist_ok=True)
     with lock(job / 'submit.lock'):
+        retry = False
         if (job / 'result.json').exists():
-            print(json.dumps(load(job / 'result.json')))
-            return 0
+            result = load(job / 'result.json')
+            if result['state'] != 'error':
+                print(json.dumps(result))
+                return 0
+            # A result is written before publication finishes. Wait for that run
+            # to release its lock before replacing its checkout or result.
+            with lock(job / 'run.lock'):
+                shutil.rmtree(job / 'src', ignore_errors=True)
+                (job / 'result.json').unlink()
+                (job / 'job.json').unlink(missing_ok=True)
+            retry = True
         if (job / 'job.json').exists():
             print(json.dumps({'state': 'running', 'job': str(job), 'sha': sha}))
             return 0
@@ -162,6 +172,9 @@ def submit(repo, sha):
                 except (RuntimeError, OSError) as error:
                     log.write(str(error) if isinstance(error, RuntimeError) else 'Pending status publication failed')
                 unit = 'nuc-gate-' + repo.replace('/', '-') + '-' + sha[:12]
+                if retry:
+                    # The previous transient unit may still be collecting.
+                    unit += '-retry-' + str(time.time_ns())
                 command = [executable('systemd-run'), '--user', '--unit', unit, '--collect',
                            '-p', 'RuntimeMaxSec=' + os.environ.get('NUC_GATE_TIMEOUT', '1200'),
                            '-p', 'TimeoutStopSec=45', '-p', 'KillMode=mixed']
@@ -187,11 +200,12 @@ def now():
 
 
 def runtime_flags(build=False):
-    # runsc + ignore-cgroups is proven for run on the NUC. Build with these
-    # flags is not yet proven there; override NUC_GATE_BUILD_RUNTIME_FLAGS to []
-    # only after testing the installed Podman/Buildah version.
+    # NUC Podman 6.1.4 passes --no-new-keyring during builds; runsc rejects it.
+    # Build only the owner's allowlisted repositories' Containerfiles with
+    # Podman's default runtime. Actual gate execution stays inside gVisor.
     key = 'NUC_GATE_BUILD_RUNTIME_FLAGS' if build else 'NUC_GATE_RUNTIME_FLAGS'
-    return json.loads(os.environ.get(key, json.dumps(['--runtime', '/usr/local/bin/runsc', '--runtime-flag=ignore-cgroups'])))
+    default = [] if build else ['--runtime', '/usr/local/bin/runsc', '--runtime-flag=ignore-cgroups']
+    return json.loads(os.environ.get(key, json.dumps(default)))
 
 
 def checkout_file(src, relative):
