@@ -13,7 +13,6 @@ modelRoles:
   smol: openai-codex/gpt-6-luna:low
   task: openai-codex/gpt-6.1-sol:medium
   tiny: openai-codex/gpt-6-luna:low
-  designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
   verifier: anthropic/claude-sonnet-5-5:medium
