@@ -34,9 +34,9 @@ class CheckPathsTests(unittest.TestCase):
             self.git("add", "-f", "--", path)
         return file
 
-    def check(self, *paths):
+    def check(self, *paths, cwd=None):
         return subprocess.run([sys.executable, str(SCRIPT), *map(str, paths)],
-                              cwd=self.repo, capture_output=True, text=True)
+                              cwd=cwd or self.repo, capture_output=True, text=True)
 
     def assert_clean(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -93,6 +93,21 @@ class CheckPathsTests(unittest.TestCase):
         self.assert_clean(self.check())
         self.file("misplaced.test.ts", tracked=True)
         self.assert_error(self.check(), "misplaced.test.ts", "move test files directly under tests/")
+
+    def test_subdirectory_arguments_resolve_against_working_directory(self):
+        self.file("source/feature.test.ts", allowed=True)
+        self.file("ignored.txt")
+        cwd = self.repo / "source"
+        self.assert_error(self.check("feature.test.ts", cwd=cwd), "source/feature.test.ts",
+                          "move test files directly under tests/")
+        self.assert_error(self.check("../ignored.txt", cwd=cwd), "ignored.txt",
+                          "add a !ignored.txt re-include")
+
+    def test_no_arguments_from_subdirectory_still_checks_repository(self):
+        self.file("source/value.txt", tracked=True)
+        self.file("misplaced.test.ts", tracked=True)
+        self.assert_error(self.check(cwd=self.repo / "source"), "misplaced.test.ts",
+                          "move test files directly under tests/")
 
     def test_absolute_paths_use_repository_relative_diagnostics(self):
         file = self.file("some ignored.txt")
