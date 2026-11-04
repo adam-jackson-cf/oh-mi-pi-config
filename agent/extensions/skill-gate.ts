@@ -140,7 +140,8 @@ function paths(event: ToolEvent, map: Mapping, cwd: string): string[] {
 	return pathArguments(event, map).flatMap(value => absolute(value, cwd) ?? []);
 }
 async function subagentPathReason(targets: string[]): Promise<string | undefined> {
-	for (const path of targets) {
+	for (const target of targets) {
+		const path = target.startsWith("~/") ? resolve(homedir(), target.slice(2)) : target;
 		if (/^[a-z][\w+.-]*:\/\//i.test(path)) continue;
 		if (!isAbsolute(path)) return `Skill gate: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
 		try {

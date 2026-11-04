@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 import { promisify } from "node:util";
@@ -446,6 +446,7 @@ describe("skill gate", () => {
 			for (const path of ["local://brief.txt", "agent://Main", "xd://report_issue", "proc://job/kill", "memory://root/note", "skill://example"]) {
 				assert.equal(await h.call("write", { path }), undefined, path);
 			}
+			assert.equal(await h.call("write", { path: `~/${relative(homedir(), join(h.root, "existing.ts"))}` }), undefined, "home-relative paths expand before the absolute-path check");
 			assert.equal(await h.call("write", { path: join(tmpdir(), "skill-gate-scratch.txt") }), undefined);
 		} finally { h.cleanup(); }
 	});
