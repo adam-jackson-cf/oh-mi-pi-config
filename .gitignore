@@ -47,6 +47,8 @@ agent/rules/*
 !agent/rules/skill-gate-*.md
 !agent/skills/
 agent/skills/*
+!agent/skills/create-watchdog/
+!agent/skills/create-watchdog/**
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
 !agent/skills/omp-dyna-workflows/
