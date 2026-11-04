@@ -94,8 +94,9 @@ ssh codex-omarchy-nuc \
 Replace `SHA` with the pushed 40-character lowercase commit SHA.
 
 `status` prints the result; `logs` prints output (`--tail N` limits it).
-Resubmitting a running or completed SHA does not launch another job. `wait`
-exits 0 for success, 1 for failure/error, and 2 when its wait expires.
+Resubmitting a running SHA does not launch another job. Successful and failed
+gate results stay cached; an infrastructure `error` is retried on resubmission.
+`wait` exits 0 for success, 1 for failure/error, and 2 when its wait expires.
 `.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
 host, posting GitHub commit status context `gate`. `ciHost: "github"` selects
 GitHub as the declared CI host; the field is metadata, not automatic routing.
@@ -121,12 +122,14 @@ fetches use a command-local Git `http.extraHeader`, never saved configuration.
 `NUC_GATE_GITHUB_API`, and executable overrides `NUC_GATE_GIT`,
 `NUC_GATE_PODMAN`, `NUC_GATE_SYSTEMD_RUN`, `NUC_GATE_INFISICAL` support
 deployment and isolated tests. Runtime flags are JSON arrays:
-`NUC_GATE_RUNTIME_FLAGS` and `NUC_GATE_BUILD_RUNTIME_FLAGS` default to
-`["--runtime", "/usr/local/bin/runsc", "--runtime-flag=ignore-cgroups"]`.
-Run flags worked on the NUC; build flags have **not** been tested there
-(the spike built with Podman's default build runtime). Test that Podman/Buildah
-combination before deployment; a build failure is an infrastructure error, not
-a silent fallback. Images are cached by Dockerfile-content hash.
+`NUC_GATE_RUNTIME_FLAGS` defaults to
+`["--runtime", "/usr/local/bin/runsc", "--runtime-flag=ignore-cgroups"]`;
+`NUC_GATE_BUILD_RUNTIME_FLAGS` defaults to `[]` (Podman's default build runtime).
+On the NUC, rootless Podman 6.1.4 passes `--no-new-keyring` to its build runtime,
+which runsc rejects. The default-runtime build succeeded, followed by two full
+gates under runsc with GitHub pending/success statuses. Builds run only the
+repository's own Containerfile from the owner's allowlisted repositories;
+gate execution stays inside gVisor. Images are cached by Dockerfile-content hash.
 
 GitHub quality gates are a weekly Monday 04:23 UTC fallback plus manual
 `workflow_dispatch`, not push/PR CI. Dispatch manually from Actions → CI quality
