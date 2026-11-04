@@ -96,7 +96,10 @@ Replace `SHA` with the pushed 40-character lowercase commit SHA.
 `status` prints the result; `logs` prints output (`--tail N` limits it).
 Resubmitting a running SHA does not launch another job. Successful and failed
 gate results stay cached; an infrastructure `error` is retried on resubmission.
-`wait` exits 0 for success, 1 for failure/error, and 2 when its wait expires.
+`wait` returns only after final GitHub status publication finishes. It exits 0
+for success, 1 for gate failure/error or status-publication failure, and 2 when its
+wait expires. Publication failures preserve the gate outcome in `result.json`,
+add a `publicationError`, and print the publication error to stderr.
 `.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
 host, posting GitHub commit status context `gate`. `ciHost: "github"` selects
 GitHub as the declared CI host; the field is metadata, not automatic routing.
