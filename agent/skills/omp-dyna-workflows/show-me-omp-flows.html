@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMP: proof-first flow, stages, agents, gates and principles</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a21; --panel2: #1c212a; --line: #2a313c;
+    --fg: #e6e8eb; --muted: #9aa3ae; --dim: #6b7480;
+    --opus: #e0a458; --sol: #4fb3a9; --haiku: #c9a0dc; --sonnet: #e07a5f;
+    --gate: #7bc96f; --jev: #a78bfa; --gh: #8b949e; --warn: #f2c94c; --block: #ef6b6b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
+  header { padding: 28px 32px 8px; }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.01em; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--muted); max-width: 980px; }
+  main { padding: 8px 32px 48px; display: none; gap: 28px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* Tabs: radio inputs + sibling selectors, no JS */
+  .tabradio { position: absolute; opacity: 0; pointer-events: none; }
+  .tabs { display: flex; gap: 6px; padding: 14px 32px 0; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .tabs label { padding: 8px 16px; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0;
+                color: var(--muted); background: var(--panel); cursor: pointer; font-weight: 600; font-size: 13px; }
+  .tabs label:hover { color: var(--fg); }
+  #tab-flows:checked ~ .tabs label[for="tab-flows"],
+  #tab-principles:checked ~ .tabs label[for="tab-principles"] { background: var(--panel2); color: var(--fg); border-top: 3px solid var(--opus); padding-top: 6px; }
+  #tab-flows:focus-visible ~ .tabs label[for="tab-flows"],
+  #tab-principles:focus-visible ~ .tabs label[for="tab-principles"] { outline: 2px solid var(--warn); outline-offset: 2px; }
+  #tab-flows:checked ~ #flows,
+  #tab-principles:checked ~ #principles { display: grid; }
+
+  /* Swimlane grid */
+  .lanes { display: grid; grid-template-columns: 130px repeat(6, minmax(170px, 1fr)); gap: 6px; overflow-x: auto; }
+  .stage { font-weight: 600; font-size: 12.5px; padding: 8px 10px; background: var(--panel2); border-radius: 6px;
+           border-top: 3px solid var(--fg); position: relative; }
+  .stage small { display: block; font-weight: 400; color: var(--muted); }
+  .stage:not(:nth-child(7))::after { content: "→"; position: absolute; right: -10px; top: 12px; color: var(--dim); z-index: 1; }
+  .lane { font-size: 12.5px; font-weight: 600; padding: 10px; color: var(--muted); border-right: 2px solid var(--line);
+          position: sticky; left: 0; background: var(--panel); z-index: 2; }
+  .lane small { display: block; font-weight: 400; color: var(--dim); }
+  .cell { min-height: 64px; display: flex; flex-direction: column; gap: 6px; }
+  .card { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--line));
+          border-radius: 6px; padding: 7px 9px; font-size: 12.5px; }
+  .card b { display: block; font-size: 12.5px; }
+  .card span { color: var(--muted); }
+  .card.block { --c: var(--block); }
+  .card.gate { --c: var(--gate); }
+  .card.jev { --c: var(--jev); }
+  .card.opus { --c: var(--opus); }
+  .card.sol { --c: var(--sol); }
+  .card.sonnet { --c: var(--sonnet); }
+  .card.haiku { --c: var(--haiku); }
+  .card.gh { --c: var(--gh); }
+  .lanelabel { display: none; }
+
+  /* Loop diagram */
+  .loop { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 10px; align-items: stretch; }
+  .step { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; position: relative; }
+  .step .n { font: 600 11px var(--mono); color: var(--dim); }
+  .step:not(:last-child)::after { content: "→"; position: absolute; right: -12px; top: 40%; color: var(--dim); }
+  .back { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--warn); border-radius: 8px; color: var(--warn); font-size: 13px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { white-space: nowrap; }
+  .pill { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+
+  /* Principles */
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .pcard { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--line));
+           border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .pcard .n { font: 600 11px var(--mono); color: var(--dim); }
+  .pcard h3 { margin: 0; font-size: 14px; }
+  .pcard .why { color: var(--muted); }
+  .pcard .where { font-size: 12.5px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line); }
+  .tag { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--c); color: var(--c); margin-right: 6px; white-space: nowrap; }
+  .k-block { --c: var(--block); }
+  .k-check { --c: var(--gate); }
+  .k-instr { --c: var(--warn); }
+
+  @media (max-width: 900px) {
+    header, main { padding-left: 14px; padding-right: 14px; }
+    .tabs { padding-left: 14px; padding-right: 14px; }
+    .lanes { grid-template-columns: 96px repeat(6, 200px); }
+    .lanes::before { content: "Swipe sideways to follow the stages →"; grid-column: 1 / -1; color: var(--dim); font-size: 12px; }
+    section { padding: 14px 12px; }
+    table, thead, tbody, tr, th, td { display: block; }
+    thead { display: none; }
+    tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    td { border: 0; padding: 3px 0; }
+    .loop { grid-template-columns: 1fr; }
+    .step::after { display: none; }
+    .tiers { grid-template-columns: 1fr; }
+    .pgrid { grid-template-columns: 1fr; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<input class="tabradio" type="radio" name="tab" id="tab-flows" checked aria-label="Flows">
+<input class="tabradio" type="radio" name="tab" id="tab-principles" aria-label="Principles">
+
+<header>
+  <h1>How OMP carries a request from prompt to merged PR</h1>
+  <div class="sub">
+    One non-trivial engineering request, left to right through six proof-first stages. Rows are the components that act at each stage.
+    Red cards are hard blocks the <code>skill-gate</code> extension enforces. Violet cards are Jev-judged warnings. Green cards are deterministic checks. Everything else is instruction the agents follow.
+    Source of truth: <code>SKILL.md</code>, <code>agent/config.yml</code>, <code>agent/skill-gates.yml</code>, <code>agent/extensions/skill-gate.ts</code>, <code>templates/workflows.py</code>, <code>skill://git-tool</code>.
+  </div>
+  <div class="legend">
+    <span class="chip"><i class="dot" style="background:var(--opus)"></i>Opus 5.5 (main, innovation-council)</span>
+    <span class="chip"><i class="dot" style="background:var(--sol)"></i>GPT-6.1 Sol (task, kiss; priority tier)</span>
+    <span class="chip"><i class="dot" style="background:var(--sonnet)"></i>Sonnet 5.5 (designer, verifier)</span>
+    <span class="chip"><i class="dot" style="background:var(--haiku)"></i>Haiku 5.5 (scout)</span>
+    <span class="chip"><i class="dot" style="background:var(--block)"></i>skill-gate hard block</span>
+    <span class="chip"><i class="dot" style="background:var(--jev)"></i>Jev TTSR rule (warning)</span>
+    <span class="chip"><i class="dot" style="background:var(--gate)"></i>Deterministic check</span>
+    <span class="chip"><i class="dot" style="background:var(--gh)"></i>GitHub</span>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Views">
+  <label for="tab-flows">Flows</label>
+  <label for="tab-principles">Principles</label>
+</nav>
+
+<main id="flows">
+<section>
+  <h2>1 · Stages × components</h2>
+  <div class="lanes">
+    <div class="corner"></div>
+    <div class="stage" style="border-top-color:var(--opus)">1 Frame<small>outcome, criteria, open questions</small></div>
+    <div class="stage" style="border-top-color:var(--opus)">2 Spike<small>only if questions remain</small></div>
+    <div class="stage" style="border-top-color:var(--opus)">3 Plan<small>criterion → named proof</small></div>
+    <div class="stage" style="border-top-color:var(--sol)">4 Implement<small>proofs first, then code</small></div>
+    <div class="stage" style="border-top-color:var(--sonnet)">5 Verify<small>proofs run, then a live check</small></div>
+    <div class="stage" style="border-top-color:var(--gh)">6 Integrate<small>rebase-merge</small></div>
+
+    <!-- Owner -->
+    <div class="lane">Owner<small>you</small></div>
+    <div class="cell"><span class="lanelabel">Owner</span><div class="card"><b>States the outcome</b><span>Answers only real decisions</span></div></div>
+    <div class="cell"><span class="lanelabel">Owner</span><div class="card"><b>Approves shared-service writes</b><span>databases, ports, hooks a spike would touch</span></div></div>
+    <div class="cell"><span class="lanelabel">Owner</span><div class="card"><b>Approves the proof plan</b><span>only when asked to (plan review is opt-in)</span></div></div>
+    <div class="cell"></div>
+    <div class="cell"><span class="lanelabel">Owner</span><div class="card"><b>Countersigns gate loosening</b><span>and escalation after round 3</span></div></div>
+    <div class="cell"><span class="lanelabel">Owner</span><div class="card"><b>Merges sensitive PRs</b><span>agents may not; reviews other merged PRs later</span></div></div>
+
+    <!-- Main agent -->
+    <div class="lane">Main agent<small>Opus 5.5 medium</small></div>
+    <div class="cell"><span class="lanelabel">Main agent</span>
+      <div class="card opus"><b>Reads AGENTS.md, routes</b><span><code>omp-dyna-workflows</code> picks one playbook</span></div>
+      <div class="card opus"><b>Writes outcome, criteria, questions</b><span>open questions only if the answer changes the plan</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span><div class="card opus"><b>Declares predicates</b><span>pass/fail per question and its side effects, before anything runs</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span>
+      <div class="card opus"><b>Writes the proof manifest</b><span>every criterion → proof; missing proof surface becomes the first tasks. Draft until the spike is done</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span>
+      <div class="card opus"><b>Writes the task briefs</b><span>never edits code itself</span></div>
+      <div class="card opus"><b>Re-freezes the manifest</b><span>records proof-file hashes between the two task spawns</span></div>
+      <div class="card opus"><b>Runs <code>fastGate</code></b><span>after the last edit</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span>
+      <div class="card opus"><b>Calls <code>verify()</code></b><span>full run once at the code-ready head</span></div>
+      <div class="card opus"><b>Applies the blocking rule</b><span>findings → fix task, ≤3 rounds</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span><div class="card opus"><b>Merges non-sensitive PRs</b><span>labels <code>agent-verified</code>, one PR at a time</span></div></div>
+
+    <!-- Subagents -->
+    <div class="lane">Subagents<small>own sessions</small></div>
+    <div class="cell"><span class="lanelabel">Subagents</span><div class="card sol"><b>kiss (Sol)</b><span>cuts criteria and open questions; read-only scope cutter, not a risk reviewer</span></div></div>
+    <div class="cell"><span class="lanelabel">Subagents</span>
+      <div class="card sol"><b>task (Sol), non-isolated</b><span>works in the detached spike worktree with absolute paths; least effort that answers the predicate</span></div>
+      <div class="card opus"><b>innovation-council (Opus + Astra)</b><span>only for questions no prototype can settle</span></div>
+      <div class="card haiku"><b>scout (Haiku)</b><span>read-only mapping when files are unknown</span></div></div>
+    <div class="cell"></div>
+    <div class="cell"><span class="lanelabel">Subagents</span>
+      <div class="card sol"><b>task (Sol): proof task</b><span>proof surface + proof files on <code>agent/&lt;slug&gt;</code></span></div>
+      <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn, after the re-freeze; edits, tests, commits</span></div>
+      <div class="card sonnet"><b>designer (Sonnet)</b><span>presentational changes only</span></div></div>
+    <div class="cell"><span class="lanelabel">Subagents</span>
+      <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
+      <div class="card sol"><b>task (Sol): fix</b><span>for each blocking finding</span></div></div>
+    <div class="cell"></div>
+
+    <!-- skill-gate -->
+    <div class="lane">skill-gate<small>extension hooks</small></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card gate"><b>before_agent_start</b><span>hidden pointer: “Route this work with omp-dyna-workflows”</span></div></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>blocked until both codegraph refs read. No spike exemptions: spikes live in detached worktrees outside the repo</span></div></div>
+    <div class="cell"></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span>
+      <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
+      <div class="card gate"><b>tool_result: pathCheck</b><span>repo path check runs after each edit; a failure is kept</span></div>
+      <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/branch/<code>gh pr</code> need <code>skill://git-tool</code></span></div>
+      <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span>
+      <div class="card block"><b>before_subagent_spawn: verifier</b><span>blocked when its family equals any recorded author family (new)</span></div>
+      <div class="card block"><b>session_stop (main only)</b><span>blocks handoff until verification ref read · <code>fastGate</code> after last edit or tree change · failed pathCheck passes</span></div></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span>
+      <div class="card block"><b><code>gh pr merge</code> sensitive-merge</b><span>resolves the PR's changed files; any match with <code>sensitive</code> → “owner must merge” (new)</span></div></div>
+
+    <!-- Jev -->
+    <div class="lane">Jev TTSR rules<small>main · task · sonic · designer</small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    <div class="cell"><span class="lanelabel">Jev TTSR rules</span>
+      <div class="card jev"><b>regression-coverage</b><span>reply announces a bug fix → read the ref</span></div>
+      <div class="card jev"><b>clean-cutovers</b><span>refactor/rename/replace → read the ref</span></div></div>
+    <div class="cell"><span class="lanelabel">Jev TTSR rules</span>
+      <div class="card jev"><b>flakes</b><span>intermittent failure handling</span></div>
+      <div class="card jev"><b>measured-claims</b><span>unlabelled timing/speedup claim</span></div></div>
+    <div class="cell"></div>
+
+    <!-- Repo -->
+    <div class="lane">Repository<small><code>.omp/gate.json</code></small></div>
+    <div class="cell"></div><div class="cell"></div>
+    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b>Prerequisite: <code>fastGate</code> + <code>pathCheck</code></b><span>either missing → <code>skill://setup-repository-guardrails</code> first</span></div></div>
+    <div class="cell"><span class="lanelabel">Repository</span>
+      <div class="card gate"><b>commitGate</b><span>pre-commit hook; keeps every commit green</span></div>
+      <div class="card gate"><b>fastGate · pathCheck</b><span>e.g. <code>--tier t1 --affected</code>; path-check CLI</span></div></div>
+    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b><code>sensitive</code></b><span>patterns: folder ends with <code>/</code>, else file-name prefix; matched against the diff</span></div></div>
+    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b>gate</b><span>full check in CI on the exact head SHA</span></div></div>
+
+    <!-- verify() -->
+    <div class="lane">verify()<small>deterministic, <code>workflows.py</code></small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    <div class="cell"><span class="lanelabel">verify()</span>
+      <div class="card gate"><b>Manifest hashes</b><span>manifest and proof files must match the frozen hashes at head</span></div>
+      <div class="card gate"><b>Parent overlay</b><span>proof files copied onto the parent: defect red for the right reason, preserve green</span></div>
+      <div class="card gate"><b>Green twice at head</b><span>every proof <code>cmd</code> run twice; <code>fastGate</code> first</span></div>
+      <div class="card gate"><b>Gate-loosening scan</b><span>gate.json, CI workflows, hooks, lint/test configs → needs countersign</span></div>
+      <div class="card gate"><b>Tree-state check</b><span><code>git status</code> + HEAD before and after the verifier; any change fails</span></div></div>
+    <div class="cell"></div>
+
+    <!-- GitHub -->
+    <div class="lane">GitHub</div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    <div class="cell"><span class="lanelabel">GitHub</span><div class="card gh"><b>Push branch, open PR early</b><span>non-GitHub remote → stop and ask</span></div></div>
+    <div class="cell"><span class="lanelabel">GitHub</span><div class="card gh"><b>Evidence on the PR</b><span>manifest, verifier families and results, <code>agent-verified</code> label</span></div></div>
+    <div class="cell"><span class="lanelabel">GitHub</span>
+      <div class="card gh"><b>Required CI on head</b><span>no CI at all → local gate on exact SHA, recorded on PR</span></div>
+      <div class="card gh"><b><code>gh pr merge --rebase --match-head-commit</code></b><span>rebase only if DIRTY, or BEHIND under strict protection; then default-branch CI</span></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>2 · Verify loop (stage 5) in order</h2>
+  <div class="loop">
+    <div class="step"><div class="n">01</div><b><code>verify()</code> steps</b><br><span class="note">manifest hash, fastGate, proofs twice at head, parent overlay, gate-loosening, sensitive paths</span></div>
+    <div class="step"><div class="n">02</div><b>Verifier</b><br><span class="note">other family than every author; drives each criterion live, checks changed doc lines; findings carry command + output</span></div>
+    <div class="step"><div class="n">03</div><b>Blocking rule</b><br><span class="note">block only on a failing run at head, failed gate, wrong doc line, copied defect, missing/weakened proof, unapproved loosening; the rest is a follow-up note</span></div>
+    <div class="step"><div class="n">04</div><b>Fix via task</b><br><span class="note">main never patches; ≤3 rounds; rerun fastGate</span></div>
+    <div class="step"><div class="n">05</div><b>Re-verify</b><br><span class="note">one <code>verify()</code> on the new head, skipping proofs whose <code>patch-id</code> is unchanged</span></div>
+    <div class="step"><div class="n">06</div><b>Evidence + label</b><br><span class="note">results on the PR, then <code>agent-verified</code></span></div>
+    <div class="step"><div class="n">07</div><b>Merge</b><br><span class="note">CI green on head, rebase-merge with <code>--match-head-commit</code></span></div>
+  </div>
+  <div class="back">↺ Any new head SHA repeats 01–03 (minor fix or rebase: one <code>verify()</code>; wording-only change to non-runtime docs: none). After three fix rounds the loop stops and escalates to the owner.</div>
+  <div class="tiers">
+    <div class="card gh"><b>Docs-only (non-runtime)</b><span>merge on green. Skills, rules, agent definitions, AGENTS.md and prompt files are code, not docs.</span></div>
+    <div class="card gate"><b>Everything else</b><span>one cross-family <code>verify()</code>, then the main agent merges.</span></div>
+    <div class="card block"><b>Sensitive</b><span>any path matching <code>sensitive</code>: verifier plus owner merge. Agents may not merge.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>3 · Where each hard block clears</h2>
+  <table>
+    <thead><tr><th>Hook</th><th>Fires on</th><th>Requires</th><th>Skipped when</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill">tool_call</span> discovery</td><td>first <code>find/grep/glob/ast_grep</code> in a git repo</td><td><code>codegraph</code> readiness + query-selection read</td><td>outside git repos; after first success (reset on compaction)</td></tr>
+      <tr><td><span class="pill">tool_call</span> edit</td><td><code>write/edit/ast_edit</code></td><td>first code edit → implementation-integrity; new file → structure + naming; test path → tiers</td><td>repo has <code>pathCheck</code> (the repo check replaces the refs)</td></tr>
+      <tr><td><span class="pill">tool_result</span> path</td><td>after an edit, repo has <code>pathCheck</code></td><td>check passes; failures persist to handoff</td><td>deleted failed paths are dropped</td></tr>
+      <tr><td><span class="pill">tool_call</span> git</td><td>integration git / <code>gh pr</code>, incl. <code>sudo</code>, <code>bash -c</code>, <code>cd x &amp;&amp;</code>, <code>git -C</code></td><td><code>skill://git-tool</code> read; push/<code>gh pr</code> also need <code>agentMerge</code> ≠ disabled and a valid gate.json</td><td>read-only git (<code>status</code>, <code>log</code>, <code>diff</code>…)</td></tr>
+      <tr><td><span class="pill">tool_call</span> sensitive merge <em>(new)</em></td><td>any parsed form of <code>gh pr merge</code></td><td>none the agent can supply: the PR's changed files (<code>gh pr view --json files</code>, honouring cwd/<code>-R</code>) must match no <code>sensitive</code> pattern; otherwise “owner must merge PRs touching sensitive paths”</td><td>repo has no <code>sensitive</code> list; the owner merges</td></tr>
+      <tr><td><span class="pill">before_subagent_spawn</span> cross-family <em>(new)</em></td><td>spawn of <code>verifier</code></td><td>resolved family differs from every <code>task</code>, <code>sonic</code>, <code>designer</code> child spawned this session; an other-family model is returned when the API allows, else the spawn is blocked</td><td>no author spawned yet this session</td></tr>
+      <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read; <code>fastGate</code> ran after last edit or after a subagent changed the tree; failed paths pass</td><td>subagents; unchanged pre-existing dirty tree; fingerprint errors (fail open)</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The <code>verifier</code> role is <code>anthropic/claude-sonnet-5-5:medium</code>.</p>
+</section>
+</main>
+
+<main id="principles">
+<section>
+  <h2>Principles behind the proof-first flow</h2>
+  <div class="sub" style="margin-bottom:14px">
+    Distilled from poteto's pstack (findings only count when a run proves them), OpenAI Pando (a branch per agent, risk-tiered review) and trunk-based development.
+    Each card names where the principle is enforced:
+    <span class="tag k-block">hard block</span>skill-gate refuses the action
+    <span class="tag k-check">deterministic</span>a script decides
+    <span class="tag k-instr">instruction</span>agents are told, nothing stops them.
+  </div>
+  <div class="pgrid">
+    <article class="pcard k-block" style="--c:var(--gate)"><span class="n">01</span><h3>Proof over opinion</h3>
+      <div class="why">An abstract agent review is an opinion; a finding that carries the command and its output is evidence.</div>
+      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs the proofs; <span class="tag k-instr">instruction</span>verifier brief and blocking rule drop anything not run.</div></article>
+    <article class="pcard" style="--c:var(--warn)"><span class="n">02</span><h3>A plan is a draft until a spike answers its open questions</h3>
+      <div class="why">Least effort that answers a pass/fail predicate, written before anything runs, on the real surface.</div>
+      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows playbooks; <code>kiss</code> cuts questions first.</div></article>
+    <article class="pcard" style="--c:var(--gate)"><span class="n">03</span><h3>Proofs before code</h3>
+      <div class="why">A frozen manifest means the proof cannot be bent to fit the implementation afterwards.</div>
+      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> manifest and proof-file hashes; <span class="tag k-instr">instruction</span>proof task is spawned before the implementation task.</div></article>
+    <article class="pcard" style="--c:var(--gate)"><span class="n">04</span><h3>Red for the right reason, green twice</h3>
+      <div class="why">A proof that passes on the parent proves nothing; one that passes once may be flaky.</div>
+      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> parent overlay (<code>expectRed</code> substring) and two head runs.</div></article>
+    <article class="pcard" style="--c:var(--block)"><span class="n">05</span><h3>Independent, cross-family verification</h3>
+      <div class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</div>
+      <div class="where"><span class="tag k-block">hard block</span>skill-gate <code>before_subagent_spawn</code> refuses a verifier whose family matches any author.</div></article>
+    <article class="pcard" style="--c:var(--gate)"><span class="n">06</span><h3>Deterministic first, Jev second, judgement last</h3>
+      <div class="why">Cheap, repeatable checks settle what they can; Jev warns on patterns; a model judges only the remainder.</div>
+      <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> runs before the verifier; <span class="tag k-instr">instruction</span>Jev TTSR rules warn.</div></article>
+    <article class="pcard" style="--c:var(--gate)"><span class="n">07</span><h3>Structure and naming are checks, not advice</h3>
+      <div class="why">A rule nobody runs decays; implementation needs a repo that can say no.</div>
+      <div class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code> and <code>fastGate</code>; <span class="tag k-instr">instruction</span>missing either routes through <code>setup-repository-guardrails</code> first.</div></article>
+    <article class="pcard" style="--c:var(--gate)"><span class="n">08</span><h3>The test suite is governed</h3>
+      <div class="why">Tiers, budgets, growth limits and placement keep the suite fast enough to run on every change.</div>
+      <div class="where"><span class="tag k-check">deterministic</span>repo <code>pathCheck</code>, <code>commitGate</code>, <code>gate</code>; <span class="tag k-block">hard block</span>without a <code>pathCheck</code>, skill-gate requires the tiers ref for a test path.</div></article>
+    <article class="pcard" style="--c:var(--warn)"><span class="n">09</span><h3>Trunk-based units</h3>
+      <div class="why">Short-lived <code>agent/*</code> branches, same-day merge, green on every commit; multi-phase work lands behind a flag with a removal criterion.</div>
+      <div class="where"><span class="tag k-check">deterministic</span><code>commitGate</code> keeps commits green; <span class="tag k-instr">instruction</span><code>skill://git-tool</code> branch model.</div></article>
+    <article class="pcard" style="--c:var(--block)"><span class="n">10</span><h3>Risk-tiered merge authority</h3>
+      <div class="why">Docs-only merges on green; verified work merges after one cross-family run; the owner merges sensitive paths.</div>
+      <div class="where"><span class="tag k-block">hard block</span>skill-gate on <code>gh pr merge</code> vs <code>sensitive</code>; <span class="tag k-check">deterministic</span><code>verify()</code> reports <code>needs_owner</code>.</div></article>
+    <article class="pcard" style="--c:var(--warn)"><span class="n">11</span><h3>Delegate code; the main agent never patches</h3>
+      <div class="why">Keeps the author family known, the main context small, and fixes inside the proof loop.</div>
+      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows and task briefs; the stop gate re-runs <code>fastGate</code> after any tree change.</div></article>
+    <article class="pcard" style="--c:var(--warn)"><span class="n">12</span><h3>Least effort, delete dead weight</h3>
+      <div class="why">The cheapest correct change wins; cutting scope before a spike is cheaper than spiking it.</div>
+      <div class="where"><span class="tag k-instr">instruction</span><code>kiss</code> cuts criteria and open questions at Frame; clean-cutover rule.</div></article>
+  </div>
+</section>
+</main>
+</body>
+</html>
