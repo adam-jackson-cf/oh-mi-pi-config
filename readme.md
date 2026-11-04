@@ -31,7 +31,7 @@ for the `innovation-council` (Opus-led, Astra challenger) and
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
 locally. Its tracked custom-agent surface in `agent/agents/` is limited to
-judgment and specialist roles: `verifier`, `kiss`, `operator`,
+judgment and specialist roles: `verifier`, `kiss`, `designer`, `operator`,
 `innovation-council`, `innovation-challenger`,
 `experiment-design`, and `experiment-peer`. `lsp-evidence` and its policy
 extension are local runtime assets, not tracked canonical source.
