@@ -86,7 +86,7 @@ description:
   context; each `agent()` spawn qualifies. Never let an author's session judge its own work.
 - **Cross-family verifier.** The verifier family must differ from every author family of the
   change; skill-gate enforces this at spawn. Sol authors use Sonnet 5.5 medium verification.
-  An override must preserve that invariant.
+  An override must preserve that invariant, including designer-authored changes.
 - **Evals: deterministic, then Jev, then a cross-family reviewer.**
   1. Run the real check command, pre-filter or rule first.
   2. Use Jev only for properties observable in one state. Read `skill://jev-actions`; use

@@ -14,7 +14,8 @@ recommendation, not a silent edit.
 
 - Main orchestration, ideation, planning (`default`, `plan`, `slow`): Claude Opus (current: 5.5);
   reasoning ≤ medium.
-- Design (`designer`): removed 2026-11-04, owner decision.
+- Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
+  reasoning ≤ medium.
 - Verification (`verifier`): Claude Sonnet 5.5 `medium`, independent and cross-family to
   every author (Sol implementation by default), enforced by skill-gate (2026-11-04).
 - Bundled `reviewer`: Sonnet 5.5 `medium` for open-ended contextual eval judging, not the

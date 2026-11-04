@@ -86,6 +86,7 @@ bunx tsc --noEmit
 # would otherwise write into this repository's index.
 (unset "${!GIT_@}"; bun test)
 (unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
+(unset "${!GIT_@}"; python3 scripts/check-paths.py)
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do

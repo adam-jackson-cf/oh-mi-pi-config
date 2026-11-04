@@ -31,7 +31,7 @@ for the `innovation-council` (Opus-led, Astra challenger) and
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
 locally. Its tracked custom-agent surface in `agent/agents/` is limited to
-judgment and specialist roles: `verifier`, `kiss`, `operator`,
+judgment and specialist roles: `verifier`, `kiss`, `designer`, `operator`,
 `innovation-council`, `innovation-challenger`,
 `experiment-design`, and `experiment-peer`. `lsp-evidence` and its policy
 extension are local runtime assets, not tracked canonical source.
@@ -137,9 +137,10 @@ Requirements: Python 3, Git, Bun **1.3.0** at
 `~/.local/share/mise/installs/bun/1.3.0/bin/bun`, and
 `~/.local/bin/agent-introspection`. Dependency installation uses the explicit Bun
 path, adds it to `PATH`, and sets `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. The repository's
-OMP development dependency is **18.16.0**; update the separately installed NUC OMP
-binary from **18.15.0** before relying on new host APIs. The helper does not update
-the OMP binary. Restart existing OMP sessions after a successful deployment.
+OMP development dependency is **18.16.0**; keep the separately installed NUC OMP
+binary at or above that version. Check with `omp --version` and update with
+`mise upgrade github:can1357/oh-my-pi`. The helper does not update the OMP binary.
+Restart existing OMP sessions after a successful deployment.
 
 Install the templates from `scripts/systemd/` into `~/.config/systemd/user/`,
 replace the old copy-only service if present, then run `systemctl --user daemon-reload`
@@ -170,6 +171,67 @@ Not carried by this repository, so set up on the NUC separately:
   environment dev) with `omp auth import -`; `omp token openrouter` confirms it.
   Agent Vault is retired.
 
+## NUC gate (CI)
+
+The owner's Linux NUC runs exact-SHA gates in rootless Podman with gVisor.
+Only repositories in `scripts/nuc-gate-repos.json` can run. Push an
+`agent/<slug>` branch, then submit and wait over SSH:
+
+```sh
+ssh codex-omarchy-nuc \
+  'python3 ~/.omp/scripts/nuc-gate.py submit adam-jackson-cf/oh-mi-pi-config SHA'
+ssh codex-omarchy-nuc \
+  'python3 ~/.omp/scripts/nuc-gate.py wait adam-jackson-cf/oh-mi-pi-config SHA --timeout 1200'
+```
+
+Replace `SHA` with the pushed 40-character lowercase commit SHA.
+
+`status` prints the result; `logs` prints output (`--tail N` limits it).
+Resubmitting a running SHA does not launch another job. Successful and failed
+gate results stay cached; an infrastructure `error` is retried on resubmission.
+`wait` exits 0 for success, 1 for failure/error, and 2 when its wait expires.
+`.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
+host, posting GitHub commit status context `gate`. `ciHost: "github"` selects
+GitHub as the declared CI host; the field is metadata, not automatic routing.
+The full `gate` argv runs after the devcontainer's `postCreateCommand`.
+
+Logs and atomic `result.json` files remain under
+`${XDG_STATE_HOME:-~/.local/state}/nuc-gate/jobs/<owner>/<repo>/<sha>/`;
+checkouts are removed after completion. Bare mirrors live under
+`${XDG_DATA_HOME:-~/.local/share}/nuc-gate/mirrors/`. Jobs default to one
+global slot (`NUC_GATE_SLOTS`), with a 1,200-second systemd runtime limit
+(`NUC_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
+retention; the service never globally prunes Podman resources.
+
+Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into the host-side
+publisher, never the container. Grant the NUC identity access to that secret in
+project `052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`, with
+repository commit-status write permission. Missing credentials leave local results
+intact but make publication exit nonzero. Pending publication also uses Infisical
+when the SSH shell has no token. Public fetches need no token; authenticated
+fetches use a command-local Git `http.extraHeader`, never saved configuration.
+
+`NUC_GATE_INFISICAL_PROJECT`, `NUC_GATE_INFISICAL_ENV`, `NUC_GATE_REPOS`,
+`NUC_GATE_GITHUB_API`, and executable overrides `NUC_GATE_GIT`,
+`NUC_GATE_PODMAN`, `NUC_GATE_SYSTEMD_RUN`, `NUC_GATE_INFISICAL` support
+deployment and isolated tests. Runtime flags are JSON arrays:
+`NUC_GATE_RUNTIME_FLAGS` defaults to
+`["--runtime", "/usr/local/bin/runsc", "--runtime-flag=ignore-cgroups"]`;
+`NUC_GATE_BUILD_RUNTIME_FLAGS` defaults to `[]` (Podman's default build runtime).
+On the NUC, rootless Podman 6.1.4 passes `--no-new-keyring` to its build runtime,
+which runsc rejects. The default-runtime build succeeded, followed by two full
+gates under runsc with GitHub pending/success statuses. Builds run only the
+repository's own Containerfile from the owner's allowlisted repositories;
+gate execution stays inside gVisor. Images are cached by Dockerfile-content hash.
+
+GitHub quality gates are a weekly Monday 04:23 UTC fallback plus manual
+`workflow_dispatch`, not push/PR CI. Dispatch manually from Actions → CI quality
+gates → Run workflow, or:
+
+```sh
+gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main
+```
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.
@@ -180,4 +242,11 @@ Not carried by this repository, so set up on the NUC separately:
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.
+- `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
+  Path arguments are relative to the working directory; no arguments checks all tracked files.
+- `scripts/nuc-gate.py` and `scripts/nuc-gate-repos.json` — NUC job service and
+  repository/token-name allowlist.
+- `.omp/gate.json` — gate commands and declared CI host.
+- `.devcontainer/` — pinned gate image and dependency installation.
+- `tests/test_nuc_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.

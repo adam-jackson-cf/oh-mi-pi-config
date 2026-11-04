@@ -1,8 +1,9 @@
 name: CI quality gates
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * 1"
 
 jobs:
   quality-gates:
