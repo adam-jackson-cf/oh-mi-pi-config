@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run allowlisted exact-revision CI gates in rootless Podman on the NUC."""
 import argparse
+import base64
 from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -129,6 +130,30 @@ def pending(job, log):
             log.write('Pending status publication failed; run will retain a local result.\n')
 
 
+def fetch(job):
+    metadata = load(job / 'job.json')
+    repo, sha = metadata['repo'], metadata['sha']
+    if job.resolve() != job_path(repo, sha).resolve():
+        raise RuntimeError('Job directory does not match configured state directory')
+    mirror = root('DATA') / 'mirrors' / (repo + '.git')
+    mirror.parent.mkdir(parents=True, exist_ok=True)
+    git = [executable('git')]
+    with (job / 'log').open('a') as log:
+        if not mirror.exists():
+            subprocess.run(git + ['init', '--bare', str(mirror)], check=True, stdout=log, stderr=log)
+        environment = os.environ.copy()
+        token = environment.get(repositories()[repo]['tokenEnv'])
+        if token:
+            credential = base64.b64encode(('x-access-token:' + token).encode()).decode()
+            # Scope credentials to this GitHub fetch, never argv or saved config.
+            environment.update(GIT_CONFIG_COUNT='1',
+                               GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
+                               GIT_CONFIG_VALUE_0='Authorization: Basic ' + credential)
+        subprocess.run(git + ['--git-dir', str(mirror), 'fetch', '--no-tags',
+                       f'https://github.com/{repo}.git', sha], env=environment,
+                       check=True, stdout=log, stderr=log)
+
+
 def submit(repo, sha):
     job = job_path(repo, sha)
     job.mkdir(parents=True, exist_ok=True)
@@ -153,15 +178,12 @@ def submit(repo, sha):
         try:
             with (job / 'log').open('a') as log, lock(repo_lock(repo)):
                 mirror = root('DATA') / 'mirrors' / (repo + '.git')
-                mirror.parent.mkdir(parents=True, exist_ok=True)
+                if os.environ.get(repositories()[repo]['tokenEnv']):
+                    fetch(job)
+                else:
+                    subprocess.run(infisical() + [sys.executable, str(SELF), 'fetch', str(job)],
+                                   check=True, stdout=log, stderr=log)
                 git = [executable('git')]
-                if not mirror.exists():
-                    subprocess.run(git + ['init', '--bare', str(mirror)], check=True, stdout=log, stderr=log)
-                token = os.environ.get(repositories()[repo]['tokenEnv'])
-                # Ephemeral command-line authentication, never persisted in mirror config.
-                auth = ['-c', 'http.extraHeader=Authorization: Bearer ' + token] if token else []
-                subprocess.run(git + auth + ['--git-dir', str(mirror), 'fetch', '--no-tags',
-                               f'https://github.com/{repo}.git', sha], check=True, stdout=log, stderr=log)
                 subprocess.run(git + ['clone', '--no-checkout', '--no-hardlinks', str(mirror), str(job / 'src')],
                                check=True, stdout=log, stderr=log)
                 subprocess.run(git + ['-C', str(job / 'src'), 'checkout', '--detach', sha],
@@ -338,6 +360,7 @@ def main():
         if name == 'logs':
             command.add_argument('--tail', type=int)
     commands.add_parser('run').add_argument('job', type=Path)
+    commands.add_parser('fetch').add_argument('job', type=Path)
     command = commands.add_parser('publish')
     command.add_argument('job', type=Path)
     command.add_argument('state')
@@ -347,6 +370,9 @@ def main():
         return submit(args.repo, args.sha)
     if args.command == 'run':
         return run(args.job)
+    if args.command == 'fetch':
+        fetch(args.job)
+        return 0
     if args.command == 'publish':
         publish(args.job, args.state, args.description)
         return 0
