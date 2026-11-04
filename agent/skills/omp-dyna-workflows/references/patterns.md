@@ -92,6 +92,7 @@ SHA-256 before spawning the separate implementation task.
 
 - Deterministic failures prevent verifier dispatch; agent failures never become a pass.
 - `WorkflowError` means a broken contract or cap; fix the call, never catch and continue.
-- Python tests are outside the Bun-only quality gate: run `python3 -m pytest tests/test_workflows.py`.
+- The quality gate runs the stdlib Python tests after Bun with Git hook variables unset.
+  To run them alone: `python3 -m unittest discover -s tests -p 'test_*.py'`.
 - Add templates only for dependency-coupled owner contracts that native keywords cannot express;
   reuse `run_check`, define a cap and stop rule, and document them here and in SKILL.md.
