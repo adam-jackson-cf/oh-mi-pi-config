@@ -41,6 +41,7 @@ const gateSchema = z.object({
 	testGlobs: stringList.optional(),
 	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
+	ciHost: z.enum(["github", "nuc"]).optional(),
 });
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
 const inputFieldsSchema = z.record(z.string(), pathValueSchema).catch({});
