@@ -89,4 +89,5 @@ source.
   reporting.
 - `agent/lsp.json` — LSP configuration.
 - `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
+  Path arguments are relative to the working directory; no arguments checks all tracked files.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.

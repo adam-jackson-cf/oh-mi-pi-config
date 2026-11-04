@@ -13,16 +13,20 @@ def git(repo, *args, **kwargs):
 def main(paths):
     root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
     repo = Path(root).resolve()
+    base = Path.cwd()
     if not paths:
         tracked = git(repo, "ls-files", "-z")
         tracked.check_returncode()
         paths = [os.fsdecode(path) for path in tracked.stdout.split(b"\0") if path]
+        base = repo
 
     existing = []
     for path in paths:
         # Resolve directory aliases (such as macOS /var) but not a symlink file's target.
-        candidate = repo / path
+        candidate = base / path
         absolute = candidate.parent.resolve() / candidate.name
+        if not absolute.is_relative_to(repo):
+            continue
         if absolute.exists() or absolute.is_symlink():
             existing.append(os.path.relpath(absolute, repo))
     existing = list(dict.fromkeys(existing))
