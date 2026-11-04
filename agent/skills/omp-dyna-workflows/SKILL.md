@@ -73,7 +73,7 @@ description:
 | verify() and verifier | skill://git-tool/references/verify-loop.md |
 | Git verification and risk tiers | skill://git-tool/references/verify-loop.md |
 | Merge or recover red main | skill://git-tool/references/merge-and-recover.md |
-| Owner corrects repeated mistake | skill://codify-corrections |
+| Owner corrects repeated mistake | skill://codify-omp-workflow-corrections |
 | Evals | skill://jev-actions |
 
 ## Use the native keywords first
