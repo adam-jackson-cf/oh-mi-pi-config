@@ -132,6 +132,9 @@ class WorkflowTests(unittest.TestCase):
     def test_sensitive_descendant_requires_owner(self):
         self.assert_sensitive_change("auth/deep/token.py")
 
+    def test_sensitive_nested_folder_requires_owner(self):
+        self.assert_sensitive_change("src/auth/login.py")
+
     def test_verifier_mutation_detected(self):
         args = self.change()
         def mutate(brief):
@@ -153,14 +156,39 @@ class WorkflowTests(unittest.TestCase):
 
     def test_sensitive_pattern_contract(self):
         self.assertEqual(workflow.sensitive_paths(
-            ["auth/token", "else/auth", "x/secret.env", "x/public"], ["auth/", "secret"]),
-            ["auth/token", "x/secret.env"])
+            ["auth/token", "src/auth/token", "authentication/x.ts", "src/authentication/x.ts",
+             "else/auth", "x/secret.env", "x/public"], ["auth/", "secret"]),
+            ["auth/token", "src/auth/token", "x/secret.env"])
 
     def test_verifier_exception_is_closed(self):
-        self.verifier.side_effect = RuntimeError("verifier unavailable")
+        self.verifier.side_effect = LookupError("verifier unavailable")
         result = self.verify(self.change())
         self.assertEqual(result["status"], "fail")
         self.assertTrue(result["blocking"])
+        self.assertIn("verifier unavailable", result["blocking"])
+
+    def test_deterministic_exception_is_closed(self):
+        args = self.change()
+        with patch.object(workflow, "deterministic_checks", side_effect=LookupError("proof runner failed")):
+            result = self.verify(args)
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("proof runner failed", result["blocking"])
+        self.verifier.assert_not_called()
+
+    def test_missing_gate_routes_to_guardrail_setup(self):
+        (self.repo / ".omp/gate.json").unlink()
+        result = self.verify(self.change())
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(
+            "missing fastGate or pathCheck; use skill://setup-repository-guardrails",
+            result["blocking"])
+        self.verifier.assert_not_called()
+
+    def test_non_object_gate_fails(self):
+        result = self.verify(self.change(files={".omp/gate.json": "[]"}))
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(".omp/gate.json must be an object", result["blocking"])
+        self.verifier.assert_not_called()
 
     def test_verifier_off_schema_result_is_closed(self):
         self.verifier.return_value = {"status": "pass"}

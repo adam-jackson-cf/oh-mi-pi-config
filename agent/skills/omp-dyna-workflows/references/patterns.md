@@ -57,8 +57,9 @@ SHA-256 before spawning the separate implementation task.
   Plain functions expose deterministic checks without eval globals.
 - **Authority**: changed `.omp/gate.json`, `.github/workflows/**`, `lefthook.yml`,
   `.pre-commit-config.yaml` or lint/test configs named by gate files set `needsCountersign`.
-  Gate `sensitive` plus caller patterns set `needsOwner`; trailing `/` means folder prefix,
-  otherwise match file-name prefixes. Both require owner approval, never silent agent clearance.
+  Gate `sensitive` plus caller patterns set `needsOwner`; trailing `/` matches that folder
+  anywhere in a path (`auth/` matches `src/auth/a.ts`, not `authentication/x.ts`).
+  Other patterns match basename prefixes. Both require owner approval, never agent clearance.
 - **Verifier**: one `agent="verifier"` in a family different from every author. Brief contains
   objective, manifest, deterministic results, diff stat and blocking rule. Explicitly read
   `skill://codegraph/references/readiness-and-bootstrap.md`,
@@ -91,6 +92,9 @@ SHA-256 before spawning the separate implementation task.
 ## Failure handling
 
 - Deterministic failures prevent verifier dispatch; agent failures never become a pass.
+- `verify()` returns `fail` with error text for missing/invalid gates or exceptions from checks
+  or the verifier, and still cleans up its detached worktrees. Missing `fastGate` or `pathCheck`
+  routes to `skill://setup-repository-guardrails`.
 - `WorkflowError` means a broken contract or cap; fix the call, never catch and continue.
 - The quality gate runs the stdlib Python tests after Bun with Git hook variables unset.
   To run them alone: `python3 -m unittest discover -s tests -p 'test_*.py'`.
