@@ -1,5 +1,8 @@
 {
   "adam-jackson-cf/oh-mi-pi-config": {
     "tokenEnv": "NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF"
+  },
+  "adam-jackson-cf/skills-directory": {
+    "tokenEnv": "NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF"
   }
 }
