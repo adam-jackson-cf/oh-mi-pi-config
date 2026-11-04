@@ -23,6 +23,9 @@
 !scripts/
 scripts/*
 !scripts/run-ci-quality-gates.sh
+!scripts/check-paths.py
+!scripts/nuc-gate.py
+!scripts/nuc-gate-repos.json
 
 !tools/
 tools/*
@@ -56,6 +59,7 @@ agent/skills/instruct-eval/
 
 !agent/agents/
 agent/agents/*
+!agent/agents/designer.md
 !agent/agents/experiment-design.md
 !agent/agents/experiment-peer.md
 !agent/agents/innovation-challenger.md
@@ -79,10 +83,18 @@ tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
 !tests/skill-gate.test.ts
+!tests/test_check_paths.py
+!tests/test_nuc_gate.py
 
 !.omp/
 .omp/*
 !.omp/lsp.json
+!.omp/gate.json
+
+!.devcontainer/
+.devcontainer/*
+!.devcontainer/devcontainer.json
+!.devcontainer/Containerfile
 
 # Generated state inside owned source trees remains runtime-only.
 **/.DS_Store
@@ -97,4 +109,3 @@ tests/*
 !scripts/systemd/omp-config-pull.service
 !scripts/systemd/omp-config-pull.timer
 !tests/test_omp_config_sync.py
-!.omp/gate.json

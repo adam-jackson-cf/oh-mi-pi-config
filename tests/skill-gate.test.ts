@@ -288,7 +288,7 @@ describe("skill gate", () => {
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":2}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":2}', '{"schemaVersion":1,"ciHost":"other"}']) {
 				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });
@@ -529,7 +529,8 @@ for (const scenario of [
 	{ author: "task", patterns: ["anthropic/claude-author"], blocked: true },
 	{ author: "task", patterns: ["openai/gpt-author"], blocked: false },
 	{ author: "sonic", patterns: ["anthropic/claude-author"], blocked: true },
-	{ author: "sonic", patterns: ["openai/gpt-author"], blocked: false },
+	{ author: "designer", patterns: ["anthropic/claude-author"], blocked: true },
+	{ author: "designer", patterns: ["openai/gpt-author"], blocked: false },
 	{ author: "scout", patterns: ["anthropic/claude-author"], blocked: false },
 	{ author: "task", patterns: [], blocked: false },
 	{ author: "task", patterns: ["openai/gpt-author", "anthropic/claude-fallback"], blocked: true },

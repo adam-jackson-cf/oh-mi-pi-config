@@ -11,7 +11,8 @@ of the current routes.
   Orchestrator; `auto` cannot be capped at medium.
 - `plan` → Opus 5.5 : medium. Used by plan mode. Preference; rigorous plans go to the council.
 - `slow` → Opus 5.5 : medium. Used by model cycling. Preference cap.
-- `designer`: removed 2026-11-04, owner decision.
+- `designer` → Sonnet 5.5 : medium. Used by `designer` agent. Owner decision 2026-09-30; no design
+  experiment exists.
 - `reviewer` → Sonnet 5.5 : medium. Used by bundled `reviewer` through
   `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
   model (fresh-process check 2026-09-28). Used for open-ended contextual eval judging,
@@ -57,7 +58,7 @@ does not establish a speedup or cost multiplier for the other priority agents.
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped
   at 50% of it; keep `experiment-design` for genuinely novel problems.
 - Implementation (`task`), `sonic`, `kiss`, vision and `operator` draw Codex;
-  main/planning, `reviewer`, `verifier`, `scout` and Anthropic council/experiment
+  main/planning, `designer`, `reviewer`, `verifier`, `scout` and Anthropic council/experiment
   roles draw Anthropic. Monitor both quotas; old snapshots are not current capacity evidence.
 - The earlier fixed-plan and review-detection experiments evaluated superseded routes.
   Do not use their ceiling scores to claim the current Sol `medium` implementation or

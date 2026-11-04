@@ -41,6 +41,7 @@ const gateSchema = z.object({
 	testGlobs: stringList.optional(),
 	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
+	ciHost: z.enum(["github", "nuc"]).optional(),
 });
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
 const inputFieldsSchema = z.record(z.string(), pathValueSchema).catch({});
@@ -428,7 +429,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		state.reads.clear(); state.discovered = false;
 	});
 	pi.on("before_subagent_spawn", (event, ctx) => {
-		const author = ["task", "sonic"].includes(event.agent);
+		const author = ["task", "sonic", "designer"].includes(event.agent);
 		if (!author && event.agent !== "verifier") return;
 		const state = stateFor(ctx);
 		// Core has already expanded agent frontmatter and configured roles into patterns.
@@ -443,7 +444,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		}
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
-			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic).",
+			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
 		};
 		if (independent.length !== models.length) return {
 			model: independent.map(model => `${model.provider}/${model.id}`),
