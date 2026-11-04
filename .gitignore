@@ -23,6 +23,7 @@
 !scripts/
 scripts/*
 !scripts/run-ci-quality-gates.sh
+!scripts/check-paths.py
 
 !tools/
 tools/*
@@ -80,6 +81,7 @@ tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
 !tests/skill-gate.test.ts
+!tests/test_check_paths.py
 
 !.omp/
 .omp/*

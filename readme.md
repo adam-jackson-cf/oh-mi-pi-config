@@ -88,4 +88,5 @@ source.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.
+- `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.
