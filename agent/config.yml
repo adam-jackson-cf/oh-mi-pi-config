@@ -16,14 +16,12 @@ modelRoles:
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
-  completionist: anthropic/claude-sonnet-5-5:medium
+  verifier: anthropic/claude-sonnet-5-5:medium
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   experiment-design: anthropic/claude-fable-5-1:high
   experiment-peer: anthropic/claude-opus-5-5:high
-  plan-judge: openai-codex/gpt-6.1-sol:low
   reviewer: anthropic/claude-sonnet-5-5:medium
-  test-judge: anthropic/claude-sonnet-5-5:medium
   kiss: openai-codex/gpt-6.1-sol:low
   operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
@@ -58,7 +56,6 @@ task:
   agentServiceTierOverrides:
     sonic: priority
     task: priority
-    plan-judge: priority
     kiss: priority
   agentModelOverrides:
     reviewer: "@reviewer"
