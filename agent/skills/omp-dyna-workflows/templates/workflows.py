@@ -1,13 +1,14 @@
 # pyright: reportUndefinedVariable=false
 # agent and wait are OMP eval kernel globals, injected when this file is %load-ed.
-"""Owner additions to OMP's native `workflowz` / `jevify` / `orchestrate` contracts.
-
-Load with `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`. Both templates are
-dependency-coupled (each step needs the previous result), the case where the native contract allows
-`agent()` handles with `wait()`. Independent fan-out belongs in a native `workpool()`.
-"""
+"""Proof-first verification and blind labels; load in the OMP Python eval kernel."""
+import hashlib
 import json
+from pathlib import Path
+import re
+import shlex
+import shutil
 import subprocess
+import tempfile
 
 MAX_AGENTS = 16
 
@@ -17,48 +18,261 @@ class WorkflowError(RuntimeError):
 
 
 def run_check(cmd, cwd):
-    """Deterministic gate. Returns (ok, last 4000 chars of output)."""
-    p = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=True, text=True, timeout=900)
-    return p.returncode == 0, (p.stdout + p.stderr)[-4000:]
+    """Run a gate or argv proof; return success and the complete diagnostic output."""
+    p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str), capture_output=True,
+                       text=True, timeout=900)
+    return p.returncode == 0, p.stdout + p.stderr
 
 
-FINDING = {"type": "object", "required": ["title", "evidence", "severity"], "additionalProperties": False,
-           "properties": {"title": {"type": "string"}, "evidence": {"type": "string"},
-                          "severity": {"enum": ["high", "medium", "low"]}}}
-VERDICT = {"type": "object", "required": ["verdict", "findings"], "additionalProperties": False, "properties": {
-    "verdict": {"enum": ["pass", "fail"]}, "findings": {"type": "array", "items": FINDING}}}
+def _git(repo, *args):
+    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if p.returncode:
+        raise WorkflowError(p.stderr.strip())
+    return p.stdout
 
 
-def adversarial_verify(objective, repo, check_cmd, max_rounds=3, author="task", judge_agent="reviewer"):
-    """Implement -> repo check must pass -> independent review session -> fix, until pass or max_rounds.
-    Each agent() spawn is a fresh session with no shared context. The judge must use a different
-    model family from the author; preserve this requirement when overriding author or judge_agent."""
-    history, feedback = [], ""
-    for rnd in range(1, max_rounds + 1):
-        brief = (f"Work in {repo}. Objective: {objective}\n" +
-                 (f"A previous attempt is in the working tree. Fix these problems:\n{feedback}\n" if feedback else "") +
-                 "Edit only what the objective needs. Do not run gates or commit.")
-        wait([agent(brief, agent=author, label=f"Impl{rnd}")], raise_errors=False)
-        ok, out = run_check(check_cmd, repo)
-        if not ok:  # deterministic failure: no LLM review this round
-            history.append({"round": rnd, "check": "fail"})
-            feedback = f"`{check_cmd}` failed:\n{out}"
+def _sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _proof_path(root, name):
+    if not isinstance(name, str) or not name or Path(name).is_absolute():
+        raise WorkflowError(f"invalid proof path: {name!r}")
+    path = (root / name).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise WorkflowError(f"proof path escapes worktree: {name}")
+    return path
+
+
+def load_manifest(path, digest, max_checks):
+    """Validate the frozen manifest before executing any repository command."""
+    frozen = Path(path).read_bytes()
+    if hashlib.sha256(frozen).hexdigest() != digest:
+        raise WorkflowError("manifest hash mismatch")
+    manifest = json.loads(frozen)
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
+        raise WorkflowError("unsupported manifest schema")
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", manifest.get("slug", "")):
+        raise WorkflowError("invalid manifest slug")
+    proofs = manifest.get("proofs")
+    if not isinstance(proofs, list) or not proofs or len(proofs) > max_checks:
+        raise WorkflowError("proof count must be nonzero and within max_checks")
+    ids = set()
+    for proof in proofs:
+        if not isinstance(proof, dict):
+            raise WorkflowError("invalid proof")
+        ident = proof.get("id")
+        if not isinstance(ident, str) or not ident or ident in ids:
+            raise WorkflowError("missing or duplicate proof id")
+        ids.add(ident)
+        if not isinstance(proof.get("criterion"), str) or not proof["criterion"]:
+            raise WorkflowError(f"{ident}: missing criterion")
+        if proof.get("kind") not in ("defect", "new-surface", "preserve"):
+            raise WorkflowError(f"{ident}: unknown proof kind")
+        cmd, files, hashes = proof.get("cmd"), proof.get("files"), proof.get("sha256")
+        if not isinstance(cmd, list) or not cmd or not all(isinstance(x, str) and x for x in cmd):
+            raise WorkflowError(f"{ident}: cmd must be argv")
+        if not isinstance(files, list) or not files or len(set(files)) != len(files):
+            raise WorkflowError(f"{ident}: missing or duplicate proof files")
+        if not isinstance(hashes, dict) or set(hashes) != set(files):
+            raise WorkflowError(f"{ident}: proof hash coverage mismatch")
+        for name in files:
+            _proof_path(Path(tempfile.gettempdir()), name)
+            if not isinstance(hashes[name], str) or not re.fullmatch(r"[0-9a-f]{64}", hashes[name]):
+                raise WorkflowError(f"{ident}: invalid sha256")
+        red = proof.get("expectRed")
+        if proof["kind"] == "defect":
+            if not isinstance(red, str) or not red:
+                raise WorkflowError(f"{ident}: defect requires expectRed")
+        elif red is not None:
+            raise WorkflowError(f"{ident}: expectRed must be null")
+    return manifest
+
+
+def _hash_failures(root, manifest):
+    failures = []
+    for proof in manifest["proofs"]:
+        for name in proof["files"]:
+            path = _proof_path(root, name)
+            if not path.is_file() or _sha(path) != proof["sha256"][name]:
+                failures.append(f"{proof['id']}: missing proof or hash mismatch: {name}")
+    return failures
+
+
+def sensitive_paths(paths, patterns):
+    """Folder suffix '/' means descendants; other patterns are file-name prefixes."""
+    return [path for path in paths if any(
+        path.startswith(pattern) if pattern.endswith("/") else Path(path).name.startswith(pattern)
+        for pattern in patterns)]
+
+
+def gate_changes(paths, root, gate):
+    """Include gate entrypoints and lint/test config paths named by the gate contract."""
+    named = set()
+    def collect(value):
+        if isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, str):
+            for token in shlex.split(value):
+                token = token.split("=", 1)[-1].removeprefix("./")
+                if token and (root / token).is_file():
+                    named.add(token)
+    collect(gate)
+    # Also inspect referenced gate scripts for explicitly named lint/test configs.
+    for name in tuple(named):
+        if Path(name).suffix in (".sh", ".js", ".ts", ".py"):
+            for token in re.findall(r"[\w./-]+", (root / name).read_text()):
+                if ("config" in token or "lint" in token) and (root / token).is_file():
+                    named.add(token.removeprefix("./"))
+    return [path for path in paths if path in named or path in (
+        ".omp/gate.json", "lefthook.yml", ".pre-commit-config.yaml")
+        or path.startswith(".github/workflows/")]
+
+
+def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, gates=None, sensitive=None):
+    """Run frozen proofs against real detached trees; no eval globals are needed."""
+    parent_gate_path = parent_tree / ".omp/gate.json"
+    parent_gate = json.loads(parent_gate_path.read_text()) if parent_gate_path.is_file() else {}
+    changed_gates = set(gate_changes(paths, head_tree, gate))
+    changed_gates.update(gate_changes(paths, parent_tree, parent_gate))
+    result = {"gates": [], "proofs": {}, "blocking": [],
+              "needsCountersign": sorted(changed_gates),
+              "needsOwner": sensitive_paths(paths, [
+                  *parent_gate.get("sensitive", []), *gate.get("sensitive", []), *(sensitive or [])])}
+    failures = result["blocking"]
+    failures.extend(_hash_failures(head_tree, manifest))
+    if failures:
+        return result
+    if not gate.get("fastGate") or not gate.get("pathCheck"):
+        failures.append("missing fastGate or pathCheck; use skill://setup-repository-guardrails")
+        return result
+    for cmd in [gate["fastGate"], *(gates or [])]:
+        ok, out = run_check(cmd, head_tree)
+        result["gates"].append({"cmd": cmd, "ok": ok, "output": out})
+        if not ok:
+            failures.append(f"failed gate: {cmd}")
+    failures.extend(_hash_failures(head_tree, manifest))
+    if failures:
+        return result
+    for proof in manifest["proofs"]:
+        runs = []
+        result["proofs"][proof["id"]] = runs
+        for n in range(2):
+            ok, out = run_check(proof["cmd"], head_tree)
+            runs.append({"tree": "head", "run": n + 1, "ok": ok, "output": out})
+            if not ok:
+                failures.append(f"{proof['id']}: head run {n + 1} failed")
+    failures.extend(_hash_failures(head_tree, manifest))
+    for proof in manifest["proofs"]:
+        for name in proof["files"]:
+            dest = _proof_path(parent_tree, name)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(_proof_path(head_tree, name), dest)
+    for proof in manifest["proofs"]:
+        if proof["kind"] == "new-surface":
             continue
-        review = wait([agent(f"Try to break the uncommitted change in {repo} (git diff). Objective: {objective}\n"
-                             f"`{check_cmd}` passes. Report only defects that violate the objective, with evidence. "
-                             "verdict=pass when none.", agent=judge_agent, label=f"Break{rnd}", schema=VERDICT)],
-                      raise_errors=False)[0]
-        history.append({"round": rnd, "check": "pass", "review": review})
-        if isinstance(review, dict) and review["verdict"] == "pass":
-            return {"status": "pass", "rounds": rnd, "history": history}
-        feedback = json.dumps(review.get("findings", []) if isinstance(review, dict) else str(review))
-    return {"status": "exhausted", "rounds": max_rounds, "history": history}
+        ok, out = run_check(proof["cmd"], parent_tree)
+        result["proofs"][proof["id"]].append({"tree": "parent", "ok": ok, "output": out})
+        if proof["kind"] == "defect":
+            if ok:
+                failures.append(f"{proof['id']}: tautology; defect proof passes at parent")
+            elif proof["expectRed"] not in out:
+                failures.append(f"{proof['id']}: wrong-reason red at parent")
+        elif not ok:
+            failures.append(f"{proof['id']}: preserve proof fails at parent")
+    return result
 
 
-def blind_label(batch_files, rubric_path, labels, labellers=("reviewer", "task")):
-    """Frozen JSON batches of {id, ...} cases; two blind labellers (distinct agents, separate sessions) per batch.
-    Returns agreed labels and disputes for the orchestrator to settle; a human confirms."""
-    if labellers[0] == labellers[1]:
+BLOCKING_RULE = (
+    "Block only failing head runs, failed gates, doc lines changed or made wrong, base defects "
+    "copied or newly reached by this PR, missing/weakened proofs, or unapproved gate loosening. "
+    "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
+
+
+def _run_verifier(brief):
+    schema = {"type": "object", "required": ["status", "blocking", "followUps"],
+              "additionalProperties": False, "properties": {
+                  "status": {"enum": ["pass", "fail"]},
+                  "blocking": {"type": "array", "items": {"type": "string"}},
+                  "followUps": {"type": "array", "items": {"type": "string"}}}}
+    return wait([agent(brief, agent="verifier", label="Verify", schema=schema)], raise_errors=False)[0]
+
+
+def verify(repo, parent, head, manifest_path, manifest_sha256, objective,
+           gates=None, sensitive=None, max_checks=MAX_AGENTS):
+    """Run frozen proofs then one cross-family verifier; always remove detached worktrees."""
+    repo = Path(repo).resolve()
+    result = {"status": "fail", "deterministic": {}, "verifier": {}, "blocking": [], "followUps": []}
+    trees = []
+    try:
+        manifest = load_manifest(manifest_path, manifest_sha256, max_checks)
+        # Unique scratch parent prevents concurrent verifications of the same slug colliding.
+        with tempfile.TemporaryDirectory(prefix="omp-verify-") as scratch:
+            try:
+                for label, ref in (("parent", parent), ("head", head)):
+                    tree = Path(scratch) / f"omp-verify-{manifest['slug']}-{label}"
+                    _git(repo, "worktree", "add", "--detach", str(tree), ref)
+                    trees.append(tree)
+                parent_tree, head_tree = trees
+                gate = json.loads((head_tree / ".omp/gate.json").read_text())
+                paths = _git(repo, "diff", "--name-only", parent, head).splitlines()
+                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, gates, sensitive)
+                result["deterministic"] = deterministic
+                result["blocking"].extend(deterministic["blocking"])
+                if result["blocking"]:
+                    return result
+                snapshot = (_git(repo, "status", "--porcelain=v2"), _git(repo, "rev-parse", "HEAD"))
+                brief = (
+                    "Read skill://codegraph/references/readiness-and-bootstrap.md, "
+                    "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git. "
+                    f"Read-only: work only in {parent_tree}, {head_tree} and your TMPDIR scratch. "
+                    f"Never edit {repo}; never spawn agents. Objective: {objective}\n"
+                    f"Manifest: {json.dumps(manifest)}\nDeterministic: {json.dumps(deterministic)}\n"
+                    f"Diff stat: {_git(repo, 'diff', '--stat', parent, head)}\n"
+                    "Drive every criterion live; check docs changed or made wrong; report-only diff scope/coverage audit. "
+                    "Each finding needs exact command, actual output and required output; omit anything not run. "
+                    f"{BLOCKING_RULE}")
+                try:
+                    verdict = _run_verifier(brief)
+                finally:
+                    after = (_git(repo, "status", "--porcelain=v2"), _git(repo, "rev-parse", "HEAD"))
+                    if after != snapshot:
+                        result["blocking"].append("verifier mutated the repo")
+                result["verifier"] = verdict
+                if (not isinstance(verdict, dict) or verdict.get("status") not in ("pass", "fail")
+                        or not isinstance(verdict.get("blocking"), list)
+                        or not isinstance(verdict.get("followUps"), list)):
+                    result["blocking"].append("verifier returned invalid or failed result")
+                else:
+                    result["blocking"].extend(verdict["blocking"])
+                    result["followUps"] = verdict["followUps"]
+                    if verdict["status"] == "fail" and not verdict["blocking"]:
+                        result["blocking"].append("verifier failed")
+                if _sha(manifest_path) != manifest_sha256:
+                    result["blocking"].append("manifest edited after freeze")
+                result["blocking"].extend(_hash_failures(head_tree, manifest))
+                if result["blocking"]:
+                    result["status"] = "fail"
+                elif deterministic["needsCountersign"] or deterministic["needsOwner"]:
+                    result["status"] = "needs_owner"
+                else:
+                    result["status"] = "pass"
+            finally:
+                for tree in reversed(trees):
+                    _git(repo, "worktree", "remove", "--force", str(tree))
+    except (RuntimeError, OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+        result["blocking"].append(str(exc))
+        result["status"] = "fail"
+    return result
+
+
+def blind_label(batch_files, rubric_path, labels, labellers=("scout", "task")):
+    """Two blind read-only labellers per frozen batch; a human confirms disputes."""
+    if len(labellers) != 2 or labellers[0] == labellers[1]:
         raise WorkflowError(f"labellers must be two distinct agents, got {labellers!r}")
     if 2 * len(batch_files) > MAX_AGENTS:
         raise WorkflowError(f"{2 * len(batch_files)} labellers exceeds cap {MAX_AGENTS}; merge batches")
@@ -68,7 +282,7 @@ def blind_label(batch_files, rubric_path, labels, labellers=("reviewer", "task")
                                        "id": {"type": "string"}, "label": {"enum": list(labels)},
                                        "evidence": {"type": "string"}, "rationale": {"type": "string"}}}}}}
     jobs = [(who, agent(f"Read-only. Label every case in {f} with the rubric {rubric_path}. Read only those two "
-                        "files. Quote the deciding evidence; rationale in 1-2 plain sentences.",
+                        "files. Quote deciding evidence; rationale in 1-2 plain sentences.",
                         agent=who, label=f"Label{n:02d}{who[:3]}", schema=schema))
             for n, f in enumerate(batch_files) for who in labellers]
     results = wait([h for _, h in jobs], raise_errors=False)
