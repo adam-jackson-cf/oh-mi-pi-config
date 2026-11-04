@@ -447,6 +447,12 @@ for (const scenario of [
 	{ command: "cd nested && gh pr merge 42", files: "auth/a.ts\n", blocked: true, selector: "42", repo: [], nested: true },
 	{ command: "gh pr merge --subject 'release title' 42", files: "secrets.env\n", blocked: true, selector: "42", repo: [] },
 	{ command: "gh pr -R owner/repo merge 42", files: "src/a.ts\n", blocked: false, selector: "42", repo: ["-R", "owner/repo"] },
+	{ command: "gh pr merge 42", files: "src/auth/login.ts\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "config/secrets.env.local\n", blocked: true, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "src/authentication/x.ts\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "auth\nsrc/auth\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: "config/secrets.env/public.ts\n", blocked: false, selector: "42", repo: [] },
+	{ command: "gh pr merge 42", files: `${Array.from({ length: 112 }, (_, index) => `src/public-${index}.ts`).join("\n")}\nconfig/secrets.env\n`, blocked: true, selector: "42", repo: [] },
 ]) {
 	test(`sensitive merge policy: ${scenario.command}`, async () => {
 		const h = harness();
@@ -460,15 +466,47 @@ for (const scenario of [
 			h.api.exec = async (command, args, options) => {
 				if (command !== "gh") return exec(command, args, options);
 				queries.push({ args, cwd: options.cwd });
-				return { code: 0, killed: false, stdout: scenario.files, stderr: "" };
+				return {
+					code: 0, killed: false, stderr: "",
+					stdout: args[0] === "api" ? scenario.files : JSON.stringify({ number: 42, url: "https://github.com/owner/repo/pull/42" }),
+				};
 			};
 			const result = await h.call("bash", { command: scenario.command });
 			assert.equal(result?.block === true, scenario.blocked);
 			if (scenario.blocked) assert.ok(result?.reason?.includes("owner must merge PRs touching sensitive paths"));
 			assert.deepEqual(queries, [{
-				args: [...scenario.repo, "pr", "view", ...(scenario.selector ? [scenario.selector] : []), "--json", "files", "-q", ".files[].path"],
+				args: [...scenario.repo, "pr", "view", ...(scenario.selector ? [scenario.selector] : []), "--json", "number,url"],
+				cwd: scenario.nested ? join(h.root, "nested") : h.root,
+			}, {
+				args: ["api", "--hostname", "github.com", "--paginate", "repos/owner/repo/pulls/42/files", "--jq", ".[].filename"],
 				cwd: scenario.nested ? join(h.root, "nested") : h.root,
 			}]);
+		} finally { h.cleanup(); }
+	});
+}
+
+for (const stage of ["metadata", "files", "malformed-metadata", "invalid-repository", "metadata-timeout", "files-timeout"]) {
+	test(`sensitive merge fails closed on ${stage}`, async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			h.gate({ schemaVersion: 1, sensitive: ["auth/"] });
+			await h.read("skill://git-tool");
+			const exec = h.api.exec;
+			h.api.exec = async (command, args, options) => {
+				if (command !== "gh") return exec(command, args, options);
+				const files = args[0] === "api";
+				const failed = stage === (files ? "files" : "metadata");
+				const killed = stage === (files ? "files-timeout" : "metadata-timeout");
+				return {
+					code: failed ? 1 : 0, killed, stderr: failed ? "query failed" : "",
+					stdout: files ? "src/public.ts\n" : stage === "malformed-metadata" ? "broken" :
+						JSON.stringify({ number: 42, url: stage === "invalid-repository" ? "https://github.com/not-a-pr" : "https://github.com/owner/repo/pull/42" }),
+				};
+			};
+			const result = await h.call("bash", { command: "gh pr merge 42" });
+			assert.equal(result?.block, true);
+			assert.ok(result?.reason?.includes("policy could not be evaluated"));
 		} finally { h.cleanup(); }
 	});
 }
