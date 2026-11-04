@@ -19,8 +19,8 @@
   h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.01em; }
   h2 { font-size: 16px; margin: 0 0 12px; }
   .sub { color: var(--muted); max-width: 980px; }
-  main { padding: 8px 32px 48px; display: none; gap: 28px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  main { padding: 8px 32px 48px; display: none; gap: 28px; grid-template-columns: minmax(0, 1fr); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; max-width: 100%; }
   code, .mono { font-family: var(--mono); font-size: 12.5px; }
   .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
@@ -40,7 +40,7 @@
   #tab-principles:checked ~ #principles { display: grid; }
 
   /* Swimlane grid */
-  .lanes { display: grid; grid-template-columns: 130px repeat(6, minmax(170px, 1fr)); gap: 6px; overflow-x: auto; }
+  .lanes { display: grid; grid-template-columns: 130px repeat(6, minmax(170px, 1fr)); gap: 6px; overflow-x: auto; min-width: 0; max-width: 100%; }
   .stage { font-weight: 600; font-size: 12.5px; padding: 8px 10px; background: var(--panel2); border-radius: 6px;
            border-top: 3px solid var(--fg); position: relative; }
   .stage small { display: block; font-weight: 400; color: var(--muted); }
@@ -200,16 +200,16 @@
     <div class="cell"><span class="lanelabel">skill-gate</span>
       <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
       <div class="card gate"><b>tool_result: pathCheck</b><span>repo path check runs after each edit; a failure is kept</span></div>
-      <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/branch/<code>gh pr</code> need <code>skill://git-tool</code></span></div>
+      <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/cherry-pick, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code> need <code>skill://git-tool</code></span></div>
       <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div></div>
     <div class="cell"><span class="lanelabel">skill-gate</span>
       <div class="card block"><b>before_subagent_spawn: verifier</b><span>blocked when its family equals any recorded author family (new)</span></div>
-      <div class="card block"><b>session_stop (main only)</b><span>blocks handoff until verification ref read · <code>fastGate</code> after last edit or tree change · failed pathCheck passes</span></div></div>
+      <div class="card block"><b>session_stop (main only)</b><span>blocks handoff until verification ref read · agent ran <code>fastGate</code> after the last edit or tree change (the gate does not run it) · failed pathCheck passes</span></div></div>
     <div class="cell"><span class="lanelabel">skill-gate</span>
       <div class="card block"><b><code>gh pr merge</code> sensitive-merge</b><span>resolves the PR's changed files; any match with <code>sensitive</code> → “owner must merge” (new)</span></div></div>
 
     <!-- Jev -->
-    <div class="lane">Jev TTSR rules<small>main · task · sonic · designer</small></div>
+    <div class="lane">Jev TTSR rules<small>main only; subagents get refs via briefs and skill-gate blocks</small></div>
     <div class="cell"></div><div class="cell"></div><div class="cell"></div>
     <div class="cell"><span class="lanelabel">Jev TTSR rules</span>
       <div class="card jev"><b>regression-coverage</b><span>reply announces a bug fix → read the ref</span></div>
@@ -226,7 +226,7 @@
     <div class="cell"><span class="lanelabel">Repository</span>
       <div class="card gate"><b>commitGate</b><span>pre-commit hook; keeps every commit green</span></div>
       <div class="card gate"><b>fastGate · pathCheck</b><span>e.g. <code>--tier t1 --affected</code>; path-check CLI</span></div></div>
-    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b><code>sensitive</code></b><span>patterns: folder ends with <code>/</code>, else file-name prefix; matched against the diff</span></div></div>
+    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b><code>sensitive</code></b><span>pattern ending in <code>/</code> matches that folder anywhere in the path; any other pattern matches when the file's basename starts with it</span></div></div>
     <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b>gate</b><span>full check in CI on the exact head SHA</span></div></div>
 
     <!-- verify() -->
@@ -258,7 +258,7 @@
     <div class="step"><div class="n">02</div><b>Verifier</b><br><span class="note">other family than every author; drives each criterion live, checks changed doc lines; findings carry command + output</span></div>
     <div class="step"><div class="n">03</div><b>Blocking rule</b><br><span class="note">block only on a failing run at head, failed gate, wrong doc line, copied defect, missing/weakened proof, unapproved loosening; the rest is a follow-up note</span></div>
     <div class="step"><div class="n">04</div><b>Fix via task</b><br><span class="note">main never patches; ≤3 rounds; rerun fastGate</span></div>
-    <div class="step"><div class="n">05</div><b>Re-verify</b><br><span class="note">one <code>verify()</code> on the new head, skipping proofs whose <code>patch-id</code> is unchanged</span></div>
+    <div class="step"><div class="n">05</div><b>Re-verify</b><br><span class="note">one <code>verify()</code> on the new head; may skip reruns whose <code>git patch-id</code> is unchanged</span></div>
     <div class="step"><div class="n">06</div><b>Evidence + label</b><br><span class="note">results on the PR, then <code>agent-verified</code></span></div>
     <div class="step"><div class="n">07</div><b>Merge</b><br><span class="note">CI green on head, rebase-merge with <code>--match-head-commit</code></span></div>
   </div>
@@ -278,10 +278,10 @@
       <tr><td><span class="pill">tool_call</span> discovery</td><td>first <code>find/grep/glob/ast_grep</code> in a git repo</td><td><code>codegraph</code> readiness + query-selection read</td><td>outside git repos; after first success (reset on compaction)</td></tr>
       <tr><td><span class="pill">tool_call</span> edit</td><td><code>write/edit/ast_edit</code></td><td>first code edit → implementation-integrity; new file → structure + naming; test path → tiers</td><td>repo has <code>pathCheck</code> (the repo check replaces the refs)</td></tr>
       <tr><td><span class="pill">tool_result</span> path</td><td>after an edit, repo has <code>pathCheck</code></td><td>check passes; failures persist to handoff</td><td>deleted failed paths are dropped</td></tr>
-      <tr><td><span class="pill">tool_call</span> git</td><td>integration git / <code>gh pr</code>, incl. <code>sudo</code>, <code>bash -c</code>, <code>cd x &amp;&amp;</code>, <code>git -C</code></td><td><code>skill://git-tool</code> read; push/<code>gh pr</code> also need <code>agentMerge</code> ≠ disabled and a valid gate.json</td><td>read-only git (<code>status</code>, <code>log</code>, <code>diff</code>…)</td></tr>
+      <tr><td><span class="pill">tool_call</span> git</td><td><code>commit</code>/<code>push</code>/<code>merge</code>/<code>rebase</code>/<code>cherry-pick</code>, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code>, incl. <code>sudo</code>, <code>bash -c</code>, <code>cd x &amp;&amp;</code>, <code>git -C</code></td><td><code>skill://git-tool</code> read; push/<code>gh pr</code> also need <code>agentMerge</code> ≠ disabled and, if <code>.omp/gate.json</code> exists, a valid one (a missing file is allowed; only an invalid one blocks)</td><td>everything else, e.g. plain <code>git branch</code>, <code>git status/log/diff</code>, <code>gh pr view</code>, <code>gh pr checks</code></td></tr>
       <tr><td><span class="pill">tool_call</span> sensitive merge <em>(new)</em></td><td>any parsed form of <code>gh pr merge</code></td><td>none the agent can supply: the PR's changed files (<code>gh pr view --json files</code>, honouring cwd/<code>-R</code>) must match no <code>sensitive</code> pattern; otherwise “owner must merge PRs touching sensitive paths”</td><td>repo has no <code>sensitive</code> list; the owner merges</td></tr>
       <tr><td><span class="pill">before_subagent_spawn</span> cross-family <em>(new)</em></td><td>spawn of <code>verifier</code></td><td>resolved family differs from every <code>task</code>, <code>sonic</code>, <code>designer</code> child spawned this session; an other-family model is returned when the API allows, else the spawn is blocked</td><td>no author spawned yet this session</td></tr>
-      <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read; <code>fastGate</code> ran after last edit or after a subagent changed the tree; failed paths pass</td><td>subagents; unchanged pre-existing dirty tree; fingerprint errors (fail open)</td></tr>
+      <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read; the agent has run <code>fastGate</code> after its last edit or after a subagent changed the tree (the gate checks, it does not run it); failed paths pass</td><td>subagents; unchanged pre-existing dirty tree; fingerprint errors (fail open)</td></tr>
     </tbody>
   </table>
   <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The <code>verifier</code> role is <code>anthropic/claude-sonnet-5-5:medium</code>.</p>
@@ -309,7 +309,7 @@
       <div class="why">A frozen manifest means the proof cannot be bent to fit the implementation afterwards.</div>
       <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> manifest and proof-file hashes; <span class="tag k-instr">instruction</span>proof task is spawned before the implementation task.</div></article>
     <article class="pcard" style="--c:var(--gate)"><span class="n">04</span><h3>Red for the right reason, green twice</h3>
-      <div class="why">A proof that passes on the parent proves nothing; one that passes once may be flaky.</div>
+      <div class="why">A <code>defect</code> proof that passes on the parent proves nothing, and one that passes once may be flaky. <code>preserve</code> proofs must pass at the parent; <code>new-surface</code> red at the parent is true by definition.</div>
       <div class="where"><span class="tag k-check">deterministic</span><code>verify()</code> parent overlay (<code>expectRed</code> substring) and two head runs.</div></article>
     <article class="pcard" style="--c:var(--block)"><span class="n">05</span><h3>Independent, cross-family verification</h3>
       <div class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</div>
@@ -331,7 +331,7 @@
       <div class="where"><span class="tag k-block">hard block</span>skill-gate on <code>gh pr merge</code> vs <code>sensitive</code>; <span class="tag k-check">deterministic</span><code>verify()</code> reports <code>needs_owner</code>.</div></article>
     <article class="pcard" style="--c:var(--warn)"><span class="n">11</span><h3>Delegate code; the main agent never patches</h3>
       <div class="why">Keeps the author family known, the main context small, and fixes inside the proof loop.</div>
-      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows and task briefs; the stop gate re-runs <code>fastGate</code> after any tree change.</div></article>
+      <div class="where"><span class="tag k-instr">instruction</span>omp-dyna-workflows and task briefs; the stop gate requires <code>fastGate</code> to have run after any tree change.</div></article>
     <article class="pcard" style="--c:var(--warn)"><span class="n">12</span><h3>Least effort, delete dead weight</h3>
       <div class="why">The cheapest correct change wins; cutting scope before a spike is cheaper than spiking it.</div>
       <div class="where"><span class="tag k-instr">instruction</span><code>kiss</code> cuts criteria and open questions at Frame; clean-cutover rule.</div></article>
