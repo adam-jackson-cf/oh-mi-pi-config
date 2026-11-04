@@ -8,7 +8,7 @@ stores its JSON findings with the seeded defect spans. Scoring is in analyze.py.
 Example:
   python3 run_reviews.py --arm G-high=openai-codex/gpt-6-sol:high \
     --arm P-low=openai-codex/gpt-5.6-sol:low --reps 2 \
-    --out ~/.omp/.todo/artifacts/<date>-review-detection
+    --out <output-dir>
 """
 from __future__ import annotations
 

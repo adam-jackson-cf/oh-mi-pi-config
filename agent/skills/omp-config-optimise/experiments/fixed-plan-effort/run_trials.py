@@ -9,7 +9,7 @@ Results append to <out>/results.jsonl; per-trial logs go to <out>/runs/<id>/.
 Example:
   python3 run_trials.py --model openai-codex/gpt-6-luna \
     --arm A-low=low --arm B-medium=medium --arm F-low-fast=low@priority \
-    --reps 3 --out ~/.omp/.todo/artifacts/<date>-<model>-effort
+    --reps 3 --out <output-dir>
 """
 from __future__ import annotations
 

@@ -47,6 +47,8 @@ agent/rules/*
 !agent/rules/skill-gate-*.md
 !agent/skills/
 agent/skills/*
+!agent/skills/create-watchdog/
+!agent/skills/create-watchdog/**
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
 !agent/skills/omp-dyna-workflows/
@@ -75,7 +77,6 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/lsp-evidence-policy.ts
 !agent/extensions/skill-gate.ts
 
 !tests/

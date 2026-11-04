@@ -10,7 +10,6 @@
   },
   "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
   "exclude": [
-    "agent/extensions/agent-introspection.ts",
     "agent/extensions/orca*.ts"
   ]
 }
