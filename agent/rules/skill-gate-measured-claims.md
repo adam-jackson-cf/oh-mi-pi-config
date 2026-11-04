@@ -1,5 +1,5 @@
 ---
-agents: [main, task, sonic, designer]
+agents: [main]
 question: >-
   Does this reply state a measured performance or quality conclusion from this session's own
   runs, such as a speedup, latency, rate or accuracy figure, without labelling it provisional
