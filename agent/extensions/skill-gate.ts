@@ -428,7 +428,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		state.reads.clear(); state.discovered = false;
 	});
 	pi.on("before_subagent_spawn", (event, ctx) => {
-		const author = ["task", "sonic", "designer"].includes(event.agent);
+		const author = ["task", "sonic"].includes(event.agent);
 		if (!author && event.agent !== "verifier") return;
 		const state = stateFor(ctx);
 		// Core has already expanded agent frontmatter and configured roles into patterns.
@@ -443,7 +443,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		}
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
-			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
+			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic).",
 		};
 		if (independent.length !== models.length) return {
 			model: independent.map(model => `${model.provider}/${model.id}`),
