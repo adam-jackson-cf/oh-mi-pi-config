@@ -157,14 +157,12 @@ After correcting a failure that exhausted this limit, run
 
 Not carried by this repository, so set up on the NUC separately:
 
-- Skills in `~/.agents/skills` and `~/.agents/by-request` (listed in
-  `agent/config.yml`) are pulled daily from the Mac over Tailscale SSH by the
-  systemd user timer `agents-sync.timer`, which runs `~/.local/bin/agents-sync`
-  (`rsync --delete`, so the NUC mirrors the Mac). Paths listed in
-  `~/.config/agents-sync/excludes` are neither copied nor deleted: the Mac's
-  `roles` link, the NUC-only `omarchy` and `diagnose-crash` skills, and the
-  Mac-only skills `paperclip`, `macos-package-install-defaults`,
-  `codify-pr-reviews`, and `setup-code-precommit-checks`.
+- `~/.agents` is a Git clone of the private `adam-jackson-cf/skills-directory`
+  repository, managed by the owner. It uses the read-only deploy key
+  `~/.ssh/id_ed25519_skills_directory_ro` through the SSH config alias
+  `github-skills-directory` (`git@github-skills-directory:adam-jackson-cf/skills-directory.git`).
+  Skills not tracked there, including the NUC-only `skills/omarchy` and
+  `skills/diagnose-crash` links, remain local to the NUC.
 - The OpenRouter credential: `omp` resolves to the mise shim, with no wrapper.
   The key is omp's stored credential, imported from Infisical (project `dev`,
   environment dev) with `omp auth import -`; `omp token openrouter` confirms it.
