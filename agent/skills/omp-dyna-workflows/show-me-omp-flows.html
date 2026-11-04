@@ -258,7 +258,7 @@
     <div class="cell"><span class="lanelabel">NUC gate</span>
       <div class="card gate"><b>Checks out the SHA, builds the image</b><span>repo's <code>.devcontainer</code>, Podman default runtime, cached by Dockerfile hash. The GitHub token comes from Infisical on the host, never inside the container</span></div>
       <div class="card gate"><b>Runs <code>gate</code> in Podman + gVisor</b><span>rootless, runsc, after <code>postCreateCommand</code>; one job at a time</span></div>
-      <div class="card gh"><b>Posts commit status <code>gate</code></b><span>pending, then success / failure / error; <code>wait</code> returns only after the final status is posted. success and failure are cached per SHA; error re-runs</span></div>
+      <div class="card gh"><b>Posts commit status <code>gate</code></b><span>pending, then success / failure / error; <code>wait</code> returns after the final post finishes, and exits 1 if posting fails. success and failure are cached per SHA; error re-runs</span></div>
       <div class="card gh"><b>Fallback: GitHub Actions</b><span>weekly plus <code>workflow_dispatch</code> only; used when the NUC errors twice or is unreachable, and must pass on the exact SHA</span></div></div>
     <!-- GitHub -->
     <div class="lane">GitHub</div>
