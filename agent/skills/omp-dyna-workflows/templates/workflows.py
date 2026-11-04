@@ -100,9 +100,9 @@ def _hash_failures(root, manifest):
 
 
 def sensitive_paths(paths, patterns):
-    """Folder suffix '/' means descendants; other patterns are file-name prefixes."""
+    """Folder patterns match at any path boundary; other patterns match basename prefixes."""
     return [path for path in paths if any(
-        path.startswith(pattern) if pattern.endswith("/") else Path(path).name.startswith(pattern)
+        f"/{pattern}" in f"/{path}" if pattern.endswith("/") else Path(path).name.startswith(pattern)
         for pattern in patterns)]
 
 
@@ -205,10 +205,11 @@ def _run_verifier(brief):
 def verify(repo, parent, head, manifest_path, manifest_sha256, objective,
            gates=None, sensitive=None, max_checks=MAX_AGENTS):
     """Run frozen proofs then one cross-family verifier; always remove detached worktrees."""
-    repo = Path(repo).resolve()
+    # Initialize the failure envelope before any operation that can raise.
     result = {"status": "fail", "deterministic": {}, "verifier": {}, "blocking": [], "followUps": []}
     trees = []
     try:
+        repo = Path(repo).resolve()
         manifest = load_manifest(manifest_path, manifest_sha256, max_checks)
         # Unique scratch parent prevents concurrent verifications of the same slug colliding.
         with tempfile.TemporaryDirectory(prefix="omp-verify-") as scratch:
@@ -218,7 +219,13 @@ def verify(repo, parent, head, manifest_path, manifest_sha256, objective,
                     _git(repo, "worktree", "add", "--detach", str(tree), ref)
                     trees.append(tree)
                 parent_tree, head_tree = trees
-                gate = json.loads((head_tree / ".omp/gate.json").read_text())
+                gate_path = head_tree / ".omp/gate.json"
+                if not gate_path.is_file():
+                    raise WorkflowError(
+                        "missing fastGate or pathCheck; use skill://setup-repository-guardrails")
+                gate = json.loads(gate_path.read_text())
+                if not isinstance(gate, dict):
+                    raise WorkflowError(".omp/gate.json must be an object")
                 paths = _git(repo, "diff", "--name-only", parent, head).splitlines()
                 deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, gates, sensitive)
                 result["deterministic"] = deterministic
@@ -263,8 +270,12 @@ def verify(repo, parent, head, manifest_path, manifest_sha256, objective,
                     result["status"] = "pass"
             finally:
                 for tree in reversed(trees):
-                    _git(repo, "worktree", "remove", "--force", str(tree))
-    except (RuntimeError, OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+                    try:
+                        _git(repo, "worktree", "remove", "--force", str(tree))
+                    except Exception as exc:
+                        result["blocking"].append(str(exc))
+                        result["status"] = "fail"
+    except Exception as exc:
         result["blocking"].append(str(exc))
         result["status"] = "fail"
     return result
