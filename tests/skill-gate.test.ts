@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
@@ -22,7 +22,7 @@ type GateFixture = {
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
 	sensitive?: unknown;
 };
-type Input = { path?: string; paths?: string[]; content?: string; command?: string; cwd?: string };
+type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Details = { exitCode?: number; applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; toolName?: string; toolCallId?: string; input?: Input;
@@ -415,11 +415,71 @@ describe("skill gate", () => {
 			assert.equal(await h.emit("before_agent_start", { reason: "revive" }), undefined);
 			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt" })).includes("skill://omp-dyna-workflows"));
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt" }), undefined);
+			await h.read(integrity);
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined, "main agents may use relative paths");
 			h.setSession("sub"); h.context.agent.kind = "sub";
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt" }), undefined);
-			await h.read(integrity); await h.call("edit", { path: "existing.ts" });
+			await h.read(integrity);
+			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
+			assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
 			assert.equal(await h.emit("session_stop"), undefined);
 		} finally { h.cleanup(); }
+	});
+
+	test("requires absolute subagent paths across mapped writes and edit payloads", async () => {
+		const h = harness();
+		try {
+			h.context.agent.kind = "sub";
+			await h.read(integrity, structure, naming);
+			const calls: [string, Input][] = [
+				["write", { path: "new.ts" }],
+				["edit", { paths: [join(h.root, "existing.ts"), "../other.ts"] }],
+				["ast_edit", { paths: ["./existing.ts"] }],
+				["edit", { input: "*** Begin Patch\n[existing.ts#ABCD]\nREM\n*** End Patch\n" }],
+				["edit", { input: `*** Begin Patch\n[${join(h.root, "existing.ts")}#ABCD]\nMV moved.ts\n*** End Patch\n` }],
+			];
+			for (const [tool, input] of calls) {
+				const result = await h.call(tool, input);
+				assert.equal(result?.block, true, `${tool}: ${JSON.stringify(input)}`);
+				assert.ok(result?.reason?.includes("absolute path inside your assigned worktree"));
+			}
+			for (const path of ["local://brief.txt", "agent://Main", "xd://report_issue", "proc://job/kill", "memory://root/note", "skill://example"]) {
+				assert.equal(await h.call("write", { path }), undefined, path);
+			}
+			assert.equal(await h.call("write", { path: join(tmpdir(), "skill-gate-scratch.txt") }), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("contains subagent symlink writes within the lexical repo, including new descendants", async () => {
+		const h = harness();
+		const outside = mkdtempSync(join(tmpdir(), "skill-gate-outside-"));
+		try {
+			h.context.agent.kind = "sub";
+			await h.read(integrity, structure, naming);
+			writeFileSync(join(outside, "existing.ts"), "outside\n");
+			mkdirSync(join(outside, ".git"));
+			symlinkSync(outside, join(h.root, "escape"));
+			symlinkSync(join(outside, "existing.ts"), join(h.root, "escape-file.ts"));
+			symlinkSync(join(h.root, "existing.ts"), join(h.root, "inside-file.ts"));
+			mkdirSync(join(h.root, "owned"));
+			symlinkSync(join(h.root, "owned"), join(h.root, "inside"));
+			for (const suffix of ["escape/existing.ts", "escape/new/deep/file.ts", "escape-file.ts"]) {
+				const path = join(h.root, suffix);
+				for (const tool of ["write", "edit", "ast_edit"]) {
+					const result = await h.call(tool, tool === "write" ? { path } : { paths: [path] });
+					assert.equal(result?.block, true, `${tool}: ${suffix}`);
+					assert.ok(result?.reason?.includes(path));
+					assert.ok(result?.reason?.includes(realpathSync(outside)));
+				}
+			}
+			for (const suffix of ["inside-file.ts", "inside/new/deep/file.ts"]) {
+				assert.equal(await h.call("write", { path: join(h.root, suffix) }), undefined, suffix);
+			}
+			symlinkSync("loop", join(h.root, "loop"));
+			assert.equal(await h.call("write", { path: join(h.root, "loop") }), undefined, "filesystem errors fail open for this supplemental check");
+			h.context.agent.kind = "main";
+			assert.equal(await h.call("write", { path: join(h.root, "escape-file.ts") }), undefined, "main sessions are unaffected");
+		} finally { h.cleanup(); rmSync(outside, { recursive: true, force: true }); }
 	});
 
 	test("checks AST mutation on resolve, not its preview", async () => {
