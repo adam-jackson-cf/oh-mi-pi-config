@@ -110,13 +110,17 @@ global slot (`NUC_GATE_SLOTS`), with a 1,200-second systemd runtime limit
 (`NUC_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
 retention; the service never globally prunes Podman resources.
 
-Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into the host-side
-publisher, never the container. Grant the NUC identity access to that secret in
-project `052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`, with
-repository commit-status write permission. Missing credentials leave local results
-intact but make publication exit nonzero. Pending publication also uses Infisical
-when the SSH shell has no token. Public fetches need no token; authenticated
-fetches use a command-local Git `http.extraHeader`, never saved configuration.
+Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into host-side fetches
+and the status publisher, never the container. Allowlisted public and private
+repositories are supported, including submissions from SSH shells without a
+token. Grant the NUC identity access to that secret in project
+`052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`. The fine-grained GitHub
+token needs access to every opted-in repository (or **All repositories**) with
+**Contents: read** and **Commit statuses: write** permissions. Missing credentials
+leave local results intact but make publication exit nonzero. Public fetches
+need no token; authenticated fetches use GitHub Basic authentication through
+process-local Git configuration environment variables, never command-line
+arguments or saved mirror configuration.
 
 `NUC_GATE_INFISICAL_PROJECT`, `NUC_GATE_INFISICAL_ENV`, `NUC_GATE_REPOS`,
 `NUC_GATE_GITHUB_API`, and executable overrides `NUC_GATE_GIT`,
