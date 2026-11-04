@@ -24,6 +24,8 @@
 scripts/*
 !scripts/run-ci-quality-gates.sh
 !scripts/check-paths.py
+!scripts/nuc-gate.py
+!scripts/nuc-gate-repos.json
 
 !tools/
 tools/*
@@ -82,10 +84,17 @@ tests/*
 !tests/agent-autocomplete.test.ts
 !tests/skill-gate.test.ts
 !tests/test_check_paths.py
+!tests/test_nuc_gate.py
 
 !.omp/
 .omp/*
 !.omp/lsp.json
+!.omp/gate.json
+
+!.devcontainer/
+.devcontainer/*
+!.devcontainer/devcontainer.json
+!.devcontainer/Containerfile
 
 # Generated state inside owned source trees remains runtime-only.
 **/.DS_Store

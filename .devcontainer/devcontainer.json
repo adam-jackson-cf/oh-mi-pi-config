@@ -1,0 +1,4 @@
+{
+  "build": { "dockerfile": "Containerfile" },
+  "postCreateCommand": "bun install --frozen-lockfile"
+}

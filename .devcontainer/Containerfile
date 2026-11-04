@@ -1,0 +1,4 @@
+FROM docker.io/oven/bun:1.3.0@sha256:b94a885b41110459fc8906ed2c66f825af4a3929dd270958af8ee0dbc6892750
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 git && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
