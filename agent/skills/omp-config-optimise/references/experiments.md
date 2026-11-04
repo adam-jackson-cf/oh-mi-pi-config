@@ -87,9 +87,7 @@ python3 run_vision.py --analyze <output-dir>
 The three harnesses above are pass/fail gates. SCBench
 (`~/Projects/inflight/slop-code-bench`) ranks models.
 Each run builds and then extends one program through 8 cumulative
-checkpoints. On `mocked_http` the 2026-09-07 OpenCode cohort spread from 56%
-(GPT-5.6 Luna) to 85% (GPT-6 Astra) mean pass rate, with no model at 100% on
-any checkpoint. Use it to compare models; OMP is only the vehicle.
+checkpoints. Use it to compare models; OMP is only the vehicle.
 
 - Agent: SCBench's `omp` adapter (`configs/agents/omp.yaml`, OMP 18.4.4,
   vanilla config, $20 and 250-step caps). Models are
@@ -105,8 +103,7 @@ any checkpoint. Use it to compare models; OMP is only the vehicle.
   against every test. Use a per-rep `save_dir`.
 - Rank on the final score (pass rate adjusted for code quality), then mean
   pass rate (`C_p`) and the quality components. Strict checkpoints solved is
-  context only: every model scored 0 of 8 in the 2026-09-07 cohort. This
-  differs from SCBench's own reporting rule by owner decision (2026-09-30).
+  context only. This differs from SCBench's own reporting rule by owner decision (2026-09-30).
 - Cost is OMP's reported cost. Codex credits are 25× it for every GPT-6 and
   GPT-6.1 model (the credit rate card is exactly 25× API price). Use at least
   3 reps per arm; runs take about 1–2 hours and up to $5.50 API-equivalent
