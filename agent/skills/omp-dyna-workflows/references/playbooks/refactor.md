@@ -2,24 +2,37 @@
 
 ## Objective
 
-Make the target design canonical while preserving required behaviour and migrating every caller.
+Make the target design canonical, preserve required behaviour and migrate every caller.
 
 ## Steps
 
-1. Define the target design, preserved behaviours, and observable completion criteria.
-2. Read `skill://codegraph/references/readiness-and-bootstrap.md` before repository discovery.
-3. Read `skill://codegraph/references/query-selection.md`; inventory all callers and affected owners.
-4. Read `skill://git-tool`, then its branch-and-integrate runbook; allocate one writer branch.
-5. Read `skill://coding-guidance/references/implementation-integrity.md` before the first edit.
-6. Read `skill://coding-guidance/references/clean-cutovers.md`; plan the canonical cutover and
-   removal of obsolete implementations, aliases, comments, and compatibility paths.
-7. Read `skill://coding-guidance/references/structure-and-grouping.md` before files or folders move.
-8. Read `skill://coding-guidance/references/naming.md` before renaming concepts or paths.
-9. Delegate every code change to `task`; migrate every caller, test, and affected document,
-   remove the obsolete path, and prove preserved behaviour without compatibility shims.
-10. Read `skill://coding-guidance/references/verification.md`; run the repository fast gate from
-    `.omp/gate.json` after the final edit and record the result before handoff.
-11. Read `skill://git-tool/references/review-loop.md`; obtain independent-session,
-    cross-family review per the owner rules and resolve findings through `task`.
-12. Read `skill://git-tool/references/branch-and-integrate.md`; integrate the verified
-    unit as one PR using the review loop; rerun the fast gate after any review-driven edit.
+1. **Frame**: define outcome, preserved behaviours, acceptance criteria and plan-changing
+   questions; use `kiss` to cut scope. Read
+   `skill://codegraph/references/readiness-and-bootstrap.md` before discovery, then
+   `skill://codegraph/references/query-selection.md`; inventory every caller and owner.
+2. **Spike**: if questions remain, read `skill://git-tool` and
+   `skill://omp-dyna-workflows/references/patterns.md`; declare predicates, side effects and
+   timebox. Non-isolated `task` uses absolute paths in a detached scratch worktree; report
+   commands, outputs and failures, then discard it. Never branch implementation from spike.
+3. **Plan**: read `skill://coding-guidance/references/clean-cutovers.md`,
+   `skill://test-guidance/references/tiers.md`, `skill://test-guidance/references/suite-budget.md`
+   and `skill://omp-dyna-workflows/references/patterns.md`. Map preserved criteria to
+   `kind: preserve` proofs (green at parent and head); fill proof-surface gaps first.
+   Plan removal of obsolete implementations, aliases, comments and compatibility paths;
+   keep plan draft until spike answers land.
+4. **Implement**: require `.omp/gate.json` `fastGate` and `pathCheck`; otherwise read
+   `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
+   `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default.
+   Read `skill://coding-guidance/references/implementation-integrity.md`,
+   `skill://coding-guidance/references/structure-and-grouping.md` and
+   `skill://coding-guidance/references/naming.md` before edits/moves/renames.
+   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   implementation `task`; migrate all callers/tests/docs and remove obsolete paths, no shims.
+   Read `skill://coding-guidance/references/verification.md`; run `fastGate` after last edit.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()` with
+   preservation proofs green on parent overlay and twice at head. Cross-family verifier
+   drives every criterion and checks affected docs; apply only the defined blocking rule.
+6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
+   `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
+   rebase-merge with `--match-head-commit`, wait for default CI. Sensitive paths require
+   owner merge; fix/rebase gets one verification at new head per the verify loop.

@@ -39,6 +39,7 @@ const gateSchema = z.object({
 	pathCheck: argvSchema.optional(),
 	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
+	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 });
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
@@ -57,6 +58,7 @@ const detailsSchema = z.object({
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
 }).catch({ exitCode: undefined, applied: undefined, files: undefined });
+const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
@@ -69,6 +71,7 @@ interface State {
 	baselines: Map<string, string>;
 	checkedTrees: Map<string, string>;
 	pathFailures: Map<string, string[]>;
+	authorFamilies: Set<string>;
 	revision: number;
 	discovered: boolean;
 	pointed: boolean;
@@ -99,6 +102,7 @@ function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Map(), passed: new Map(),
 		bashStarts: new Map(), baselines: new Map(), checkedTrees: new Map(), pathFailures: new Map(), revision: 0,
+		authorFamilies: new Set(),
 		discovered: false, pointed: false, proposal: [],
 	};
 }
@@ -153,9 +157,9 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-async function gitActions(command: string, cwd: string | undefined): Promise<{ command: string; cwd?: string }[]> {
+async function gitActions(command: string, cwd: string | undefined): Promise<{ command: string; cwd?: string; ghArgs?: string[] }[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
-	const actions: { command: string; cwd?: string }[] = [];
+	const actions: { command: string; cwd?: string; ghArgs?: string[] }[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -208,11 +212,12 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 			}
 			actions.push({ command: `git ${words.join(" ")}`, cwd: effective });
 		} else if (executable === "gh") {
-			while (words[0]?.startsWith("-")) {
-				const option = words.shift()!;
-				if (["-R", "--repo", "--hostname"].includes(option)) words.shift();
-			}
-			actions.push({ command: `gh ${words.join(" ")}`, cwd });
+			const ghArgs = [...words];
+			words = words.filter((word, index, all) =>
+				!["-R", "--repo", "--hostname"].includes(word) &&
+				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
+				!/^(-R.|--repo=|--hostname=)/.test(word));
+			actions.push({ command: `gh ${words.join(" ")}`, cwd, ghArgs });
 		}
 		words = [];
 	};
@@ -386,6 +391,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		state.baselines = previous?.baselines ?? new Map();
 		state.checkedTrees = previous?.checkedTrees ?? new Map();
 		state.pathFailures = previous?.pathFailures ?? new Map();
+		state.authorFamilies = previous?.authorFamilies ?? new Set();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
 		if (ctx.agent.kind === "main") {
@@ -421,6 +427,29 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const state = stateFor(ctx);
 		state.reads.clear(); state.discovered = false;
 	});
+	pi.on("before_subagent_spawn", (event, ctx) => {
+		const author = ["task", "sonic", "designer"].includes(event.agent);
+		if (!author && event.agent !== "verifier") return;
+		const state = stateFor(ctx);
+		// Core has already expanded agent frontmatter and configured roles into patterns.
+		// Empty patterns inherit the parent model; retain every retry family's authorship.
+		const models = event.patterns.length
+			? event.patterns.map(pattern => ctx.models.resolve(pattern)).filter(model => model !== undefined)
+			: [ctx.models.current()].filter(model => model !== undefined);
+		if (!models.length) return { block: true, reason: `Skill gate: cannot resolve ${event.agent}'s model family.` };
+		if (author) {
+			for (const model of models) state.authorFamilies.add(ctx.models.family(model));
+			return;
+		}
+		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
+		if (!independent.length) return {
+			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
+		};
+		if (independent.length !== models.length) return {
+			model: independent.map(model => `${model.provider}/${model.id}`),
+			note: "Skill gate: removed verifier models from recorded author families.",
+		};
+	});
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { block: true, reason: loadError };
@@ -451,6 +480,45 @@ export default function skillGate(pi: ExtensionAPI): void {
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
+						if (/^gh pr merge\b/.test(action.command) && gate?.sensitive?.length) {
+							const args = action.ghArgs ?? [];
+							const repoArgs: string[] = [];
+							const mergeArgs: string[] = [];
+							for (let index = 0; index < args.length; index++) {
+								const arg = args[index];
+								if (["-R", "--repo", "--hostname"].includes(arg)) {
+									repoArgs.push(arg, args[++index]);
+								} else if (/^(-R.|--repo=|--hostname=)/.test(arg)) repoArgs.push(arg);
+								else mergeArgs.push(arg);
+							}
+							let selector: string | undefined;
+							for (let index = 2; index < mergeArgs.length; index++) {
+								const arg = mergeArgs[index];
+								if (["--subject", "-t", "--body", "-b", "--body-file", "-F", "--author-email", "--match-head-commit"].includes(arg)) index++;
+								else if (!arg.startsWith("-")) { selector = arg; break; }
+							}
+							const pull = await pi.exec("gh", [
+								...repoArgs, "pr", "view", ...(selector ? [selector] : []),
+								"--json", "number,url",
+							], { cwd: action.cwd, timeout: 20000 });
+							if (pull.code !== 0 || pull.killed) throw new Error(`cannot resolve PR: ${pull.stderr}`);
+							const metadata = pullRequestSchema.parse(JSON.parse(pull.stdout));
+							const url = new URL(metadata.url);
+							const repository = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
+							if (!repository || Number(repository[3]) !== metadata.number) throw new Error("cannot resolve PR repository from URL");
+							const files = await pi.exec("gh", [
+								"api", "--hostname", url.host, "--paginate",
+								`repos/${repository[1]}/${repository[2]}/pulls/${metadata.number}/files`,
+								"--jq", ".[].filename",
+							], { cwd: action.cwd, timeout: 20000 });
+							if (files.code !== 0 || files.killed) throw new Error(`cannot resolve PR files: ${files.stderr}`);
+							if (files.stdout.split("\n").filter(Boolean).some(path =>
+								gate.sensitive!.some(pattern => pattern.endsWith("/")
+									? `/${path}`.includes(`/${pattern}`)
+									: basename(path).startsWith(pattern)))) return {
+								block: true, reason: "Skill gate: owner must merge PRs touching sensitive paths.",
+							};
+						}
 					}
 				}
 			}

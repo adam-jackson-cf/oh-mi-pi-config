@@ -16,9 +16,10 @@ recommendation, not a silent edit.
   reasoning ≤ medium.
 - Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
   reasoning ≤ medium.
-- Code review (`reviewer`): Claude Sonnet 5.5 `medium`, in an independent session with none of the
-  author's context; a different model family from the author is required (owner decision
-  2026-11-03). Sonnet reviews GPT-6.1 Sol implementation.
+- Verification (`verifier`): Claude Sonnet 5.5 `medium`, independent and cross-family to
+  every author (Sol implementation by default), enforced by skill-gate (2026-11-04).
+- Bundled `reviewer`: Sonnet 5.5 `medium` for open-ended contextual eval judging, not the
+  proof-first verification stage; preserve independent cross-family sessions.
 - Implementation with a fixed plan or todo list (`task`): GPT-6.1 Sol `medium` with Codex
   `priority` service tier (owner decision 2026-11-03).
 - Image reading (`vision`): GPT Terra (current: GPT-6.1 Terra `low`, owner decision 2026-10-27).
@@ -27,13 +28,11 @@ recommendation, not a silent edit.
 - Simple, low-reasoning actions (`smol`, `tiny`, `commit`, `sonic`): GPT Luna; reasoning
   lowest effort.
 - Codebase discovery (`scout`): Claude Haiku 5.5 `medium` (owner decision 2026-11-03).
-- Judging implementation tests and completeness (`test-judge`, `completionist`): Claude Sonnet
-  5.5 `medium`, in independent sessions; a different model family from the author is required
-  (owner decision 2026-11-03).
-- Judging Opus-authored plans/code (`plan-judge`, `kiss`): GPT-6.1 Sol `low`, in independent
-  sessions with a different model family from the author (owner decision 2026-11-03).
-- Codex `priority` service tier applies to exactly `task`, `plan-judge`, `kiss` and `sonic`
-  (owner decision 2026-11-03).
+- Scope cutting (`kiss`): GPT-6.1 Sol `low`; cut acceptance criteria and open questions
+  before a spike, not a risk review.
+- Former plan/test/completeness judging roles: removed 2026-11-04, proof-first workflow.
+- Codex `priority` service tier applies to exactly `task`, `kiss` and `sonic`
+  (owner decision 2026-11-04).
 - Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.

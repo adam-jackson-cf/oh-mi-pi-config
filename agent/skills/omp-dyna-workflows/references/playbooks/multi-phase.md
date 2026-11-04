@@ -2,29 +2,44 @@
 
 ## Objective
 
-Deliver a larger engineering outcome as independently verifiable units with one PR per unit.
+Land independently proven increments behind a flag, not long-lived or stacked branches.
 
 ## Steps
 
-1. Define the end-to-end acceptance criteria and split the work into verifiable units;
-   give each unit its own observable result, dependencies, acceptance criteria, and one PR.
-2. Read `skill://codegraph/references/readiness-and-bootstrap.md` before repository discovery.
-3. Read `skill://codegraph/references/query-selection.md`; map owners, callers, and dependency order.
-4. Read `skill://git-tool`, then its branch-and-integrate runbook; assign one writer per
-   branch and one branch per unit; parallelize only independent units with explicit interfaces.
-5. Read `skill://coding-guidance/references/implementation-integrity.md` before each unit's
-   first edit; delegate every code change, including small fixes and tests, to `task`.
-6. Read `skill://coding-guidance/references/structure-and-grouping.md` for new or moved paths.
-7. Read `skill://coding-guidance/references/naming.md` before introducing or renaming concepts.
-8. Read `skill://coding-guidance/references/clean-cutovers.md` for units that replace or refactor;
-   migrate all callers and remove obsolete paths in the unit that makes the cutover canonical.
-9. Read `skill://coding-guidance/references/regression-coverage.md` for bug-fix units; require
-   reproduction and a representative regression that fails before the fix and passes afterward.
-10. Read `skill://test-guidance/references/suite-budget.md`; justify each unit's test additions.
-11. Read `skill://coding-guidance/references/verification.md`; for each completed unit, run the
-    repository fast gate from `.omp/gate.json` after its final edit and record the result.
-12. Read `skill://git-tool/references/review-loop.md`; obtain independent-session,
-    cross-family review per the owner rules for each unit; resolve findings through `task`.
-13. Read `skill://git-tool/references/branch-and-integrate.md`; integrate one verified
-    unit per PR in dependency order using the review loop; rerun the fast gate after review edits
-    and verify the combined acceptance criteria before handing off the full outcome.
+1. **Frame**: define end-to-end criteria and split independently verifiable units, each with
+   outcome, dependencies, criteria and one PR. State a flag removal criterion; use `kiss`
+   to cut criteria/questions. Read `skill://codegraph/references/readiness-and-bootstrap.md`
+   before discovery, then `skill://codegraph/references/query-selection.md` to map owners,
+   callers and dependency order. A unit waits only when it actually builds on another.
+2. **Spike**: for unanswered plan-changing questions, read `skill://git-tool` and
+   `skill://omp-dyna-workflows/references/patterns.md`; declare predicates, side effects
+   and timebox. Non-isolated `task` uses absolute paths in a detached scratch worktree;
+   report commands, outputs and failures, then discard all spike code. Prototype race only
+   when built results distinguish options; council only when no prototype can settle it.
+3. **Plan**: read `skill://omp-dyna-workflows/references/patterns.md`,
+   `skill://test-guidance/references/tiers.md` and
+   `skill://test-guidance/references/suite-budget.md`; map every unit's criteria to named
+   manifest proofs, missing proof surfaces first. Use `defect` plus `expectRed` for fixes,
+   `preserve` for refactors, `new-surface` for absent APIs. Keep plan draft until spike ends.
+   Read `skill://coding-guidance/references/clean-cutovers.md` for replacing units and
+   `skill://coding-guidance/references/regression-coverage.md` for defect-class coverage.
+4. **Implement**: require `.omp/gate.json` `fastGate` and `pathCheck`; otherwise read
+   `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
+   `skill://git-tool/references/branch-and-integrate.md`; one writer per short-lived
+   `agent/<slug>` branch from default, never spike. Parallelize only independent units with
+   explicit interfaces. Read `skill://coding-guidance/references/implementation-integrity.md`,
+   `skill://coding-guidance/references/structure-and-grouping.md` and
+   `skill://coding-guidance/references/naming.md` before edits/new or moved paths/names.
+   Per unit, spawn proof `task`, main records hashes and re-freezes manifest, then separately
+   spawn implementation `task`. Land green increments behind the flag; migrate callers and
+   delete obsolete paths in the canonical cutover unit. Read
+   `skill://coding-guidance/references/verification.md`; run `fastGate` after last edit.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()` per
+   code-ready unit, proofs green twice at head and parent evidence by kind. Cross-family
+   verifier drives criteria and checks affected docs under the blocking rule; prove combined
+   end-to-end criteria before flag removal.
+6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
+   `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
+   each unit with `--match-head-commit`, wait for default CI. Target same-day merge; no stacked
+   or long-lived branches. Owner merges sensitive changes; re-verify fixes/rebases once at
+   new head per verify loop. Remove the flag when its declared criterion is met.
