@@ -19,6 +19,7 @@ Routing decision updated 2026-11-04 for the proof-first workflow. The installed 
 - `verifier` → Sonnet 5.5 : medium. Independent live proof verification, cross-family to every
   author (Sol by default); skill-gate enforces the family invariant (2026-11-04).
 - `task` → GPT-6.1 Sol : medium. Implementation, including small fixes delegated by main.
+  Earlier Sonnet `low` fixed-plan measurements do not validate this route.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
   The `scout` agent is an exception: `task.agentModelOverrides.scout` explicitly selects
   `anthropic/claude-haiku-5-5:medium`, not `@smol`.
@@ -53,5 +54,8 @@ GPT-6.1 Sol `medium` and GPT-6.1 Sol `low`. Other agents have no per-agent tier 
 - Implementation (`task`), `sonic`, `kiss`, vision and `operator` draw Codex;
   main/planning, `designer`, `reviewer`, `verifier`, `scout` and Anthropic council/experiment
   roles draw Anthropic. Monitor both quotas; old snapshots are not current capacity evidence.
+- The earlier fixed-plan and review-detection experiments evaluated superseded routes.
+  Do not use their ceiling scores to claim the current Sol `medium` implementation or
+  Sonnet `medium` verification routes were measured.
 - Independent sessions alone do not satisfy cross-family verification: a verifier must differ
   from every author family, including when overriding author or verifier routes.
