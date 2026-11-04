@@ -125,11 +125,11 @@
   <div class="sub">
     One non-trivial engineering request, left to right through six proof-first stages. Rows are the components that act at each stage.
     Red cards are hard blocks the <code>skill-gate</code> extension enforces. Violet cards are Jev-judged warnings. Green cards are deterministic checks. Everything else is instruction the agents follow.
-    Source of truth: <code>SKILL.md</code>, <code>agent/config.yml</code>, <code>agent/skill-gates.yml</code>, <code>agent/extensions/skill-gate.ts</code>, <code>templates/workflows.py</code>, <code>skill://git-tool</code>.
+    Source of truth: <code>SKILL.md</code>, <code>agent/config.yml</code>, <code>agent/skill-gates.yml</code>, <code>agent/extensions/skill-gate.ts</code>, <code>templates/workflows.py</code>, <code>skill://git-tool</code>, <code>scripts/nuc-gate.py</code> and the readme's NUC gate section.
   </div>
   <div class="legend">
     <span class="chip"><i class="dot" style="background:var(--opus)"></i>Opus 5.5 (main, innovation-council)</span>
-    <span class="chip"><i class="dot" style="background:var(--sol)"></i>GPT-6.1 Sol (task, kiss; priority tier)</span>
+    <span class="chip"><i class="dot" style="background:var(--sol)"></i>GPT-6.1 Sol (task, kiss; verifies designer work; priority tier)</span>
     <span class="chip"><i class="dot" style="background:var(--sonnet)"></i>Sonnet 5.5 (designer, verifier)</span>
     <span class="chip"><i class="dot" style="background:var(--haiku)"></i>Haiku 5.5 (scout)</span>
     <span class="chip"><i class="dot" style="background:var(--block)"></i>skill-gate hard block</span>
@@ -180,7 +180,9 @@
     <div class="cell"><span class="lanelabel">Main agent</span>
       <div class="card opus"><b>Calls <code>verify()</code></b><span>full run once at the code-ready head</span></div>
       <div class="card opus"><b>Applies the blocking rule</b><span>findings → fix task, ≤3 rounds</span></div></div>
-    <div class="cell"><span class="lanelabel">Main agent</span><div class="card opus"><b>Merges non-sensitive PRs</b><span>labels <code>agent-verified</code>, one PR at a time</span></div></div>
+    <div class="cell"><span class="lanelabel">Main agent</span>
+      <div class="card opus"><b>Submits, then waits for <code>gate</code></b><span><code>ciHost: nuc</code>: <code>nuc-gate submit</code> and <code>wait</code> over SSH for the pushed SHA; resubmits once on <code>error</code></span></div>
+      <div class="card opus"><b>Merges non-sensitive PRs</b><span>labels <code>agent-verified</code>, one PR at a time</span></div></div>
 
     <!-- Subagents -->
     <div class="lane">Subagents<small>own sessions</small></div>
@@ -193,9 +195,10 @@
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sol"><b>task (Sol): proof task</b><span>proof surface + proof files on <code>agent/&lt;slug&gt;</code></span></div>
       <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn, after the re-freeze; edits, tests, commits</span></div>
-      <div class="card sonnet"><b>designer (Sonnet)</b><span>presentational changes only</span></div></div>
+      <div class="card sonnet"><b>designer (Sonnet 5.5)</b><span>presentational changes only; scores its layout against a 10-point design-judgement rubric and inspects screenshots</span></div></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
+      <div class="card sol"><b>task (Sol): verifies designer work</b><span>skill-gate records <code>designer</code> as a Sonnet author, so a Sonnet verifier is not independent; a read-only brief keeps the Sol task from editing</span></div>
       <div class="card sol"><b>task (Sol): fix</b><span>for each blocking finding</span></div></div>
     <div class="cell"></div>
 
@@ -232,9 +235,11 @@
     <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b>Prerequisite: <code>fastGate</code> + <code>pathCheck</code></b><span>either missing → <code>skill://setup-repository-guardrails</code> first</span></div></div>
     <div class="cell"><span class="lanelabel">Repository</span>
       <div class="card gate"><b>commitGate</b><span>pre-commit hook; keeps every commit green</span></div>
-      <div class="card gate"><b>fastGate · pathCheck</b><span>e.g. <code>--tier t1 --affected</code>; path-check CLI</span></div></div>
+      <div class="card gate"><b><code>fastGate</code> · <code>pathCheck</code></b><span>this repo: <code>fastGate</code> = the full <code>scripts/run-ci-quality-gates.sh</code>; <code>pathCheck</code> = <code>python3 scripts/check-paths.py</code> (<code>.gitignore</code> allowlist, test placement and naming)</span></div></div>
     <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b><code>sensitive</code></b><span>pattern ending in <code>/</code> matches that folder anywhere in the path; any other pattern matches when the file's basename starts with it</span></div></div>
-    <div class="cell"><span class="lanelabel">Repository</span><div class="card gate"><b>gate</b><span>full check in CI on the exact head SHA</span></div></div>
+    <div class="cell"><span class="lanelabel">Repository</span>
+      <div class="card gate"><b>gate</b><span>full check on the exact head SHA, run by the CI host in <code>ciHost</code></span></div>
+      <div class="card gate"><b><code>ciHost</code></b><span><code>nuc</code>: <code>adam-jackson-cf</code> default, and the repo must be in <code>scripts/nuc-gate-repos.json</code>; missing is a setup gap, not a reason to skip CI. <code>github</code> (default): <code>adam-versed</code> and other owners, PR-triggered Actions</span></div></div>
 
     <!-- verify() -->
     <div class="lane">verify()<small>deterministic, <code>workflows.py</code></small></div>
@@ -247,13 +252,21 @@
       <div class="card gate"><b>Tree-state check</b><span><code>git status</code> + HEAD before and after the verifier; any change fails</span></div></div>
     <div class="cell"></div>
 
+    <!-- NUC gate -->
+    <div class="lane">NUC gate<small>owner's Linux host <code>omarchy</code></small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    <div class="cell"><span class="lanelabel">NUC gate</span>
+      <div class="card gate"><b>Checks out the SHA, builds the image</b><span>repo's <code>.devcontainer</code>, Podman default runtime, cached by Dockerfile hash. The GitHub token comes from Infisical on the host, never inside the container</span></div>
+      <div class="card gate"><b>Runs <code>gate</code> in Podman + gVisor</b><span>rootless, runsc, after <code>postCreateCommand</code>; one job at a time</span></div>
+      <div class="card gh"><b>Posts commit status <code>gate</code></b><span>pending, then success / failure / error; <code>wait</code> returns only after the final status is posted. success and failure are cached per SHA; error re-runs</span></div>
+      <div class="card gh"><b>Fallback: GitHub Actions</b><span>weekly plus <code>workflow_dispatch</code> only; used when the NUC errors twice or is unreachable, and must pass on the exact SHA</span></div></div>
     <!-- GitHub -->
     <div class="lane">GitHub</div>
     <div class="cell"></div><div class="cell"></div><div class="cell"></div>
     <div class="cell"><span class="lanelabel">GitHub</span><div class="card gh"><b>Push branch, open PR early</b><span>non-GitHub remote → stop and ask</span></div></div>
     <div class="cell"><span class="lanelabel">GitHub</span><div class="card gh"><b>Evidence on the PR</b><span>manifest, verifier families and results, <code>agent-verified</code> label</span></div></div>
     <div class="cell"><span class="lanelabel">GitHub</span>
-      <div class="card gh"><b>Required CI on head</b><span>no CI at all → local gate on exact SHA, recorded on PR</span></div>
+      <div class="card gh"><b>Required status <code>gate</code> on head</b><span>posted by the NUC for <code>ciHost: nuc</code>, by Actions otherwise; no CI at all → local gate on exact SHA, recorded on PR</span></div>
       <div class="card gh"><b><code>gh pr merge --rebase --match-head-commit</code></b><span>rebase only if DIRTY, or BEHIND under strict protection; then default-branch CI</span></div></div>
   </div>
 </section>
@@ -267,9 +280,9 @@
     <div class="step"><div class="n">04</div><b>Fix via task</b><br><span class="note">main never patches; ≤3 rounds; rerun fastGate</span></div>
     <div class="step"><div class="n">05</div><b>Re-verify</b><br><span class="note">one <code>verify()</code> on the new head; may skip reruns whose <code>git patch-id</code> is unchanged</span></div>
     <div class="step"><div class="n">06</div><b>Evidence + label</b><br><span class="note">results on the PR, then <code>agent-verified</code></span></div>
-    <div class="step"><div class="n">07</div><b>Merge</b><br><span class="note">CI green on head, rebase-merge with <code>--match-head-commit</code></span></div>
+    <div class="step"><div class="n">07</div><b>Merge</b><br><span class="note"><code>gate</code> green on head (NUC status or Actions), rebase-merge with <code>--match-head-commit</code></span></div>
   </div>
-  <div class="back">↺ Any new head SHA repeats 01–03 (minor fix or rebase: one <code>verify()</code>; wording-only change to non-runtime docs: none). After three fix rounds the loop stops and escalates to the owner.</div>
+  <div class="back">↺ Any new head SHA repeats 01–03 (minor fix or rebase: one <code>verify()</code> and, for <code>ciHost: nuc</code>, a fresh submit and wait; wording-only change to non-runtime docs: none). After three fix rounds the loop stops and escalates to the owner.</div>
   <div class="tiers">
     <div class="card gh"><b>Docs-only (non-runtime)</b><span>merge on green. Skills, rules, agent definitions, AGENTS.md and prompt files are code, not docs.</span></div>
     <div class="card gate"><b>Everything else</b><span>one cross-family <code>verify()</code>, then the main agent merges.</span></div>
@@ -291,7 +304,7 @@
       <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read; the agent has run <code>fastGate</code> after its last edit or after a subagent changed the tree (the gate checks, it does not run it); failed paths pass</td><td>subagents; unchanged pre-existing dirty tree; fingerprint errors (fail open)</td></tr>
     </tbody>
   </table>
-  <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The <code>verifier</code> role is <code>anthropic/claude-sonnet-5-5:medium</code>.</p>
+  <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The <code>designer</code> and <code>verifier</code> roles are both <code>anthropic/claude-sonnet-5-5:medium</code>, which is why designer-authored work cannot use the verifier role.</p>
 </section>
 </main>
 
@@ -363,6 +376,11 @@
       <p class="why">The cheapest correct change wins; cutting scope before a spike is cheaper than spiking it.</p>
       <div class="where"><ul class="kinds" role="list">
         <li><span class="tag k-instr">instruction</span><span><code>kiss</code> cuts criteria and open questions at Frame; clean-cutover rule.</span></li></ul></div></li>
+    <li class="principle"><span class="n" aria-hidden="true">13</span><h3>CI runs the exact SHA on owner hardware, in a sandbox</h3>
+      <p class="why">A green status must belong to the commit being merged, and the code under test must not reach the credentials that report it.</p>
+      <div class="where"><ul class="kinds" role="list">
+        <li><span class="tag k-check">deterministic</span><span>NUC gate: rootless Podman + gVisor, token held by the host, status <code>gate</code> posted per SHA.</span></li>
+        <li><span class="tag k-instr">instruction</span><span><code>skill://git-tool</code> verify loop: submit and wait on every head; GitHub Actions is the fallback.</span></li></ul></div></li>
   </ol>
 </section>
 </main>
