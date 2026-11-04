@@ -1,4 +1,4 @@
-import { access, lstat, readFile, readlink, stat } from "node:fs/promises";
+import { access, lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -120,7 +120,7 @@ async function repoRoot(path: string): Promise<string | undefined> {
 		dir = parent;
 	}
 }
-function paths(event: ToolEvent, map: Mapping, cwd: string): string[] {
+function pathArguments(event: ToolEvent, map: Mapping): string[] {
 	const values = (map.pathFields[event.toolName] ?? []).flatMap(field => {
 		const value = event.pathFields[field];
 		return value === undefined ? [] : Array.isArray(value) ? value : [value];
@@ -133,8 +133,46 @@ function paths(event: ToolEvent, map: Mapping, cwd: string): string[] {
 		}
 	}
 	return [...new Set(values.flatMap(value => value.split(";")).map(value =>
-		absolute(value.trim().replace(/:[\d,+-]+(?::raw)?$/, ""), cwd),
-	).filter((value): value is string => value !== undefined))];
+		value.trim().replace(/:[\d,+-]+(?::raw)?$/, ""),
+	))];
+}
+function paths(event: ToolEvent, map: Mapping, cwd: string): string[] {
+	return pathArguments(event, map).flatMap(value => absolute(value, cwd) ?? []);
+}
+async function subagentPathReason(targets: string[]): Promise<string | undefined> {
+	for (const target of targets) {
+		const path = target.startsWith("~/") ? resolve(homedir(), target.slice(2)) : target;
+		if (/^[a-z][\w+.-]*:\/\//i.test(path)) continue;
+		if (!isAbsolute(path)) return `Skill gate: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
+		try {
+			const lexical = resolve(path);
+			let root = await repoRoot(lexical);
+			if (!root) continue;
+			let parent = lexical;
+			let resolved: string;
+			for (;;) {
+				try {
+					resolved = resolve(await realpath(parent), relative(parent, lexical));
+					break;
+				} catch (error) {
+					const parsed = fileErrorSchema.safeParse(error);
+					if (!parsed.success || parsed.data.code !== "ENOENT" || dirname(parent) === parent) throw error;
+					parent = dirname(parent);
+				}
+			}
+			// A linked external repository may expose its own .git; also check lexical enclosing roots.
+			while (root) {
+				const outside = relative(await realpath(root), resolved);
+				if (outside === ".." || outside.startsWith("../") || isAbsolute(outside)) {
+					return `Skill gate: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
+				}
+				const parent = dirname(root);
+				root = parent === root ? undefined : await repoRoot(parent);
+			}
+		} catch {
+			// Like fingerprinting, supplemental filesystem checks fail open; reference gates still apply.
+		}
+	}
 }
 function matches(path: string, globs: string[]): boolean {
 	return globs.some(glob => new Bun.Glob(glob).match(path));
@@ -524,6 +562,13 @@ export default function skillGate(pi: ExtensionAPI): void {
 				}
 			}
 			if (!map.editTools.includes(event.toolName)) return;
+			if (ctx.agent.kind !== "main") {
+				const reason = await subagentPathReason([
+					...pathArguments(event, map),
+					...(event.input.path === map.resolveDevice ? state.proposal : []),
+				]);
+				if (reason) return { block: true, reason };
+			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
 			const required = new Set<string>();
 			for (const path of targets) {
