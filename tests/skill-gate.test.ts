@@ -288,7 +288,7 @@ describe("skill gate", () => {
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":2}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":2}', '{"schemaVersion":1,"ciHost":"other"}']) {
 				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });

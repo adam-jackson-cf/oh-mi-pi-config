@@ -78,6 +78,64 @@ source.
    registration checks alone are not behavioral proof.
 5. Keep the durable source concise and leave generated runtime state untracked.
 
+## NUC gate (CI)
+
+The owner's Linux NUC runs exact-SHA gates in rootless Podman with gVisor.
+Only repositories in `scripts/nuc-gate-repos.json` can run. Push an
+`agent/<slug>` branch, then submit and wait over SSH:
+
+```sh
+ssh codex-omarchy-nuc \
+  'python3 ~/.omp/scripts/nuc-gate.py submit adam-jackson-cf/oh-mi-pi-config SHA'
+ssh codex-omarchy-nuc \
+  'python3 ~/.omp/scripts/nuc-gate.py wait adam-jackson-cf/oh-mi-pi-config SHA --timeout 1200'
+```
+
+Replace `SHA` with the pushed 40-character lowercase commit SHA.
+
+`status` prints the result; `logs` prints output (`--tail N` limits it).
+Resubmitting a running or completed SHA does not launch another job. `wait`
+exits 0 for success, 1 for failure/error, and 2 when its wait expires.
+`.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
+host, posting GitHub commit status context `gate`. `ciHost: "github"` selects
+GitHub as the declared CI host; the field is metadata, not automatic routing.
+The full `gate` argv runs after the devcontainer's `postCreateCommand`.
+
+Logs and atomic `result.json` files remain under
+`${XDG_STATE_HOME:-~/.local/state}/nuc-gate/jobs/<owner>/<repo>/<sha>/`;
+checkouts are removed after completion. Bare mirrors live under
+`${XDG_DATA_HOME:-~/.local/share}/nuc-gate/mirrors/`. Jobs default to one
+global slot (`NUC_GATE_SLOTS`), with a 1,200-second systemd runtime limit
+(`NUC_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
+retention; the service never globally prunes Podman resources.
+
+Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into the host-side
+publisher, never the container. Grant the NUC identity access to that secret in
+project `052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`, with
+repository commit-status write permission. Missing credentials leave local results
+intact but make publication exit nonzero. Pending publication also uses Infisical
+when the SSH shell has no token. Public fetches need no token; authenticated
+fetches use a command-local Git `http.extraHeader`, never saved configuration.
+
+`NUC_GATE_INFISICAL_PROJECT`, `NUC_GATE_INFISICAL_ENV`, `NUC_GATE_REPOS`,
+`NUC_GATE_GITHUB_API`, and executable overrides `NUC_GATE_GIT`,
+`NUC_GATE_PODMAN`, `NUC_GATE_SYSTEMD_RUN`, `NUC_GATE_INFISICAL` support
+deployment and isolated tests. Runtime flags are JSON arrays:
+`NUC_GATE_RUNTIME_FLAGS` and `NUC_GATE_BUILD_RUNTIME_FLAGS` default to
+`["--runtime", "/usr/local/bin/runsc", "--runtime-flag=ignore-cgroups"]`.
+Run flags worked on the NUC; build flags have **not** been tested there
+(the spike built with Podman's default build runtime). Test that Podman/Buildah
+combination before deployment; a build failure is an infrastructure error, not
+a silent fallback. Images are cached by Dockerfile-content hash.
+
+GitHub quality gates are a weekly Monday 04:23 UTC fallback plus manual
+`workflow_dispatch`, not push/PR CI. Dispatch manually from Actions → CI quality
+gates → Run workflow, or:
+
+```sh
+gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main
+```
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.
@@ -90,4 +148,9 @@ source.
 - `agent/lsp.json` — LSP configuration.
 - `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
+- `scripts/nuc-gate.py` and `scripts/nuc-gate-repos.json` — NUC job service and
+  repository/token-name allowlist.
+- `.omp/gate.json` — gate commands and declared CI host.
+- `.devcontainer/` — pinned gate image and dependency installation.
+- `tests/test_nuc_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.
