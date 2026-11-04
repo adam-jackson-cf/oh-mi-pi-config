@@ -2,23 +2,37 @@
 
 ## Objective
 
-Deliver one verified feature through a delegated implementation and independently reviewed PR.
+Deliver one feature with frozen acceptance proofs and cross-family live verification.
 
 ## Steps
 
-1. Define acceptance criteria and the smallest verifiable feature unit.
-2. Read `skill://codegraph/references/readiness-and-bootstrap.md` before repository discovery.
-3. Read `skill://codegraph/references/query-selection.md`; trace the affected owners and callers.
-4. Read `skill://git-tool`, then its branch-and-integrate runbook; allocate one writer branch.
-5. Read `skill://coding-guidance/references/implementation-integrity.md` before the first edit.
-6. Read `skill://coding-guidance/references/structure-and-grouping.md` for new files or folders.
-7. Read `skill://coding-guidance/references/naming.md` before introducing names.
-8. Read `skill://test-guidance/references/tiers.md`; choose coverage for the acceptance criteria.
-9. Read `skill://test-guidance/references/suite-budget.md` before adding test-suite cost.
-10. Delegate every code change, including tests and small fixes, to `task`; implement the criteria.
-11. Read `skill://coding-guidance/references/verification.md`; run the repository fast gate from
-    `.omp/gate.json` after the final edit and record the result before handoff.
-12. Read `skill://git-tool/references/review-loop.md`; obtain independent-session,
-    cross-family review per the owner rules and resolve findings through `task`.
-13. Read `skill://git-tool/references/branch-and-integrate.md`; integrate the verified
-    unit as one PR using the review loop; rerun the fast gate after any review-driven edit.
+1. **Frame**: define outcome, acceptance criteria and only plan-changing open questions;
+   use `kiss` to cut criteria and questions. Read
+   `skill://codegraph/references/readiness-and-bootstrap.md` before discovery, then
+   `skill://codegraph/references/query-selection.md`; trace owners and callers.
+2. **Spike**: if questions remain, read `skill://git-tool` and
+   `skill://omp-dyna-workflows/references/patterns.md`; declare predicates, side effects and
+   timebox. Use a detached scratch worktree and non-isolated `task` with absolute paths;
+   report commands, outputs and failures, then discard the worktree, never publish its code.
+3. **Plan**: read `skill://omp-dyna-workflows/references/patterns.md`;
+   map each criterion to a named manifest proof (`new-surface` for absent APIs).
+   Make missing proof surfaces first tasks; keep plan draft until spike answers land.
+   Read `skill://test-guidance/references/tiers.md` and
+   `skill://test-guidance/references/suite-budget.md` before selecting coverage.
+4. **Implement**: require `.omp/gate.json` with `fastGate` and `pathCheck`, otherwise read
+   `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
+   `skill://git-tool/references/branch-and-integrate.md`; start `agent/<slug>` from default,
+   never spike. Read `skill://coding-guidance/references/implementation-integrity.md`,
+   `skill://coding-guidance/references/structure-and-grouping.md` and
+   `skill://coding-guidance/references/naming.md` before edits/new paths/names.
+   Spawn `task` for proof surfaces/files, then main records hashes and re-freezes the manifest;
+   separately spawn implementation `task`. Read
+   `skill://coding-guidance/references/verification.md`; run `fastGate` after the last edit.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md` and
+   `skill://omp-dyna-workflows/references/patterns.md`; run `verify()` at code-ready head.
+   Require green-twice head proofs and parent evidence by kind, then the cross-family verifier
+   drives every criterion and checks affected docs; only its defined blocking rule blocks.
+6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
+   `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
+   rebase-merge with `--match-head-commit`, wait for default-branch CI. Sensitive paths require
+   owner merge. Fixes/rebases receive one verification on the new head per the verify loop.

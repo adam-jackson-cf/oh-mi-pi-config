@@ -31,9 +31,11 @@ check these invariants:
 - No Opus or Astra role above medium outside `innovation-council`,
   `experiment-design`, and their peers (`innovation-challenger`,
   `experiment-peer`).
-- Judges and reviewers run in independent sessions (fresh subagent or process, no shared context
-  with the author) and must use a different model family (owner decision 2026-11-03): Sonnet 5.5
-  judges Sol-authored implementation; GPT-6.1 Sol judges Opus-authored plans/code.
+- Verifiers run independently and in a different model family from every author, enforced by
+  skill-gate (2026-11-04). Sonnet 5.5 medium verifies Sol implementation live; `kiss` cuts
+  criteria/questions, not risk. Former plan/test/completeness judging roles were removed
+  2026-11-04, proof-first workflow; bundled `reviewer` handles open-ended eval judgments.
+- Priority tier applies only to `task`, `kiss` and `sonic`.
 - Effort lives only in `config.yml` role suffixes, not agent frontmatter.
 - Every agent with `model: ["@x"]` has a `modelRoles.x`, and every custom role
   is used by some agent or built-in workload.
