@@ -58,6 +58,7 @@ const detailsSchema = z.object({
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
 }).catch({ exitCode: undefined, applied: undefined, files: undefined });
+const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
@@ -496,13 +497,25 @@ export default function skillGate(pi: ExtensionAPI): void {
 								if (["--subject", "-t", "--body", "-b", "--body-file", "-F", "--author-email", "--match-head-commit"].includes(arg)) index++;
 								else if (!arg.startsWith("-")) { selector = arg; break; }
 							}
-							const files = await pi.exec("gh", [
+							const pull = await pi.exec("gh", [
 								...repoArgs, "pr", "view", ...(selector ? [selector] : []),
-								"--json", "files", "-q", ".files[].path",
+								"--json", "number,url",
+							], { cwd: action.cwd, timeout: 20000 });
+							if (pull.code !== 0 || pull.killed) throw new Error(`cannot resolve PR: ${pull.stderr}`);
+							const metadata = pullRequestSchema.parse(JSON.parse(pull.stdout));
+							const url = new URL(metadata.url);
+							const repository = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
+							if (!repository || Number(repository[3]) !== metadata.number) throw new Error("cannot resolve PR repository from URL");
+							const files = await pi.exec("gh", [
+								"api", "--hostname", url.host, "--paginate",
+								`repos/${repository[1]}/${repository[2]}/pulls/${metadata.number}/files`,
+								"--jq", ".[].filename",
 							], { cwd: action.cwd, timeout: 20000 });
 							if (files.code !== 0 || files.killed) throw new Error(`cannot resolve PR files: ${files.stderr}`);
 							if (files.stdout.split("\n").filter(Boolean).some(path =>
-								gate.sensitive!.some(pattern => path.startsWith(pattern)))) return {
+								gate.sensitive!.some(pattern => pattern.endsWith("/")
+									? `/${path}`.includes(`/${pattern}`)
+									: basename(path).startsWith(pattern)))) return {
 								block: true, reason: "Skill gate: owner must merge PRs touching sensitive paths.",
 							};
 						}
