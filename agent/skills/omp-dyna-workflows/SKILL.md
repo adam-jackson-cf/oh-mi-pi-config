@@ -9,8 +9,9 @@ description:
 
 ## Start here
 
-- **Mode**: applies only in dyna mode. Owner toggles: `$dynaflows` / `$dynaflows on`, `$dynaflows off`.
-  Resolution: `<repo>/.omp/dyna-mode.json` > `~/.omp/dyna-mode.json` > off. Mode off: ignore this skill.
+- **Dynaflows**: this skill applies only with dynaflows on. Owner toggles: `$dynaflows` /
+  `$dynaflows on`, `$dynaflows off`. Resolution: `<repo>/.omp/dynaflows.json` >
+  `~/.omp/dynaflows.json` > off. Dynaflows off: ignore this skill.
 - **Purpose**: Route every non-trivial engineering request to one executable playbook.
 - **When**: Features, bug fixes, refactors, investigations, project setup, or multi-phase work.
 - Match the request to exactly one playbook below. Execute stages 1–6 in order:
@@ -32,11 +33,11 @@ description:
   write `.omp/guardrail-proposal.json` `{"schemaVersion":1,"minimal":[paths],"full":[paths]}`
   (repo-relative). `minimal`: least for `fastGate` + `pathCheck`; one gate run clears handoff.
   `full`: every recommended guardrail. Then `ask`: question contains "guardrail", options
-  "Minimal" and "Full". skill-gate blocks `.omp/gate.json` and proposal paths until answered;
+  "Minimal" and "Full". agent-rails blocks `.omp/gate.json` and proposal paths until answered;
   timeout auto-selection is not approval; the unchosen option's paths stay blocked.
 - Delegate every code change, including small fixes, to `task`. Each brief lists the exact
   reference URLs needed by its steps and requires reading them before the first edit.
-- Briefs must give absolute worktree paths; skill-gate rejects relative or symlink-escaping
+- Briefs must give absolute worktree paths; agent-rails rejects relative or symlink-escaping
   writes from subagents.
 - Where this skill is silent, preserve existing content and make no irreversible write;
   ask once only when the choice changes the outcome, and state the choice in the result.
@@ -94,7 +95,7 @@ description:
 - **Independent sessions.** A verifier, reviewer or second labeller has none of the author's
   context; each `agent()` spawn qualifies. Never let an author's session judge its own work.
 - **Cross-family verifier.** The verifier family must differ from every author family of the
-  change; skill-gate enforces this at spawn. Sol authors use Sonnet 5.5 medium verification.
+  change; agent-rails enforces this at spawn. Sol authors use Sonnet 5.5 medium verification.
   An override must preserve that invariant, including designer-authored changes.
 - **Evals: deterministic, then Jev, then a cross-family reviewer.**
   1. Run the real check command, pre-filter or rule first.

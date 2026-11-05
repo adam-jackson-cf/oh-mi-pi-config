@@ -6,7 +6,7 @@ import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 import { promisify } from "node:util";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import skillGate from "../agent/extensions/skill-gate";
+import agentRails from "../agent/extensions/agent-rails";
 
 const integrity = "skill://coding-guidance/references/implementation-integrity.md";
 const structure = "skill://coding-guidance/references/structure-and-grouping.md";
@@ -55,8 +55,8 @@ const wrappedPublishing = [
 ];
 
 function harness() {
-	const root = mkdtempSync(join(tmpdir(), "skill-gate-"));
-	const machine = mkdtempSync(join(tmpdir(), "skill-gate-machine-"));
+	const root = mkdtempSync(join(tmpdir(), "agent-rails-"));
+	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
 	mkdirSync(join(root, ".git"));
 	mkdirSync(join(root, ".omp"));
 	writeFileSync(join(root, "existing.ts"), "export const answer = 42;\n");
@@ -93,8 +93,8 @@ function harness() {
 			}
 		},
 	};
-	// SAFETY: this fake supplies on, registerCommand and exec, the only API surfaces skillGate consumes.
-	skillGate(api as ExtensionAPI, { machineModePath: join(machine, "dyna-mode.json") });
+	// SAFETY: this fake supplies on, registerCommand and exec, the only API surfaces agentRails consumes.
+	agentRails(api as ExtensionAPI, { machineDynaflowsPath: join(machine, "dynaflows.json") });
 	let id = 0;
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
 		const handler = handlers.get(name);
@@ -107,8 +107,8 @@ function harness() {
 		cleanup() { for (const dir of [root, machine]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
 		gate(value: GateFixture) { writeFileSync(join(root, ".omp/gate.json"), JSON.stringify(value)); },
-		mode(enabled: boolean) { writeFileSync(join(root, ".omp/dyna-mode.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
-		machineMode(enabled: boolean) { writeFileSync(join(machine, "dyna-mode.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
+		dynaflows(enabled: boolean) { writeFileSync(join(root, ".omp/dynaflows.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
+		machineDynaflows(enabled: boolean) { writeFileSync(join(machine, "dynaflows.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
 		async read(...urls: string[]) {
 			for (const path of urls) await emit("tool_result", {
 				toolName: "read", toolCallId: `read-${++id}`, input: { path }, isError: false,
@@ -123,7 +123,7 @@ function harness() {
 	};
 }
 
-describe("skill gate", () => {
+describe("agent rails", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
 		const h = harness();
 		try {
@@ -181,10 +181,10 @@ describe("skill gate", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("dyna-mode handoff needs verification and a finished exact fast gate run after the latest edit", async () => {
+	test("dynaflows handoff needs verification and a finished exact fast gate run after the latest edit", async () => {
 		const h = harness();
 		try {
-			h.mode(true);
+			h.dynaflows(true);
 			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
 			await h.read(integrity);
 			await h.call("bash", { command: "bun check" });
@@ -209,7 +209,7 @@ describe("skill gate", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("outside dyna mode handoff ignores the fast gate and tree drift but still needs verification after edits", async () => {
+	test("with dynaflows off handoff ignores the fast gate and tree drift but still needs verification after edits", async () => {
 		const h = harness();
 		try {
 			await execute("git", ["init"], { cwd: h.root });
@@ -357,7 +357,7 @@ describe("skill gate", () => {
 			await execute("git", ["init"], { cwd: h.root });
 			await execute("git", ["add", "existing.ts"], { cwd: h.root });
 			await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"], { cwd: h.root });
-			h.mode(true);
+			h.dynaflows(true);
 			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
 			writeFileSync(join(h.root, "existing.ts"), "pre-existing dirt\n");
 			await h.emit("session_start");
@@ -379,7 +379,7 @@ describe("skill gate", () => {
 		const h = harness();
 		try {
 			await execute("git", ["init"], { cwd: h.root });
-			h.mode(true);
+			h.dynaflows(true);
 			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
 			await h.emit("session_start");
 			assert.equal(await h.emit("session_stop"), undefined, "unchanged unborn repo is allowed");
@@ -404,7 +404,7 @@ describe("skill gate", () => {
 			const h = harness();
 			try {
 				await execute("git", ["init"], { cwd: h.root });
-				h.mode(true);
+				h.dynaflows(true);
 				h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
 				await h.emit("session_start");
 				const exec = h.api.exec;
@@ -444,36 +444,36 @@ describe("skill gate", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("$dynaflows persists a project mode that overrides the machine default; only main prompts toggle it", async () => {
+	test("$dynaflows persists a project setting that overrides the machine default; only main prompts toggle it", async () => {
 		const h = harness();
 		try {
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "pull latest" }), undefined, "off by default");
-			h.machineMode(true);
+			h.machineDynaflows(true);
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
 			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "machine default turns it on");
 			assert.ok(pointer.includes("guardrail"), "missing guardrails start the sign-off flow");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "stop $dynaflows off" }));
-			assert.ok(off.includes("Dyna mode off") && !off.includes("skill://omp-dyna-workflows"));
-			assert.deepEqual(JSON.parse(readFileSync(join(h.root, ".omp/dyna-mode.json"), "utf8")), { schemaVersion: 1, enabled: false });
-			assert.ok(readFileSync(join(h.root, ".git/info/exclude"), "utf8").split("\n").includes("/.omp/dyna-mode.json"));
+			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
+			assert.deepEqual(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")), { schemaVersion: 1, enabled: false });
+			assert.ok(readFileSync(join(h.root, ".git/info/exclude"), "utf8").split("\n").includes("/.omp/dynaflows.json"));
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "project off outlives the session and overrides machine on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
 			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://omp-dyna-workflows"));
 			h.setSession("sub"); h.context.agent.kind = "sub";
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }), undefined, "subagents cannot toggle mode");
-			assert.equal(JSON.parse(readFileSync(join(h.root, ".omp/dyna-mode.json"), "utf8")).enabled, true);
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }), undefined, "subagents cannot toggle dynaflows");
+			assert.equal(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")).enabled, true);
 		} finally { h.cleanup(); }
 	});
 
-	test("dyna mode blocks guardrail writes until the owner picks a proposal option via ask", async () => {
+	test("dynaflows blocks guardrail writes until the owner picks a proposal option via ask", async () => {
 		const h = harness();
 		try {
 			await h.read(integrity, structure, naming);
-			assert.equal(await h.call("write", { path: ".omp/gate.json" }), undefined, "no sign-off outside dyna mode");
-			h.mode(true);
+			assert.equal(await h.call("write", { path: ".omp/gate.json" }), undefined, "no sign-off with dynaflows off");
+			h.dynaflows(true);
 			writeFileSync(join(h.root, ".omp/guardrail-proposal.json"), JSON.stringify({
 				schemaVersion: 1, minimal: ["scripts/fast-gate.sh"], full: ["scripts/fast-gate.sh", "scripts/full-gate.sh"],
 			}));
@@ -514,13 +514,13 @@ describe("skill gate", () => {
 				assert.equal(await h.call("write", { path }), undefined, path);
 			}
 			assert.equal(await h.call("write", { path: `~/${relative(homedir(), join(h.root, "existing.ts"))}` }), undefined, "home-relative paths expand before the absolute-path check");
-			assert.equal(await h.call("write", { path: join(tmpdir(), "skill-gate-scratch.txt") }), undefined);
+			assert.equal(await h.call("write", { path: join(tmpdir(), "agent-rails-scratch.txt") }), undefined);
 		} finally { h.cleanup(); }
 	});
 
 	test("contains subagent symlink writes within the lexical repo, including new descendants", async () => {
 		const h = harness();
-		const outside = mkdtempSync(join(tmpdir(), "skill-gate-outside-"));
+		const outside = mkdtempSync(join(tmpdir(), "agent-rails-outside-"));
 		try {
 			h.context.agent.kind = "sub";
 			await h.read(integrity, structure, naming);
@@ -669,8 +669,8 @@ for (const scenario of [
 			await h.emit("before_subagent_spawn", { agent: scenario.author, patterns: scenario.patterns, invocationKind: "task" });
 			await h.emit("session_tree");
 			const verifier = { agent: "verifier", patterns: ["@verifier"], invocationKind: "eval" };
-			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined, "family policy needs dyna mode");
-			h.mode(true);
+			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined, "family policy needs dynaflows");
+			h.dynaflows(true);
 			const result = await h.emit("before_subagent_spawn", verifier);
 			assert.equal(result?.block === true, scenario.blocked);
 			if (scenario.blocked) assert.ok(result?.reason?.includes("different model family"));
@@ -683,7 +683,7 @@ for (const scenario of [
 test("verifier filters same-family fallbacks from its model chain", async () => {
 	const h = harness();
 	try {
-		h.mode(true);
+		h.dynaflows(true);
 		await h.emit("before_subagent_spawn", { agent: "task", patterns: ["openai/gpt"] });
 		const result = await h.emit("before_subagent_spawn", {
 			agent: "verifier", patterns: ["openai/gpt-review", "anthropic/claude-review"],
@@ -692,10 +692,10 @@ test("verifier filters same-family fallbacks from its model chain", async () => 
 	} finally { h.cleanup(); }
 });
 
-test("skill gate rejects a fast gate started before an overlapping edit", async () => {
+test("agent rails rejects a fast gate started before an overlapping edit", async () => {
 	const h = harness();
 	try {
-		h.mode(true);
+		h.dynaflows(true);
 		h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
 		await h.read(integrity, verification);
 		await h.call("edit", { path: "existing.ts" });
@@ -707,7 +707,7 @@ test("skill gate rejects a fast gate started before an overlapping edit", async 
 	} finally { h.cleanup(); }
 });
 
-test("skill gate surfaces a timed-out path checker without throwing", async () => {
+test("agent rails surfaces a timed-out path checker without throwing", async () => {
 	const h = harness();
 	// Exercise the real subprocess kill boundary; fake JS timers cannot control execFile's OS child.
 	try {
