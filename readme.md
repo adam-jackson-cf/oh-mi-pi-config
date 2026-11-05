@@ -50,14 +50,31 @@ the destination repository's policy. Unresolved directories fail closed for
 publishing. Quoted `echo` and search arguments do not trigger the gate.
 Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
-closed for those actions. Main-session handoff stays blocked until
-verification references are read, the exact `fastGate` has run after edits (any
-exit code), and failed `pathCheck` checks pass on retry (deleted paths are dropped).
-Working-tree fingerprints also detect delegated edits, including untracked file
-content and staged changes before the first commit; unchanged pre-existing dirt
-does not block Q&A. Fingerprinting uses two Git calls and reads at most 1,024
-untracked files totalling 16 MiB. Git/filesystem failures and those bounds disable
-only fingerprint enforcement, not explicit edit/reference/path checks.
+closed for those actions. Main-session handoff stays blocked until verification
+references are read after this session's code edits, and until failed `pathCheck`
+checks pass on retry (deleted paths are dropped).
+
+Dyna mode switches on the `omp-dyna-workflows` process. Owners toggle it with
+`$dynaflows` (or `$dynaflows on`) and `$dynaflows off` in a main-session prompt;
+the toggle writes the repository's `.omp/dyna-mode.json` and adds it to
+`.git/info/exclude`. A repository value overrides the per-machine default in
+`~/.omp/dyna-mode.json` (`{"schemaVersion":1,"enabled":true}`, untracked); with
+neither, dyna mode is off. Only in dyna mode does `skill-gate.ts` inject the
+workflow pointer, enforce the cross-family verifier, require the exact `fastGate`
+after edits or working-tree changes (any exit code; a backgrounded start or a
+timeout does not count), and require owner sign-off for guardrail writes when
+`.omp/gate.json` lacks `fastGate` or `pathCheck`: `.omp/gate.json` and paths in
+`.omp/guardrail-proposal.json` stay blocked until an `ask` about guardrails is
+answered "Minimal" or "Full". Working-tree fingerprints detect delegated edits,
+including untracked file content and staged changes before the first commit;
+unchanged pre-existing dirt does not block Q&A. Fingerprinting uses two Git calls
+and reads at most 1,024 untracked files totalling 16 MiB. Git/filesystem failures
+and those bounds disable only fingerprint enforcement, not explicit
+edit/reference/path checks.
+
+omp auto-discovers every module in `agent/extensions/`; removing a path from
+`extensions:` in `agent/config.yml` does not unload it. Disable one with
+`disabledExtensions: [extension-module:<name>]`.
 
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear

@@ -9,6 +9,8 @@ description:
 
 ## Start here
 
+- **Mode**: applies only in dyna mode. Owner toggles: `$dynaflows` / `$dynaflows on`, `$dynaflows off`.
+  Resolution: `<repo>/.omp/dyna-mode.json` > `~/.omp/dyna-mode.json` > off. Mode off: ignore this skill.
 - **Purpose**: Route every non-trivial engineering request to one executable playbook.
 - **When**: Features, bug fixes, refactors, investigations, project setup, or multi-phase work.
 - Match the request to exactly one playbook below. Execute stages 1–6 in order:
@@ -26,7 +28,12 @@ description:
      criterion live, checks affected doc lines, and reports diff scope/coverage.
   6. **Integrate**: CI green on head, rebase-merge with `--match-head-commit`, wait for default CI.
 - Prerequisite to implementation: `.omp/gate.json` provides both `fastGate` and `pathCheck`.
-  If either is missing, route through `skill://setup-repository-guardrails` first.
+  Missing either: ask the owner before guardrail work. On yes, run `skill://setup-repository-guardrails`;
+  write `.omp/guardrail-proposal.json` `{"schemaVersion":1,"minimal":[paths],"full":[paths]}`
+  (repo-relative). `minimal`: least for `fastGate` + `pathCheck`; one gate run clears handoff.
+  `full`: every recommended guardrail. Then `ask`: question contains "guardrail", options
+  "Minimal" and "Full". skill-gate blocks `.omp/gate.json` and proposal paths until answered;
+  timeout auto-selection is not approval; the unchosen option's paths stay blocked.
 - Delegate every code change, including small fixes, to `task`. Each brief lists the exact
   reference URLs needed by its steps and requires reading them before the first edit.
 - Briefs must give absolute worktree paths; skill-gate rejects relative or symlink-escaping
