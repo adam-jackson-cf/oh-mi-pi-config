@@ -41,10 +41,10 @@ agent/*
 !agent/AGENTS.md
 !agent/config.yml
 !agent/lsp.json
-!agent/skill-gates.yml
+!agent/agent-rails.yml
 !agent/rules/
 agent/rules/*
-!agent/rules/skill-gate-*.md
+!agent/rules/agent-rails-*.md
 !agent/skills/
 agent/skills/*
 !agent/skills/create-watchdog/
@@ -77,13 +77,13 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/skill-gate.ts
+!agent/extensions/agent-rails.ts
 
 !tests/
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/skill-gate.test.ts
+!tests/agent-rails.test.ts
 !tests/test_check_paths.py
 !tests/test_nuc_gate.py
 
