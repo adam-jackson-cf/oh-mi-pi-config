@@ -204,17 +204,18 @@
 
     <!-- skill-gate -->
     <div class="lane">skill-gate<small>extension hooks</small></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card gate"><b>before_agent_start</b><span>hidden pointer: “Route this work with omp-dyna-workflows”</span></div></div>
+    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card gate"><b>before_agent_start</b><span><code>$dynaflows [on|off]</code> sets dyna mode (repo <code>.omp/dyna-mode.json</code> over <code>~/.omp/dyna-mode.json</code>, default off). Dyna mode only: hidden pointer “Route this work with omp-dyna-workflows”, plus guardrail sign-off brief when <code>gate.json</code> lacks <code>fastGate</code>/<code>pathCheck</code></span></div></div>
     <div class="cell"><span class="lanelabel">skill-gate</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>blocked until both codegraph refs read. No spike exemptions: spikes live in detached worktrees outside the repo</span></div></div>
     <div class="cell"></div>
     <div class="cell"><span class="lanelabel">skill-gate</span>
       <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
       <div class="card gate"><b>tool_result: pathCheck</b><span>repo path check runs after each edit; a failure is kept</span></div>
       <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/cherry-pick, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code> need <code>skill://git-tool</code></span></div>
-      <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div></div>
+      <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div>
+      <div class="card block"><b>tool_call: guardrail sign-off (dyna mode)</b><span>incomplete guardrails: <code>.omp/gate.json</code> and <code>.omp/guardrail-proposal.json</code> paths blocked until an <code>ask</code> about guardrails is answered “Minimal” or “Full”</span></div></div>
     <div class="cell"><span class="lanelabel">skill-gate</span>
-      <div class="card block"><b>before_subagent_spawn: verifier</b><span>blocked when its family equals any recorded author family (new)</span></div>
-      <div class="card block"><b>session_stop (main only)</b><span>blocks handoff until verification ref read · agent ran <code>fastGate</code> after the last edit or tree change (the gate does not run it) · failed pathCheck passes</span></div></div>
+      <div class="card block"><b>before_subagent_spawn: verifier (dyna mode)</b><span>blocked when its family equals any recorded author family</span></div>
+      <div class="card block"><b>session_stop (main only)</b><span>always: verification ref read after this session's code edits · failed pathCheck passes. Dyna mode also: agent ran <code>fastGate</code> after the last edit or tree change (any finished run; backgrounded or timed-out runs do not count)</span></div></div>
     <div class="cell"><span class="lanelabel">skill-gate</span>
       <div class="card block"><b><code>gh pr merge</code> sensitive-merge</b><span>resolves the PR's changed files; any match with <code>sensitive</code> → “owner must merge” (new)</span></div></div>
 
@@ -342,7 +343,7 @@
     <li class="principle"><span class="n" aria-hidden="true">05</span><h3>Independent, cross-family verification</h3>
       <p class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</p>
       <div class="where"><ul class="kinds" role="list">
-        <li><span class="tag k-block">hard block</span><span>skill-gate <code>before_subagent_spawn</code> refuses a verifier whose family matches any author.</span></li></ul></div></li>
+        <li><span class="tag k-block">hard block</span><span>skill-gate <code>before_subagent_spawn</code> (dyna mode) refuses a verifier whose family matches any author.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">06</span><h3>Deterministic first, Jev second, judgement last</h3>
       <p class="why">Cheap, repeatable checks settle what they can; Jev warns on patterns; a model judges only the remainder.</p>
       <div class="where"><ul class="kinds" role="list">

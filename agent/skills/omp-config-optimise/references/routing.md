@@ -17,7 +17,7 @@ Routing decision updated 2026-11-04 for the proof-first workflow. The installed 
   model (fresh-process check 2026-09-28). Used for open-ended contextual eval judging,
   in an independent cross-family session, not the proof-first verification stage.
 - `verifier` → Sonnet 5.5 : medium. Independent live proof verification, cross-family to every
-  author (Sol by default); skill-gate enforces the family invariant (2026-11-04).
+  author (Sol by default); skill-gate enforces the family invariant in dyna mode (2026-11-04).
 - `task` → GPT-6.1 Sol : medium. Implementation, including small fixes delegated by main.
   Earlier Sonnet `low` fixed-plan measurements do not validate this route.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
