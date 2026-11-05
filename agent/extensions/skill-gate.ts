@@ -1,5 +1,6 @@
-import { access, lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
@@ -54,11 +55,31 @@ const inputSchema = z.object({
 const scopeSchema = z.object({
 	path: z.unknown().optional(), paths: z.unknown().optional(),
 }).catch({ path: undefined, paths: undefined });
+const answerSchema = z.object({
+	question: z.string().optional().catch(undefined),
+	selectedOptions: stringList.optional().catch(undefined),
+	timedOut: z.boolean().optional().catch(undefined),
+});
 const detailsSchema = z.object({
 	exitCode: z.number().optional().catch(undefined),
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
-}).catch({ exitCode: undefined, applied: undefined, files: undefined });
+	// Bash: `async` marks a backgrounded start; `timedOut` an unfinished run.
+	async: z.unknown().optional().catch(undefined),
+	timedOut: z.boolean().optional().catch(undefined),
+	// Ask: single-question fields, or `results` for multi-question calls.
+	question: z.string().optional().catch(undefined),
+	selectedOptions: stringList.optional().catch(undefined),
+	results: z.array(answerSchema).optional().catch(undefined),
+}).catch({
+	exitCode: undefined, applied: undefined, files: undefined, async: undefined, timedOut: undefined,
+	question: undefined, selectedOptions: undefined, results: undefined,
+});
+const modeSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
+const proposalSchema = z.object({ schemaVersion: z.literal(1), minimal: stringList, full: stringList });
+type Mode = z.infer<typeof modeSchema>;
+type Proposal = z.infer<typeof proposalSchema>;
+type Approval = "minimal" | "full";
 const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
@@ -77,6 +98,7 @@ interface State {
 	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
+	guardrailApproval?: Approval;
 }
 type ToolEvent = {
 	toolName: string;
@@ -274,7 +296,12 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 	return actions;
 }
 
-export default function skillGate(pi: ExtensionAPI): void {
+// `machineModePath` holds the per-machine default (~/.omp/dyna-mode.json); a project's
+// .omp/dyna-mode.json overrides it; absent both, dyna mode is off.
+export default function skillGate(
+	pi: ExtensionAPI,
+	{ machineModePath = fileURLToPath(new URL("../../dyna-mode.json", import.meta.url)) }: { machineModePath?: string } = {},
+): void {
 	// Factories are rebound to child sessions; never share mutable policy state at module scope.
 	const states = new Map<string, State>();
 	let map: Mapping;
@@ -309,6 +336,61 @@ export default function skillGate(pi: ExtensionAPI): void {
 			if (!absent && strict) throw new Error(`${path}: ${String(error)}`);
 			note(state, ctx, `Skill gate: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference gates apply.`);
 			return;
+		}
+	}
+	function readJson(path: string, schema: typeof modeSchema, state: State, ctx: ExtensionContext): Promise<Mode | undefined>;
+	function readJson(path: string, schema: typeof proposalSchema, state: State, ctx: ExtensionContext): Promise<Proposal | undefined>;
+	async function readJson(
+		path: string, schema: typeof modeSchema | typeof proposalSchema, state: State, ctx: ExtensionContext,
+	): Promise<Mode | Proposal | undefined> {
+		try {
+			const parsed = schema.safeParse(JSON.parse(await readFile(path, "utf8")));
+			if (parsed.success) return parsed.data;
+			note(state, ctx, `Skill gate: ${path} is invalid; ignored.`);
+		} catch (error) {
+			const parsedError = fileErrorSchema.safeParse(error);
+			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Skill gate: ${path} is unreadable; ignored.`);
+		}
+	}
+	const projectRoot = async (ctx: ExtensionContext) => await repoRoot(ctx.cwd) ?? ctx.cwd;
+	async function dynaMode(ctx: ExtensionContext): Promise<boolean> {
+		const state = stateFor(ctx);
+		const project = await readJson(resolve(await projectRoot(ctx), ".omp/dyna-mode.json"), modeSchema, state, ctx);
+		return (project ?? await readJson(machineModePath, modeSchema, state, ctx))?.enabled ?? false;
+	}
+	async function setDynaMode(ctx: ExtensionContext, enabled: boolean): Promise<string> {
+		const root = await projectRoot(ctx);
+		const path = resolve(root, ".omp/dyna-mode.json");
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, `${JSON.stringify({ schemaVersion: 1, enabled })}\n`);
+		// Mode is local state: keep it out of commits without touching tracked ignore files.
+		const gitDir = resolve(root, ".git");
+		if ((await stat(gitDir).catch(() => null))?.isDirectory()) {
+			const exclude = resolve(gitDir, "info/exclude");
+			const current = await readFile(exclude, "utf8").catch(() => "");
+			if (!current.split("\n").includes("/.omp/dyna-mode.json")) {
+				await mkdir(dirname(exclude), { recursive: true });
+				await appendFile(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}/.omp/dyna-mode.json\n`);
+			}
+		}
+		return path;
+	}
+	async function guardrailReason(targets: string[], ctx: ExtensionContext, state: State): Promise<string | undefined> {
+		if (!targets.length || !(await dynaMode(ctx))) return;
+		for (const path of targets) {
+			const root = await repoRoot(path);
+			if (!root) continue;
+			const gate = await gateAt(root, state, ctx);
+			if (gate?.fastGate && gate.pathCheck) continue;
+			const rel = relative(root, path);
+			const proposal = await readJson(resolve(root, ".omp/guardrail-proposal.json"), proposalSchema, state, ctx);
+			const isGate = rel === ".omp/gate.json";
+			if (!isGate && !proposal?.minimal.includes(rel) && !proposal?.full.includes(rel)) continue;
+			const approved = state.guardrailApproval;
+			if (approved && (isGate || proposal?.[approved].includes(rel))) continue;
+			return approved
+				? `Skill gate: owner approved the "${approved}" guardrail option, which does not list ${rel}.`
+				: `Skill gate: ${rel} is a guardrail change; get owner sign-off via ask (question mentions "guardrail"; options "Minimal" and "Full") first.`;
 		}
 	}
 	async function fingerprint(root: string): Promise<string | undefined> {
@@ -379,12 +461,25 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (event.toolName === "bash") {
 			const started = state.bashStarts.get(event.toolCallId);
 			state.bashStarts.delete(event.toolCallId);
-			if (started && details.exitCode !== undefined) {
+			// Bash reports exitCode only for failures; a clean run has none. A backgrounded start
+			// (`async`) or a timeout has not finished the gate, so neither counts as a run.
+			const finished = details.async === undefined && details.timedOut !== true
+				&& (event.isError === false || details.exitCode !== undefined);
+			if (started && finished) {
 				const gate = await gateAt(started.root, state, ctx);
 				if (gate?.fastGate?.join(" ") === event.input.command) {
 					state.passed.set(started.root, started.revision);
 					if (runCheck && started.fingerprint !== undefined) state.checkedTrees.set(started.root, started.fingerprint);
 				}
+			}
+			return;
+		}
+		// Owner sign-off for guardrails: an answered (not timed-out) ask about guardrails picking Minimal or Full.
+		if (event.toolName === "ask" && event.isError === false) {
+			for (const answer of details.results ?? [details]) {
+				if (answer.timedOut || !/guardrail/i.test(answer.question ?? "")) continue;
+				const pick = /^(minimal|full)\b/i.exec(answer.selectedOptions?.[0] ?? "")?.[1]?.toLowerCase();
+				if (pick === "minimal" || pick === "full") state.guardrailApproval = pick;
 			}
 			return;
 		}
@@ -466,7 +561,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const state = stateFor(ctx);
 		state.reads.clear(); state.discovered = false;
 	});
-	pi.on("before_subagent_spawn", (event, ctx) => {
+	pi.on("before_subagent_spawn", async (event, ctx) => {
 		const author = ["task", "sonic", "designer"].includes(event.agent);
 		if (!author && event.agent !== "verifier") return;
 		const state = stateFor(ctx);
@@ -480,6 +575,8 @@ export default function skillGate(pi: ExtensionAPI): void {
 			for (const model of models) state.authorFamilies.add(ctx.models.family(model));
 			return;
 		}
+		// Authors are always recorded so enabling dyna mode mid-session still sees them.
+		if (!(await dynaMode(ctx))) return;
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
 			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
@@ -570,6 +667,8 @@ export default function skillGate(pi: ExtensionAPI): void {
 				if (reason) return { block: true, reason };
 			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
+			const guardrail = await guardrailReason(targets, ctx, state);
+			if (guardrail) return { block: true, reason: guardrail };
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
@@ -596,6 +695,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (loadError) return { decision: "block", reason: loadError };
 		const state = stateFor(ctx);
 		try {
+			const dyna = await dynaMode(ctx);
 			const reasons: string[] = [];
 			let changedTree = false;
 			const roots = new Set([...state.edits.keys(), ...state.pathFailures.keys(), ...state.baselines.keys()]);
@@ -614,6 +714,9 @@ export default function skillGate(pi: ExtensionAPI): void {
 					const error = await checkPaths(root, existing, gate, state);
 					if (error) reasons.push(error);
 				}
+				// Outside dyna mode the fast gate is not required and tree drift (pulls, delegated
+				// edits) does not trigger handoff requirements; this session's own edits still do.
+				if (!dyna) continue;
 				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
 				const uncheckedTree = tree !== undefined && tree !== state.baselines.get(root) && tree !== state.checkedTrees.get(root);
 				changedTree ||= uncheckedTree;
@@ -628,13 +731,35 @@ export default function skillGate(pi: ExtensionAPI): void {
 			}
 		} catch (error) { return { decision: "block", reason: `Skill gate: handoff policy failed: ${String(error)}` }; }
 	});
-	pi.on("before_agent_start", (event, ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
-		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt" || state.pointed) return;
+		const keyword = /(?:^|\s)\$dynaflows(?:\s+(on|off))?(?=\s|$)/i.exec(event.prompt ?? "");
+		if (keyword) {
+			const enabled = keyword[1]?.toLowerCase() !== "off";
+			const path = await setDynaMode(ctx, enabled);
+			ctx.ui.notify(`Skill gate: dyna mode ${enabled ? "on" : "off"} (${path}).`, "info");
+			state.pointed = false;
+			if (!enabled) return { message: {
+				customType: "skill-gate-workflow", content: "Dyna mode off: do not apply omp-dyna-workflows.",
+				display: false, attribution: "agent",
+			} };
+		}
+		if (state.pointed || !(await dynaMode(ctx))) return;
 		state.pointed = true;
+		const lines = [`Dyna mode on. Route this work with ${map.references.workflow.join(" and ")}.`];
+		const root = await repoRoot(ctx.cwd);
+		const gate = root ? await gateAt(root, state, ctx) : undefined;
+		if (root && !(gate?.fastGate && gate.pathCheck)) lines.push(
+			`Guardrails missing in ${root}: .omp/gate.json lacks fastGate or pathCheck.`,
+			"Before guardrail work, ask the owner whether to analyse and propose guardrails.",
+			"If yes: write .omp/guardrail-proposal.json {\"schemaVersion\":1,\"minimal\":[repo-relative paths],\"full\":[repo-relative paths]};",
+			"minimal = least needed for fastGate and pathCheck so one gate run clears handoff; full = every recommended guardrail.",
+			"Present both, then call ask with a question containing \"guardrail\" and options \"Minimal\" and \"Full\".",
+			"Writes to .omp/gate.json and proposal paths stay blocked until the owner picks one.",
+		);
 		return { message: {
-			customType: "skill-gate-workflow", content: `Route this work with ${map.references.workflow.join(" and ")}.`,
-			display: false, attribution: "agent",
+			customType: "skill-gate-workflow", content: lines.join(" "), display: false, attribution: "agent",
 		} };
 	});
 	pi.registerCommand("extension-health-skill-gate", {
