@@ -124,15 +124,15 @@
   <h1>How OMP carries a request from prompt to merged PR</h1>
   <div class="sub">
     One non-trivial engineering request, left to right through six proof-first stages. Rows are the components that act at each stage.
-    Red cards are hard blocks the <code>skill-gate</code> extension enforces. Violet cards are Jev-judged warnings. Green cards are deterministic checks. Everything else is instruction the agents follow.
-    Source of truth: <code>SKILL.md</code>, <code>agent/config.yml</code>, <code>agent/skill-gates.yml</code>, <code>agent/extensions/skill-gate.ts</code>, <code>templates/workflows.py</code>, <code>skill://git-tool</code>, <code>scripts/nuc-gate.py</code> and the readme's NUC gate section.
+    Red cards are hard blocks the <code>agent-rails</code> extension enforces. Violet cards are Jev-judged warnings. Green cards are deterministic checks. Everything else is instruction the agents follow.
+    Source of truth: <code>SKILL.md</code>, <code>agent/config.yml</code>, <code>agent/agent-rails.yml</code>, <code>agent/extensions/agent-rails.ts</code>, <code>templates/workflows.py</code>, <code>skill://git-tool</code>, <code>scripts/nuc-gate.py</code> and the readme's NUC gate section.
   </div>
   <div class="legend">
     <span class="chip"><i class="dot" style="background:var(--opus)"></i>Opus 5.5 (main, innovation-council)</span>
     <span class="chip"><i class="dot" style="background:var(--sol)"></i>GPT-6.1 Sol (task, kiss; verifies designer work; priority tier)</span>
     <span class="chip"><i class="dot" style="background:var(--sonnet)"></i>Sonnet 5.5 (designer, verifier)</span>
     <span class="chip"><i class="dot" style="background:var(--haiku)"></i>Haiku 5.5 (scout)</span>
-    <span class="chip"><i class="dot" style="background:var(--block)"></i>skill-gate hard block</span>
+    <span class="chip"><i class="dot" style="background:var(--block)"></i>agent-rails hard block</span>
     <span class="chip"><i class="dot" style="background:var(--jev)"></i>Jev TTSR rule (warning)</span>
     <span class="chip"><i class="dot" style="background:var(--gate)"></i>Deterministic check</span>
     <span class="chip"><i class="dot" style="background:var(--gh)"></i>GitHub</span>
@@ -198,29 +198,29 @@
       <div class="card sonnet"><b>designer (Sonnet 5.5)</b><span>presentational changes only; scores its layout against a 10-point design-judgement rubric and inspects screenshots</span></div></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
-      <div class="card sol"><b>task (Sol): verifies designer work</b><span>skill-gate records <code>designer</code> as a Sonnet author, so a Sonnet verifier is not independent; a read-only brief keeps the Sol task from editing</span></div>
+      <div class="card sol"><b>task (Sol): verifies designer work</b><span>agent-rails records <code>designer</code> as a Sonnet author, so a Sonnet verifier is not independent; a read-only brief keeps the Sol task from editing</span></div>
       <div class="card sol"><b>task (Sol): fix</b><span>for each blocking finding</span></div></div>
     <div class="cell"></div>
 
-    <!-- skill-gate -->
-    <div class="lane">skill-gate<small>extension hooks</small></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card gate"><b>before_agent_start</b><span><code>$dynaflows [on|off]</code> sets dyna mode (repo <code>.omp/dyna-mode.json</code> over <code>~/.omp/dyna-mode.json</code>, default off). Dyna mode only: hidden pointer “Route this work with omp-dyna-workflows”, plus guardrail sign-off brief when <code>gate.json</code> lacks <code>fastGate</code>/<code>pathCheck</code></span></div></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>blocked until both codegraph refs read. No spike exemptions: spikes live in detached worktrees outside the repo</span></div></div>
+    <!-- agent-rails -->
+    <div class="lane">agent-rails<small>extension hooks</small></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span><div class="card gate"><b>before_agent_start</b><span><code>$dynaflows [on|off]</code> sets dynaflows (repo <code>.omp/dynaflows.json</code> over <code>~/.omp/dynaflows.json</code>, default off). Dynaflows on only: hidden pointer “Route this work with omp-dyna-workflows”, plus guardrail sign-off brief when <code>gate.json</code> lacks <code>fastGate</code>/<code>pathCheck</code></span></div></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>blocked until both codegraph refs read. No spike exemptions: spikes live in detached worktrees outside the repo</span></div></div>
     <div class="cell"></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span>
+    <div class="cell"><span class="lanelabel">agent-rails</span>
       <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
       <div class="card gate"><b>tool_result: pathCheck</b><span>repo path check runs after each edit; a failure is kept</span></div>
       <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/cherry-pick, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code> need <code>skill://git-tool</code></span></div>
       <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div>
-      <div class="card block"><b>tool_call: guardrail sign-off (dyna mode)</b><span>incomplete guardrails: <code>.omp/gate.json</code> and <code>.omp/guardrail-proposal.json</code> paths blocked until an <code>ask</code> about guardrails is answered “Minimal” or “Full”</span></div></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span>
-      <div class="card block"><b>before_subagent_spawn: verifier (dyna mode)</b><span>blocked when its family equals any recorded author family</span></div>
-      <div class="card block"><b>session_stop (main only)</b><span>always: verification ref read after this session's code edits · failed pathCheck passes. Dyna mode also: agent ran <code>fastGate</code> after the last edit or tree change (any finished run; backgrounded or timed-out runs do not count)</span></div></div>
-    <div class="cell"><span class="lanelabel">skill-gate</span>
+      <div class="card block"><b>tool_call: guardrail sign-off (dynaflows)</b><span>incomplete guardrails: <code>.omp/gate.json</code> and <code>.omp/guardrail-proposal.json</code> paths blocked until an <code>ask</code> about guardrails is answered “Minimal” or “Full”</span></div></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span>
+      <div class="card block"><b>before_subagent_spawn: verifier (dynaflows)</b><span>blocked when its family equals any recorded author family</span></div>
+      <div class="card block"><b>session_stop (main only)</b><span>always: verification ref read after this session's code edits · failed pathCheck passes. Dynaflows on also: agent ran <code>fastGate</code> after the last edit or tree change (any finished run; backgrounded or timed-out runs do not count)</span></div></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span>
       <div class="card block"><b><code>gh pr merge</code> sensitive-merge</b><span>resolves the PR's changed files; any match with <code>sensitive</code> → “owner must merge” (new)</span></div></div>
 
     <!-- Jev -->
-    <div class="lane">Jev TTSR rules<small>main only; subagents get refs via briefs and skill-gate blocks</small></div>
+    <div class="lane">Jev TTSR rules<small>main only; subagents get refs via briefs and agent-rails blocks</small></div>
     <div class="cell"></div><div class="cell"></div><div class="cell"></div>
     <div class="cell"><span class="lanelabel">Jev TTSR rules</span>
       <div class="card jev"><b>regression-coverage</b><span>reply announces a bug fix → read the ref</span></div>
@@ -316,7 +316,7 @@
     Distilled from poteto's pstack (findings only count when a run proves them), OpenAI Pando (a branch per agent, risk-tiered review) and trunk-based development.
     Each principle names where it is enforced:
     <ul class="kinds" role="list">
-      <li><span class="tag k-block">hard block</span><span>skill-gate refuses the action</span></li>
+      <li><span class="tag k-block">hard block</span><span>agent-rails refuses the action</span></li>
       <li><span class="tag k-check">deterministic</span><span>a script decides</span></li>
       <li><span class="tag k-instr">instruction</span><span>agents are told, nothing stops them.</span></li>
     </ul>
@@ -343,7 +343,7 @@
     <li class="principle"><span class="n" aria-hidden="true">05</span><h3>Independent, cross-family verification</h3>
       <p class="why">A model family shares blind spots with its own output; the verifier must not be the author's family.</p>
       <div class="where"><ul class="kinds" role="list">
-        <li><span class="tag k-block">hard block</span><span>skill-gate <code>before_subagent_spawn</code> (dyna mode) refuses a verifier whose family matches any author.</span></li></ul></div></li>
+        <li><span class="tag k-block">hard block</span><span>agent-rails <code>before_subagent_spawn</code> (dynaflows) refuses a verifier whose family matches any author.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">06</span><h3>Deterministic first, Jev second, judgement last</h3>
       <p class="why">Cheap, repeatable checks settle what they can; Jev warns on patterns; a model judges only the remainder.</p>
       <div class="where"><ul class="kinds" role="list">
@@ -358,7 +358,7 @@
       <p class="why">Tiers, budgets, growth limits and placement keep the suite fast enough to run on every change.</p>
       <div class="where"><ul class="kinds" role="list">
         <li><span class="tag k-check">deterministic</span><span>repo <code>pathCheck</code>, <code>commitGate</code>, <code>gate</code></span></li>
-        <li><span class="tag k-block">hard block</span><span>without a <code>pathCheck</code>, skill-gate requires the tiers ref for a test path.</span></li></ul></div></li>
+        <li><span class="tag k-block">hard block</span><span>without a <code>pathCheck</code>, agent-rails requires the tiers ref for a test path.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">09</span><h3>Trunk-based units</h3>
       <p class="why">Short-lived <code>agent/*</code> branches, same-day merge, green on every commit; multi-phase work lands behind a flag with a removal criterion.</p>
       <div class="where"><ul class="kinds" role="list">
@@ -367,7 +367,7 @@
     <li class="principle"><span class="n" aria-hidden="true">10</span><h3>Risk-tiered merge authority</h3>
       <p class="why">Docs-only merges on green; verified work merges after one cross-family run; the owner merges sensitive paths.</p>
       <div class="where"><ul class="kinds" role="list">
-        <li><span class="tag k-block">hard block</span><span>skill-gate on <code>gh pr merge</code> vs <code>sensitive</code></span></li>
+        <li><span class="tag k-block">hard block</span><span>agent-rails on <code>gh pr merge</code> vs <code>sensitive</code></span></li>
         <li><span class="tag k-check">deterministic</span><span><code>verify()</code> reports <code>needs_owner</code>.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">11</span><h3>Delegate code; the main agent never patches</h3>
       <p class="why">Keeps the author family known, the main context small, and fixes inside the proof loop.</p>

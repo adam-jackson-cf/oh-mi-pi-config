@@ -75,9 +75,9 @@ const detailsSchema = z.object({
 	exitCode: undefined, applied: undefined, files: undefined, async: undefined, timedOut: undefined,
 	question: undefined, selectedOptions: undefined, results: undefined,
 });
-const modeSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
+const dynaflowsSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
 const proposalSchema = z.object({ schemaVersion: z.literal(1), minimal: stringList, full: stringList });
-type Mode = z.infer<typeof modeSchema>;
+type Dynaflows = z.infer<typeof dynaflowsSchema>;
 type Proposal = z.infer<typeof proposalSchema>;
 type Approval = "minimal" | "full";
 const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
@@ -165,7 +165,7 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 	for (const target of targets) {
 		const path = target.startsWith("~/") ? resolve(homedir(), target.slice(2)) : target;
 		if (/^[a-z][\w+.-]*:\/\//i.test(path)) continue;
-		if (!isAbsolute(path)) return `Skill gate: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
+		if (!isAbsolute(path)) return `Agent rails: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
 		try {
 			const lexical = resolve(path);
 			let root = await repoRoot(lexical);
@@ -186,7 +186,7 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 			while (root) {
 				const outside = relative(await realpath(root), resolved);
 				if (outside === ".." || outside.startsWith("../") || isAbsolute(outside)) {
-					return `Skill gate: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
+					return `Agent rails: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
 				}
 				const parent = dirname(root);
 				root = parent === root ? undefined : await repoRoot(parent);
@@ -204,7 +204,7 @@ function missing(state: State, map: Mapping, triggers: string[]): string[] {
 		.filter(url => !state.reads.has(url));
 }
 function readReason(urls: string[]): string {
-	return `Skill gate: read ${urls.join(" and ")}, then retry.`;
+	return `Agent rails: read ${urls.join(" and ")}, then retry.`;
 }
 
 const wrapperOptions = {
@@ -296,22 +296,22 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 	return actions;
 }
 
-// `machineModePath` holds the per-machine default (~/.omp/dyna-mode.json); a project's
-// .omp/dyna-mode.json overrides it; absent both, dyna mode is off.
-export default function skillGate(
+// `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
+// .omp/dynaflows.json overrides it; absent both, dynaflows is off.
+export default function agentRails(
 	pi: ExtensionAPI,
-	{ machineModePath = fileURLToPath(new URL("../../dyna-mode.json", import.meta.url)) }: { machineModePath?: string } = {},
+	{ machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)) }: { machineDynaflowsPath?: string } = {},
 ): void {
 	// Factories are rebound to child sessions; never share mutable policy state at module scope.
 	const states = new Map<string, State>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
-		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../skill-gates.yml", import.meta.url), "utf8")));
+		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../agent-rails.yml", import.meta.url), "utf8")));
 		if (!parsed.success) throw new Error("invalid mappings");
 		map = parsed.data;
 	} catch (error) {
-		loadError = `Skill gate: cannot load skill-gates.yml: ${String(error)}`;
+		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
 	}
 	const stateFor = (ctx: ExtensionContext) => {
 		const id = ctx.sessionManager.getSessionId();
@@ -334,49 +334,49 @@ export default function skillGate(
 			const parsedError = fileErrorSchema.safeParse(error);
 			const absent = parsedError.success && parsedError.data.code === "ENOENT";
 			if (!absent && strict) throw new Error(`${path}: ${String(error)}`);
-			note(state, ctx, `Skill gate: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference gates apply.`);
+			note(state, ctx, `Agent rails: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference checks apply.`);
 			return;
 		}
 	}
-	function readJson(path: string, schema: typeof modeSchema, state: State, ctx: ExtensionContext): Promise<Mode | undefined>;
+	function readJson(path: string, schema: typeof dynaflowsSchema, state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined>;
 	function readJson(path: string, schema: typeof proposalSchema, state: State, ctx: ExtensionContext): Promise<Proposal | undefined>;
 	async function readJson(
-		path: string, schema: typeof modeSchema | typeof proposalSchema, state: State, ctx: ExtensionContext,
-	): Promise<Mode | Proposal | undefined> {
+		path: string, schema: typeof dynaflowsSchema | typeof proposalSchema, state: State, ctx: ExtensionContext,
+	): Promise<Dynaflows | Proposal | undefined> {
 		try {
 			const parsed = schema.safeParse(JSON.parse(await readFile(path, "utf8")));
 			if (parsed.success) return parsed.data;
-			note(state, ctx, `Skill gate: ${path} is invalid; ignored.`);
+			note(state, ctx, `Agent rails: ${path} is invalid; ignored.`);
 		} catch (error) {
 			const parsedError = fileErrorSchema.safeParse(error);
-			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Skill gate: ${path} is unreadable; ignored.`);
+			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Agent rails: ${path} is unreadable; ignored.`);
 		}
 	}
 	const projectRoot = async (ctx: ExtensionContext) => await repoRoot(ctx.cwd) ?? ctx.cwd;
-	async function dynaMode(ctx: ExtensionContext): Promise<boolean> {
+	async function dynaflowsOn(ctx: ExtensionContext): Promise<boolean> {
 		const state = stateFor(ctx);
-		const project = await readJson(resolve(await projectRoot(ctx), ".omp/dyna-mode.json"), modeSchema, state, ctx);
-		return (project ?? await readJson(machineModePath, modeSchema, state, ctx))?.enabled ?? false;
+		const project = await readJson(resolve(await projectRoot(ctx), ".omp/dynaflows.json"), dynaflowsSchema, state, ctx);
+		return (project ?? await readJson(machineDynaflowsPath, dynaflowsSchema, state, ctx))?.enabled ?? false;
 	}
-	async function setDynaMode(ctx: ExtensionContext, enabled: boolean): Promise<string> {
+	async function setDynaflows(ctx: ExtensionContext, enabled: boolean): Promise<string> {
 		const root = await projectRoot(ctx);
-		const path = resolve(root, ".omp/dyna-mode.json");
+		const path = resolve(root, ".omp/dynaflows.json");
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, `${JSON.stringify({ schemaVersion: 1, enabled })}\n`);
-		// Mode is local state: keep it out of commits without touching tracked ignore files.
+		// Dynaflows state is local: keep it out of commits without touching tracked ignore files.
 		const gitDir = resolve(root, ".git");
 		if ((await stat(gitDir).catch(() => null))?.isDirectory()) {
 			const exclude = resolve(gitDir, "info/exclude");
 			const current = await readFile(exclude, "utf8").catch(() => "");
-			if (!current.split("\n").includes("/.omp/dyna-mode.json")) {
+			if (!current.split("\n").includes("/.omp/dynaflows.json")) {
 				await mkdir(dirname(exclude), { recursive: true });
-				await appendFile(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}/.omp/dyna-mode.json\n`);
+				await appendFile(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}/.omp/dynaflows.json\n`);
 			}
 		}
 		return path;
 	}
 	async function guardrailReason(targets: string[], ctx: ExtensionContext, state: State): Promise<string | undefined> {
-		if (!targets.length || !(await dynaMode(ctx))) return;
+		if (!targets.length || !(await dynaflowsOn(ctx))) return;
 		for (const path of targets) {
 			const root = await repoRoot(path);
 			if (!root) continue;
@@ -389,8 +389,8 @@ export default function skillGate(
 			const approved = state.guardrailApproval;
 			if (approved && (isGate || proposal?.[approved].includes(rel))) continue;
 			return approved
-				? `Skill gate: owner approved the "${approved}" guardrail option, which does not list ${rel}.`
-				: `Skill gate: ${rel} is a guardrail change; get owner sign-off via ask (question mentions "guardrail"; options "Minimal" and "Full") first.`;
+				? `Agent rails: owner approved the "${approved}" guardrail option, which does not list ${rel}.`
+				: `Agent rails: ${rel} is a guardrail change; get owner sign-off via ask (question mentions "guardrail"; options "Minimal" and "Full") first.`;
 		}
 	}
 	async function fingerprint(root: string): Promise<string | undefined> {
@@ -436,7 +436,7 @@ export default function skillGate(
 			state.pathFailures.delete(root);
 		} catch (error) {
 			state.pathFailures.set(root, changed);
-			return `Skill gate: pathCheck failed in ${root}: ${String(error)}`;
+			return `Agent rails: pathCheck failed in ${root}: ${String(error)}`;
 		}
 	}
 	function recordRead(event: ToolEvent, state: State): void {
@@ -570,20 +570,20 @@ export default function skillGate(
 		const models = event.patterns.length
 			? event.patterns.map(pattern => ctx.models.resolve(pattern)).filter(model => model !== undefined)
 			: [ctx.models.current()].filter(model => model !== undefined);
-		if (!models.length) return { block: true, reason: `Skill gate: cannot resolve ${event.agent}'s model family.` };
+		if (!models.length) return { block: true, reason: `Agent rails: cannot resolve ${event.agent}'s model family.` };
 		if (author) {
 			for (const model of models) state.authorFamilies.add(ctx.models.family(model));
 			return;
 		}
-		// Authors are always recorded so enabling dyna mode mid-session still sees them.
-		if (!(await dynaMode(ctx))) return;
+		// Authors are always recorded so turning dynaflows on mid-session still sees them.
+		if (!(await dynaflowsOn(ctx))) return;
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
-			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
+			block: true, reason: "Agent rails: verifier must use a different model family from every recorded author (task, sonic, designer).",
 		};
 		if (independent.length !== models.length) return {
 			model: independent.map(model => `${model.provider}/${model.id}`),
-			note: "Skill gate: removed verifier models from recorded author families.",
+			note: "Agent rails: removed verifier models from recorded author families.",
 		};
 	});
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
@@ -609,12 +609,12 @@ export default function skillGate(
 					if (urls.length) return { block: true, reason: readReason(urls) };
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
-							block: true, reason: "Skill gate: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
+							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
 						};
 						const root = await repoRoot(action.cwd);
 						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
 						if (gate?.agentMerge === "disabled") return {
-							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
+							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
 						if (/^gh pr merge\b/.test(action.command) && gate?.sensitive?.length) {
 							const args = action.ghArgs ?? [];
@@ -652,7 +652,7 @@ export default function skillGate(
 								gate.sensitive!.some(pattern => pattern.endsWith("/")
 									? `/${path}`.includes(`/${pattern}`)
 									: basename(path).startsWith(pattern)))) return {
-								block: true, reason: "Skill gate: owner must merge PRs touching sensitive paths.",
+								block: true, reason: "Agent rails: owner must merge PRs touching sensitive paths.",
 							};
 						}
 					}
@@ -682,20 +682,20 @@ export default function skillGate(
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
-		} catch (error) { return { block: true, reason: `Skill gate: policy could not be evaluated: ${String(error)}` }; }
+		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { additionalContext: loadError };
 		try { return await recordResult(event, ctx, stateFor(ctx), true); }
-		catch (error) { return { additionalContext: `Skill gate: post-edit policy failed: ${String(error)}` }; }
+		catch (error) { return { additionalContext: `Agent rails: post-edit policy failed: ${String(error)}` }; }
 	});
 	pi.on("session_stop", async (_event, ctx) => {
 		if (ctx.agent.kind !== "main") return;
 		if (loadError) return { decision: "block", reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			const dyna = await dynaMode(ctx);
+			const dynaflows = await dynaflowsOn(ctx);
 			const reasons: string[] = [];
 			let changedTree = false;
 			const roots = new Set([...state.edits.keys(), ...state.pathFailures.keys(), ...state.baselines.keys()]);
@@ -714,9 +714,9 @@ export default function skillGate(
 					const error = await checkPaths(root, existing, gate, state);
 					if (error) reasons.push(error);
 				}
-				// Outside dyna mode the fast gate is not required and tree drift (pulls, delegated
+				// With dynaflows off the fast gate is not required and tree drift (pulls, delegated
 				// edits) does not trigger handoff requirements; this session's own edits still do.
-				if (!dyna) continue;
+				if (!dynaflows) continue;
 				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
 				const uncheckedTree = tree !== undefined && tree !== state.baselines.get(root) && tree !== state.checkedTrees.get(root);
 				changedTree ||= uncheckedTree;
@@ -727,9 +727,9 @@ export default function skillGate(
 			const urls = state.edits.size || changedTree ? missing(state, map, ["verification"]) : [];
 			if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 			if (reasons.length) {
-				return { decision: "block", reason: `Skill gate: ${reasons.join("; ")}, then retry handoff.` };
+				return { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` };
 			}
-		} catch (error) { return { decision: "block", reason: `Skill gate: handoff policy failed: ${String(error)}` }; }
+		} catch (error) { return { decision: "block", reason: `Agent rails: handoff policy failed: ${String(error)}` }; }
 	});
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
@@ -737,17 +737,17 @@ export default function skillGate(
 		const keyword = /(?:^|\s)\$dynaflows(?:\s+(on|off))?(?=\s|$)/i.exec(event.prompt ?? "");
 		if (keyword) {
 			const enabled = keyword[1]?.toLowerCase() !== "off";
-			const path = await setDynaMode(ctx, enabled);
-			ctx.ui.notify(`Skill gate: dyna mode ${enabled ? "on" : "off"} (${path}).`, "info");
+			const path = await setDynaflows(ctx, enabled);
+			ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${path}).`, "info");
 			state.pointed = false;
 			if (!enabled) return { message: {
-				customType: "skill-gate-workflow", content: "Dyna mode off: do not apply omp-dyna-workflows.",
+				customType: "agent-rails-dynaflows", content: "Dynaflows off: do not apply omp-dyna-workflows.",
 				display: false, attribution: "agent",
 			} };
 		}
-		if (state.pointed || !(await dynaMode(ctx))) return;
+		if (state.pointed || !(await dynaflowsOn(ctx))) return;
 		state.pointed = true;
-		const lines = [`Dyna mode on. Route this work with ${map.references.workflow.join(" and ")}.`];
+		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
 		const root = await repoRoot(ctx.cwd);
 		const gate = root ? await gateAt(root, state, ctx) : undefined;
 		if (root && !(gate?.fastGate && gate.pathCheck)) lines.push(
@@ -759,11 +759,11 @@ export default function skillGate(
 			"Writes to .omp/gate.json and proposal paths stay blocked until the owner picks one.",
 		);
 		return { message: {
-			customType: "skill-gate-workflow", content: lines.join(" "), display: false, attribution: "agent",
+			customType: "agent-rails-dynaflows", content: lines.join(" "), display: false, attribution: "agent",
 		} };
 	});
-	pi.registerCommand("extension-health-skill-gate", {
-		description: "Skill gate registration marker",
-		handler: async (_args, ctx) => { ctx.ui.notify(loadError ?? "Skill gate registered", loadError ? "error" : "info"); },
+	pi.registerCommand("extension-health-agent-rails", {
+		description: "Agent rails registration marker",
+		handler: async (_args, ctx) => { ctx.ui.notify(loadError ?? "Agent rails registered", loadError ? "error" : "info"); },
 	});
 }
