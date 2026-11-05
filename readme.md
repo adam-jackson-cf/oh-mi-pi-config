@@ -72,9 +72,9 @@ and reads at most 1,024 untracked files totalling 16 MiB. Git/filesystem failure
 and those bounds disable only fingerprint enforcement, not explicit
 edit/reference/path checks.
 
-omp auto-discovers every module in `agent/extensions/`; removing a path from
-`extensions:` in `agent/config.yml` does not unload it. Disable one with
-`disabledExtensions: [extension-module:<name>]`.
+omp auto-discovers every module in `agent/extensions/`. To disable one, add
+`disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove
+its path from `extensions:`; an explicitly listed path loads even when disabled.
 
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear
