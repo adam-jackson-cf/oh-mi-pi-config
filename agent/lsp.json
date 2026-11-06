@@ -4,7 +4,12 @@
       "command": "pyright-langserver"
     },
     "typescript-language-server": {
-      "command": "typescript-language-server"
+      "command": "typescript-language-server",
+      "initOptions": {
+        "tsserver": {
+          "fallbackPath": "/home/adam-ai/.omp/node_modules/typescript/lib/tsserver.js"
+        }
+      }
     },
     "rust-analyzer": {
       "command": "rust-analyzer",
