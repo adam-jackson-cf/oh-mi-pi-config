@@ -40,23 +40,13 @@ const policyFields = {
 	ciHost: z.enum(["github", "nuc"]).optional(),
 };
 // `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
-const gateV2Schema = z.object({
+const gateSchema = z.object({
 	schemaVersion: z.literal(2),
 	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
 	...policyFields,
-});
-// schema v1: remove once every repo has migrated to v2
-const gateV1Schema = z.object({
-	schemaVersion: z.literal(1),
-	gate: argvSchema.optional(),
-	commitGate: argvSchema.optional(),
-	fastGate: argvSchema.optional(),
-	...policyFields,
-});
-const gateSchema = z.union([gateV2Schema, gateV1Schema]).transform(gate => ({
-	// schema v1: remove once every repo has migrated to v2
-	commit: gate.schemaVersion === 2 ? gate.checks?.commit : gate.commitGate ?? gate.fastGate,
-	ci: gate.schemaVersion === 2 ? gate.checks?.ci : gate.gate,
+}).transform(gate => ({
+	commit: gate.checks?.commit,
+	ci: gate.checks?.ci,
 	pathCheck: gate.pathCheck,
 	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
 	testGlobs: gate.testGlobs,

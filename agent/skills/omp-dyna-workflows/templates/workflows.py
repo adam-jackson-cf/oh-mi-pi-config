@@ -116,20 +116,12 @@ def gate_policy(gate):
 
     Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `sensitive` an optional
     string list, `ciHost` and `agentMerge` optional enums. Any other shape fails closed."""
-    if not isinstance(gate, dict):
+    if not isinstance(gate, dict) or gate.get("schemaVersion") != 2:
         return None
-    if gate.get("schemaVersion") == 2:
-        checks = gate.get("checks", {})
-        if not isinstance(checks, dict):
-            return None
-        commit, ci = checks.get("commit"), checks.get("ci")
-    elif gate.get("schemaVersion") == 1:
-        # schema v1: remove once every repo has migrated to v2
-        if any(key in gate and not _is_argv(gate[key]) for key in ("gate", "commitGate", "fastGate")):
-            return None
-        commit, ci = gate.get("commitGate") or gate.get("fastGate"), gate.get("gate")
-    else:
+    checks = gate.get("checks", {})
+    if not isinstance(checks, dict):
         return None
+    commit, ci = checks.get("commit"), checks.get("ci")
     path_check, sensitive = gate.get("pathCheck"), gate.get("sensitive", [])
     if any(value is not None and not _is_argv(value) for value in (commit, ci, path_check)):
         return None
