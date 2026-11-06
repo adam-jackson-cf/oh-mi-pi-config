@@ -306,7 +306,7 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); other.cleanup(); }
 	});
 
-	test("commits must run the pre-commit hook: bypass flags, hook-path overrides and skip variables are blocked", async () => {
+	test("commits must run the pre-commit hook: bypass flags, hook-path overrides and any touch of a skip variable block", async () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool");
@@ -319,7 +319,10 @@ describe("agent rails", () => {
 				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath bash -c 'git commit -m x'",
 				"LEFTHOOK=0 sh -c 'cd . && git commit -m x'", "export HUSKY=0; git commit -m x",
 				"env -S 'SKIP=x' git commit -m x", "export HUSKY=1; HUSKY=0; git commit -m x",
-				"HUSKY=0; export HUSKY; git commit -m x",
+				"HUSKY=0; export HUSKY; git commit -m x", "unset HUSKY; export HUSKY; HUSKY=0; git commit -m x",
+				// Conservative: the command touches a skip variable, so the value and later shell state are ignored.
+				"LEFTHOOK=1 git commit -m x", "export HUSKY=0; export -n HUSKY; git commit -m x",
+				"export HUSKY=0; unset HUSKY; git commit -m x", "(export HUSKY=0); git commit -m x",
 			]) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
@@ -328,10 +331,8 @@ describe("agent rails", () => {
 			for (const command of [
 				"git commit -m 'no -n here'", "git commit -m -n", "git commit -F -n", "git commit --message -n",
 				"git commit --mes -n", "git commit --mess=-n", "git commit -uno -m x", "git commit -m x -- -n",
-				"LEFTHOOK=1 git commit -m x", "echo 'git commit --no-verify'", "export A=1; git commit -m x",
-				"export HUSKY=0; export HUSKY=1; git commit -m x", "(export HUSKY=0); git commit -m x",
-				"export HUSKY=0; unset HUSKY; git commit -m x", "export HUSKY=0; env -u HUSKY git commit -m x",
-				"export HUSKY=0; HUSKY=1; git commit -m x", "HUSKY=0; git commit -m x",
+				"echo 'git commit --no-verify'", "export A=1; git commit -m x", "git commit -m 'fix the husky hook'",
+				"git commit -m 'drop $SKIP from docs'", "PATH=/usr/bin git commit -m x",
 			]) assert.equal(await h.call("bash", { command }), undefined, command);
 		} finally { h.cleanup(); }
 	});
