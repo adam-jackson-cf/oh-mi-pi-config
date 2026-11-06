@@ -226,12 +226,6 @@ class GatePolicyTests(unittest.TestCase):
                                        "pathCheck": ["p"], "sensitive": ["auth/"]})
         self.assertEqual(policy, {"commit": ["c"], "ci": ["i"], "pathCheck": ["p"], "sensitive": ["auth/"]})
 
-    def test_v1_prefers_commit_gate_then_fast_gate(self):
-        both = {"schemaVersion": 1, "commitGate": ["c"], "fastGate": ["f"], "gate": ["g"]}
-        self.assertEqual(workflow.gate_policy(both)["commit"], ["c"])
-        self.assertEqual(workflow.gate_policy(both)["ci"], ["g"])
-        self.assertEqual(workflow.gate_policy({"schemaVersion": 1, "fastGate": ["f"]})["commit"], ["f"])
-
     def test_unknown_schema_and_malformed_fields_are_invalid(self):
         valid = {"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]}, "pathCheck": ["p"]}
         self.assertIsNotNone(workflow.gate_policy(valid))
@@ -240,7 +234,7 @@ class GatePolicyTests(unittest.TestCase):
                         {**valid, "checks": {"commit": [""]}}, {**valid, "pathCheck": 42},
                         {**valid, "pathCheck": []}, {**valid, "sensitive": "auth/"},
                         {**valid, "ciHost": "invalid"}, {**valid, "agentMerge": "yes"},
-                        {"schemaVersion": 1, "gate": "bash gate.sh"}):
+                        {"schemaVersion": 1, "gate": ["g"], "commitGate": ["c"], "pathCheck": ["p"]}):
             self.assertIsNone(workflow.gate_policy(invalid), invalid)
 
 if __name__ == "__main__":
