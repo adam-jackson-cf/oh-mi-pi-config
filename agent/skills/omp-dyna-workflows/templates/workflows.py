@@ -165,7 +165,7 @@ def gate_changes(paths, root, gate):
                     named.add(token.removeprefix("./"))
     return [path for path in paths if path in named or path in (
         ".omp/gate.json", "lefthook.yml", ".pre-commit-config.yaml")
-        or path.startswith(".github/workflows/")]
+        or path.startswith((".github/workflows/", ".githooks/"))]
 
 
 def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitive=None):
