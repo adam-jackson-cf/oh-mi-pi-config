@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
@@ -18,17 +18,14 @@ const discovery = [
 	"skill://codegraph/references/query-selection.md",
 ];
 type GateFixture = {
-	schemaVersion: 1; fastGate?: string[]; testGlobs?: string[];
+	schemaVersion: 1 | 2; checks?: { commit?: string[]; ci?: string[] };
+	gate?: string[]; commitGate?: string[]; fastGate?: string[]; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
 	sensitive?: unknown;
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
-// Mirrors real tool details: bash sets exitCode only on failure, `async` on a backgrounded start.
 type Answer = { question?: string; selectedOptions?: string[]; timedOut?: boolean };
-type Details = Answer & {
-	exitCode?: number; applied?: boolean; files?: string[]; totalReplacements?: number;
-	async?: object; results?: Answer[];
-};
+type Details = Answer & { applied?: boolean; files?: string[]; totalReplacements?: number; results?: Answer[] };
 type Event = {
 	type: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
@@ -181,52 +178,29 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("dynaflows handoff needs verification and a finished exact fast gate run after the latest edit", async () => {
-		const h = harness();
-		try {
-			h.dynaflows(true);
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-			await h.read(integrity);
-			await h.call("bash", { command: "bun check" });
-			await h.call("edit", { path: "existing.ts" });
-			const blocked = await h.emit("session_stop");
-			assert.equal(blocked?.decision, "block");
-			assert.ok(blocked?.reason?.includes("bun check"));
-			assert.ok(blocked?.reason?.includes(verification));
-			await h.read(verification);
-			await h.call("bash", { command: "bun check" }, { async: { state: "running", jobId: "bg_1", type: "bash" } });
-			assert.equal((await h.emit("session_stop"))?.decision, "block", "a backgrounded start has not finished the gate");
-			await h.call("bash", { command: "bun check" }, { timedOut: true }, true);
-			assert.equal((await h.emit("session_stop"))?.decision, "block", "a timed-out run has not finished the gate");
-			await h.call("bash", { command: "bun check" });
-			assert.equal(await h.emit("session_stop"), undefined, "a clean run reports no exit code and still counts");
-			await h.call("edit", { path: "existing.ts" });
-			await h.call("bash", { command: "bun check && echo done" });
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			assert.equal((await h.emit("session_stop"))?.decision, "block", "retry does not bypass unmet requirements");
-			await h.call("bash", { command: "bun check" }, { exitCode: 1 }, true);
-			assert.equal(await h.emit("session_stop"), undefined, "a failed gate still supplies verification evidence");
-		} finally { h.cleanup(); }
-	});
-
-	test("with dynaflows off handoff ignores the fast gate and tree drift but still needs verification after edits", async () => {
-		const h = harness();
-		try {
-			await execute("git", ["init"], { cwd: h.root });
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-			await h.emit("session_start");
-			writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
-			assert.equal(await h.emit("session_stop"), undefined, "tree drift alone, such as a pull, does not block");
-			await h.read(integrity);
-			await h.call("edit", { path: "existing.ts" });
-			const blocked = await h.emit("session_stop");
-			assert.equal(blocked?.decision, "block");
-			assert.ok(blocked?.reason?.includes(verification));
-			assert.ok(!blocked?.reason?.includes("bun check"));
-			await h.read(verification);
-			assert.equal(await h.emit("session_stop"), undefined);
-		} finally { h.cleanup(); }
-	});
+	for (const dynaflows of [false, true]) {
+		test(`handoff needs only the verification read after code edits, never a check run (dynaflows ${dynaflows ? "on" : "off"})`, async () => {
+			const h = harness();
+			try {
+				await execute("git", ["init"], { cwd: h.root });
+				h.dynaflows(dynaflows);
+				h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
+				await h.emit("session_start");
+				writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
+				writeFileSync(join(h.root, "session.log"), "growing log\n");
+				assert.equal(await h.emit("session_stop"), undefined, "tree changes outside this session's edits never block");
+				await h.read(integrity);
+				await h.call("edit", { path: "existing.ts" });
+				const blocked = await h.emit("session_stop");
+				assert.equal(blocked?.decision, "block");
+				assert.ok(blocked?.reason?.includes(verification));
+				assert.ok(!blocked?.reason?.includes("bun"), "no repository check is demanded at handoff");
+				await h.read(verification);
+				writeFileSync(join(h.root, "session.log"), "grew again\n");
+				assert.equal(await h.emit("session_stop"), undefined);
+			} finally { h.cleanup(); }
+		});
+	}
 
 	test("codegraph blocks discovery until both references, once per session and again after compaction", async () => {
 		const h = harness();
@@ -320,7 +294,7 @@ describe("agent rails", () => {
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":2}', '{"schemaVersion":1,"ciHost":"other"}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":1,"ciHost":"other"}']) {
 				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });
@@ -330,6 +304,58 @@ describe("agent rails", () => {
 				}
 			}
 		} finally { h.cleanup(); other.cleanup(); }
+	});
+
+	test("commits must run the pre-commit hook: bypass flags, hook-path overrides and skip variables are blocked", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			for (const command of [
+				"git commit --no-verify -m x", "git commit -n -m x", "git commit -anm x", "git commit --no-ver -m x",
+				"git -c core.hooksPath=/dev/null commit -m x", "git -c CORE.HOOKSPATH=x commit -m x",
+				"git --config-env=core.hooksPath=HOOKS commit -m x", "LEFTHOOK=0 git commit -m x",
+				"SKIP=checks git commit -m x", "HUSKY=0 git commit -m x", "env PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m x",
+				"GIT_CONFIG_COUNT=1 git commit -m x", "bash -c 'git commit --no-verify -m x'",
+			]) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes("pre-commit hook"), command);
+			}
+			for (const command of [
+				"git commit -m 'no -n here'", "git commit -m -n", "git commit -F -n", "git commit --message -n",
+				"git commit -uno -m x", "git commit -m x -- -n", "LEFTHOOK=1 git commit -m x", "echo 'git commit --no-verify'",
+			]) assert.equal(await h.call("bash", { command }), undefined, command);
+		} finally { h.cleanup(); }
+	});
+
+	test("a declared commit check needs an installed executable pre-commit hook, honouring core.hooksPath", async () => {
+		const h = harness();
+		try {
+			await execute("git", ["init"], { cwd: h.root });
+			await h.read("skill://git-tool");
+			const commit = () => h.call("bash", { command: "git commit -m x" });
+			assert.equal(await commit(), undefined, "no gate.json: nothing to enforce");
+			h.gate({ schemaVersion: 2, checks: { ci: ["bun", "ci"] } });
+			assert.equal(await commit(), undefined, "no commit check declared");
+			h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"] } });
+			assert.ok((await commit())?.reason?.includes("no pre-commit hook is installed"));
+			const hook = join(h.root, ".git/hooks/pre-commit");
+			mkdirSync(join(h.root, ".git/hooks"), { recursive: true });
+			writeFileSync(hook, "#!/bin/sh\nexit 0\n");
+			chmodSync(hook, 0o644);
+			assert.equal((await commit())?.block, true, "Git skips a non-executable hook");
+			chmodSync(hook, 0o755);
+			assert.equal(await commit(), undefined);
+			await execute("git", ["config", "core.hooksPath", ".githooks"], { cwd: h.root });
+			assert.equal((await commit())?.block, true, "core.hooksPath moves the hook Git runs");
+			mkdirSync(join(h.root, ".githooks"));
+			writeFileSync(join(h.root, ".githooks/pre-commit"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			assert.equal(await commit(), undefined);
+			rmSync(join(h.root, ".githooks/pre-commit"));
+			// schema v1: remove once every repo has migrated to v2
+			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
+			assert.equal((await commit())?.block, true, "v1 commitGate or fastGate is the commit check");
+		} finally { h.cleanup(); }
 	});
 
 	test("failed path checks persist at handoff and rerun to observe out-of-tool repairs", async () => {
@@ -351,76 +377,6 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("main handoff detects delegated tree changes but allows unchanged pre-existing dirt", async () => {
-		const h = harness();
-		try {
-			await execute("git", ["init"], { cwd: h.root });
-			await execute("git", ["add", "existing.ts"], { cwd: h.root });
-			await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"], { cwd: h.root });
-			h.dynaflows(true);
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-			writeFileSync(join(h.root, "existing.ts"), "pre-existing dirt\n");
-			await h.emit("session_start");
-			assert.equal(await h.emit("session_stop"), undefined);
-			writeFileSync(join(h.root, "existing.ts"), "delegated edit\n");
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			await h.read(verification);
-			await h.call("bash", { command: "bun check" }, { exitCode: 1 }, true);
-			assert.equal(await h.emit("session_stop"), undefined);
-			writeFileSync(join(h.root, "existing.ts"), "another delegated edit\n");
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			await h.call("bash", { command: "bun check" });
-			assert.equal(await h.emit("session_stop"), undefined);
-		} finally { h.cleanup(); }
-	});
-
-	test("fingerprints work before the first commit and detect changes to existing untracked files", async () => {
-		const h = harness();
-		try {
-			await execute("git", ["init"], { cwd: h.root });
-			h.dynaflows(true);
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-			await h.emit("session_start");
-			assert.equal(await h.emit("session_stop"), undefined, "unchanged unborn repo is allowed");
-			writeFileSync(join(h.root, "existing.ts"), "untracked content changed\n");
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			await h.read(verification);
-			await h.call("bash", { command: "bun check" });
-			assert.equal(await h.emit("session_stop"), undefined);
-			await execute("git", ["add", "existing.ts"], { cwd: h.root });
-			assert.equal((await h.emit("session_stop"))?.decision, "block", "staging is fingerprinted without HEAD");
-			await h.call("bash", { command: "bun check" });
-			assert.equal(await h.emit("session_stop"), undefined);
-			writeFileSync(join(h.root, "existing.ts"), "tracked content changed before first commit\n");
-			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			await h.call("bash", { command: "bun check" });
-			assert.equal(await h.emit("session_stop"), undefined);
-		} finally { h.cleanup(); }
-	});
-
-	test("fingerprint subprocess errors and timeouts do not block fastGate or replace explicit edit gates", async () => {
-		for (const failure of ["exit", "timeout", "throw"]) {
-			const h = harness();
-			try {
-				await execute("git", ["init"], { cwd: h.root });
-				h.dynaflows(true);
-				h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-				await h.emit("session_start");
-				const exec = h.api.exec;
-				h.api.exec = async (command, args, options) => {
-					if (command !== "git" || args[0] !== "diff") return exec(command, args, options);
-					if (failure === "throw") throw new Error("cannot execute git");
-					return { code: failure === "exit" ? 1 : 0, killed: failure === "timeout", stdout: "", stderr: failure };
-				};
-				await h.read(integrity, verification);
-				await h.call("edit", { path: "existing.ts" });
-				assert.equal((await h.emit("session_stop"))?.decision, "block", "explicit edit gate remains active");
-				assert.equal(await h.call("bash", { command: "bun check" }), undefined);
-				assert.equal(await h.emit("session_stop"), undefined, failure);
-			} finally { h.cleanup(); }
-		}
-	});
 
 	test("isolates sessions, restores successful branch reads, and forgets compacted reads", async () => {
 		const h = harness();
@@ -488,7 +444,7 @@ describe("agent rails", () => {
 			assert.equal(await h.call("write", { path: ".omp/gate.json" }), undefined);
 			assert.equal(await h.call("write", { path: "scripts/fast-gate.sh" }), undefined);
 			assert.ok((await h.call("write", { path: "scripts/full-gate.sh" }))?.reason?.includes("minimal"), "the unchosen option stays blocked");
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"], pathCheck: [process.execPath, "-e", "0"] });
+			h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"] }, pathCheck: [process.execPath, "-e", "0"] });
 			assert.equal(await h.call("write", { path: "scripts/full-gate.sh" }), undefined, "complete guardrails end the sign-off phase");
 		} finally { h.cleanup(); }
 	});
@@ -689,21 +645,6 @@ test("verifier filters same-family fallbacks from its model chain", async () => 
 			agent: "verifier", patterns: ["openai/gpt-review", "anthropic/claude-review"],
 		});
 		assert.deepEqual(result?.model, ["anthropic/claude-review"]);
-	} finally { h.cleanup(); }
-});
-
-test("agent rails rejects a fast gate started before an overlapping edit", async () => {
-	const h = harness();
-	try {
-		h.dynaflows(true);
-		h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-		await h.read(integrity, verification);
-		await h.call("edit", { path: "existing.ts" });
-		const event = { toolName: "bash", toolCallId: "overlapping", input: { command: "bun check" } };
-		await h.emit("tool_call", event);
-		await h.call("edit", { path: "existing.ts" });
-		await h.emit("tool_result", { ...event, details: {}, isError: false });
-		assert.equal((await h.emit("session_stop"))?.decision, "block");
 	} finally { h.cleanup(); }
 });
 

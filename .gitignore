@@ -55,6 +55,8 @@ agent/skills/*
 !agent/skills/omp-dyna-workflows/**
 !agent/skills/jev-actions/
 !agent/skills/jev-actions/**
+!agent/skills/setup-repository-guardrails/
+!agent/skills/setup-repository-guardrails/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -86,6 +88,8 @@ tests/*
 !tests/agent-rails.test.ts
 !tests/test_check_paths.py
 !tests/test_nuc_gate.py
+!tests/test_python_reference.py
+!tests/test_validate_rule_coverage.py
 
 !.omp/
 .omp/*

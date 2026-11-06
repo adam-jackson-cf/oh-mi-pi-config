@@ -19,7 +19,7 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    Make missing proof surfaces first tasks; keep plan draft until spike answers land.
    Read `skill://test-guidance/references/tiers.md` and
    `skill://test-guidance/references/suite-budget.md` before selecting coverage.
-4. **Implement**: require `.omp/gate.json` with `fastGate` and `pathCheck`, otherwise read
+4. **Implement**: require `.omp/gate.json` with `checks.commit` and `pathCheck`, otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; start `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`,
@@ -27,9 +27,9 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    `skill://coding-guidance/references/naming.md` before edits/new paths/names.
    Spawn `task` for proof surfaces/files, then main records hashes and re-freezes the manifest;
    separately spawn implementation `task`. Read
-   `skill://coding-guidance/references/verification.md`; run `fastGate` after the last edit.
+   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md` and
-   `skill://omp-dyna-workflows/references/patterns.md`; run `verify()` at code-ready head.
+   `skill://omp-dyna-workflows/references/patterns.md`; run `prove()` at code-ready head.
    Require green-twice head proofs and parent evidence by kind, then the cross-family verifier
    drives every criterion and checks affected docs; only its defined blocking rule blocks.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and

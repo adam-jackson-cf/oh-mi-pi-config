@@ -1,0 +1,105 @@
+# Reference configuration for the bundled guardrail rules.
+# Adapt Python version, first-party packages, and exclusions per target.
+
+# Basic configuration
+line-length = 88
+# Per-target: set target-version to the supported Python version.
+fix = true
+output-format = "full"
+respect-gitignore = true
+preview = true
+
+# Exclude common directories
+exclude = [
+    ".build",
+    ".git",
+    ".tox",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.egg-info",
+    "build",
+    "dist",
+    "node_modules",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+]
+
+[lint]
+# Enable recommended rules plus additional quality checks
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "C901", # mccabe complexity (constitution: max 10)
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "PT",   # flake8-pytest-style
+    "PGH",  # pygrep-hooks
+    "A",    # flake8-builtins
+    "D",    # pydocstyle
+    "N",    # pep8-naming
+    "PLR0904", # too many public methods
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0914", # too many local variables
+    "PLR0915", # too many statements
+    "PLR0917", # too many positional arguments
+]
+
+# Ignore specific rules that are commonly problematic
+ignore = [
+    "E501",  # line-too-long (handled by formatter)
+    "D100",  # Missing docstring in public module
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D103",  # Missing docstring in public function
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in __init__
+    "B006",  # Do not use mutable data structures for argument defaults
+    "B008",  # Do not perform function calls in argument defaults
+    "A005",  # Module is shadowing a Python builtin module
+]
+
+# Per-file ignores
+[lint.per-file-ignores]
+"__init__.py" = ["F401", "F403", "D104"]  # Allow unused imports and missing docstrings
+"test_*.py" = ["D", "S101", "PLR2004"]    # Ignore docstring and assert rules in tests
+"**/tests/**" = ["D", "S101", "PLR2004"]  # Ignore docstring and assert rules in test dirs
+"conftest.py" = ["D"]                     # Allow missing docstrings in conftest
+"setup.py" = ["D"]                        # Allow missing docstrings in setup
+
+[lint.isort]
+# Per-target: list every maintained first-party package.
+known-first-party = []
+force-single-line = false
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 5
+max-branches = 12
+max-locals = 15
+max-positional-args = 5
+max-public-methods = 20
+max-returns = 6
+max-statements = 50
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[format]
+# Format configuration
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true

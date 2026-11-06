@@ -20,7 +20,7 @@ Make the target design canonical, preserve required behaviour and migrate every 
    `kind: preserve` proofs (green at parent and head); fill proof-surface gaps first.
    Plan removal of obsolete implementations, aliases, comments and compatibility paths;
    keep plan draft until spike answers land.
-4. **Implement**: require `.omp/gate.json` `fastGate` and `pathCheck`; otherwise read
+4. **Implement**: require `.omp/gate.json` `checks.commit` and `pathCheck`; otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default.
    Read `skill://coding-guidance/references/implementation-integrity.md`,
@@ -28,8 +28,8 @@ Make the target design canonical, preserve required behaviour and migrate every 
    `skill://coding-guidance/references/naming.md` before edits/moves/renames.
    Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
    implementation `task`; migrate all callers/tests/docs and remove obsolete paths, no shims.
-   Read `skill://coding-guidance/references/verification.md`; run `fastGate` after last edit.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()` with
+   Read `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
    preservation proofs green on parent overlay and twice at head. Cross-family verifier
    drives every criterion and checks affected docs; apply only the defined blocking rule.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and

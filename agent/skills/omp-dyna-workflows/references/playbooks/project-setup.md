@@ -28,11 +28,12 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/naming.md` before edits/paths/names.
    Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
    implementation `task`. Read `skill://setup-repository-guardrails`; apply only approved
-   controls, establish `.omp/gate.json` with `schemaVersion: 1`, `fastGate` and `pathCheck`
-   as the prerequisite for ordinary implementation. Wire the authoritative gate locally and
-   in CI; remove only approved replaced controls. Read
-   `skill://coding-guidance/references/verification.md`; run `fastGate` after last edit.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()` with
+   controls, establish `.omp/gate.json` with `schemaVersion: 2`, `checks.commit`, `checks.ci`,
+   `pathCheck` and an installed pre-commit hook as the prerequisite for ordinary
+   implementation. Wire `checks.commit` into the hook and `checks.ci` into CI on `ciHost`;
+   remove only approved replaced controls. Read
+   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
    canaries green twice at head, parent checks by kind and a cross-family live verifier.
    Guardrail/gate-file changes require owner countersign; never auto-approve gate loosening.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
