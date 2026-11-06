@@ -123,6 +123,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["status"], "needs_owner")
         self.assertEqual(result["deterministic"]["needsCountersign"], [".omp/gate.json"])
 
+    def test_hook_change_requires_countersign(self):
+        result = self.prove(self.change(files={".githooks/pre-commit": "#!/bin/sh\nexit 0\n"}))
+        self.assertEqual(result["status"], "needs_owner")
+        self.assertEqual(result["deterministic"]["needsCountersign"], [".githooks/pre-commit"])
+
     def assert_sensitive_change(self, name):
         result = self.prove(self.change(files={name: "# protected\n"}))
         self.assertEqual(result["status"], "needs_owner")

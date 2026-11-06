@@ -8,7 +8,9 @@
 !bun.lock
 !bunfig.toml
 !tsconfig.json
-!.pre-commit-config.yaml
+!.githooks/
+.githooks/*
+!.githooks/pre-commit
 !.markdownlint-cli2.jsonc
 !oxlint.config.ts
 

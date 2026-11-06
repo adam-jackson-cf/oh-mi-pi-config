@@ -48,8 +48,10 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+# .omp/gate.json checks.commit (run by .githooks/pre-commit) and the CI workflow must both use
+# this runner.
 runner_base='scripts/run-ci-quality-gates'
-for config in .pre-commit-config.yaml .github/workflows/ci-quality-gates.yml; do
+for config in .omp/gate.json .github/workflows/ci-quality-gates.yml; do
   if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
     printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
     exit 1

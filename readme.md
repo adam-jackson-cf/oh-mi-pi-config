@@ -70,6 +70,10 @@ persistent shell are not seen. During the schema cutover, version 1
 files still parse:
 `commitGate` (else `fastGate`) is the commit check and `gate` the CI check.
 
+This repository's hook is `.githooks/pre-commit`, which runs `checks.commit`
+(`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
+with `git config core.hooksPath .githooks`.
+
 Dynaflows switches on the `omp-dyna-workflows` process. Owners toggle it with
 `$dynaflows` (or `$dynaflows on`) and `$dynaflows off` in a main-session prompt;
 the toggle writes the repository's `.omp/dynaflows.json` and adds it to
