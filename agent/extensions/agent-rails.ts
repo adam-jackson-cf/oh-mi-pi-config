@@ -101,7 +101,11 @@ const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
-type GitAction = { command: string; args: string[]; cwd?: string; ghArgs?: string[]; config: string[] };
+type GitAction = {
+	command: string; args: string[]; cwd?: string; ghArgs?: string[]; config: string[];
+	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
+	hookSkip?: string;
+};
 interface State {
 	reads: Set<string>;
 	notes: Set<string>;
@@ -230,7 +234,9 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-async function gitActions(command: string, cwd: string | undefined): Promise<GitAction[]> {
+// `scan` is shared with nested `sh -c` and `env -S` scripts so a variable touched anywhere marks
+// every git action of the whole command.
+async function gitActions(command: string, cwd: string | undefined, scan: { hookSkip?: string } = {}): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
@@ -238,10 +244,14 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
 		return target && (await stat(target).catch(() => null))?.isDirectory() ? target : undefined;
 	};
+	const touch = (word: string | undefined) => {
+		const name = word?.split("=")[0] ?? "";
+		if (Object.hasOwn(hookSkipVariables, name)) scan.hookSkip ??= word;
+	};
 	let words: string[] = [];
 	const flush = async () => {
 		while (words.length) {
-			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) words.shift();
+			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) touch(words.shift());
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
@@ -253,20 +263,22 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
 				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
 				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
-					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd));
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, scan));
 					words = []; return;
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
 					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
+				if (launcher === "env" && ["-u", "--unset"].includes(option.split("=")[0])) touch(value);
 			}
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (["bash", "sh", "zsh"].includes(executable)) {
+		if (["export", "unset", "declare", "typeset", "readonly", "local"].includes(executable)) words.forEach(touch);
+		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (/^-[^-]*c/.test(option)) {
-					if (words[0]) actions.push(...await gitActions(words[0], cwd));
+					if (words[0]) actions.push(...await gitActions(words[0], cwd, scan));
 					break;
 				}
 				if (["-o", "+o", "-O"].includes(option)) words.shift();
@@ -309,18 +321,18 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
 	await flush();
+	if (scan.hookSkip) for (const action of actions) action.hookSkip ??= scan.hookSkip;
 	return actions;
 }
 
-// Environment variables that make a hook manager or Git skip the pre-commit hook. The command text
-// is scanned conservatively: any assignment, export, unset or `env -u` of one of these names in the
-// same command blocks a commit, whatever its value or later shell state.
-const hookSkipVariable = "(?:LEFTHOOK|HUSKY|SKIP|PRE_COMMIT_ALLOW_NO_CONFIG|GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT)";
-const hookSkipPattern = new RegExp([
-	`(?<![\\w$-])${hookSkipVariable}=`,
-	`\\b(?:export|unset|declare|typeset|readonly|local)\\b[^;&|\\n]*?(?<![\\w$-])${hookSkipVariable}(?!\\w)`,
-	`(?:-u|--unset)(?:=|\\s+)${hookSkipVariable}(?!\\w)`,
-].join("|"));
+// Environment variables that make a hook manager or Git skip the pre-commit hook. Conservatively,
+// any assignment, export, unset or `env -u` of one of these names anywhere in a command blocks its
+// commits, whatever the value or later shell state. Quoted prose such as a commit message is not
+// a command position and does not count.
+const hookSkipVariables = {
+	LEFTHOOK: true, HUSKY: true, SKIP: true, PRE_COMMIT_ALLOW_NO_CONFIG: true,
+	GIT_CONFIG_PARAMETERS: true, GIT_CONFIG_COUNT: true,
+} satisfies Record<string, true>;
 
 // `git commit` options that take the next word as their value, so it is not parsed as an option.
 const commitValueShorts = { m: true, F: true, c: true, C: true, t: true } satisfies Record<string, true>;
@@ -330,7 +342,7 @@ const commitValueLongs = {
 	"--trailer": true, "--pathspec-from-file": true,
 } satisfies Record<string, true>;
 // Returns the first argument, Git config or hook-skip variable that would skip the pre-commit hook.
-function commitBypass(action: GitAction, command: string): string | undefined {
+function commitBypass(action: GitAction): string | undefined {
 	const args = action.args.slice(1);
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
@@ -356,7 +368,7 @@ function commitBypass(action: GitAction, command: string): string | undefined {
 	}
 	const hooksPath = action.config.find(entry => entry.split("=")[0].toLowerCase() === "core.hookspath");
 	if (hooksPath) return hooksPath;
-	return command.match(hookSkipPattern)?.[0];
+	return action.hookSkip;
 }
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
@@ -606,7 +618,7 @@ export default function agentRails(
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
 					if (/^git commit\b/.test(action.command)) {
-						const bypass = commitBypass(action, event.input.command);
+						const bypass = commitBypass(action);
 						if (bypass) return {
 							block: true, reason: `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`,
 						};
