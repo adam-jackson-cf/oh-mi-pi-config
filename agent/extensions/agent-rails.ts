@@ -234,8 +234,9 @@ const wrapperOptions = {
 async function gitActions(command: string, cwd: string | undefined, inherited: string[] = []): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
-	// `export NAME=value` reaches every later command in the script.
-	const exported = [...inherited];
+	// `export NAME=value` reaches every later command in the same shell; `unset` and a closing
+	// subshell undo it. Later assignments to a name replace earlier ones.
+	let exported = [...inherited];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -248,7 +249,7 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 		while (words.length) {
 			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) {
 				const word = words.shift()!;
-				if (word.includes("=")) env.push(word);
+				if (word.includes("=")) assignEnv(env, word);
 			}
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
@@ -266,11 +267,14 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
 					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
+				if (launcher === "env" && ["-u", "--unset"].includes(option.split("=")[0]) && value) unsetEnv(env, value);
+				if (launcher === "env" && ["-i", "--ignore-environment"].includes(option)) env.length = 0;
 			}
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (executable === "export") exported.push(...words.filter(word => /^[A-Za-z_]\w*=/.test(word)));
+		if (executable === "export") for (const word of words) { if (/^[A-Za-z_]\w*=/.test(word)) assignEnv(exported, word); }
+		else if (executable === "unset") for (const word of words) { if (!word.startsWith("-")) unsetEnv(exported, word); }
 		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
@@ -307,18 +311,26 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 		}
 		words = [];
 	};
-	const subshells: (string | undefined)[] = [];
+	const subshells: { cwd: string | undefined; exported: string[] }[] = [];
 	for (const token of tokens) {
 		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) {
 			await flush();
-			if (token === "(") subshells.push(cwd);
-			if (token === ")") cwd = subshells.pop();
+			if (token === "(") subshells.push({ cwd, exported: [...exported] });
+			if (token === ")") ({ cwd, exported } = subshells.pop() ?? { cwd: undefined, exported: [...inherited] });
 		} else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
 			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
 	await flush();
 	return actions;
+}
+
+function unsetEnv(env: string[], name: string): void {
+	for (let index = env.length - 1; index >= 0; index--) if (env[index].slice(0, env[index].indexOf("=")) === name) env.splice(index, 1);
+}
+function assignEnv(env: string[], assignment: string): void {
+	unsetEnv(env, assignment.slice(0, assignment.indexOf("=")));
+	env.push(assignment);
 }
 
 // `git commit` options that take the next word as their value, so it is not parsed as an option.
