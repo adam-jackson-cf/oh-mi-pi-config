@@ -328,6 +328,8 @@ describe("agent rails", () => {
 				"git commit -m 'no -n here'", "git commit -m -n", "git commit -F -n", "git commit --message -n",
 				"git commit --mes -n", "git commit --mess=-n", "git commit -uno -m x", "git commit -m x -- -n",
 				"LEFTHOOK=1 git commit -m x", "echo 'git commit --no-verify'", "export A=1; git commit -m x",
+				"export HUSKY=0; export HUSKY=1; git commit -m x", "(export HUSKY=0); git commit -m x",
+				"export HUSKY=0; unset HUSKY; git commit -m x", "export HUSKY=0; env -u HUSKY git commit -m x",
 			]) assert.equal(await h.call("bash", { command }), undefined, command);
 		} finally { h.cleanup(); }
 	});
