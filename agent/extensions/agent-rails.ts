@@ -230,9 +230,12 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-async function gitActions(command: string, cwd: string | undefined): Promise<GitAction[]> {
+// `inherited` holds environment assignments a parent shell passes to a nested `sh -c` script.
+async function gitActions(command: string, cwd: string | undefined, inherited: string[] = []): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
+	// `export NAME=value` reaches every later command in the script.
+	const exported = [...inherited];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -241,7 +244,7 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 	let words: string[] = [];
 	const flush = async () => {
 		// Environment assignments apply to the command that follows them, including after `env`.
-		const env: string[] = [];
+		const env = [...exported];
 		while (words.length) {
 			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) {
 				const word = words.shift()!;
@@ -258,7 +261,7 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
 				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
 				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
-					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd));
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, env));
 					words = []; return;
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
@@ -267,11 +270,12 @@ async function gitActions(command: string, cwd: string | undefined): Promise<Git
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (["bash", "sh", "zsh"].includes(executable)) {
+		if (executable === "export") exported.push(...words.filter(word => /^[A-Za-z_]\w*=/.test(word)));
+		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (/^-[^-]*c/.test(option)) {
-					if (words[0]) actions.push(...await gitActions(words[0], cwd));
+					if (words[0]) actions.push(...await gitActions(words[0], cwd, env));
 					break;
 				}
 				if (["-o", "+o", "-O"].includes(option)) words.shift();
@@ -331,9 +335,10 @@ function commitBypass(action: GitAction): string | undefined {
 		const arg = args[index];
 		if (arg === "--") break;
 		if (arg.startsWith("--")) {
-			// Git accepts unambiguous long-option prefixes, so `--no-ver` also means --no-verify.
-			if (arg.length > "--no-".length && "--no-verify".startsWith(arg)) return arg;
-			if (Object.hasOwn(commitValueLongs, arg)) index++;
+			const name = arg.split("=")[0];
+			// Git accepts unambiguous long-option prefixes, so `--no-ver` means --no-verify and `--mes` --message.
+			if (name.length > "--no-".length && "--no-verify".startsWith(name)) return arg;
+			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
 			continue;
 		}
 		if (!arg.startsWith("-") || arg === "-") continue;

@@ -316,6 +316,9 @@ describe("agent rails", () => {
 				"git --config-env=core.hooksPath=HOOKS commit -m x", "LEFTHOOK=0 git commit -m x",
 				"SKIP=checks git commit -m x", "HUSKY=0 git commit -m x", "env PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m x",
 				"GIT_CONFIG_COUNT=1 git commit -m x", "bash -c 'git commit --no-verify -m x'",
+				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath bash -c 'git commit -m x'",
+				"LEFTHOOK=0 sh -c 'cd . && git commit -m x'", "export HUSKY=0; git commit -m x",
+				"env -S 'SKIP=x' git commit -m x",
 			]) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
@@ -323,7 +326,8 @@ describe("agent rails", () => {
 			}
 			for (const command of [
 				"git commit -m 'no -n here'", "git commit -m -n", "git commit -F -n", "git commit --message -n",
-				"git commit -uno -m x", "git commit -m x -- -n", "LEFTHOOK=1 git commit -m x", "echo 'git commit --no-verify'",
+				"git commit --mes -n", "git commit --mess=-n", "git commit -uno -m x", "git commit -m x -- -n",
+				"LEFTHOOK=1 git commit -m x", "echo 'git commit --no-verify'", "export A=1; git commit -m x",
 			]) assert.equal(await h.call("bash", { command }), undefined, command);
 		} finally { h.cleanup(); }
 	});
