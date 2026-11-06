@@ -60,12 +60,13 @@ Repository checks follow the test tiers. `.omp/gate.json` schema version 2 decla
 and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
 `checks.commit`; CI on `ciHost` runs `checks.ci` for every push and merge. For
 every `git commit`, `agent-rails.ts` blocks hook bypasses: `--no-verify`, `-n`,
-a `core.hooksPath` override, and any assignment, `export`, `unset` or `env -u`
-of `LEFTHOOK`, `HUSKY`, `SKIP`, `PRE_COMMIT_ALLOW_NO_CONFIG`,
+a `core.hooksPath` override, and any assignment, `export`/`declare`, `unset` or
+`env -u` of `LEFTHOOK`, `HUSKY`, `SKIP`, `PRE_COMMIT_ALLOW_NO_CONFIG`,
 `GIT_CONFIG_PARAMETERS` or `GIT_CONFIG_COUNT` anywhere in the same command,
-whatever the value. It also blocks the commit when `checks.commit` is declared
-but no executable pre-commit hook is installed. Variables exported by an earlier
-command in a persistent shell are not seen. During the schema cutover, version 1
+whatever the value. Quoted arguments such as commit messages do not count. It
+also blocks the commit when `checks.commit` is declared but no executable
+pre-commit hook is installed. Variables exported by an earlier command in a
+persistent shell are not seen. During the schema cutover, version 1
 files still parse:
 `commitGate` (else `fastGate`) is the commit check and `gate` the CI check.
 
