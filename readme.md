@@ -66,9 +66,12 @@ a `core.hooksPath` override, and any assignment, `export`/`declare`, `unset` or
 whatever the value. Quoted arguments such as commit messages do not count. It
 also blocks the commit when `checks.commit` is declared but no executable
 pre-commit hook is installed. Variables exported by an earlier command in a
-persistent shell are not seen. During the schema cutover, version 1
-files still parse:
-`commitGate` (else `fastGate`) is the commit check and `gate` the CI check.
+persistent shell are not seen. Only schema version 2 is accepted; other versions
+fail closed.
+
+This repository's hook is `.githooks/pre-commit`, which runs `checks.commit`
+(`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
+with `git config core.hooksPath .githooks`.
 
 Dynaflows switches on the `omp-dyna-workflows` process. Owners toggle it with
 `$dynaflows` (or `$dynaflows on`) and `$dynaflows off` in a main-session prompt;
