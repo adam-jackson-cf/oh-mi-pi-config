@@ -269,6 +269,7 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
 					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
 				if (launcher === "env" && ["-u", "--unset"].includes(option.split("=")[0])) touch(value);
+				else if (launcher === "env" && /^-u./.test(option)) touch(option.slice(2));
 			}
 			if (launcher === "timeout") words.shift();
 		}
