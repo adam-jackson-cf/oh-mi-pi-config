@@ -106,8 +106,16 @@ def sensitive_paths(paths, patterns):
         for pattern in patterns)]
 
 
+def _is_argv(value):
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(arg, str) and arg.strip() for arg in value)
+
+
 def gate_policy(gate):
-    """Normalise .omp/gate.json to {commit, ci, pathCheck, sensitive}; None when invalid."""
+    """Normalise .omp/gate.json to {commit, ci, pathCheck, sensitive}; None when invalid.
+
+    Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `sensitive` an optional
+    string list, `ciHost` and `agentMerge` optional enums. Any other shape fails closed."""
     if not isinstance(gate, dict):
         return None
     if gate.get("schemaVersion") == 2:
@@ -117,11 +125,20 @@ def gate_policy(gate):
         commit, ci = checks.get("commit"), checks.get("ci")
     elif gate.get("schemaVersion") == 1:
         # schema v1: remove once every repo has migrated to v2
+        if any(key in gate and not _is_argv(gate[key]) for key in ("gate", "commitGate", "fastGate")):
+            return None
         commit, ci = gate.get("commitGate") or gate.get("fastGate"), gate.get("gate")
     else:
         return None
-    return {"commit": commit, "ci": ci, "pathCheck": gate.get("pathCheck"),
-            "sensitive": gate.get("sensitive") or []}
+    path_check, sensitive = gate.get("pathCheck"), gate.get("sensitive", [])
+    if any(value is not None and not _is_argv(value) for value in (commit, ci, path_check)):
+        return None
+    if not isinstance(sensitive, list) or not all(isinstance(item, str) for item in sensitive):
+        return None
+    if gate.get("ciHost", "github") not in ("github", "nuc") or (
+            gate.get("agentMerge", "allowed") not in ("allowed", "disabled")):
+        return None
+    return {"commit": commit, "ci": ci, "pathCheck": path_check, "sensitive": sensitive}
 
 
 def gate_changes(paths, root, gate):
@@ -171,7 +188,7 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitiv
     if failures:
         return result
     if policy is None:
-        failures.append(".omp/gate.json has an unsupported schemaVersion")
+        failures.append(".omp/gate.json has an unsupported schemaVersion or invalid fields")
         return result
     if not policy["commit"] or not policy["pathCheck"]:
         failures.append("missing checks.commit or pathCheck; use skill://setup-repository-guardrails")

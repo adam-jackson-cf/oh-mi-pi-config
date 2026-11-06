@@ -31,8 +31,8 @@ class WorkflowTests(unittest.TestCase):
         (self.repo / ".omp").mkdir()
         # The commit check would fail if run: prove() must not execute repository checks.
         (self.repo / ".omp/gate.json").write_text(json.dumps({
-            "schemaVersion": 2, "checks": {"commit": "false", "ci": "false"},
-            "pathCheck": "true", "sensitive": ["auth/"]}))
+            "schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]},
+            "pathCheck": ["true"], "sensitive": ["auth/"]}))
         (self.repo / "value").write_text("old")
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "base")
@@ -54,7 +54,7 @@ class WorkflowTests(unittest.TestCase):
         if gate_change:
             path = repo / ".omp/gate.json"
             gate = json.loads(path.read_text())
-            gate["checks"]["commit"] = "printf gate"
+            gate["checks"]["commit"] = ["printf", "gate"]
             path.write_text(json.dumps(gate))
         git(repo, "add", ".")
         git(repo, "commit", "-qm", "change")
@@ -187,7 +187,7 @@ class WorkflowTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def test_missing_commit_check_routes_to_guardrail_setup(self):
-        gate = {"schemaVersion": 2, "checks": {"ci": "true"}, "pathCheck": "true"}
+        gate = {"schemaVersion": 2, "checks": {"ci": ["true"]}, "pathCheck": ["true"]}
         result = self.prove(self.change(files={".omp/gate.json": json.dumps(gate)}))
         self.assertEqual(result["status"], "fail")
         self.assertIn(
@@ -196,10 +196,10 @@ class WorkflowTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def test_unsupported_gate_schema_fails(self):
-        gate = {"schemaVersion": 3, "pathCheck": "true"}
+        gate = {"schemaVersion": 3, "pathCheck": ["true"]}
         result = self.prove(self.change(files={".omp/gate.json": json.dumps(gate)}))
         self.assertEqual(result["status"], "fail")
-        self.assertIn(".omp/gate.json has an unsupported schemaVersion", result["blocking"])
+        self.assertIn(".omp/gate.json has an unsupported schemaVersion or invalid fields", result["blocking"])
         self.verifier.assert_not_called()
 
     def test_non_object_gate_fails(self):
@@ -227,9 +227,16 @@ class GatePolicyTests(unittest.TestCase):
         self.assertEqual(workflow.gate_policy(both)["ci"], ["g"])
         self.assertEqual(workflow.gate_policy({"schemaVersion": 1, "fastGate": ["f"]})["commit"], ["f"])
 
-    def test_unknown_schema_is_invalid(self):
-        self.assertIsNone(workflow.gate_policy({"schemaVersion": 3}))
-        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2, "checks": []}))
+    def test_unknown_schema_and_malformed_fields_are_invalid(self):
+        valid = {"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]}, "pathCheck": ["p"]}
+        self.assertIsNotNone(workflow.gate_policy(valid))
+        for invalid in ({"schemaVersion": 3}, {"schemaVersion": 2, "checks": []},
+                        {**valid, "checks": {"commit": 42}}, {**valid, "checks": {"ci": "bun ci"}},
+                        {**valid, "checks": {"commit": [""]}}, {**valid, "pathCheck": 42},
+                        {**valid, "pathCheck": []}, {**valid, "sensitive": "auth/"},
+                        {**valid, "ciHost": "invalid"}, {**valid, "agentMerge": "yes"},
+                        {"schemaVersion": 1, "gate": "bash gate.sh"}):
+            self.assertIsNone(workflow.gate_policy(invalid), invalid)
 
 if __name__ == "__main__":
     unittest.main()
