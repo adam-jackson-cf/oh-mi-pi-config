@@ -234,9 +234,10 @@ const wrapperOptions = {
 async function gitActions(command: string, cwd: string | undefined, inherited: string[] = []): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
-	// `export NAME=value` reaches every later command in the same shell; `unset` and a closing
-	// subshell undo it. Later assignments to a name replace earlier ones.
+	// Model the shell's variables: a standalone `NAME=value` sets a shell variable and updates it in
+	// the environment when already exported; `export` exports; `unset` and a closing subshell undo.
 	let exported = [...inherited];
+	let shellVars = [...inherited];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -246,16 +247,19 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 	const flush = async () => {
 		// Environment assignments apply to the command that follows them, including after `env`.
 		const env = [...exported];
+		const assigned: string[] = [];
+		let launched = false;
 		while (words.length) {
 			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) {
 				const word = words.shift()!;
-				if (word.includes("=")) assignEnv(env, word);
+				if (word.includes("=")) { assignEnv(env, word); if (!launched) assigned.push(word); }
 			}
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
 			const valued: string[] = wrapperOptions[launcher as keyof typeof wrapperOptions];
 			words.shift();
+			launched = true;
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (option === "--") break;
@@ -273,8 +277,18 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (executable === "export") for (const word of words) { if (/^[A-Za-z_]\w*=/.test(word)) assignEnv(exported, word); }
-		else if (executable === "unset") for (const word of words) { if (!word.startsWith("-")) unsetEnv(exported, word); }
+		if (!executable && !launched) for (const word of assigned) {
+			const name = word.slice(0, word.indexOf("="));
+			assignEnv(shellVars, word);
+			if (exported.some(entry => entry.startsWith(`${name}=`))) assignEnv(exported, word);
+		}
+		else if (executable === "export") for (const word of words) {
+			const assignment = word.includes("=") ? word : shellVars.find(entry => entry.startsWith(`${word}=`));
+			if (assignment && /^[A-Za-z_]\w*=/.test(assignment)) { assignEnv(exported, assignment); assignEnv(shellVars, assignment); }
+		}
+		else if (executable === "unset") for (const word of words) {
+			if (!word.startsWith("-")) { unsetEnv(exported, word); unsetEnv(shellVars, word); }
+		}
 		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
@@ -311,12 +325,15 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 		}
 		words = [];
 	};
-	const subshells: { cwd: string | undefined; exported: string[] }[] = [];
+	const subshells: { cwd: string | undefined; exported: string[]; shellVars: string[] }[] = [];
 	for (const token of tokens) {
 		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) {
 			await flush();
-			if (token === "(") subshells.push({ cwd, exported: [...exported] });
-			if (token === ")") ({ cwd, exported } = subshells.pop() ?? { cwd: undefined, exported: [...inherited] });
+			if (token === "(") subshells.push({ cwd, exported: [...exported], shellVars: [...shellVars] });
+			if (token === ")") {
+				({ cwd, exported, shellVars } = subshells.pop() ??
+					{ cwd: undefined, exported: [...inherited], shellVars: [...inherited] });
+			}
 		} else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
 			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
