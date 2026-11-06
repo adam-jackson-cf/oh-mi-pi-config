@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+tier=ci
 fix=false
 stage=false
 
 usage() {
-  printf 'Usage: %s [--fix] [--stage]\n' "$0"
+  printf 'Usage: %s [--tier commit|ci] [--fix] [--stage]\n' "$0"
 }
 
 while (($#)); do
   case "$1" in
+    --tier)
+      tier="${2:-}"
+      shift
+      ;;
     --fix)
       fix=true
       ;;
@@ -28,6 +33,12 @@ while (($#)); do
   esac
   shift
 done
+
+if [[ "$tier" != commit && "$tier" != ci ]]; then
+  printf 'Unknown tier: %s\n' "$tier" >&2
+  usage >&2
+  exit 2
+fi
 
 if "$stage" && ! "$fix"; then
   printf '%s\n' '--stage requires --fix.' >&2
@@ -85,7 +96,24 @@ bunx tsc --noEmit
 # A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
 # would otherwise write into this repository's index.
 (unset "${!GIT_@}"; bun test)
-(unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
+# The Python suites drive real Git repositories, worktrees and container fakes (T2 seams).
+# The commit tier runs them only when staged paths reach them; the ci tier always runs them.
+run_seams=true
+if [[ "$tier" == commit ]]; then
+  run_seams=false
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      scripts/*|tests/test_*.py|agent/skills/omp-dyna-workflows/templates/*|agent/skills/setup-repository-guardrails/*)
+        run_seams=true
+        ;;
+    esac
+  done < <(git diff --cached --name-only -z)
+fi
+if "$run_seams"; then
+  (unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
+else
+  printf 'Python seam suites skipped: no staged path reaches them.\n'
+fi
 (unset "${!GIT_@}"; python3 scripts/check-paths.py)
 
 if "$stage"; then

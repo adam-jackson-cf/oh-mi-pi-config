@@ -29,8 +29,10 @@ class WorkflowTests(unittest.TestCase):
         git(self.repo, "config", "user.email", "proof@example.test")
         git(self.repo, "config", "user.name", "Proof Test")
         (self.repo / ".omp").mkdir()
+        # The commit check would fail if run: prove() must not execute repository checks.
         (self.repo / ".omp/gate.json").write_text(json.dumps({
-            "schemaVersion": 1, "fastGate": "true", "pathCheck": "true", "sensitive": ["auth/"]}))
+            "schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]},
+            "pathCheck": ["true"], "sensitive": ["auth/"]}))
         (self.repo / "value").write_text("old")
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "base")
@@ -52,7 +54,7 @@ class WorkflowTests(unittest.TestCase):
         if gate_change:
             path = repo / ".omp/gate.json"
             gate = json.loads(path.read_text())
-            gate["fastGate"] = "printf gate"
+            gate["checks"]["commit"] = ["printf", "gate"]
             path.write_text(json.dumps(gate))
         git(repo, "add", ".")
         git(repo, "commit", "-qm", "change")
@@ -66,24 +68,24 @@ class WorkflowTests(unittest.TestCase):
         path.write_text(json.dumps(manifest))
         return repo, self.parent, head, path
 
-    def verify(self, change_args):
+    def prove(self, change_args):
         repo, parent, head, manifest = change_args
-        result = workflow.verify(repo, parent, head, manifest, workflow._sha(manifest), "fix value")
+        result = workflow.prove(repo, parent, head, manifest, workflow._sha(manifest), "fix value")
         # Scratch trees must be removed on success and refusal alike.
         self.assertEqual(git(repo, "worktree", "list", "--porcelain").count("worktree "), 1)
         return result
 
     def test_valid_defect_proof(self):
-        self.assertEqual(self.verify(self.change(kind="defect"))["status"], "pass")
+        self.assertEqual(self.prove(self.change(kind="defect"))["status"], "pass")
 
     def test_valid_preserve_proof(self):
-        self.assertEqual(self.verify(self.change(kind="preserve", code="assert True\n"))["status"], "pass")
+        self.assertEqual(self.prove(self.change(kind="preserve", code="assert True\n"))["status"], "pass")
 
     def test_valid_new_surface_proof(self):
-        self.assertEqual(self.verify(self.change(kind="new-surface"))["status"], "pass")
+        self.assertEqual(self.prove(self.change(kind="new-surface"))["status"], "pass")
 
     def assert_invalid_evidence(self, code, reason):
-        result = self.verify(self.change(code=code))
+        result = self.prove(self.change(code=code))
         self.assertEqual(result["status"], "fail")
         self.assertTrue(any(reason in item for item in result["blocking"]))
 
@@ -102,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_manifest_hash_mismatch_blocks(self):
         repo, parent, head, manifest = self.change()
-        result = workflow.verify(repo, parent, head, manifest, "0" * 64, "fix")
+        result = workflow.prove(repo, parent, head, manifest, "0" * 64, "fix")
         self.assertEqual(result["status"], "fail")
         self.assertTrue(any("hash mismatch" in item for item in result["blocking"]))
 
@@ -112,17 +114,17 @@ class WorkflowTests(unittest.TestCase):
         data = json.loads(manifest.read_text())
         data["proofs"][0]["sha256"]["proof.py"] = "0" * 64
         manifest.write_text(json.dumps(data))
-        result = self.verify(args)
+        result = self.prove(args)
         self.assertEqual(result["status"], "fail")
         self.assertTrue(any("hash mismatch" in item for item in result["blocking"]))
 
     def test_gate_change_requires_countersign(self):
-        result = self.verify(self.change(gate_change=True))
+        result = self.prove(self.change(gate_change=True))
         self.assertEqual(result["status"], "needs_owner")
         self.assertEqual(result["deterministic"]["needsCountersign"], [".omp/gate.json"])
 
     def assert_sensitive_change(self, name):
-        result = self.verify(self.change(files={name: "# protected\n"}))
+        result = self.prove(self.change(files={name: "# protected\n"}))
         self.assertEqual(result["status"], "needs_owner")
         self.assertEqual(result["deterministic"]["needsOwner"], [name])
 
@@ -141,7 +143,7 @@ class WorkflowTests(unittest.TestCase):
             (args[0] / "unauthorized").write_text("mutation")
             return {"status": "pass", "blocking": [], "followUps": []}
         self.verifier.side_effect = mutate
-        result = self.verify(args)
+        result = self.prove(args)
         self.assertEqual(result["status"], "fail")
         self.assertIn("verifier mutated the repo", result["blocking"])
 
@@ -150,7 +152,7 @@ class WorkflowTests(unittest.TestCase):
         data = json.loads(args[3].read_text())
         data["proofs"][0].pop("id")
         args[3].write_text(json.dumps(data))
-        result = self.verify(args)
+        result = self.prove(args)
         self.assertEqual(result["status"], "fail")
         self.assertIn("missing or duplicate proof id", result["blocking"])
 
@@ -162,7 +164,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_verifier_exception_is_closed(self):
         self.verifier.side_effect = LookupError("verifier unavailable")
-        result = self.verify(self.change())
+        result = self.prove(self.change())
         self.assertEqual(result["status"], "fail")
         self.assertTrue(result["blocking"])
         self.assertIn("verifier unavailable", result["blocking"])
@@ -170,32 +172,71 @@ class WorkflowTests(unittest.TestCase):
     def test_deterministic_exception_is_closed(self):
         args = self.change()
         with patch.object(workflow, "deterministic_checks", side_effect=LookupError("proof runner failed")):
-            result = self.verify(args)
+            result = self.prove(args)
         self.assertEqual(result["status"], "fail")
         self.assertIn("proof runner failed", result["blocking"])
         self.verifier.assert_not_called()
 
     def test_missing_gate_routes_to_guardrail_setup(self):
         (self.repo / ".omp/gate.json").unlink()
-        result = self.verify(self.change())
+        result = self.prove(self.change())
         self.assertEqual(result["status"], "fail")
         self.assertIn(
-            "missing fastGate or pathCheck; use skill://setup-repository-guardrails",
+            "missing checks.commit or pathCheck; use skill://setup-repository-guardrails",
             result["blocking"])
         self.verifier.assert_not_called()
 
+    def test_missing_commit_check_routes_to_guardrail_setup(self):
+        gate = {"schemaVersion": 2, "checks": {"ci": ["true"]}, "pathCheck": ["true"]}
+        result = self.prove(self.change(files={".omp/gate.json": json.dumps(gate)}))
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(
+            "missing checks.commit or pathCheck; use skill://setup-repository-guardrails",
+            result["blocking"])
+        self.verifier.assert_not_called()
+
+    def test_unsupported_gate_schema_fails(self):
+        gate = {"schemaVersion": 3, "pathCheck": ["true"]}
+        result = self.prove(self.change(files={".omp/gate.json": json.dumps(gate)}))
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(".omp/gate.json has an unsupported schemaVersion or invalid fields", result["blocking"])
+        self.verifier.assert_not_called()
+
     def test_non_object_gate_fails(self):
-        result = self.verify(self.change(files={".omp/gate.json": "[]"}))
+        result = self.prove(self.change(files={".omp/gate.json": "[]"}))
         self.assertEqual(result["status"], "fail")
         self.assertIn(".omp/gate.json must be an object", result["blocking"])
         self.verifier.assert_not_called()
 
     def test_verifier_off_schema_result_is_closed(self):
         self.verifier.return_value = {"status": "pass"}
-        result = self.verify(self.change())
+        result = self.prove(self.change())
         self.assertEqual(result["status"], "fail")
         self.assertTrue(result["blocking"])
 
+
+class GatePolicyTests(unittest.TestCase):
+    def test_v2_reads_checks_object(self):
+        policy = workflow.gate_policy({"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]},
+                                       "pathCheck": ["p"], "sensitive": ["auth/"]})
+        self.assertEqual(policy, {"commit": ["c"], "ci": ["i"], "pathCheck": ["p"], "sensitive": ["auth/"]})
+
+    def test_v1_prefers_commit_gate_then_fast_gate(self):
+        both = {"schemaVersion": 1, "commitGate": ["c"], "fastGate": ["f"], "gate": ["g"]}
+        self.assertEqual(workflow.gate_policy(both)["commit"], ["c"])
+        self.assertEqual(workflow.gate_policy(both)["ci"], ["g"])
+        self.assertEqual(workflow.gate_policy({"schemaVersion": 1, "fastGate": ["f"]})["commit"], ["f"])
+
+    def test_unknown_schema_and_malformed_fields_are_invalid(self):
+        valid = {"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]}, "pathCheck": ["p"]}
+        self.assertIsNotNone(workflow.gate_policy(valid))
+        for invalid in ({"schemaVersion": 3}, {"schemaVersion": 2, "checks": []},
+                        {**valid, "checks": {"commit": 42}}, {**valid, "checks": {"ci": "bun ci"}},
+                        {**valid, "checks": {"commit": [""]}}, {**valid, "pathCheck": 42},
+                        {**valid, "pathCheck": []}, {**valid, "sensitive": "auth/"},
+                        {**valid, "ciHost": "invalid"}, {**valid, "agentMerge": "yes"},
+                        {"schemaVersion": 1, "gate": "bash gate.sh"}):
+            self.assertIsNone(workflow.gate_policy(invalid), invalid)
 
 if __name__ == "__main__":
     unittest.main()

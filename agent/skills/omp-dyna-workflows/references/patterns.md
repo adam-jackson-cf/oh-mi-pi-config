@@ -45,15 +45,15 @@ SHA-256 before spawning the separate implementation task.
 - Missing files, edited hashes, unknown/missing or duplicate ids, invalid schema and a changed
   manifest block. Never weaken a proof to make it pass; correct and explicitly re-freeze the plan.
 
-## verify
+## prove
 
 - **Inputs**: `repo`, `parent`, `head`, `manifest_path`, `manifest_sha256`, `objective`;
-  optional additional `gates` (commands), `sensitive` (patterns), `max_checks` (default 16).
-- **Gate**: require head `.omp/gate.json` with `fastGate` and `pathCheck`; use
-  `skill://setup-repository-guardrails` if missing. `fastGate` performs dependency setup the
-  repo way when needed. Additional gates never replace the repository gate.
+  optional `sensitive` (patterns), `max_checks` (default 16).
+- **Guardrails**: require head `.omp/gate.json` with `checks.commit` and `pathCheck`; use
+  `skill://setup-repository-guardrails` if missing. `prove()` never runs repository checks:
+  the pre-commit hook runs `checks.commit`; CI runs `checks.ci` and merge requires it green.
 - **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR`, run
-  head gate and proofs twice, validate proof hashes, overlay proofs on parent and test their kind.
+  proofs twice at head, validate proof hashes, overlay proofs on parent and test their kind.
   Plain functions expose deterministic checks without eval globals.
 - **Authority**: changed `.omp/gate.json`, `.github/workflows/**`, `lefthook.yml`,
   `.pre-commit-config.yaml` or lint/test configs named by gate files set `needsCountersign`.
@@ -92,9 +92,9 @@ SHA-256 before spawning the separate implementation task.
 ## Failure handling
 
 - Deterministic failures prevent verifier dispatch; agent failures never become a pass.
-- `verify()` returns `fail` with error text for missing/invalid gates or exceptions from checks
-  or the verifier, and still cleans up its detached worktrees. Missing `fastGate` or `pathCheck`
-  routes to `skill://setup-repository-guardrails`.
+- `prove()` returns `fail` with error text for missing/invalid `.omp/gate.json` or exceptions
+  from proofs or the verifier, and still cleans up its detached worktrees. Missing
+  `checks.commit` or `pathCheck` routes to `skill://setup-repository-guardrails`.
 - `WorkflowError` means a broken contract or cap; fix the call, never catch and continue.
 - The quality gate runs the stdlib Python tests after Bun with Git hook variables unset.
   To run them alone: `python3 -m unittest discover -s tests -p 'test_*.py'`.

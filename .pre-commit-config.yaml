@@ -1,9 +1,9 @@
 repos:
   - repo: local
     hooks:
-      - id: ci-quality-gates
-        name: CI quality gates
-        entry: bash scripts/run-ci-quality-gates.sh --fix --stage
+      - id: commit-checks
+        name: Commit checks
+        entry: bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage
         language: system
         pass_filenames: false
         always_run: true

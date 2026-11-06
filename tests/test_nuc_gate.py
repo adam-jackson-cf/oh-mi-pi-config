@@ -74,7 +74,8 @@ class NucGateTests(unittest.TestCase):
         self.git('config', 'user.email', 'gate@example.invalid')
         (self.source / '.omp').mkdir()
         (self.source / '.devcontainer').mkdir()
-        (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 1, 'gate': ['bash', 'gate script.sh', "a'b"]}))
+        (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 2, 'checks': {
+            'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]}}))
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
             'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': ['echo', 'setup words']}))
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
@@ -187,6 +188,7 @@ class NucGateTests(unittest.TestCase):
         self.assertFalse(any(arg.startswith('--runtime') for arg in build))
         self.assertNotIn('/usr/local/bin/runsc', build)
         self.assertIn("echo 'setup words' && bash 'gate script.sh' 'a'\"'\"'b'", args)
+        self.assertNotIn('commit only.sh', json.dumps(args))
         self.assertNotIn('-e', args)
         self.assertNotIn('--env-host', args)
         self.assertNotIn(self.env[TOKEN_ENV], json.dumps(self.calls('podman')) + (self.job() / 'log').read_text())
@@ -265,6 +267,15 @@ class NucGateTests(unittest.TestCase):
         self.assertEqual(json.loads(self.submit().stdout), result)
         self.assertEqual(len(self.calls('systemd-run')), 1)
 
+    def test_schema_v1_runs_gate_argv(self):
+        (self.source / '.omp/gate.json').write_text(json.dumps({
+            'schemaVersion': 1, 'gate': ['bash', 'v1 gate.sh'], 'fastGate': ['bash', 'fast.sh']}))
+        sha = self.commit()
+        self.submit(sha)
+        self.cli('run', self.job(sha))
+        args = next(args for args in self.calls('podman') if args[0] == 'run')
+        self.assertIn("echo 'setup words' && bash 'v1 gate.sh'", args)
+
     def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self):
         self.submit()
         self.cli('run', self.job(), expected=1, env={**self.env, 'FAIL_BUILD': '1'})
@@ -284,12 +295,15 @@ class NucGateTests(unittest.TestCase):
                          ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
-        for failure in ('missing-gate', 'build', 'podman'):
+        for failure in ('missing-gate', 'missing-ci', 'unknown-schema', 'build', 'podman'):
             with self.subTest(failure=failure):
+                gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}},
+                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']}}.get(
+                    failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}})
                 if failure == 'missing-gate':
                     (self.source / '.omp/gate.json').unlink()
                 else:
-                    (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 1, 'gate': ['true', failure]}))
+                    (self.source / '.omp/gate.json').write_text(json.dumps(gate))
                 sha = self.commit()
                 self.submit(sha)
                 environment = {**self.env}

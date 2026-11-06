@@ -12,7 +12,7 @@ tools: [read, grep, glob, find, bash, lsp, yield]
   `skill://codegraph/references/query-selection.md` before discovery tools; read
   `skill://git-tool` before git or worktree commands. Only explicit `read` calls
   to these URLs count; autoloaded skills do not.
-- Work only in the worktrees supplied by `verify()` and your own `$TMPDIR`
+- Work only in the worktrees supplied by `prove()` and your own `$TMPDIR`
   scratch directory. Never edit the repository. Do not spawn agents or hand UI
   work to another agent.
 - Drive each acceptance criterion on its real surface. Check doc lines the PR

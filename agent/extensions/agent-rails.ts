@@ -1,6 +1,6 @@
-import { access, lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import {
@@ -31,18 +31,39 @@ const mappingSchema = z.object({
 	rejectDevice: z.string(),
 });
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
-const gateSchema = z.object({
-	schemaVersion: z.literal(1),
-	gate: argvSchema.optional(),
-	commitGate: argvSchema.optional(),
-	fastGate: argvSchema.optional(),
+const policyFields = {
 	pathCheck: argvSchema.optional(),
 	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
 	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ciHost: z.enum(["github", "nuc"]).optional(),
+};
+// `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
+const gateV2Schema = z.object({
+	schemaVersion: z.literal(2),
+	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
+	...policyFields,
 });
+// schema v1: remove once every repo has migrated to v2
+const gateV1Schema = z.object({
+	schemaVersion: z.literal(1),
+	gate: argvSchema.optional(),
+	commitGate: argvSchema.optional(),
+	fastGate: argvSchema.optional(),
+	...policyFields,
+});
+const gateSchema = z.union([gateV2Schema, gateV1Schema]).transform(gate => ({
+	// schema v1: remove once every repo has migrated to v2
+	commit: gate.schemaVersion === 2 ? gate.checks?.commit : gate.commitGate ?? gate.fastGate,
+	ci: gate.schemaVersion === 2 ? gate.checks?.ci : gate.gate,
+	pathCheck: gate.pathCheck,
+	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
+	testGlobs: gate.testGlobs,
+	sensitive: gate.sensitive,
+	agentMerge: gate.agentMerge,
+	ciHost: gate.ciHost,
+}));
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
 const inputFieldsSchema = z.record(z.string(), pathValueSchema).catch({});
 const inputSchema = z.object({
@@ -54,29 +75,48 @@ const inputSchema = z.object({
 const scopeSchema = z.object({
 	path: z.unknown().optional(), paths: z.unknown().optional(),
 }).catch({ path: undefined, paths: undefined });
+const answerSchema = z.object({
+	question: z.string().optional().catch(undefined),
+	selectedOptions: stringList.optional().catch(undefined),
+	timedOut: z.boolean().optional().catch(undefined),
+});
 const detailsSchema = z.object({
-	exitCode: z.number().optional().catch(undefined),
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
-}).catch({ exitCode: undefined, applied: undefined, files: undefined });
+	// Ask: single-question fields, or `results` for multi-question calls.
+	question: z.string().optional().catch(undefined),
+	selectedOptions: stringList.optional().catch(undefined),
+	timedOut: z.boolean().optional().catch(undefined),
+	results: z.array(answerSchema).optional().catch(undefined),
+}).catch({
+	applied: undefined, files: undefined, question: undefined, selectedOptions: undefined,
+	timedOut: undefined, results: undefined,
+});
+const dynaflowsSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
+const proposalSchema = z.object({ schemaVersion: z.literal(1), minimal: stringList, full: stringList });
+type Dynaflows = z.infer<typeof dynaflowsSchema>;
+type Proposal = z.infer<typeof proposalSchema>;
+type Approval = "minimal" | "full";
 const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
+type GitAction = {
+	command: string; args: string[]; cwd?: string; ghArgs?: string[]; config: string[];
+	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
+	hookSkip?: string;
+};
 interface State {
 	reads: Set<string>;
 	notes: Set<string>;
-	edits: Map<string, number>;
-	passed: Map<string, number>;
-	bashStarts: Map<string, { root: string; revision: number; fingerprint?: string }>;
-	baselines: Map<string, string>;
-	checkedTrees: Map<string, string>;
+	// Repository roots where this session edited a file matching `codeGlobs`.
+	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
 	authorFamilies: Set<string>;
-	revision: number;
 	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
+	guardrailApproval?: Approval;
 }
 type ToolEvent = {
 	toolName: string;
@@ -101,10 +141,8 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 
 function fresh(): State {
 	return {
-		reads: new Set(), notes: new Set(), edits: new Map(), passed: new Map(),
-		bashStarts: new Map(), baselines: new Map(), checkedTrees: new Map(), pathFailures: new Map(), revision: 0,
-		authorFamilies: new Set(),
-		discovered: false, pointed: false, proposal: [],
+		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
+		authorFamilies: new Set(), discovered: false, pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -143,7 +181,7 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 	for (const target of targets) {
 		const path = target.startsWith("~/") ? resolve(homedir(), target.slice(2)) : target;
 		if (/^[a-z][\w+.-]*:\/\//i.test(path)) continue;
-		if (!isAbsolute(path)) return `Skill gate: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
+		if (!isAbsolute(path)) return `Agent rails: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
 		try {
 			const lexical = resolve(path);
 			let root = await repoRoot(lexical);
@@ -164,13 +202,13 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 			while (root) {
 				const outside = relative(await realpath(root), resolved);
 				if (outside === ".." || outside.startsWith("../") || isAbsolute(outside)) {
-					return `Skill gate: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
+					return `Agent rails: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
 				}
 				const parent = dirname(root);
 				root = parent === root ? undefined : await repoRoot(parent);
 			}
 		} catch {
-			// Like fingerprinting, supplemental filesystem checks fail open; reference gates still apply.
+			// Supplemental filesystem checks fail open; reference gates still apply.
 		}
 	}
 }
@@ -182,7 +220,7 @@ function missing(state: State, map: Mapping, triggers: string[]): string[] {
 		.filter(url => !state.reads.has(url));
 }
 function readReason(urls: string[]): string {
-	return `Skill gate: read ${urls.join(" and ")}, then retry.`;
+	return `Agent rails: read ${urls.join(" and ")}, then retry.`;
 }
 
 const wrapperOptions = {
@@ -196,18 +234,24 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-async function gitActions(command: string, cwd: string | undefined): Promise<{ command: string; cwd?: string; ghArgs?: string[] }[]> {
+// `scan` is shared with nested `sh -c` and `env -S` scripts so a variable touched anywhere marks
+// every git action of the whole command.
+async function gitActions(command: string, cwd: string | undefined, scan: { hookSkip?: string } = {}): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
-	const actions: { command: string; cwd?: string; ghArgs?: string[] }[] = [];
+	const actions: GitAction[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
 		return target && (await stat(target).catch(() => null))?.isDirectory() ? target : undefined;
 	};
+	const touch = (word: string | undefined) => {
+		const name = word?.split("=")[0] ?? "";
+		if (Object.hasOwn(hookSkipVariables, name)) scan.hookSkip ??= word;
+	};
 	let words: string[] = [];
 	const flush = async () => {
 		while (words.length) {
-			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) words.shift();
+			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) touch(words.shift());
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
@@ -219,20 +263,23 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
 				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
 				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
-					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd));
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, scan));
 					words = []; return;
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
 					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
+				if (launcher === "env" && ["-u", "--unset"].includes(option.split("=")[0])) touch(value);
+				else if (launcher === "env" && /^-u./.test(option)) touch(option.slice(2));
 			}
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (["bash", "sh", "zsh"].includes(executable)) {
+		if (["export", "unset", "declare", "typeset", "readonly", "local"].includes(executable)) words.forEach(touch);
+		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (/^-[^-]*c/.test(option)) {
-					if (words[0]) actions.push(...await gitActions(words[0], cwd));
+					if (words[0]) actions.push(...await gitActions(words[0], cwd, scan));
 					break;
 				}
 				if (["-o", "+o", "-O"].includes(option)) words.shift();
@@ -242,21 +289,25 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 			cwd = executable === "popd" ? undefined : await directory(words.length === 1 ? words[0] : undefined, cwd);
 		} else if (executable === "git") {
 			let effective = cwd;
+			const config: string[] = [];
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
 					const value = words.shift();
 					if (option === "-C") effective = await directory(value, effective);
-				} else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
+					if ((option === "-c" || option === "--config-env") && value) config.push(value);
+				} else if (option.startsWith("--config-env=")) config.push(option.slice("--config-env=".length));
+				else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
+				else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
-			actions.push({ command: `git ${words.join(" ")}`, cwd: effective });
+			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
 		} else if (executable === "gh") {
 			const ghArgs = [...words];
 			words = words.filter((word, index, all) =>
 				!["-R", "--repo", "--hostname"].includes(word) &&
 				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
 				!/^(-R.|--repo=|--hostname=)/.test(word));
-			actions.push({ command: `gh ${words.join(" ")}`, cwd, ghArgs });
+			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, ghArgs, config: [] });
 		}
 		words = [];
 	};
@@ -271,20 +322,72 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
 	await flush();
+	if (scan.hookSkip) for (const action of actions) action.hookSkip ??= scan.hookSkip;
 	return actions;
 }
 
-export default function skillGate(pi: ExtensionAPI): void {
+// Environment variables that make a hook manager or Git skip the pre-commit hook. Conservatively,
+// any assignment, export, unset or `env -u` of one of these names anywhere in a command blocks its
+// commits, whatever the value or later shell state. Quoted prose such as a commit message is not
+// a command position and does not count.
+const hookSkipVariables = {
+	LEFTHOOK: true, HUSKY: true, SKIP: true, PRE_COMMIT_ALLOW_NO_CONFIG: true,
+	GIT_CONFIG_PARAMETERS: true, GIT_CONFIG_COUNT: true,
+} satisfies Record<string, true>;
+
+// `git commit` options that take the next word as their value, so it is not parsed as an option.
+const commitValueShorts = { m: true, F: true, c: true, C: true, t: true } satisfies Record<string, true>;
+const commitValueLongs = {
+	"--message": true, "--file": true, "--reuse-message": true, "--reedit-message": true, "--fixup": true,
+	"--squash": true, "--template": true, "--author": true, "--date": true, "--cleanup": true,
+	"--trailer": true, "--pathspec-from-file": true,
+} satisfies Record<string, true>;
+// Returns the first argument, Git config or hook-skip variable that would skip the pre-commit hook.
+function commitBypass(action: GitAction): string | undefined {
+	const args = action.args.slice(1);
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--") break;
+		if (arg.startsWith("--")) {
+			const name = arg.split("=")[0];
+			// Git accepts unambiguous long-option prefixes, so `--no-ver` means --no-verify and `--mes` --message.
+			if (name.length > "--no-".length && "--no-verify".startsWith(name)) return arg;
+			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
+			continue;
+		}
+		if (!arg.startsWith("-") || arg === "-") continue;
+		for (let at = 1; at < arg.length; at++) {
+			const flag = arg[at];
+			if (flag === "n") return arg;
+			// -u and -S take an optional value attached to the same word.
+			if (flag === "u" || flag === "S") break;
+			if (Object.hasOwn(commitValueShorts, flag)) {
+				if (at === arg.length - 1) index++;
+				break;
+			}
+		}
+	}
+	const hooksPath = action.config.find(entry => entry.split("=")[0].toLowerCase() === "core.hookspath");
+	if (hooksPath) return hooksPath;
+	return action.hookSkip;
+}
+
+// `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
+// .omp/dynaflows.json overrides it; absent both, dynaflows is off.
+export default function agentRails(
+	pi: ExtensionAPI,
+	{ machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)) }: { machineDynaflowsPath?: string } = {},
+): void {
 	// Factories are rebound to child sessions; never share mutable policy state at module scope.
 	const states = new Map<string, State>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
-		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../skill-gates.yml", import.meta.url), "utf8")));
+		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../agent-rails.yml", import.meta.url), "utf8")));
 		if (!parsed.success) throw new Error("invalid mappings");
 		map = parsed.data;
 	} catch (error) {
-		loadError = `Skill gate: cannot load skill-gates.yml: ${String(error)}`;
+		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
 	}
 	const stateFor = (ctx: ExtensionContext) => {
 		const id = ctx.sessionManager.getSessionId();
@@ -307,42 +410,71 @@ export default function skillGate(pi: ExtensionAPI): void {
 			const parsedError = fileErrorSchema.safeParse(error);
 			const absent = parsedError.success && parsedError.data.code === "ENOENT";
 			if (!absent && strict) throw new Error(`${path}: ${String(error)}`);
-			note(state, ctx, `Skill gate: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference gates apply.`);
+			note(state, ctx, `Agent rails: ${path} ${absent ? "absent" : "invalid or unreadable"}; reference checks apply.`);
 			return;
 		}
 	}
-	async function fingerprint(root: string): Promise<string | undefined> {
+	function readJson(path: string, schema: typeof dynaflowsSchema, state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined>;
+	function readJson(path: string, schema: typeof proposalSchema, state: State, ctx: ExtensionContext): Promise<Proposal | undefined>;
+	async function readJson(
+		path: string, schema: typeof dynaflowsSchema | typeof proposalSchema, state: State, ctx: ExtensionContext,
+	): Promise<Dynaflows | Proposal | undefined> {
 		try {
-			const options = { cwd: root, timeout: 20000 };
-			// v2 includes index blob IDs, so staged changes are covered without diffing against HEAD.
-			// Diffing index vs worktree also works before the repository's first commit.
-			const status = await pi.exec("git", ["status", "--porcelain=v2", "-z", "--untracked-files=all"], options);
-			if (status.code !== 0 || status.killed) return;
-			const diff = await pi.exec("git", ["diff", "--binary"], options);
-			if (diff.code !== 0 || diff.killed) return;
-			const hash = createHash("sha256").update(status.stdout).update("\0").update(diff.stdout);
-			const entries = status.stdout.split("\0");
-			let remaining = 16 * 1024 * 1024;
-			let files = 0;
-			for (let index = 0; index < entries.length; index++) {
-				const entry = entries[index];
-				if (entry.startsWith("2 ")) { index++; continue; } // rename's second NUL-delimited path
-				if (!entry.startsWith("? ")) continue;
-				if (++files > 1024) return;
-				const path = resolve(root, entry.slice(2));
-				const info = await lstat(path);
-				if (info.size > remaining || (!info.isFile() && !info.isSymbolicLink())) return;
-				remaining -= info.size;
-				const content = info.isSymbolicLink() ? await readlink(path)
-					: new Uint8Array(await Bun.file(path).slice(0, info.size).arrayBuffer());
-				hash.update("\0").update(entry).update("\0").update(content);
-			}
-			return hash.digest("hex");
-		} catch {
-			// Fingerprinting is supplemental: Git/filesystem failures or bounded-read limits fail
-			// open for this signal only; explicit edit, reference and pathCheck gates still apply.
-			return;
+			const parsed = schema.safeParse(JSON.parse(await readFile(path, "utf8")));
+			if (parsed.success) return parsed.data;
+			note(state, ctx, `Agent rails: ${path} is invalid; ignored.`);
+		} catch (error) {
+			const parsedError = fileErrorSchema.safeParse(error);
+			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Agent rails: ${path} is unreadable; ignored.`);
 		}
+	}
+	const projectRoot = async (ctx: ExtensionContext) => await repoRoot(ctx.cwd) ?? ctx.cwd;
+	async function dynaflowsOn(ctx: ExtensionContext): Promise<boolean> {
+		const state = stateFor(ctx);
+		const project = await readJson(resolve(await projectRoot(ctx), ".omp/dynaflows.json"), dynaflowsSchema, state, ctx);
+		return (project ?? await readJson(machineDynaflowsPath, dynaflowsSchema, state, ctx))?.enabled ?? false;
+	}
+	async function setDynaflows(ctx: ExtensionContext, enabled: boolean): Promise<string> {
+		const root = await projectRoot(ctx);
+		const path = resolve(root, ".omp/dynaflows.json");
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, `${JSON.stringify({ schemaVersion: 1, enabled })}\n`);
+		// Dynaflows state is local: keep it out of commits without touching tracked ignore files.
+		const gitDir = resolve(root, ".git");
+		if ((await stat(gitDir).catch(() => null))?.isDirectory()) {
+			const exclude = resolve(gitDir, "info/exclude");
+			const current = await readFile(exclude, "utf8").catch(() => "");
+			if (!current.split("\n").includes("/.omp/dynaflows.json")) {
+				await mkdir(dirname(exclude), { recursive: true });
+				await appendFile(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}/.omp/dynaflows.json\n`);
+			}
+		}
+		return path;
+	}
+	async function guardrailReason(targets: string[], ctx: ExtensionContext, state: State): Promise<string | undefined> {
+		if (!targets.length || !(await dynaflowsOn(ctx))) return;
+		for (const path of targets) {
+			const root = await repoRoot(path);
+			if (!root) continue;
+			const gate = await gateAt(root, state, ctx);
+			if (gate?.commit && gate.pathCheck) continue;
+			const rel = relative(root, path);
+			const proposal = await readJson(resolve(root, ".omp/guardrail-proposal.json"), proposalSchema, state, ctx);
+			const isGate = rel === ".omp/gate.json";
+			if (!isGate && !proposal?.minimal.includes(rel) && !proposal?.full.includes(rel)) continue;
+			const approved = state.guardrailApproval;
+			if (approved && (isGate || proposal?.[approved].includes(rel))) continue;
+			return approved
+				? `Agent rails: owner approved the "${approved}" guardrail option, which does not list ${rel}.`
+				: `Agent rails: ${rel} is a guardrail change; get owner sign-off via ask (question mentions "guardrail"; options "Minimal" and "Full") first.`;
+		}
+	}
+	// The pre-commit hook Git would run: respects core.hooksPath; must be an executable file.
+	async function commitHookInstalled(cwd: string): Promise<boolean> {
+		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: 20000 });
+		if (result.code !== 0 || result.killed) throw new Error(`cannot resolve the pre-commit hook: ${result.stderr}`);
+		const info = await stat(resolve(cwd, result.stdout.trim())).catch(() => null);
+		return Boolean(info?.isFile() && info.mode & 0o111);
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
 		if (!gate.pathCheck) return;
@@ -354,7 +486,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 			state.pathFailures.delete(root);
 		} catch (error) {
 			state.pathFailures.set(root, changed);
-			return `Skill gate: pathCheck failed in ${root}: ${String(error)}`;
+			return `Agent rails: pathCheck failed in ${root}: ${String(error)}`;
 		}
 	}
 	function recordRead(event: ToolEvent, state: State): void {
@@ -362,29 +494,15 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const url = event.input.path.replace(/:(?:raw|[\d,+-]+)(?::(?:raw|[\d,+-]+))*$/, "");
 		if (url.startsWith("skill://")) state.reads.add(url);
 	}
-	async function bashStart(event: ToolEvent, ctx: ExtensionContext, state: State, live = true): Promise<void> {
-		if (event.toolName !== "bash") return;
-		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd);
-		const root = cwd && await repoRoot(cwd);
-		if (root) {
-			const gate = await gateAt(root, state, ctx);
-			const tree = live && ctx.agent.kind === "main" && gate?.fastGate?.join(" ") === event.input.command
-				? await fingerprint(root) : undefined;
-			state.bashStarts.set(event.toolCallId, { root, revision: state.revision, fingerprint: tree });
-		}
-	}
 	async function recordResult(event: ToolEvent, ctx: ExtensionContext, state: State, runCheck: boolean) {
 		recordRead(event, state);
 		const details = event.details;
-		if (event.toolName === "bash") {
-			const started = state.bashStarts.get(event.toolCallId);
-			state.bashStarts.delete(event.toolCallId);
-			if (started && details.exitCode !== undefined) {
-				const gate = await gateAt(started.root, state, ctx);
-				if (gate?.fastGate?.join(" ") === event.input.command) {
-					state.passed.set(started.root, started.revision);
-					if (runCheck && started.fingerprint !== undefined) state.checkedTrees.set(started.root, started.fingerprint);
-				}
+		// Owner sign-off for guardrails: an answered (not timed-out) ask about guardrails picking Minimal or Full.
+		if (event.toolName === "ask" && event.isError === false) {
+			for (const answer of details.results ?? [details]) {
+				if (answer.timedOut || !/guardrail/i.test(answer.question ?? "")) continue;
+				const pick = /^(minimal|full)\b/i.exec(answer.selectedOptions?.[0] ?? "")?.[1]?.toLowerCase();
+				if (pick === "minimal" || pick === "full") state.guardrailApproval = pick;
 			}
 			return;
 		}
@@ -409,7 +527,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		for (const path of changed) {
 			const root = await repoRoot(path);
 			if (!root) continue;
-			if (matches(relative(root, path), map.codeGlobs)) state.edits.set(root, ++state.revision);
+			if (matches(relative(root, path), map.codeGlobs)) state.edits.add(root);
 			const group = groups.get(root) ?? [];
 			group.push(path); groups.set(root, group);
 		}
@@ -427,19 +545,10 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const state = fresh();
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
-		state.baselines = previous?.baselines ?? new Map();
-		state.checkedTrees = previous?.checkedTrees ?? new Map();
 		state.pathFailures = previous?.pathFailures ?? new Map();
 		state.authorFamilies = previous?.authorFamilies ?? new Set();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
-		if (ctx.agent.kind === "main") {
-			const root = await repoRoot(ctx.cwd);
-			if (root && !state.baselines.has(root)) {
-				const tree = await fingerprint(root);
-				if (tree !== undefined) state.baselines.set(root, tree);
-			}
-		}
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type === "compaction") { state.reads.clear(); state.discovered = false; continue; }
@@ -447,9 +556,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 			const message = entry.message;
 			if (message.role === "assistant") for (const block of message.content) {
 				if (block.type !== "toolCall") continue;
-				const call = policyEvent({ type: "tool_call", toolName: block.name, toolCallId: block.id, input: block.arguments });
-				calls.set(block.id, call);
-				await bashStart(call, ctx, state, false);
+				calls.set(block.id, policyEvent({ type: "tool_call", toolName: block.name, toolCallId: block.id, input: block.arguments }));
 			}
 			// Persisted roles use camelCase, not the extension event name (omp://session.md).
 			if (message.role === "toolResult") {
@@ -466,7 +573,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const state = stateFor(ctx);
 		state.reads.clear(); state.discovered = false;
 	});
-	pi.on("before_subagent_spawn", (event, ctx) => {
+	pi.on("before_subagent_spawn", async (event, ctx) => {
 		const author = ["task", "sonic", "designer"].includes(event.agent);
 		if (!author && event.agent !== "verifier") return;
 		const state = stateFor(ctx);
@@ -475,18 +582,20 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const models = event.patterns.length
 			? event.patterns.map(pattern => ctx.models.resolve(pattern)).filter(model => model !== undefined)
 			: [ctx.models.current()].filter(model => model !== undefined);
-		if (!models.length) return { block: true, reason: `Skill gate: cannot resolve ${event.agent}'s model family.` };
+		if (!models.length) return { block: true, reason: `Agent rails: cannot resolve ${event.agent}'s model family.` };
 		if (author) {
 			for (const model of models) state.authorFamilies.add(ctx.models.family(model));
 			return;
 		}
+		// Authors are always recorded so turning dynaflows on mid-session still sees them.
+		if (!(await dynaflowsOn(ctx))) return;
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
-			block: true, reason: "Skill gate: verifier must use a different model family from every recorded author (task, sonic, designer).",
+			block: true, reason: "Agent rails: verifier must use a different model family from every recorded author (task, sonic, designer).",
 		};
 		if (independent.length !== models.length) return {
 			model: independent.map(model => `${model.provider}/${model.id}`),
-			note: "Skill gate: removed verifier models from recorded author families.",
+			note: "Agent rails: removed verifier models from recorded author families.",
 		};
 	});
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
@@ -494,7 +603,6 @@ export default function skillGate(pi: ExtensionAPI): void {
 		if (loadError) return { block: true, reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			await bashStart(event, ctx, state);
 			if (map.discoveryTools.includes(event.toolName) && !state.discovered) {
 				const scopes = paths(event, map, ctx.cwd);
 				if (!scopes.length && !event.hasScope) scopes.push(ctx.cwd);
@@ -510,14 +618,28 @@ export default function skillGate(pi: ExtensionAPI): void {
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
+					if (/^git commit\b/.test(action.command)) {
+						const bypass = commitBypass(action);
+						if (bypass) return {
+							block: true, reason: `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`,
+						};
+						if (!action.cwd) return {
+							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.",
+						};
+						const root = await repoRoot(action.cwd);
+						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
+						if (gate?.commit && !(await commitHookInstalled(action.cwd))) return {
+							block: true, reason: `Agent rails: ${root} declares checks.commit but no pre-commit hook is installed; install the repository's hook (e.g. \`pre-commit install\`, \`lefthook install\` or its documented setup), then commit.`,
+						};
+					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
-							block: true, reason: "Skill gate: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
+							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
 						};
 						const root = await repoRoot(action.cwd);
 						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
 						if (gate?.agentMerge === "disabled") return {
-							block: true, reason: "Skill gate: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
+							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
 						if (/^gh pr merge\b/.test(action.command) && gate?.sensitive?.length) {
 							const args = action.ghArgs ?? [];
@@ -555,7 +677,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 								gate.sensitive!.some(pattern => pattern.endsWith("/")
 									? `/${path}`.includes(`/${pattern}`)
 									: basename(path).startsWith(pattern)))) return {
-								block: true, reason: "Skill gate: owner must merge PRs touching sensitive paths.",
+								block: true, reason: "Agent rails: owner must merge PRs touching sensitive paths.",
 							};
 						}
 					}
@@ -570,6 +692,8 @@ export default function skillGate(pi: ExtensionAPI): void {
 				if (reason) return { block: true, reason };
 			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
+			const guardrail = await guardrailReason(targets, ctx, state);
+			if (guardrail) return { block: true, reason: guardrail };
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
@@ -577,19 +701,19 @@ export default function skillGate(pi: ExtensionAPI): void {
 				if (gate?.pathCheck) continue;
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
-				if (state.revision === 0 && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
+				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
 				if (!(await access(path).then(() => true, () => false))) triggers.push("newFile");
 				if (matches(rel, gate?.testGlobs ?? map.testGlobs)) triggers.push("test");
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
-		} catch (error) { return { block: true, reason: `Skill gate: policy could not be evaluated: ${String(error)}` }; }
+		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { additionalContext: loadError };
 		try { return await recordResult(event, ctx, stateFor(ctx), true); }
-		catch (error) { return { additionalContext: `Skill gate: post-edit policy failed: ${String(error)}` }; }
+		catch (error) { return { additionalContext: `Agent rails: post-edit policy failed: ${String(error)}` }; }
 	});
 	pi.on("session_stop", async (_event, ctx) => {
 		if (ctx.agent.kind !== "main") return;
@@ -597,8 +721,7 @@ export default function skillGate(pi: ExtensionAPI): void {
 		const state = stateFor(ctx);
 		try {
 			const reasons: string[] = [];
-			let changedTree = false;
-			const roots = new Set([...state.edits.keys(), ...state.pathFailures.keys(), ...state.baselines.keys()]);
+			const roots = new Set([...state.edits, ...state.pathFailures.keys()]);
 			for (const root of roots) {
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
@@ -614,31 +737,48 @@ export default function skillGate(pi: ExtensionAPI): void {
 					const error = await checkPaths(root, existing, gate, state);
 					if (error) reasons.push(error);
 				}
-				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
-				const uncheckedTree = tree !== undefined && tree !== state.baselines.get(root) && tree !== state.checkedTrees.get(root);
-				changedTree ||= uncheckedTree;
-				if (gate?.fastGate && (uncheckedTree || (state.passed.get(root) ?? -1) < (state.edits.get(root) ?? -1))) {
-					reasons.push(`run ${gate.fastGate.join(" ")} in ${root} after the last edit (any exit code)`);
-				}
 			}
-			const urls = state.edits.size || changedTree ? missing(state, map, ["verification"]) : [];
+			// Repository checks run at commit (pre-commit hook) and in CI, never at handoff.
+			const urls = state.edits.size ? missing(state, map, ["verification"]) : [];
 			if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 			if (reasons.length) {
-				return { decision: "block", reason: `Skill gate: ${reasons.join("; ")}, then retry handoff.` };
+				return { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` };
 			}
-		} catch (error) { return { decision: "block", reason: `Skill gate: handoff policy failed: ${String(error)}` }; }
+		} catch (error) { return { decision: "block", reason: `Agent rails: handoff policy failed: ${String(error)}` }; }
 	});
-	pi.on("before_agent_start", (event, ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
-		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt" || state.pointed) return;
+		const keyword = /(?:^|\s)\$dynaflows(?:\s+(on|off))?(?=\s|$)/i.exec(event.prompt ?? "");
+		if (keyword) {
+			const enabled = keyword[1]?.toLowerCase() !== "off";
+			const path = await setDynaflows(ctx, enabled);
+			ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${path}).`, "info");
+			state.pointed = false;
+			if (!enabled) return { message: {
+				customType: "agent-rails-dynaflows", content: "Dynaflows off: do not apply omp-dyna-workflows.",
+				display: false, attribution: "agent",
+			} };
+		}
+		if (state.pointed || !(await dynaflowsOn(ctx))) return;
 		state.pointed = true;
+		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
+		const root = await repoRoot(ctx.cwd);
+		const gate = root ? await gateAt(root, state, ctx) : undefined;
+		if (root && !(gate?.commit && gate.pathCheck)) lines.push(
+			`Guardrails missing in ${root}: .omp/gate.json lacks checks.commit or pathCheck.`,
+			"Before guardrail work, ask the owner whether to analyse and propose guardrails.",
+			"If yes: write .omp/guardrail-proposal.json {\"schemaVersion\":1,\"minimal\":[repo-relative paths],\"full\":[repo-relative paths]};",
+			"minimal = least needed for checks.commit, pathCheck and an installed pre-commit hook; full = every recommended guardrail.",
+			"Present both, then call ask with a question containing \"guardrail\" and options \"Minimal\" and \"Full\".",
+			"Writes to .omp/gate.json and proposal paths stay blocked until the owner picks one.",
+		);
 		return { message: {
-			customType: "skill-gate-workflow", content: `Route this work with ${map.references.workflow.join(" and ")}.`,
-			display: false, attribution: "agent",
+			customType: "agent-rails-dynaflows", content: lines.join(" "), display: false, attribution: "agent",
 		} };
 	});
-	pi.registerCommand("extension-health-skill-gate", {
-		description: "Skill gate registration marker",
-		handler: async (_args, ctx) => { ctx.ui.notify(loadError ?? "Skill gate registered", loadError ? "error" : "info"); },
+	pi.registerCommand("extension-health-agent-rails", {
+		description: "Agent rails registration marker",
+		handler: async (_args, ctx) => { ctx.ui.notify(loadError ?? "Agent rails registered", loadError ? "error" : "info"); },
 	});
 }
