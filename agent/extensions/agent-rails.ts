@@ -101,7 +101,7 @@ const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
-type GitAction = { command: string; args: string[]; cwd?: string; ghArgs?: string[]; env: string[]; config: string[] };
+type GitAction = { command: string; args: string[]; cwd?: string; ghArgs?: string[]; config: string[] };
 interface State {
 	reads: Set<string>;
 	notes: Set<string>;
@@ -230,14 +230,9 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-// `inherited` holds environment assignments a parent shell passes to a nested `sh -c` script.
-async function gitActions(command: string, cwd: string | undefined, inherited: string[] = []): Promise<GitAction[]> {
+async function gitActions(command: string, cwd: string | undefined): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
-	// Model the shell's variables: a standalone `NAME=value` sets a shell variable and updates it in
-	// the environment when already exported; `export` exports; `unset` and a closing subshell undo.
-	let exported = [...inherited];
-	let shellVars = [...inherited];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -245,55 +240,33 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 	};
 	let words: string[] = [];
 	const flush = async () => {
-		// Environment assignments apply to the command that follows them, including after `env`.
-		const env = [...exported];
-		const assigned: string[] = [];
-		let launched = false;
 		while (words.length) {
-			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) {
-				const word = words.shift()!;
-				if (word.includes("=")) { assignEnv(env, word); if (!launched) assigned.push(word); }
-			}
+			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) words.shift();
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
 			const valued: string[] = wrapperOptions[launcher as keyof typeof wrapperOptions];
 			words.shift();
-			launched = true;
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (option === "--") break;
 				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
 				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
 				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
-					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, env));
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd));
 					words = []; return;
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
 					(launcher === "sudo" && ["-D", "--chdir"].includes(option.split("=")[0]))) cwd = await directory(value, cwd);
-				if (launcher === "env" && ["-u", "--unset"].includes(option.split("=")[0]) && value) unsetEnv(env, value);
-				if (launcher === "env" && ["-i", "--ignore-environment"].includes(option)) env.length = 0;
 			}
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
-		if (!executable && !launched) for (const word of assigned) {
-			const name = word.slice(0, word.indexOf("="));
-			assignEnv(shellVars, word);
-			if (exported.some(entry => entry.startsWith(`${name}=`))) assignEnv(exported, word);
-		}
-		else if (executable === "export") for (const word of words) {
-			const assignment = word.includes("=") ? word : shellVars.find(entry => entry.startsWith(`${word}=`));
-			if (assignment && /^[A-Za-z_]\w*=/.test(assignment)) { assignEnv(exported, assignment); assignEnv(shellVars, assignment); }
-		}
-		else if (executable === "unset") for (const word of words) {
-			if (!word.startsWith("-")) { unsetEnv(exported, word); unsetEnv(shellVars, word); }
-		}
-		else if (["bash", "sh", "zsh"].includes(executable)) {
+		if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (/^-[^-]*c/.test(option)) {
-					if (words[0]) actions.push(...await gitActions(words[0], cwd, env));
+					if (words[0]) actions.push(...await gitActions(words[0], cwd));
 					break;
 				}
 				if (["-o", "+o", "-O"].includes(option)) words.shift();
@@ -314,26 +287,23 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 				else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
 				else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
-			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, env, config });
+			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
 		} else if (executable === "gh") {
 			const ghArgs = [...words];
 			words = words.filter((word, index, all) =>
 				!["-R", "--repo", "--hostname"].includes(word) &&
 				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
 				!/^(-R.|--repo=|--hostname=)/.test(word));
-			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, ghArgs, env, config: [] });
+			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, ghArgs, config: [] });
 		}
 		words = [];
 	};
-	const subshells: { cwd: string | undefined; exported: string[]; shellVars: string[] }[] = [];
+	const subshells: (string | undefined)[] = [];
 	for (const token of tokens) {
 		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) {
 			await flush();
-			if (token === "(") subshells.push({ cwd, exported: [...exported], shellVars: [...shellVars] });
-			if (token === ")") {
-				({ cwd, exported, shellVars } = subshells.pop() ??
-					{ cwd: undefined, exported: [...inherited], shellVars: [...inherited] });
-			}
+			if (token === "(") subshells.push(cwd);
+			if (token === ")") cwd = subshells.pop();
 		} else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
 			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
@@ -342,13 +312,15 @@ async function gitActions(command: string, cwd: string | undefined, inherited: s
 	return actions;
 }
 
-function unsetEnv(env: string[], name: string): void {
-	for (let index = env.length - 1; index >= 0; index--) if (env[index].slice(0, env[index].indexOf("=")) === name) env.splice(index, 1);
-}
-function assignEnv(env: string[], assignment: string): void {
-	unsetEnv(env, assignment.slice(0, assignment.indexOf("=")));
-	env.push(assignment);
-}
+// Environment variables that make a hook manager or Git skip the pre-commit hook. The command text
+// is scanned conservatively: any assignment, export, unset or `env -u` of one of these names in the
+// same command blocks a commit, whatever its value or later shell state.
+const hookSkipVariable = "(?:LEFTHOOK|HUSKY|SKIP|PRE_COMMIT_ALLOW_NO_CONFIG|GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT)";
+const hookSkipPattern = new RegExp([
+	`(?<![\\w$-])${hookSkipVariable}=`,
+	`\\b(?:export|unset|declare|typeset|readonly|local)\\b[^;&|\\n]*?(?<![\\w$-])${hookSkipVariable}(?!\\w)`,
+	`(?:-u|--unset)(?:=|\\s+)${hookSkipVariable}(?!\\w)`,
+].join("|"));
 
 // `git commit` options that take the next word as their value, so it is not parsed as an option.
 const commitValueShorts = { m: true, F: true, c: true, C: true, t: true } satisfies Record<string, true>;
@@ -357,8 +329,8 @@ const commitValueLongs = {
 	"--squash": true, "--template": true, "--author": true, "--date": true, "--cleanup": true,
 	"--trailer": true, "--pathspec-from-file": true,
 } satisfies Record<string, true>;
-// Returns the first argument, Git config or environment assignment that would skip the pre-commit hook.
-function commitBypass(action: GitAction): string | undefined {
+// Returns the first argument, Git config or hook-skip variable that would skip the pre-commit hook.
+function commitBypass(action: GitAction, command: string): string | undefined {
 	const args = action.args.slice(1);
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
@@ -384,12 +356,7 @@ function commitBypass(action: GitAction): string | undefined {
 	}
 	const hooksPath = action.config.find(entry => entry.split("=")[0].toLowerCase() === "core.hookspath");
 	if (hooksPath) return hooksPath;
-	return action.env.find(assignment => {
-		const name = assignment.slice(0, assignment.indexOf("="));
-		const value = assignment.slice(assignment.indexOf("=") + 1);
-		return (name === "LEFTHOOK" && /^(?:0|false)$/i.test(value)) || (name === "HUSKY" && value === "0") ||
-			["SKIP", "PRE_COMMIT_ALLOW_NO_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"].includes(name);
-	});
+	return command.match(hookSkipPattern)?.[0];
 }
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
@@ -639,7 +606,7 @@ export default function agentRails(
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
 					if (/^git commit\b/.test(action.command)) {
-						const bypass = commitBypass(action);
+						const bypass = commitBypass(action, event.input.command);
 						if (bypass) return {
 							block: true, reason: `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`,
 						};
