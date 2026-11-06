@@ -267,15 +267,6 @@ class NucGateTests(unittest.TestCase):
         self.assertEqual(json.loads(self.submit().stdout), result)
         self.assertEqual(len(self.calls('systemd-run')), 1)
 
-    def test_schema_v1_runs_gate_argv(self):
-        (self.source / '.omp/gate.json').write_text(json.dumps({
-            'schemaVersion': 1, 'gate': ['bash', 'v1 gate.sh'], 'fastGate': ['bash', 'fast.sh']}))
-        sha = self.commit()
-        self.submit(sha)
-        self.cli('run', self.job(sha))
-        args = next(args for args in self.calls('podman') if args[0] == 'run')
-        self.assertIn("echo 'setup words' && bash 'v1 gate.sh'", args)
-
     def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self):
         self.submit()
         self.cli('run', self.job(), expected=1, env={**self.env, 'FAIL_BUILD': '1'})
@@ -295,10 +286,11 @@ class NucGateTests(unittest.TestCase):
                          ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
-        for failure in ('missing-gate', 'missing-ci', 'unknown-schema', 'build', 'podman'):
+        for failure in ('missing-gate', 'missing-ci', 'unknown-schema', 'schema-v1', 'build', 'podman'):
             with self.subTest(failure=failure):
                 gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}},
-                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']}}.get(
+                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
+                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']}}.get(
                     failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}})
                 if failure == 'missing-gate':
                     (self.source / '.omp/gate.json').unlink()

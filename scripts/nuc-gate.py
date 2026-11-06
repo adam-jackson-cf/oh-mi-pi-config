@@ -63,16 +63,9 @@ def load(path):
 
 
 def ci_argv(policy):
-    """Return the CI argv from .omp/gate.json: checks.ci (v2) or gate (v1)."""
-    version = policy.get('schemaVersion') if isinstance(policy, dict) else None
-    if version == 2:
-        checks = policy.get('checks')
-        argv = checks.get('ci') if isinstance(checks, dict) else None
-    elif version == 1:
-        # schema v1: remove once every repo has migrated to v2
-        argv = policy.get('gate')
-    else:
-        argv = None
+    """Return the CI argv from .omp/gate.json schema version 2: checks.ci."""
+    checks = policy.get('checks') if isinstance(policy, dict) and policy.get('schemaVersion') == 2 else None
+    argv = checks.get('ci') if isinstance(checks, dict) else None
     if not isinstance(argv, list) or not argv or any(not isinstance(arg, str) or not arg.strip() for arg in argv):
         raise RuntimeError('Invalid gate argv')
     return argv

@@ -1,7 +1,9 @@
 {
-  "schemaVersion": 1,
-  "gate": ["bash", "scripts/run-ci-quality-gates.sh"],
-  "fastGate": ["bash", "scripts/run-ci-quality-gates.sh"],
+  "schemaVersion": 2,
+  "checks": {
+    "commit": ["bash", "scripts/run-ci-quality-gates.sh", "--tier", "commit", "--fix", "--stage"],
+    "ci": ["bash", "scripts/run-ci-quality-gates.sh"]
+  },
   "pathCheck": ["python3", "scripts/check-paths.py"],
   "ciHost": "nuc",
   "agentMerge": "allowed"

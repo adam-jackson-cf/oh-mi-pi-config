@@ -18,8 +18,7 @@ const discovery = [
 	"skill://codegraph/references/query-selection.md",
 ];
 type GateFixture = {
-	schemaVersion: 1 | 2; checks?: { commit?: string[]; ci?: string[] };
-	gate?: string[]; commitGate?: string[]; fastGate?: string[]; testGlobs?: string[];
+	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
 	sensitive?: unknown;
 };
@@ -139,7 +138,7 @@ describe("agent rails", () => {
 	test("enforces first edit for existing code and honours repo-specific test placement", async () => {
 		const h = harness();
 		try {
-			h.gate({ schemaVersion: 1, testGlobs: ["checks/**"] });
+			h.gate({ schemaVersion: 2, testGlobs: ["checks/**"] });
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.reason?.includes(integrity));
 			await h.read(integrity, structure, naming);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
@@ -154,7 +153,7 @@ describe("agent rails", () => {
 		try {
 			const checker = join(h.root, "check.cjs");
 			writeFileSync(checker, "console.error(process.argv.slice(2).join('\\n') + ': use feature ownership'); process.exit(1);");
-			h.gate({ schemaVersion: 1, pathCheck: [process.execPath, checker] });
+			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, checker] });
 			const result = await h.call("edit", { paths: ["existing.ts", "another.ts"] });
 			assert.ok(result?.additionalContext?.includes(join(h.root, "existing.ts")));
 			assert.ok(result?.additionalContext?.includes(join(h.root, "another.ts")));
@@ -170,7 +169,7 @@ describe("agent rails", () => {
 			assert.ok(h.notes.some(note => note.includes("absent")));
 			writeFileSync(join(h.root, ".omp/gate.json"), "{broken");
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
-			h.gate({ schemaVersion: 1, pathCheck: "not an argv array" });
+			h.gate({ schemaVersion: 2, pathCheck: "not an argv array" });
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
 			assert.ok(h.notes.some(note => note.includes("invalid")));
 			await h.read(integrity);
@@ -260,9 +259,9 @@ describe("agent rails", () => {
 			await h.read("skill://git-tool");
 			const commands = ["git push", "gh pr create", "gh pr merge 7", ...wrappedPublishing];
 			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
-			h.gate({ schemaVersion: 1 });
+			h.gate({ schemaVersion: 2 });
 			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
-			h.gate({ schemaVersion: 1, agentMerge: "disabled" });
+			h.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			for (const command of commands) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
@@ -270,31 +269,31 @@ describe("agent rails", () => {
 			}
 			assert.equal(await h.call("bash", { command: "git commit -m fix" }), undefined);
 			assert.equal(await h.call("bash", { command: `git -C '${other.root}' push` }), undefined);
-			other.gate({ schemaVersion: 1, agentMerge: "disabled" });
+			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			assert.equal((await h.call("bash", { command: `git -C '${other.root}' push` }))?.block, true);
 			// cwd-changing commands must select the destination repo, not the session repo.
 			for (const action of ["git push", "gh pr create", "gh pr merge 7"]) {
-				h.gate({ schemaVersion: 1 });
+				h.gate({ schemaVersion: 2 });
 				for (const prefix of [`cd '${other.root}'`, `pushd '${other.root}'`, `cd '${relative(h.root, other.root)}' && cd .`]) {
 					assert.equal((await h.call("bash", { command: `${prefix} && ${action}` }))?.block, true, prefix);
 				}
 				for (const launcher of ["env -C", "sudo -D"]) {
 					assert.equal((await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }))?.block, true, launcher);
 				}
-				h.gate({ schemaVersion: 1, agentMerge: "disabled" });
-				other.gate({ schemaVersion: 1 });
+				h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+				other.gate({ schemaVersion: 2 });
 				assert.equal(await h.call("bash", { command: `cd '${other.root}' && ${action}` }), undefined);
 				for (const launcher of ["env -C", "sudo -D"]) {
 					assert.equal(await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }), undefined, launcher);
 				}
-				other.gate({ schemaVersion: 1, agentMerge: "disabled" });
+				other.gate({ schemaVersion: 2, agentMerge: "disabled" });
 				for (const prefix of ["cd", "cd -", "cd missing-dir", 'cd "$TARGET"']) {
 					const blocked = await h.call("bash", { command: `${prefix} && ${action}` });
 					assert.equal(blocked?.block, true, prefix);
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":1,"ciHost":"other"}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":1}', '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"ciHost":"other"}']) {
 				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });
@@ -364,10 +363,6 @@ describe("agent rails", () => {
 			mkdirSync(join(h.root, ".githooks"));
 			writeFileSync(join(h.root, ".githooks/pre-commit"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 			assert.equal(await commit(), undefined);
-			rmSync(join(h.root, ".githooks/pre-commit"));
-			// schema v1: remove once every repo has migrated to v2
-			h.gate({ schemaVersion: 1, fastGate: ["bun", "check"] });
-			assert.equal((await commit())?.block, true, "v1 commitGate or fastGate is the commit check");
 		} finally { h.cleanup(); }
 	});
 
@@ -376,7 +371,7 @@ describe("agent rails", () => {
 		try {
 			const checker = join(h.root, "check.cjs");
 			writeFileSync(checker, "process.exit(1)");
-			h.gate({ schemaVersion: 1, pathCheck: [process.execPath, checker] });
+			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, checker] });
 			await h.read(verification);
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("pathCheck failed"));
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
@@ -522,7 +517,7 @@ describe("agent rails", () => {
 	test("checks AST mutation on resolve, not its preview", async () => {
 		const h = harness();
 		try {
-			h.gate({ schemaVersion: 1, pathCheck: [process.execPath, "-e", "console.error('bad path'); process.exit(1)"] });
+			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, "-e", "console.error('bad path'); process.exit(1)"] });
 			assert.equal(await h.call("ast_edit", { paths: ["existing.ts"] }, {
 				applied: false, files: ["existing.ts"], totalReplacements: 1,
 			}), undefined);
@@ -556,7 +551,7 @@ for (const scenario of [
 		try {
 			await execute("git", ["init"], { cwd: h.root });
 			mkdirSync(join(h.root, "nested"));
-			h.gate({ schemaVersion: 1, sensitive: ["auth/", "secrets.env"] });
+			h.gate({ schemaVersion: 2, sensitive: ["auth/", "secrets.env"] });
 			await h.read("skill://git-tool");
 			const exec = h.api.exec;
 			const queries: { args: string[]; cwd: string }[] = [];
@@ -587,7 +582,7 @@ for (const stage of ["metadata", "files", "malformed-metadata", "invalid-reposit
 		const h = harness();
 		try {
 			await execute("git", ["init"], { cwd: h.root });
-			h.gate({ schemaVersion: 1, sensitive: ["auth/"] });
+			h.gate({ schemaVersion: 2, sensitive: ["auth/"] });
 			await h.read("skill://git-tool");
 			const exec = h.api.exec;
 			h.api.exec = async (command, args, options) => {
@@ -613,7 +608,7 @@ for (const sensitive of ["auth/", 1, null, [true]]) {
 		const h = harness();
 		try {
 			await execute("git", ["init"], { cwd: h.root });
-			h.gate({ schemaVersion: 1, sensitive });
+			h.gate({ schemaVersion: 2, sensitive });
 			await h.read("skill://git-tool");
 			const result = await h.call("bash", { command: "gh pr merge 42" });
 			assert.equal(result?.block, true);
@@ -666,7 +661,7 @@ test("agent rails surfaces a timed-out path checker without throwing", async () 
 	// Exercise the real subprocess kill boundary; fake JS timers cannot control execFile's OS child.
 	try {
 		h.gate({
-			schemaVersion: 1,
+			schemaVersion: 2,
 			pathCheck: [process.execPath, "-e", "setTimeout(() => {}, 60000)"],
 			pathCheckTimeoutMs: 30,
 		});

@@ -55,8 +55,9 @@ SHA-256 before spawning the separate implementation task.
 - **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR`, run
   proofs twice at head, validate proof hashes, overlay proofs on parent and test their kind.
   Plain functions expose deterministic checks without eval globals.
-- **Authority**: changed `.omp/gate.json`, `.github/workflows/**`, `lefthook.yml`,
-  `.pre-commit-config.yaml` or lint/test configs named by gate files set `needsCountersign`.
+- **Authority**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
+  `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files set
+  `needsCountersign`.
   Gate `sensitive` plus caller patterns set `needsOwner`; trailing `/` matches that folder
   anywhere in a path (`auth/` matches `src/auth/a.ts`, not `authentication/x.ts`).
   Other patterns match basename prefixes. Both require owner approval, never agent clearance.
