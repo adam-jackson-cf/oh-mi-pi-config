@@ -1,13 +1,18 @@
 {
   "servers": {
     "pyright": {
-      "command": "/Users/adamjackson/.volta/bin/pyright-langserver"
+      "command": "pyright-langserver"
     },
     "typescript-language-server": {
-      "command": "/Users/adamjackson/.volta/bin/typescript-language-server"
+      "command": "typescript-language-server",
+      "initOptions": {
+        "tsserver": {
+          "fallbackPath": "/Users/adamjackson/.omp/node_modules/typescript/lib/tsserver.js"
+        }
+      }
     },
     "rust-analyzer": {
-      "command": "/Users/adamjackson/.cargo/bin/rust-analyzer",
+      "command": "rust-analyzer",
       "capabilities": {
         "expandMacro": true,
         "runnables": true,
