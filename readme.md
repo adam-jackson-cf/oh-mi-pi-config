@@ -52,7 +52,19 @@ Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. Main-session handoff stays blocked until verification
 references are read after this session's code edits, and until failed `pathCheck`
-checks pass on retry (deleted paths are dropped).
+checks pass on retry (deleted paths are dropped). Handoff never requires a
+repository check run.
+
+Repository checks follow the test tiers. `.omp/gate.json` schema version 2 declares
+`checks.commit` (static checks, all T1 tests and T2 seams only for affected code)
+and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
+`checks.commit`; CI on `ciHost` runs `checks.ci` for every push and merge. For
+every `git commit`, `agent-rails.ts` blocks hook bypasses (`--no-verify`, `-n`,
+a `core.hooksPath` override, and `LEFTHOOK=0`, `SKIP`, `HUSKY=0`,
+`PRE_COMMIT_ALLOW_NO_CONFIG` or `GIT_CONFIG_*` assignments). It also blocks the
+commit when `checks.commit` is declared but no executable pre-commit hook is
+installed. During the schema cutover, version 1 files still parse:
+`commitGate` (else `fastGate`) is the commit check and `gate` the CI check.
 
 Dynaflows switches on the `omp-dyna-workflows` process. Owners toggle it with
 `$dynaflows` (or `$dynaflows on`) and `$dynaflows off` in a main-session prompt;
@@ -60,17 +72,10 @@ the toggle writes the repository's `.omp/dynaflows.json` and adds it to
 `.git/info/exclude`. A repository value overrides the per-machine default in
 `~/.omp/dynaflows.json` (`{"schemaVersion":1,"enabled":true}`, untracked); with
 neither, dynaflows is off. Only with dynaflows on does `agent-rails.ts` inject the
-workflow pointer, enforce the cross-family verifier, require the exact `fastGate`
-after edits or working-tree changes (any exit code; a backgrounded start or a
-timeout does not count), and require owner sign-off for guardrail writes when
-`.omp/gate.json` lacks `fastGate` or `pathCheck`: `.omp/gate.json` and paths in
-`.omp/guardrail-proposal.json` stay blocked until an `ask` about guardrails is
-answered "Minimal" or "Full". Working-tree fingerprints detect delegated edits,
-including untracked file content and staged changes before the first commit;
-unchanged pre-existing dirt does not block Q&A. Fingerprinting uses two Git calls
-and reads at most 1,024 untracked files totalling 16 MiB. Git/filesystem failures
-and those bounds disable only fingerprint enforcement, not explicit
-edit/reference/path checks.
+workflow pointer, enforce the cross-family verifier, and require owner sign-off
+for guardrail writes when `.omp/gate.json` lacks `checks.commit` or `pathCheck`:
+`.omp/gate.json` and paths in `.omp/guardrail-proposal.json` stay blocked until an
+`ask` about guardrails is answered "Minimal" or "Full".
 
 omp auto-discovers every module in `agent/extensions/`. To disable one, add
 `disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove
@@ -117,9 +122,10 @@ for success, 1 for gate failure/error or status-publication failure, and 2 when 
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
 `.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
-host, posting GitHub commit status context `gate`. `ciHost: "github"` selects
-GitHub as the declared CI host; the field is metadata, not automatic routing.
-The full `gate` argv runs after the devcontainer's `postCreateCommand`.
+host, posting GitHub commit status context `gate`. `ciHost: "github"` (the
+default) means the repository's GitHub Actions; personal projects use it.
+The runner executes `checks.ci` (schema version 1: `gate`) after the
+devcontainer's `postCreateCommand`.
 
 Logs and atomic `result.json` files remain under
 `${XDG_STATE_HOME:-~/.local/state}/nuc-gate/jobs/<owner>/<repo>/<sha>/`;

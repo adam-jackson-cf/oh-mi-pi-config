@@ -20,14 +20,14 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    and `skill://omp-dyna-workflows/references/patterns.md`. Map representative defect-class
    criteria to `kind: defect` proofs with nonempty `expectRed`; fill proof-surface gaps first.
    Keep the plan draft until reproduction answers the open questions.
-4. **Implement**: require `fastGate` and `pathCheck` in `.omp/gate.json`; otherwise read
+4. **Implement**: require `checks.commit` and `pathCheck` in `.omp/gate.json`; otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`.
    Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
    implementation `task` for the root cause. Read
-   `skill://coding-guidance/references/verification.md`; run `fastGate` after the last edit.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()`.
+   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()`.
    Parent overlay must fail containing `expectRed`, not just any failure; head passes twice.
    Cross-family verifier drives criteria live and checks affected docs under the blocking rule.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and

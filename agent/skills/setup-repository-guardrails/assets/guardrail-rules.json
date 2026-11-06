@@ -1,0 +1,1058 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "STRUCT.dependency-direction",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_layer_dependency_allowlist_required": true,
+        "reject_unmapped_or_forbidden_dependency_edges": true,
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject dependencies outside the target's declared layer direction."
+    },
+    {
+      "id": "STRUCT.folder-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_ownership_map_required": true,
+        "reject_unmapped_or_misplaced_files": true,
+        "diagnostic_names_file_and_destination": true
+      },
+      "summary": "Require files to live under their declared capability owner."
+    },
+    {
+      "id": "NAME.conventions",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_and_symbol_naming_patterns_required": true,
+        "reject_nonmatching_names": true,
+        "diagnostic_names_file_and_correct_name": true
+      },
+      "summary": "Enforce the target's explicit file, folder, and symbol naming conventions."
+    },
+    {
+      "id": "TEST.placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_test_to_owner_and_tier_map_required": true,
+        "reject_unmapped_or_misplaced_tests": true,
+        "diagnostic_names_file_and_destination": true
+      },
+      "summary": "Place tests with their declared behavior owner and test tier."
+    },
+    {
+      "id": "TEST.budget.fast-tier-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "test_runner_json_report",
+        "measurement": "fast_tier_wall_clock_seconds",
+        "limit_source": "target_owned_limit_set_from_recorded_baseline_runs",
+        "baseline_runs_min": 5,
+        "limit_reported_provisional_until_repo_measure_run": true,
+        "limit_increase_requires_owner_approval": true,
+        "missing_or_invalid_measurement_is_failure": true
+      },
+      "summary": "Fail when the fast test tier exceeds its wall-clock budget."
+    },
+    {
+      "id": "TEST.budget.per-test-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "test_runner_json_report",
+        "scope": "fast_tier_test_cases",
+        "limit_source": "target_owned_limit_set_from_recorded_baseline_runs",
+        "baseline_runs_min": 5,
+        "limit_increase_requires_owner_approval": true,
+        "missing_or_invalid_measurement_is_failure": true,
+        "diagnostic_names_test_and_speedup_fix_never_tier_move": true
+      },
+      "summary": "Fail when an individual fast-tier test exceeds its duration budget."
+    },
+    {
+      "id": "TEST.growth.justified",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_files_and_cases_relative_to_base_ref",
+        "changed_behavior_mapping_required": true,
+        "mapping_must_reference_changed_source_and_behavior": true,
+        "unmapped_test_is_failure": true,
+        "diagnostic_names_test_and_map_or_remove_fix": true
+      },
+      "summary": "Require every added test file and case to map to a changed behavior."
+    },
+    {
+      "id": "TEST.duplicate-path",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_cases_relative_to_base_ref",
+        "fingerprint": ["normalized_call_path", "normalized_assertion"],
+        "compare_with": "existing_and_other_new_test_cases",
+        "duplicate_fingerprint_is_failure": true,
+        "diagnostic_names_both_tests_and_merge_or_remove_fix": true
+      },
+      "summary": "Reject new tests duplicating an existing call path and assertion."
+    },
+    {
+      "id": "GATE.local-ci-parity",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": ".omp/gate.json",
+        "schema_version": 2,
+        "authoritative_command_field": "checks.ci",
+        "ci_host_field": "ciHost",
+        "ci_executes_checks_ci_argv_or_parallel_jobs_whose_union_equals_it": true,
+        "parallel_jobs_must_use_the_checks_ci_runner_with_tier_selectors_only": true,
+        "required_status_check_name": "gate",
+        "parallel_gate_aggregate_depends_on_every_tier_job": true,
+        "parallel_gate_aggregate_always_runs": true,
+        "parallel_gate_aggregate_fails_on_failed_cancelled_or_skipped_tiers": true,
+        "scope": "full_t1_and_t2_suite_on_every_push_and_pull_request",
+        "check_only": true,
+        "nonzero_exit_propagates": true
+      },
+      "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite."
+    },
+    {
+      "id": "GATE.pre-commit",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "configuration": ".omp/gate.json",
+        "required_command_field": "checks.commit",
+        "scope": "static_checks_all_t1_and_t2_seams_for_affected_code",
+        "hook_manager": "any_tracked_manager_or_native_hook",
+        "installed_pre_commit_hook_executes_exact_checks_commit_argv": true,
+        "hook_installed_in_every_clone": true,
+        "nonzero_exit_blocks_commit": true
+      },
+      "summary": "Run checks.commit before every commit through an installed hook and propagate failure."
+    },
+    {
+      "id": "GATE.path-check",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": ".omp/gate.json",
+        "required_command_field": "pathCheck",
+        "changed_paths_appended_as_arguments": true,
+        "success_exit_code": 0,
+        "violation_exit_nonzero": true,
+        "diagnostic": "one_error_per_line_naming_file_and_fix",
+        "checks": ["structure", "naming", "test_placement"]
+      },
+      "summary": "Expose executable changed-path checks with actionable per-file errors."
+    },
+    {
+      "id": "GIT.required-checks",
+      "kind": "process",
+      "applicability": "conditional",
+      "evidence_kind": "host_query",
+      "contract": {
+        "protected_branch": "resolved_default_branch",
+        "required_status_check": "gate",
+        "merge_blocked_until_required_checks_pass": true,
+        "auto_merge_enabled_where_supported": true,
+        "rebase_merge_enabled_where_supported": true
+      },
+      "summary": "Require the gate status check before merging into the protected branch."
+    },
+    {
+      "id": "FANOUT.general",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 10
+      },
+      "summary": "Bound non-stdlib architectural imports."
+    },
+    {
+      "id": "FANOUT.large-module",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "nloc_over": 800,
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 3
+      },
+      "summary": "Use a tighter fan-out limit for large modules."
+    },
+    {
+      "id": "MYPY.SETTING.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting exclude."
+    },
+    {
+      "id": "MYPY.SETTING.mypy_path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_import_roots_must_be_covered": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting mypy_path."
+    },
+    {
+      "id": "MYPY.SETTING.python_version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting python_version."
+    },
+    {
+      "id": "MYPY.SETTING.show_error_codes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Preserve or deliberately adapt mypy setting show_error_codes."
+    },
+    {
+      "id": "MYPY.follow_imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "skip"
+      },
+      "summary": "Enforce follow_imports typing behavior or target-language equivalent."
+    },
+    {
+      "id": "MYPY.module-overrides",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_named_module_overrides_required": true,
+        "each_override_requires_missing_stub_or_decorator_evidence": true,
+        "unscoped_exceptions_forbidden": true
+      },
+      "summary": "Scope missing-import and decorator exceptions to named modules."
+    },
+    {
+      "id": "MYPY.package-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_package_inventory_required": true,
+        "all_maintained_packages_must_be_checked": true,
+        "package_list_drift_is_failure": true
+      },
+      "summary": "Type-check every maintained package and fail on package-list drift."
+    },
+    {
+      "id": "MYPY.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce strict typing behavior or target-language equivalent."
+    },
+    {
+      "id": "MYPY.warn_unused_ignores",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce warn_unused_ignores typing behavior or target-language equivalent."
+    },
+    {
+      "id": "PARITY.dependency-inventory",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "declared_analyzer_dependencies_match_install": true
+      },
+      "summary": "Fail when declared optional analyzer dependencies and installation behavior drift."
+    },
+    {
+      "id": "PARITY.install-guidance",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Keep documented install commands aligned with the actual installer."
+    },
+    {
+      "id": "PARITY.lock-version",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "tracked_lockfile": true,
+        "version_sync": true
+      },
+      "summary": "Fail when package metadata and lockfile versions drift."
+    },
+    {
+      "id": "PRETTIER.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "version": "3.6.2",
+        "tracked_markdown_yaml": true
+      },
+      "summary": "Pin and invoke Prettier for maintained Markdown and YAML."
+    },
+    {
+      "id": "PYQ100",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_roots_required": true
+      },
+      "summary": "Maintained Python source roots"
+    },
+    {
+      "id": "PYQ101",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_script_name_allowlist_required": true,
+        "kebab_case_for_command_scripts": true
+      },
+      "summary": "Approved script file naming and allowlist"
+    },
+    {
+      "id": "PYQ102",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_canonical_test_groups_required": true,
+        "target_must_map_groups": true
+      },
+      "summary": "Canonical test directory groups"
+    },
+    {
+      "id": "PYQ103",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": ["common", "helpers", "misc", "stuff", "temp"],
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic directory names"
+    },
+    {
+      "id": "PYQ104",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": ["common", "helpers", "misc", "stuff", "temp"],
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic module names"
+    },
+    {
+      "id": "PYQ105",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python package directories use snake_case"
+    },
+    {
+      "id": "PYQ106",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "kebab-case"
+      },
+      "summary": "Skill directories use kebab-case"
+    },
+    {
+      "id": "PYQ107",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python module names use snake_case"
+    },
+    {
+      "id": "PYQ200",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_lines": 700
+      },
+      "summary": "Class length at most 700 lines"
+    },
+    {
+      "id": "PYQ202",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_parameters": 8
+      },
+      "summary": "Constructor parameters at most 8"
+    },
+    {
+      "id": "PYQ203",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_attributes": 12
+      },
+      "summary": "Instance attributes at most 12"
+    },
+    {
+      "id": "PYQ210",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_base_or_mixin_required": true
+      },
+      "summary": "Analyzer classes inherit an approved analyzer base or mixin"
+    },
+    {
+      "id": "PYQ211",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "project_entrypoint_required": true
+      },
+      "summary": "Project analyzers implement the project entrypoint"
+    },
+    {
+      "id": "PYQ220",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_subprocess_wrapper_map_required": true
+      },
+      "summary": "Subprocess calls stay in approved seam wrappers"
+    },
+    {
+      "id": "PYQ221",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "dynamic_import_adapter_allowlist_required": true
+      },
+      "summary": "Dynamic imports stay in adapter modules"
+    },
+    {
+      "id": "PYQ230",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "named_callable_aliases_required": true
+      },
+      "summary": "Contract callables use named aliases"
+    },
+    {
+      "id": "PYQ231",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "prohibit_any_collaborator_boundary": true
+      },
+      "summary": "Collaborator contracts do not use Any"
+    },
+    {
+      "id": "PYQ299",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Undecodable source fails closed"
+    },
+    {
+      "id": "PYS000",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Unparsable source fails closed"
+    },
+    {
+      "id": "PYS250",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_loop_depth": 2
+      },
+      "summary": "Nested loop and comprehension depth at most 2"
+    },
+    {
+      "id": "PYS251",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No synchronous filesystem I/O in analyzer-like code"
+    },
+    {
+      "id": "PYS252",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No direct subprocess or environment access in analyzer-like code"
+    },
+    {
+      "id": "PYS253",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "ownership_marker_required": true
+      },
+      "summary": "Analyzer-like subsystem has an ownership marker"
+    },
+    {
+      "id": "RUFF.FORMAT.docstring-code-format",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the docstring-code-format formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.FORMAT.indent-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "space"
+      },
+      "summary": "Enforce the indent-style formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.FORMAT.line-ending",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "auto"
+      },
+      "summary": "Enforce the line-ending formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.FORMAT.quote-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "double"
+      },
+      "summary": "Enforce the quote-style formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.IGNORES",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "ignore": [
+          "E501",
+          "D100",
+          "D101",
+          "D102",
+          "D103",
+          "D104",
+          "D105",
+          "D107",
+          "B006",
+          "B008",
+          "A005"
+        ],
+        "per_file": {
+          "__init__.py": ["F401", "F403", "D104"],
+          "test_*.py": ["D", "S101", "PLR2004"],
+          "**/tests/**": ["D", "S101", "PLR2004"],
+          "conftest.py": ["D"],
+          "setup.py": ["D"]
+        }
+      },
+      "summary": "Carry only justified lint exceptions; detect added suppressions."
+    },
+    {
+      "id": "RUFF.ISORT.combine-as-imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the combine-as-imports import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.force-single-line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Enforce the force-single-line import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.known-first-party",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_first_party_package_names_required": true
+      },
+      "summary": "Enforce the known-first-party import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.split-on-trailing-comma",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the split-on-trailing-comma import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 5
+      },
+      "summary": "Enforce the max-args limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-branches",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 12
+      },
+      "summary": "Enforce the max-branches limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-locals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 15
+      },
+      "summary": "Enforce the max-locals limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-positional-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 5
+      },
+      "summary": "Enforce the max-positional-args limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-public-methods",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 20
+      },
+      "summary": "Enforce the max-public-methods limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-returns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 6
+      },
+      "summary": "Enforce the max-returns limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 50
+      },
+      "summary": "Enforce the max-statements limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.PYDOCSTYLE.convention",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "numpy"
+      },
+      "summary": "Apply the configured docstring convention or equivalent."
+    },
+    {
+      "id": "RUFF.ROOT.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          ".build",
+          ".git",
+          ".tox",
+          ".venv",
+          "venv",
+          "__pycache__",
+          "*.egg-info",
+          "build",
+          "dist",
+          "node_modules",
+          ".pytest_cache",
+          ".mypy_cache",
+          ".ruff_cache"
+        ],
+        "target_additional_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting exclude."
+    },
+    {
+      "id": "RUFF.ROOT.fix",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting fix."
+    },
+    {
+      "id": "RUFF.ROOT.output-format",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "full"
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting output-format."
+    },
+    {
+      "id": "RUFF.ROOT.preview",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting preview."
+    },
+    {
+      "id": "RUFF.ROOT.respect-gitignore",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting respect-gitignore."
+    },
+    {
+      "id": "RUFF.SELECT.A",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "A"
+      },
+      "summary": "Enable the Ruff A rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.B",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "B"
+      },
+      "summary": "Enable the Ruff B rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.C4",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C4"
+      },
+      "summary": "Enable the Ruff C4 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.C901",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C901"
+      },
+      "summary": "Enable the Ruff C901 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.D",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "D"
+      },
+      "summary": "Enable the Ruff D rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.E",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "E"
+      },
+      "summary": "Enable the Ruff E rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.F",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "F"
+      },
+      "summary": "Enable the Ruff F rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.I",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "I"
+      },
+      "summary": "Enable the Ruff I rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.N",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "N"
+      },
+      "summary": "Enable the Ruff N rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PGH",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PGH"
+      },
+      "summary": "Enable the Ruff PGH rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0904",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0904"
+      },
+      "summary": "Enable the Ruff PLR0904 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0911",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0911"
+      },
+      "summary": "Enable the Ruff PLR0911 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0912",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0912"
+      },
+      "summary": "Enable the Ruff PLR0912 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0913",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0913"
+      },
+      "summary": "Enable the Ruff PLR0913 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0914",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0914"
+      },
+      "summary": "Enable the Ruff PLR0914 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0915",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0915"
+      },
+      "summary": "Enable the Ruff PLR0915 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PLR0917",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0917"
+      },
+      "summary": "Enable the Ruff PLR0917 rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PT",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PT"
+      },
+      "summary": "Enable the Ruff PT rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.SIM",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "SIM"
+      },
+      "summary": "Enable the Ruff SIM rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.UP",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "UP"
+      },
+      "summary": "Enable the Ruff UP rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.W",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "W"
+      },
+      "summary": "Enable the Ruff W rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SETTING.line-length",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 88
+      },
+      "summary": "Preserve the line-length setting or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SETTING.mccabe.max-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": 10
+      },
+      "summary": "Preserve the mccabe.max-complexity setting or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SETTING.target-version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve the target-version setting or target-language equivalent."
+    },
+    {
+      "id": "RUNNER.local-ci-parity",
+      "kind": "process",
+      "applicability": "always",
+      "contract": {
+        "check_only_ci": true
+      },
+      "summary": "Local and CI checks invoke one authoritative runner."
+    },
+    {
+      "id": "SEAM.evidence",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "registry_manifest_artifact_report_runtime_freshness": true
+      },
+      "summary": "Check real workflow seam evidence and report paths where the target has workflow orchestration."
+    },
+    {
+      "id": "SECURITY.dependency-audit",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Run a strict, stack-appropriate audit for dependency changes."
+    },
+    {
+      "id": "SKILL.metadata",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "name_matches_directory": true,
+        "use_when_prefix_case_insensitive": true,
+        "target_metadata_schema_required": true,
+        "shared_skill_scope_metadata_must_match_target_schema": true
+      },
+      "summary": "Validate agent skill metadata and linked support files when skills exist."
+    },
+    {
+      "id": "TEST.coverage-minimum",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "threshold_percent": 85,
+        "owned_slice_required": true
+      },
+      "summary": "Enforce a meaningful owned coverage slice rather than a decorative global number."
+    },
+    {
+      "id": "TEST.failure-propagation",
+      "kind": "process",
+      "applicability": "always",
+      "contract": {
+        "negative_case_required": true
+      },
+      "summary": "A failed prerequisite cannot be reported as a passing gate."
+    },
+    {
+      "id": "TEST.subprocess-timeouts",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Bound subprocess calls in tests and keep failure output diagnosable."
+    },
+    {
+      "id": "TEST.tiers",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Run fast unit and integration checks at commit time and reserve real slow seams for their owning release path."
+    }
+  ]
+}
