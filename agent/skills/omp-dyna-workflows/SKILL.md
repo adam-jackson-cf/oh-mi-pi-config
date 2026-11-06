@@ -24,17 +24,20 @@ description:
      mode is not the default. Request plan review only when the owner asks to approve it.
   4. **Implement**: branch `agent/<slug>` from default, never from the spike. Spawn `task`
      for proofs first; main records proof-file hashes (re-freeze); separately spawn `task`
-     for implementation. Every landed commit stays green; parent overlays prove red.
-  5. **Verify**: run deterministic `verify()`, then its cross-family `verifier` drives every
+     for implementation. Every landed commit stays green; parent overlays prove red. Commits
+     run `checks.commit` through the pre-commit hook; never bypass it.
+  5. **Verify**: run deterministic `prove()`, then its cross-family `verifier` drives every
      criterion live, checks affected doc lines, and reports diff scope/coverage.
-  6. **Integrate**: CI green on head, rebase-merge with `--match-head-commit`, wait for default CI.
-- Prerequisite to implementation: `.omp/gate.json` provides both `fastGate` and `pathCheck`.
-  Missing either: ask the owner before guardrail work. On yes, run `skill://setup-repository-guardrails`;
-  write `.omp/guardrail-proposal.json` `{"schemaVersion":1,"minimal":[paths],"full":[paths]}`
-  (repo-relative). `minimal`: least for `fastGate` + `pathCheck`; one gate run clears handoff.
-  `full`: every recommended guardrail. Then `ask`: question contains "guardrail", options
-  "Minimal" and "Full". agent-rails blocks `.omp/gate.json` and proposal paths until answered;
-  timeout auto-selection is not approval; the unchosen option's paths stay blocked.
+  6. **Integrate**: CI (`checks.ci`) green on head, rebase-merge with `--match-head-commit`,
+     wait for default CI.
+- Prerequisite to implementation: `.omp/gate.json` provides `checks.commit`, `pathCheck` and an
+  installed pre-commit hook. Missing any: ask the owner before guardrail work. On yes, run
+  `skill://setup-repository-guardrails`; write `.omp/guardrail-proposal.json`
+  `{"schemaVersion":1,"minimal":[paths],"full":[paths]}` (repo-relative). `minimal`: least for
+  `checks.commit`, `pathCheck` and the hook. `full`: every recommended guardrail. Then `ask`:
+  question contains "guardrail", options "Minimal" and "Full". agent-rails blocks
+  `.omp/gate.json` and proposal paths until answered; timeout auto-selection is not approval;
+  the unchosen option's paths stay blocked.
 - Delegate every code change, including small fixes, to `task`. Each brief lists the exact
   reference URLs needed by its steps and requires reading them before the first edit.
 - Briefs must give absolute worktree paths; agent-rails rejects relative or symlink-escaping
@@ -78,7 +81,7 @@ description:
 | Any Git action: authority, then branch | skill://git-tool |
 | Spike recipe | skill://omp-dyna-workflows/references/patterns.md |
 | Proof manifest and freeze | skill://omp-dyna-workflows/references/patterns.md |
-| verify() and verifier | skill://git-tool/references/verify-loop.md |
+| prove() and verifier | skill://git-tool/references/verify-loop.md |
 | Git verification and risk tiers | skill://git-tool/references/verify-loop.md |
 | Merge or recover red main | skill://git-tool/references/merge-and-recover.md |
 | Owner corrects repeated mistake | skill://codify-omp-workflow-corrections |
@@ -111,11 +114,12 @@ Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
 `agent()` and `wait()` are eval globals; deterministic functions also run in plain Python.
 
-- `verify(repo, parent, head, manifest_path, manifest_sha256, objective, gates=None,
-  sensitive=None, max_checks=MAX_AGENTS)`: frozen proofs in detached parent/head worktrees,
-  head `fastGate`, green twice, parent overlay red-for-reason or preservation, gate/sensitive
-  scans, then one read-only cross-family verifier. Return `status` (`pass`, `fail`, `needs_owner`),
-  `deterministic`, `verifier`, `blocking`, `followUps`; remove worktrees on exit.
+- `prove(repo, parent, head, manifest_path, manifest_sha256, objective, sensitive=None,
+  max_checks=MAX_AGENTS)`: frozen proofs in detached parent/head worktrees, green twice at
+  head, parent overlay red-for-reason or preservation, gate/sensitive scans, then one read-only
+  cross-family verifier. Runs no repository checks (commit hook and CI own them). Return
+  `status` (`pass`, `fail`, `needs_owner`), `deterministic`, `verifier`, `blocking`,
+  `followUps`; remove worktrees on exit.
 - `blind_label(batch_files, rubric_path, labels, labellers=("scout", "task"))`: two blind,
   read-only, cross-family sessions per frozen batch; return `agreed` and `disputed`.
   The orchestrator settles disputes; a human confirms before labels are written.

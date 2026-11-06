@@ -23,7 +23,7 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    `preserve` for refactors, `new-surface` for absent APIs. Keep plan draft until spike ends.
    Read `skill://coding-guidance/references/clean-cutovers.md` for replacing units and
    `skill://coding-guidance/references/regression-coverage.md` for defect-class coverage.
-4. **Implement**: require `.omp/gate.json` `fastGate` and `pathCheck`; otherwise read
+4. **Implement**: require `.omp/gate.json` `checks.commit` and `pathCheck`; otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; one writer per short-lived
    `agent/<slug>` branch from default, never spike. Parallelize only independent units with
@@ -33,8 +33,8 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    Per unit, spawn proof `task`, main records hashes and re-freezes manifest, then separately
    spawn implementation `task`. Land green increments behind the flag; migrate callers and
    delete obsolete paths in the canonical cutover unit. Read
-   `skill://coding-guidance/references/verification.md`; run `fastGate` after last edit.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `verify()` per
+   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
+5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` per
    code-ready unit, proofs green twice at head and parent evidence by kind. Cross-family
    verifier drives criteria and checks affected docs under the blocking rule; prove combined
    end-to-end criteria before flag removal.

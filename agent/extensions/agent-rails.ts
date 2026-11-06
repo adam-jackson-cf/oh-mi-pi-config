@@ -1,7 +1,6 @@
-import { access, appendFile, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import {
@@ -32,18 +31,39 @@ const mappingSchema = z.object({
 	rejectDevice: z.string(),
 });
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
-const gateSchema = z.object({
-	schemaVersion: z.literal(1),
-	gate: argvSchema.optional(),
-	commitGate: argvSchema.optional(),
-	fastGate: argvSchema.optional(),
+const policyFields = {
 	pathCheck: argvSchema.optional(),
 	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
 	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ciHost: z.enum(["github", "nuc"]).optional(),
+};
+// `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
+const gateV2Schema = z.object({
+	schemaVersion: z.literal(2),
+	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
+	...policyFields,
 });
+// schema v1: remove once every repo has migrated to v2
+const gateV1Schema = z.object({
+	schemaVersion: z.literal(1),
+	gate: argvSchema.optional(),
+	commitGate: argvSchema.optional(),
+	fastGate: argvSchema.optional(),
+	...policyFields,
+});
+const gateSchema = z.union([gateV2Schema, gateV1Schema]).transform(gate => ({
+	// schema v1: remove once every repo has migrated to v2
+	commit: gate.schemaVersion === 2 ? gate.checks?.commit : gate.commitGate ?? gate.fastGate,
+	ci: gate.schemaVersion === 2 ? gate.checks?.ci : gate.gate,
+	pathCheck: gate.pathCheck,
+	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
+	testGlobs: gate.testGlobs,
+	sensitive: gate.sensitive,
+	agentMerge: gate.agentMerge,
+	ciHost: gate.ciHost,
+}));
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
 const inputFieldsSchema = z.record(z.string(), pathValueSchema).catch({});
 const inputSchema = z.object({
@@ -61,19 +81,16 @@ const answerSchema = z.object({
 	timedOut: z.boolean().optional().catch(undefined),
 });
 const detailsSchema = z.object({
-	exitCode: z.number().optional().catch(undefined),
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
-	// Bash: `async` marks a backgrounded start; `timedOut` an unfinished run.
-	async: z.unknown().optional().catch(undefined),
-	timedOut: z.boolean().optional().catch(undefined),
 	// Ask: single-question fields, or `results` for multi-question calls.
 	question: z.string().optional().catch(undefined),
 	selectedOptions: stringList.optional().catch(undefined),
+	timedOut: z.boolean().optional().catch(undefined),
 	results: z.array(answerSchema).optional().catch(undefined),
 }).catch({
-	exitCode: undefined, applied: undefined, files: undefined, async: undefined, timedOut: undefined,
-	question: undefined, selectedOptions: undefined, results: undefined,
+	applied: undefined, files: undefined, question: undefined, selectedOptions: undefined,
+	timedOut: undefined, results: undefined,
 });
 const dynaflowsSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
 const proposalSchema = z.object({ schemaVersion: z.literal(1), minimal: stringList, full: stringList });
@@ -84,17 +101,14 @@ const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
+type GitAction = { command: string; args: string[]; cwd?: string; ghArgs?: string[]; env: string[]; config: string[] };
 interface State {
 	reads: Set<string>;
 	notes: Set<string>;
-	edits: Map<string, number>;
-	passed: Map<string, number>;
-	bashStarts: Map<string, { root: string; revision: number; fingerprint?: string }>;
-	baselines: Map<string, string>;
-	checkedTrees: Map<string, string>;
+	// Repository roots where this session edited a file matching `codeGlobs`.
+	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
 	authorFamilies: Set<string>;
-	revision: number;
 	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
@@ -123,10 +137,8 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 
 function fresh(): State {
 	return {
-		reads: new Set(), notes: new Set(), edits: new Map(), passed: new Map(),
-		bashStarts: new Map(), baselines: new Map(), checkedTrees: new Map(), pathFailures: new Map(), revision: 0,
-		authorFamilies: new Set(),
-		discovered: false, pointed: false, proposal: [],
+		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
+		authorFamilies: new Set(), discovered: false, pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -192,7 +204,7 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 				root = parent === root ? undefined : await repoRoot(parent);
 			}
 		} catch {
-			// Like fingerprinting, supplemental filesystem checks fail open; reference gates still apply.
+			// Supplemental filesystem checks fail open; reference gates still apply.
 		}
 	}
 }
@@ -218,9 +230,9 @@ const wrapperOptions = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-async function gitActions(command: string, cwd: string | undefined): Promise<{ command: string; cwd?: string; ghArgs?: string[] }[]> {
+async function gitActions(command: string, cwd: string | undefined): Promise<GitAction[]> {
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
-	const actions: { command: string; cwd?: string; ghArgs?: string[] }[] = [];
+	const actions: GitAction[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
 		const target = isAbsolute(path) || path.startsWith("~/") ? absolute(path, "/") : from && resolve(from, path);
@@ -228,8 +240,13 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 	};
 	let words: string[] = [];
 	const flush = async () => {
+		// Environment assignments apply to the command that follows them, including after `env`.
+		const env: string[] = [];
 		while (words.length) {
-			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) words.shift();
+			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) {
+				const word = words.shift()!;
+				if (word.includes("=")) env.push(word);
+			}
 			const launcher = basename(words[0] ?? "");
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
@@ -264,21 +281,25 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 			cwd = executable === "popd" ? undefined : await directory(words.length === 1 ? words[0] : undefined, cwd);
 		} else if (executable === "git") {
 			let effective = cwd;
+			const config: string[] = [];
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
 					const value = words.shift();
 					if (option === "-C") effective = await directory(value, effective);
-				} else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
+					if ((option === "-c" || option === "--config-env") && value) config.push(value);
+				} else if (option.startsWith("--config-env=")) config.push(option.slice("--config-env=".length));
+				else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
+				else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
-			actions.push({ command: `git ${words.join(" ")}`, cwd: effective });
+			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, env, config });
 		} else if (executable === "gh") {
 			const ghArgs = [...words];
 			words = words.filter((word, index, all) =>
 				!["-R", "--repo", "--hostname"].includes(word) &&
 				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
 				!/^(-R.|--repo=|--hostname=)/.test(word));
-			actions.push({ command: `gh ${words.join(" ")}`, cwd, ghArgs });
+			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, ghArgs, env, config: [] });
 		}
 		words = [];
 	};
@@ -294,6 +315,47 @@ async function gitActions(command: string, cwd: string | undefined): Promise<{ c
 	}
 	await flush();
 	return actions;
+}
+
+// `git commit` options that take the next word as their value, so it is not parsed as an option.
+const commitValueShorts = { m: true, F: true, c: true, C: true, t: true } satisfies Record<string, true>;
+const commitValueLongs = {
+	"--message": true, "--file": true, "--reuse-message": true, "--reedit-message": true, "--fixup": true,
+	"--squash": true, "--template": true, "--author": true, "--date": true, "--cleanup": true,
+	"--trailer": true, "--pathspec-from-file": true,
+} satisfies Record<string, true>;
+// Returns the first argument, Git config or environment assignment that would skip the pre-commit hook.
+function commitBypass(action: GitAction): string | undefined {
+	const args = action.args.slice(1);
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--") break;
+		if (arg.startsWith("--")) {
+			// Git accepts unambiguous long-option prefixes, so `--no-ver` also means --no-verify.
+			if (arg.length > "--no-".length && "--no-verify".startsWith(arg)) return arg;
+			if (Object.hasOwn(commitValueLongs, arg)) index++;
+			continue;
+		}
+		if (!arg.startsWith("-") || arg === "-") continue;
+		for (let at = 1; at < arg.length; at++) {
+			const flag = arg[at];
+			if (flag === "n") return arg;
+			// -u and -S take an optional value attached to the same word.
+			if (flag === "u" || flag === "S") break;
+			if (Object.hasOwn(commitValueShorts, flag)) {
+				if (at === arg.length - 1) index++;
+				break;
+			}
+		}
+	}
+	const hooksPath = action.config.find(entry => entry.split("=")[0].toLowerCase() === "core.hookspath");
+	if (hooksPath) return hooksPath;
+	return action.env.find(assignment => {
+		const name = assignment.slice(0, assignment.indexOf("="));
+		const value = assignment.slice(assignment.indexOf("=") + 1);
+		return (name === "LEFTHOOK" && /^(?:0|false)$/i.test(value)) || (name === "HUSKY" && value === "0") ||
+			["SKIP", "PRE_COMMIT_ALLOW_NO_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"].includes(name);
+	});
 }
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
@@ -381,7 +443,7 @@ export default function agentRails(
 			const root = await repoRoot(path);
 			if (!root) continue;
 			const gate = await gateAt(root, state, ctx);
-			if (gate?.fastGate && gate.pathCheck) continue;
+			if (gate?.commit && gate.pathCheck) continue;
 			const rel = relative(root, path);
 			const proposal = await readJson(resolve(root, ".omp/guardrail-proposal.json"), proposalSchema, state, ctx);
 			const isGate = rel === ".omp/gate.json";
@@ -393,38 +455,12 @@ export default function agentRails(
 				: `Agent rails: ${rel} is a guardrail change; get owner sign-off via ask (question mentions "guardrail"; options "Minimal" and "Full") first.`;
 		}
 	}
-	async function fingerprint(root: string): Promise<string | undefined> {
-		try {
-			const options = { cwd: root, timeout: 20000 };
-			// v2 includes index blob IDs, so staged changes are covered without diffing against HEAD.
-			// Diffing index vs worktree also works before the repository's first commit.
-			const status = await pi.exec("git", ["status", "--porcelain=v2", "-z", "--untracked-files=all"], options);
-			if (status.code !== 0 || status.killed) return;
-			const diff = await pi.exec("git", ["diff", "--binary"], options);
-			if (diff.code !== 0 || diff.killed) return;
-			const hash = createHash("sha256").update(status.stdout).update("\0").update(diff.stdout);
-			const entries = status.stdout.split("\0");
-			let remaining = 16 * 1024 * 1024;
-			let files = 0;
-			for (let index = 0; index < entries.length; index++) {
-				const entry = entries[index];
-				if (entry.startsWith("2 ")) { index++; continue; } // rename's second NUL-delimited path
-				if (!entry.startsWith("? ")) continue;
-				if (++files > 1024) return;
-				const path = resolve(root, entry.slice(2));
-				const info = await lstat(path);
-				if (info.size > remaining || (!info.isFile() && !info.isSymbolicLink())) return;
-				remaining -= info.size;
-				const content = info.isSymbolicLink() ? await readlink(path)
-					: new Uint8Array(await Bun.file(path).slice(0, info.size).arrayBuffer());
-				hash.update("\0").update(entry).update("\0").update(content);
-			}
-			return hash.digest("hex");
-		} catch {
-			// Fingerprinting is supplemental: Git/filesystem failures or bounded-read limits fail
-			// open for this signal only; explicit edit, reference and pathCheck gates still apply.
-			return;
-		}
+	// The pre-commit hook Git would run: respects core.hooksPath; must be an executable file.
+	async function commitHookInstalled(cwd: string): Promise<boolean> {
+		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: 20000 });
+		if (result.code !== 0 || result.killed) throw new Error(`cannot resolve the pre-commit hook: ${result.stderr}`);
+		const info = await stat(resolve(cwd, result.stdout.trim())).catch(() => null);
+		return Boolean(info?.isFile() && info.mode & 0o111);
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
 		if (!gate.pathCheck) return;
@@ -444,36 +480,9 @@ export default function agentRails(
 		const url = event.input.path.replace(/:(?:raw|[\d,+-]+)(?::(?:raw|[\d,+-]+))*$/, "");
 		if (url.startsWith("skill://")) state.reads.add(url);
 	}
-	async function bashStart(event: ToolEvent, ctx: ExtensionContext, state: State, live = true): Promise<void> {
-		if (event.toolName !== "bash") return;
-		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd);
-		const root = cwd && await repoRoot(cwd);
-		if (root) {
-			const gate = await gateAt(root, state, ctx);
-			const tree = live && ctx.agent.kind === "main" && gate?.fastGate?.join(" ") === event.input.command
-				? await fingerprint(root) : undefined;
-			state.bashStarts.set(event.toolCallId, { root, revision: state.revision, fingerprint: tree });
-		}
-	}
 	async function recordResult(event: ToolEvent, ctx: ExtensionContext, state: State, runCheck: boolean) {
 		recordRead(event, state);
 		const details = event.details;
-		if (event.toolName === "bash") {
-			const started = state.bashStarts.get(event.toolCallId);
-			state.bashStarts.delete(event.toolCallId);
-			// Bash reports exitCode only for failures; a clean run has none. A backgrounded start
-			// (`async`) or a timeout has not finished the gate, so neither counts as a run.
-			const finished = details.async === undefined && details.timedOut !== true
-				&& (event.isError === false || details.exitCode !== undefined);
-			if (started && finished) {
-				const gate = await gateAt(started.root, state, ctx);
-				if (gate?.fastGate?.join(" ") === event.input.command) {
-					state.passed.set(started.root, started.revision);
-					if (runCheck && started.fingerprint !== undefined) state.checkedTrees.set(started.root, started.fingerprint);
-				}
-			}
-			return;
-		}
 		// Owner sign-off for guardrails: an answered (not timed-out) ask about guardrails picking Minimal or Full.
 		if (event.toolName === "ask" && event.isError === false) {
 			for (const answer of details.results ?? [details]) {
@@ -504,7 +513,7 @@ export default function agentRails(
 		for (const path of changed) {
 			const root = await repoRoot(path);
 			if (!root) continue;
-			if (matches(relative(root, path), map.codeGlobs)) state.edits.set(root, ++state.revision);
+			if (matches(relative(root, path), map.codeGlobs)) state.edits.add(root);
 			const group = groups.get(root) ?? [];
 			group.push(path); groups.set(root, group);
 		}
@@ -522,19 +531,10 @@ export default function agentRails(
 		const state = fresh();
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
-		state.baselines = previous?.baselines ?? new Map();
-		state.checkedTrees = previous?.checkedTrees ?? new Map();
 		state.pathFailures = previous?.pathFailures ?? new Map();
 		state.authorFamilies = previous?.authorFamilies ?? new Set();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
-		if (ctx.agent.kind === "main") {
-			const root = await repoRoot(ctx.cwd);
-			if (root && !state.baselines.has(root)) {
-				const tree = await fingerprint(root);
-				if (tree !== undefined) state.baselines.set(root, tree);
-			}
-		}
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type === "compaction") { state.reads.clear(); state.discovered = false; continue; }
@@ -542,9 +542,7 @@ export default function agentRails(
 			const message = entry.message;
 			if (message.role === "assistant") for (const block of message.content) {
 				if (block.type !== "toolCall") continue;
-				const call = policyEvent({ type: "tool_call", toolName: block.name, toolCallId: block.id, input: block.arguments });
-				calls.set(block.id, call);
-				await bashStart(call, ctx, state, false);
+				calls.set(block.id, policyEvent({ type: "tool_call", toolName: block.name, toolCallId: block.id, input: block.arguments }));
 			}
 			// Persisted roles use camelCase, not the extension event name (omp://session.md).
 			if (message.role === "toolResult") {
@@ -591,7 +589,6 @@ export default function agentRails(
 		if (loadError) return { block: true, reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			await bashStart(event, ctx, state);
 			if (map.discoveryTools.includes(event.toolName) && !state.discovered) {
 				const scopes = paths(event, map, ctx.cwd);
 				if (!scopes.length && !event.hasScope) scopes.push(ctx.cwd);
@@ -607,6 +604,20 @@ export default function agentRails(
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
+					if (/^git commit\b/.test(action.command)) {
+						const bypass = commitBypass(action);
+						if (bypass) return {
+							block: true, reason: `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`,
+						};
+						if (!action.cwd) return {
+							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.",
+						};
+						const root = await repoRoot(action.cwd);
+						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
+						if (gate?.commit && !(await commitHookInstalled(action.cwd))) return {
+							block: true, reason: `Agent rails: ${root} declares checks.commit but no pre-commit hook is installed; install the repository's hook (e.g. \`pre-commit install\`, \`lefthook install\` or its documented setup), then commit.`,
+						};
+					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
 							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
@@ -676,7 +687,7 @@ export default function agentRails(
 				if (gate?.pathCheck) continue;
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
-				if (state.revision === 0 && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
+				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
 				if (!(await access(path).then(() => true, () => false))) triggers.push("newFile");
 				if (matches(rel, gate?.testGlobs ?? map.testGlobs)) triggers.push("test");
 				for (const url of missing(state, map, triggers)) required.add(url);
@@ -695,10 +706,8 @@ export default function agentRails(
 		if (loadError) return { decision: "block", reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			const dynaflows = await dynaflowsOn(ctx);
 			const reasons: string[] = [];
-			let changedTree = false;
-			const roots = new Set([...state.edits.keys(), ...state.pathFailures.keys(), ...state.baselines.keys()]);
+			const roots = new Set([...state.edits, ...state.pathFailures.keys()]);
 			for (const root of roots) {
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
@@ -714,17 +723,9 @@ export default function agentRails(
 					const error = await checkPaths(root, existing, gate, state);
 					if (error) reasons.push(error);
 				}
-				// With dynaflows off the fast gate is not required and tree drift (pulls, delegated
-				// edits) does not trigger handoff requirements; this session's own edits still do.
-				if (!dynaflows) continue;
-				const tree = gate?.fastGate && state.baselines.has(root) ? await fingerprint(root) : undefined;
-				const uncheckedTree = tree !== undefined && tree !== state.baselines.get(root) && tree !== state.checkedTrees.get(root);
-				changedTree ||= uncheckedTree;
-				if (gate?.fastGate && (uncheckedTree || (state.passed.get(root) ?? -1) < (state.edits.get(root) ?? -1))) {
-					reasons.push(`run ${gate.fastGate.join(" ")} in ${root} after the last edit (any exit code)`);
-				}
 			}
-			const urls = state.edits.size || changedTree ? missing(state, map, ["verification"]) : [];
+			// Repository checks run at commit (pre-commit hook) and in CI, never at handoff.
+			const urls = state.edits.size ? missing(state, map, ["verification"]) : [];
 			if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 			if (reasons.length) {
 				return { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` };
@@ -750,11 +751,11 @@ export default function agentRails(
 		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
 		const root = await repoRoot(ctx.cwd);
 		const gate = root ? await gateAt(root, state, ctx) : undefined;
-		if (root && !(gate?.fastGate && gate.pathCheck)) lines.push(
-			`Guardrails missing in ${root}: .omp/gate.json lacks fastGate or pathCheck.`,
+		if (root && !(gate?.commit && gate.pathCheck)) lines.push(
+			`Guardrails missing in ${root}: .omp/gate.json lacks checks.commit or pathCheck.`,
 			"Before guardrail work, ask the owner whether to analyse and propose guardrails.",
 			"If yes: write .omp/guardrail-proposal.json {\"schemaVersion\":1,\"minimal\":[repo-relative paths],\"full\":[repo-relative paths]};",
-			"minimal = least needed for fastGate and pathCheck so one gate run clears handoff; full = every recommended guardrail.",
+			"minimal = least needed for checks.commit, pathCheck and an installed pre-commit hook; full = every recommended guardrail.",
 			"Present both, then call ask with a question containing \"guardrail\" and options \"Minimal\" and \"Full\".",
 			"Writes to .omp/gate.json and proposal paths stay blocked until the owner picks one.",
 		);
