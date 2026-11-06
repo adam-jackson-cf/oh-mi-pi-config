@@ -3,6 +3,8 @@ name: "omp-dyna-workflows"
 description:
   "Use when handling non-trivial engineering requests or workflowz, jevify, orchestrate,
   proof-first verification, evals, judgments, or blind labels for human confirmation."
+hide: true
+disable-model-invocation: true
 ---
 
 # Task

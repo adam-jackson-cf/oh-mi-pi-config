@@ -60,6 +60,7 @@ task:
   agentModelOverrides:
     reviewer: "@reviewer"
     scout: anthropic/claude-haiku-5-5:medium
+  perCallModel: "on"
 checkpoint:
   enabled: true
 memory:
