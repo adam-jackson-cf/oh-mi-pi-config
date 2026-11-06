@@ -323,6 +323,8 @@ describe("agent rails", () => {
 				// Conservative: the command touches a skip variable, so the value and later shell state are ignored.
 				"LEFTHOOK=1 git commit -m x", "export HUSKY=0; export -n HUSKY; git commit -m x",
 				"export HUSKY=0; unset HUSKY; git commit -m x", "(export HUSKY=0); git commit -m x",
+				"env 'HUSKY'=0 git commit -m x", `env HUS"KY"=0 git commit -m x`, `export HUS"KY"=0; git commit -m x`,
+				"declare -x HUSKY=0; git commit -m x", "env --unset=HUSKY git commit -m x",
 			]) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
@@ -333,6 +335,8 @@ describe("agent rails", () => {
 				"git commit --mes -n", "git commit --mess=-n", "git commit -uno -m x", "git commit -m x -- -n",
 				"echo 'git commit --no-verify'", "export A=1; git commit -m x", "git commit -m 'fix the husky hook'",
 				"git commit -m 'drop $SKIP from docs'", "PATH=/usr/bin git commit -m x",
+				"git commit -m 'document export HUSKY'", "git commit -m 'document unset SKIP'",
+				"git commit -m 'document HUSKY=0'",
 			]) assert.equal(await h.call("bash", { command }), undefined, command);
 		} finally { h.cleanup(); }
 	});
