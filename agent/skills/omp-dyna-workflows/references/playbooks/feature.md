@@ -34,5 +34,8 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    drives every criterion and checks affected docs; only its defined blocking rule blocks.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
-   rebase-merge with `--match-head-commit`, wait for default-branch CI. Fixes/rebases receive
-   one verification on the new head per the verify loop.
+   rebase-merge with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
+   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
+   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
+   which still waits for green. Fixes/rebases receive one verification on the new head per
+   the verify loop.

@@ -40,6 +40,9 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    end-to-end criteria before flag removal.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   each unit with `--match-head-commit`, wait for default CI. Target same-day merge; no stacked
-   or long-lived branches. Re-verify fixes/rebases once at new head per verify loop. Remove the
-   flag when its declared criterion is met.
+   each unit with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
+   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
+   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
+   which still waits for green. Target same-day merge; no stacked or long-lived branches.
+   Re-verify fixes/rebases once at new head per verify loop. Remove the flag when its declared
+   criterion is met.
