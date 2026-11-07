@@ -23,9 +23,12 @@ else
   failed=1
 fi
 
-if program=$(plutil -extract ProgramArguments.1 raw "$plist" 2>/dev/null) &&
+if node=$(plutil -extract ProgramArguments.0 raw "$plist" 2>/dev/null) &&
+  program=$(plutil -extract ProgramArguments.1 raw "$plist" 2>/dev/null) &&
   argument=$(plutil -extract ProgramArguments.2 raw "$plist" 2>/dev/null) &&
-  [ "${program%"$inject_suffix"}" != "$program" ] && [ "$argument" = '--if-needed' ]; then
+  [ "${node##*/}" = 'node' ] &&
+  [ "${program%"$inject_suffix"}" != "$program" ] && [ "$argument" = '--if-needed' ] &&
+  ! plutil -extract ProgramArguments.3 raw "$plist" >/dev/null 2>&1; then
   printf '%s\n' 'ok: ProgramArguments invoke inject.mjs with --if-needed'
 else
   printf '%s\n' 'FAIL: ProgramArguments invoke inject.mjs with --if-needed'

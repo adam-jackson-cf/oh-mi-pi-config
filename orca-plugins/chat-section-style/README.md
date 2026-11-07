@@ -94,9 +94,10 @@ installed, so a new palette file needs a full `node inject.mjs`.
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
-  filename, runs this folder's `inject.mjs --if-needed` at load and every 30 seconds, and sends
-  stdout and stderr to `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never
-  loads the agent or touches the running Orca.
+  filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
+  no other arguments at load and every 30 seconds, and sends stdout and stderr to
+  `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the agent or
+  touches the running Orca.
 - `harness-tokens.js` holds the installed themes' tokens; regenerate it with
   `node harness/tokens.mjs` after a theme update.
 - Score screenshots against the rubric in `../orca-chat-style/SKILL.md`.
