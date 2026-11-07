@@ -31,7 +31,8 @@ The `mode` file names the active mode; `inject.mjs` sets it as `<html data-omp-c
 - `split-cards`: Each run of text sits in a card; tables, code and visuals leave the card and sit on
   the canvas between cards with a coloured top edge. ID sections show an inset edge in their hue.
 - `gutter` (default): No cards or edges. A coloured dot in the left gutter starts each ID section.
-  Embeds are soft borderless surfaces; tables carry a small TABLE label.
+  Embeds are soft borderless surfaces whose title (TABLE label or code language label) sits on a
+  band tinted with the embed hue.
 - `editorial`: No cards. Prose fills the column like the other modes; hairlines span the column
   above K sections only. Each section heading hangs a glyph in the left gutter (◆ K, ▲ C, ✚ S, ● F,
   ↔ R, ◇ A) beside a letter prefix. Embeds are borderless soft panels whose TABLE/YAML/BASH/DIAGRAM

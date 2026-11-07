@@ -28,7 +28,7 @@ Exactly one mode is active, named in `mode`. Default: `gutter`.
 - `split-cards`: Text runs in cards; tables, code and visuals between cards on the canvas.
   Clearest text/embed separation.
 - `gutter`: No cards. Coloured left-margin dots start each ID section; embeds are soft borderless
-  panels with type labels.
+  panels with hue-tinted title bands.
 - `editorial`: No cards. Section gutter glyphs (◆ K, ▲ C, ✚ S, ● F), full-width prose, hairlines
   above K only, tinted embed title bands.
 - Switch with:
