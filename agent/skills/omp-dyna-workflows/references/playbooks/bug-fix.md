@@ -20,12 +20,19 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    and `skill://omp-dyna-workflows/references/patterns.md`. Map representative defect-class
    criteria to `kind: defect` proofs with nonempty `expectRed`; fill proof-surface gaps first.
    Keep the plan draft until reproduction answers the open questions.
+   Extend an existing behavioural scenario (modified tracked file in `files`) or add a
+   behaviour-level case mapped to the changed rule, never a value pin. Whole files are frozen;
+   prefer dedicated files. Passing-at-baseline freeze returns to Plan: criterion already met
+   (report, no PR) or reuse existing tracked tests as preserve; never weaken a proof into red.
 4. **Implement**: require `checks.commit` and `pathCheck` in `.omp/gate.json`; otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`.
-   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
-   implementation `task` for the root cause. Read
+   Proof `task` writes uncommitted files; main calls `freeze()` before the separate root-cause
+   implementation `task`. Both run non-isolated, sequentially, with absolute worktree paths.
+   Implementation task commits proofs with the change that greens them (one atomic commit
+   by default); main never commits. No proof enters history before its greening change.
+   Split only if every earlier commit passes the hook with all proof files present. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()`.
    Parent overlay must fail containing `expectRed`, not just any failure; head passes twice.

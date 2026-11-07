@@ -26,8 +26,11 @@ Make the target design canonical, preserve required behaviour and migrate every 
    Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/moves/renames.
-   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
-   implementation `task`; migrate all callers/tests/docs and remove obsolete paths, no shims.
+   Proof `task` writes uncommitted files; main calls `freeze()` before implementation `task`.
+   Both run non-isolated, sequentially, with absolute paths in the dedicated agent worktree.
+   Implementation task commits proofs with their greening change (default: one atomic commit);
+   main never commits. No proof enters history earlier. Split only if every earlier commit
+   passes the hook with all proof files present. Migrate callers/tests/docs; remove obsolete paths.
    Read `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
    preservation proofs green on parent overlay and twice at head. Cross-family verifier

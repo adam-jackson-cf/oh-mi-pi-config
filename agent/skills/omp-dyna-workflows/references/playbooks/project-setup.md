@@ -26,8 +26,11 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/paths/names.
-   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
-   implementation `task`. Read `skill://setup-repository-guardrails`; apply only approved
+   Proof `task` writes uncommitted files; main calls `freeze()` before implementation `task`.
+   Both run non-isolated, sequentially, with absolute paths in the dedicated agent worktree.
+   Implementation task commits proofs with their greening change (default: one atomic commit);
+   main never commits. No proof enters history earlier. Split only if every earlier commit
+   passes the hook with all proof files present. Read `skill://setup-repository-guardrails`; apply approved
    controls, establish `.omp/gate.json` with `schemaVersion: 2`, `checks.commit`, `checks.ci`,
    `pathCheck` and an installed pre-commit hook as the prerequisite for ordinary
    implementation. Wire `checks.commit` into the hook and `checks.ci` into CI on `ciHost`;
