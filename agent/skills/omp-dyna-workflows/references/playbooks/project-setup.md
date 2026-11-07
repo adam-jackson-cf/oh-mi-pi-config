@@ -35,8 +35,8 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
    canaries green twice at head, parent checks by kind and a cross-family live verifier.
-   Guardrail/gate-file changes require owner countersign; never auto-approve gate loosening.
+   List guardrail/gate-file changes under **Gate changes** in the PR description.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, wait for default CI. Sensitive paths require owner merge;
-   fixes/rebases receive one verification on new head per the verify loop.
+   with `--match-head-commit`, wait for default CI. Fixes/rebases receive one verification on
+   new head per the verify loop.

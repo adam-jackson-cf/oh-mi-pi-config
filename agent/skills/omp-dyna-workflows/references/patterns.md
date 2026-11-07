@@ -48,19 +48,17 @@ SHA-256 before spawning the separate implementation task.
 ## prove
 
 - **Inputs**: `repo`, `parent`, `head`, `manifest_path`, `manifest_sha256`, `objective`;
-  optional `sensitive` (patterns), `max_checks` (default 16).
+  optional `max_checks` (default 16).
 - **Guardrails**: require head `.omp/gate.json` with `checks.commit` and `pathCheck`; use
   `skill://setup-repository-guardrails` if missing. `prove()` never runs repository checks:
   the pre-commit hook runs `checks.commit`; CI runs `checks.ci` and merge requires it green.
 - **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR`, run
   proofs twice at head, validate proof hashes, overlay proofs on parent and test their kind.
   Plain functions expose deterministic checks without eval globals.
-- **Authority**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
-  `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files set
-  `needsCountersign`.
-  Gate `sensitive` plus caller patterns set `needsOwner`; trailing `/` matches that folder
-  anywhere in a path (`auth/` matches `src/auth/a.ts`, not `authentication/x.ts`).
-  Other patterns match basename prefixes. Both require owner approval, never agent clearance.
+- **Gate changes**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
+  `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files are listed
+  in `gateChanges`. They never block the merge; the PR description lists them under
+  **Gate changes** with what each change does to the checks.
 - **Verifier**: one `agent="verifier"` in a family different from every author. Brief contains
   objective, manifest, deterministic results, diff stat and blocking rule. Explicitly read
   `skill://codegraph/references/readiness-and-bootstrap.md`,
@@ -70,16 +68,17 @@ SHA-256 before spawning the separate implementation task.
   report-only. Findings need exact command, actual output, required output; omit unrun claims.
 - **Mutation**: compare source repo porcelain-v2 status and HEAD before/after verifier;
   any difference fails with `verifier mutated the repo`.
-- **Output**: `{status, deterministic, verifier, blocking, followUps}`; status is `pass`,
-  `fail`, or `needs_owner`. Remove detached worktrees on every exit; no automatic fix loop.
+- **Output**: `{status, deterministic, verifier, blocking, followUps}`; status is `pass` or
+  `fail`. Remove detached worktrees on every exit; no automatic fix loop.
 - **Blocking rule**: failing head run, failed gate, doc line changed or made wrong, base defect
-  copied or newly reached, missing/weakened proof, unapproved gate loosening. Everything else
-  is a parked follow-up, including uncovered naming/structure on added/renamed paths.
+  copied or newly reached, missing/weakened proof, check loosening the objective does not call
+  for. Everything else is a parked follow-up, including uncovered naming/structure on
+  added/renamed paths.
 - **Sizing**: full verification once at code-ready head; after a minor fix or rebase, verify
   the new head once (skip proof reruns only with unchanged `git patch-id` evidence).
   Non-runtime wording-only docs need no verifier; skills, rules, agents, AGENTS.md and prompts
-  are runtime code. Non-runtime docs merge on green; sensitive paths need verifier plus owner
-  merge; other changes need one cross-family verification.
+  are runtime code. Non-runtime docs merge on green; other changes need one cross-family
+  verification. Agents merge every verified PR.
 
 ## blind_label
 

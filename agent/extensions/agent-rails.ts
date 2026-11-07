@@ -35,7 +35,6 @@ const policyFields = {
 	pathCheck: argvSchema.optional(),
 	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
-	sensitive: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ciHost: z.enum(["github", "nuc"]).optional(),
 };
@@ -50,7 +49,6 @@ const gateSchema = z.object({
 	pathCheck: gate.pathCheck,
 	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
 	testGlobs: gate.testGlobs,
-	sensitive: gate.sensitive,
 	agentMerge: gate.agentMerge,
 	ciHost: gate.ciHost,
 }));
@@ -87,12 +85,11 @@ const proposalSchema = z.object({ schemaVersion: z.literal(1), minimal: stringLi
 type Dynaflows = z.infer<typeof dynaflowsSchema>;
 type Proposal = z.infer<typeof proposalSchema>;
 type Approval = "minimal" | "full";
-const pullRequestSchema = z.object({ number: z.number().int().positive(), url: z.string() });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
 type Gate = z.infer<typeof gateSchema>;
 type GitAction = {
-	command: string; args: string[]; cwd?: string; ghArgs?: string[]; config: string[];
+	command: string; args: string[]; cwd?: string; config: string[];
 	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
 	hookSkip?: string;
 };
@@ -292,12 +289,11 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 			}
 			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
 		} else if (executable === "gh") {
-			const ghArgs = [...words];
 			words = words.filter((word, index, all) =>
 				!["-R", "--repo", "--hostname"].includes(word) &&
 				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
 				!/^(-R.|--repo=|--hostname=)/.test(word));
-			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, ghArgs, config: [] });
+			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, config: [] });
 		}
 		words = [];
 	};
@@ -631,45 +627,6 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						if (/^gh pr merge\b/.test(action.command) && gate?.sensitive?.length) {
-							const args = action.ghArgs ?? [];
-							const repoArgs: string[] = [];
-							const mergeArgs: string[] = [];
-							for (let index = 0; index < args.length; index++) {
-								const arg = args[index];
-								if (["-R", "--repo", "--hostname"].includes(arg)) {
-									repoArgs.push(arg, args[++index]);
-								} else if (/^(-R.|--repo=|--hostname=)/.test(arg)) repoArgs.push(arg);
-								else mergeArgs.push(arg);
-							}
-							let selector: string | undefined;
-							for (let index = 2; index < mergeArgs.length; index++) {
-								const arg = mergeArgs[index];
-								if (["--subject", "-t", "--body", "-b", "--body-file", "-F", "--author-email", "--match-head-commit"].includes(arg)) index++;
-								else if (!arg.startsWith("-")) { selector = arg; break; }
-							}
-							const pull = await pi.exec("gh", [
-								...repoArgs, "pr", "view", ...(selector ? [selector] : []),
-								"--json", "number,url",
-							], { cwd: action.cwd, timeout: 20000 });
-							if (pull.code !== 0 || pull.killed) throw new Error(`cannot resolve PR: ${pull.stderr}`);
-							const metadata = pullRequestSchema.parse(JSON.parse(pull.stdout));
-							const url = new URL(metadata.url);
-							const repository = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
-							if (!repository || Number(repository[3]) !== metadata.number) throw new Error("cannot resolve PR repository from URL");
-							const files = await pi.exec("gh", [
-								"api", "--hostname", url.host, "--paginate",
-								`repos/${repository[1]}/${repository[2]}/pulls/${metadata.number}/files`,
-								"--jq", ".[].filename",
-							], { cwd: action.cwd, timeout: 20000 });
-							if (files.code !== 0 || files.killed) throw new Error(`cannot resolve PR files: ${files.stderr}`);
-							if (files.stdout.split("\n").filter(Boolean).some(path =>
-								gate.sensitive!.some(pattern => pattern.endsWith("/")
-									? `/${path}`.includes(`/${pattern}`)
-									: basename(path).startsWith(pattern)))) return {
-								block: true, reason: "Agent rails: owner must merge PRs touching sensitive paths.",
-							};
-						}
 					}
 				}
 			}

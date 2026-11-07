@@ -32,7 +32,7 @@ class WorkflowTests(unittest.TestCase):
         # The commit check would fail if run: prove() must not execute repository checks.
         (self.repo / ".omp/gate.json").write_text(json.dumps({
             "schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]},
-            "pathCheck": ["true"], "sensitive": ["auth/"]}))
+            "pathCheck": ["true"]}))
         (self.repo / "value").write_text("old")
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "base")
@@ -118,29 +118,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertTrue(any("hash mismatch" in item for item in result["blocking"]))
 
-    def test_gate_change_requires_countersign(self):
+    def test_gate_change_passes_and_is_reported(self):
         result = self.prove(self.change(gate_change=True))
-        self.assertEqual(result["status"], "needs_owner")
-        self.assertEqual(result["deterministic"]["needsCountersign"], [".omp/gate.json"])
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["deterministic"]["gateChanges"], [".omp/gate.json"])
 
-    def test_hook_change_requires_countersign(self):
+    def test_hook_change_passes_and_is_reported(self):
         result = self.prove(self.change(files={".githooks/pre-commit": "#!/bin/sh\nexit 0\n"}))
-        self.assertEqual(result["status"], "needs_owner")
-        self.assertEqual(result["deterministic"]["needsCountersign"], [".githooks/pre-commit"])
-
-    def assert_sensitive_change(self, name):
-        result = self.prove(self.change(files={name: "# protected\n"}))
-        self.assertEqual(result["status"], "needs_owner")
-        self.assertEqual(result["deterministic"]["needsOwner"], [name])
-
-    def test_sensitive_file_requires_owner(self):
-        self.assert_sensitive_change("auth/login.py")
-
-    def test_sensitive_descendant_requires_owner(self):
-        self.assert_sensitive_change("auth/deep/token.py")
-
-    def test_sensitive_nested_folder_requires_owner(self):
-        self.assert_sensitive_change("src/auth/login.py")
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["deterministic"]["gateChanges"], [".githooks/pre-commit"])
 
     def test_verifier_mutation_detected(self):
         args = self.change()
@@ -160,12 +146,6 @@ class WorkflowTests(unittest.TestCase):
         result = self.prove(args)
         self.assertEqual(result["status"], "fail")
         self.assertIn("missing or duplicate proof id", result["blocking"])
-
-    def test_sensitive_pattern_contract(self):
-        self.assertEqual(workflow.sensitive_paths(
-            ["auth/token", "src/auth/token", "authentication/x.ts", "src/authentication/x.ts",
-             "else/auth", "x/secret.env", "x/public"], ["auth/", "secret"]),
-            ["auth/token", "src/auth/token", "x/secret.env"])
 
     def test_verifier_exception_is_closed(self):
         self.verifier.side_effect = LookupError("verifier unavailable")
@@ -223,8 +203,8 @@ class WorkflowTests(unittest.TestCase):
 class GatePolicyTests(unittest.TestCase):
     def test_v2_reads_checks_object(self):
         policy = workflow.gate_policy({"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]},
-                                       "pathCheck": ["p"], "sensitive": ["auth/"]})
-        self.assertEqual(policy, {"commit": ["c"], "ci": ["i"], "pathCheck": ["p"], "sensitive": ["auth/"]})
+                                       "pathCheck": ["p"]})
+        self.assertEqual(policy, {"commit": ["c"], "ci": ["i"], "pathCheck": ["p"]})
 
     def test_unknown_schema_and_malformed_fields_are_invalid(self):
         valid = {"schemaVersion": 2, "checks": {"commit": ["c"], "ci": ["i"]}, "pathCheck": ["p"]}
@@ -232,7 +212,7 @@ class GatePolicyTests(unittest.TestCase):
         for invalid in ({"schemaVersion": 3}, {"schemaVersion": 2, "checks": []},
                         {**valid, "checks": {"commit": 42}}, {**valid, "checks": {"ci": "bun ci"}},
                         {**valid, "checks": {"commit": [""]}}, {**valid, "pathCheck": 42},
-                        {**valid, "pathCheck": []}, {**valid, "sensitive": "auth/"},
+                        {**valid, "pathCheck": []},
                         {**valid, "ciHost": "invalid"}, {**valid, "agentMerge": "yes"},
                         {"schemaVersion": 1, "gate": ["g"], "commitGate": ["c"], "pathCheck": ["p"]}):
             self.assertIsNone(workflow.gate_policy(invalid), invalid)

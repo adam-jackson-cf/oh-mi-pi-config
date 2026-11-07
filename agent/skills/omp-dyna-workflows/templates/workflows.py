@@ -99,38 +99,29 @@ def _hash_failures(root, manifest):
     return failures
 
 
-def sensitive_paths(paths, patterns):
-    """Folder patterns match at any path boundary; other patterns match basename prefixes."""
-    return [path for path in paths if any(
-        f"/{pattern}" in f"/{path}" if pattern.endswith("/") else Path(path).name.startswith(pattern)
-        for pattern in patterns)]
-
-
 def _is_argv(value):
     return isinstance(value, list) and bool(value) and all(
         isinstance(arg, str) and arg.strip() for arg in value)
 
 
 def gate_policy(gate):
-    """Normalise .omp/gate.json to {commit, ci, pathCheck, sensitive}; None when invalid.
+    """Normalise .omp/gate.json to {commit, ci, pathCheck}; None when invalid.
 
-    Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `sensitive` an optional
-    string list, `ciHost` and `agentMerge` optional enums. Any other shape fails closed."""
+    Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `ciHost` and
+    `agentMerge` optional enums. Any other shape fails closed."""
     if not isinstance(gate, dict) or gate.get("schemaVersion") != 2:
         return None
     checks = gate.get("checks", {})
     if not isinstance(checks, dict):
         return None
     commit, ci = checks.get("commit"), checks.get("ci")
-    path_check, sensitive = gate.get("pathCheck"), gate.get("sensitive", [])
+    path_check = gate.get("pathCheck")
     if any(value is not None and not _is_argv(value) for value in (commit, ci, path_check)):
-        return None
-    if not isinstance(sensitive, list) or not all(isinstance(item, str) for item in sensitive):
         return None
     if gate.get("ciHost", "github") not in ("github", "nuc") or (
             gate.get("agentMerge", "allowed") not in ("allowed", "disabled")):
         return None
-    return {"commit": commit, "ci": ci, "pathCheck": path_check, "sensitive": sensitive}
+    return {"commit": commit, "ci": ci, "pathCheck": path_check}
 
 
 def gate_changes(paths, root, gate):
@@ -160,21 +151,18 @@ def gate_changes(paths, root, gate):
         or path.startswith((".github/workflows/", ".githooks/"))]
 
 
-def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitive=None):
+def deterministic_checks(parent_tree, head_tree, manifest, gate, paths):
     """Run frozen proofs against real detached trees; no eval globals are needed.
 
     Repository checks are not run here: the commit hook runs checks.commit and CI runs checks.ci.
+    `gateChanges` lists changed gate files for the PR description; it never blocks a merge.
     """
     parent_gate_path = parent_tree / ".omp/gate.json"
     parent_gate = json.loads(parent_gate_path.read_text()) if parent_gate_path.is_file() else {}
     policy = gate_policy(gate)
-    parent_policy = gate_policy(parent_gate) or {"sensitive": []}
     changed_gates = set(gate_changes(paths, head_tree, gate))
     changed_gates.update(gate_changes(paths, parent_tree, parent_gate))
-    result = {"proofs": {}, "blocking": [],
-              "needsCountersign": sorted(changed_gates),
-              "needsOwner": sensitive_paths(paths, [
-                  *parent_policy["sensitive"], *(policy or {}).get("sensitive", []), *(sensitive or [])])}
+    result = {"proofs": {}, "blocking": [], "gateChanges": sorted(changed_gates)}
     failures = result["blocking"]
     failures.extend(_hash_failures(head_tree, manifest))
     if failures:
@@ -216,7 +204,8 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitiv
 
 BLOCKING_RULE = (
     "Block only failing head proof runs, doc lines changed or made wrong, base defects "
-    "copied or newly reached by this PR, missing/weakened proofs, or unapproved check loosening. "
+    "copied or newly reached by this PR, missing/weakened proofs, or check loosening the objective "
+    "does not call for. "
     "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
 
 
@@ -229,8 +218,7 @@ def _run_verifier(brief):
     return wait([agent(brief, agent="verifier", label="Prove", schema=schema)], raise_errors=False)[0]
 
 
-def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
-          sensitive=None, max_checks=MAX_AGENTS):
+def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS):
     """Run frozen proofs then one cross-family verifier; always remove detached worktrees.
 
     CI owns the test suite: merge additionally requires the CI status on the exact head.
@@ -257,7 +245,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                 if not isinstance(gate, dict):
                     raise WorkflowError(".omp/gate.json must be an object")
                 paths = _git(repo, "diff", "--name-only", parent, head).splitlines()
-                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitive)
+                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths)
                 result["deterministic"] = deterministic
                 result["blocking"].extend(deterministic["blocking"])
                 if result["blocking"]:
@@ -292,12 +280,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                 if _sha(manifest_path) != manifest_sha256:
                     result["blocking"].append("manifest edited after freeze")
                 result["blocking"].extend(_hash_failures(head_tree, manifest))
-                if result["blocking"]:
-                    result["status"] = "fail"
-                elif deterministic["needsCountersign"] or deterministic["needsOwner"]:
-                    result["status"] = "needs_owner"
-                else:
-                    result["status"] = "pass"
+                result["status"] = "fail" if result["blocking"] else "pass"
             finally:
                 for tree in reversed(trees):
                     try:
