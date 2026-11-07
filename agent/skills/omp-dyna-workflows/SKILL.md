@@ -16,19 +16,21 @@ disable-model-invocation: true
   `~/.omp/dynaflows.json` > off. Dynaflows off: ignore this skill.
 - **Purpose**: Route every non-trivial engineering request to one executable playbook.
 - **When**: Features, bug fixes, refactors, investigations, project setup, or multi-phase work.
-- Match the request to exactly one playbook below. Execute stages 1–6 in order:
+- Match exactly one playbook. Execute stages 1–6 in order; investigation stops after stage 2:
   1. **Frame**: outcome, acceptance criteria, and only questions whose answers change the plan.
      Use `kiss` to cut criteria and questions, not to review risk.
   2. **Spike**: only for remaining questions; declare predicates and side effects first.
      Answer on the real surface in a detached scratch worktree; discard all spike code.
-  3. **Plan**: map every criterion to a named proof in a frozen JSON manifest. Missing proof
-     surfaces are the first tasks. Keep the plan draft until the spike finishes; native plan
-     mode is not the default. Request plan review only when the owner asks to approve it.
-  4. **Implement**: branch `agent/<slug>` from default, never from the spike. Spawn `task`
-     for proofs first; commit proof files through the hook, then main calls `freeze()`.
-     Separately spawn `task` for implementation. Every landed commit stays green; parent
-     overlays prove red. Commits
-     run `checks.commit` through the pre-commit hook; never bypass it.
+  3. **Plan**: map every criterion to a named proof in a draft JSON manifest, frozen in step 4.
+     Missing proof surfaces are the first tasks. Keep the plan draft until the spike finishes;
+     native plan mode is not the default. Request plan review only when the owner asks to approve it.
+  4. **Implement**: branch `agent/<slug>` from default, never from the spike. Proof `task`
+     writes uncommitted files; main calls `freeze()` before the separate implementation `task`.
+     Both tasks run non-isolated, sequentially, with absolute paths in that dedicated worktree.
+     Main never commits. Implementation `task` commits proofs with the change that greens them
+     (default: one atomic commit). No proof enters history before its greening change.
+     Split only if every earlier commit passes the hook with all proof files present.
+     Every commit runs `checks.commit` through the pre-commit hook; never bypass it.
   5. **Verify**: run deterministic `prove()`, then its cross-family `verifier` drives every
      criterion live, checks affected doc lines, and reports diff scope/coverage.
   6. **Integrate**: CI (`checks.ci`) green on head, rebase-merge with `--match-head-commit`,
@@ -44,6 +46,8 @@ disable-model-invocation: true
   question contains "guardrail", options "Minimal" and "Full". agent-rails blocks
   `.omp/gate.json` and proposal paths until answered; timeout auto-selection is not approval;
   the unchosen option's paths stay blocked.
+  Project setup is the approved route to satisfy this prerequisite; install the approved hook
+  before the first commit.
 - Delegate every code change, including small fixes, to `task`. Each brief lists the exact
   reference URLs needed by its steps and requires reading them before the first edit.
 - Briefs must give absolute worktree paths; agent-rails rejects relative or symlink-escaping
@@ -112,7 +116,8 @@ disable-model-invocation: true
      `judge()` or `judge_batch()` behind a cheap prefilter and calibrate on labelled samples.
   3. Intent, appropriateness, relevance, context-dependent questions and open-ended critique
      go to the bundled `reviewer` in an independent cross-family session, not to Jev.
-- **Caps that raise.** `MAX_AGENTS` is 16 per wave; templates raise `WorkflowError`, never drop work.
+- **Caps that raise.** `MAX_AGENTS` is 16 per wave and the default proof cap is 16;
+  templates raise `WorkflowError`, never drop work.
 
 ## Templates
 
@@ -120,9 +125,12 @@ Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
 `agent()` and `wait()` are eval globals; deterministic functions also run in plain Python.
 
-- `freeze(worktree, manifest_path, proofs, slug)`: require tracked proof files unchanged at
-  HEAD, run each argv command once, then write/validate hashes. Proof dicts omit `sha256`.
-  Returns `(Path, manifest_sha256)`; commit corrected proofs before calling again.
+- `freeze(worktree, manifest_path, proofs, slug, *, base="HEAD", setup=None, previous=None, revise=None)`:
+  hashes working-tree files (uncommitted allowed), pins base/parents as 40-hex, and evaluates each
+  proof alone at its baseline: defect red containing `expectRed` plus a truncated-file negative
+  control; preserve green; new-surface not green. Optional setup argv runs per fresh tree.
+  Proof dicts omit `sha256`; returns `(Path, manifest_sha256)`. Additive re-freeze uses
+  `previous=(path, digest)`; changed/removed proofs require `revise={id: reason}`.
 - `prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS)`:
   frozen proofs in detached parent/head worktrees, green twice at head, parent overlay
   red-for-reason or preservation, gate-change scan, then one read-only cross-family verifier.

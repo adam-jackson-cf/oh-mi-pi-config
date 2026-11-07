@@ -15,14 +15,18 @@
 
 ## Proof manifest
 
-Map every acceptance criterion to a named proof. Build missing drivers, fixtures or formal
-models first, then commit proof files through the pre-commit hook. Main calls
-`freeze(worktree, manifest_path, proofs, slug)` before spawning the separate implementation
-task. `proofs` are the dicts below without `sha256`; the helper requires each file tracked
-and unmodified at HEAD, runs each command once from `worktree`, computes hashes, writes and
-validates the manifest, and returns `(Path, manifest_sha256)`. Failures name the proof id.
-Use a manifest outside the proof files (recommended `$TMPDIR/omp-proofs/<slug>.json`);
-post its content on the PR. Correct and commit a rejected proof before calling `freeze()` again.
+Map every criterion to a named proof. Proof `task` writes files uncommitted in the dedicated
+`agent/<slug>` worktree; main calls
+`freeze(worktree, manifest_path, proofs, slug, *, base="HEAD", setup=None, previous=None, revise=None)`.
+Then the separate implementation `task` commits proofs with the change that greens them,
+through the hook (default: one atomic commit). A proof never enters history earlier.
+Tasks run non-isolated, sequentially, with absolute paths; main never commits.
+Split only if every earlier commit passes the hook with all proof files present.
+`proofs` omit `sha256`. Freeze hashes working-tree bytes, pins base and parents as 40-hex,
+and runs each proof alone in a detached baseline tree. Only paths listed in `files` may be dirty;
+command file tokens must be listed too. Symlinks, ignored files and clean-filter/EOL changes fail.
+The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
+(recommended `$TMPDIR/omp-proofs/<slug>.json`) and post its content on the PR.
 
 ```json
 {
@@ -36,22 +40,30 @@ post its content on the PR. Correct and commit a rejected proof before calling `
       "cmd": ["pnpm", "vitest", "run", "src/auth/redirect.test.ts"],
       "files": ["src/auth/redirect.test.ts"],
       "expectRed": "expected '/home' to be '/login'",
-      "parent": "<optional pre-fix commit-ish override>",
+      "parent": "<40-hex baseline pinned by freeze()>",
       "sha256": {"src/auth/redirect.test.ts": "<sha256 written by freeze()>"}
     }
   ]
 }
 ```
 
-- `defect`: overlay proof files onto parent; require failure containing `expectRed`.
-- `preserve`: require parent success with the proof overlay.
-- `new-surface`: parent red by definition (API absent); no parent run.
-- All kinds require two passing head runs. `expectRed` is required for defects, null otherwise.
-- Optional `parent` overrides `prove()`'s parent only for that proof's overlay. Use it for
-  review-added defects needing a pre-fix commit newer than the original baseline. Commit-ish
-  aliases resolve to commits; distinct parents share one detached worktree each.
-- Missing files, edited hashes, unknown/missing or duplicate ids, invalid schema and a changed
-  manifest block. Never weaken a proof to make it pass; correct, commit and call `freeze()` again.
+- `defect`: isolated baseline overlay must fail containing `expectRed`; freeze also truncates
+  its files and requires that text absent (negative control). Use asserted actual-vs-expected
+  text, never a test name or generic failure token. It must be absent in both green head outputs.
+- `preserve`: isolated baseline overlay must pass.
+- `new-surface`: isolated baseline overlay must not pass; this is not evidence of API absence.
+- Every kind passes twice at head. Defeat result caches in `cmd` (e.g. `go test -count=1`).
+  Shared fixtures must be listed in each proof's `files`; overlays never combine proof files.
+- Optional `setup` argv runs once per fresh tree, before proofs; setup failures are not evidence.
+- Optional per-proof `parent` selects a baseline for review-added proofs. Freeze resolves aliases
+  and pins them; parents must be ancestors of head at or after base (strict ancestors in prove).
+- Re-freeze with `previous=(path, digest)`: unchanged proofs are retained without rerunning;
+  only new/revised proofs run at their pinned parents. Changes/removals require
+  `revise={id: reason}` and record `{id, oldSha256, reason}` in `revisions` (oldSha256 hashes
+  the previous proof record, including frozen file hashes). Never silently weaken proofs.
+- Passing defect/new-surface baseline returns to Plan: criterion already met (report, no PR),
+  or reuse existing tracked tests as preserve. Never weaken a proof into red.
+- Missing/edited files, duplicate ids, invalid schema or a changed manifest block.
 
 ## prove
 
@@ -61,13 +73,15 @@ post its content on the PR. Correct and commit a rejected proof before calling `
   `skill://setup-repository-guardrails` if missing. `prove()` never runs repository checks:
   the pre-commit hook runs `checks.commit`; CI runs `checks.ci` and merge requires it green.
 - **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR` plus
-  one per distinct overridden parent, run proofs twice at head, validate proof hashes, overlay
-  proofs on their selected parent and test their kind. Always remove every detached tree.
+  one per distinct overridden parent, run setup per tree and proofs twice at head, reject tracked
+  mutations, then overlay each proof alone at its selected parent and test its kind. Check earlier
+  commits touching proof files for green execution with their own bytes, rejecting partial proofs
+  and tracked mutations; frozen byte equality is required at head only. Remove every detached tree.
   Plain functions expose deterministic checks without eval globals.
 - **Gate changes**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
   `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files are listed
-  in `gateChanges`. They never block the merge; the PR description lists them under
-  **Gate changes** with what each change does to the checks.
+  in `gateChanges`. A changed gate path is not itself a blocker; failed gates and unauthorized
+  weakening are. The PR description lists each under **Gate changes** with its effect on checks.
 - **Verifier**: one `agent="verifier"` in a family different from every author. Brief contains
   objective, manifest, deterministic results, diff stat and blocking rule. Explicitly read
   `skill://codegraph/references/readiness-and-bootstrap.md`,
@@ -75,6 +89,9 @@ post its content on the PR. Correct and commit a rejected proof before calling `
   Work only in supplied trees and TMPDIR scratch; no repository edits or agent spawns.
   Drive each criterion live, check doc lines changed or made wrong, audit diff scope/coverage
   report-only. Findings need exact command, actual output, required output; omit unrun claims.
+  Required `criteria: [{proofId, command, observed, verdict}]` covers every manifest proof id.
+  Audit harness/config tampering too. Brief outputs are capped at 4 KB each; full evidence is
+  available at the supplied scratch `deterministic.json` path.
 - **Mutation**: compare source repo porcelain-v2 status and HEAD before/after verifier;
   any difference fails with `verifier mutated the repo`.
 - **Output**: `{status, deterministic, verifier, blocking, followUps}`; status is `pass` or
@@ -83,13 +100,13 @@ post its content on the PR. Correct and commit a rejected proof before calling `
   `<git-common-dir>/omp-prove/<head-sha-40>.json` with
   `{"schemaVersion":1,"head":"<40-hex>","kind":"prove","status":"pass"}`.
   The common directory is resolved for the source repo, so linked worktrees share markers.
+  Starting prove revokes any old marker for that head, even if this rerun fails.
   With dynaflows on, merge requires this marker and `--match-head-commit <same-sha>`.
 - **Blocking rule**: failing head run, failed gate, doc line changed or made wrong, base defect
   copied or newly reached, missing/weakened proof, check loosening the objective does not call
-  for. Everything else is a parked follow-up, including uncovered naming/structure on
-  added/renamed paths.
-- **Sizing**: full verification once at code-ready head; after a minor fix or rebase, verify
-  the new head once (skip proof reruns only with unchanged `git patch-id` evidence).
+  for; a changed gate path is not itself a blocker; failed gates and unauthorized weakening are.
+  Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.
+- **Sizing**: full verification once at code-ready head; every changed head runs a full `prove()`.
   Non-runtime wording-only docs need no verifier; skills, rules, agents, AGENTS.md and prompts
   are runtime code. Non-runtime docs merge on green; other changes need one cross-family
   verification. Agents merge every verified PR.
@@ -111,8 +128,8 @@ This exempts cross-family `prove()`, not required CI.
   default labellers `("scout", "task")` (Haiku vs Sol).
 - **Gate**: distinct agents, separate blind read-only sessions; two jobs per batch, at most
   `MAX_AGENTS` per wave. Read only the batch and rubric, quote deciding evidence.
-- **Output**: `agreed` and `disputed`; failed/off-schema agent results never count as votes.
-  Orchestrator settles disputes; human confirms before writing labels.
+- **Output**: `agreed` and `disputed`, keyed by `(batch index, id)`; missing/duplicate cases are
+  disputed and failed/off-schema results never count as votes. Human confirms settled labels.
 
 ## Failure handling
 
@@ -121,7 +138,8 @@ This exempts cross-family `prove()`, not required CI.
   from proofs or the verifier, and still cleans up its detached worktrees. Missing
   `checks.commit` or `pathCheck` routes to `skill://setup-repository-guardrails`.
 - `WorkflowError` means a broken contract or cap; fix the call, never catch and continue.
-- The quality gate runs the stdlib Python tests after Bun with Git hook variables unset.
-  To run them alone: `python3 -m unittest discover -s tests -p 'test_*.py'`.
+- In the source `~/.omp` repository (not the skill directory), the quality gate runs stdlib Python
+  tests after Bun with Git hook variables unset:
+  `python3 -m unittest discover -s tests -p 'test_*.py'`.
 - Add templates only for dependency-coupled owner contracts that native keywords cannot express;
   reuse `run_check`, define a cap and stop rule, and document them here and in SKILL.md.

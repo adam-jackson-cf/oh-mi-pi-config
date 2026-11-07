@@ -23,6 +23,8 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    `preserve` for refactors, `new-surface` for absent APIs. Keep plan draft until spike ends.
    Read `skill://coding-guidance/references/clean-cutovers.md` for replacing units and
    `skill://coding-guidance/references/regression-coverage.md` for defect-class coverage.
+   Passing-at-baseline freeze returns to Plan: criterion already met (report, no PR) or reuse
+   existing tracked tests as preserve; never weaken a proof into red.
 4. **Implement**: require `.omp/gate.json` `checks.commit` and `pathCheck`; otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; one writer per short-lived
@@ -30,9 +32,12 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    explicit interfaces. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new or moved paths/names.
-   Per unit, spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately
-   spawn implementation `task`. Land green increments behind the flag; migrate callers and
-   delete obsolete paths in the canonical cutover unit. Read
+   Per unit, proof `task` writes uncommitted files; main calls `freeze()` before implementation
+   `task`. Both run non-isolated, sequentially, with absolute paths in the dedicated worktree.
+   Implementation task commits proofs with their greening change (default: one atomic commit);
+   main never commits. No proof enters history earlier. Split only if every earlier commit
+   passes the hook with all proof files present. Land green flagged increments; migrate callers
+   and delete obsolete paths in the canonical cutover unit. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` per
    code-ready unit, proofs green twice at head and parent evidence by kind. Cross-family

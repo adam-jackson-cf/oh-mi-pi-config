@@ -103,6 +103,10 @@ tests/*
 !.devcontainer/devcontainer.json
 !.devcontainer/Containerfile
 
+# Orca chat styling: injected CSS, palettes, harness and the matching theme plugin.
+!orca-plugins/
+!orca-plugins/**
+
 # Generated state inside owned source trees remains runtime-only.
 **/.DS_Store
 **/__pycache__/
