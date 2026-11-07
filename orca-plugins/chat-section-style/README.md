@@ -17,7 +17,8 @@ runbook.
   an Orca update?: Only while Orca keeps the inspector fuse on and its `data-native-chat-*`
   attributes
 
-`~/.omp/orca-plugins/` is gitignored in `~/.omp`, so a new Mac needs the folder copied across.
+`~/.omp/orca-plugins/` is tracked in the oh-mi-pi-config repo (`~/.omp`), so a new Mac gets it
+from a clone.
 
 ## Layout modes
 
