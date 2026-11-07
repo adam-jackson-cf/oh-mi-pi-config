@@ -1,4 +1,5 @@
-import { access, appendFile, lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -99,7 +100,6 @@ interface State {
 	// Repository roots where this session edited a file matching `codeGlobs`.
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
-	authorFamilies: Map<string, string>;
 	codegraphAvailable?: boolean;
 	discovered: boolean;
 	pointed: boolean;
@@ -130,17 +130,22 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		authorFamilies: new Map(), discovered: false, pointed: false, proposal: [],
+		discovered: false, pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
 	if (/^[a-z][\w+.-]*:\/\//i.test(path)) return;
 	return resolve(cwd, path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path);
 }
+function absentFile(error: NodeJS.ErrnoException): null {
+	const parsed = fileErrorSchema.safeParse(error);
+	if (parsed.success && parsed.data.code === "ENOENT") return null;
+	throw error;
+}
 async function repoRoot(path: string): Promise<string | undefined> {
-	let dir = (await stat(path).catch(() => null))?.isDirectory() ? path : dirname(path);
+	let dir = (await stat(path).catch(absentFile))?.isDirectory() ? path : dirname(path);
 	for (;;) {
-		if (await access(resolve(dir, ".git")).then(() => true, () => false)) return dir;
+		if (await access(resolve(dir, ".git")).then(() => true).catch(absentFile)) return dir;
 		const parent = dirname(dir);
 		if (dir === parent) return;
 		dir = parent;
@@ -173,7 +178,6 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 		try {
 			const lexical = resolve(path);
 			let root = await repoRoot(lexical);
-			if (!root) continue;
 			let parent = lexical;
 			let resolved: string;
 			for (;;) {
@@ -195,8 +199,8 @@ async function subagentPathReason(targets: string[]): Promise<string | undefined
 				const parent = dirname(root);
 				root = parent === root ? undefined : await repoRoot(parent);
 			}
-		} catch {
-			// Supplemental filesystem checks fail open; reference gates still apply.
+		} catch (error) {
+			return `Agent rails: cannot evaluate subagent write path "${path}": ${String(error)}`;
 		}
 	}
 }
@@ -224,7 +228,8 @@ const wrapperOptions = {
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
 // `scan` is shared with nested `sh -c` and `env -S` scripts so a variable touched anywhere marks
 // every git action of the whole command.
-async function gitActions(command: string, cwd: string | undefined, scan: { hookSkip?: string } = {}): Promise<GitAction[]> {
+async function gitActions(command: string, cwd: string | undefined, scan: { hookSkip?: string } = {}, depth = 0): Promise<GitAction[]> {
+	if (depth > 16 || command.length > 131072) throw new Error("shell scan exceeds supported bounds");
 	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const actions: GitAction[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
@@ -251,7 +256,7 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				if (launcher === "command" && ["-v", "-V"].includes(option)) { words = []; return; }
 				const value = valued.includes(option) ? words.shift() : option.includes("=") ? option.slice(option.indexOf("=") + 1) : undefined;
 				if (launcher === "env" && ["-S", "--split-string"].includes(option.split("=")[0])) {
-					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, scan));
+					if (value) actions.push(...await gitActions([value, ...words.map(word => JSON.stringify(word))].join(" "), cwd, scan, depth + 1));
 					words = []; return;
 				}
 				if ((launcher === "env" && ["-C", "--chdir"].includes(option.split("=")[0])) ||
@@ -263,11 +268,12 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 		}
 		const executable = basename(words.shift() ?? "");
 		if (["export", "unset", "declare", "typeset", "readonly", "local"].includes(executable)) words.forEach(touch);
+		else if (executable === "eval") actions.push(...await gitActions(words.join(" "), cwd, scan, depth + 1));
 		else if (["bash", "sh", "zsh"].includes(executable)) {
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
 				if (/^-[^-]*c/.test(option)) {
-					if (words[0]) actions.push(...await gitActions(words[0], cwd, scan));
+					if (words[0]) actions.push(...await gitActions(words[0], cwd, scan, depth + 1));
 					break;
 				}
 				if (["-o", "+o", "-O"].includes(option)) words.shift();
@@ -290,10 +296,9 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 			}
 			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
 		} else if (executable === "gh") {
-			words = words.filter((word, index, all) =>
-				!["-R", "--repo", "--hostname"].includes(word) &&
-				!["-R", "--repo", "--hostname"].includes(all[index - 1]) &&
-				!/^(-R.|--repo=|--hostname=)/.test(word));
+			if (words.some(word => ["-R", "--repo", "--hostname"].includes(word) || /^(-R.|--repo=|--hostname=)/.test(word))) {
+				throw new Error("gh remote repository overrides are unsupported; use the validated local target repository");
+			}
 			actions.push({ command: `gh ${words.join(" ")}`, args: [...words], cwd, config: [] });
 		}
 		words = [];
@@ -309,6 +314,7 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
 	await flush();
+	if (scan.hookSkip && !actions.length) actions.push({ command: "hook environment", args: [], cwd, config: [], hookSkip: scan.hookSkip });
 	if (scan.hookSkip) for (const action of actions) action.hookSkip ??= scan.hookSkip;
 	return actions;
 }
@@ -332,6 +338,16 @@ const commitValueLongs = {
 // Returns the first argument, Git config or hook-skip variable that would skip the pre-commit hook.
 function commitBypass(action: GitAction): string | undefined {
 	const args = action.args.slice(1);
+	const operation = action.args[0];
+	const valueShorts = operation === "commit" ? Object.keys(commitValueShorts)
+		: operation === "merge" ? ["m", "F", "s", "X"]
+		: operation === "rebase" ? ["x", "X", "C", "s"]
+		: ["cherry-pick", "revert"].includes(operation) ? ["m", "X"] : [];
+	const valueLongs = operation === "commit" ? Object.keys(commitValueLongs)
+		: operation === "merge" ? ["--message", "--file", "--strategy", "--strategy-option", "--into-name"]
+		: operation === "rebase" ? ["--exec", "--onto", "--strategy", "--strategy-option", "--whitespace"]
+		: ["cherry-pick", "revert"].includes(operation) ? ["--mainline", "--strategy", "--strategy-option"]
+		: operation === "am" ? ["--patch-format", "--directory", "--exclude", "--include", "--whitespace"] : [];
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === "--") break;
@@ -339,16 +355,15 @@ function commitBypass(action: GitAction): string | undefined {
 			const name = arg.split("=")[0];
 			// Git accepts unambiguous long-option prefixes, so `--no-ver` means --no-verify and `--mes` --message.
 			if (name.length > "--no-".length && "--no-verify".startsWith(name)) return arg;
-			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
+			if (!arg.includes("=") && name.length > 2 && valueLongs.some(long => long.startsWith(name))) index++;
 			continue;
 		}
 		if (!arg.startsWith("-") || arg === "-") continue;
 		for (let at = 1; at < arg.length; at++) {
 			const flag = arg[at];
-			if (flag === "n") return arg;
-			// -u and -S take an optional value attached to the same word.
+			if (flag === "n" && action.args[0] === "commit") return arg;
 			if (flag === "u" || flag === "S") break;
-			if (Object.hasOwn(commitValueShorts, flag)) {
+			if (valueShorts.includes(flag)) {
 				if (at === arg.length - 1) index++;
 				break;
 			}
@@ -359,9 +374,19 @@ function commitBypass(action: GitAction): string | undefined {
 	return action.hookSkip;
 }
 
-// Only authorship crosses factory boundaries. Registry ids connect nested child sessions to their
-// parent; all reference reads, checks and approvals remain private to each session.
-const authorLineages = new Map<string, Map<string, string>>();
+type Author = { family: string; model: string; agent: string };
+type AuthorScope = { worktree: string; common: string; branch: string; ledger: string };
+const authorText = z.string().refine(value => value.trim().length > 0);
+const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
+const ledgerSchema = z.object({
+	schemaVersion: z.literal(1), worktree: z.string(), branch: z.string(), authors: z.array(authorSchema).min(1),
+});
+function compareAuthors(a: Author, b: Author): number {
+	for (const key of ["family", "model", "agent"] as const) {
+		if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
+	}
+	return 0;
+}
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
 // .omp/dynaflows.json overrides it; absent both, dynaflows is off.
@@ -385,19 +410,50 @@ export default function agentRails(
 		let state = states.get(id);
 		if (!state) {
 			state = fresh();
-			const parent = ctx.agent.parentId && authorLineages.get(ctx.agent.parentId);
-			if (parent) state.authorFamilies = parent;
 			states.set(id, state);
 		}
-		if (ctx.agent.id) authorLineages.set(ctx.agent.id, state.authorFamilies);
 		return state;
 	};
-	const recordAuthor = (ctx: ExtensionContext, state: State) => {
-		if (ctx.agent.parentId && !authorLineages.has(ctx.agent.parentId)) throw new Error("cannot resolve author lineage; start the child from an active parent session");
+	async function gitValue(cwd: string, args: string[]): Promise<string> {
+		const result = await pi.exec("git", args, { cwd, timeout: 20000 });
+		if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
+		return result.stdout.trim();
+	}
+	async function scopeAt(cwd: string) {
+		const worktree = await realpath(await gitValue(cwd, ["rev-parse", "--show-toplevel"]));
+		const common = await realpath(resolve(worktree, await gitValue(worktree, ["rev-parse", "--git-common-dir"])));
+		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: 20000 });
+		const branch = branchResult.code === 0 ? branchResult.stdout.trim() : `detached:${await gitValue(worktree, ["rev-parse", "HEAD"])}`;
+		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
+		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
+	}
+	async function authorsAt(scope: AuthorScope, required: boolean): Promise<Author[]> {
+		try {
+			const ledger = ledgerSchema.parse(JSON.parse(await readFile(scope.ledger, "utf8")));
+			if (ledger.worktree !== scope.worktree || ledger.branch !== scope.branch) throw new Error("author ledger scope mismatch");
+			if (ledger.authors.some((author, index) => index > 0 && compareAuthors(ledger.authors[index - 1], author) >= 0)) {
+				throw new Error("author ledger must be sorted and deduplicated");
+			}
+			return ledger.authors;
+		} catch (error) {
+			const parsed = fileErrorSchema.safeParse(error);
+			if (!required && parsed.success && parsed.data.code === "ENOENT") return [];
+			throw new Error(`authorship unknown for ${scope.worktree} ${scope.branch}: ${String(error)}`);
+		}
+	}
+	async function recordAuthor(ctx: ExtensionContext, root: string) {
 		const model = ctx.models.current();
 		if (!model) throw new Error("cannot resolve the editing agent's model family");
-		state.authorFamilies.set(ctx.models.family(model), `${ctx.agent.name ?? ctx.agent.kind} ${ctx.agent.id ?? ctx.sessionManager.getSessionId()}`);
-	};
+		const scope = await scopeAt(root);
+		const authors = await authorsAt(scope, false);
+		authors.push({ family: ctx.models.family(model), model: `${model.provider}/${model.id}`, agent: ctx.agent.id ?? ctx.sessionManager.getSessionId() });
+		const sorted = [...new Map(authors.map(author => [JSON.stringify(author), author])).values()]
+			.sort(compareAuthors);
+		await mkdir(dirname(scope.ledger), { recursive: true });
+		const temp = `${scope.ledger}.${randomUUID()}.tmp`;
+		await writeFile(temp, `${JSON.stringify({ schemaVersion: 1, worktree: scope.worktree, branch: scope.branch, authors: sorted })}\n`);
+		await rename(temp, scope.ledger);
+	}
 	const note = (state: State, ctx: ExtensionContext, message: string) => {
 		if (state.notes.has(message)) return;
 		state.notes.add(message);
@@ -431,20 +487,29 @@ export default function agentRails(
 			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Agent rails: ${path} is unreadable; ignored.`);
 		}
 	}
-	const projectRoot = async (ctx: ExtensionContext) => await repoRoot(ctx.cwd) ?? ctx.cwd;
-	async function dynaflowsOn(ctx: ExtensionContext): Promise<boolean> {
+	async function projectRoot(cwd: string) {
+		const root = await repoRoot(cwd);
+		if (!root) return;
+		const entries = await gitValue(root, ["worktree", "list", "--porcelain"]);
+		const primary = entries.split("\n").find(line => line.startsWith("worktree "))?.slice(9);
+		if (!primary) throw new Error("cannot resolve primary checkout");
+		return primary;
+	}
+	async function dynaflowsOn(ctx: ExtensionContext, cwd = ctx.cwd): Promise<boolean> {
 		const state = stateFor(ctx);
-		const project = await readJson(resolve(await projectRoot(ctx), ".omp/dynaflows.json"), dynaflowsSchema, state, ctx);
+		const root = await projectRoot(cwd);
+		const project = root ? await readJson(resolve(root, ".omp/dynaflows.json"), dynaflowsSchema, state, ctx) : undefined;
 		return (project ?? await readJson(machineDynaflowsPath, dynaflowsSchema, state, ctx))?.enabled ?? false;
 	}
 	async function setDynaflows(ctx: ExtensionContext, enabled: boolean): Promise<string> {
-		const root = await projectRoot(ctx);
+		const root = await projectRoot(ctx.cwd);
+		if (!root) throw new Error("repo toggle needs a Git project; edit the machine default separately");
 		const path = resolve(root, ".omp/dynaflows.json");
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, `${JSON.stringify({ schemaVersion: 1, enabled })}\n`);
 		// Dynaflows state is local: keep it out of commits without touching tracked ignore files.
-		const gitDir = resolve(root, ".git");
-		if ((await stat(gitDir).catch(() => null))?.isDirectory()) {
+		const gitDir = (await scopeAt(root)).common;
+		{
 			const exclude = resolve(gitDir, "info/exclude");
 			const current = await readFile(exclude, "utf8").catch(() => "");
 			if (!current.split("\n").includes("/.omp/dynaflows.json")) {
@@ -455,10 +520,10 @@ export default function agentRails(
 		return path;
 	}
 	async function guardrailReason(targets: string[], ctx: ExtensionContext, state: State): Promise<string | undefined> {
-		if (!targets.length || !(await dynaflowsOn(ctx))) return;
+		if (!targets.length) return;
 		for (const path of targets) {
 			const root = await repoRoot(path);
-			if (!root) continue;
+			if (!root || !(await dynaflowsOn(ctx, root))) continue;
 			const gate = await gateAt(root, state, ctx);
 			if (gate?.commit && gate.pathCheck) continue;
 			const rel = relative(root, path);
@@ -560,7 +625,9 @@ export default function agentRails(
 			const group = groups.get(root) ?? [];
 			group.push(path); groups.set(root, group);
 		}
-		if (runCheck && groups.size && (event.toolName === "ast_edit" || event.input.path === map.resolveDevice)) recordAuthor(ctx, state);
+		if (runCheck) for (const [root, edited] of groups) {
+			if (edited.some(path => ![".omp/dynaflows.json", ".omp/guardrail-proposal.json"].includes(relative(root, path)))) await recordAuthor(ctx, root);
+		}
 		const errors: string[] = [];
 		if (runCheck) for (const [root, changedPaths] of groups) {
 			const gate = await gateAt(root, state, ctx);
@@ -577,7 +644,6 @@ export default function agentRails(
 		state.pointed = previous?.pointed ?? false;
 		state.pathFailures = previous?.pathFailures ?? new Map();
 		state.codegraphAvailable = previous?.codegraphAvailable;
-		state.authorFamilies = previous?.authorFamilies ?? stateFor(ctx).authorFamilies;
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
 		const calls = new Map<string, ToolEvent>();
@@ -606,23 +672,37 @@ export default function agentRails(
 	});
 	pi.on("before_subagent_spawn", async (event, ctx) => {
 		if (event.agent !== "verifier") return;
-		const state = stateFor(ctx);
-		// Core has already expanded agent frontmatter and configured roles into patterns.
-		// Empty patterns inherit the parent model; retain every retry family's authorship.
-		const models = event.patterns.length
-			? event.patterns.map(pattern => ctx.models.resolve(pattern)).filter(model => model !== undefined)
-			: [ctx.models.current()].filter(model => model !== undefined);
-		if (!models.length) return { block: true, reason: `Agent rails: cannot resolve ${event.agent}'s model family.` };
-		// Authors are always recorded so turning dynaflows on mid-session still sees them.
-		if (!(await dynaflowsOn(ctx))) return;
-		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
-		if (!independent.length) return {
-			block: true, reason: `Agent rails: verifier must use a different model family from every recorded author: ${[...state.authorFamilies].map(([family, author]) => `${family} (${author})`).join(", ")}. Use an independent family; read-only reviews belong in reviewer/scout/verifier.`,
-		};
-		if (independent.length !== models.length) return {
-			model: independent.map(model => `${model.provider}/${model.id}`),
-			note: "Agent rails: removed verifier models from recorded author families.",
-		};
+		try {
+			let scope = await scopeAt(ctx.cwd);
+			const contextPath = resolve(scope.common, "omp-prove/verifier-context.json");
+			const contextText = await readFile(contextPath, "utf8").catch(absentFile);
+			try {
+				if (contextText !== null) {
+					const raw: unknown = JSON.parse(contextText);
+					const context = z.object({ schemaVersion: z.literal(1), worktree: z.string(), branch: z.string().refine(value => value.startsWith("refs/heads/")), head: z.string().refine(value => /^[0-9a-f]{40}$/.test(value)) }).parse(raw);
+					// SAFETY: the object schema above rejects null and primitive values before inspecting raw keys.
+					if (Object.keys(raw as object).sort().join(",") !== "branch,head,schemaVersion,worktree") throw new Error("unexpected verifier context fields");
+					const source = await scopeAt(context.worktree);
+					if (source.common !== scope.common || source.worktree !== context.worktree || source.branch !== context.branch ||
+						await gitValue(source.worktree, ["rev-parse", "HEAD"]) !== context.head) throw new Error("scope mismatch");
+					scope = source;
+				}
+			} catch (error) {
+				throw new Error(`stale verifier context; rerun prove(): ${String(error)}`);
+			}
+			if (!(await dynaflowsOn(ctx, scope.worktree))) return;
+			const authors = await authorsAt(scope, true);
+			const candidates = event.patterns.length
+				? event.patterns.map(pattern => ({ pattern, model: ctx.models.resolve(pattern) }))
+				: [{ pattern: undefined, model: ctx.models.current() }];
+			if (candidates.some(candidate => !candidate.model)) throw new Error("cannot resolve every verifier model candidate");
+			const independent = candidates.filter(candidate => candidate.model && !authors.some(author => author.family === ctx.models.family(candidate.model!)));
+			if (!independent.length) throw new Error(`verifier must use a different model family from every recorded author: ${JSON.stringify(authors)}`);
+			if (independent.length !== candidates.length) return {
+				model: independent.flatMap(candidate => candidate.pattern === undefined ? [] : [candidate.pattern]),
+				note: "Agent rails: removed verifier models from recorded author families.",
+			};
+		} catch (error) { return { block: true, reason: `Agent rails: ${String(error)}` }; }
 	});
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
@@ -642,9 +722,17 @@ export default function agentRails(
 			if (event.toolName === "bash" && event.input.command !== undefined) {
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 				for (const action of await gitActions(event.input.command, cwd)) {
+					if (action.hookSkip) return { block: true, reason: `Agent rails: pre-commit hook environment mutation is forbidden: ${action.hookSkip}` };
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
+					if (/^git (?:merge|rebase|cherry-pick|revert|am|pull)\b/.test(action.command)) {
+						const bypass = commitBypass(action);
+						if (bypass) return { block: true, reason: `Agent rails: drop hook bypass ${bypass}` };
+						if (!action.cwd) throw new Error("cannot resolve history operation cwd");
+						const root = await repoRoot(action.cwd);
+						if (root) await recordAuthor(ctx, root);
+					}
 					if (/^git commit\b/.test(action.command)) {
 						const bypass = commitBypass(action);
 						if (bypass) return {
@@ -658,18 +746,19 @@ export default function agentRails(
 						if (gate?.commit && !(await commitHookInstalled(action.cwd))) return {
 							block: true, reason: `Agent rails: ${root} declares checks.commit but no pre-commit hook is installed; install the repository's hook (e.g. \`pre-commit install\`, \`lefthook install\` or its documented setup), then commit.`,
 						};
-						if (root) recordAuthor(ctx, state);
+						if (root) await recordAuthor(ctx, root);
 					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
 							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.",
 						};
 						const root = await repoRoot(action.cwd);
+						if (!root) throw new Error("publishing requires a validated local Git repository");
 						const gate = root ? await gateAt(root, state, ctx, true) : undefined;
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx)) {
+						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd)) {
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
@@ -696,10 +785,8 @@ export default function agentRails(
 			const guardrail = await guardrailReason(targets, ctx, state);
 			if (guardrail) return { block: true, reason: guardrail };
 			const required = new Set<string>();
-			let repositoryEdit = false;
 			for (const path of targets) {
 				const root = await repoRoot(path);
-				if (root) repositoryEdit = true;
 				const gate = root ? await gateAt(root, state, ctx) : undefined;
 				if (gate?.pathCheck) continue;
 				const rel = relative(root ?? ctx.cwd, path);
@@ -710,7 +797,6 @@ export default function agentRails(
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
-			if (repositoryEdit && event.toolName !== "ast_edit") recordAuthor(ctx, state);
 		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
@@ -720,7 +806,6 @@ export default function agentRails(
 		catch (error) { return { additionalContext: `Agent rails: post-edit policy failed: ${String(error)}` }; }
 	});
 	pi.on("session_stop", async (_event, ctx) => {
-		if (ctx.agent.kind !== "main") return;
 		if (loadError) return { decision: "block", reason: loadError };
 		const state = stateFor(ctx);
 		try {
@@ -745,10 +830,14 @@ export default function agentRails(
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
-		const keyword = /(?:^|\s)\$dynaflows(?:\s+(on|off))?(?=\s|$)/i.exec(event.prompt ?? "");
-		if (keyword) {
-			const enabled = keyword[1]?.toLowerCase() !== "off";
-			const path = await setDynaflows(ctx, enabled);
+		const directives = (event.prompt ?? "").split("\n").map(line => /^\$dynaflows(?: (on|off))?$/i.exec(line.trim())).filter(match => match !== null);
+		const settings = new Set(directives.map(match => match[1]?.toLowerCase() !== "off"));
+		if (settings.size > 1) { ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error"); return; }
+		if (directives.length) {
+			const enabled = directives[0][1]?.toLowerCase() !== "off";
+			let path: string;
+			try { path = await setDynaflows(ctx, enabled); }
+			catch (error) { ctx.ui.notify(`Agent rails: ${String(error)}`, "error"); return; }
 			ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${path}).`, "info");
 			state.pointed = false;
 			if (!enabled) return { message: {

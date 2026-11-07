@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -45,14 +46,14 @@ const wrappedPublishing = [
 	"xargs git push", "xargs -n 1 git push", "timeout 5 git push", "/usr/bin/git push",
 	"if x; then git push; fi", "{ git push; }", "true; do git push; done", "false; else git push",
 	"! git push", "bash -c 'git push'", 'sh -c "git push"', "zsh -lc 'git push'",
-	"sudo env -i sh -c 'git push'", "gh -R o/r pr merge 3", "gh --repo=o/r pr create",
+	"sudo env -i sh -c 'git push'",
 	"env -S 'git push'", "env --split-string='git push'", "env -S git push",
 ];
 
 function harness() {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
-	mkdirSync(join(root, ".git"));
+	execFileSync("git", ["init", "-b", "agent/test", root]);
 	mkdirSync(join(root, ".omp"));
 	writeFileSync(join(root, "existing.ts"), "export const answer = 42;\n");
 	const handlers = new Map<string, Handler>();
@@ -247,7 +248,7 @@ describe("agent rails", () => {
 			]) {
 				const blocked = await h.call("bash", { command });
 				assert.equal(blocked?.block, true, command);
-				assert.ok(blocked?.reason?.includes("skill://git-tool"));
+				assert.ok(blocked?.reason?.includes("skill://git-tool"), blocked?.reason ?? command);
 			}
 			await h.read("skill://git-tool");
 			assert.equal(await h.call("bash", { command: "git rebase origin/main" }), undefined);
@@ -420,7 +421,7 @@ describe("agent rails", () => {
 			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "machine default turns it on");
 			assert.ok(pointer.includes("guardrail"), "missing guardrails start the sign-off flow");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
-			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "stop $dynaflows off" }));
+			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
 			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
 			assert.deepEqual(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")), { schemaVersion: 1, enabled: false });
 			assert.ok(readFileSync(join(h.root, ".git/info/exclude"), "utf8").split("\n").includes("/.omp/dynaflows.json"));
@@ -510,7 +511,7 @@ describe("agent rails", () => {
 				assert.equal(await h.call("write", { path: join(h.root, suffix) }), undefined, suffix);
 			}
 			symlinkSync("loop", join(h.root, "loop"));
-			assert.equal(await h.call("write", { path: join(h.root, "loop") }), undefined, "filesystem errors fail open for this supplemental check");
+			assert.equal((await h.call("write", { path: join(h.root, "loop") }))?.block, true, "filesystem errors fail closed");
 			h.context.agent.kind = "main";
 			assert.equal(await h.call("write", { path: join(h.root, "escape-file.ts") }), undefined, "main sessions are unaffected");
 		} finally { h.cleanup(); rmSync(outside, { recursive: true, force: true }); }
@@ -534,31 +535,24 @@ describe("agent rails", () => {
 });
 
 for (const family of ["openai", "anthropic"]) {
-	test(`records actual ${family} child edits, not read-only task spawns`, async () => {
-		const parent = harness();
-		const child = harness();
+	test(`persists scoped ${family} authors and preserves independent model selectors`, async () => {
+		const h = harness();
+		const unrelated = harness();
 		try {
-			parent.dynaflows(true);
-			await parent.emit("session_start");
-			await parent.emit("before_subagent_spawn", { agent: "task", patterns: [`${family}/author`] });
-			const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
-			assert.equal(await parent.emit("before_subagent_spawn", verifier), undefined);
-			child.context.agent = { kind: "sub", id: child.root, name: "task", depth: 1, parentId: parent.root };
-			child.context.models.current = () => ({ provider: family, id: "author" });
-			child.gate({ schemaVersion: 2, pathCheck: [process.execPath, "-e", "0"] });
-			await child.emit("session_start");
-			await child.call("edit", { path: join(child.root, "existing.ts") });
-			await parent.emit("session_tree");
-			const result = await parent.emit("before_subagent_spawn", verifier);
-			assert.equal(result?.block === true, family === "anthropic");
-			if (family === "anthropic") assert.ok(result?.reason?.includes(child.root));
-			const filtered = await parent.emit("before_subagent_spawn", {
-				agent: "verifier", patterns: ["openai/review", "anthropic/review"],
-			});
-			assert.deepEqual(filtered?.model, [family === "openai" ? "anthropic/review" : "openai/review"]);
-			parent.setSession("other");
-			assert.equal(await parent.emit("before_subagent_spawn", verifier), undefined);
-		} finally { parent.cleanup(); child.cleanup(); }
+			h.dynaflows(true);
+			h.context.agent.kind = "sub";
+			h.context.models.current = () => ({ provider: family, id: "author" });
+			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, "-e", "0"] });
+			assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+			// SAFETY: this is the same on/registerCommand/exec harness used for the initial factory.
+			agentRails(h.api as ExtensionAPI);
+			const selector = `${family === "openai" ? "anthropic" : "openai"}/review@route:medium`;
+			const result = await h.emit("before_subagent_spawn", { agent: "verifier", patterns: [`${family}/same`, selector] });
+			assert.deepEqual(result?.model, [selector], JSON.stringify(result));
+			assert.equal((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: [`${family}/same`] }))?.block, true);
+			unrelated.dynaflows(true);
+			assert.ok((await unrelated.emit("before_subagent_spawn", { agent: "verifier", patterns: [selector] }))?.reason?.includes("authorship unknown"));
+		} finally { h.cleanup(); unrelated.cleanup(); }
 	});
 }
 
@@ -603,7 +597,7 @@ test("dynaflows merge requires an exact-head valid proof marker in the Git commo
 		await execute("git", ["init"], { cwd: h.root });
 		await h.read("skill://git-tool");
 		const head = "a".repeat(40);
-		const command = `env gh -R owner/repo pr merge 3 --match-head-commit=${head}`;
+		const command = `env gh pr merge 3 --match-head-commit=${head}`;
 		assert.equal(await h.call("bash", { command }), undefined, "off retains existing behaviour");
 		h.dynaflows(true);
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("prove()"));
@@ -646,22 +640,19 @@ test("path checks canonicalize a symlinked repository root before executing", as
 	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
 });
 
-test("nested child commits record the actual current family in the ancestor lineage", async () => {
-	const main = harness();
-	const child = harness();
-	const nested = harness();
+test("history operations record the acting family and command-specific bypass semantics", async () => {
+	const h = harness();
 	try {
-		main.dynaflows(true);
-		await main.emit("session_start");
-		child.context.agent = { kind: "sub", id: child.root, name: "task", depth: 1, parentId: main.root };
-		await child.emit("session_start");
-		nested.context.agent = { kind: "sub", id: nested.root, name: "task", depth: 2, parentId: child.root };
-		nested.context.models.current = () => ({ provider: "anthropic", id: "actual" });
-		await nested.emit("session_start");
-		await nested.read("skill://git-tool");
-		await nested.call("bash", { command: "git commit -m fix" });
-		assert.equal((await main.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] }))?.block, true);
-	} finally { main.cleanup(); child.cleanup(); nested.cleanup(); }
+		h.dynaflows(true);
+		await h.read("skill://git-tool");
+		assert.equal(await h.call("bash", { command: "git cherry-pick -n HEAD" }), undefined);
+		assert.equal((await h.call("bash", { command: "git merge --no-verify branch" }))?.block, true);
+		assert.equal((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/review"] }))?.block, true);
+		for (const command of ["git revert HEAD", "git am patch", "git pull"]) {
+			h.setSession(command);
+			assert.ok((await h.call("bash", { command }))?.reason?.includes("skill://git-tool"));
+		}
+	} finally { h.cleanup(); }
 });
 
 test("agent rails surfaces a timed-out path checker without throwing", async () => {
@@ -689,13 +680,156 @@ test("main scratch edits and non-repository commits do not count as authorship",
 		writeFileSync(path, "PR description");
 		for (const tool of ["write", "edit"]) {
 			assert.equal(await h.call(tool, { path }), undefined);
-			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+			const result = await h.emit("before_subagent_spawn", verifier);
+			assert.ok(result?.reason?.includes("authorship unknown"), JSON.stringify(result));
 		}
 		assert.equal(await h.call("ast_edit", { paths: [path] }, { applied: true, files: [path] }), undefined);
-		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
 		assert.equal(await h.call("bash", { command: "git commit -m scratch", cwd: scratch }), undefined);
-		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
 		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
 		assert.equal((await h.emit("before_subagent_spawn", verifier))?.block, true, "main repository edits still count");
 	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("child handoff requires its own verification read and repaired path checks", async () => {
+	const h = harness();
+	try {
+		h.context.agent.kind = "sub";
+		assert.equal(await h.emit("session_stop"), undefined);
+		const checker = join(h.root, "check.cjs");
+		writeFileSync(checker, "process.exit(1)");
+		h.gate({ schemaVersion: 2, pathCheck: [process.execPath, checker], checks: { commit: ["not-run"], ci: ["not-run"] } });
+		await h.call("edit", { path: join(h.root, "existing.ts") });
+		assert.equal((await h.emit("session_stop"))?.decision, "block");
+		writeFileSync(checker, "process.exit(0)");
+		assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
+		await h.read(verification);
+		assert.equal(await h.emit("session_stop"), undefined);
+	} finally { h.cleanup(); }
+});
+
+test("standalone hook environment changes and eval cannot bypass policy", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		for (const command of ["HUSKY=0", "export SKIP=x", "declare -x LEFTHOOK=0", "unset HUSKY", "env -u HUSKY true", "eval 'export HUSKY=0'", "sh -c 'unset HUSKY'", "eval git commit -n"]) {
+			assert.equal((await h.call("bash", { command }))?.block, true, command);
+		}
+		for (const command of ["echo 'export HUSKY=0'", "echo 'eval git commit -n'", "git commit -m 'export HUSKY=0'"]) {
+			assert.equal(await h.call("bash", { command }), undefined, command);
+		}
+		h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+		for (const command of ["eval git push", "eval 'gh pr merge 3'", "gh -R owner/other pr merge 3"]) {
+			assert.equal((await h.call("bash", { command }))?.block, true, command);
+		}
+	} finally { h.cleanup(); }
+});
+
+test("toggle commands ignore prose and reject contradictions and nonrepositories", async () => {
+	const h = harness();
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "rails-toggle-")));
+	try {
+		for (const prompt of ["please $dynaflows on", '"$dynaflows"', "$dynaflows status", "$dynaflows on\n$dynaflows off"]) {
+			await h.emit("before_agent_start", { reason: "prompt", prompt });
+			assert.throws(() => readFileSync(join(h.root, ".omp/dynaflows.json")));
+		}
+		h.context.cwd = scratch;
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" });
+		assert.throws(() => readFileSync(join(scratch, ".omp/dynaflows.json")));
+		assert.ok(h.notes.some(note => note.includes("Git project")));
+	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("linked worktrees share primary toggle and verifier context selects only the named source", async () => {
+	const h = harness();
+	const linked = `${h.root}-linked`;
+	try {
+		await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "seed"], { cwd: h.root });
+		await execute("git", ["worktree", "add", "-b", "agent/source", linked], { cwd: h.root });
+		h.context.cwd = linked;
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
+		assert.equal(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")).enabled, true);
+		writeFileSync(join(linked, "source.md"), "substantive documentation");
+		await h.read(structure, naming);
+		h.context.models.current = () => ({ provider: "anthropic", id: "writer" });
+		assert.equal(await h.call("edit", { path: join(linked, "source.md") }), undefined);
+		h.context.cwd = h.root;
+		const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: linked })).stdout.trim();
+		const contextDir = join(h.root, ".git/omp-prove");
+		mkdirSync(contextDir, { recursive: true });
+		const contextPath = join(contextDir, "verifier-context.json");
+		const scope = { schemaVersion: 1, worktree: realpathSync(linked), branch: "refs/heads/agent/source", head };
+		writeFileSync(contextPath, JSON.stringify(scope));
+		assert.equal((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] }))?.block, true);
+		assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/sol:medium"] }), undefined);
+		writeFileSync(contextPath, JSON.stringify({ ...scope, head: "a".repeat(40) }));
+		assert.ok((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/sol:medium"] }))?.reason?.includes("stale verifier context"));
+		writeFileSync(contextPath, JSON.stringify({ ...scope, worktree: `${linked}-missing` }));
+		assert.ok((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/sol:medium"] }))?.reason?.includes("stale verifier context"));
+		h.context.cwd = linked;
+		await h.read("skill://git-tool");
+		assert.equal((await h.call("bash", { command: `gh pr merge 3 --match-head-commit=${head}` }))?.block, true);
+	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
+});
+
+test("dynaflows off ignores unresolved models while on rejects every unresolved candidate", async () => {
+	const h = harness();
+	try {
+		assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["unresolved"] }), undefined);
+		await h.read(integrity);
+		await h.call("edit", { path: "existing.ts" });
+		h.dynaflows(true);
+		assert.ok((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review", "unresolved"] }))?.reason?.includes("every verifier"));
+		assert.equal((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: [] }))?.block, true);
+	} finally { h.cleanup(); }
+});
+
+test("Python proof gates and rails accept the same schema fixtures", async () => {
+	const cases = [
+		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} },
+		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"] }, pathCheck: ["check"], pathCheckTimeoutMs: 1, testGlobs: ["", "tests/**"], agentMerge: "allowed", ciHost: "github" },
+		{ schemaVersion: 2, pathCheckTimeoutMs: 9007199254740991, ciHost: "nuc" },
+		{ schemaVersion: 2, checks: null }, { schemaVersion: 2, checks: { commit: null } },
+		{ schemaVersion: 2, checks: { ci: [] } }, { schemaVersion: 2, pathCheck: [" "] },
+		{ schemaVersion: 2, pathCheckTimeoutMs: true }, { schemaVersion: 2, pathCheckTimeoutMs: 1.5 },
+		{ schemaVersion: 2, pathCheckTimeoutMs: 0 }, { schemaVersion: 2, pathCheckTimeoutMs: 9007199254740992 },
+		{ schemaVersion: 2, testGlobs: [1] }, { schemaVersion: 2, testGlobs: null },
+		{ schemaVersion: 2, agentMerge: "maybe" }, { schemaVersion: 2, ciHost: "other" },
+		{ schemaVersion: true }, { schemaVersion: 3 },
+	];
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		const rails: boolean[] = [];
+		for (const value of cases) {
+			writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify(value));
+			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
+		}
+		const modulePath = join(import.meta.dir, "../agent/skills/omp-dyna-workflows/templates/workflows.py");
+		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
+		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
+		assert.deepEqual(JSON.parse(result.stdout), rails);
+	} finally { h.cleanup(); }
+});
+
+test("metadata does not author a change; docs do, and corrupt or different branch ledgers fail closed", async () => {
+	const h = harness();
+	try {
+		h.dynaflows(true);
+		await h.read(structure, naming);
+		await h.call("write", { path: join(h.root, ".omp/guardrail-proposal.json") });
+		const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
+		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
+		assert.equal(await h.call("write", { path: join(h.root, "README.md") }), undefined);
+		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		const key = createHash("sha256").update(`${h.root}\0refs/heads/agent/test`).digest("hex");
+		const ledger = join(h.root, ".git/omp-authors", `${key}.json`);
+		assert.equal(JSON.parse(readFileSync(ledger, "utf8")).authors[0].family, "openai");
+		await execute("git", ["symbolic-ref", "HEAD", "refs/heads/agent/other"], { cwd: h.root });
+		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
+		await execute("git", ["symbolic-ref", "HEAD", "refs/heads/agent/test"], { cwd: h.root });
+		writeFileSync(ledger, "{broken");
+		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
+	} finally { h.cleanup(); }
 });

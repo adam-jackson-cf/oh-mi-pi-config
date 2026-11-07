@@ -25,7 +25,7 @@ discoveryTools: [find, grep, glob, ast_grep]
 editTools: [write, edit, ast_edit]
 # Applied to parsed command positions after env assignments and git global options.
 # Quoted echo/rg arguments are not commands and do not trigger this check.
-gitCommand: '^(git (commit|push|merge|rebase|cherry-pick)\b|git worktree add\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge)\b)'
+gitCommand: '^(git (commit|push|merge|rebase|cherry-pick|revert|am|pull)\b|git worktree add\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge)\b)'
 pathFields:
   read: [path]
   write: [path]
