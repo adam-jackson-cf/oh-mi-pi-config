@@ -367,11 +367,11 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
         for n in range(2):
             ok, out = run_check(proof["cmd"], head_tree)
             out = out.replace(str(head_tree), "<tree>")
-            if proof["kind"] == "defect" and proof["expectRed"] in out:
-                failures.append(f"{proof['id']}: expectRed present at head")
             runs.append({"tree": "head", "run": n + 1, "ok": ok, "output": out})
             if not ok:
                 failures.append(f"{proof['id']}: head run {n + 1} failed")
+        if proof["kind"] == "defect" and any(proof["expectRed"] in run["output"] for run in runs):
+            failures.append(f"{proof['id']}: expectRed present at head")
     if _git(head_tree, "status", "--porcelain", "--untracked-files=no"):
         failures.append("proof run modified tracked files")
     failures.extend(_hash_failures(head_tree, manifest))
@@ -466,6 +466,8 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_che
                     parent_tree, head_tree, manifest, gate, paths, proof_parents)
                 result["deterministic"] = deterministic
                 result["blocking"].extend(deterministic["blocking"])
+                if result["blocking"]:
+                    return result
                 for proof in manifest["proofs"]:
                     baseline = proof.get("parent", parent)
                     commits = _git(repo, "rev-list", "--reverse", f"{baseline}..{head}",
@@ -479,7 +481,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_che
                         _setup(tree, manifest.get("setup"))
                         errors = _hash_failures(tree, {"proofs": [proof]})
                         ok, out = run_check(proof["cmd"], tree) if not errors else (False, "")
-                        deterministic["proofs"][proof["id"]].append({
+                        deterministic["proofs"].setdefault(proof["id"], []).append({
                             "tree": commit, "ok": ok, "output": out.replace(str(tree), "<tree>")})
                         if errors or not ok or _git(tree, "status", "--porcelain", "--untracked-files=no"):
                             result["blocking"].append(

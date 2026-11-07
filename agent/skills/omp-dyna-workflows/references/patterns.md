@@ -27,8 +27,6 @@ and runs each proof alone in a detached baseline tree. Only paths listed in `fil
 command file tokens must be listed too. Symlinks, ignored files and clean-filter/EOL changes fail.
 The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
 (recommended `$TMPDIR/omp-proofs/<slug>.json`) and post its content on the PR.
-Breaking contract: no committed-proof precondition; schemaVersion 1 adds optional `base`,
-`setup` argv and `revisions`, and requires 40-hex parents. Rebuild old manifests with freeze.
 
 ```json
 {
