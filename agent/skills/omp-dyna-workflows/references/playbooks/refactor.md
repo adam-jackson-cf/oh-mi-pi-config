@@ -26,7 +26,7 @@ Make the target design canonical, preserve required behaviour and migrate every 
    Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/moves/renames.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task`; migrate all callers/tests/docs and remove obsolete paths, no shims.
    Read `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with

@@ -24,7 +24,7 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task` for the root cause. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()`.

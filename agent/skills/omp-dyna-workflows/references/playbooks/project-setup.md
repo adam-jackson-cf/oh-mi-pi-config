@@ -26,7 +26,7 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/paths/names.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task`. Read `skill://setup-repository-guardrails`; apply only approved
    controls, establish `.omp/gate.json` with `schemaVersion: 2`, `checks.commit`, `checks.ci`,
    `pathCheck` and an installed pre-commit hook as the prerequisite for ordinary
