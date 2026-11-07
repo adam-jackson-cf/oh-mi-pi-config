@@ -676,3 +676,26 @@ test("agent rails surfaces a timed-out path checker without throwing", async () 
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("pathCheck failed"));
 	} finally { h.cleanup(); }
 });
+
+test("main scratch edits and non-repository commits do not count as authorship", async () => {
+	const h = harness();
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-scratch-")));
+	try {
+		h.dynaflows(true);
+		h.context.models.current = () => ({ provider: "anthropic", id: "main" });
+		await h.read(integrity, structure, naming, "skill://git-tool");
+		const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
+		const path = join(scratch, "pr-body.txt");
+		writeFileSync(path, "PR description");
+		for (const tool of ["write", "edit"]) {
+			assert.equal(await h.call(tool, { path }), undefined);
+			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		}
+		assert.equal(await h.call("ast_edit", { paths: [path] }, { applied: true, files: [path] }), undefined);
+		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.equal(await h.call("bash", { command: "git commit -m scratch", cwd: scratch }), undefined);
+		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+		assert.equal((await h.emit("before_subagent_spawn", verifier))?.block, true, "main repository edits still count");
+	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+});

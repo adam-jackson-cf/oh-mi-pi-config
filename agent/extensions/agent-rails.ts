@@ -552,7 +552,6 @@ export default function agentRails(
 				? details.files.flatMap(path => absolute(path, ctx.cwd) ?? []) : [];
 			state.proposal = [];
 		}
-		if (runCheck && changed.length && event.toolName === "ast_edit") recordAuthor(ctx, state);
 		const groups = new Map<string, string[]>();
 		for (const path of changed) {
 			const root = await repoRoot(path);
@@ -561,6 +560,7 @@ export default function agentRails(
 			const group = groups.get(root) ?? [];
 			group.push(path); groups.set(root, group);
 		}
+		if (runCheck && groups.size && (event.toolName === "ast_edit" || event.input.path === map.resolveDevice)) recordAuthor(ctx, state);
 		const errors: string[] = [];
 		if (runCheck) for (const [root, changedPaths] of groups) {
 			const gate = await gateAt(root, state, ctx);
@@ -658,7 +658,7 @@ export default function agentRails(
 						if (gate?.commit && !(await commitHookInstalled(action.cwd))) return {
 							block: true, reason: `Agent rails: ${root} declares checks.commit but no pre-commit hook is installed; install the repository's hook (e.g. \`pre-commit install\`, \`lefthook install\` or its documented setup), then commit.`,
 						};
-						recordAuthor(ctx, state);
+						if (root) recordAuthor(ctx, state);
 					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
@@ -696,8 +696,10 @@ export default function agentRails(
 			const guardrail = await guardrailReason(targets, ctx, state);
 			if (guardrail) return { block: true, reason: guardrail };
 			const required = new Set<string>();
+			let repositoryEdit = false;
 			for (const path of targets) {
 				const root = await repoRoot(path);
+				if (root) repositoryEdit = true;
 				const gate = root ? await gateAt(root, state, ctx) : undefined;
 				if (gate?.pathCheck) continue;
 				const rel = relative(root ?? ctx.cwd, path);
@@ -708,7 +710,7 @@ export default function agentRails(
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
-			if (targets.length && !(event.toolName === "ast_edit")) recordAuthor(ctx, state);
+			if (repositoryEdit && event.toolName !== "ast_edit") recordAuthor(ctx, state);
 		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {

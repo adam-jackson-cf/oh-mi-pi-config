@@ -175,7 +175,7 @@
       <div class="card opus"><b>Writes the proof manifest</b><span>every criterion → proof; missing proof surface becomes the first tasks. Draft until the spike is done</span></div></div>
     <div class="cell"><span class="lanelabel">Main agent</span>
       <div class="card opus"><b>Writes the task briefs</b><span>never edits code itself</span></div>
-      <div class="card opus"><b>Re-freezes the manifest</b><span>records proof-file hashes between the two task spawns</span></div>
+      <div class="card opus"><b>Calls <code>freeze()</code></b><span>runs proof commands and the commit gate, then records proof-file and manifest hashes between the two task spawns</span></div>
       <div class="card opus"><b>Commits through the hook</b><span>the pre-commit hook runs <code>checks.commit</code>; never bypassed</span></div></div>
     <div class="cell"><span class="lanelabel">Main agent</span>
       <div class="card opus"><b>Calls <code>prove()</code></b><span>full run once at the code-ready head</span></div>
@@ -194,7 +194,7 @@
     <div class="cell"></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sol"><b>task (Sol): proof task</b><span>proof surface + proof files on <code>agent/&lt;slug&gt;</code></span></div>
-      <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn, after the re-freeze; edits, tests, commits</span></div>
+      <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn after <code>freeze()</code> succeeds; edits, tests, commits</span></div>
       <div class="card sonnet"><b>designer (Sonnet 5.5)</b><span>presentational changes only; scores its layout against a 10-point design-judgement rubric and inspects screenshots</span></div></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
@@ -211,7 +211,7 @@
       <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
       <div class="card gate"><b>tool_result: pathCheck</b><span>checks existing, non-ignored paths after each edit; stale failures are filtered before every retry; canonical realpaths avoid /tmp aliases</span></div>
       <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/cherry-pick, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code> need <code>skill://git-tool</code></span></div>
-      <div class="card block"><b>tool_call: actual authors</b><span>an edit or git commit records the current family, shared through parent/child registry ids; read-only task spawns record nothing</span></div>
+      <div class="card block"><b>tool_call: actual authors</b><span>an edit inside a Git repo or a git commit in a repo records the current family, shared through parent/child registry ids; read-only spawns and outside-repo scratch writes record nothing</span></div>
       <div class="card block"><b>tool_call: guardrail sign-off (dynaflows)</b><span>incomplete guardrails: <code>.omp/gate.json</code> and <code>.omp/guardrail-proposal.json</code> paths blocked until an <code>ask</code> about guardrails is answered “Minimal” or “Full”</span></div></div>
     <div class="cell"><span class="lanelabel">agent-rails</span>
       <div class="card block"><b>before_subagent_spawn: verifier (dynaflows)</b><span>blocked when its family equals any recorded author family</span></div>
@@ -305,7 +305,7 @@
       <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read after code edits; failed paths pass. No check run is required</td><td>subagents</td></tr>
     </tbody>
   </table>
-  <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The <code>designer</code> and <code>verifier</code> roles are both <code>anthropic/claude-sonnet-5-5:medium</code>, which is why designer-authored work cannot use the verifier role.</p>
+  <p class="note">Model routing lives in <code>agent/config.yml</code>; fast mode (<code>priority</code> tier) applies to task, kiss and sonic only. The default <code>designer</code> and <code>verifier</code> models are both Anthropic: a designer (or main agent) that edits or commits inside a Git repo requires an independent verifier family. Spawning a designer without edits does not record authorship; outside-repo scratch writes do not either.</p>
 </section>
 </main>
 
