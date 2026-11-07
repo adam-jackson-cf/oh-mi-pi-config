@@ -38,5 +38,7 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    List guardrail/gate-file changes under **Gate changes** in the PR description.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, wait for default CI. Fixes/rebases receive one verification on
-   new head per the verify loop.
+   with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI (NUC: submit), and
+   continue without waiting. Before the next merge, check latest default CI: success permits;
+   pending waits (NUC: wait); failure/cancellation stops for red-main recovery, which still waits
+   for green. Fixes/rebases receive one verification on new head per the verify loop.

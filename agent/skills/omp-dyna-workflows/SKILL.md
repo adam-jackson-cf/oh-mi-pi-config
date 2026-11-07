@@ -32,7 +32,10 @@ disable-model-invocation: true
   5. **Verify**: run deterministic `prove()`, then its cross-family `verifier` drives every
      criterion live, checks affected doc lines, and reports diff scope/coverage.
   6. **Integrate**: CI (`checks.ci`) green on head, rebase-merge with `--match-head-commit`,
-     wait for default CI.
+     confirm `MERGED`, record merge-SHA default CI (NUC: submit), and continue without waiting.
+     Before the next merge, require latest default CI success (pending: wait; failed/cancelled:
+     red-main recovery; NUC: wait). Recovery still waits for green; follow git-tool's
+     merge-and-recover contract.
 - Prerequisite to implementation: `.omp/gate.json` provides `checks.commit`, `pathCheck` and an
   installed pre-commit hook. Missing any: ask the owner before guardrail work. On yes, run
   `skill://setup-repository-guardrails`; write `.omp/guardrail-proposal.json`

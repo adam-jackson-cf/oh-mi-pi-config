@@ -32,5 +32,7 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    Cross-family verifier drives criteria live and checks affected docs under the blocking rule.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, wait for default CI. Re-verify a fix/rebase once on the new head
-   as specified by the verify loop.
+   with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI (NUC: submit), and
+   continue without waiting. Before the next merge, check latest default CI: success permits;
+   pending waits (NUC: wait); failure/cancellation stops for red-main recovery, which still waits
+   for green. Re-verify a fix/rebase once on the new head as specified by the verify loop.
