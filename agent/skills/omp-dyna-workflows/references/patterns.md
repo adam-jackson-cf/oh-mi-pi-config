@@ -1,37 +1,40 @@
 # Pattern contracts
 
+Stage ownership is canonical in [SKILL.md](../SKILL.md#six-stage-contract).
+Git authority and CI/PR/merge mechanics belong to `skill://git-tool`.
+
 ## Spike recipe
 
-- Read `skill://git-tool` before Git. Give every open question a pass/fail predicate,
-  timebox and declared side effects (databases, ports, hooks, shared services).
-  Writes to shared services need owner approval before execution.
-- Create `git worktree add --detach "$TMPDIR/omp-spike-<slug>" <default>` outside the repo,
-  with no branch. Give a non-isolated `task` absolute paths into that worktree.
-- Do the least work that answers the predicate on the real surface. Race 2–3 prototypes
-  only when built results distinguish them; use `innovation-council` only when no prototype can.
-- Write `local://spike-<slug>.md`: answers, commands, outputs, and what failed.
-  Remove with `git worktree remove --force "$TMPDIR/omp-spike-<slug>"` afterwards.
-  Spike code never reaches a PR. Investigation is scratch-only; its report is the deliverable.
+Main reads `skill://git-tool`, resolves the primary remote/default and fetches it
+before creating `git worktree add --detach <absolute-scratch-path> <fetched-ref>`.
+Each question has a pass/fail predicate, timebox and declared side effects; writes
+to shared services require owner approval. Main gives a non-isolated task absolute
+scratch paths and the smallest bounded experiment on the real surface. Prototype
+races are useful only when built results decide; use innovation-council only when
+no prototype can settle the question. The task returns findings, commands, actual
+outputs and failures. Main saves `local://spike-<slug>.md` before removing the tree
+with `git worktree remove --force <absolute-scratch-path>`. No spike code is reused.
 
 ## Proof manifest
 
-Map every criterion to a named proof. Proof `task` writes files uncommitted in the dedicated
-`agent/<slug>` worktree; main calls
-`freeze(worktree, manifest_path, proofs, slug, *, base="HEAD", setup=None, previous=None, revise=None)`.
-Then the separate implementation `task` commits proofs with the change that greens them,
-through the hook (default: one atomic commit). A proof never enters history earlier.
-Tasks run non-isolated, sequentially, with absolute paths; main never commits.
-Split only if every earlier commit passes the hook with all proof files present.
-`proofs` omit `sha256`. Freeze hashes working-tree bytes, pins base and parents as 40-hex,
-and runs each proof alone in a detached baseline tree. Only paths listed in `files` may be dirty;
-command file tokens must be listed too. Symlinks, ignored files and clean-filter/EOL changes fail.
-The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
-(recommended `$TMPDIR/omp-proofs/<slug>.json`) and post its content on the PR.
+```python
+freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
+       previous=None, revise=None, max_checks=MAX_PROOFS)
+```
+
+`proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.
+Store the manifest outside the repository, for example `$TMPDIR/omp-proofs/<slug>.json`.
+`MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
+a positive integer `max_checks` (not bool), applied to current/previous manifests.
+The entire draft and top-level inputs are validated before hashing or execution.
+
+Generated frozen output (not a draft input):
 
 ```json
 {
   "schemaVersion": 1,
   "slug": "fix-login-redirect",
+  "base": "<40-hex resolved baseline>",
   "proofs": [
     {
       "id": "P1",
@@ -40,107 +43,178 @@ The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
       "cmd": ["pnpm", "vitest", "run", "src/auth/redirect.test.ts"],
       "files": ["src/auth/redirect.test.ts"],
       "expectRed": "expected '/home' to be '/login'",
-      "parent": "<40-hex baseline pinned by freeze()>",
-      "sha256": {"src/auth/redirect.test.ts": "<sha256 written by freeze()>"}
+      "parent": "<40-hex pinned by freeze>",
+      "sha256": {"src/auth/redirect.test.ts": "<sha256 written by freeze>"}
     }
   ]
 }
 ```
 
-- `defect`: isolated baseline overlay must fail containing `expectRed`; freeze also truncates
-  its files and requires that text absent (negative control). Use asserted actual-vs-expected
-  text, never a test name or generic failure token. It must be absent in both green head outputs.
-- `preserve`: isolated baseline overlay must pass.
-- `new-surface`: isolated baseline overlay must not pass; this is not evidence of API absence.
-- Every kind passes twice at head. Defeat result caches in `cmd` (e.g. `go test -count=1`).
-  Shared fixtures must be listed in each proof's `files`; overlays never combine proof files.
-- Optional `setup` argv runs once per fresh tree, before proofs; setup failures are not evidence.
-- Optional per-proof `parent` selects a baseline for review-added proofs. Freeze resolves aliases
-  and pins them; parents must be ancestors of head at or after base (strict ancestors in prove).
-- Re-freeze with `previous=(path, digest)`: unchanged proofs are retained without rerunning;
-  only new/revised proofs run at their pinned parents. Changes/removals require
-  `revise={id: reason}` and record `{id, oldSha256, reason}` in `revisions` (oldSha256 hashes
-  the previous proof record, including frozen file hashes). Never silently weaken proofs.
-- Passing defect/new-surface baseline returns to Plan: criterion already met (report, no PR),
-  or reuse existing tracked tests as preserve. Never weaken a proof into red.
-- Missing/edited files, duplicate ids, invalid schema or a changed manifest block.
+- IDs are unique; criteria and argv are nonblank. `expectRed` is only for `defect`.
+- `files` use canonical POSIX repository-relative paths. Reject empty/dot/parent
+  components, repeated separators, backslashes/drive forms, leading/trailing
+  slash, NUL and `.git` components rather than normalising them. Symlinks, ignored
+  files and clean-filter/EOL byte changes are rejected at actual roots; lexical
+  validation does not depend on host temporary-directory contents.
+- Only listed files may be dirty. Freeze whole files, including shared fixtures.
+  Each proof is overlaid alone, never with another proof's files.
+- Inspect each argv token literally, including the value after its first `=`;
+  strip one leading `./` for comparison. Every token naming an existing regular
+  repository file, even an unchanged tracked runner, must be in that proof's
+  `files`. Absolute references into source/execution trees are rejected; external
+  absolute executables such as `sys.executable` remain allowed. There is no shell,
+  language, pytest-node-ID or selector parsing.
+- `defect`: baseline overlay completes nonzero containing `expectRed`; a
+  truncated-file negative control must not contain it. Use asserted actual versus
+  expected output, not a test name or generic error. The text must be absent in
+  both green head outputs. `preserve`: baseline passes. `new-surface`: baseline
+  does not pass; this is not proof of API absence. Infrastructure failure is
+  never valid red evidence.
+- Every individual execution starts pristine in a detached scratch tree, runs
+  setup once for that execution, then cleans up (including ignored artifacts).
+  This includes both head runs, baseline, negative control and earlier-commit
+  runs. Setup changing tracked bytes is a setup error. Never clean the source
+  checkout. Defeat result caches in argv, e.g. `go test -count=1`.
+- Each proof's parent is always pinned, defaulting to manifest base. A regression
+  added during review must explicitly name the defective implementation commit
+  as its parent. Prove requires strict parent/head ancestry and parents at/after
+  base. A passing defect/new-surface baseline returns to Plan: inspect the
+  objective/proof and chosen parent; report already-satisfied work or use a valid
+  preserve proof where appropriate. Never weaken a proof to manufacture red.
+- `base=None` means HEAD for a new lineage, but inherits the previous base during
+  re-freeze; omitted setup inherits previous setup. With `previous=(path, digest)`,
+  slug, resolved base and setup are immutable. A new base/setup needs a new
+  lineage. Unchanged records retain evidence without rerunning. Changed/removed
+  records require nonblank `revise={id: reason}` and record
+  `{id, oldSha256, reason}`; the digest covers the entire old record.
 
 ## prove
 
-- **Inputs**: `repo`, `parent`, `head`, `manifest_path`, `manifest_sha256`, `objective`;
-  optional `max_checks` (default 16).
-- **Guardrails**: require head `.omp/gate.json` with `checks.commit` and `pathCheck`; use
-  `skill://setup-repository-guardrails` if missing. `prove()` never runs repository checks:
-  the pre-commit hook runs `checks.commit`; CI runs `checks.ci` and merge requires it green.
-- **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR` plus
-  one per distinct overridden parent, run setup per tree and proofs twice at head, reject tracked
-  mutations, then overlay each proof alone at its selected parent and test its kind. Check earlier
-  commits touching proof files for green execution with their own bytes, rejecting partial proofs
-  and tracked mutations; frozen byte equality is required at head only. Remove every detached tree.
-  Plain functions expose deterministic checks without eval globals.
-- **Gate changes**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
-  `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files are listed
-  in `gateChanges`. A changed gate path is not itself a blocker; failed gates and unauthorized
-  weakening are. The PR description lists each under **Gate changes** with its effect on checks.
-- **Verifier**: one `agent="verifier"` in a family different from every author. Brief contains
-  objective, manifest, deterministic results, diff stat and blocking rule. Explicitly read
-  `skill://codegraph/references/readiness-and-bootstrap.md`,
-  `skill://codegraph/references/query-selection.md`, `skill://git-tool` before discovery/Git.
-  Work only in supplied trees and TMPDIR scratch; no repository edits or agent spawns.
-  Drive each criterion live, check doc lines changed or made wrong, audit diff scope/coverage
-  report-only. Findings need exact command, actual output, required output; omit unrun claims.
-  Required `criteria: [{proofId, command, observed, verdict}]` covers every manifest proof id;
-  `verdict` must be exactly `pass` or `fail`.
-  Audit harness/config tampering too. Brief outputs are capped at 4 KB each; full evidence is
-  available at the supplied scratch `deterministic.json` path.
-- **Mutation**: compare source repo porcelain-v2 status and HEAD before/after verifier;
-  any difference fails with `verifier mutated the repo`.
-- **Output**: `{status, deterministic, verifier, blocking, followUps}`; status is `pass` or
-  `fail`. Remove detached worktrees on every exit; no automatic fix loop.
-- **Merge marker**: only final `status: pass` (including successful worktree cleanup) writes
-  `<git-common-dir>/omp-prove/<head-sha-40>.json` with
-  `{"schemaVersion":1,"head":"<40-hex>","kind":"prove","status":"pass"}`.
-  The common directory is resolved for the source repo, so linked worktrees share markers.
-  Starting prove revokes any old marker for that head, even if this rerun fails.
-  With dynaflows on, merge requires this marker and `--match-head-commit <same-sha>`.
-- **Blocking rule**: failing head run, failed gate, doc line changed or made wrong, base defect
-  copied or newly reached, missing/weakened proof, check loosening the objective does not call
-  for; a changed gate path is not itself a blocker; failed gates and unauthorized weakening are.
-  Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.
-- **Sizing**: full verification once at code-ready head; every changed head runs a full `prove()`.
-  Non-runtime wording-only docs need no verifier; skills, rules, agents, AGENTS.md and prompts
-  are runtime code. Non-runtime docs merge on green; other changes need one cross-family
-  verification. Agents merge every verified PR.
+```python
+prove(repo, parent, head, manifest_path, manifest_sha256, objective, *,
+      target_ref, max_checks=MAX_PROOFS, verifier_model=None)
+```
+
+Main calls this in Python eval. `repo` is the dedicated source worktree on a named
+branch at `head`, even when main's session is in the primary checkout. Resolve the
+actual fetched PR target and require `parent == git merge-base(target_ref, head)`
+with strict ancestry, not `HEAD~1`. The helper checks consistency; git-tool owns
+confirming actual GitHub target metadata (including its NUC sync exception).
+
+Head gate schema is validated before scratch trees/setup. Missing prerequisites
+route to SKILL's owner-approved project setup; an invalid parent gate is a visible
+`gateDiagnostics` entry and does not prevent a valid head repair. Prove runs no
+repository suites; hook/CI eligibility is main's responsibility under git-tool.
+
+Prove validates manifest/file hashes, executes every head proof twice, repeats
+isolated baseline checks by kind and checks earlier commits touching proof files
+once each with that commit's own bytes. Earlier proofs must already be green;
+committing a red proof before its greening fix is forbidden. Partial proofs,
+tracked mutation and changed frozen head bytes fail. Every execution uses the
+pristine lifecycle above. Launch, timeout, IO, setup and cleanup errors are
+attributed infrastructure failures (`ok: null`, error/output/location), not failed
+assertions. Previously collected evidence is retained; deterministic failure
+prevents verifier dispatch. Cleanup failure prevents pass.
+
+### Gate changes
+
+`gateChanges` unions parent/head references: `.omp/gate.json`, workflows, hooks,
+lefthook/pre-commit roots and gate argv file tokens. For each directly referenced
+regular text file, one generic `re.findall(r"[\w./-]+", text)` scan discovers
+existing canonical in-root regular file tokens. It does not recurse or parse a
+language; computed/quoted paths or paths containing spaces inside text are not a
+complete dependency graph. Decode/IO problems are diagnostics. No outside-root
+file is read. The writer lists discovered paths/effects in optional **Gate changes**
+per `skill://git-tool/references/pr-description.md`, updating omissions found by
+prove. Discovery alone does not block; unauthorized weakening may.
+
+### Verifier and authorship
+
+Prove creates the sole `agent='verifier'` dispatch with objective, labelled source,
+fetched target, full parent/head range, pinned per-proof trees, manifest, recorded
+authors, deterministic evidence and `BLOCKING_RULE` from `templates/workflows.py`.
+Apply that constant, not a second prose blocker list. Each run's brief output is
+limited to 4096 characters with an explicit truncation/full-evidence-path marker;
+full output remains in the supplied `deterministic.json` during verification.
+The read-only verifier drives criteria live, with exact command/observed/required
+output; no edits or agent spawns. Criteria entries cover every known proof ID;
+unknown IDs block, multiple entries for a known ID are allowed, and any fail blocks.
+
+Rails records repository-file edit-tool editors and committers, excluding local
+workflow/proposal metadata. It does not discover arbitrary bash-written authors.
+Provenance persists per real worktree/full branch ref, not session lineage:
+`<git-common-dir>/omp-authors/<sha256(worktree + "\0" + branch)>.json`, UTF-8 input,
+with `{schemaVersion:1, worktree, branch, authors:[{family, model, agent}]}`.
+`worktree` is realpath; `branch` is `refs/heads/...`; authors are sorted/deduped.
+Rails owns atomic writes and model/family resolution. Detached spikes and other
+branches do not authorize this change. Prove reads the ledger into result/brief;
+missing ledger with commits in the range fails closed as authorship unknown.
+
+Immediately before dispatch prove atomically writes
+`<git-common-dir>/omp-prove/verifier-context.json` with
+`{schemaVersion:1, worktree, branch, head}`, then removes it in `finally`.
+Rails uses that source ledger and checks current branch/head; malformed or stale
+context blocks with a rerun-prove explanation. Without context a standalone
+verifier uses its spawning session's scope. There is no lock or pid protocol.
+
+Default `verifier_model=None` preserves configured routing and omits a model
+keyword. Codex-only authors can use the default Sonnet verifier. When Anthropic
+editors exclude it, pass `verifier_model="openai-codex/gpt-6.1-sol:medium"`; this is
+still a verifier, never a task. Rails requires a different family from every
+recorded author. Unavailable models or no remaining approved family block with
+the actual reason; do not substitute models or change routing config.
+
+Prove compares source status/HEAD before/after: a difference means
+`source checkout changed during verification`, not proof the verifier caused it
+or a sandbox guarantee. Rerun after concurrent changes. Output includes `status`,
+`deterministic`, `verifier`, `authors`, `blocking`, `followUps` and selected override.
+Only a final pass including cleanup atomically writes the existing schema-1
+exact-head marker. Resolve/revoke the head's old marker before validating other
+inputs. Marker format/merge consumption is internal, not an orchestration API.
+See `skill://git-tool/references/verify-loop.md` for every-new-SHA policy and fixes.
 
 ## Documentation-only exemption
 
-`exempt_docs_only(repo, parent, head)` resolves commits and writes the same marker with
-`"kind":"docs-only"`, returning its `Path`, only for a nonempty diff where every changed
-path is non-runtime documentation. Allowed extensions: `.md`, `.txt`, `.png`, `.jpg`,
-`.jpeg`, `.svg`, `.gif`. Basenames `AGENTS.md`, `CLAUDE.md`, `SKILL.md` are excluded;
-so is any path containing a segment `skills`, `agents`, `rules`, `prompts`, `.agents`,
-`.claude` or `.omp`. Additions, deletions and both sides of renames are checked.
-Otherwise raise `WorkflowError` naming the first runtime path; do not write a marker.
-This exempts cross-family `prove()`, not required CI.
+```python
+exempt_docs_only(repo, parent, head, *, target_ref)
+```
+
+Uses the same whole-PR merge-base/strict-ancestry check, head-first revocation and
+atomic pass marker. Returns its Path; rejects empty diffs or the first ineligible
+path with `WorkflowError`. This is a conservative path eligibility rule, not
+inference of runtime use. Casefold all comparisons. Allow only root `README.md`,
+`CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE`, `LICENSE.md`, `LICENSE.txt`; below
+`docs/`, allow `.md`, `.txt`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.gif`.
+Exclude any segment `skills`, `agents`, `rules`, `prompts`, `commands`, `.agents`,
+`.claude`, `.omp`, `.github`; exclude basenames `SKILL.md`, `CLAUDE.md`, `CODEX.md`,
+`GEMINI.md`, `AGENTS.md`, `AGENTS.override.md` and names ending `instructions.md`.
+Check additions, deletions and both rename sides. Main must choose prove for known
+runtime-loaded content even in an otherwise eligible location. This exempts the
+verifier, never required CI; each new head needs fresh exemption evidence.
 
 ## blind_label
 
-- **Inputs**: frozen JSON batch files of `{id, ...}` cases, rubric path, labels;
-  default labellers `("scout", "task")` (Haiku vs Sol).
-- **Gate**: distinct agents, separate blind read-only sessions; two jobs per batch, at most
-  `MAX_AGENTS` per wave. Read only the batch and rubric, quote deciding evidence.
-- **Output**: `agreed` and `disputed`, keyed by `(batch index, id)`; missing/duplicate cases are
-  disputed and failed/off-schema results never count as votes. Human confirms settled labels.
+```python
+blind_label(batch_files, rubric_path, labels, labellers=("scout", "reviewer"))
+```
+
+Frozen JSON batches are a list or `{cases: [...]}` with unique nonblank string
+case IDs. Two distinct read-only agent types (only scout/reviewer) receive separate
+blind sessions containing only batch/rubric and quote deciding evidence. This
+promises read-only sessions, not a cross-family guarantee or code verification.
+Two jobs per batch, at most eight batches/16 agents; excess raises, no implicit waves.
+
+JSON-safe output uses lists: `agreed:[{batch,id,label}]`,
+`disputed:[{batch,id,votes}]`, `failed:[{batch,labeller,error}]` in input order.
+Only input IDs appear. Missing/duplicate answers remain disputed; unknown answer
+IDs invalidate the labeller's batch. Failed/off-schema results are not votes.
+The orchestrator settles disputes; a human confirms every label before writing.
+The helper itself writes no labels.
 
 ## Failure handling
 
-- Deterministic failures prevent verifier dispatch; agent failures never become a pass.
-- `prove()` returns `fail` with error text for missing/invalid `.omp/gate.json` or exceptions
-  from proofs or the verifier, and still cleans up its detached worktrees. Missing
-  `checks.commit` or `pathCheck` routes to `skill://setup-repository-guardrails`.
-- `WorkflowError` means a broken contract or cap; fix the call, never catch and continue.
-- In the source `~/.omp` repository (not the skill directory), the quality gate runs stdlib Python
-  tests after Bun with Git hook variables unset:
-  `python3 -m unittest discover -s tests -p 'test_*.py'`.
-- Add templates only for dependency-coupled owner contracts that native keywords cannot express;
-  reuse `run_check`, define a cap and stop rule, and document them here and in SKILL.md.
+Freeze raises attributed `WorkflowError` for broken contracts/infrastructure.
+Prove fails closed with JSON-safe evidence and rail/spawn errors, preserving
+follow-ups and cleaning trees/context; no automatic fix loop or fallback pass.
+Do not catch a cap/contract error and continue as if verified. Main owns changes,
+CI and follow-up routing under the canonical stage and Git contracts.
