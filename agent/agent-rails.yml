@@ -6,6 +6,7 @@ references:
     - skill://coding-guidance/references/naming.md
   test:
     - skill://test-guidance/references/tiers.md
+  # Required only when a codegraph executable is on PATH (lookup cached per session).
   discovery:
     - skill://codegraph/references/readiness-and-bootstrap.md
     - skill://codegraph/references/query-selection.md

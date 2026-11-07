@@ -99,7 +99,8 @@ interface State {
 	// Repository roots where this session edited a file matching `codeGlobs`.
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
-	authorFamilies: Set<string>;
+	authorFamilies: Map<string, string>;
+	codegraphAvailable?: boolean;
 	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
@@ -129,7 +130,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		authorFamilies: new Set(), discovered: false, pointed: false, proposal: [],
+		authorFamilies: new Map(), discovered: false, pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -358,13 +359,17 @@ function commitBypass(action: GitAction): string | undefined {
 	return action.hookSkip;
 }
 
+// Only authorship crosses factory boundaries. Registry ids connect nested child sessions to their
+// parent; all reference reads, checks and approvals remain private to each session.
+const authorLineages = new Map<string, Map<string, string>>();
+
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
 // .omp/dynaflows.json overrides it; absent both, dynaflows is off.
 export default function agentRails(
 	pi: ExtensionAPI,
 	{ machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)) }: { machineDynaflowsPath?: string } = {},
 ): void {
-	// Factories are rebound to child sessions; never share mutable policy state at module scope.
+	// Factories are rebound to child sessions; only the parent-keyed authorship registry is shared.
 	const states = new Map<string, State>();
 	let map: Mapping;
 	let loadError: string | undefined;
@@ -378,8 +383,20 @@ export default function agentRails(
 	const stateFor = (ctx: ExtensionContext) => {
 		const id = ctx.sessionManager.getSessionId();
 		let state = states.get(id);
-		if (!state) { state = fresh(); states.set(id, state); }
+		if (!state) {
+			state = fresh();
+			const parent = ctx.agent.parentId && authorLineages.get(ctx.agent.parentId);
+			if (parent) state.authorFamilies = parent;
+			states.set(id, state);
+		}
+		if (ctx.agent.id) authorLineages.set(ctx.agent.id, state.authorFamilies);
 		return state;
+	};
+	const recordAuthor = (ctx: ExtensionContext, state: State) => {
+		if (ctx.agent.parentId && !authorLineages.has(ctx.agent.parentId)) throw new Error("cannot resolve author lineage; start the child from an active parent session");
+		const model = ctx.models.current();
+		if (!model) throw new Error("cannot resolve the editing agent's model family");
+		state.authorFamilies.set(ctx.models.family(model), `${ctx.agent.name ?? ctx.agent.kind} ${ctx.agent.id ?? ctx.sessionManager.getSessionId()}`);
 	};
 	const note = (state: State, ctx: ExtensionContext, message: string) => {
 		if (state.notes.has(message)) return;
@@ -465,8 +482,34 @@ export default function agentRails(
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
 		if (!gate.pathCheck) return;
 		try {
+			const canonicalRoot = await realpath(root);
+			const candidates: string[] = [];
+			for (const path of changed) {
+				try {
+					await lstat(path);
+					const canonical = await realpath(path);
+					const rel = relative(canonicalRoot, canonical);
+					// A repository symlink escaping its root is still a repository path to check.
+					candidates.push(rel === ".." || rel.startsWith("../") || isAbsolute(rel)
+						? resolve(canonicalRoot, relative(root, path)) : canonical);
+				} catch (error) {
+					const parsed = fileErrorSchema.safeParse(error);
+					if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
+				}
+			}
+			changed = [...new Set(candidates)];
+			if (changed.length) {
+				// exec has no stdin option: pass filenames as positional arguments, never shell source.
+				const ignored = await pi.exec("sh", ["-c", 'printf "%s\\0" "$@" | git check-ignore -z --stdin', "agent-rails", ...changed], { cwd: canonicalRoot, timeout: 20000 });
+				// Fake/non-Git repositories and Git errors do not exempt any existing path.
+				if (!ignored.killed && (ignored.code === 0 || ignored.code === 1)) {
+					const excluded = new Set(ignored.stdout.split("\0").filter(Boolean));
+					changed = changed.filter(path => !excluded.has(path));
+				}
+			}
+			if (!changed.length) { state.pathFailures.delete(root); return; }
 			const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changed], {
-				cwd: root, timeout: gate.pathCheckTimeoutMs ?? 20000,
+				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? 20000,
 			});
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);
@@ -509,6 +552,7 @@ export default function agentRails(
 				? details.files.flatMap(path => absolute(path, ctx.cwd) ?? []) : [];
 			state.proposal = [];
 		}
+		if (runCheck && changed.length && event.toolName === "ast_edit") recordAuthor(ctx, state);
 		const groups = new Map<string, string[]>();
 		for (const path of changed) {
 			const root = await repoRoot(path);
@@ -532,7 +576,8 @@ export default function agentRails(
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
 		state.pathFailures = previous?.pathFailures ?? new Map();
-		state.authorFamilies = previous?.authorFamilies ?? new Set();
+		state.codegraphAvailable = previous?.codegraphAvailable;
+		state.authorFamilies = previous?.authorFamilies ?? stateFor(ctx).authorFamilies;
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
 		const calls = new Map<string, ToolEvent>();
@@ -560,8 +605,7 @@ export default function agentRails(
 		state.reads.clear(); state.discovered = false;
 	});
 	pi.on("before_subagent_spawn", async (event, ctx) => {
-		const author = ["task", "sonic", "designer"].includes(event.agent);
-		if (!author && event.agent !== "verifier") return;
+		if (event.agent !== "verifier") return;
 		const state = stateFor(ctx);
 		// Core has already expanded agent frontmatter and configured roles into patterns.
 		// Empty patterns inherit the parent model; retain every retry family's authorship.
@@ -569,15 +613,11 @@ export default function agentRails(
 			? event.patterns.map(pattern => ctx.models.resolve(pattern)).filter(model => model !== undefined)
 			: [ctx.models.current()].filter(model => model !== undefined);
 		if (!models.length) return { block: true, reason: `Agent rails: cannot resolve ${event.agent}'s model family.` };
-		if (author) {
-			for (const model of models) state.authorFamilies.add(ctx.models.family(model));
-			return;
-		}
 		// Authors are always recorded so turning dynaflows on mid-session still sees them.
 		if (!(await dynaflowsOn(ctx))) return;
 		const independent = models.filter(model => !state.authorFamilies.has(ctx.models.family(model)));
 		if (!independent.length) return {
-			block: true, reason: "Agent rails: verifier must use a different model family from every recorded author (task, sonic, designer).",
+			block: true, reason: `Agent rails: verifier must use a different model family from every recorded author: ${[...state.authorFamilies].map(([family, author]) => `${family} (${author})`).join(", ")}. Use an independent family; read-only reviews belong in reviewer/scout/verifier.`,
 		};
 		if (independent.length !== models.length) return {
 			model: independent.map(model => `${model.provider}/${model.id}`),
@@ -590,9 +630,10 @@ export default function agentRails(
 		const state = stateFor(ctx);
 		try {
 			if (map.discoveryTools.includes(event.toolName) && !state.discovered) {
+				state.codegraphAvailable ??= (await pi.exec("sh", ["-c", "command -v codegraph"], { cwd: ctx.cwd, timeout: 20000 })).code === 0;
 				const scopes = paths(event, map, ctx.cwd);
 				if (!scopes.length && !event.hasScope) scopes.push(ctx.cwd);
-				if ((await Promise.all(scopes.map(repoRoot))).some(Boolean)) {
+				if (state.codegraphAvailable && (await Promise.all(scopes.map(repoRoot))).some(Boolean)) {
 					const urls = missing(state, map, ["discovery"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
 					state.discovered = true;
@@ -617,6 +658,7 @@ export default function agentRails(
 						if (gate?.commit && !(await commitHookInstalled(action.cwd))) return {
 							block: true, reason: `Agent rails: ${root} declares checks.commit but no pre-commit hook is installed; install the repository's hook (e.g. \`pre-commit install\`, \`lefthook install\` or its documented setup), then commit.`,
 						};
+						recordAuthor(ctx, state);
 					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
@@ -627,6 +669,18 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
+						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx)) {
+							const args = action.args;
+							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
+							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
+							const reason = `Agent rails: merge requires a valid pass marker for ${head ?? "<missing 40-hex SHA>"}; use --match-head-commit <40-hex> and run prove() or exempt_docs_only() first.`;
+							if (!head || !/^[0-9a-f]{40}$/.test(head)) return { block: true, reason };
+							const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd: action.cwd, timeout: 20000 });
+							if (common.code !== 0 || common.killed) return { block: true, reason };
+							let marker: { schemaVersion?: unknown; head?: unknown; status?: unknown; kind?: unknown } | undefined;
+							try { marker = JSON.parse(await readFile(resolve(action.cwd, common.stdout.trim(), "omp-prove", `${head}.json`), "utf8")); } catch { /* Missing or corrupt proof is not a pass. */ }
+							if (marker?.schemaVersion !== 1 || marker.head !== head || marker.status !== "pass" || (marker.kind !== "prove" && marker.kind !== "docs-only")) return { block: true, reason };
+						}
 					}
 				}
 			}
@@ -654,6 +708,7 @@ export default function agentRails(
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
+			if (targets.length && !(event.toolName === "ast_edit")) recordAuthor(ctx, state);
 		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
@@ -673,15 +728,7 @@ export default function agentRails(
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
 				if (failedPaths && gate?.pathCheck) {
-					const existing: string[] = [];
-					for (const path of failedPaths) {
-						try { await lstat(path); existing.push(path); }
-						catch (error) {
-							const parsed = fileErrorSchema.safeParse(error);
-							if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
-						}
-					}
-					const error = await checkPaths(root, existing, gate, state);
+					const error = await checkPaths(root, failedPaths, gate, state);
 					if (error) reasons.push(error);
 				}
 			}
