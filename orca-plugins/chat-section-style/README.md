@@ -25,13 +25,13 @@ from a clone.
 The `mode` file names the active mode; `inject.mjs` sets it as `<html data-omp-chat-mode>`, and
 `chat.css` scopes each mode's rules to it.
 
-- `document` (default): Flat page: no reply card, no section edges, a hairline divider above each
+- `document`: Flat page: no reply card, no section edges, a hairline divider above each
   bold section lead-in. Embeds keep neutral frames; type shows in the tinted code/table header and
   the coloured language label.
 - `split-cards`: Each run of text sits in a card; tables, code and visuals leave the card and sit on
   the canvas between cards with a coloured top edge. ID sections show an inset edge in their hue.
-- `gutter`: No cards or edges. A coloured dot in the left gutter starts each ID section. Embeds are
-  soft borderless surfaces; tables carry a small TABLE label.
+- `gutter` (default): No cards or edges. A coloured dot in the left gutter starts each ID section.
+  Embeds are soft borderless surfaces; tables carry a small TABLE label.
 - `editorial`: No cards. Prose fills the column like the other modes; hairlines span the column
   above K sections only. Each section heading hangs a glyph in the left gutter (◆ K, ▲ C, ✚ S, ● F,
   ↔ R, ◇ A) beside a letter prefix. Embeds are borderless soft panels whose TABLE/YAML/BASH/DIAGRAM
