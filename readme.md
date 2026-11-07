@@ -106,6 +106,24 @@ source.
    registration checks alone are not behavioral proof.
 5. Keep the durable source concise and leave generated runtime state untracked.
 
+## Device rollout
+
+Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
+`~/.omp` and `~/.agents` revisions (never pull either local checkout), fast-forward
+clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
+Untracked remote files are preserved; tracked changes block pulls. Use `--check`
+to fetch and report only, without pulls or service starts. The table exits nonzero
+for stale, failed, unreachable, dirty-blocked, or behind-`main` deployments.
+Hosts and paths live in `scripts/device-rollout-hosts.json`.
+
+The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
+`nuc-config` and `omp-config-pull.service`; this command never runs Git in or
+copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
+`agent/nuc-sync-<date>` PR merging `main` into `nuc-config`, merge it, then rerun
+the command to start the service and compare the deployed revision. The script
+never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2; only its
+`~/.agents` checkout is a rollout target.
+
 ## NUC gate (CI)
 
 The owner's Linux NUC runs exact-SHA gates in rootless Podman with gVisor.
