@@ -198,26 +198,26 @@
       <div class="card sonnet"><b>designer (Sonnet 5.5)</b><span>presentational changes only; scores its layout against a 10-point design-judgement rubric and inspects screenshots</span></div></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
-      <div class="card sol"><b>task (Sol): verifies designer work</b><span>agent-rails records <code>designer</code> as a Sonnet author, so a Sonnet verifier is not independent; a read-only brief keeps the Sol task from editing</span></div>
+      <div class="card sol"><b>task (Sol): verifies designer work</b><span>a designer that edits records its actual model family; a read-only task review records no authorship</span></div>
       <div class="card sol"><b>task (Sol): fix</b><span>for each blocking finding</span></div></div>
     <div class="cell"></div>
 
     <!-- agent-rails -->
     <div class="lane">agent-rails<small>extension hooks</small></div>
     <div class="cell"><span class="lanelabel">agent-rails</span><div class="card gate"><b>before_agent_start</b><span><code>$dynaflows [on|off]</code> sets dynaflows (repo <code>.omp/dynaflows.json</code> over <code>~/.omp/dynaflows.json</code>, default off). Dynaflows on only: hidden pointer “Route this work with omp-dyna-workflows”, plus guardrail sign-off brief when <code>gate.json</code> lacks <code>checks.commit</code>/<code>pathCheck</code></span></div></div>
-    <div class="cell"><span class="lanelabel">agent-rails</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>blocked until both codegraph refs read. No spike exemptions: spikes live in detached worktrees outside the repo</span></div></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span><div class="card block"><b>tool_call: find/grep/glob/ast_grep</b><span>with codegraph on PATH: blocked until both refs read. Availability cached per session; compaction still resets reference reads</span></div></div>
     <div class="cell"></div>
     <div class="cell"><span class="lanelabel">agent-rails</span>
       <div class="card block"><b>tool_call: write/edit</b><span>no <code>pathCheck</code>: first code edit, new file, test file each need their ref</span></div>
-      <div class="card gate"><b>tool_result: pathCheck</b><span>repo path check runs after each edit; a failure is kept</span></div>
+      <div class="card gate"><b>tool_result: pathCheck</b><span>checks existing, non-ignored paths after each edit; stale failures are filtered before every retry; canonical realpaths avoid /tmp aliases</span></div>
       <div class="card block"><b>tool_call: bash git</b><span>commit/push/merge/rebase/cherry-pick, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code> need <code>skill://git-tool</code></span></div>
-      <div class="card block"><b>before_subagent_spawn: author families</b><span>records the model family of every <code>task</code>, <code>sonic</code>, <code>designer</code> child</span></div>
+      <div class="card block"><b>tool_call: actual authors</b><span>an edit or git commit records the current family, shared through parent/child registry ids; read-only task spawns record nothing</span></div>
       <div class="card block"><b>tool_call: guardrail sign-off (dynaflows)</b><span>incomplete guardrails: <code>.omp/gate.json</code> and <code>.omp/guardrail-proposal.json</code> paths blocked until an <code>ask</code> about guardrails is answered “Minimal” or “Full”</span></div></div>
     <div class="cell"><span class="lanelabel">agent-rails</span>
       <div class="card block"><b>before_subagent_spawn: verifier (dynaflows)</b><span>blocked when its family equals any recorded author family</span></div>
       <div class="card block"><b>tool_call: git commit</b><span>always: blocks <code>--no-verify</code>/<code>-n</code>, <code>core.hooksPath</code> overrides and any assignment, export or unset of a hook-skip variable in the same command; blocks commits when <code>checks.commit</code> is declared but no executable pre-commit hook is installed</span></div>
       <div class="card block"><b>session_stop (main only)</b><span>verification ref read after this session's code edits · failed pathCheck passes. Never requires a check run</span></div></div>
-    <div class="cell"></div>
+    <div class="cell"><span class="lanelabel">agent-rails</span><div class="card block"><b>gh pr merge (dynaflows)</b><span>requires <code>--match-head-commit &lt;40-hex&gt;</code> and a pass marker for that SHA from <code>prove()</code> or <code>exempt_docs_only()</code>, under the repository Git common directory</span></div></div>
 
     <!-- Jev -->
     <div class="lane">Jev TTSR rules<small>main only; subagents get refs via briefs and agent-rails blocks</small></div>
@@ -285,7 +285,7 @@
   </div>
   <div class="back">↺ Any new head SHA repeats 01–03 (minor fix or rebase: one <code>prove()</code> and, for <code>ciHost: nuc</code>, a fresh submit and wait; wording-only change to non-runtime docs: none). After three fix rounds the loop stops and escalates to the owner.</div>
   <div class="tiers">
-    <div class="card gh"><b>Docs-only (non-runtime)</b><span>merge on green. Skills, rules, agent definitions, AGENTS.md and prompt files are code, not docs.</span></div>
+    <div class="card gh"><b>Docs-only (non-runtime)</b><span><code>exempt_docs_only()</code> records the exact-head pass marker; merge on green. Skills, rules, agent definitions, AGENTS.md and prompt files are code, not docs.</span></div>
     <div class="card gate"><b>Everything else</b><span>one cross-family <code>prove()</code>, then the main agent merges.</span></div>
   </div>
 </section>
@@ -295,12 +295,13 @@
   <table>
     <thead><tr><th>Hook</th><th>Fires on</th><th>Requires</th><th>Skipped when</th></tr></thead>
     <tbody>
-      <tr><td><span class="pill">tool_call</span> discovery</td><td>first <code>find/grep/glob/ast_grep</code> in a git repo</td><td><code>codegraph</code> readiness + query-selection read</td><td>outside git repos; after first success (reset on compaction)</td></tr>
+      <tr><td><span class="pill">tool_call</span> discovery</td><td>first <code>find/grep/glob/ast_grep</code> in a git repo with codegraph on PATH</td><td>codegraph readiness + query-selection read; executable lookup cached per session</td><td>codegraph unavailable; outside repos; after success (reads reset on compaction)</td></tr>
       <tr><td><span class="pill">tool_call</span> edit</td><td><code>write/edit/ast_edit</code></td><td>first code edit → implementation-integrity; new file → structure + naming; test path → tiers</td><td>repo has <code>pathCheck</code> (the repo check replaces the refs)</td></tr>
-      <tr><td><span class="pill">tool_result</span> path</td><td>after an edit, repo has <code>pathCheck</code></td><td>check passes; failures persist to handoff</td><td>deleted failed paths are dropped</td></tr>
+      <tr><td><span class="pill">tool_result</span> path</td><td>after an edit, repo has <code>pathCheck</code></td><td>all existing non-ignored repo paths pass; canonical realpaths; live failures persist to handoff</td><td>missing and Git-ignored paths dropped before every check, including retries</td></tr>
       <tr><td><span class="pill">tool_call</span> git</td><td><code>commit</code>/<code>push</code>/<code>merge</code>/<code>rebase</code>/<code>cherry-pick</code>, <code>worktree add</code>, <code>switch -c</code>, <code>checkout -b</code>, <code>gh pr create|merge</code>, incl. <code>sudo</code>, <code>bash -c</code>, <code>cd x &amp;&amp;</code>, <code>git -C</code></td><td><code>skill://git-tool</code> read; push/<code>gh pr</code> also need <code>agentMerge</code> ≠ disabled and, if <code>.omp/gate.json</code> exists, a valid one (a missing file is allowed; only an invalid one blocks)</td><td>everything else, e.g. plain <code>git branch</code>, <code>git status/log/diff</code>, <code>gh pr view</code>, <code>gh pr checks</code></td></tr>
-      <tr><td><span class="pill">before_subagent_spawn</span> cross-family <em>(new)</em></td><td>spawn of <code>verifier</code></td><td>resolved family differs from every <code>task</code>, <code>sonic</code>, <code>designer</code> child spawned this session; an other-family model is returned when the API allows, else the spawn is blocked</td><td>no author spawned yet this session</td></tr>
+      <tr><td><span class="pill">before_subagent_spawn</span> cross-family</td><td>spawn of <code>verifier</code> with dynaflows on</td><td>family differs from every actual editor or committer in the parent/child lineage; removes same-family fallbacks or blocks with author identities</td><td>dynaflows off; no actual authors yet; read-only spawns do not record authors</td></tr>
       <tr><td><span class="pill">tool_call</span> git commit</td><td>any <code>git commit</code></td><td>no hook bypass (<code>--no-verify</code>, <code>-n</code>, <code>core.hooksPath</code>; any assignment, export, unset or <code>env -u</code> of <code>LEFTHOOK</code>, <code>HUSKY</code>, <code>SKIP</code>, <code>PRE_COMMIT_ALLOW_NO_CONFIG</code>, <code>GIT_CONFIG_PARAMETERS</code>, <code>GIT_CONFIG_COUNT</code>, whatever the value); an executable pre-commit hook when <code>checks.commit</code> is declared</td><td>repos without <code>checks.commit</code> (bypass flags still blocked); variables exported by an earlier command</td></tr>
+      <tr><td><span class="pill">tool_call</span> gh pr merge</td><td>dynaflows on</td><td><code>--match-head-commit</code> with a 40-hex SHA and valid schema-1 pass marker for that SHA in <code>git-common-dir/omp-prove/</code>; run <code>prove()</code> or <code>exempt_docs_only()</code></td><td>dynaflows off</td></tr>
       <tr><td><span class="pill">session_stop</span></td><td>main agent tries to finish</td><td>verification ref read after code edits; failed paths pass. No check run is required</td><td>subagents</td></tr>
     </tbody>
   </table>
