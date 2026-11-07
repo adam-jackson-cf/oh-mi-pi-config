@@ -19,14 +19,19 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    Make missing proof surfaces first tasks; keep plan draft until spike answers land.
    Read `skill://test-guidance/references/tiers.md` and
    `skill://test-guidance/references/suite-budget.md` before selecting coverage.
+   Passing-at-baseline freeze returns to Plan: criterion already met (report, no PR) or reuse
+   existing tracked tests as preserve; never weaken a proof into red.
 4. **Implement**: require `.omp/gate.json` with `checks.commit` and `pathCheck`, otherwise read
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; start `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new paths/names.
-   Spawn `task` for proof surfaces/files, commit proofs through the hook, then main calls `freeze()`;
-   separately spawn implementation `task`. Read
+   Proof `task` writes uncommitted files; main calls `freeze()` before implementation `task`.
+   Both run non-isolated, sequentially, with absolute paths in the dedicated agent worktree.
+   Implementation task commits proofs with their greening change (default: one atomic commit);
+   main never commits. No proof enters history earlier. Split only if every earlier commit
+   passes the hook with all proof files present. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md` and
    `skill://omp-dyna-workflows/references/patterns.md`; run `prove()` at code-ready head.

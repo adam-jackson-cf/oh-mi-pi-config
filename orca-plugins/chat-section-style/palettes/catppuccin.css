@@ -1,0 +1,115 @@
+/* Palette contract (all variables required in light and dark on :root[data-omp-chat-palette]):
+   For KIND = key, gap, suggestion, related, decision, review:
+   --omp-id-KIND: section hue; --omp-id-KIND-ink: inline ID foreground;
+   --omp-id-KIND-tint: inline ID background; --omp-ed-KIND: editorial heading hue;
+   --omp-ed-KIND-ink: editorial inline ID foreground.
+   --embed-code, --embed-command, --embed-table, --embed-diagram: media hues.
+   Custom highlight var() resolves from the originating element in headless Chrome;
+   chat.css owns highlight rules. Editorial aliases are resolved on the chat window
+   (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
+:root[data-omp-chat-palette='catppuccin'] {
+  --omp-id-key: #316be1;
+  --omp-id-key-ink: #1954c9;
+  --omp-id-key-tint: rgb(30 102 245 / 14%);
+  --omp-ed-key: color-mix(in srgb, #1e66f5 74%, var(--chat-foreground-strong));
+  --omp-ed-key-ink: color-mix(in srgb, #1e66f5 62%, #000);
+  --omp-id-gap: #c1254b;
+  --omp-id-gap-ink: #aa2445;
+  --omp-id-gap-tint: rgb(210 15 57 / 12%);
+  --omp-ed-gap: color-mix(in srgb, #d20f39 74%, var(--chat-foreground-strong));
+  --omp-ed-gap-ink: color-mix(in srgb, #d20f39 62%, #000);
+  --omp-id-suggestion: #4c9940;
+  --omp-id-suggestion-ink: #2b6c1d;
+  --omp-id-suggestion-tint: rgb(64 160 43 / 14%);
+  --omp-ed-suggestion: color-mix(in srgb, #40a02b 60%, var(--chat-foreground-strong));
+  --omp-ed-suggestion-ink: color-mix(in srgb, #40a02b 62%, #000);
+  --omp-id-related: #2b8e98;
+  --omp-id-related-ink: #179299;
+  --omp-id-related-tint: rgb(23 146 153 / 14%);
+  --omp-ed-related: color-mix(in srgb, #179299 85%, var(--chat-foreground-strong));
+  --omp-ed-related-ink: color-mix(in srgb, #179299 62%, #000);
+  --omp-id-decision: #8647dd;
+  --omp-id-decision-ink: #8839ef;
+  --omp-id-decision-tint: rgb(136 57 239 / 12%);
+  --omp-ed-decision: color-mix(in srgb, #8839ef 80%, var(--chat-foreground-strong));
+  --omp-ed-decision-ink: color-mix(in srgb, #8839ef 62%, #000);
+  --omp-id-review: #e46926;
+  --omp-id-review-ink: #93491f;
+  --omp-id-review-tint: rgb(254 100 11 / 14%);
+  --omp-ed-review: color-mix(in srgb, #fe640b 56%, var(--chat-foreground-strong));
+  --omp-ed-review-ink: color-mix(in srgb, #fe640b 58%, #000);
+  --embed-code: #209fb5;
+  --embed-command: #40a02b;
+  --embed-table: #df8e1d;
+  --embed-diagram: #ea76cb;
+  /* Blue slate: slate mixed with lavender, darkened to 4.8:1 on Latte surfaces; distinct from body text and K blue. */
+  --omp-accent: #58619a;
+  /* Turn-status dividers: Latte mauve, pale. */
+  --omp-status-rule: rgb(136 57 239 / 30%);
+}
+:root[data-omp-chat-palette='catppuccin'].dark {
+  --omp-accent: #a5addc;
+  --omp-status-rule: rgb(203 166 247 / 35%);
+  --omp-id-key: #89b4fa;
+  --omp-id-key-ink: #98bffb;
+  --omp-id-key-tint: rgb(137 180 250 / 16%);
+  --omp-ed-key: #89b4fa;
+  --omp-ed-key-ink: #89b4fa;
+  --omp-id-gap: #f38ba8;
+  --omp-id-gap-ink: #f598b1;
+  --omp-id-gap-tint: rgb(243 139 168 / 16%);
+  --omp-ed-gap: #f38ba8;
+  --omp-ed-gap-ink: #f38ba8;
+  --omp-id-suggestion: #a6e3a1;
+  --omp-id-suggestion-ink: #a6e3a1;
+  --omp-id-suggestion-tint: rgb(166 227 161 / 16%);
+  --omp-ed-suggestion: #a6e3a1;
+  --omp-ed-suggestion-ink: #a6e3a1;
+  --omp-id-related: #94e2d5;
+  --omp-id-related-ink: #94e2d5;
+  --omp-id-related-tint: rgb(148 226 213 / 16%);
+  --omp-ed-related: #94e2d5;
+  --omp-ed-related-ink: #94e2d5;
+  --omp-id-decision: #cba6f7;
+  --omp-id-decision-ink: #cba6f7;
+  --omp-id-decision-tint: rgb(203 166 247 / 16%);
+  --omp-ed-decision: #cba6f7;
+  --omp-ed-decision-ink: #cba6f7;
+  --omp-id-review: #fab387;
+  --omp-id-review-ink: #fab387;
+  --omp-id-review-tint: rgb(250 179 135 / 16%);
+  --omp-ed-review: #fab387;
+  --omp-ed-review-ink: #fab387;
+  --embed-code: #74c7ec;
+  --embed-command: #a6e3a1;
+  --embed-table: #f9e2af;
+  --embed-diagram: #f5c2e7;
+}
+
+:root[data-omp-chat-palette='catppuccin']:not(.dark) [data-native-chat-window] {
+  --omp-ed-key: color-mix(in srgb, #1e66f5 74%, var(--chat-foreground-strong));
+  --omp-ed-gap: color-mix(in srgb, #d20f39 74%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(in srgb, #40a02b 60%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(in srgb, #179299 85%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(in srgb, #8839ef 80%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(in srgb, #fe640b 56%, var(--chat-foreground-strong));
+}
+
+/* Light, non-editorial modes: label/inline-code embed hues and the accent are used directly as text, so they are darkened to 4.5:1.
+   Editorial mixes these toward black itself and already passes, so it keeps the original hues. */
+:root[data-omp-chat-palette='catppuccin']:not(.dark):not([data-omp-chat-mode='editorial']) {
+  --embed-code: #156a78;
+  --embed-command: #2d701e;
+  --embed-table: #885712;
+  --embed-diagram: #924a7f;
+}
+
+/* Editorial light: a calmer blue-teal for code chips and the language label (editorial mixes it toward black for the label). */
+:root[data-omp-chat-palette='catppuccin'][data-omp-chat-mode='editorial']:not(.dark) {
+  --embed-code: #4094a9;
+}
+
+/* Dark: Orca's muted source ink falls just under 4.5:1 on split-cards; Mocha subtext1. */
+:root[data-omp-chat-palette='catppuccin'].dark .native-chat-appearance {
+  --chat-source-muted-foreground: #c6cee9;
+}

@@ -175,8 +175,8 @@
       <div class="card opus"><b>Writes the proof manifest</b><span>every criterion → proof; missing proof surface becomes the first tasks. Draft until the spike is done</span></div></div>
     <div class="cell"><span class="lanelabel">Main agent</span>
       <div class="card opus"><b>Writes the task briefs</b><span>never edits code itself</span></div>
-      <div class="card opus"><b>Calls <code>freeze()</code></b><span>runs proof commands and the commit gate, then records proof-file and manifest hashes between the two task spawns</span></div>
-      <div class="card opus"><b>Commits through the hook</b><span>the pre-commit hook runs <code>checks.commit</code>; never bypassed</span></div></div>
+      <div class="card opus"><b>Calls <code>freeze()</code></b><span>hashes uncommitted proof files; runs each alone at its pinned baseline before implementation</span></div>
+      <div class="card opus"><b>Main never commits</b><span>sequential non-isolated tasks in the dedicated agent worktree</span></div></div>
     <div class="cell"><span class="lanelabel">Main agent</span>
       <div class="card opus"><b>Calls <code>prove()</code></b><span>full run once at the code-ready head</span></div>
       <div class="card opus"><b>Applies the blocking rule</b><span>findings → fix task, ≤3 rounds</span></div></div>
@@ -193,8 +193,8 @@
       <div class="card haiku"><b>scout (Haiku)</b><span>read-only mapping when files are unknown</span></div></div>
     <div class="cell"></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
-      <div class="card sol"><b>task (Sol): proof task</b><span>proof surface + proof files on <code>agent/&lt;slug&gt;</code></span></div>
-      <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn after <code>freeze()</code> succeeds; edits, tests, commits</span></div>
+      <div class="card sol"><b>task (Sol): proof task</b><span>writes uncommitted proof files on <code>agent/&lt;slug&gt;</code>; main freezes them</span></div>
+      <div class="card sol"><b>task (Sol): implementation task</b><span>separate spawn after freeze; commits proofs + greening change atomically through the hook, never earlier. Split only when every earlier commit passes with all proofs present.</span></div>
       <div class="card sonnet"><b>designer (Sonnet 5.5)</b><span>presentational changes only; scores its layout against a 10-point design-judgement rubric and inspects screenshots</span></div></div>
     <div class="cell"><span class="lanelabel">Subagents</span>
       <div class="card sonnet"><b>verifier (Sonnet)</b><span>other family than every author; interprets results, drives each criterion live, checks changed doc lines, report-only scope audit; never edits</span></div>
@@ -277,9 +277,9 @@
   <div class="loop">
     <div class="step"><div class="n">01</div><b><code>prove()</code> steps</b><br><span class="note">manifest hash, proofs twice at head, parent overlay, gate-change scan</span></div>
     <div class="step"><div class="n">02</div><b>Verifier</b><br><span class="note">other family than every author; drives each criterion live, checks changed doc lines; findings carry command + output</span></div>
-    <div class="step"><div class="n">03</div><b>Blocking rule</b><br><span class="note">block only on a failing run at head, failed gate, wrong doc line, copied defect, missing/weakened proof, loosening the objective does not call for; the rest is a follow-up note</span></div>
+    <div class="step"><div class="n">03</div><b>Blocking rule</b><br><span class="note">block failing head runs, wrong docs, copied defects, missing/weakened proofs and uncalled-for loosening; a changed gate path is not itself a blocker; failed gates and unauthorized weakening are. The rest is follow-up.</span></div>
     <div class="step"><div class="n">04</div><b>Fix via task</b><br><span class="note">main never patches; ≤3 rounds; commits run <code>checks.commit</code></span></div>
-    <div class="step"><div class="n">05</div><b>Re-prove</b><br><span class="note">one <code>prove()</code> on the new head; may skip reruns whose <code>git patch-id</code> is unchanged</span></div>
+    <div class="step"><div class="n">05</div><b>Re-prove</b><br><span class="note">every changed head runs a full <code>prove()</code></span></div>
     <div class="step"><div class="n">06</div><b>Evidence + label</b><br><span class="note">results on the PR, then <code>agent-verified</code></span></div>
     <div class="step"><div class="n">07</div><b>Merge, record, continue</b><br><span class="note"><code>gate</code> green on head; rebase-merge with <code>--match-head-commit</code>, confirm MERGED; record merge-SHA CI (NUC: submit), no post-merge wait. Before next merge: latest default CI success permits, pending waits (NUC: wait), failed/cancelled stops for red-main recovery; recovery waits for green.</span></div>
   </div>
@@ -337,7 +337,7 @@
         <li><span class="tag k-check">deterministic</span><span><code>prove()</code> manifest and proof-file hashes</span></li>
         <li><span class="tag k-instr">instruction</span><span>proof task is spawned before the implementation task.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">04</span><h3>Red for the right reason, green twice</h3>
-      <p class="why">A <code>defect</code> proof that passes on the parent proves nothing, and one that passes once may be flaky. <code>preserve</code> proofs must pass at the parent; <code>new-surface</code> red at the parent is true by definition.</p>
+      <p class="why">Defect proofs must fail for the asserted reason at baseline, with a truncated-file negative control; preserve proofs pass there; new-surface proofs must not pass (not evidence of absence). All pass twice at head.</p>
       <div class="where"><ul class="kinds" role="list">
         <li><span class="tag k-check">deterministic</span><span><code>prove()</code> parent overlay (<code>expectRed</code> substring) and two head runs.</span></li></ul></div></li>
     <li class="principle"><span class="n" aria-hidden="true">05</span><h3>Independent, cross-family verification</h3>

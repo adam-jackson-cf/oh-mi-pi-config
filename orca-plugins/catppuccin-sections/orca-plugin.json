@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 2,
+  "id": "catppuccin-sections",
+  "name": "Catppuccin Sections",
+  "version": "0.1.0",
+  "description": "Catppuccin Latte/Mocha with clearer chat sections: tinted user messages, teal-slate activity text, stronger borders.",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.246"
+  },
+  "execution": "data",
+  "contributes": {
+    "themes": [
+      {
+        "id": "catppuccin-sections-mocha",
+        "title": "Catppuccin Sections Mocha",
+        "path": "themes/mocha.json"
+      },
+      {
+        "id": "catppuccin-sections-latte",
+        "title": "Catppuccin Sections Latte",
+        "path": "themes/latte.json"
+      }
+    ]
+  }
+}
