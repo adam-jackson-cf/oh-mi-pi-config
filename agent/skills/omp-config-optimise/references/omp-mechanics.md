@@ -64,8 +64,7 @@ the docs live at `omp://models.md`, `omp://settings.md`,
 
 ## Files and runtime
 
-- `agent/agents/` is a tracked directory in this repo; `~/.agents/roles` is a
-  symlink to it for other consumers.
+- `agent/agents/` is a tracked directory in this repo; OMP loads agents from it directly.
 - New tracked agents or skills need a `.gitignore` allowlist entry.
 - Restart OMP after changing config, agents, skills, or extensions; running
   processes keep stale state. Task and eval preflight reload settings per
