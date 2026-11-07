@@ -1,53 +1,37 @@
 # Multi-phase playbook
 
-## Objective
+Land independent verified units behind a flag, not long-lived or stacked branches.
 
-Land independently proven increments behind a flag, not long-lived or stacked branches.
+Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
+only the deltas below belong here. Ordinary implementation cannot skip its
+owner-approved project-setup prerequisite. Helper mechanics live in
+[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
 
-## Steps
+## 1. Frame
 
-1. **Frame**: define end-to-end criteria and split independently verifiable units, each with
-   outcome, dependencies, criteria and one PR. State a flag removal criterion; use `kiss`
-   to cut criteria/questions. Read `skill://codegraph/references/readiness-and-bootstrap.md`
-   before discovery, then `skill://codegraph/references/query-selection.md` to map owners,
-   callers and dependency order. A unit waits only when it actually builds on another.
-2. **Spike**: for unanswered plan-changing questions, read `skill://git-tool` and
-   `skill://omp-dyna-workflows/references/patterns.md`; declare predicates, side effects
-   and timebox. Non-isolated `task` uses absolute paths in a detached scratch worktree;
-   report commands, outputs and failures, then discard all spike code. Prototype race only
-   when built results distinguish options; council only when no prototype can settle it.
-3. **Plan**: read `skill://omp-dyna-workflows/references/patterns.md`,
-   `skill://test-guidance/references/tiers.md` and
-   `skill://test-guidance/references/suite-budget.md`; map every unit's criteria to named
-   manifest proofs, missing proof surfaces first. Use `defect` plus `expectRed` for fixes,
-   `preserve` for refactors, `new-surface` for absent APIs. Keep plan draft until spike ends.
-   Read `skill://coding-guidance/references/clean-cutovers.md` for replacing units and
-   `skill://coding-guidance/references/regression-coverage.md` for defect-class coverage.
-   Passing-at-baseline freeze returns to Plan: criterion already met (report, no PR) or reuse
-   existing tracked tests as preserve; never weaken a proof into red.
-4. **Implement**: require `.omp/gate.json` `checks.commit` and `pathCheck`; otherwise read
-   `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
-   `skill://git-tool/references/branch-and-integrate.md`; one writer per short-lived
-   `agent/<slug>` branch from default, never spike. Parallelize only independent units with
-   explicit interfaces. Read `skill://coding-guidance/references/implementation-integrity.md`,
-   `skill://coding-guidance/references/structure-and-grouping.md` and
-   `skill://coding-guidance/references/naming.md` before edits/new or moved paths/names.
-   Per unit, proof `task` writes uncommitted files; main calls `freeze()` before implementation
-   `task`. Both run non-isolated, sequentially, with absolute paths in the dedicated worktree.
-   Implementation task commits proofs with their greening change (default: one atomic commit);
-   main never commits. No proof enters history earlier. Split only if every earlier commit
-   passes the hook with all proof files present. Land green flagged increments; migrate callers
-   and delete obsolete paths in the canonical cutover unit. Read
-   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` per
-   code-ready unit, proofs green twice at head and parent evidence by kind. Cross-family
-   verifier drives criteria and checks affected docs under the blocking rule; prove combined
-   end-to-end criteria before flag removal.
-6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
-   `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   each unit with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
-   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
-   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
-   which still waits for green. Target same-day merge; no stacked or long-lived branches.
-   Re-verify fixes/rebases once at new head per verify loop. Remove the flag when its declared
-   criterion is met.
+Split end-to-end criteria into unit outcomes, dependencies and PRs; declare the flag
+removal criterion. A unit waits only on a real dependency.
+
+## 2. Spike
+
+Resolve unanswered cross-unit questions before committing to interfaces.
+
+## 3. Plan
+
+One manifest/slug `<epic>-<unit>` per unit PR. Choose defect, preserve or new-surface
+by actual behaviour. Name a final flag-removal/cutover unit with its own end-to-end
+proofs, not an unverified closing edit.
+
+## 4. Implement
+
+Run shared stage 4 for every unit with a separate implementation task. Main
+coordinates independent units; the final unit writer removes the flag and obsolete paths.
+
+## 5. Verify
+
+Each unit, including final flag removal, gets its own prove and exact-head CI.
+Final proofs cover combined end-to-end behaviour.
+
+## 6. Integrate
+
+Integrate units serially in dependency order; no long-lived or stacked branches.

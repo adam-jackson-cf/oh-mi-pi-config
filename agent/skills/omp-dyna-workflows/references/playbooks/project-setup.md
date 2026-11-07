@@ -1,47 +1,38 @@
 # Project setup playbook
 
-## Objective
+Establish owner-approved controls as a prerequisite PR before ordinary implementation resumes.
 
-Establish approved guardrails with canary proofs and one shared local/CI gate contract.
+Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
+only the deltas below belong here. Ordinary implementation cannot skip its
+owner-approved project-setup prerequisite. Helper mechanics live in
+[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
 
-## Steps
+## 1. Frame
 
-1. **Frame**: identify stack, setup outcome, existing work and acceptance criteria;
-   use `kiss` to cut criteria and plan-changing questions. Read
-   `skill://codegraph/references/readiness-and-bootstrap.md` before discovery, then
-   `skill://codegraph/references/query-selection.md` to inventory controls and owners.
-2. **Spike**: read `skill://setup-repository-guardrails` for inventory, rule mapping,
-   candidates and dry runs. Read `skill://git-tool` and
-   `skill://omp-dyna-workflows/references/patterns.md` for remaining questions: declared
-   predicates/side effects/timebox, detached scratch worktree, non-isolated `task` with
-   absolute paths. Report evidence and discard spike code. Honour guardrails' STOP for
-   explicit owner approval before applying controls.
-3. **Plan**: read `skill://omp-dyna-workflows/references/patterns.md` and
-   `skill://test-guidance/references/tiers.md`; map criteria to guardrail canary proofs
-   (intentional violations rejected and valid inputs accepted). Fill canary driver/fixture
-   gaps first; use `new-surface` for new controls and `preserve` for existing controls.
-   Keep plan draft until spike answers land.
-4. **Implement**: read `skill://git-tool/references/branch-and-integrate.md`; branch
-   `agent/<slug>` from default, never spike. Read
-   `skill://coding-guidance/references/implementation-integrity.md`,
-   `skill://coding-guidance/references/structure-and-grouping.md` and
-   `skill://coding-guidance/references/naming.md` before edits/paths/names.
-   Proof `task` writes uncommitted files; main calls `freeze()` before implementation `task`.
-   Both run non-isolated, sequentially, with absolute paths in the dedicated agent worktree.
-   Implementation task commits proofs with their greening change (default: one atomic commit);
-   main never commits. No proof enters history earlier. Split only if every earlier commit
-   passes the hook with all proof files present. Read `skill://setup-repository-guardrails`; apply approved
-   controls, establish `.omp/gate.json` with `schemaVersion: 2`, `checks.commit`, `checks.ci`,
-   `pathCheck` and an installed pre-commit hook as the prerequisite for ordinary
-   implementation. Wire `checks.commit` into the hook and `checks.ci` into CI on `ciHost`;
-   remove only approved replaced controls. Read
-   `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
-5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
-   canaries green twice at head, parent checks by kind and a cross-family live verifier.
-   List guardrail/gate-file changes under **Gate changes** in the PR description.
-6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
-   `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI (NUC: submit), and
-   continue without waiting. Before the next merge, check latest default CI: success permits;
-   pending waits (NUC: wait); failure/cancellation stops for red-main recovery, which still waits
-   for green. Fixes/rebases receive one verification on new head per the verify loop.
+Identify stack, protected work, missing controls and owners. Read `skill://setup-repository-guardrails`.
+
+## 2. Spike
+
+Inventory is mandatory: use setup Step 0 target/safety, Steps 1–2 inventory/rule
+mapping, Step 3 candidates and Step 4 dry-run impact. Scratch work prepares the
+Step 5 approval; do not apply controls during inventory.
+
+## 3. Plan
+
+Map canary criteria to new-surface proofs for new controls and preserve proofs
+for existing controls, including intentional violations rejected and valid inputs
+accepted. Complete explicit owner approval at setup Step 5 before application.
+
+## 4. Implement
+
+Invoke setup Step 6 approved application, then Step 7 rule coverage verification.
+Install the approved hook before the first commit. Bootstrap is the exception to
+needing completed controls before proposing/installing them, not an approval bypass.
+
+## 5. Verify
+
+Use canary/live evidence under the shared contract.
+
+## 6. Integrate
+
+Complete this prerequisite PR before returning to Frame of the original request.
