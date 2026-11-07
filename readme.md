@@ -83,8 +83,9 @@ prompts do not create repository overrides. With dynaflows on, rails injects the
 workflow pointer, requires guardrail owner approval and enforces verifier family
 independence against persistent per-change recorded repository editors/committers,
 scoped to real worktree and branch. Arbitrary bash-written authors are not detected.
-Subagent edit paths must be absolute and inside an enclosing Git root; selecting
-the assigned worktree remains an instruction, not a path-rail guarantee.
+Subagent filesystem edit paths must be absolute and cannot escape enclosing Git
+roots through symlinks; outside-repo scratch paths and internal URIs are allowed.
+Selecting the assigned worktree remains an instruction, not a path-rail guarantee.
 Helper contracts live in [patterns](agent/skills/omp-dyna-workflows/references/patterns.md);
 Git/PR/CI/merge authority lives in `skill://git-tool`.
 

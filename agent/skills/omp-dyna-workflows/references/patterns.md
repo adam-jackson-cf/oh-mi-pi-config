@@ -134,8 +134,8 @@ Prove creates the sole `agent='verifier'` dispatch with objective, labelled sour
 fetched target, full parent/head range, pinned per-proof trees, manifest, recorded
 authors, deterministic evidence and `BLOCKING_RULE` from `templates/workflows.py`.
 Apply that constant, not a second prose blocker list. Each run's brief output is
-limited to 4096 characters with an explicit truncation/full-evidence-path marker;
-full output remains in the supplied `deterministic.json` during verification.
+limited to its last 4096 characters, prefixed with an explicit truncation/full-evidence-path
+marker when needed; full output remains in the supplied `deterministic.json` during verification.
 The read-only verifier drives criteria live, with exact command/observed/required
 output; no edits or agent spawns. Criteria entries cover every known proof ID;
 unknown IDs block, multiple entries for a known ID are allowed, and any fail blocks.
@@ -146,9 +146,12 @@ Provenance persists per real worktree/full branch ref, not session lineage:
 `<git-common-dir>/omp-authors/<sha256(worktree + "\0" + branch)>.json`, UTF-8 input,
 with `{schemaVersion:1, worktree, branch, authors:[{family, model, agent}]}`.
 `worktree` is realpath; `branch` is `refs/heads/...`; authors are sorted/deduped.
-Rails owns atomic writes and model/family resolution. Detached spikes and other
-branches do not authorize this change. Prove reads the ledger into result/brief;
-missing ledger with commits in the range fails closed as authorship unknown.
+Rails owns atomic writes and model/family resolution. Editing/committing sessions
+must run this version of agent-rails to record provenance; prove does not create
+or backfill a ledger from commit metadata. Detached spikes and other branches do
+not authorize this change. Prove reads the ledger into result/brief. A missing,
+empty, malformed, unsorted or unreadable ledger fails closed as authorship unknown;
+do not fabricate one to unblock verification.
 
 Immediately before dispatch prove atomically writes
 `<git-common-dir>/omp-prove/verifier-context.json` with
@@ -167,7 +170,9 @@ the actual reason; do not substitute models or change routing config.
 Prove compares source status/HEAD before/after: a difference means
 `source checkout changed during verification`, not proof the verifier caused it
 or a sandbox guarantee. Rerun after concurrent changes. Output includes `status`,
-`deterministic`, `verifier`, `authors`, `blocking`, `followUps` and selected override.
+`deterministic`, `verifier`, `authors`, `blocking`, `followUps`, `verifierModel`
+(the requested override or null), and resolved source `worktree`/`branch` once
+authorship validation succeeds.
 Only a final pass including cleanup atomically writes the existing schema-1
 exact-head marker. Resolve/revoke the head's old marker before validating other
 inputs. Marker format/merge consumption is internal, not an orchestration API.
@@ -199,13 +204,17 @@ blind_label(batch_files, rubric_path, labels, labellers=("scout", "reviewer"))
 ```
 
 Frozen JSON batches are a list or `{cases: [...]}` with unique nonblank string
-case IDs. Two distinct read-only agent types (only scout/reviewer) receive separate
-blind sessions containing only batch/rubric and quote deciding evidence. This
-promises read-only sessions, not a cross-family guarantee or code verification.
-Two jobs per batch, at most eight batches/16 agents; excess raises, no implicit waves.
+case IDs. Labels must be a nonempty list/tuple of nonblank strings. The labellers
+argument is exactly scout and reviewer, in either order, supplied as a list/tuple.
+They receive separate blind read-only sessions containing only batch/rubric and
+quote deciding evidence. This promises read-only sessions, not a cross-family
+guarantee or code verification. Two jobs per batch, at most eight batches/16
+agents; excess raises, no implicit waves.
 
 JSON-safe output uses lists: `agreed:[{batch,id,label}]`,
-`disputed:[{batch,id,votes}]`, `failed:[{batch,labeller,error}]` in input order.
+`disputed:[{batch,id,votes}]`, `failed:[{batch,labeller,error}]`. Agreed/disputed
+records follow batch/case input order; `batch` is a zero-based index. `votes` maps
+labeller names to their `{id,label,evidence,rationale}` answer records.
 Only input IDs appear. Missing/duplicate answers remain disputed; unknown answer
 IDs invalidate the labeller's batch. Failed/off-schema results are not votes.
 The orchestrator settles disputes; a human confirms every label before writing.

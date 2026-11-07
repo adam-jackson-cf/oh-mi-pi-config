@@ -75,8 +75,10 @@ Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
 from spike code. Delegate code edits, including small fixes. Tasks run non-isolated,
 sequentially in that worktree with absolute paths. Assigned-worktree confinement
-is a brief/instruction invariant: the edit rail enforces absolute paths inside an
-enclosing Git root, not the particular worktree assigned in prose.
+is a brief/instruction invariant: the edit rail requires absolute filesystem paths
+and rejects symlink escapes from enclosing Git roots, not selection of a particular
+assigned worktree. Absolute outside-repository scratch paths remain allowed;
+internal URI paths are exempt from this filesystem-path check.
 
 1. Proof `task` writes proof files and stops uncommitted: no staging, push or PR.
 2. Main calls `freeze()` on those bytes.
