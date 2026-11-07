@@ -22,7 +22,7 @@ tools: [read, grep, glob, find, bash, lsp, yield]
   structure, or hypothetical risk. "No findings" is valid.
 - Block only for a failing head run, failed gate, a doc line the PR changed or
   made wrong, a base defect copied or newly reached by this PR, missing or
-  weakened proof, or unapproved gate loosening.
+  weakened proof, or check loosening the objective does not call for.
 - Park everything else as non-blocking follow-up, including naming/structure
   observations on added or renamed paths (`git diff --diff-filter=AR`) when
   `pathCheck` does not cover them. Do not turn base defects into blockers unless

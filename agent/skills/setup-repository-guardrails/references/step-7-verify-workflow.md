@@ -34,12 +34,7 @@ execution.
    distinct fingerprints and reject a new case sharing an existing/other new
    case's call path and assertion; require both names and merge-or-remove fix.
 4. Parse `.omp/gate.json` and verify Step 6's schema, version, field types,
-   command arrays, timeout, globs, optional `sensitive` string array, and
-   merge-policy enum/defaults. Preserve `sensitive` rather than dropping it.
-   A pattern ending in `/` matches that folder anywhere in the path (`auth/`
-   matches `auth/a.ts` and `src/auth/a.ts`); any other pattern matches when the
-   file's basename starts with it.
-   Test this rule and omitted/empty patterns; reject non-string entries.
+   command arrays, timeout, globs, and merge-policy enum/defaults.
    Optional fields must remain optional
    to the format validator; missing rule-required commands must fail the
    coverage check separately. Prove

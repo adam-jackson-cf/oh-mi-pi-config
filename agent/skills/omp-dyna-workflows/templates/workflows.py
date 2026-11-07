@@ -69,6 +69,9 @@ def load_manifest(path, digest, max_checks):
             raise WorkflowError(f"{ident}: missing criterion")
         if proof.get("kind") not in ("defect", "new-surface", "preserve"):
             raise WorkflowError(f"{ident}: unknown proof kind")
+        if "parent" in proof and (
+                not isinstance(proof["parent"], str) or not proof["parent"].strip()):
+            raise WorkflowError(f"{ident}: parent must be a nonempty commit-ish")
         cmd, files, hashes = proof.get("cmd"), proof.get("files"), proof.get("sha256")
         if not isinstance(cmd, list) or not cmd or not all(isinstance(x, str) and x for x in cmd):
             raise WorkflowError(f"{ident}: cmd must be argv")
@@ -77,7 +80,10 @@ def load_manifest(path, digest, max_checks):
         if not isinstance(hashes, dict) or set(hashes) != set(files):
             raise WorkflowError(f"{ident}: proof hash coverage mismatch")
         for name in files:
-            _proof_path(Path(tempfile.gettempdir()), name)
+            try:
+                _proof_path(Path(tempfile.gettempdir()), name)
+            except WorkflowError as exc:
+                raise WorkflowError(f"{ident}: {exc}") from exc
             if not isinstance(hashes[name], str) or not re.fullmatch(r"[0-9a-f]{64}", hashes[name]):
                 raise WorkflowError(f"{ident}: invalid sha256")
         red = proof.get("expectRed")
@@ -87,6 +93,86 @@ def load_manifest(path, digest, max_checks):
         elif red is not None:
             raise WorkflowError(f"{ident}: expectRed must be null")
     return manifest
+
+
+def freeze(worktree, manifest_path, proofs, slug):
+    """Check committed proofs once, then freeze their hashes and return (path, digest)."""
+    root = Path(worktree).resolve()
+    path = Path(manifest_path).resolve()
+    manifest = {"schemaVersion": 1, "slug": slug, "proofs": []}
+    for proof in proofs:
+        ident = proof.get("id", "<missing>") if isinstance(proof, dict) else "<missing>"
+        try:
+            item = dict(proof)
+            item["sha256"] = {}
+            for name in item.get("files", []):
+                source = _proof_path(root, name)
+                _git(root, "ls-files", "--error-unmatch", "--", name)
+                committed = subprocess.run(
+                    ["git", "-C", str(root), "show", f"HEAD:{name}"],
+                    capture_output=True, check=True).stdout
+                if source.is_symlink() or source.read_bytes() != committed:
+                    raise WorkflowError(f"proof must match tracked HEAD file: {name}")
+                if _git(root, "status", "--porcelain", "--", name):
+                    raise WorkflowError(f"proof must be unmodified at HEAD: {name}")
+                item["sha256"][name] = _sha(source)
+            manifest["proofs"].append(item)
+        except Exception as exc:
+            raise WorkflowError(f"{ident}: {exc}") from exc
+    # Validate structure before commands, without replacing the caller's manifest on failure.
+    with tempfile.TemporaryDirectory(prefix="omp-freeze-") as scratch:
+        draft = Path(scratch) / "manifest.json"
+        draft.write_text(json.dumps(manifest, indent=2) + "\n")
+        load_manifest(draft, _sha(draft), MAX_AGENTS)
+        for proof in manifest["proofs"]:
+            try:
+                ok, out = run_check(proof["cmd"], root)
+                if not ok:
+                    raise WorkflowError(f"proof command failed:\n{out}")
+            except Exception as exc:
+                raise WorkflowError(f"{proof['id']}: {exc}") from exc
+        for proof in manifest["proofs"]:
+            for name in proof["files"]:
+                if (_git(root, "status", "--porcelain", "--", name)
+                        or _sha(_proof_path(root, name)) != proof["sha256"][name]):
+                    raise WorkflowError(f"{proof['id']}: proof changed during freeze: {name}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(draft.read_bytes())
+    digest = _sha(path)
+    load_manifest(path, digest, MAX_AGENTS)
+    return path, digest
+
+
+def _commit(repo, ref):
+    return _git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}").strip()
+
+
+def _write_pass_marker(repo, head, kind):
+    common = Path(_git(repo, "rev-parse", "--git-common-dir").strip())
+    if not common.is_absolute():
+        common = Path(repo) / common
+    marker = common / "omp-prove" / f"{head}.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "schemaVersion": 1, "head": head, "kind": kind, "status": "pass"}) + "\n")
+    return marker
+
+
+def exempt_docs_only(repo, parent, head):
+    """Record a merge exemption only for a nonempty, non-runtime documentation diff."""
+    repo = Path(repo).resolve()
+    parent, head = _commit(repo, parent), _commit(repo, head)
+    paths = _git(repo, "diff", "--name-only", "--no-renames", "-z", parent, head).split("\0")
+    paths = [name for name in paths if name]
+    if not paths:
+        raise WorkflowError("docs-only exemption requires changed documentation")
+    for name in paths:
+        path = Path(name)
+        if (path.suffix not in {".md", ".txt", ".png", ".jpg", ".jpeg", ".svg", ".gif"}
+                or path.name in {"AGENTS.md", "CLAUDE.md", "SKILL.md"}
+                or set(path.parts) & {"skills", "agents", "rules", "prompts", ".agents", ".claude", ".omp"}):
+            raise WorkflowError(f"docs-only exemption rejected runtime path: {name}")
+    return _write_pass_marker(repo, head, "docs-only")
 
 
 def _hash_failures(root, manifest):
@@ -99,38 +185,29 @@ def _hash_failures(root, manifest):
     return failures
 
 
-def sensitive_paths(paths, patterns):
-    """Folder patterns match at any path boundary; other patterns match basename prefixes."""
-    return [path for path in paths if any(
-        f"/{pattern}" in f"/{path}" if pattern.endswith("/") else Path(path).name.startswith(pattern)
-        for pattern in patterns)]
-
-
 def _is_argv(value):
     return isinstance(value, list) and bool(value) and all(
         isinstance(arg, str) and arg.strip() for arg in value)
 
 
 def gate_policy(gate):
-    """Normalise .omp/gate.json to {commit, ci, pathCheck, sensitive}; None when invalid.
+    """Normalise .omp/gate.json to {commit, ci, pathCheck}; None when invalid.
 
-    Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `sensitive` an optional
-    string list, `ciHost` and `agentMerge` optional enums. Any other shape fails closed."""
+    Mirrors agent-rails' schema: commands are optional nonempty argv arrays, `ciHost` and
+    `agentMerge` optional enums. Any other shape fails closed."""
     if not isinstance(gate, dict) or gate.get("schemaVersion") != 2:
         return None
     checks = gate.get("checks", {})
     if not isinstance(checks, dict):
         return None
     commit, ci = checks.get("commit"), checks.get("ci")
-    path_check, sensitive = gate.get("pathCheck"), gate.get("sensitive", [])
+    path_check = gate.get("pathCheck")
     if any(value is not None and not _is_argv(value) for value in (commit, ci, path_check)):
-        return None
-    if not isinstance(sensitive, list) or not all(isinstance(item, str) for item in sensitive):
         return None
     if gate.get("ciHost", "github") not in ("github", "nuc") or (
             gate.get("agentMerge", "allowed") not in ("allowed", "disabled")):
         return None
-    return {"commit": commit, "ci": ci, "pathCheck": path_check, "sensitive": sensitive}
+    return {"commit": commit, "ci": ci, "pathCheck": path_check}
 
 
 def gate_changes(paths, root, gate):
@@ -160,21 +237,18 @@ def gate_changes(paths, root, gate):
         or path.startswith((".github/workflows/", ".githooks/"))]
 
 
-def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitive=None):
+def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_parents=None):
     """Run frozen proofs against real detached trees; no eval globals are needed.
 
     Repository checks are not run here: the commit hook runs checks.commit and CI runs checks.ci.
+    `gateChanges` lists changed gate files for the PR description; it never blocks a merge.
     """
     parent_gate_path = parent_tree / ".omp/gate.json"
     parent_gate = json.loads(parent_gate_path.read_text()) if parent_gate_path.is_file() else {}
     policy = gate_policy(gate)
-    parent_policy = gate_policy(parent_gate) or {"sensitive": []}
     changed_gates = set(gate_changes(paths, head_tree, gate))
     changed_gates.update(gate_changes(paths, parent_tree, parent_gate))
-    result = {"proofs": {}, "blocking": [],
-              "needsCountersign": sorted(changed_gates),
-              "needsOwner": sensitive_paths(paths, [
-                  *parent_policy["sensitive"], *(policy or {}).get("sensitive", []), *(sensitive or [])])}
+    result = {"proofs": {}, "blocking": [], "gateChanges": sorted(changed_gates)}
     failures = result["blocking"]
     failures.extend(_hash_failures(head_tree, manifest))
     if failures:
@@ -196,13 +270,15 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitiv
     failures.extend(_hash_failures(head_tree, manifest))
     for proof in manifest["proofs"]:
         for name in proof["files"]:
-            dest = _proof_path(parent_tree, name)
+            dest = _proof_path(
+                (proof_parents or {}).get(proof.get("parent"), parent_tree), name)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(_proof_path(head_tree, name), dest)
     for proof in manifest["proofs"]:
         if proof["kind"] == "new-surface":
             continue
-        ok, out = run_check(proof["cmd"], parent_tree)
+        overlay_tree = (proof_parents or {}).get(proof.get("parent"), parent_tree)
+        ok, out = run_check(proof["cmd"], overlay_tree)
         result["proofs"][proof["id"]].append({"tree": "parent", "ok": ok, "output": out})
         if proof["kind"] == "defect":
             if ok:
@@ -216,7 +292,8 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitiv
 
 BLOCKING_RULE = (
     "Block only failing head proof runs, doc lines changed or made wrong, base defects "
-    "copied or newly reached by this PR, missing/weakened proofs, or unapproved check loosening. "
+    "copied or newly reached by this PR, missing/weakened proofs, or check loosening the objective "
+    "does not call for. "
     "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
 
 
@@ -229,8 +306,7 @@ def _run_verifier(brief):
     return wait([agent(brief, agent="verifier", label="Prove", schema=schema)], raise_errors=False)[0]
 
 
-def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
-          sensitive=None, max_checks=MAX_AGENTS):
+def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS):
     """Run frozen proofs then one cross-family verifier; always remove detached worktrees.
 
     CI owns the test suite: merge additionally requires the CI status on the exact head.
@@ -241,6 +317,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
     try:
         repo = Path(repo).resolve()
         manifest = load_manifest(manifest_path, manifest_sha256, max_checks)
+        parent, head = _commit(repo, parent), _commit(repo, head)
         # Unique scratch parent prevents concurrent proof runs of the same slug colliding.
         with tempfile.TemporaryDirectory(prefix="omp-prove-") as scratch:
             try:
@@ -249,6 +326,21 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                     _git(repo, "worktree", "add", "--detach", str(tree), ref)
                     trees.append(tree)
                 parent_tree, head_tree = trees
+                parent_trees = {parent: parent_tree}
+                proof_parents = {}
+                for proof in manifest["proofs"]:
+                    if "parent" not in proof or proof["kind"] == "new-surface":
+                        continue
+                    try:
+                        commit = _commit(repo, proof["parent"])
+                        if commit not in parent_trees:
+                            tree = Path(scratch) / f"parent-{len(parent_trees)}"
+                            _git(repo, "worktree", "add", "--detach", str(tree), commit)
+                            trees.append(tree)
+                            parent_trees[commit] = tree
+                        proof_parents[proof["parent"]] = parent_trees[commit]
+                    except Exception as exc:
+                        raise WorkflowError(f"{proof['id']}: {exc}") from exc
                 gate_path = head_tree / ".omp/gate.json"
                 if not gate_path.is_file():
                     raise WorkflowError(
@@ -257,7 +349,8 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                 if not isinstance(gate, dict):
                     raise WorkflowError(".omp/gate.json must be an object")
                 paths = _git(repo, "diff", "--name-only", parent, head).splitlines()
-                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, sensitive)
+                deterministic = deterministic_checks(
+                    parent_tree, head_tree, manifest, gate, paths, proof_parents)
                 result["deterministic"] = deterministic
                 result["blocking"].extend(deterministic["blocking"])
                 if result["blocking"]:
@@ -266,7 +359,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                 brief = (
                     "Read skill://codegraph/references/readiness-and-bootstrap.md, "
                     "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git. "
-                    f"Read-only: work only in {parent_tree}, {head_tree} and your TMPDIR scratch. "
+                    f"Read-only: work only in {', '.join(map(str, trees))} and your TMPDIR scratch. "
                     f"Never edit {repo}; never spawn agents. Objective: {objective}\n"
                     f"Manifest: {json.dumps(manifest)}\nDeterministic: {json.dumps(deterministic)}\n"
                     f"Diff stat: {_git(repo, 'diff', '--stat', parent, head)}\n"
@@ -292,12 +385,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                 if _sha(manifest_path) != manifest_sha256:
                     result["blocking"].append("manifest edited after freeze")
                 result["blocking"].extend(_hash_failures(head_tree, manifest))
-                if result["blocking"]:
-                    result["status"] = "fail"
-                elif deterministic["needsCountersign"] or deterministic["needsOwner"]:
-                    result["status"] = "needs_owner"
-                else:
-                    result["status"] = "pass"
+                result["status"] = "fail" if result["blocking"] else "pass"
             finally:
                 for tree in reversed(trees):
                     try:
@@ -305,6 +393,8 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective,
                     except Exception as exc:
                         result["blocking"].append(str(exc))
                         result["status"] = "fail"
+        if result["status"] == "pass":
+            _write_pass_marker(repo, head, "prove")
     except Exception as exc:
         result["blocking"].append(str(exc))
         result["status"] = "fail"

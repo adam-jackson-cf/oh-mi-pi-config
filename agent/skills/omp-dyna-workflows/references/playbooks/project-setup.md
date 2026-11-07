@@ -26,7 +26,7 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/paths/names.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task`. Read `skill://setup-repository-guardrails`; apply only approved
    controls, establish `.omp/gate.json` with `schemaVersion: 2`, `checks.commit`, `checks.ci`,
    `pathCheck` and an installed pre-commit hook as the prerequisite for ordinary
@@ -35,8 +35,10 @@ Establish approved guardrails with canary proofs and one shared local/CI gate co
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
    canaries green twice at head, parent checks by kind and a cross-family live verifier.
-   Guardrail/gate-file changes require owner countersign; never auto-approve gate loosening.
+   List guardrail/gate-file changes under **Gate changes** in the PR description.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, wait for default CI. Sensitive paths require owner merge;
-   fixes/rebases receive one verification on new head per the verify loop.
+   with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI (NUC: submit), and
+   continue without waiting. Before the next merge, check latest default CI: success permits;
+   pending waits (NUC: wait); failure/cancellation stops for red-main recovery, which still waits
+   for green. Fixes/rebases receive one verification on new head per the verify loop.

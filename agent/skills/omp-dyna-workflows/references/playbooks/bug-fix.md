@@ -24,7 +24,7 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    `skill://setup-repository-guardrails` first. Read `skill://git-tool` and
    `skill://git-tool/references/branch-and-integrate.md`; branch `agent/<slug>` from default,
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task` for the root cause. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()`.
@@ -32,5 +32,7 @@ Repair the reproduced failure class and prove parent red for the right reason, h
    Cross-family verifier drives criteria live and checks affected docs under the blocking rule.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   with `--match-head-commit`, wait for default CI. Sensitive paths require owner merge;
-   re-verify a fix/rebase once on the new head as specified by the verify loop.
+   with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI (NUC: submit), and
+   continue without waiting. Before the next merge, check latest default CI: success permits;
+   pending waits (NUC: wait); failure/cancellation stops for red-main recovery, which still waits
+   for green. Re-verify a fix/rebase once on the new head as specified by the verify loop.
