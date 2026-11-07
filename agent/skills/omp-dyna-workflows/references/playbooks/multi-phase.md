@@ -30,7 +30,7 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    explicit interfaces. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new or moved paths/names.
-   Per unit, spawn proof `task`, main records hashes and re-freezes manifest, then separately
+   Per unit, spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately
    spawn implementation `task`. Land green increments behind the flag; migrate callers and
    delete obsolete paths in the canonical cutover unit. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.

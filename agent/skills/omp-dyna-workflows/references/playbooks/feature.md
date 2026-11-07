@@ -25,7 +25,7 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new paths/names.
-   Spawn `task` for proof surfaces/files, then main records hashes and re-freezes the manifest;
+   Spawn `task` for proof surfaces/files, commit proofs through the hook, then main calls `freeze()`;
    separately spawn implementation `task`. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md` and
