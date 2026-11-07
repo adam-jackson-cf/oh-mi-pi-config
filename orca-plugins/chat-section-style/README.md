@@ -102,23 +102,26 @@ installed, so a new palette file needs a full `node inject.mjs`.
   each side, via `--chat-content-max-width: calc((60rem + 100%) / 2) !important`. This overrides
   Settings → Chat UI → Width.
 - Headings and bold lead-ins (`Gaps & Contradictions`, `K1 — …`) use the chat accent: the palette's
-  `--omp-accent`, else the theme's `--primary`.
+  `--omp-accent`, else the theme's `--primary`; editorial section lead-ins use their section hue.
 - Your messages get extra space above and an accent left edge; turns before your latest message fade
   to 80% until hovered.
-- Tool activity rows get a thin left rail and, once settled, a smaller faded style that returns to
-  full on hover.
+- Tool activity rows get a thin left rail and a smaller faded style that returns to full on hover;
+  editorial keeps current-turn rows at full opacity and older-turn rows at 78%.
 - The turn status line (`Worked for …`) becomes an uppercase divider; while the agent works its text
-  takes the accent and its rule a muted accent.
+  and rule are accent-tinted (a palette's `--omp-status-rule` can override the rule colour).
 - Completion-message IDs at the start of a list item or paragraph are coloured by kind: K key point
   blue, C gap/contradiction red, S suggestion green, R related topic teal, A architectural decision
   violet, F focused review orange. The exact inks come from the active palette.
 - Embed hue by type: code blue/teal, shell commands green, diagram languages (mermaid, dot,
   plantuml, d2, svg) pink/violet, tables amber, again per palette. How strongly each mode shows it
   is listed above.
-- Tables get zebra rows, a row hover tint, roomier cells and aligned numbers.
-- Reading rhythm: line height 1.68, steadier paragraph and list spacing, accent-tinted bullets, bold
-  aligned list numbers, borderless inline-code chips faintly tinted toward the code hue (or the
-  palette's `--omp-code-chip`), heavier bold, accent links, quiet blockquotes, faded rules.
+- Tables get a row hover tint, roomier cells and aligned numbers; zebra rows are shared, but editorial
+  removes their fill and uses row separators instead.
+- Reading rhythm: the shared reply line-height baseline is 1.68; editorial uses 1.76, with 2.02 on
+  paragraphs and list items containing a direct-child inline `code` element. Paragraph and list
+  spacing is steadier; bullets are accent-tinted (neutral secondary ink in editorial), list numbers
+  bold and aligned. Inline-code chips are borderless and faintly tinted toward the code hue (or the
+  palette's `--omp-code-chip`); bold is heavier, links accented, blockquotes quiet and rules faded.
 - The message box shows an accent ring while you type.
 
 ## How it is installed
@@ -151,8 +154,14 @@ state their value explicitly (for example the reply container's transparent back
    `EnableNodeCliInspectArguments is Enabled`. If disabled, injection is impossible; never patch
    `app.asar` (breaks the signature, lost on the next update). Keep only the theme and settings
    layers.
-2. Run `node inject.mjs`. Success prints
-   `{"pid":…,"styled":[1],"mode":"document","palette":"catppuccin","lastError":null}`; then
+2. Run `node inject.mjs`. With the committed settings and a Catppuccin theme, success prints:
+
+   ```text
+   {"pid":…,"styled":[1],"mode":"gutter","palette":"auto",
+    "appliedPalette":"catppuccin","lastError":null}
+   ```
+
+   `appliedPalette` is the palette `auto` resolved to for the active theme. Then
    `lsof -nP -iTCP:9229 -sTCP:LISTEN` must print nothing.
 3. `launchctl print gui/$(id -u)/com.adamjackson.orca-chat-section-style` should show
    `last exit code = 0`. If missing:
