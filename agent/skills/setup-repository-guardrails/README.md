@@ -44,12 +44,6 @@ provisional until a measure run; raising one requires explicit approval.
 Supported hosts enable auto-merge and rebase-merge. Existing Step 5 approval
 remains the boundary before any repository mutation.
 
-Optional `sensitive: string[]` in `.omp/gate.json` names owner-merge paths.
-A pattern ending in `/` matches that folder anywhere in the path (`auth/`
-matches `auth/a.ts` and `src/auth/a.ts`); any other pattern matches when the
-file's basename starts with it.
-Matching PRs require verification and owner merge, never agent merge.
-
 ## Coverage evidence kinds
 
 The catalog selects each rule's `evidence_kind`; ledger rows must match it. An

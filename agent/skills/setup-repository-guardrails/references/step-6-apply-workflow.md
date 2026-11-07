@@ -18,7 +18,7 @@ Install only approved guardrails while keeping unrelated target work intact.
    and CI wiring explicit.
 4. Write `<repo>/.omp/gate.json` with `schemaVersion: 2` and the approved
    command arrays. This example illustrates the exact schema; substitute real
-   target commands, test globs, and sensitive path patterns:
+   target commands and test globs:
 
    ```json
    {
@@ -30,7 +30,6 @@ Install only approved guardrails while keeping unrelated target work intact.
      "pathCheck": ["pnpm", "guardrails", "paths"],
      "pathCheckTimeoutMs": 20000,
      "testGlobs": ["**/*.test.ts", "tests/**"],
-     "sensitive": ["auth/", ".github/", "secrets"],
      "agentMerge": "allowed",
      "ciHost": "github"
    }
@@ -58,14 +57,8 @@ Install only approved guardrails while keeping unrelated target work intact.
    to `pathCheck` as arguments. It exits 0 when clean; nonzero output has one
    error per line, each naming the file and fix for structure, naming, or test
    placement. `pathCheckTimeoutMs` is a positive integer timeout in
-   milliseconds; `testGlobs` lists strings. Optional `sensitive` is a string
-   array. A pattern ending in `/` matches that folder anywhere in the path
-   (`auth/` matches `auth/a.ts` and `src/auth/a.ts`); any other pattern matches
-   when the file's basename starts with it.
-   Preserve it when parsing/writing the schema. Matching PRs require
-   verification and owner merge; agents may not merge them. Omission means no
-   configured sensitive patterns. `agentMerge` accepts only `allowed` or
-   `disabled`; absent field or file defaults to `allowed`. Do not infer merge
+   milliseconds; `testGlobs` lists strings. `agentMerge` accepts only `allowed`
+   or `disabled`; absent field or file defaults to `allowed`. Do not infer merge
    permission from this setup skill; honor the governing Git authorization.
 
    Optional `ciHost` accepts `github` (the default when absent) or `nuc`.

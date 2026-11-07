@@ -116,12 +116,11 @@ Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
 `agent()` and `wait()` are eval globals; deterministic functions also run in plain Python.
 
-- `prove(repo, parent, head, manifest_path, manifest_sha256, objective, sensitive=None,
-  max_checks=MAX_AGENTS)`: frozen proofs in detached parent/head worktrees, green twice at
-  head, parent overlay red-for-reason or preservation, gate/sensitive scans, then one read-only
-  cross-family verifier. Runs no repository checks (commit hook and CI own them). Return
-  `status` (`pass`, `fail`, `needs_owner`), `deterministic`, `verifier`, `blocking`,
-  `followUps`; remove worktrees on exit.
+- `prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS)`:
+  frozen proofs in detached parent/head worktrees, green twice at head, parent overlay
+  red-for-reason or preservation, gate-change scan, then one read-only cross-family verifier.
+  Runs no repository checks (commit hook and CI own them). Return `status` (`pass`, `fail`),
+  `deterministic` (with `gateChanges`), `verifier`, `blocking`, `followUps`; remove worktrees on exit.
 - `blind_label(batch_files, rubric_path, labels, labellers=("scout", "task"))`: two blind,
   read-only, cross-family sessions per frozen batch; return `agreed` and `disputed`.
   The orchestrator settles disputes; a human confirms before labels are written.

@@ -34,5 +34,5 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    drives every criterion and checks affected docs; only its defined blocking rule blocks.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
-   rebase-merge with `--match-head-commit`, wait for default-branch CI. Sensitive paths require
-   owner merge. Fixes/rebases receive one verification on the new head per the verify loop.
+   rebase-merge with `--match-head-commit`, wait for default-branch CI. Fixes/rebases receive
+   one verification on the new head per the verify loop.

@@ -41,5 +41,5 @@ Land independently proven increments behind a flag, not long-lived or stacked br
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
    each unit with `--match-head-commit`, wait for default CI. Target same-day merge; no stacked
-   or long-lived branches. Owner merges sensitive changes; re-verify fixes/rebases once at
-   new head per verify loop. Remove the flag when its declared criterion is met.
+   or long-lived branches. Re-verify fixes/rebases once at new head per verify loop. Remove the
+   flag when its declared criterion is met.
