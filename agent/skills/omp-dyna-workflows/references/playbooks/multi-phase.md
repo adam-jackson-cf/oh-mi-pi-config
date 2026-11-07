@@ -30,7 +30,7 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    explicit interfaces. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new or moved paths/names.
-   Per unit, spawn proof `task`, main records hashes and re-freezes manifest, then separately
+   Per unit, spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately
    spawn implementation `task`. Land green increments behind the flag; migrate callers and
    delete obsolete paths in the canonical cutover unit. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
@@ -40,6 +40,9 @@ Land independently proven increments behind a flag, not long-lived or stacked br
    end-to-end criteria before flag removal.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; CI green on exact head, rebase-merge
-   each unit with `--match-head-commit`, wait for default CI. Target same-day merge; no stacked
-   or long-lived branches. Owner merges sensitive changes; re-verify fixes/rebases once at
-   new head per verify loop. Remove the flag when its declared criterion is met.
+   each unit with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
+   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
+   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
+   which still waits for green. Target same-day merge; no stacked or long-lived branches.
+   Re-verify fixes/rebases once at new head per verify loop. Remove the flag when its declared
+   criterion is met.

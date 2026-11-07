@@ -25,7 +25,7 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    never spike. Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/new paths/names.
-   Spawn `task` for proof surfaces/files, then main records hashes and re-freezes the manifest;
+   Spawn `task` for proof surfaces/files, commit proofs through the hook, then main calls `freeze()`;
    separately spawn implementation `task`. Read
    `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md` and
@@ -34,5 +34,8 @@ Deliver one feature with frozen acceptance proofs and cross-family live verifica
    drives every criterion and checks affected docs; only its defined blocking rule blocks.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
-   rebase-merge with `--match-head-commit`, wait for default-branch CI. Sensitive paths require
-   owner merge. Fixes/rebases receive one verification on the new head per the verify loop.
+   rebase-merge with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
+   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
+   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
+   which still waits for green. Fixes/rebases receive one verification on the new head per
+   the verify loop.

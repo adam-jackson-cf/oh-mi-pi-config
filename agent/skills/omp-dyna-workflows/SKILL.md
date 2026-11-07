@@ -25,13 +25,17 @@ disable-model-invocation: true
      surfaces are the first tasks. Keep the plan draft until the spike finishes; native plan
      mode is not the default. Request plan review only when the owner asks to approve it.
   4. **Implement**: branch `agent/<slug>` from default, never from the spike. Spawn `task`
-     for proofs first; main records proof-file hashes (re-freeze); separately spawn `task`
-     for implementation. Every landed commit stays green; parent overlays prove red. Commits
+     for proofs first; commit proof files through the hook, then main calls `freeze()`.
+     Separately spawn `task` for implementation. Every landed commit stays green; parent
+     overlays prove red. Commits
      run `checks.commit` through the pre-commit hook; never bypass it.
   5. **Verify**: run deterministic `prove()`, then its cross-family `verifier` drives every
      criterion live, checks affected doc lines, and reports diff scope/coverage.
   6. **Integrate**: CI (`checks.ci`) green on head, rebase-merge with `--match-head-commit`,
-     wait for default CI.
+     confirm `MERGED`, record merge-SHA default CI (NUC: submit), and continue without waiting.
+     Before the next merge, require latest default CI success (pending: wait; failed/cancelled:
+     red-main recovery; NUC: wait). Recovery still waits for green; follow git-tool's
+     merge-and-recover contract.
 - Prerequisite to implementation: `.omp/gate.json` provides `checks.commit`, `pathCheck` and an
   installed pre-commit hook. Missing any: ask the owner before guardrail work. On yes, run
   `skill://setup-repository-guardrails`; write `.omp/guardrail-proposal.json`
@@ -116,12 +120,18 @@ Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
 `agent()` and `wait()` are eval globals; deterministic functions also run in plain Python.
 
-- `prove(repo, parent, head, manifest_path, manifest_sha256, objective, sensitive=None,
-  max_checks=MAX_AGENTS)`: frozen proofs in detached parent/head worktrees, green twice at
-  head, parent overlay red-for-reason or preservation, gate/sensitive scans, then one read-only
-  cross-family verifier. Runs no repository checks (commit hook and CI own them). Return
-  `status` (`pass`, `fail`, `needs_owner`), `deterministic`, `verifier`, `blocking`,
-  `followUps`; remove worktrees on exit.
+- `freeze(worktree, manifest_path, proofs, slug)`: require tracked proof files unchanged at
+  HEAD, run each argv command once, then write/validate hashes. Proof dicts omit `sha256`.
+  Returns `(Path, manifest_sha256)`; commit corrected proofs before calling again.
+- `prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS)`:
+  frozen proofs in detached parent/head worktrees, green twice at head, parent overlay
+  red-for-reason or preservation, gate-change scan, then one read-only cross-family verifier.
+  Runs no repository checks (commit hook and CI own them). Return `status` (`pass`, `fail`),
+  `deterministic` (with `gateChanges`), `verifier`, `blocking`, `followUps`; remove worktrees on exit.
+  Optional per-proof `parent` selects the overlay baseline. Only a pass writes the exact-head
+  marker under the repository's Git common directory.
+- `exempt_docs_only(repo, parent, head)`: write a `docs-only` pass marker for non-runtime
+  documentation only; reject runtime prose, code and empty diffs with `WorkflowError`.
 - `blind_label(batch_files, rubric_path, labels, labellers=("scout", "task"))`: two blind,
   read-only, cross-family sessions per frozen batch; return `agreed` and `disputed`.
   The orchestrator settles disputes; a human confirms before labels are written.

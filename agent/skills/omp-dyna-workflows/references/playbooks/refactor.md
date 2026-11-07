@@ -26,7 +26,7 @@ Make the target design canonical, preserve required behaviour and migrate every 
    Read `skill://coding-guidance/references/implementation-integrity.md`,
    `skill://coding-guidance/references/structure-and-grouping.md` and
    `skill://coding-guidance/references/naming.md` before edits/moves/renames.
-   Spawn proof `task`, main records hashes and re-freezes manifest, then separately spawn
+   Spawn proof `task`, commit proofs through the hook, main calls `freeze()`, then separately spawn
    implementation `task`; migrate all callers/tests/docs and remove obsolete paths, no shims.
    Read `skill://coding-guidance/references/verification.md`; commits run `checks.commit` via the hook.
 5. **Verify**: read `skill://git-tool/references/verify-loop.md`; run `prove()` with
@@ -34,5 +34,7 @@ Make the target design canonical, preserve required behaviour and migrate every 
    drives every criterion and checks affected docs; apply only the defined blocking rule.
 6. **Integrate**: read `skill://git-tool/references/branch-and-integrate.md` and
    `skill://git-tool/references/merge-and-recover.md`; require CI green on exact head,
-   rebase-merge with `--match-head-commit`, wait for default CI. Sensitive paths require
-   owner merge; fix/rebase gets one verification at new head per the verify loop.
+   rebase-merge with `--match-head-commit`, confirm `MERGED`, record merge-SHA default CI
+   (NUC: submit), and continue without waiting. Before the next merge, check latest default CI:
+   success permits; pending waits (NUC: wait); failure/cancellation stops for red-main recovery,
+   which still waits for green. Fix/rebase gets one verification at new head per the verify loop.

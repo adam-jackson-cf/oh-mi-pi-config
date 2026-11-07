@@ -20,7 +20,6 @@ const discovery = [
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
-	sensitive?: unknown;
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Answer = { question?: string; selectedOptions?: string[]; timedOut?: boolean };
@@ -51,7 +50,7 @@ const wrappedPublishing = [
 ];
 
 function harness() {
-	const root = mkdtempSync(join(tmpdir(), "agent-rails-"));
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
 	mkdirSync(join(root, ".git"));
 	mkdirSync(join(root, ".omp"));
@@ -60,9 +59,10 @@ function harness() {
 	const notes: string[] = [];
 	const branch: object[] = [];
 	let sessionId = "first";
+	const identity: ExtensionContext["agent"] = { kind: "main", id: root, name: "main", depth: 0 };
 	const context = {
 		cwd: root,
-		agent: { kind: "main" },
+		agent: identity,
 		ui: { notify(message: string) { notes.push(message); } },
 		sessionManager: { getSessionId: () => sessionId, getBranch: () => branch },
 		models: {
@@ -79,6 +79,7 @@ function harness() {
 		on(name: string, handler: Handler) { handlers.set(name, handler); },
 		registerCommand() {},
 		async exec(command: string, args: string[], options: { cwd: string; timeout: number }) {
+			if (command === "sh" && args.join(" ") === "-c command -v codegraph") return { code: 0, killed: false, stdout: "/test/codegraph", stderr: "" };
 			try {
 				const { stdout, stderr } = await execute(command, args, options);
 				return { code: 0, killed: false, stdout, stderr };
@@ -154,6 +155,7 @@ describe("agent rails", () => {
 			const checker = join(h.root, "check.cjs");
 			writeFileSync(checker, "console.error(process.argv.slice(2).join('\\n') + ': use feature ownership'); process.exit(1);");
 			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, checker] });
+			writeFileSync(join(h.root, "another.ts"), "export {};\n");
 			const result = await h.call("edit", { paths: ["existing.ts", "another.ts"] });
 			assert.ok(result?.additionalContext?.includes(join(h.root, "existing.ts")));
 			assert.ok(result?.additionalContext?.includes(join(h.root, "another.ts")));
@@ -531,129 +533,135 @@ describe("agent rails", () => {
 	});
 });
 
-for (const scenario of [
-	{ command: "gh pr merge 42", files: "auth/login.ts\n", blocked: true, selector: "42", repo: [] },
-	{ command: "gh pr merge", files: "src/public.ts\n", blocked: false, selector: undefined, repo: [] },
-	{ command: "gh -R owner/repo pr merge 42", files: "secrets.env.local\n", blocked: true, selector: "42", repo: ["-R", "owner/repo"] },
-	{ command: "gh pr merge 42 --repo=owner/repo", files: "authentication.ts\n", blocked: false, selector: "42", repo: ["--repo=owner/repo"] },
-	{ command: "cd nested && gh pr merge 42", files: "auth/a.ts\n", blocked: true, selector: "42", repo: [], nested: true },
-	{ command: "gh pr merge --subject 'release title' 42", files: "secrets.env\n", blocked: true, selector: "42", repo: [] },
-	{ command: "gh pr -R owner/repo merge 42", files: "src/a.ts\n", blocked: false, selector: "42", repo: ["-R", "owner/repo"] },
-	{ command: "gh pr merge 42", files: "src/auth/login.ts\n", blocked: true, selector: "42", repo: [] },
-	{ command: "gh pr merge 42", files: "config/secrets.env.local\n", blocked: true, selector: "42", repo: [] },
-	{ command: "gh pr merge 42", files: "src/authentication/x.ts\n", blocked: false, selector: "42", repo: [] },
-	{ command: "gh pr merge 42", files: "auth\nsrc/auth\n", blocked: false, selector: "42", repo: [] },
-	{ command: "gh pr merge 42", files: "config/secrets.env/public.ts\n", blocked: false, selector: "42", repo: [] },
-	{ command: "gh pr merge 42", files: `${Array.from({ length: 112 }, (_, index) => `src/public-${index}.ts`).join("\n")}\nconfig/secrets.env\n`, blocked: true, selector: "42", repo: [] },
-]) {
-	test(`sensitive merge policy: ${scenario.command}`, async () => {
-		const h = harness();
+for (const family of ["openai", "anthropic"]) {
+	test(`records actual ${family} child edits, not read-only task spawns`, async () => {
+		const parent = harness();
+		const child = harness();
 		try {
-			await execute("git", ["init"], { cwd: h.root });
-			mkdirSync(join(h.root, "nested"));
-			h.gate({ schemaVersion: 2, sensitive: ["auth/", "secrets.env"] });
-			await h.read("skill://git-tool");
-			const exec = h.api.exec;
-			const queries: { args: string[]; cwd: string }[] = [];
-			h.api.exec = async (command, args, options) => {
-				if (command !== "gh") return exec(command, args, options);
-				queries.push({ args, cwd: options.cwd });
-				return {
-					code: 0, killed: false, stderr: "",
-					stdout: args[0] === "api" ? scenario.files : JSON.stringify({ number: 42, url: "https://github.com/owner/repo/pull/42" }),
-				};
-			};
-			const result = await h.call("bash", { command: scenario.command });
-			assert.equal(result?.block === true, scenario.blocked);
-			if (scenario.blocked) assert.ok(result?.reason?.includes("owner must merge PRs touching sensitive paths"));
-			assert.deepEqual(queries, [{
-				args: [...scenario.repo, "pr", "view", ...(scenario.selector ? [scenario.selector] : []), "--json", "number,url"],
-				cwd: scenario.nested ? join(h.root, "nested") : h.root,
-			}, {
-				args: ["api", "--hostname", "github.com", "--paginate", "repos/owner/repo/pulls/42/files", "--jq", ".[].filename"],
-				cwd: scenario.nested ? join(h.root, "nested") : h.root,
-			}]);
-		} finally { h.cleanup(); }
+			parent.dynaflows(true);
+			await parent.emit("session_start");
+			await parent.emit("before_subagent_spawn", { agent: "task", patterns: [`${family}/author`] });
+			const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
+			assert.equal(await parent.emit("before_subagent_spawn", verifier), undefined);
+			child.context.agent = { kind: "sub", id: child.root, name: "task", depth: 1, parentId: parent.root };
+			child.context.models.current = () => ({ provider: family, id: "author" });
+			child.gate({ schemaVersion: 2, pathCheck: [process.execPath, "-e", "0"] });
+			await child.emit("session_start");
+			await child.call("edit", { path: join(child.root, "existing.ts") });
+			await parent.emit("session_tree");
+			const result = await parent.emit("before_subagent_spawn", verifier);
+			assert.equal(result?.block === true, family === "anthropic");
+			if (family === "anthropic") assert.ok(result?.reason?.includes(child.root));
+			const filtered = await parent.emit("before_subagent_spawn", {
+				agent: "verifier", patterns: ["openai/review", "anthropic/review"],
+			});
+			assert.deepEqual(filtered?.model, [family === "openai" ? "anthropic/review" : "openai/review"]);
+			parent.setSession("other");
+			assert.equal(await parent.emit("before_subagent_spawn", verifier), undefined);
+		} finally { parent.cleanup(); child.cleanup(); }
 	});
 }
 
-for (const stage of ["metadata", "files", "malformed-metadata", "invalid-repository", "metadata-timeout", "files-timeout"]) {
-	test(`sensitive merge fails closed on ${stage}`, async () => {
-		const h = harness();
-		try {
-			await execute("git", ["init"], { cwd: h.root });
-			h.gate({ schemaVersion: 2, sensitive: ["auth/"] });
-			await h.read("skill://git-tool");
-			const exec = h.api.exec;
-			h.api.exec = async (command, args, options) => {
-				if (command !== "gh") return exec(command, args, options);
-				const files = args[0] === "api";
-				const failed = stage === (files ? "files" : "metadata");
-				const killed = stage === (files ? "files-timeout" : "metadata-timeout");
-				return {
-					code: failed ? 1 : 0, killed, stderr: failed ? "query failed" : "",
-					stdout: files ? "src/public.ts\n" : stage === "malformed-metadata" ? "broken" :
-						JSON.stringify({ number: 42, url: stage === "invalid-repository" ? "https://github.com/not-a-pr" : "https://github.com/owner/repo/pull/42" }),
-				};
-			};
-			const result = await h.call("bash", { command: "gh pr merge 42" });
-			assert.equal(result?.block, true);
-			assert.ok(result?.reason?.includes("policy could not be evaluated"));
-		} finally { h.cleanup(); }
-	});
-}
-
-for (const sensitive of ["auth/", 1, null, [true]]) {
-	test(`rejects invalid sensitive field: ${JSON.stringify(sensitive)}`, async () => {
-		const h = harness();
-		try {
-			await execute("git", ["init"], { cwd: h.root });
-			h.gate({ schemaVersion: 2, sensitive });
-			await h.read("skill://git-tool");
-			const result = await h.call("bash", { command: "gh pr merge 42" });
-			assert.equal(result?.block, true);
-			assert.ok(result?.reason?.includes("invalid gate"));
-		} finally { h.cleanup(); }
-	});
-}
-
-for (const scenario of [
-	{ author: "task", patterns: ["anthropic/claude-author"], blocked: true },
-	{ author: "task", patterns: ["openai/gpt-author"], blocked: false },
-	{ author: "sonic", patterns: ["anthropic/claude-author"], blocked: true },
-	{ author: "designer", patterns: ["anthropic/claude-author"], blocked: true },
-	{ author: "designer", patterns: ["openai/gpt-author"], blocked: false },
-	{ author: "scout", patterns: ["anthropic/claude-author"], blocked: false },
-	{ author: "task", patterns: [], blocked: false },
-	{ author: "task", patterns: ["openai/gpt-author", "anthropic/claude-fallback"], blocked: true },
-]) {
-	test(`verifier family policy: ${scenario.author} ${scenario.patterns.join(",")}`, async () => {
-		const h = harness();
-		try {
-			await h.emit("before_subagent_spawn", { agent: scenario.author, patterns: scenario.patterns, invocationKind: "task" });
-			await h.emit("session_tree");
-			const verifier = { agent: "verifier", patterns: ["@verifier"], invocationKind: "eval" };
-			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined, "family policy needs dynaflows");
-			h.dynaflows(true);
-			const result = await h.emit("before_subagent_spawn", verifier);
-			assert.equal(result?.block === true, scenario.blocked);
-			if (scenario.blocked) assert.ok(result?.reason?.includes("different model family"));
-			h.setSession("other");
-			assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["@verifier"] }), undefined);
-		} finally { h.cleanup(); }
-	});
-}
-
-test("verifier filters same-family fallbacks from its model chain", async () => {
+test("discovery skips unavailable codegraph and caches the lookup across compaction", async () => {
 	const h = harness();
 	try {
-		h.dynaflows(true);
-		await h.emit("before_subagent_spawn", { agent: "task", patterns: ["openai/gpt"] });
-		const result = await h.emit("before_subagent_spawn", {
-			agent: "verifier", patterns: ["openai/gpt-review", "anthropic/claude-review"],
-		});
-		assert.deepEqual(result?.model, ["anthropic/claude-review"]);
+		let lookups = 0;
+		h.api.exec = async () => { lookups++; return { code: 1, killed: false, stdout: "", stderr: "" }; };
+		assert.equal(await h.call("glob", { path: h.root }), undefined);
+		await h.emit("session_compact");
+		assert.equal(await h.call("grep", { path: h.root }), undefined);
+		assert.equal(lookups, 1);
 	} finally { h.cleanup(); }
+});
+
+test("path checks forget deleted and ignored failures without skipping live repository paths", async () => {
+	const h = harness();
+	try {
+		await execute("git", ["init"], { cwd: h.root });
+		writeFileSync(join(h.root, ".gitignore"), "ignored.ts\n");
+		writeFileSync(join(h.root, "ignored.ts"), "scratch");
+		let checked: string[][] = [];
+		const exec = h.api.exec.bind(h.api);
+		h.api.exec = async (command, args, options) => {
+			if (command === "checker") { checked.push(args); return { code: 1, killed: false, stdout: "", stderr: "bad live path" }; }
+			return exec(command, args, options);
+		};
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
+		await h.call("edit", { paths: ["existing.ts", "ignored.ts", "deleted.ts"] });
+		assert.deepEqual(checked, [[join(h.root, "existing.ts")]]);
+		rmSync(join(h.root, "existing.ts"));
+		await h.call("edit", { path: "ignored.ts" });
+		await h.read(verification);
+		assert.equal(await h.emit("session_stop"), undefined);
+		assert.equal(checked.length, 1);
+	} finally { h.cleanup(); }
+});
+
+test("dynaflows merge requires an exact-head valid proof marker in the Git common directory", async () => {
+	const h = harness();
+	try {
+		await execute("git", ["init"], { cwd: h.root });
+		await h.read("skill://git-tool");
+		const head = "a".repeat(40);
+		const command = `env gh -R owner/repo pr merge 3 --match-head-commit=${head}`;
+		assert.equal(await h.call("bash", { command }), undefined, "off retains existing behaviour");
+		h.dynaflows(true);
+		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("prove()"));
+		assert.ok((await h.call("bash", { command }))?.reason?.includes(head));
+		mkdirSync(join(h.root, ".git/omp-prove"));
+		const marker = join(h.root, ".git/omp-prove", `${head}.json`);
+		for (const content of ["{broken", JSON.stringify({ schemaVersion: 1, head, kind: "prove", status: "fail" })]) {
+			writeFileSync(marker, content);
+			assert.equal((await h.call("bash", { command }))?.block, true);
+		}
+		for (const kind of ["prove", "docs-only"]) {
+			writeFileSync(marker, JSON.stringify({ schemaVersion: 1, head, kind, status: "pass" }));
+			assert.equal(await h.call("bash", { command }), undefined);
+			assert.equal(await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${head}` }), undefined);
+		}
+	} finally { h.cleanup(); }
+});
+
+test("path checks canonicalize a symlinked repository root before executing", async () => {
+	const h = harness();
+	const aliases = mkdtempSync(join(tmpdir(), "agent-rails-alias-"));
+	try {
+		const alias = join(aliases, "repo");
+		symlinkSync(h.root, alias);
+		h.context.cwd = alias;
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
+		const exec = h.api.exec.bind(h.api);
+		let checked = false;
+		h.api.exec = async (command, args, options) => {
+			if (command === "checker") {
+				checked = true;
+				assert.equal(options.cwd, h.root);
+				assert.deepEqual(args, [join(h.root, "existing.ts")]);
+				return { code: 0, killed: false, stdout: "", stderr: "" };
+			}
+			return exec(command, args, options);
+		};
+		assert.equal(await h.call("edit", { path: join(alias, "existing.ts") }), undefined);
+		assert.equal(checked, true);
+	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
+});
+
+test("nested child commits record the actual current family in the ancestor lineage", async () => {
+	const main = harness();
+	const child = harness();
+	const nested = harness();
+	try {
+		main.dynaflows(true);
+		await main.emit("session_start");
+		child.context.agent = { kind: "sub", id: child.root, name: "task", depth: 1, parentId: main.root };
+		await child.emit("session_start");
+		nested.context.agent = { kind: "sub", id: nested.root, name: "task", depth: 2, parentId: child.root };
+		nested.context.models.current = () => ({ provider: "anthropic", id: "actual" });
+		await nested.emit("session_start");
+		await nested.read("skill://git-tool");
+		await nested.call("bash", { command: "git commit -m fix" });
+		assert.equal((await main.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] }))?.block, true);
+	} finally { main.cleanup(); child.cleanup(); nested.cleanup(); }
 });
 
 test("agent rails surfaces a timed-out path checker without throwing", async () => {
@@ -667,4 +675,27 @@ test("agent rails surfaces a timed-out path checker without throwing", async () 
 		});
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("pathCheck failed"));
 	} finally { h.cleanup(); }
+});
+
+test("main scratch edits and non-repository commits do not count as authorship", async () => {
+	const h = harness();
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-scratch-")));
+	try {
+		h.dynaflows(true);
+		h.context.models.current = () => ({ provider: "anthropic", id: "main" });
+		await h.read(integrity, structure, naming, "skill://git-tool");
+		const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
+		const path = join(scratch, "pr-body.txt");
+		writeFileSync(path, "PR description");
+		for (const tool of ["write", "edit"]) {
+			assert.equal(await h.call(tool, { path }), undefined);
+			assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		}
+		assert.equal(await h.call("ast_edit", { paths: [path] }, { applied: true, files: [path] }), undefined);
+		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.equal(await h.call("bash", { command: "git commit -m scratch", cwd: scratch }), undefined);
+		assert.equal(await h.emit("before_subagent_spawn", verifier), undefined);
+		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+		assert.equal((await h.emit("before_subagent_spawn", verifier))?.block, true, "main repository edits still count");
+	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 });
