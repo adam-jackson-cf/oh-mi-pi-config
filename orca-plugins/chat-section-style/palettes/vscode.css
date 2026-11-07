@@ -1,0 +1,100 @@
+/* VS Code palette: Light Modern / Dark Modern. Hues from the themes' tokenColors
+   (keyword blue, comment green, type teal, control purple, string/css amber, error red). */
+/* Palette contract (all variables required in light and dark on :root[data-omp-chat-palette]):
+   For KIND = key, gap, suggestion, related, decision, review:
+   --omp-id-KIND: section hue; --omp-id-KIND-ink: inline ID foreground;
+   --omp-id-KIND-tint: inline ID background; --omp-ed-KIND: editorial heading hue;
+   --omp-ed-KIND-ink: editorial inline ID foreground.
+   --embed-code, --embed-command, --embed-table, --embed-diagram: media hues.
+   Custom highlight var() resolves from the originating element in headless Chrome;
+   chat.css owns highlight rules. Editorial aliases are resolved on the chat window
+   (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
+:root[data-omp-chat-palette='vscode'] {
+  --omp-id-key: #3a58b0;
+  --omp-id-key-ink: #2a4592;
+  --omp-id-key-tint: rgb(58 88 176 / 14%);
+  --omp-ed-key: color-mix(in srgb, #3a58b0 85%, var(--chat-foreground-strong));
+  --omp-ed-key-ink: color-mix(in srgb, #2a4592 92%, #000);
+  --omp-id-gap: #c0392b;
+  --omp-id-gap-ink: #a31515;
+  --omp-id-gap-tint: rgb(192 57 43 / 12%);
+  --omp-ed-gap: color-mix(in srgb, #c0392b 85%, var(--chat-foreground-strong));
+  --omp-ed-gap-ink: color-mix(in srgb, #a31515 92%, #000);
+  --omp-id-suggestion: #2f8a1f;
+  --omp-id-suggestion-ink: #2f6f12;
+  --omp-id-suggestion-tint: rgb(47 138 31 / 14%);
+  --omp-ed-suggestion: color-mix(in srgb, #2f8a1f 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion-ink: color-mix(in srgb, #2f6f12 92%, #000);
+  --omp-id-related: #267f99;
+  --omp-id-related-ink: #1c6a80;
+  --omp-id-related-tint: rgb(38 127 153 / 14%);
+  --omp-ed-related: color-mix(in srgb, #267f99 85%, var(--chat-foreground-strong));
+  --omp-ed-related-ink: color-mix(in srgb, #1c6a80 92%, #000);
+  --omp-id-decision: #9a2fc0;
+  --omp-id-decision-ink: #7c1fa0;
+  --omp-id-decision-tint: rgb(154 47 192 / 12%);
+  --omp-ed-decision: color-mix(in srgb, #9a2fc0 80%, var(--chat-foreground-strong));
+  --omp-ed-decision-ink: color-mix(in srgb, #7c1fa0 92%, #000);
+  --omp-id-review: #c2620a;
+  --omp-id-review-ink: #8f4600;
+  --omp-id-review-tint: rgb(194 98 10 / 14%);
+  --omp-ed-review: color-mix(in srgb, #c2620a 74%, var(--chat-foreground-strong));
+  --omp-ed-review-ink: color-mix(in srgb, #8f4600 88%, #000);
+  --embed-code: #1a63a8;
+  --embed-command: #1f7a55;
+  --embed-table: #8a5f0a;
+  --embed-diagram: #9a2fc0;
+}
+:root[data-omp-chat-palette='vscode'].dark {
+  --omp-id-key: #8f9cf0;
+  --omp-id-key-ink: #a3aef6;
+  --omp-id-key-tint: rgb(143 156 240 / 16%);
+  --omp-ed-key: #8f9cf0;
+  --omp-ed-key-ink: #a3aef6;
+  --omp-id-gap: #e07b7b;
+  --omp-id-gap-ink: #ec9494;
+  --omp-id-gap-tint: rgb(224 123 123 / 16%);
+  --omp-ed-gap: #e07b7b;
+  --omp-ed-gap-ink: #ec9494;
+  --omp-id-suggestion: #8cc07a;
+  --omp-id-suggestion-ink: #9fcf8c;
+  --omp-id-suggestion-tint: rgb(140 192 122 / 16%);
+  --omp-ed-suggestion: #8cc07a;
+  --omp-ed-suggestion-ink: #9fcf8c;
+  --omp-id-related: #4ec9b0;
+  --omp-id-related-ink: #4ec9b0;
+  --omp-id-related-tint: rgb(78 201 176 / 16%);
+  --omp-ed-related: #4ec9b0;
+  --omp-ed-related-ink: #4ec9b0;
+  --omp-id-decision: #c586c0;
+  --omp-id-decision-ink: #d6a0d1;
+  --omp-id-decision-tint: rgb(197 134 192 / 16%);
+  --omp-ed-decision: #c586c0;
+  --omp-ed-decision-ink: #d6a0d1;
+  --omp-id-review: #dba06a;
+  --omp-id-review-ink: #e6b484;
+  --omp-id-review-tint: rgb(219 160 106 / 16%);
+  --omp-ed-review: #dba06a;
+  --omp-ed-review-ink: #e6b484;
+  --embed-code: #62a5dc;
+  --embed-command: #7cc4a0;
+  --embed-table: #e2cd88;
+  --embed-diagram: #d092cb;
+}
+
+:root[data-omp-chat-palette='vscode']:not(.dark) [data-native-chat-window] {
+  --omp-ed-key: color-mix(in srgb, #3a58b0 85%, var(--chat-foreground-strong));
+  --omp-ed-gap: color-mix(in srgb, #c0392b 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(in srgb, #2f8a1f 85%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(in srgb, #267f99 85%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(in srgb, #9a2fc0 80%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(in srgb, #c2620a 74%, var(--chat-foreground-strong));
+}
+
+/* Dark Modern primary #0078d4 is ~3:1 on the chat canvas; use VS Code's softened link blue for headings and links. */
+:root[data-omp-chat-palette='vscode'].dark {
+  --omp-accent: #78aada;
+}
+:root[data-omp-chat-palette='vscode'].dark .native-chat-appearance {
+  --chat-source-muted-foreground: #c0c0c0;
+}

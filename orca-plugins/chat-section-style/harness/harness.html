@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orca chat harness</title>
+<!-- shoot.sh fills the __PLACEHOLDERS__ when it copies this page into the extracted Orca renderer. -->
+<link rel="stylesheet" href="assets/__CLIENT_CSS__">
+<link rel="stylesheet" href="assets/__ROW_CSS__">
+<link rel="stylesheet" href="file://__STYLE_DIR__/chat.css">
+__PALETTE_LINKS__
+<script src="harness-tokens.js"></script>
+<script>
+  // ?mode=<mode>&theme=light|dark&palette=<family>&variant=<Orca theme id>&contrast=124
+  const params = new URLSearchParams(location.search)
+  const theme = params.get('theme') === 'dark' ? 'dark' : 'light'
+  const contrast = Number(params.get('contrast') || 124)
+  const root = document.documentElement
+  root.dataset.ompChatMode = params.get('mode') || 'document'
+  const palette = params.get('palette') || 'catppuccin'
+  root.dataset.ompChatPalette = palette
+  const defaults = {
+    catppuccin: ['latte', 'mocha'], ayu: ['ayu-light', 'ayu-dark'],
+    github: ['github-light-default', 'github-dark-default'], vscode: ['vs-code-light-modern', 'vs-code-dark-modern']
+  }
+  const variant = params.get('variant') || defaults[palette][theme === 'dark' ? 1 : 0]
+  root.classList.toggle('dark', theme === 'dark')
+  root.style.colorScheme = theme
+  for (const [name, value] of Object.entries(window.HARNESS_TOKENS[variant])) root.style.setProperty(name, value)
+  const light = theme === 'light'
+  const foregroundMix = Math.min(100, Math.max(light ? 50 : 55, light ? 78 + (contrast - 100) * 0.44 : 82 + (contrast - 100) * 0.36))
+  window.HARNESS_CHAT_VARS = {
+    '--chat-font-size': '14px', '--chat-ui-font-size': '14px', '--chat-code-font-size': '12px',
+    '--chat-content-max-width': '60rem', '--chat-inline-code-ratio': '0.857em',
+    '--chat-foreground-mix': foregroundMix + '%', '--chat-strong-mix': Math.min(100, foregroundMix + (light ? 10 : 12)) + '%'
+  }
+</script>
+<style>
+  html, body { margin: 0; background: var(--background); }
+  body { font-family: var(--font-sans); }
+</style>
+</head>
+<body>
+<div class="native-chat-appearance h-full" data-native-chat-root="" id="chat-root" style="background: var(--chat-pane)">
+ <div data-native-chat-scroll="true" class="relative">
+  <div class="px-9 pt-10 pb-10">
+   <div data-native-chat-transcript-column="true" class="mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-5 px-[5px]">
+    <div data-native-chat-window="true" class="relative w-full">
+
+     <!-- Turn 1 (older): user message, status, short reply -->
+     <div data-index="0" class="flow-root w-full"><div class="flex flex-col gap-5 -mb-3">
+      <div data-native-chat-message-id="u1" class="group relative flex flex-col gap-0.5 items-end">
+       <div class="max-w-[80%] rounded-xl border border-chat-user-border bg-chat-user-surface px-3.5 py-2.5 text-sm text-chat-foreground-strong">
+        <div><div class="native-chat-markdown min-w-0 max-w-full"><p class="my-2 first:mt-0 last:mb-0">Can you check why the nightly build got slower last week?</p></div></div>
+       </div>
+      </div>
+      <button data-native-chat-turn-status="settled" aria-label="Toggle turn details" class="flex min-h-8 items-center gap-1 border-b border-border text-sm text-chat-foreground-faint tabular-nums w-full"><span>Worked for 2m 10s</span></button>
+     </div></div>
+     <div data-index="1" class="flow-root w-full"><div class="flex flex-col gap-5">
+      <div data-native-chat-message-id="a1" class="group relative max-w-full select-text text-sm leading-relaxed text-chat-foreground">
+       <div data-native-chat-quote-source="" class="native-chat-markdown [&_pre_code]:bg-transparent min-w-0 max-w-full [overflow-wrap:anywhere]">
+        <p class="my-2 first:mt-0 last:mb-0">The nightly build now runs the full test suite on every push because the <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em] [overflow-wrap:anywhere]">--affected</code> flag was dropped in PR <a class="break-all text-primary underline underline-offset-2" href="#">#112</a>.</p>
+       </div>
+      </div>
+     </div></div>
+
+     <!-- Turn 2 (current): user message, active status, tool rows, long mixed-media reply -->
+     <div data-index="2" class="flow-root w-full"><div class="flex flex-col gap-5 -mb-3">
+      <div data-native-chat-message-id="u2" class="group relative flex flex-col gap-0.5 items-end">
+       <div class="max-w-[80%] rounded-xl border border-chat-user-border bg-chat-user-surface px-3.5 py-2.5 text-sm text-chat-foreground-strong">
+        <div><div class="native-chat-markdown min-w-0 max-w-full"><p class="my-2 first:mt-0 last:mb-0">Fix it, and show me what changed and how long CI takes now.</p></div></div>
+       </div>
+      </div>
+      <div data-native-chat-turn-status="active" aria-label="Agent is responding" class="flex min-h-8 items-center gap-1 border-b border-border text-sm text-chat-foreground-faint tabular-nums"><span>Working for 6m 40s</span></div>
+     </div></div>
+     <div data-index="3" class="flow-root w-full"><div class="flex flex-col gap-5">
+      <div class="group relative max-w-full select-text text-sm leading-relaxed text-chat-foreground"><div class="mt-2"><div class="flex items-start gap-1">
+       <button data-native-chat-tool-run-state="settled" class="group/tool-run flex min-h-6 min-w-0 flex-1 items-start gap-1.5 rounded-md py-0.5 text-left text-sm leading-relaxed"><span class="line-clamp-2 whitespace-normal break-words text-sm leading-relaxed min-w-0 text-chat-foreground-faint">Read 6 files, ran 4 commands, and edited 2 files</span><span class="shrink-0 font-sans text-xs tabular-nums text-chat-foreground-faint">· 1 failed</span></button>
+      </div></div></div>
+      <div data-native-chat-message-id="a2" class="group relative max-w-full select-text text-sm leading-relaxed text-chat-foreground">
+       <div data-native-chat-quote-source="" class="native-chat-markdown [&_pre_code]:bg-transparent min-w-0 max-w-full [overflow-wrap:anywhere]">
+        <p class="my-2 first:mt-0 last:mb-0"><strong>Activity Summary</strong></p>
+        <ul class="my-2 ml-5 list-disc space-y-1">
+         <li class="leading-relaxed">Restored <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em]">--affected</code> in <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em]">ci.yml</code> and merged PR <a class="break-all text-primary underline underline-offset-2" href="#">#117</a>.
+          <ul class="my-2 ml-5 list-disc space-y-1"><li class="leading-relaxed">A verifier from another model family reviewed the change.</li><li class="leading-relaxed">CI passed on the merge commit.</li></ul>
+         </li>
+         <li class="leading-relaxed">Measured five runs before and after the fix.</li>
+        </ul>
+        <p class="my-2 first:mt-0 last:mb-0"><strong>K1 — CI is back to its old speed.</strong> A typical PR now takes about 4 minutes, against 13 minutes last week. The table compares the stages.</p>
+        <div class="my-3 max-w-full overflow-x-auto rounded-md border border-border/60"><table class="min-w-full border-collapse text-[13px] [&_td]:border [&_td]:border-border/50 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border/50 [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold">
+         <thead><tr><th>Stage</th><th>Before</th><th>After</th><th>Change</th></tr></thead>
+         <tbody>
+          <tr><td>Install</td><td>48 s</td><td>47 s</td><td>−1 s</td></tr>
+          <tr><td>Unit tests</td><td>8 m 12 s</td><td>1 m 55 s</td><td>−6 m 17 s</td></tr>
+          <tr><td>Guardrail checks</td><td>3 m 40 s</td><td>1 m 02 s</td><td>−2 m 38 s</td></tr>
+          <tr><td>Total</td><td>12 m 51 s</td><td>3 m 59 s</td><td>−8 m 52 s</td></tr>
+         </tbody></table></div>
+        <p class="my-2 first:mt-0 last:mb-0">The fix is one line in the workflow:</p>
+        <div data-native-chat-code-block="" class="group/code relative my-3 min-w-0 max-w-full overflow-hidden rounded-lg border border-chat-code-border bg-chat-code-surface"><div class="flex h-7.5 items-center justify-between px-3"><span data-code-language="yaml" class="min-w-0 font-sans text-xs text-chat-foreground-faint"><span class="truncate">yaml</span></span></div><pre data-native-chat-code-content="true" class="scrollbar-sleek m-0 max-w-full font-mono text-chat-code text-chat-code-foreground overflow-x-auto px-3.5 pt-0.5 pb-3"><code>- run: pnpm check --affected --base origin/main</code></pre></div>
+        <p class="my-2 first:mt-0 last:mb-0"><strong>K2 — How a push flows through CI now.</strong></p>
+        <div class="group/visual my-3"><iframe title="CI flow" style="width:100%;height:150px;border:0;display:block" srcdoc="<meta name='color-scheme' content='light dark'><body style='margin:0;font:13px sans-serif;color:CanvasText;display:flex;align-items:center;justify-content:center;height:150px;background:transparent'>[diagram: push → affected graph → tests → guardrails → merge]</body>"></iframe></div>
+        <p class="my-2 first:mt-0 last:mb-0">To reproduce the timing, run:</p>
+        <div data-native-chat-code-block="" class="group/code relative my-3 min-w-0 max-w-full overflow-hidden rounded-lg border border-chat-code-border bg-chat-code-surface"><div class="flex h-7.5 items-center justify-between px-3"><span data-code-language="bash" class="min-w-0 font-sans text-xs text-chat-foreground-faint"><span class="truncate">bash</span></span></div><pre data-native-chat-code-content="true" class="scrollbar-sleek m-0 max-w-full font-mono text-chat-code text-chat-code-foreground overflow-x-auto px-3.5 pt-0.5 pb-3"><code>gh run list --workflow ci.yml --limit 10 --json durationMs</code></pre></div>
+        <blockquote class="my-2 border-l-2 pl-3 text-chat-foreground-faint"><p class="my-2 first:mt-0 last:mb-0">Note: the first run after the merge was slower because the cache was cold.</p></blockquote>
+        <p class="my-2 first:mt-0 last:mb-0"><strong>Gaps &amp; Contradictions</strong></p>
+        <ul class="my-2 ml-5 list-disc space-y-1">
+         <li class="leading-relaxed">C1: I measured five runs only; one slow runner could skew the average.</li>
+         <li class="leading-relaxed">C2: The guardrail stage still runs in full when <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em]">main</code> is compared with itself.</li>
+        </ul>
+        <hr class="my-4 border-border">
+        <p class="my-2 first:mt-0 last:mb-0"><strong>Beneficial Suggestions</strong></p>
+        <ul class="my-2 ml-5 list-disc space-y-1">
+         <li class="leading-relaxed">S1: Cache the dependency install between runs to save another 40 seconds.</li>
+        </ul>
+        <p class="my-2 first:mt-0 last:mb-0"><strong>K3 — Per-runner timings.</strong> Raw data from the ten runs, including the cache path <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em]">/Users/runner/work/_temp/cache/pnpm-store/v3/files/9f/2c4e1b7a8d0f3e6c5b4a39281706f5e4d3c2b1a0-index.json</code>.</p>
+        <div class="my-3 max-w-full overflow-x-auto rounded-md border border-border/60"><table class="min-w-full border-collapse text-[13px] [&_td]:border [&_td]:border-border/50 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border/50 [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold">
+         <thead><tr><th>Run</th><th>Runner</th><th>Commit</th><th>Install</th><th>Unit tests</th><th>Guardrails</th><th>Cache hit</th><th>Total</th></tr></thead>
+         <tbody>
+          <tr><td>1</td><td>ubuntu-24.04-arm64-large</td><td>fe0b7e2c</td><td>47 s</td><td>1 m 51 s</td><td>58 s</td><td>yes</td><td>3 m 56 s</td></tr>
+          <tr><td>2</td><td>ubuntu-24.04-arm64-large</td><td>a91c03d4</td><td>1 m 32 s</td><td>2 m 04 s</td><td>1 m 09 s</td><td>no (cold)</td><td>4 m 45 s</td></tr>
+         </tbody></table></div>
+        <ol class="my-2 ml-5 list-decimal space-y-1">
+         <li class="leading-relaxed">Runner pools
+          <ol class="my-2 ml-5 list-decimal space-y-1"><li class="leading-relaxed">Large ARM pool
+           <ul class="my-2 ml-5 list-disc space-y-1"><li class="leading-relaxed">Shared cache volume, warmed nightly.</li></ul>
+          </li></ol>
+         </li>
+        </ol>
+        <p class="my-2 first:mt-0 last:mb-0"><strong>Focused Review</strong></p>
+        <ul class="my-2 ml-5 list-disc space-y-1">
+         <li class="leading-relaxed">F1: <code class="rounded bg-accent px-1.5 py-0.5 font-mono text-[0.92em]">.github/workflows/ci.yml</code>, lines 40–52: a wrong base ref silently runs everything again.</li>
+        </ul>
+       </div>
+      </div>
+     </div></div>
+
+    </div>
+   </div>
+  </div>
+ </div>
+ <div class="px-3 pt-2 pb-4 sm:px-4"><div class="relative w-full mx-auto max-w-(--chat-content-max-width)"><div class="group/composer rounded-xl border p-1.5 shadow-xs border-chat-composer-border bg-chat-composer-surface"><div role="textbox" class="px-2 py-1 text-sm min-h-12 text-chat-foreground-faint">Ask anything, @ to mention files, / for commands</div></div></div></div>
+</div>
+<script>
+  for (const [name, value] of Object.entries(window.HARNESS_CHAT_VARS)) document.getElementById('chat-root').style.setProperty(name, value)
+</script>
+<script src="file://__STYLE_DIR__/id-highlight.js"></script>
+</body>
+</html>
