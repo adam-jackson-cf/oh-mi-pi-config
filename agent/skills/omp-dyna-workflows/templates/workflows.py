@@ -181,8 +181,9 @@ def freeze(worktree, manifest_path, proofs, slug, *, base="HEAD", setup=None,
                     raise WorkflowError(f"missing regular proof file: {name}")
                 if subprocess.run(["git", "-C", str(root), "check-ignore", "-q", "--", name]).returncode == 0:
                     raise WorkflowError(f"ignored proof file: {name}")
-                if (_git(root, "hash-object", f"--path={name}", name)
-                        != _git(root, "hash-object", "--no-filters", name)):
+                filtered = _git(root, "hash-object", f"--path={name}", name)
+                raw = _git(root, "hash-object", "--no-filters", name)
+                if filtered != raw:
                     raise WorkflowError(f"normalise line endings/clean filters: {name}")
                 item["sha256"][name] = _sha(source)
             for token in item.get("cmd", []):
