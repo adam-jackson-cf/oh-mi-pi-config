@@ -45,44 +45,49 @@ The boundaries are intentional:
 
 `agent-rails.ts` requires `skill://git-tool` for branch and integration commands,
 including commands with Git global options, shell separators and known command
-wrappers. Shell `-c` commands are inspected recursively; `cd` and `pushd` select
-the destination repository's policy. Unresolved directories fail closed for
-publishing. Quoted `echo` and search arguments do not trigger the check.
+wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
+bounds; `cd` and `pushd` select the destination repository's policy. Unresolved
+directories fail closed for publishing. Quoted `echo` and search arguments do
+not trigger the check. Arbitrary interpreter, xargs/find and shell-write detection
+are not promised.
 Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
-closed for those actions. Main-session handoff stays blocked until verification
-references are read after this session's code edits, and until failed `pathCheck`
-checks pass on retry (deleted paths are dropped). Handoff never requires a
-repository check run.
+closed for those actions. All-session handoff, including subagents, stays blocked
+until verification references are read after that session's code edits and failed
+`pathCheck` paths pass on retry (deleted paths are dropped). The check covers edited
+paths plus previous failures, not every repository file; handoff runs no suite.
 
 Repository checks follow the test tiers. `.omp/gate.json` schema version 2 declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code)
 and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
-`checks.commit`; CI on `ciHost` runs `checks.ci` for every push and merge. For
-every `git commit`, `agent-rails.ts` blocks hook bypasses: `--no-verify`, `-n`,
-a `core.hooksPath` override, and any assignment, `export`/`declare`, `unset` or
-`env -u` of `LEFTHOOK`, `HUSKY`, `SKIP`, `PRE_COMMIT_ALLOW_NO_CONFIG`,
-`GIT_CONFIG_PARAMETERS` or `GIT_CONFIG_COUNT` anywhere in the same command,
-whatever the value. Quoted arguments such as commit messages do not count. It
-also blocks the commit when `checks.commit` is declared but no executable
-pre-commit hook is installed. Variables exported by an earlier command in a
-persistent shell are not seen. Only schema version 2 is accepted; other versions
-fail closed.
+`checks.commit`; CI on `ciHost` runs `checks.ci` for every push and merge.
+For `git commit`, rails blocks explicit hook bypass flags/settings and requires an
+executable pre-commit hook when `checks.commit` is declared. Supported merge/rebase
+forms also reject explicit hook disabling with command-specific flag semantics.
+Standalone executable-shell assignment, `export`/`declare`, `unset` and `env -u`
+of hook-skip variables are blocked even without a Git action, closing the earlier
+persistent-shell assignment bypass. Quoted messages are not assignments; inherited
+external shell state is not a sandbox guarantee. Only schema version 2 is accepted.
 
 This repository's hook is `.githooks/pre-commit`, which runs `checks.commit`
 (`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
 with `git config core.hooksPath .githooks`.
 
-Dynaflows switches on the `omp-dyna-workflows` process. Owners toggle it with
-`$dynaflows` (or `$dynaflows on`) and `$dynaflows off` in a main-session prompt;
-the toggle writes the repository's `.omp/dynaflows.json` and adds it to
-`.git/info/exclude`. A repository value overrides the per-machine default in
-`~/.omp/dynaflows.json` (`{"schemaVersion":1,"enabled":true}`, untracked); with
-neither, dynaflows is off. Only with dynaflows on does `agent-rails.ts` inject the
-workflow pointer, enforce the cross-family verifier, and require owner sign-off
-for guardrail writes when `.omp/gate.json` lacks `checks.commit` or `pathCheck`:
-`.omp/gate.json` and paths in `.omp/guardrail-proposal.json` stay blocked until an
-`ask` about guardrails is answered "Minimal" or "Full".
+Dynaflows switches on the [canonical six-stage workflow](agent/skills/omp-dyna-workflows/SKILL.md).
+Use an entire standalone main-prompt line `$dynaflows`, `$dynaflows on` or
+`$dynaflows off`; prose/quoted mentions do not toggle it. The primary checkout's
+`.omp/dynaflows.json`, resolved through the Git common directory, is shared by
+linked worktrees and overrides the per-machine `~/.omp/dynaflows.json`; default is
+off. The local override is excluded through the common Git directory. Non-repo
+prompts do not create repository overrides. With dynaflows on, rails injects the
+workflow pointer, requires guardrail owner approval and enforces verifier family
+independence against persistent per-change recorded repository editors/committers,
+scoped to real worktree and branch. Arbitrary bash-written authors are not detected.
+Subagent filesystem edit paths must be absolute and cannot escape enclosing Git
+roots through symlinks; outside-repo scratch paths and internal URIs are allowed.
+Selecting the assigned worktree remains an instruction, not a path-rail guarantee.
+Helper contracts live in [patterns](agent/skills/omp-dyna-workflows/references/patterns.md);
+Git/PR/CI/merge authority lives in `skill://git-tool`.
 
 omp auto-discovers every module in `agent/extensions/`. To disable one, add
 `disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove
@@ -210,10 +215,11 @@ Hosts and paths live in `scripts/device-rollout-hosts.json`.
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in or
 copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
-`agent/nuc-sync-<date>` PR merging `main` into `nuc-config`, merge it, then rerun
-the command to start the service and compare the deployed revision. The script
-never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2; only its
-`~/.agents` checkout is a rollout target.
+`agent/nuc-sync-<date>` PR incorporating `main` into `nuc-config`, using a
+**merge commit** under the NUC sync exception in
+`skill://git-tool/references/merge-and-recover.md`, then rerun the command.
+The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
+only its `~/.agents` checkout is a rollout target.
 
 ## NUC gate (CI)
 
