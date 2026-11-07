@@ -13,9 +13,10 @@ runbook.
 - `Chat settings`: Where it lives: Settings → Chat UI; What it does: Contrast 124 (default 100),
   width Wide; Survives an Orca update?: Yes (stored in Orca's profile database)
 - `Injected CSS and script`: Where it lives: this folder plus LaunchAgent
-  `com.adamjackson.orca-chat-section-style`; What it does: Everything under "What it does"; Survives
-  an Orca update?: Only while Orca keeps the inspector fuse on and its `data-native-chat-*`
-  attributes
+  `com.adamjackson.orca-chat-section-style` (tracked plist:
+  `launchd/com.adamjackson.orca-chat-section-style.plist`); What it does: Everything under
+  "What it does"; Survives an Orca update?: Only while Orca keeps the inspector fuse on and its
+  `data-native-chat-*` attributes
 
 `~/.omp/orca-plugins/` is tracked in the oh-mi-pi-config repo (`~/.omp`), so a new Mac gets it
 from a clone.
@@ -92,6 +93,11 @@ installed, so a new palette file needs a full `node inject.mjs`.
 - `bun harness/palette-auto.mjs` checks that palette `auto` maps every installed theme to its
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
+- `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
+  filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
+  no other arguments at load and every 30 seconds, and sends stdout and stderr to
+  `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the agent or
+  touches the running Orca.
 - `harness-tokens.js` holds the installed themes' tokens; regenerate it with
   `node harness/tokens.mjs` after a theme update.
 - Score screenshots against the rubric in `../orca-chat-style/SKILL.md`.
@@ -164,9 +170,13 @@ state their value explicitly (for example the reply container's transparent back
    `appliedPalette` is the palette `auto` resolved to for the active theme. Then
    `lsof -nP -iTCP:9229 -sTCP:LISTEN` must print nothing.
 3. `launchctl print gui/$(id -u)/com.adamjackson.orca-chat-section-style` should show
-   `last exit code = 0`. If missing:
+   `last exit code = 0`. If missing, install the tracked plist. It hard-codes
+   `/opt/homebrew/bin/node` and `/Users/adamjackson/.omp/orca-plugins/chat-section-style/inject.mjs`;
+   edit those paths first on a Mac with a different user or Node location:
 
    ```sh
+   cp ~/.omp/orca-plugins/chat-section-style/launchd/com.adamjackson.orca-chat-section-style.plist \
+     ~/Library/LaunchAgents/
    launchctl bootstrap gui/$(id -u) \
      ~/Library/LaunchAgents/com.adamjackson.orca-chat-section-style.plist
    ```
