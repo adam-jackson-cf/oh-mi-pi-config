@@ -75,7 +75,8 @@ The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
 - **Runs**: validate manifest, create detached parent/head worktrees under `$TMPDIR` plus
   one per distinct overridden parent, run setup per tree and proofs twice at head, reject tracked
   mutations, then overlay each proof alone at its selected parent and test its kind. Check earlier
-  commits touching proof files for frozen bytes and green execution. Remove every detached tree.
+  commits touching proof files for green execution with their own bytes, rejecting partial proofs
+  and tracked mutations; frozen byte equality is required at head only. Remove every detached tree.
   Plain functions expose deterministic checks without eval globals.
 - **Gate changes**: changed `.omp/gate.json`, `.github/workflows/**`, `.githooks/**`,
   `lefthook.yml`, `.pre-commit-config.yaml` or lint/test configs named by gate files are listed
