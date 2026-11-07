@@ -8,8 +8,7 @@
     "omp": {
       "unit": "omp-config-pull.service",
       "branch": "nuc-config",
-      "stateFile": "~/.local/state/omp-config-sync/deployment.json",
-      "sourceCheckout": "~/Projects/tools/omp-nuc-config"
+      "stateFile": "~/.local/state/omp-config-sync/deployment.json"
     }
   }
 }
