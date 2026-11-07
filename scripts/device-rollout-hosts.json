@@ -1,0 +1,15 @@
+{
+  "mac-cf2": {
+    "agents": "~/.agents"
+  },
+  "codex-omarchy-nuc": {
+    "loginShell": true,
+    "agents": "~/.agents",
+    "omp": {
+      "unit": "omp-config-pull.service",
+      "branch": "nuc-config",
+      "stateFile": "~/.local/state/omp-config-sync/deployment.json",
+      "sourceCheckout": "~/Projects/tools/omp-nuc-config"
+    }
+  }
+}
