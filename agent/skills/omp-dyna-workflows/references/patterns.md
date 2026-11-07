@@ -89,7 +89,8 @@ The helper returns `(Path, manifest_sha256)`; use a manifest outside the repo
   Work only in supplied trees and TMPDIR scratch; no repository edits or agent spawns.
   Drive each criterion live, check doc lines changed or made wrong, audit diff scope/coverage
   report-only. Findings need exact command, actual output, required output; omit unrun claims.
-  Required `criteria: [{proofId, command, observed, verdict}]` covers every manifest proof id.
+  Required `criteria: [{proofId, command, observed, verdict}]` covers every manifest proof id;
+  `verdict` must be exactly `pass` or `fail`.
   Audit harness/config tampering too. Brief outputs are capped at 4 KB each; full evidence is
   available at the supplied scratch `deterministic.json` path.
 - **Mutation**: compare source repo porcelain-v2 status and HEAD before/after verifier;
