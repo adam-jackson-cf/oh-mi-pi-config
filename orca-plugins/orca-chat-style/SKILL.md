@@ -21,7 +21,7 @@ description: >-
 
 ## Layout modes
 
-Exactly one mode is active, named in `mode`. Default: `document`.
+Exactly one mode is active, named in `mode`. Default: `gutter`.
 
 - `document`: Flat page; no cards or section edges; hairlines above bold section lead-ins;
   neutral embed frames. Calmest for long replies.
