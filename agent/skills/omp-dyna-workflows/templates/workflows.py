@@ -478,14 +478,21 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_che
                         tree = Path(scratch) / f"intro-{len(trees)}"
                         _git(repo, "worktree", "add", "--detach", str(tree), commit)
                         trees.append(tree)
+                        present = [_proof_path(tree, name).is_file() for name in proof["files"]]
+                        if not any(present):
+                            continue
+                        if not all(present):
+                            result["blocking"].append(f"{proof['id']}: partial proof at {commit}")
+                            continue
                         _setup(tree, manifest.get("setup"))
-                        errors = _hash_failures(tree, {"proofs": [proof]})
-                        ok, out = run_check(proof["cmd"], tree) if not errors else (False, "")
+                        ok, out = run_check(proof["cmd"], tree)
                         deterministic["proofs"].setdefault(proof["id"], []).append({
                             "tree": commit, "ok": ok, "output": out.replace(str(tree), "<tree>")})
-                        if errors or not ok or _git(tree, "status", "--porcelain", "--untracked-files=no"):
+                        if not ok:
+                            result["blocking"].append(f"{proof['id']}: proof red at earlier commit {commit}")
+                        if _git(tree, "status", "--porcelain", "--untracked-files=no"):
                             result["blocking"].append(
-                                f"{proof['id']}: proof committed before its fix or frozen bytes at {commit}")
+                                f"{proof['id']}: proof run modified tracked files at earlier commit {commit}")
                 if result["blocking"]:
                     return result
                 snapshot = (_git(repo, "status", "--porcelain=v2"), _git(repo, "rev-parse", "HEAD"))

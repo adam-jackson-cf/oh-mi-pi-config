@@ -310,8 +310,9 @@ class WorkflowTests(unittest.TestCase):
         self.draft()
         git(self.repo, "add", "proof.py")
         git(self.repo, "commit", "-qm", "premature proof")
+        earlier = git(self.repo, "rev-parse", "HEAD")
         result = self.prove(self.change())
-        self.assertTrue(any("proof committed before its fix" in error for error in result["blocking"]))
+        self.assertEqual(result["blocking"], [f"P1: proof red at earlier commit {earlier}"])
 
     def test_committed_head_proof_mutation_reports_only_hash_failure(self):
         proof = self.draft()
@@ -325,6 +326,53 @@ class WorkflowTests(unittest.TestCase):
         result = workflow.prove(self.repo, self.parent, "HEAD", path, digest, "fix")
         self.assertEqual(result["blocking"], ["P1: missing proof or hash mismatch: proof.py"])
         self.verifier.assert_not_called()
+
+    def test_revised_green_proof_passes_with_earlier_own_bytes(self):
+        proof = self.draft()
+        previous = self.freeze([proof])
+        (self.repo / "value").write_text("fixed")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "atomic proof and fix")
+        earlier = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "proof.py").write_text(
+            (self.repo / "proof.py").read_text() + "# clarified proof\n")
+        path, digest = self.freeze([proof], previous=previous, revise={"P1": "clarify assertion"})
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "clarify proof")
+        result = workflow.prove(self.repo, self.parent, "HEAD", path, digest, "fix")
+        self.assertEqual(result["status"], "pass", result["blocking"])
+        runs = result["deterministic"]["proofs"]["P1"]
+        self.assertTrue(any(run["tree"] == earlier and run["ok"] for run in runs))
+
+    def test_partial_proof_at_earlier_commit_blocks(self):
+        proof = self.draft()
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "partial proof")
+        earlier = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "fixture").write_text("proof fixture")
+        proof["files"].append("fixture")
+        path, digest = self.freeze([proof], base=self.parent)
+        (self.repo / "value").write_text("fixed")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "complete proof and fix")
+        result = workflow.prove(self.repo, self.parent, "HEAD", path, digest, "fix")
+        self.assertEqual(result["blocking"], [f"P1: partial proof at {earlier}"])
+
+    def test_earlier_deletion_of_all_proof_files_runs_nothing(self):
+        proof = self.draft("preserve", "assert True\n")
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "green proof")
+        (self.repo / "proof.py").unlink()
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "remove proof")
+        removed = git(self.repo, "rev-parse", "HEAD")
+        self.draft("preserve", "assert True\n")
+        path, digest = self.freeze([proof], base=self.parent)
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "restore green proof")
+        result = workflow.prove(self.repo, self.parent, "HEAD", path, digest, "preserve")
+        self.assertEqual(result["status"], "pass", result["blocking"])
+        self.assertFalse(any(run["tree"] == removed for run in result["deterministic"]["proofs"]["P1"]))
 
     def test_golden_file_mutation_blocked(self):
         result = self.prove(self.change(kind="preserve", code=
