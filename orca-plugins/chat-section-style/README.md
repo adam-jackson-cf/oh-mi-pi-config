@@ -174,7 +174,8 @@ state their value explicitly (for example the reply container's transparent back
    edit those paths first on a Mac with a different user or Node location:
 
    ```sh
-   cp launchd/com.adamjackson.orca-chat-section-style.plist ~/Library/LaunchAgents/
+   cp ~/.omp/orca-plugins/chat-section-style/launchd/com.adamjackson.orca-chat-section-style.plist \
+     ~/Library/LaunchAgents/
    launchctl bootstrap gui/$(id -u) \
      ~/Library/LaunchAgents/com.adamjackson.orca-chat-section-style.plist
    ```
