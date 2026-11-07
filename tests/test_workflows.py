@@ -313,6 +313,19 @@ class WorkflowTests(unittest.TestCase):
         result = self.prove(self.change())
         self.assertTrue(any("proof committed before its fix" in error for error in result["blocking"]))
 
+    def test_committed_head_proof_mutation_reports_only_hash_failure(self):
+        proof = self.draft()
+        path, digest = self.freeze([proof])
+        (self.repo / "value").write_text("fixed")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "atomic proof and fix")
+        (self.repo / "proof.py").write_text("assert True\n")
+        git(self.repo, "add", "proof.py")
+        git(self.repo, "commit", "-qm", "weaken proof")
+        result = workflow.prove(self.repo, self.parent, "HEAD", path, digest, "fix")
+        self.assertEqual(result["blocking"], ["P1: missing proof or hash mismatch: proof.py"])
+        self.verifier.assert_not_called()
+
     def test_golden_file_mutation_blocked(self):
         result = self.prove(self.change(kind="preserve", code=
             "from pathlib import Path\nPath('value').write_text('golden')\n"))
@@ -323,7 +336,7 @@ class WorkflowTests(unittest.TestCase):
             "from pathlib import Path\n"
             "assert Path('value').read_text() == 'fixed', 'expected fixed'\n"
             "print('expected fixed')\n"))
-        self.assertTrue(any("expectRed present at head" in error for error in result["blocking"]))
+        self.assertEqual(result["blocking"], ["P1: expectRed present at head"])
 
     def test_verifier_omitted_proof_blocks(self):
         self.verifier.return_value["criteria"] = []

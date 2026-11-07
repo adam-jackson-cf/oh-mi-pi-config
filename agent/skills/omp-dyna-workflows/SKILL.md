@@ -131,8 +131,6 @@ Load in a standalone Python eval cell:
   control; preserve green; new-surface not green. Optional setup argv runs per fresh tree.
   Proof dicts omit `sha256`; returns `(Path, manifest_sha256)`. Additive re-freeze uses
   `previous=(path, digest)`; changed/removed proofs require `revise={id: reason}`.
-  Breaking contract: committed-proof precondition removed; schemaVersion 1 adds base, setup,
-  revisions and pinned parents. Rebuild old alias-bearing manifests with `freeze()`.
 - `prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_checks=MAX_AGENTS)`:
   frozen proofs in detached parent/head worktrees, green twice at head, parent overlay
   red-for-reason or preservation, gate-change scan, then one read-only cross-family verifier.
