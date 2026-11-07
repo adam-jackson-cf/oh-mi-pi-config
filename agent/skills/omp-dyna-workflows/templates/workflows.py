@@ -404,8 +404,10 @@ def _run_verifier(brief):
                   "criteria": {"type": "array", "items": {"type": "object",
                       "required": ["proofId", "command", "observed", "verdict"],
                       "additionalProperties": False, "properties": {
-                          key: {"type": "string"} for key in
-                          ("proofId", "command", "observed", "verdict")}}}}}
+                          "proofId": {"type": "string", "minLength": 1},
+                          "command": {"type": "string", "minLength": 1},
+                          "observed": {"type": "string", "minLength": 1},
+                          "verdict": {"enum": ["pass", "fail"]}}}}}}
     return wait([agent(brief, agent="verifier", label="Prove", schema=schema)], raise_errors=False)[0]
 
 
@@ -528,7 +530,8 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, max_che
                         or not isinstance(verdict.get("criteria"), list)
                         or any(not isinstance(c, dict) or any(
                             not isinstance(c.get(key), str) or not c[key].strip()
-                            for key in ("proofId", "command", "observed", "verdict"))
+                            for key in ("proofId", "command", "observed"))
+                            or c.get("verdict") not in ("pass", "fail")
                             for c in verdict.get("criteria", []))):
                     result["blocking"].append("verifier returned invalid or failed result")
                 else:

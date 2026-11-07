@@ -197,10 +197,23 @@ class WorkflowTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def test_verifier_off_schema_result_is_closed(self):
-        self.verifier.return_value = {"status": "pass"}
+        args = self.change()
+        for invalid in ({"status": "pass"}, *(
+                {"status": "pass", "blocking": [], "followUps": [], "criteria": [{
+                    "proofId": "P1", "command": "python3 proof.py", "observed": "green",
+                    "verdict": verdict}]}
+                for verdict in ("pass. explanation", "fail. explanation", "PASS", "", None))):
+            with self.subTest(invalid=invalid):
+                self.verifier.return_value = invalid
+                result = self.prove(args)
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(result["blocking"], ["verifier returned invalid or failed result"])
+
+    def test_verifier_exact_fail_verdict_blocks_criterion(self):
+        self.verifier.return_value["criteria"][0]["verdict"] = "fail"
         result = self.prove(self.change())
         self.assertEqual(result["status"], "fail")
-        self.assertTrue(result["blocking"])
+        self.assertEqual(result["blocking"], ["verifier criterion failed: P1"])
 
     def draft(self, kind="defect", code=None, name="proof.py", ident="P1"):
         (self.repo / name).write_text(code if code is not None else (
