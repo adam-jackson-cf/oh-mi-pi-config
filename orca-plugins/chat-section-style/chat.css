@@ -1,0 +1,836 @@
+/* Orca chat styling. Layout is selected by data-omp-chat-mode; colours by data-omp-chat-palette. */
+/* Palette contract (all variables required in light and dark on :root[data-omp-chat-palette]):
+   For KIND = key, gap, suggestion, related, decision, review:
+   --omp-id-KIND: section hue; --omp-id-KIND-ink: inline ID foreground;
+   --omp-id-KIND-tint: inline ID background; --omp-ed-KIND: editorial heading hue;
+   --omp-ed-KIND-ink: editorial inline ID foreground.
+   --embed-code, --embed-command, --embed-table, --embed-diagram: media hues.
+   Custom highlight var() resolves from the originating element in headless Chrome;
+   chat.css owns highlight rules. Editorial aliases are resolved on the chat window
+   (not :root) so heading mixes use Orca's local --chat-foreground-strong.
+   Optional: --omp-accent replaces the theme's --primary as the chat accent (headings, links, active status).
+   Optional: --omp-status-rule, a pale hue for the divider under every turn status ("Working…", "Worked for …"),
+   active or settled, in every mode; without it the divider uses the mode's neutral line and accent tint.
+   A palette may also retune Orca's chat inks (e.g. --chat-source-muted-foreground, --chat-faint-mix) under
+   :root[data-omp-chat-palette='NAME'] .native-chat-appearance when the stock theme falls below 4.5:1.
+   Optional editorial mixes (set separately for light and .dark): --omp-ed-panel-mix, embed panel fill strength
+   (default 6.5% in light and dark); --omp-ed-label-mix, light embed-label hue share mixed with black (default 56%).
+   Optional: --omp-code-chip, the hue behind inline-code chips (default --embed-code), for themes whose own inline
+   code is neutral. */
+
+[data-native-chat-window] {
+  --section-accent: var(--omp-accent, var(--primary));
+  --section-surface: color-mix(in srgb, var(--chat-source-foreground) 5%, var(--chat-canvas));
+  --section-edge: color-mix(in srgb, var(--chat-source-foreground) 14%, var(--chat-canvas));
+  --activity-rail: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+}
+
+/* ---------- Shared ---------- */
+
+/* Width: halfway between Orca's Wide (60rem) and Full. 100% resolves where Orca uses the variable (transcript
+   column and message box), so the column takes Wide plus half the remaining space on each side.
+   !important beats the inline value Orca sets from Settings → Chat UI → Width. */
+[data-native-chat-root] {
+  --chat-content-max-width: calc((60rem + 100%) / 2) !important;
+}
+
+/* Turn start: extra space above each of your messages, plus an accent edge on the bubble. */
+[data-native-chat-window] > [data-index]:has(.bg-chat-user-surface) {
+  padding-top: 1.75rem;
+}
+[data-native-chat-window] .bg-chat-user-surface {
+  border-left: 3px solid var(--section-accent);
+}
+
+/* Focus on the current turn: turns before your latest message fade slightly; hover or focus restores them. */
+[data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) {
+  opacity: 0.8;
+  transition: opacity 160ms ease-out;
+}
+[data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface):is(:hover, :focus-within) {
+  opacity: 1;
+}
+
+/* Headings inside replies: accent colour, rule underneath, room above. */
+[data-native-chat-window] [data-native-chat-quote-source] :is(h1, h2) {
+  color: var(--section-accent);
+  margin-top: 1.4rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--section-edge);
+}
+[data-native-chat-window] [data-native-chat-quote-source] h3 {
+  color: var(--section-accent);
+  margin-top: 1.1rem;
+}
+[data-native-chat-window] [data-native-chat-quote-source] :is(h1, h2, h3):first-child {
+  margin-top: 0;
+}
+
+/* Bold lead-ins ("Gaps & Contradictions", "K1 — …"): omp marks sections this way instead of headings. */
+[data-native-chat-window] [data-native-chat-quote-source] :is(p, li) > strong:first-child {
+  color: var(--section-accent);
+}
+
+/* Tool activity: a thin rail on the left, smaller and faded once settled so replies lead; full on hover. */
+[data-native-chat-window] button[data-native-chat-tool-run-state] {
+  border-left: 2px solid var(--activity-rail);
+  border-radius: 0 6px 6px 0;
+  padding-left: 0.5rem;
+  font-size: 0.92em;
+  transition: opacity 120ms ease-out;
+}
+[data-native-chat-window] button[data-native-chat-tool-run-state='settled'] {
+  opacity: 0.72;
+}
+[data-native-chat-window] button[data-native-chat-tool-run-state='settled']:is(:hover, :focus-visible) {
+  opacity: 1;
+}
+
+/* Turn status ("Worked for …"): reads as a section divider. */
+[data-native-chat-window] [data-native-chat-turn-status] {
+  border-bottom: 2px solid var(--omp-status-rule, var(--section-edge));
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-native-chat-window] [data-native-chat-turn-status='active'] {
+  border-bottom-color: var(--omp-status-rule, color-mix(in srgb, var(--section-accent) 30%, var(--section-edge)));
+  color: var(--section-accent);
+}
+
+/* Completion-message IDs, marked by id-highlight.js. */
+::highlight(omp-id-key) { color: var(--omp-id-key-ink); background-color: var(--omp-id-key-tint); }
+::highlight(omp-id-gap) { color: var(--omp-id-gap-ink); background-color: var(--omp-id-gap-tint); }
+::highlight(omp-id-suggestion) { color: var(--omp-id-suggestion-ink); background-color: var(--omp-id-suggestion-tint); }
+::highlight(omp-id-related) { color: var(--omp-id-related-ink); background-color: var(--omp-id-related-tint); }
+::highlight(omp-id-decision) { color: var(--omp-id-decision-ink); background-color: var(--omp-id-decision-tint); }
+::highlight(omp-id-review) { color: var(--omp-id-review-ink); background-color: var(--omp-id-review-tint); }
+
+/* Mode-local section hue aliases preserve editorial overrides. */
+[data-omp-id-section='key'] { --id-hue: var(--omp-id-key); }
+[data-omp-id-section='gap'] { --id-hue: var(--omp-id-gap); }
+[data-omp-id-section='suggestion'] { --id-hue: var(--omp-id-suggestion); }
+[data-omp-id-section='related'] { --id-hue: var(--omp-id-related); }
+[data-omp-id-section='decision'] { --id-hue: var(--omp-id-decision); }
+[data-omp-id-section='review'] { --id-hue: var(--omp-id-review); }
+
+/* Reading rhythm: looser line height and steadier spacing between paragraphs and list items.
+   The reply container itself never carries a card in any mode; split-cards frames its children instead. */
+[data-native-chat-window] [data-native-chat-quote-source] {
+  line-height: 1.68;
+  background: transparent;
+}
+[data-native-chat-window] [data-native-chat-quote-source] p {
+  margin-block: 0.7rem;
+}
+[data-native-chat-window] [data-native-chat-quote-source] li + li {
+  margin-top: 0.3rem;
+}
+
+/* List markers: accent-tinted bullets; bold, aligned numbers. */
+[data-native-chat-window] [data-native-chat-quote-source] li::marker {
+  color: color-mix(in srgb, var(--section-accent) 65%, transparent);
+}
+[data-native-chat-window] [data-native-chat-quote-source] ol > li::marker {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline code: a borderless chip tinted faintly toward the code hue (mostly neutral), so identifiers scan as code
+   without long paths turning into highlighted ribbons. */
+[data-native-chat-window] [data-native-chat-quote-source] :not(pre) > code {
+  border-color: transparent;
+  background: color-mix(in srgb, color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 45%, var(--chat-foreground)) 10%, transparent);
+  color: color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 32%, var(--chat-foreground-strong));
+}
+
+/* Emphasis and links: bold text a step heavier; links in the accent with a soft underline that firms on hover. */
+[data-native-chat-window] [data-native-chat-quote-source] strong {
+  font-weight: 650;
+}
+[data-native-chat-window] [data-native-chat-quote-source] a {
+  color: var(--section-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--section-accent) 40%, transparent);
+}
+[data-native-chat-window] [data-native-chat-quote-source] a:hover {
+  text-decoration-color: var(--section-accent);
+}
+
+/* Blockquotes as quiet callouts; horizontal rules as faded dividers. */
+[data-native-chat-window] [data-native-chat-quote-source] blockquote {
+  border-left: 3px solid var(--section-edge);
+  background: color-mix(in srgb, var(--chat-source-foreground) 3%, transparent);
+  border-radius: 0 8px 8px 0;
+  padding: 0.5rem 0.9rem;
+  font-style: normal;
+}
+[data-native-chat-window] [data-native-chat-quote-source] hr {
+  border: 0;
+  height: 1px;
+  margin-block: 1.4rem;
+  background: linear-gradient(to right, transparent, var(--section-edge) 15%, var(--section-edge) 85%, transparent);
+}
+
+/* Embed hue by type. Code: sapphire. Commands (shell languages): green. Diagram languages: pink. */
+[data-native-chat-window] [data-native-chat-code-block] {
+  --embed-hue: var(--embed-code);
+}
+[data-native-chat-window] [data-native-chat-code-block]:has([data-code-language='bash' i], [data-code-language='sh' i], [data-code-language='shell' i], [data-code-language='zsh' i], [data-code-language='console' i], [data-code-language='fish' i], [data-code-language='powershell' i], [data-code-language='ps1' i]) {
+  --embed-hue: var(--embed-command);
+}
+[data-native-chat-window] [data-native-chat-code-block]:has([data-code-language='mermaid' i], [data-code-language='dot' i], [data-code-language='graphviz' i], [data-code-language='plantuml' i], [data-code-language='d2' i], [data-code-language='svg' i]) {
+  --embed-hue: var(--embed-diagram);
+}
+[data-native-chat-window] [data-native-chat-code-block] [data-code-language] {
+  color: var(--embed-hue);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Tables: roomier cells, aligned numbers, zebra rows, row hover. */
+[data-native-chat-window] [data-native-chat-quote-source] thead th {
+  color: var(--chat-foreground-strong);
+  font-weight: 600;
+}
+[data-native-chat-window] [data-native-chat-quote-source] :is(th, td) {
+  padding: 0.4rem 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+[data-native-chat-window] [data-native-chat-quote-source] tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--chat-source-foreground) 3%, transparent);
+}
+[data-native-chat-window] [data-native-chat-quote-source] tbody tr:hover td {
+  background: color-mix(in srgb, var(--embed-table) 7%, transparent);
+}
+
+/* Message box: an accent ring while you type, so it is clear where input goes. */
+[data-native-chat-root] .group\/composer:focus-within {
+  border-color: color-mix(in srgb, var(--section-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--section-accent) 15%, transparent);
+}
+
+/* ---------- Mode: document ----------
+   Flat page: no reply card, no section edges. A hairline divider above each bold section lead-in.
+   Embeds keep neutral frames; type shows in the tinted code/table header and the coloured language label. */
+:root[data-omp-chat-mode='document'] [data-native-chat-quote-source] > p:has(> strong:first-child):not(:first-child) {
+  border-top: 1px solid var(--section-edge);
+  padding-top: 1rem;
+  margin-top: 1.4rem;
+}
+:root[data-omp-chat-mode='document'] [data-native-chat-code-block] > div:has(> [data-code-language]) {
+  background: color-mix(in srgb, var(--embed-hue) 8%, transparent);
+}
+:root[data-omp-chat-mode='document'] [data-native-chat-quote-source] thead th {
+  background: color-mix(in srgb, var(--embed-table) 7%, transparent);
+}
+:root[data-omp-chat-mode='document'] [data-native-chat-window] :is(.group\/visual iframe, [data-native-chat-quote-source] img) {
+  border: 1px solid var(--section-edge);
+  border-radius: 8px;
+}
+
+/* ---------- Mode: split-cards ----------
+   Each run of text sits in a card; embeds (tables, code, visuals) leave the card and sit on the canvas between
+   cards with a coloured top edge. ID sections show an inset edge in their hue inside the card. */
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > :is(p, ul, ol, h1, h2, h3, h4, blockquote, hr) {
+  background: var(--section-surface);
+  margin: 0;
+  padding: 0.35rem 1.15rem;
+  border-inline: 1px solid var(--section-edge);
+  border-radius: 0;
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > :is(ul, ol) {
+  padding-left: 2.4rem;
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > :is(p, ul, ol, h1, h2, h3, h4, blockquote, hr):is(:first-child, div + *) {
+  border-top: 1px solid var(--section-edge);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  padding-top: 0.9rem;
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > :is(p, ul, ol, h1, h2, h3, h4, blockquote, hr):is(:last-child, :has(+ div)) {
+  border-bottom: 1px solid var(--section-edge);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  padding-bottom: 0.9rem;
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > div {
+  margin-block: 0.9rem;
+}
+/* Coloured edges: lighter on light canvases, stronger on dark ones so hues stay recognisable over the card. */
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-window] {
+  --sc-edge: 36%;
+}
+:root[data-omp-chat-mode='split-cards'].dark [data-native-chat-window] {
+  --sc-edge: 48%;
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] > [data-omp-id-section]:not(div) {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--id-hue) var(--sc-edge), transparent);
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-code-block] {
+  border-top: 2px solid color-mix(in srgb, var(--embed-hue) var(--sc-edge), transparent);
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-code-block] > div:has(> [data-code-language]) {
+  background: color-mix(in srgb, var(--embed-hue) 8%, transparent);
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] div:has(> table) {
+  border-top: 2px solid color-mix(in srgb, var(--embed-table) var(--sc-edge), transparent);
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-quote-source] thead th {
+  background: color-mix(in srgb, var(--embed-table) 7%, transparent);
+}
+:root[data-omp-chat-mode='split-cards'] [data-native-chat-window] :is(.group\/visual iframe, [data-native-chat-quote-source] img) {
+  border: 1px solid color-mix(in srgb, var(--embed-diagram) 35%, transparent);
+  border-top: 2px solid color-mix(in srgb, var(--embed-diagram) var(--sc-edge), transparent);
+  border-radius: 8px;
+}
+
+/* ---------- Mode: gutter ----------
+   No cards or edges. A coloured dot in the left gutter marks where each ID section starts. Embeds are soft
+   surfaces without borders; their title (a small TABLE label, or code's coloured language label) sits on a band
+   tinted with the embed hue. */
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] {
+  padding-left: 1.4rem;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] [data-omp-id-section] {
+  position: relative;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] [data-omp-id-part='whole']::before,
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] [data-omp-id-part='start']::before {
+  content: '';
+  position: absolute;
+  left: -1.4rem;
+  top: 0.6em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--id-hue);
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] :is(ul, ol):is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before {
+  left: -2.65rem;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] > p:has(> strong:first-child):not(:first-child) {
+  margin-top: 1.5rem;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] > div {
+  border: 0;
+  background: color-mix(in srgb, var(--chat-source-foreground) 4%, transparent);
+  border-radius: 10px;
+}
+/* Labels sit on a tinted band, so their ink moves a little toward the strong foreground to keep 4.5:1. */
+:root[data-omp-chat-mode='gutter'] [data-native-chat-code-block] > div:has(> [data-code-language]) {
+  background: color-mix(in srgb, var(--embed-hue) 8%, transparent);
+  border-radius: 10px 10px 0 0;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-code-block] [data-code-language] {
+  color: color-mix(in srgb, var(--embed-hue) 85%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] > div:has(> table)::before {
+  content: 'TABLE';
+  display: block;
+  font: 600 10.5px var(--font-sans);
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--embed-table) 85%, var(--chat-foreground-strong));
+  background: color-mix(in srgb, var(--embed-table) 8%, transparent);
+  border-radius: 10px 10px 0 0;
+  padding: 0.5rem 0.75rem;
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-quote-source] thead th {
+  border-bottom: 1px solid var(--section-edge);
+}
+:root[data-omp-chat-mode='gutter'] [data-native-chat-window] :is(.group\/visual iframe, [data-native-chat-quote-source] img) {
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--chat-source-foreground) 4%, transparent);
+}
+
+/* ---------- Mode: editorial ----------
+   Calm flat page. Each section heading hangs a shape glyph in the left gutter (◆ K, ▲ C, ✚ S, ● F, ↔ R, ◇ A);
+   hairlines span the column above K headings only. Prose fills the column like the other modes; embeds are
+   borderless sunken panels sized to content with one readable type label. Older turns stay legible: they are
+   quieter, not faded. Label and heading inks are tuned per theme. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] {
+  --ed-ink-pct: 100%;
+  --ed-key: var(--omp-ed-key);
+  --ed-gap: var(--omp-ed-gap);
+  --ed-suggestion: var(--omp-ed-suggestion);
+  --ed-related: var(--omp-ed-related);
+  --ed-decision: var(--omp-ed-decision);
+  --ed-review: var(--omp-ed-review);
+  --ed-body: color-mix(in srgb, var(--chat-foreground) 72%, var(--chat-foreground-strong));
+  --ed-secondary: color-mix(in srgb, var(--chat-foreground) 88%, var(--chat-canvas));
+  --ed-panel: color-mix(in srgb, var(--chat-source-foreground) var(--omp-ed-panel-mix, 6.5%), var(--chat-canvas));
+  --ed-line: color-mix(in srgb, var(--chat-foreground) 24%, var(--chat-canvas));
+  --ed-code-ink: var(--chat-foreground-strong);
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] {
+  --ed-ink-pct: var(--omp-ed-label-mix, 56%);
+  --ed-body: color-mix(in srgb, var(--chat-foreground-strong) 82%, #000);
+  --ed-secondary: var(--chat-foreground-strong);
+  --ed-panel: color-mix(in srgb, var(--chat-source-foreground) var(--omp-ed-panel-mix, 6.5%), var(--chat-canvas));
+  --ed-line: var(--section-edge);
+  --ed-code-ink: color-mix(in srgb, var(--chat-foreground-strong) 90%, #000);
+}
+/* Focus: older turns stay readable; the current turn leads by position, status accent and the fuller body colour.
+   Their smaller size never depends on hover: a size change under the pointer would reflow the transcript. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) [data-native-chat-quote-source] {
+  font-size: 0.875rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface):not(:hover, :focus-within) [data-native-chat-quote-source] {
+  color: var(--ed-secondary);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) [data-native-chat-quote-source] code {
+  font-size: 0.9em;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-turn-status] {
+  margin-bottom: 1.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--ed-secondary);
+  border-bottom: 1px solid var(--omp-status-rule, var(--ed-line));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-turn-status='active'] {
+  color: color-mix(in srgb, var(--section-accent) 65%, var(--ed-secondary));
+  border-bottom: 1px solid var(--omp-status-rule, color-mix(in srgb, var(--section-accent) 45%, var(--ed-line)));
+}
+:root[data-omp-chat-mode='editorial'] button[data-native-chat-tool-run-state] {
+  margin-bottom: 0.25rem;
+}
+:root[data-omp-chat-mode='editorial'] button[data-native-chat-tool-run-state='settled'] {
+  opacity: 0.92;
+}
+:root[data-omp-chat-mode='editorial'] button[data-native-chat-tool-run-state] > span {
+  color: var(--ed-secondary);
+}
+/* Reading: fuller body colour, 15px; prose fills the column. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] {
+  color: var(--ed-body);
+  font-size: 0.9375rem;
+  line-height: 1.76;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > :is(p, ul, ol, blockquote, h1, h2, h3, h4) {
+  position: relative;
+}
+/* Section headings: bold lead-ins (and K paragraphs' bold lead) become heading rows. Whitespace separates short
+   sections; a hairline opens each K section. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(> strong:first-child):not(:first-child) {
+  margin-top: 2.4rem;
+  border-top: 1px solid var(--ed-line);
+  padding-top: 1.1rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(> strong:first-child) > strong:first-child {
+  display: block;
+  font-size: 1.06rem;
+  line-height: 1.4;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p[data-omp-id-section]:not(:has(> strong:first-child ~ *)) > strong:first-child {
+  margin-bottom: 0;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='gap']) { --ed-hue: var(--ed-gap); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='suggestion']) { --ed-hue: var(--ed-suggestion); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='related']) { --ed-hue: var(--ed-related); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='decision']) { --ed-hue: var(--ed-decision); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='review']) { --ed-hue: var(--ed-review); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > [data-omp-id-section='key'] { --ed-hue: var(--ed-key); }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:is([data-omp-id-section], :has(+ [data-omp-id-section])) > strong:first-child {
+  color: color-mix(in srgb, var(--ed-hue) 78%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > hr {
+  margin-block: 1.8rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > hr:has(+ p > strong:first-child) {
+  display: none;
+}
+/* ID sections keep Orca's normal bullets and coloured textual IDs; the heading badge carries the kind. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > [data-omp-id-part='whole']::before,
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > [data-omp-id-part='start']::before {
+  position: absolute;
+  left: -1.7rem;
+  top: 0;
+  width: 1.3rem;
+  text-align: center;
+  line-height: 1.7;
+  font-size: 1rem;
+  color: color-mix(in srgb, var(--ed-hue) 85%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p[data-omp-id-section='key']:is([data-omp-id-part='whole'], [data-omp-id-part='start']):not(:first-child)::before {
+  top: 1.1rem;
+  line-height: 1.4;
+  font-size: 1.06rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='key']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '◆'; }
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='gap']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '▲'; }
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='suggestion']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '✚'; }
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='related']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '↔'; }
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='decision']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '◇'; }
+:root[data-omp-chat-mode='editorial'] [data-omp-id-section='review']:is([data-omp-id-part='whole'], [data-omp-id-part='start'])::before { content: '●'; }
+/* ID lists never carry a list-level glyph. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > :is(ul, ol)[data-omp-id-section]:not([data-omp-id-section='key'])::before {
+  content: none;
+}
+/* (item glyphs removed) */
+/* Lists: nested lists tuck under their parent. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] li > :is(ul, ol) {
+  margin-block: 0.3rem 0;
+}
+/* Inline code: a visible chip. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :not(pre) > code {
+  background: color-mix(in srgb, color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 45%, var(--chat-foreground)) 10%, transparent);
+  color: color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 30%, var(--chat-foreground-strong));
+  font-size: 0.88em;
+  padding-block: 0;
+  word-break: normal;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Blockquote: an indented note in readable secondary ink, one edge, no fill. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > blockquote {
+  background: transparent;
+  border-left: 3px solid color-mix(in srgb, var(--chat-foreground) 35%, var(--chat-canvas));
+  border-radius: 0;
+  margin-block: 1.3rem;
+  padding: 0.1rem 0 0.1rem 1rem;
+  color: var(--ed-body);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > blockquote > p {
+  margin-block: 0.4rem;
+}
+/* Embeds: one borderless sunken panel each, sized to content, even spacing, a type label on a band tinted with the
+   embed hue (as in document and split-cards). */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div {
+  margin-block: 1.5rem;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ed-panel);
+  width: fit-content;
+  min-width: min(100%, 26rem);
+  max-width: 100%;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div.group\/visual {
+  width: 100%;
+  max-width: 56rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-code-block] > div:has(> [data-code-language]) {
+  background: color-mix(in srgb, var(--embed-hue) 8%, transparent);
+  border-radius: 10px 10px 0 0;
+  height: auto;
+  padding: 0.7rem 0.95rem 0.6rem;
+  margin-bottom: 0.35rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-code-block] [data-code-language],
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table)::before,
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div.group\/visual::before {
+  font: 700 13.5px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-code-block] [data-code-language] {
+  color: color-mix(in srgb, var(--embed-hue) var(--ed-ink-pct), #000);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table)::before {
+  content: 'Table';
+  display: block;
+  color: color-mix(in srgb, var(--embed-table) var(--ed-ink-pct), #000);
+  background: color-mix(in srgb, var(--embed-table) 8%, var(--ed-panel));
+  border-radius: 10px 10px 0 0;
+  padding: 0.7rem 0.95rem 0.7rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div.group\/visual::before {
+  content: 'Diagram';
+  display: block;
+  color: color-mix(in srgb, var(--embed-diagram) var(--ed-ink-pct), #000);
+  background: color-mix(in srgb, var(--embed-diagram) 8%, transparent);
+  border-radius: 10px 10px 0 0;
+  padding: 0.7rem 0.95rem 0.7rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] thead th {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ed-line);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :is(th, td) {
+  padding-right: 1.8rem;
+  white-space: nowrap;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table) > table {
+  width: max-content;
+  min-width: 100%;
+}
+/* The label band stays in view and spans the visible panel while a wide table scrolls sideways. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table)::before {
+  position: sticky;
+  left: 0;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :is(th, td):first-child {
+  padding-left: 0.95rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] td {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ed-line) 60%, transparent);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] tbody tr:last-child td {
+  border-bottom: 0;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] tbody tr:nth-child(even) td {
+  background: transparent;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] tbody tr:hover td {
+  background: color-mix(in srgb, var(--embed-table) 7%, transparent);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] .group\/visual iframe {
+  color-scheme: inherit !important;
+  border: 0;
+  border-radius: 0 0 10px 10px;
+  background: transparent;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] img {
+  border: 0;
+  border-radius: 10px;
+  background: var(--ed-panel);
+}
+/* Readable table and code text; scroll shadows show a table's hidden columns only while it overflows. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :is(th, td) {
+  font-size: 1rem;
+  color: var(--ed-body);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-code-block] pre,
+:root[data-omp-chat-mode='editorial'] [data-native-chat-code-block] pre code {
+  font-size: 14.5px;
+  color: var(--ed-code-ink);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table) {
+  --ed-shadow: color-mix(in srgb, var(--chat-foreground-strong) 30%, transparent);
+  background:
+    linear-gradient(to right, var(--ed-panel) 40%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--ed-panel) 40%, transparent) right center / 2.5rem 100% no-repeat local,
+    linear-gradient(to right, var(--ed-shadow), transparent) left center / 1.6rem 100% no-repeat scroll,
+    linear-gradient(to left, var(--ed-shadow), transparent) right center / 1.6rem 100% no-repeat scroll,
+    var(--ed-panel);
+}
+/* Section kind badge at heading level: letter plus the item glyph, in the section hue. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(> strong:first-child):has(+ [data-omp-id-section='gap'], + [data-omp-id-section='suggestion'], + [data-omp-id-section='review'], + [data-omp-id-section='related'], + [data-omp-id-section='decision']) > strong::before {
+  display: inline-block;
+  margin-right: 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  vertical-align: 0.08em;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='gap']) > strong::before { content: 'C'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='suggestion']) > strong::before { content: 'S'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='review']) > strong::before { content: 'F'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='related']) > strong::before { content: 'R'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='decision']) > strong::before { content: 'A'; }
+/* Overflow cue: the TABLE label gains "Scroll →" only while the table has more content to the right. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table) {
+  container-type: scroll-state;
+}
+@container scroll-state(scrollable: right) {
+  :root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > div:has(> table)::before {
+    content: 'Table  ·  Scroll →';
+  }
+}
+/* Light theme: clearer row separators and inline-code boundaries (dark already reads clearly). */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] tbody tr:not(:last-child) td {
+  border-bottom: 1px solid color-mix(in srgb, var(--chat-foreground-strong) 22%, var(--ed-panel));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] thead th {
+  border-bottom: 1px solid color-mix(in srgb, var(--chat-foreground-strong) 38%, var(--ed-panel));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] :not(pre) > code {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 45%, transparent);
+}
+/* Current turn: tool summary and status are readable supporting context; historical turns stay a step quieter. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:not(:has(~ [data-index] .bg-chat-user-surface)) button[data-native-chat-tool-run-state] {
+  opacity: 1;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:not(:has(~ [data-index] .bg-chat-user-surface)) button[data-native-chat-tool-run-state] > span {
+  color: var(--ed-body);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) button[data-native-chat-tool-run-state] {
+  opacity: 0.78;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-turn-status='active'] {
+  color: color-mix(in srgb, var(--section-accent) 40%, var(--chat-foreground-strong));
+}
+/* Dark: inline code ink raised toward the strong foreground; the fill is unchanged. */
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] :not(pre) > code {
+  color: color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 15%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-turn-status='active'] {
+  border-bottom: 1px solid var(--omp-status-rule, color-mix(in srgb, var(--section-accent) 30%, var(--ed-line)));
+}
+/* Older turns: secondary ink halfway toward body ink (no opacity), clearly below the current reply. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] {
+  --ed-older: color-mix(in srgb, var(--ed-secondary) 50%, var(--ed-body));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface):not(:hover, :focus-within) [data-native-chat-quote-source],
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) [data-native-chat-turn-status] {
+  color: var(--ed-older);
+}
+/* Light: darker inline-code text. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] :not(pre) > code {
+  color: color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 35%, #000);
+}
+/* Dark: stronger secondary ink, media labels and table row separators. */
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-window] {
+  --ed-secondary: var(--chat-foreground);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-code-block] [data-code-language] {
+  color: color-mix(in srgb, var(--embed-hue) 82%, #fff);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] > div:has(> table)::before {
+  color: color-mix(in srgb, var(--embed-table) 82%, #fff);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] > div.group\/visual::before {
+  color: color-mix(in srgb, var(--embed-diagram) 82%, #fff);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] tbody tr:not(:last-child) td {
+  border-bottom: 1px solid color-mix(in srgb, var(--chat-foreground) 28%, var(--ed-panel));
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] thead th {
+  border-bottom: 1px solid color-mix(in srgb, var(--chat-foreground) 40%, var(--ed-panel));
+}
+/* Current tool summary: secondary metadata (smaller, secondary ink), still above older-turn rows. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:not(:has(~ [data-index] .bg-chat-user-surface)) button[data-native-chat-tool-run-state] {
+  font-size: 0.84rem;
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:not(:has(~ [data-index] .bg-chat-user-surface)) button[data-native-chat-tool-run-state] > span {
+  color: var(--ed-secondary);
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] > [data-index]:not(:has(~ [data-index] .bg-chat-user-surface)) button[data-native-chat-tool-run-state] > span + span {
+  font-size: 0.78rem;
+  color: var(--ed-body);
+}
+/* Ordered lists: room between marker and text at every level. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] ol > li {
+  padding-left: 0.35em;
+}
+/* Lines that carry inline code get a little extra leading so wrapped chips do not touch. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :is(p, li):has(> code) {
+  line-height: 2.02;
+}
+/* Table scroll shadow: a fade toward the panel, never a lighter band. */
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] > div:has(> table) {
+  --ed-shadow: color-mix(in srgb, #000 40%, transparent);
+}
+/* Inline-code framing: equal weight across themes. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] :not(pre) > code {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chat-foreground) 10%, transparent);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] :not(pre) > code {
+  background: color-mix(in srgb, color-mix(in srgb, var(--omp-code-chip, var(--embed-code)) 45%, var(--chat-foreground)) 13%, transparent);
+}
+/* Light: accents pulled toward the strong foreground so light carries dark's relative weight. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] {
+  --section-accent: color-mix(in srgb, var(--omp-accent, var(--primary)) 78%, var(--chat-foreground-strong));
+  --ed-key: var(--omp-ed-key);
+  --ed-gap: var(--omp-ed-gap);
+  --ed-suggestion: var(--omp-ed-suggestion);
+  --ed-related: var(--omp-ed-related);
+  --ed-decision: var(--omp-ed-decision);
+  --ed-review: var(--omp-ed-review);
+}
+/* C/S/F/R/A headings: the kind symbol hangs in the same gutter slot as K's diamond; the letter sits at the prose edge. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='gap'], + [data-omp-id-section='suggestion'], + [data-omp-id-section='review'], + [data-omp-id-section='related'], + [data-omp-id-section='decision'])::before {
+  position: absolute;
+  left: -1.7rem;
+  top: 1.1rem;
+  width: 1.3rem;
+  text-align: center;
+  font-size: 1.06rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ed-hue) 85%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='gap'])::before { content: '▲'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='suggestion'])::before { content: '✚'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='review'])::before { content: '●'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='related'])::before { content: '↔'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section='decision'])::before { content: '◇'; }
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(+ [data-omp-id-section]) > strong::before {
+  font-size: 0.85rem;
+  margin-right: 0.7rem;
+}
+/* Softer section hairlines (status rule keeps its own ink). */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-window] {
+  --ed-rule: color-mix(in srgb, var(--chat-foreground) 15%, var(--chat-canvas));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] {
+  --ed-rule: color-mix(in srgb, var(--section-edge) 75%, var(--chat-canvas));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(> strong:first-child):not(:first-child) {
+  border-top-color: var(--ed-rule);
+}
+/* Dark: secondary foregrounds one step up; inline code larger with stronger ink. */
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-window] {
+  --ed-secondary: color-mix(in srgb, var(--chat-foreground) 70%, var(--chat-foreground-strong));
+}
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :not(pre) > code {
+  font-size: 0.93em;
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-quote-source] :not(pre) > code {
+  color: var(--chat-foreground-strong);
+}
+/* Light only: user bubbles, active status rule and summary heading match dark's apparent weight. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] .bg-chat-user-surface {
+  background-color: color-mix(in srgb, var(--chat-user-message) 65%, var(--chat-canvas));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-turn-status='active'] {
+  border-bottom-color: var(--omp-status-rule, color-mix(in srgb, var(--section-accent) 16%, var(--ed-line)));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-quote-source] > p:not([data-omp-id-section]):not(:has(+ [data-omp-id-section])) > strong:first-child {
+  color: color-mix(in srgb, var(--section-accent) 68%, var(--chat-foreground-strong));
+  font-weight: 650;
+}
+/* C/S/F/R/A headings: no hairline (the gutter symbol and letter mark the start); a little more space above instead. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] > p:has(> strong:first-child):has(+ [data-omp-id-section]:not([data-omp-id-section='key'])):not(:first-child) {
+  border-top-width: 0;
+  margin-top: 2.6rem;
+}
+/* Light: inline IDs use a darkened hue (same family as their heading) so they pass 4.5:1 on their own tint; fills unchanged. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-key) { color: var(--omp-ed-key-ink); }
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-gap) { color: var(--omp-ed-gap-ink); }
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-suggestion) { color: var(--omp-ed-suggestion-ink); }
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-related) { color: var(--omp-ed-related-ink); }
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-decision) { color: var(--omp-ed-decision-ink); }
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] ::highlight(omp-id-review) { color: var(--omp-ed-review-ink); }
+/* Light: older-turn ink, link and status one step up (dark unchanged); still below the current reply. */
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] {
+  --ed-older: color-mix(in srgb, var(--ed-body) 72%, var(--ed-secondary));
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) [data-native-chat-quote-source] a {
+  color: color-mix(in srgb, var(--section-accent) 58%, #000);
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] > [data-index]:has(~ [data-index] .bg-chat-user-surface) [data-native-chat-turn-status] > span {
+  color: var(--ed-older);
+}
+:root[data-omp-chat-mode='editorial']:not(.dark) [data-native-chat-window] {
+  --ed-older: color-mix(in srgb, var(--chat-foreground-strong) 64%, #000);
+}
+/* Prose blocks avoid stranded last words (code, pre and tables excluded); lines still run to the column edge. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] :is(p, li, blockquote) {
+  text-wrap: pretty;
+}
+/* Dark: settled status labels and the composer placeholder raised to a comfortable contrast; sizes unchanged. */
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-turn-status='settled'] > span {
+  color: var(--ed-older);
+}
+:root[data-omp-chat-mode='editorial'].dark [data-native-chat-root] [role='textbox'] {
+  color: color-mix(in srgb, var(--chat-foreground) 86%, var(--chat-canvas));
+}
+/* Plain list bullets in a neutral secondary ink: section glyphs and inline IDs carry the semantic colour. */
+:root[data-omp-chat-mode='editorial'] [data-native-chat-quote-source] li::marker {
+  color: color-mix(in srgb, var(--ed-secondary) 70%, transparent);
+}
+/* Settled "Worked for …" label: faint in every mode and theme; full strength on hover or focus. */
+[data-native-chat-window] [data-native-chat-turn-status='settled'] > span {
+  opacity: 0.5;
+  transition: opacity 120ms ease-out;
+}
+[data-native-chat-window] [data-native-chat-turn-status='settled']:is(:hover, :focus-visible) > span {
+  opacity: 1;
+}

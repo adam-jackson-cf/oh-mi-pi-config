@@ -1,0 +1,108 @@
+/* Ayu palette. Light: Ayu Light accents darkened to clear 4.5:1 on the canvas (Ayu's own light hues are pale);
+   dark: Ayu Dark / Mirage ANSI and token hues, one value serving both. Review is orange (hue ~22-30), gap a
+   crimson-salmon red (hue ~355), the accent a golden amber (hue ~38), so the three stay apart. */
+/* Palette contract (all variables required in light and dark on :root[data-omp-chat-palette]):
+   For KIND = key, gap, suggestion, related, decision, review:
+   --omp-id-KIND: section hue; --omp-id-KIND-ink: inline ID foreground;
+   --omp-id-KIND-tint: inline ID background; --omp-ed-KIND: editorial heading hue;
+   --omp-ed-KIND-ink: editorial inline ID foreground.
+   --embed-code, --embed-command, --embed-table, --embed-diagram: media hues.
+   Custom highlight var() resolves from the originating element in headless Chrome;
+   chat.css owns highlight rules. Editorial aliases are resolved on the chat window
+   (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
+
+
+:root[data-omp-chat-palette='ayu'] {
+  --omp-id-key: #2f8fd0;
+  --omp-id-key-ink: #16699c;
+  --omp-id-key-tint: rgb(47 143 208 / 13%);
+  --omp-ed-key: color-mix(in srgb, #2f8fd0 85%, var(--chat-foreground-strong));
+  --omp-ed-key-ink: color-mix(in srgb, #2f8fd0 62%, #000);
+  --omp-id-gap: #e04a55;
+  --omp-id-gap-ink: #b0283a;
+  --omp-id-gap-tint: rgb(224 74 85 / 12%);
+  --omp-ed-gap: color-mix(in srgb, #e04a55 85%, var(--chat-foreground-strong));
+  --omp-ed-gap-ink: color-mix(in srgb, #e04a55 62%, #000);
+  --omp-id-suggestion: #568f1a;
+  --omp-id-suggestion-ink: #3d6b0c;
+  --omp-id-suggestion-tint: rgb(86 143 26 / 14%);
+  --omp-ed-suggestion: color-mix(in srgb, #568f1a 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion-ink: color-mix(in srgb, #568f1a 62%, #000);
+  --omp-id-related: #188f76;
+  --omp-id-related-ink: #0f6c58;
+  --omp-id-related-tint: rgb(24 143 118 / 14%);
+  --omp-ed-related: color-mix(in srgb, #188f76 85%, var(--chat-foreground-strong));
+  --omp-ed-related-ink: color-mix(in srgb, #188f76 62%, #000);
+  --omp-id-decision: #8a5cc4;
+  --omp-id-decision-ink: #6c3fa6;
+  --omp-id-decision-tint: rgb(138 92 196 / 12%);
+  --omp-ed-decision: color-mix(in srgb, #8a5cc4 80%, var(--chat-foreground-strong));
+  --omp-ed-decision-ink: color-mix(in srgb, #8a5cc4 62%, #000);
+  --omp-id-review: #ee640a;
+  --omp-id-review-ink: #a34000;
+  --omp-id-review-tint: rgb(238 100 10 / 14%);
+  --omp-ed-review: color-mix(in srgb, #ee640a 78%, var(--chat-foreground-strong));
+  --omp-ed-review-ink: color-mix(in srgb, #ee640a 66%, #000);
+  --embed-code: #16699c;
+  --embed-command: #237530;
+  --embed-table: #a64e00;
+  --embed-diagram: #9c4579;
+  --omp-accent: #9c5c00;
+}
+:root[data-omp-chat-palette='ayu'].dark {
+  --omp-accent: #e6b450;
+  --omp-id-key: #74cdff;
+  --omp-id-key-ink: #74cdff;
+  --omp-id-key-tint: rgb(116 205 255 / 12%);
+  --omp-ed-key: #74cdff;
+  --omp-ed-key-ink: #74cdff;
+  --omp-id-gap: #fda3ab;
+  --omp-id-gap-ink: #fda3ab;
+  --omp-id-gap-tint: rgb(253 163 171 / 12%);
+  --omp-ed-gap: #fda3ab;
+  --omp-ed-gap-ink: #fda3ab;
+  --omp-id-suggestion: #92d977;
+  --omp-id-suggestion-ink: #92d977;
+  --omp-id-suggestion-tint: rgb(146 217 119 / 12%);
+  --omp-ed-suggestion: #92d977;
+  --omp-ed-suggestion-ink: #92d977;
+  --omp-id-related: #93e2c8;
+  --omp-id-related-ink: #93e2c8;
+  --omp-id-related-tint: rgb(147 226 200 / 12%);
+  --omp-ed-related: #93e2c8;
+  --omp-ed-related-ink: #93e2c8;
+  --omp-id-decision: #d8b0ff;
+  --omp-id-decision-ink: #d8b0ff;
+  --omp-id-decision-tint: rgb(216 176 255 / 12%);
+  --omp-ed-decision: #d8b0ff;
+  --omp-ed-decision-ink: #d8b0ff;
+  --omp-id-review: #f9a548;
+  --omp-id-review-ink: #f9a548;
+  --omp-id-review-tint: rgb(249 165 72 / 12%);
+  --omp-ed-review: #f9a548;
+  --omp-ed-review-ink: #f9a548;
+  --embed-code: #5ccfe6;
+  --embed-command: #80cd62;
+  --embed-table: #e6b450;
+  --embed-diagram: #b7b5f7;
+}
+
+:root[data-omp-chat-palette='ayu']:not(.dark) [data-native-chat-window] {
+  --omp-ed-label-mix: 80%;
+  --omp-ed-key: color-mix(in srgb, #2f8fd0 85%, var(--chat-foreground-strong));
+  --omp-ed-gap: color-mix(in srgb, #e04a55 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(in srgb, #568f1a 85%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(in srgb, #188f76 85%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(in srgb, #8a5cc4 80%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(in srgb, #ee640a 78%, var(--chat-foreground-strong));
+}
+
+/* Orca chat inks nudged only where stock Ayu falls under 4.5:1. */
+:root[data-omp-chat-palette='ayu']:not(.dark) .native-chat-appearance {
+  --chat-source-foreground: #484d52;
+  --chat-source-muted-foreground: #565b61;
+}
+:root[data-omp-chat-palette='ayu'].dark .native-chat-appearance {
+  --chat-source-muted-foreground: #c2c8d1;
+  --border: color-mix(in srgb, var(--chat-source-foreground) 16%, transparent);
+}
