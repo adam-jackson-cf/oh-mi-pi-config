@@ -127,15 +127,122 @@ class RepositoryTests(unittest.TestCase):
                 self.change(kind, code)
                 self.assert_block(self.prove(), reason)
 
-    def test_pristine_runs_and_setup_every_execution(self):
-        code = "from pathlib import Path\nassert Path('ready').exists()\nassert not Path('artifact').exists()\nassert not Path('ignored').exists()\nPath('artifact').write_text('x')\nPath('ignored').write_text('x')\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n"
-        self.write(".gitignore", "ignored\n")
-        self.commit("ignore")
+    def test_setup_runs_once_per_tree_in_freeze_and_prove(self):
+        self.write(".gitignore", "setup/\n")
+        self.commit("ignore setup")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        data = self.change(code=code)
-        data["setup"] = [sys.executable, "-c", "from pathlib import Path; Path('ready').write_text('yes')"]
+        counter = self.tmp / "setup-count"
+        setup = [sys.executable, "-c",
+                 "from pathlib import Path\n"
+                 f"with Path({str(counter)!r}).open('a') as out: out.write(str(Path.cwd()) + '\\n')\n"
+                 "Path('setup').mkdir(exist_ok=True)\n"
+                 "p = Path('setup/count')\n"
+                 "p.write_text(p.read_text() + 'x' if p.exists() else 'x')\n"]
+        proof = self.proof(code="from pathlib import Path\nassert Path('setup/count').read_text() == 'x'\n"
+                           "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
+        self.freeze([proof], setup=setup)
+        frozen_trees = counter.read_text().splitlines()
+        self.assertEqual(len(frozen_trees), 1)  # Baseline and negative control share setup.
+        data = self.change(proofs=[proof])
+        data["setup"] = setup
         self.save(data)
         self.assertEqual(self.prove()["status"], "pass")
+        trees = counter.read_text().splitlines()
+        self.assertEqual(len(trees), 3)  # Two head runs and two parent runs use two trees.
+        self.assertEqual(len(set(trees)), 3)
+
+    def test_setup_outputs_survive_and_proof_artifacts_are_removed(self):
+        self.write(".gitignore", "ignored-ready/\nignored-run*\n")
+        self.commit("ignore artifacts")
+        self.parent = git(self.repo, "rev-parse", "HEAD")
+        code = (
+            "from pathlib import Path\n"
+            "for name in ('ready/output', 'ignored-ready/output'):\n"
+            "    assert Path(name).read_text() == 'setup'\n"
+            "for name in ('artifact', 'nested', 'ignored-run', 'ignored-run-dir'):\n"
+            "    assert not Path(name).exists(), name\n"
+            "Path('artifact').write_text('run')\n"
+            "Path('nested/new/directory').mkdir(parents=True)\n"
+            "Path('nested/new/directory/output').write_text('run')\n"
+            "Path('ignored-run').write_text('run')\n"
+            "Path('ignored-run-dir/nested').mkdir(parents=True)\n"
+            "Path('ignored-run-dir/nested/output').write_text('run')\n"
+            "print(Path('ignored-ready/cache').exists())\n"
+            "Path('ignored-ready/cache').write_text('intentionally retained')\n"
+        )
+        data = self.change("preserve", code)
+        data["setup"] = [sys.executable, "-c",
+                         "from pathlib import Path\n"
+                         "for name in ('ready', 'ignored-ready'):\n"
+                         "    Path(name).mkdir()\n"
+                         "    Path(name, 'output').write_text('setup')\n"]
+        self.save(data)
+        result = self.prove()
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual([run["output"].strip() for run in result["deterministic"]["proofs"]["P1"]],
+                         ["False", "True", "False"])
+
+    def test_reset_restores_tracked_files_and_removes_overlays(self):
+        tree = self.tmp / "scratch"
+        git(self.repo, "worktree", "add", "--detach", str(tree), self.parent)
+        try:
+            baselines = {}
+            proof = {"id": "P1", "cmd": [sys.executable, "-c",
+                     "from pathlib import Path; assert Path('overlay').read_text() == 'proof'; "
+                     "assert Path('value').read_text() == 'overlaid'"]}
+            record = workflow._execute(tree, proof, baselines,
+                                       overlay={"overlay": b"proof", "value": b"overlaid"})
+            self.assertTrue(record["ok"], record)
+            self.assertEqual((tree / "value").read_text(), "old")
+            self.assertFalse((tree / "overlay").exists())
+            (tree / "value").write_text("residue")
+            (tree / "artifact").write_text("residue")
+            outside = self.tmp / "outside"
+            outside.mkdir()
+            (outside / "keep").write_text("safe")
+            (tree / "linked").symlink_to(outside, target_is_directory=True)
+            (tree / "new-dir").mkdir()
+            (tree / "new-dir/link").symlink_to(outside, target_is_directory=True)
+            (tree / "odd\nname").write_text("residue")
+            proof["cmd"] = [sys.executable, "-c",
+                            "from pathlib import Path; assert Path('value').read_text() == 'old'; "
+                            "assert not Path('artifact').exists(); assert not Path('overlay').exists()"]
+            self.assertTrue(workflow._execute(tree, proof, baselines)["ok"])
+            self.assertEqual((outside / "keep").read_text(), "safe")
+            self.assertFalse((tree / "linked").is_symlink())
+            self.assertFalse((tree / "new-dir").exists())
+            self.assertFalse((tree / "odd\nname").exists())
+        finally:
+            git(self.repo, "worktree", "remove", "--force", str(tree))
+
+    def test_baseline_recording_failure_is_attributed_without_repeating_setup(self):
+        data = self.change()
+        counter = self.tmp / "setup-count"
+        data["setup"] = [sys.executable, "-c",
+                         f"from pathlib import Path; p = Path({str(counter)!r}); "
+                         "p.write_text(p.read_text() + 'x' if p.exists() else 'x')"]
+        self.save(data)
+        with patch.object(workflow, "_entries", side_effect=OSError("baseline listing failed")):
+            result = self.prove()
+        self.assert_block(result, "P1: head run 1: infrastructure: baseline listing failed")
+        self.assertEqual(counter.read_text(), "x")
+        self.verifier.assert_not_called()
+
+    def test_execution_cleanup_failure_prevents_pass(self):
+        self.change("preserve", "assert True\n")
+        entries = workflow._entries
+        calls = 0
+        def fail_cleanup(tree):
+            nonlocal calls
+            calls += 1
+            if calls == 3:  # Setup baseline, before execution, finally.
+                raise OSError("artifact cleanup failed")
+            return entries(tree)
+        with patch.object(workflow, "_entries", side_effect=fail_cleanup):
+            result = self.prove()
+        self.assert_block(result, "cleanup infrastructure: artifact cleanup failed")
+        self.assertIsNone(result["deterministic"]["proofs"]["P1"][0]["ok"])
+        self.verifier.assert_not_called()
 
     def test_setup_mutation_is_infrastructure(self):
         data = self.change()
@@ -230,12 +337,13 @@ class RepositoryTests(unittest.TestCase):
     def test_context_authors_model_and_cleanup(self):
         self.change()
         context = workflow._common(self.repo) / "omp-prove/verifier-context.json"
-        def inspect(brief, **kwargs):
+        def inspect(brief, proof_ids, **kwargs):
             payload = json.loads(context.read_text())
             self.assertEqual(set(payload), {"schemaVersion", "worktree", "branch", "head"})
             self.assertEqual(payload["head"], self.head)
             self.assertEqual(payload["worktree"], str(self.repo.resolve()))
             self.assertEqual(kwargs, {"model": "openai-codex/gpt-6.1-sol:medium"})
+            self.assertEqual(proof_ids, ["P1"])
             for fragment in ("Source repo", "PR target/ref", self.parent + ".." + self.head, "baseline P1", "Objective: fix value", "recorded-model", "skill://git-tool", workflow.BLOCKING_RULE):
                 self.assertIn(fragment, brief)
             return verdict()
@@ -245,9 +353,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result["authors"][0]["family"], "openai")
         self.assertFalse(context.exists())
 
+    def test_verifier_brief_names_manifest_proof_ids(self):
+        self.change(proofs=[self.proof(ident="P2", filename="second.py"), self.proof()])
+        self.assertEqual(self.prove()["status"], "pass")
+        brief, proof_ids = self.verifier.call_args.args
+        self.assertEqual(proof_ids, ["P1", "P2"])
+        self.assertIn("Each criteria entry's proofId must be one of: P1, P2; "
+                      "put any other observation in blocking or followUps.", brief)
+
     def test_source_change_is_not_attributed_to_verifier(self):
         self.change()
-        def external_change(brief):
+        def external_change(brief, proof_ids):
             self.write("external", "changed")
             return verdict()
         self.verifier.side_effect = external_change
@@ -292,7 +408,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_long_output_has_live_full_evidence(self):
         self.change("preserve", "print('x'*6000)\n")
-        def inspect(brief):
+        def inspect(brief, proof_ids):
             self.assertIn("[TRUNCATED; full evidence:", brief)
             path = re.search(r"Full deterministic evidence: (.+)", brief).group(1)
             self.assertIn("x" * 6000, Path(path).read_text())
@@ -644,12 +760,14 @@ class SchemaTests(unittest.TestCase):
 
     def test_run_verifier_seam_selector_schema_and_override(self):
         with patch.object(workflow, "agent", create=True, return_value="handle") as spawn, patch.object(workflow, "wait", create=True, return_value=[verdict()]) as wait:
-            workflow._run_verifier("brief")
+            workflow._run_verifier("brief", ["P2", "P1"])
             self.assertEqual(spawn.call_args.kwargs["agent"], "verifier")
             self.assertNotIn("model", spawn.call_args.kwargs)
             self.assertFalse(spawn.call_args.kwargs["schema"]["additionalProperties"])
+            proof_id_schema = spawn.call_args.kwargs["schema"]["properties"]["criteria"]["items"]["properties"]["proofId"]
+            self.assertEqual(proof_id_schema, {"enum": ["P1", "P2"]})
             self.assertEqual(wait.call_args.kwargs, {"raise_errors": False})
-            workflow._run_verifier("brief", model="openai-codex/gpt-6.1-sol:medium")
+            workflow._run_verifier("brief", ["P1"], model="openai-codex/gpt-6.1-sol:medium")
             self.assertEqual(spawn.call_args.kwargs["model"], "openai-codex/gpt-6.1-sol:medium")
 
     def test_load_safe_no_bang_lines(self):

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import Any
@@ -51,7 +52,7 @@ def run_check(cmd, cwd):
 def _git(repo, *args):
     try:
         p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                           text=True, errors="replace")
+                           text=True, errors="surrogateescape")
     except OSError as exc:
         raise WorkflowError(f"git infrastructure: {exc}") from exc
     if p.returncode:
@@ -210,6 +211,27 @@ def _setup(tree, setup):
             raise WorkflowError(f"setup failed:\n{_scrub(out, tree)}")
     if _git(tree, "status", "--porcelain", "--untracked-files=no"):
         raise WorkflowError("setup changed tracked files")
+    return _entries(tree)
+
+
+def _entries(tree):
+    status = _git(tree, "status", "--porcelain=v1", "--ignored=matching",
+                  "--untracked-files=normal", "-z")
+    return {entry[3:] for entry in status.split("\0") if entry.startswith(("?? ", "!! "))}
+
+
+def _reset(tree, baseline):
+    _git(tree, "reset", "--hard", "HEAD")
+    if baseline is None:
+        return
+    for name in _entries(tree) - baseline:
+        path = tree / name.rstrip("/")
+        if not path.parent.resolve().is_relative_to(tree.resolve()):
+            raise WorkflowError(f"cleanup path escapes tree: {name}")
+        if path.is_symlink() or not path.is_dir():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
 
 
 def _hash_failures(root, manifest):
@@ -222,15 +244,21 @@ def _hash_failures(root, manifest):
     return failures
 
 
-def _execute(tree, proof, setup=None, overlay=None, *, truncate=False, location="head", run=None, roots=()):
-    """Each execution owns a pristine scratch tree, setup, overlay and cleanup."""
+def _execute(tree, proof, baselines, setup=None, overlay=None, *, truncate=False, location="head", run=None, roots=()):
+    """Reuse each tree's setup; reset tracked files and remove non-baseline entries."""
     record = {"tree": location, "location": location, "ok": None, "output": ""}
     if run is not None:
         record["run"] = run
     try:
-        _git(tree, "reset", "--hard", "HEAD")
-        _git(tree, "clean", "-fdxq")
-        _setup(tree, setup)
+        if tree not in baselines:
+            try:
+                baselines[tree] = _setup(tree, setup)
+            except Exception as exc:
+                baselines[tree] = exc
+        baseline = baselines[tree]
+        if isinstance(baseline, Exception):
+            raise baseline
+        _reset(tree, baseline)
         if overlay is not None:
             for name, data in overlay.items():
                 dest = _proof_path(tree, name)
@@ -251,8 +279,8 @@ def _execute(tree, proof, setup=None, overlay=None, *, truncate=False, location=
         record["error"] = f"{proof['id']}: {location}" + (f" run {run}" if run else "") + f": infrastructure: {exc}"
     finally:
         try:
-            _git(tree, "reset", "--hard", "HEAD")
-            _git(tree, "clean", "-fdxq")
+            baseline = baselines.get(tree)
+            _reset(tree, None if isinstance(baseline, Exception) else baseline)
         except Exception as exc:
             record["ok"] = None
             record["error"] = record.get("error", "") + f" {proof['id']}: {location}: cleanup infrastructure: {exc}"
@@ -294,7 +322,7 @@ def _remove_trees(repo, trees):
 
 def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
            previous=None, revise=None, max_checks=MAX_PROOFS):
-    """Freeze working-tree proofs against pinned, pristine isolated baselines."""
+    """Freeze working-tree proofs against pinned, setup-preserving isolated baselines."""
     _limit(max_checks)
     if base is not None and (not isinstance(base, str) or not base.strip() or "\0" in base):
         raise WorkflowError("base must be a nonblank commit reference")
@@ -358,7 +386,7 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     if revisions:
         manifest["revisions"] = revisions
     _validate(manifest, max_checks)
-    trees, failure = [], None
+    trees, baselines, failure = [], {}, None
     with tempfile.TemporaryDirectory(prefix="omp-freeze-") as scratch:
         try:
             for proof in manifest["proofs"]:
@@ -368,12 +396,12 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
                 _git(root, "worktree", "add", "--detach", str(tree), proof["parent"])
                 trees.append(tree)
                 overlay = {name: _proof_path(root, name).read_bytes() for name in proof["files"]}
-                record = _execute(tree, proof, setup, overlay, location="baseline", roots=(root,))
+                record = _execute(tree, proof, baselines, setup, overlay, location="baseline", roots=(root,))
                 error = record.get("error") or _kind_failure(proof, record["ok"], record["output"], "baseline")
                 if error:
                     raise WorkflowError(error)
                 if proof["kind"] == "defect":
-                    control = _execute(tree, proof, setup, overlay, truncate=True, location="negative control", roots=(root,))
+                    control = _execute(tree, proof, baselines, setup, overlay, truncate=True, location="negative control", roots=(root,))
                     if control.get("error"):
                         raise WorkflowError(control["error"])
                     if proof["expectRed"] in control["output"]:
@@ -512,13 +540,14 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
     failures.extend(_hash_failures(head_tree, manifest))
     if failures:
         return result
-    # Preserve bytes before any scratch tree reset/clean, including untracked setup artifacts.
+    # Preserve proof bytes before any scratch tree reset or overlay.
     overlays = {p["id"]: {name: _proof_path(head_tree, name).read_bytes() for name in p["files"]} for p in manifest["proofs"]}
     roots = tuple(x for x in (source_root, parent_tree, head_tree, *(proof_parents or {}).values()) if x is not None)
+    baselines = {}
     for proof in manifest["proofs"]:
         runs = result["proofs"].setdefault(proof["id"], [])
         for n in (1, 2):
-            record = _execute(head_tree, proof, manifest.get("setup"), location="head", run=n, roots=roots)
+            record = _execute(head_tree, proof, baselines, manifest.get("setup"), location="head", run=n, roots=roots)
             runs.append(record)
             if record.get("error"):
                 failures.append(record["error"])
@@ -529,13 +558,13 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
         if failures:
             continue
         tree = (proof_parents or {}).get(proof.get("parent"), parent_tree)
-        record = _execute(tree, proof, manifest.get("setup"), overlays[proof["id"]], location="parent", roots=roots)
+        record = _execute(tree, proof, baselines, manifest.get("setup"), overlays[proof["id"]], location="parent", roots=roots)
         runs.append(record)
         failure = record.get("error") or _kind_failure(proof, record["ok"], record["output"], "parent")
         if failure:
             failures.append(failure)
         if proof["kind"] == "defect" and not record.get("error"):
-            control = _execute(tree, proof, manifest.get("setup"), overlays[proof["id"]], truncate=True, location="negative control", roots=roots)
+            control = _execute(tree, proof, baselines, manifest.get("setup"), overlays[proof["id"]], truncate=True, location="negative control", roots=roots)
             runs.append(control)
             if control.get("error"):
                 failures.append(control["error"])
@@ -544,7 +573,7 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
     return result
 
 
-def _run_verifier(brief, model=None):
+def _run_verifier(brief, proof_ids, model=None):
     schema = {"type": "object", "required": ["status", "blocking", "followUps", "criteria"],
               "additionalProperties": False, "properties": {
                   "status": {"enum": ["pass", "fail"]},
@@ -552,7 +581,7 @@ def _run_verifier(brief, model=None):
                   "followUps": {"type": "array", "items": {"type": "string"}},
                   "criteria": {"type": "array", "items": {"type": "object", "required": ["proofId", "command", "observed", "verdict"],
                       "additionalProperties": False, "properties": {
-                          "proofId": {"type": "string", "minLength": 1}, "command": {"type": "string", "minLength": 1},
+                          "proofId": {"enum": sorted(proof_ids)}, "command": {"type": "string", "minLength": 1},
                           "observed": {"type": "string", "minLength": 1}, "verdict": {"enum": ["pass", "fail"]}}}}}}
     kwargs = {"agent": "verifier", "label": "Prove", "schema": schema}
     if model is not None:
@@ -697,7 +726,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                             if not all(present):
                                 result["blocking"].append(f"{proof['id']}: partial proof at {commit}")
                                 continue
-                            record = _execute(tree, proof, manifest.get("setup"), location=f"earlier commit {commit}", roots=(repo, *trees))
+                            record = _execute(tree, proof, {}, manifest.get("setup"), location=f"earlier commit {commit}", roots=(repo, *trees))
                             deterministic["proofs"][proof["id"]].append(record)
                             if record.get("error"):
                                 result["blocking"].append(record["error"])
@@ -711,6 +740,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         for record in runs:
                             if len(record["output"]) > 4096:
                                 record["output"] = f"[TRUNCATED; full evidence: {full_path}]\n" + record["output"][-4096:]
+                    proof_ids = sorted(p["id"] for p in manifest["proofs"])
                     brief = (
                         "Read skill://codegraph/references/readiness-and-bootstrap.md, "
                         "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git.\n"
@@ -720,17 +750,19 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         f"Objective: {objective}\nAuthors: {json.dumps(result['authors'])}\nVerifier model override: {verifier_model}\n"
                         f"Manifest: {json.dumps(manifest)}\nDeterministic: {json.dumps(brief_checks)}\n"
                         f"Full deterministic evidence: {full_path}\nDiff stat: {_git(repo, 'diff', '--stat', parent, head)}\n"
-                        "Drive every criterion live; return proofId, command, observed, verdict. Audit undeclared "
+                        "Drive every criterion live; return proofId, command, observed, verdict. "
+                        f"Each criteria entry's proofId must be one of: {', '.join(proof_ids)}; "
+                        "put any other observation in blocking or followUps. Audit undeclared "
                         "harness/config tampering, wrong/stale docs caused by this PR and diff scope/coverage. "
                         "Each finding needs exact command, actual and required output; omit anything not run. " + BLOCKING_RULE)
                     context = common / "omp-prove" / "verifier-context.json"
                     try:
                         _atomic_json(context, {"schemaVersion": 1, "worktree": str(repo), "branch": branch, "head": head})
                         try:
-                            verdict = _run_verifier(brief) if verifier_model is None else _run_verifier(brief, model=verifier_model)
+                            verdict = _run_verifier(brief, proof_ids) if verifier_model is None else _run_verifier(brief, proof_ids, model=verifier_model)
                         except Exception as exc:
                             verdict = exc
-                        _verdict(result, verdict, {p["id"] for p in manifest["proofs"]})
+                        _verdict(result, verdict, set(proof_ids))
                     finally:
                         context.unlink(missing_ok=True)
                         after = (_git(repo, "status", "--porcelain=v2"), _commit(repo, "HEAD"))

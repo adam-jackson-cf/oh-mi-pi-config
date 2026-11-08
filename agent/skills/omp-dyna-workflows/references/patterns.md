@@ -70,11 +70,16 @@ Generated frozen output (not a draft input):
   both green head outputs. `preserve`: baseline passes. `new-surface`: baseline
   does not pass; this is not proof of API absence. Infrastructure failure is
   never valid red evidence.
-- Every individual execution starts pristine in a detached scratch tree, runs
-  setup once for that execution, then cleans up (including ignored artifacts).
-  This includes both head runs, baseline, negative control and earlier-commit
-  runs. Setup changing tracked bytes is a setup error. Never clean the source
-  checkout. Defeat result caches in argv, e.g. `go test -count=1`.
+- Each detached scratch tree starts fresh at its pinned commit and runs setup
+  once, on first use. After checking that setup did not change tracked bytes,
+  record its untracked and ignored entries (including collapsed directories).
+  Before and after every execution, reset tracked files and remove untracked
+  and ignored entries absent from that baseline. This includes both head runs,
+  baseline, negative control and earlier-commit runs. Setup outputs survive;
+  residue within baseline directories (e.g. `node_modules/.cache` or `target/`)
+  intentionally persists. Setup or baseline-recording failure is infrastructure
+  failure. Never clean the source checkout. Commands must defeat result caches,
+  e.g. `go test -count=1`.
 - Each proof's parent is always pinned, defaulting to manifest base. A regression
   added during review must explicitly name the defective implementation commit
   as its parent. Prove requires strict parent/head ancestry and parents at/after
@@ -111,7 +116,7 @@ isolated baseline checks by kind and checks earlier commits touching proof files
 once each with that commit's own bytes. Earlier proofs must already be green;
 committing a red proof before its greening fix is forbidden. Partial proofs,
 tracked mutation and changed frozen head bytes fail. Every execution uses the
-pristine lifecycle above. Launch, timeout, IO, setup and cleanup errors are
+setup-preserving lifecycle above. Launch, timeout, IO, setup and cleanup errors are
 attributed infrastructure failures (`ok: null`, error/output/location), not failed
 assertions. Previously collected evidence is retained; deterministic failure
 prevents verifier dispatch. Cleanup failure prevents pass.
@@ -137,8 +142,10 @@ Apply that constant, not a second prose blocker list. Each run's brief output is
 limited to its last 4096 characters, prefixed with an explicit truncation/full-evidence-path
 marker when needed; full output remains in the supplied `deterministic.json` during verification.
 The read-only verifier drives criteria live, with exact command/observed/required
-output; no edits or agent spawns. Criteria entries cover every known proof ID;
-unknown IDs block, multiple entries for a known ID are allowed, and any fail blocks.
+output; no edits or agent spawns. Criteria entries cover every manifest proof ID;
+the yield schema restricts `proofId` to those IDs and unknown IDs still block as a
+backstop. Put other observations in `blocking` or `followUps`. Multiple entries
+for a known ID are allowed, and any fail blocks.
 
 Rails records repository-file edit-tool editors and committers, excluding local
 workflow/proposal metadata. It does not discover arbitrary bash-written authors.
