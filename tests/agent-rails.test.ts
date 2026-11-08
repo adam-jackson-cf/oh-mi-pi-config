@@ -741,7 +741,7 @@ test("toggle commands ignore prose and reject contradictions and nonrepositories
 	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
-for (const scenario of ["external", "unverified", "other commit author", "other PR author", "other branch", "gh failure", "ledger"] as const) {
+for (const scenario of ["external", "unverified", "other commit author", "other PR author", "other branch", "gh failure", "empty range", "ledger"] as const) {
 	test(`Dependabot missing-ledger verifier policy: ${scenario}`, async () => {
 		const h = harness();
 		try {
@@ -769,7 +769,7 @@ for (const scenario of ["external", "unverified", "other commit author", "other 
 						return { author: { login: scenario === "other commit author" && sha === first ? "human" : "dependabot[bot]" },
 							commit: { verification: { verified: !(scenario === "unverified" && sha === first) } } };
 					}
-					if (args[1] === "view") return { baseRefOid: parent };
+					if (args[1] === "view") return { baseRefOid: scenario === "empty range" ? head : parent };
 					return [{ author: { is_bot: true, login: scenario === "other PR author" ? "human" : "app/dependabot" },
 						headRefName: scenario === "other branch" ? "agent/bump" : "dependabot/bun/js-minor-8e002485ce", headRefOid: head }];
 				})();
@@ -795,9 +795,11 @@ for (const scenario of ["external", "unverified", "other commit author", "other 
 					unverified: "not verified", "other commit author": "author is not dependabot[bot]",
 					"other PR author": "PR author is not Dependabot", "other branch": "not dependabot/",
 					"gh failure": "gh failed: unavailable", ledger: "different model family",
+					"empty range": "empty external bot commit range",
 				};
 				assert.ok(result?.reason?.includes(reasons[scenario]), result?.reason);
 				if (scenario !== "ledger") assert.ok(result?.reason?.includes("authorship unknown"));
+				if (scenario === "empty range") assert.deepEqual(checked, [], "empty ranges must not query commit metadata");
 			}
 		} finally { h.cleanup(); }
 	});
