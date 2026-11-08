@@ -741,6 +741,68 @@ test("toggle commands ignore prose and reject contradictions and nonrepositories
 	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 });
 
+for (const scenario of ["external", "unverified", "other commit author", "other PR author", "other branch", "gh failure", "ledger"] as const) {
+	test(`Dependabot missing-ledger verifier policy: ${scenario}`, async () => {
+		const h = harness();
+		try {
+			h.dynaflows(true);
+			const commit = async (message: string) => {
+				await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", message], { cwd: h.root });
+				return (await execute("git", ["rev-parse", "HEAD"], { cwd: h.root })).stdout.trim();
+			};
+			const parent = await commit("base");
+			const first = await commit("first bot");
+			const head = await commit("second bot");
+			await execute("git", ["remote", "add", "origin", "git@github.com:adam-jackson-cf/oh-mi-pi-config.git"], { cwd: h.root });
+			const executeReal = h.api.exec;
+			const checked: string[] = [];
+			h.api.exec = async (command, args, options) => {
+				if (command !== "gh") return executeReal(command, args, options);
+				assert.equal(options.cwd, h.root);
+				assert.ok(!args.includes("-R"));
+				if (scenario === "ledger") throw new Error("existing ledger must not query gh");
+				if (scenario === "gh failure") return { code: 1, killed: false, stdout: "", stderr: "unavailable" };
+				const response = (() => {
+					if (args[0] === "api") {
+						const sha = args[1].split("/").at(-1)!;
+						checked.push(sha);
+						return { author: { login: scenario === "other commit author" && sha === first ? "human" : "dependabot[bot]" },
+							commit: { verification: { verified: !(scenario === "unverified" && sha === first) } } };
+					}
+					if (args[1] === "view") return { baseRefOid: parent };
+					return [{ author: { is_bot: true, login: scenario === "other PR author" ? "human" : "app/dependabot" },
+						headRefName: scenario === "other branch" ? "agent/bump" : "dependabot/bun/js-minor-8e002485ce", headRefOid: head }];
+				})();
+				return { code: 0, killed: false, stdout: JSON.stringify(response), stderr: "" };
+			};
+			if (scenario === "ledger") {
+				await h.read(integrity, structure, naming);
+				await h.call("edit", { path: join(h.root, "existing.ts") });
+			}
+			const result = await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/review"] });
+			if (scenario === "external") {
+				assert.equal(result, undefined);
+				assert.deepEqual(new Set(checked), new Set([first, head]));
+				const dir = join(h.root, ".git/omp-prove");
+				mkdirSync(dir, { recursive: true });
+				writeFileSync(join(dir, "verifier-context.json"), JSON.stringify({
+					schemaVersion: 1, worktree: h.root, branch: "refs/heads/agent/test", parent, head,
+				}));
+				assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: [] }), undefined);
+			} else {
+				assert.equal(result?.block, true, JSON.stringify(result));
+				const reasons = {
+					unverified: "not verified", "other commit author": "author is not dependabot[bot]",
+					"other PR author": "PR author is not Dependabot", "other branch": "not dependabot/",
+					"gh failure": "gh failed: unavailable", ledger: "different model family",
+				};
+				assert.ok(result?.reason?.includes(reasons[scenario]), result?.reason);
+				if (scenario !== "ledger") assert.ok(result?.reason?.includes("authorship unknown"));
+			}
+		} finally { h.cleanup(); }
+	});
+}
+
 test("linked worktrees share primary toggle and verifier context selects only the named source", async () => {
 	const h = harness();
 	const linked = `${h.root}-linked`;
@@ -759,7 +821,7 @@ test("linked worktrees share primary toggle and verifier context selects only th
 		const contextDir = join(h.root, ".git/omp-prove");
 		mkdirSync(contextDir, { recursive: true });
 		const contextPath = join(contextDir, "verifier-context.json");
-		const scope = { schemaVersion: 1, worktree: realpathSync(linked), branch: "refs/heads/agent/source", head };
+		const scope = { schemaVersion: 1, worktree: realpathSync(linked), branch: "refs/heads/agent/source", head, parent: head };
 		writeFileSync(contextPath, JSON.stringify(scope));
 		assert.equal((await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] }))?.block, true);
 		assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/sol:medium"] }), undefined);
