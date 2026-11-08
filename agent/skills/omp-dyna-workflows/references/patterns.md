@@ -142,8 +142,10 @@ Apply that constant, not a second prose blocker list. Each run's brief output is
 limited to its last 4096 characters, prefixed with an explicit truncation/full-evidence-path
 marker when needed; full output remains in the supplied `deterministic.json` during verification.
 The read-only verifier drives criteria live, with exact command/observed/required
-output; no edits or agent spawns. Criteria entries cover every known proof ID;
-unknown IDs block, multiple entries for a known ID are allowed, and any fail blocks.
+output; no edits or agent spawns. Criteria entries cover every manifest proof ID;
+the yield schema restricts `proofId` to those IDs and unknown IDs still block as a
+backstop. Put other observations in `blocking` or `followUps`. Multiple entries
+for a known ID are allowed, and any fail blocks.
 
 Rails records repository-file edit-tool editors and committers, excluding local
 workflow/proposal metadata. It does not discover arbitrary bash-written authors.
