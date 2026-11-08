@@ -149,6 +149,10 @@ for a known ID are allowed, and any fail blocks.
 
 Rails records repository-file edit-tool editors and committers, excluding local
 workflow/proposal metadata. It does not discover arbitrary bash-written authors.
+Supported tool-runner launchers are `mise exec`/`mise x` (with `--` before the
+command), `pnpm exec`/`pnpm dlx`, `npx`, `bunx`, `uv run` and `poetry run`.
+Ambiguous launcher options with a later `git`/`gh` word block rather than silently
+skipping checks; put the Git command first after options or use `--`.
 Provenance persists per real worktree/full branch ref, not session lineage:
 `<git-common-dir>/omp-authors/<sha256(worktree + "\0" + branch)>.json`, UTF-8 input,
 with `{schemaVersion:1, worktree, branch, authors:[{family, model, agent}]}`.

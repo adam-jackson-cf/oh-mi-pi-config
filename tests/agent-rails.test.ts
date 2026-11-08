@@ -833,3 +833,85 @@ test("metadata does not author a change; docs do, and corrupt or different branc
 		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
 	} finally { h.cleanup(); }
 });
+
+test("mise commits pass the tool-call handler and record authors in a real repository", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
+		const hook = join(h.root, ".git/hooks/pre-commit");
+		writeFileSync(hook, "#!/bin/sh\nexit 0\n");
+		chmodSync(hook, 0o755);
+		const result = await h.emit("tool_call", { toolName: "bash", input: { command: "mise exec -- git commit -m x" } });
+		assert.equal(result, undefined);
+		const common = (await execute("git", ["rev-parse", "--git-common-dir"], { cwd: h.root })).stdout.trim();
+		const key = createHash("sha256").update(`${h.root}\0refs/heads/agent/test`).digest("hex");
+		const ledger = join(h.root, common, "omp-authors", `${key}.json`);
+		assert.equal(JSON.parse(readFileSync(ledger, "utf8")).authors[0].family, "openai");
+	} finally { h.cleanup(); }
+});
+
+test("tool-runner launchers cannot bypass commit hooks or publishing checks", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		for (const command of [
+			"mise exec -- git commit --no-verify -m x",
+			"mise exec node@20 -- git commit --no-verify",
+			"mise x -E test --jobs=2 -- git commit --no-verify",
+			"pnpm exec git commit --no-verify", "npx git commit --no-verify",
+			"bunx --package git git commit --no-verify", "pnpm dlx --package git git commit --no-verify",
+			"uv run --python 3.12 git commit --no-verify", "poetry run git commit --no-verify",
+		]) {
+			const result = await h.emit("tool_call", { toolName: "bash", input: { command } });
+			assert.equal(result?.block, true, command);
+			assert.ok(result?.reason?.includes("commits must run the pre-commit hook"), command);
+		}
+		const remote = await h.call("bash", { command: "mise exec -- gh pr create --repo x/y" });
+		assert.equal(remote?.block, true);
+		assert.ok(remote?.reason?.includes("remote repository overrides"));
+		const environment = await h.call("bash", { command: "LEFTHOOK=0 mise exec -- git commit -m x" });
+		assert.equal(environment?.block, true);
+		assert.ok(environment?.reason?.includes("hook environment mutation"));
+		for (const command of ["mise exec node@20 git commit", "mise x git commit"]) {
+			const result = await h.call("bash", { command });
+			assert.equal(result?.block, true);
+			assert.ok(result?.reason?.includes("requires --"));
+		}
+		for (const command of [
+			"pnpm exec --filter web git commit --no-verify -m x",
+			"uv run -p 3.12 git push", "uv run --env-file .env git push",
+			"npx --yes --unknown value git commit --no-verify",
+			"env FOO=x mise exec -- pnpm exec git commit --no-verify",
+		]) {
+			const result = await h.call("bash", { command });
+			assert.equal(result?.block, true, command);
+			assert.ok(result?.reason?.includes("wrapped command could not be parsed safely"), command);
+		}
+		assert.equal(await h.call("bash", { command: "pnpm exec eslint ." }), undefined);
+	} finally { h.cleanup(); }
+});
+
+test("mise directory options resolve the wrapped commit repository", async () => {
+	const h = harness();
+	const target = harness();
+	try {
+		await h.read("skill://git-tool");
+		target.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
+		const hook = join(target.root, ".git/hooks/pre-commit");
+		writeFileSync(hook, "#!/bin/sh\nexit 0\n");
+		chmodSync(hook, 0o755);
+		for (const command of [
+			`mise x -C '${target.root}' -- git commit -m x`,
+			`mise exec --cd='${target.root}' node@20 -- git commit -m x`,
+		]) {
+			assert.equal(await h.call("bash", { command }), undefined);
+			const key = createHash("sha256").update(`${target.root}\0refs/heads/agent/test`).digest("hex");
+			const ledger = JSON.parse(readFileSync(join(target.root, ".git/omp-authors", `${key}.json`), "utf8"));
+			assert.equal(ledger.worktree, target.root);
+		}
+		const unresolved = await h.call("bash", { command: "mise x -C /nonexistent-rails-directory -- git commit -m x" });
+		assert.equal(unresolved?.block, true);
+		assert.ok(unresolved?.reason?.includes("effective cwd"));
+	} finally { h.cleanup(); target.cleanup(); }
+});
