@@ -101,6 +101,17 @@ installed, so a new palette file needs a full `node inject.mjs`.
   tokens and ≥4.5:1 text contrast (decorative borders exempt; `dim` ≥3.0:1 and quieter than `muted`),
   app-background/foreground matches, mode overlays, slot resolution, config and generator idempotence.
   Exit 1 on any failed check.
+- `bun harness/terminal-shoot.mjs <session.jsonl> <out-dir> [--palette catppuccin] [--mode gutter]`
+  screenshots a real resumed omp TUI in an isolated temporary agent directory; the source session
+  is copied, never resumed in place. Requires `omp`, Python 3 and Google Chrome on macOS.
+  Defaults to both slots and their default variants; `--slot dark|light|both`, `--variant`,
+  `--lines 70` and `--anchor TEXT` select a shot/window. `--all` covers every mode and every
+  dark/light variant of the selected palette. Writes named PNG/HTML pairs and one JSON line per
+  shot (paths, theme selection, captured byte count and requested lines). Temporary profiles
+  are removed even on failure; no live agent configuration or Orca state is changed.
+- `bun harness/terminal-shoot-check.mjs` proves the real PTY emits generated tool/thinking
+  truecolour ink, the HTML retains fixture text and terminal background, both slots produce
+  non-blank Chrome PNGs, and the synthetic source fixture remains unchanged. Exit 1 on failure.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
   filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
   no other arguments at load and every 30 seconds, and sends stdout and stderr to

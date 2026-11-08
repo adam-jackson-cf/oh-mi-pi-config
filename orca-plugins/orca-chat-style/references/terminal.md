@@ -119,6 +119,25 @@ secondary ink must have lower contrast than gutter while retaining ≥4.5:1.
 Validate the data plugin after generation with
 `orca plugin validate <absolute-checkout>/orca-plugins/terminal-sections`.
 
+Review generated themes without switching Orca or touching a live session:
+
+```sh
+bun orca-plugins/chat-section-style/harness/terminal-shoot-check.mjs
+bun orca-plugins/chat-section-style/harness/terminal-shoot.mjs \
+  orca-plugins/chat-section-style/harness/fixtures/terminal-shoot-session.jsonl \
+  /tmp/terminal-preview --palette catppuccin --all
+```
+
+The screenshot harness resumes a disposable copy in a temporary agent directory, captures the
+real interactive TUI in a 150×60 PTY and renders it through xterm and headless Google Chrome.
+It needs `omp`, Python 3 and Chrome on macOS. Each selected palette/variant/mode/slot produces
+a named HTML/PNG pair and a JSON summary. Defaults are gutter, both slots, slot-default variants
+and the last 70 non-trailing-blank lines; use `--anchor TEXT` to place its last occurrence about
+30% down the window, or `--lines N` to change the window. `--all` includes every mode and variant
+for the selected palette. The proof checks real tool/thinking truecolour output, fixture text,
+backgrounds, styled spans, PNGs and source-session preservation. This proves generated previews,
+not the live Orca terminal's selected theme.
+
 Read settings without writing:
 
 ```sh
