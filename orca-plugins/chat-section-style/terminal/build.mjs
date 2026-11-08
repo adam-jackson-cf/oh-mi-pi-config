@@ -65,13 +65,13 @@ function contrast(a, b) {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
 }
 // Preserve hue families, moving only failing text towards the slot's black/white pole.
-function readable(color, backgrounds, slot) {
-  if (backgrounds.every(bg => contrast(color, bg) >= 4.5)) return color
+function readable(color, backgrounds, slot, minimum = 4.5) {
+  if (backgrounds.every(bg => contrast(color, bg) >= minimum)) return color
   const pole = slot === 'dark' ? '#ffffff' : '#000000'
   let low = 0, high = 1
   for (let step = 0; step < 16; step++) {
     const mid = (low + high) / 2
-    if (backgrounds.every(bg => contrast(mix(color, pole, mid), bg) >= 4.5)) high = mid
+    if (backgrounds.every(bg => contrast(mix(color, pole, mid), bg) >= minimum)) high = mid
     else low = mid
   }
   return mix(color, pole, high)
@@ -87,9 +87,11 @@ export function buildOmpTheme({ palette, variant, mode, slot }) {
   r.thinking = mix(r.subtle, r.decision, 0.25)
   r.quietSubtle = mix(r.subtle, r.bg, 0.15)
   r.quietThinking = mix(r.thinking, r.bg, 0.15)
+  // Counts, durations and ages are quiet text, not decorative border ink.
+  r.dim = readable(mix(r.subtle, r.bg, 0.5), [r.bg], slot, 3.5)
   const colors = {
     accent: r.decision, border: r.surface1, borderAccent: r.key, borderMuted: r.surface0,
-    success: r.suggestion, error: r.gap, warning: r.review, muted: r.subtle, dim: r.surface2,
+    success: r.suggestion, error: r.gap, warning: r.review, muted: r.subtle, dim: r.dim,
     text: '', thinkingText: r.thinking, selectedBg: r.surface0, userMessageBg: r.userMessage,
     customMessageBg: r.mantle, toolPendingBg: r.bg, toolSuccessBg: r.bg, toolErrorBg: r.bg,
     statusLineBg: r.mantle, userMessageText: '', customMessageText: '', customMessageLabel: r.related,

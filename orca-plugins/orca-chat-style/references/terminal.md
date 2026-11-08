@@ -49,6 +49,8 @@ The mapping follows omp 18.16.0: `tools/wait.ts:787–796` (IRC),
 Existing frame behaviour remains: document has neutral code borders, other modes code-hue borders.
 Text inks are adjusted toward black/white only as needed for ≥4.5:1 contrast on their backgrounds.
 The nine area inks stay pairwise ≥0.05 apart in OKLab, including after editorial fading.
+Quiet counts, durations, ages and truncated-output notices use `dim`: a 50% subtle/canvas mix
+adjusted to ≥3.5:1 contrast, strictly below secondary `muted` ink. Borders keep separate surface inks.
 
 ## One-time setup
 
@@ -113,7 +115,7 @@ The harness checks every palette/variant/mode/slot: required omp tokens and cont
 shape and paired app colours, observable mode differences, slot resolution, config selection,
 generator idempotence, non-empty tool titles and ≥0.05 pairwise OKLab area separation. Editorial
 secondary ink must have lower contrast than gutter while retaining ≥4.5:1.
-Deliberately dimmed `dim` and decorative borders are contrast exemptions.
+`dim` must retain ≥3.0:1 contrast and stay quieter than `muted`; decorative borders are exempt.
 Validate the data plugin after generation with
 `orca plugin validate <absolute-checkout>/orca-plugins/terminal-sections`.
 
