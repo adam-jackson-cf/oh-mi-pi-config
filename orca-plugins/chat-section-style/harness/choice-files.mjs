@@ -40,8 +40,8 @@ let temporary
 try {
   temporary = fs.mkdtempSync(join(tmpdir(), 'orca-choice-files-'))
   const copy = join(temporary, 'chat-section-style')
-  fs.cpSync(styleDir, copy, { recursive: true, filter: path => path !== harnessDir })
-  for (const name of ['mode', 'palette']) fs.rmSync(join(copy, name), { force: true })
+  const excludedPaths = new Set([harnessDir, ...choiceFiles.map(name => join(styleDir, name))])
+  fs.cpSync(styleDir, copy, { recursive: true, filter: path => !excludedPaths.has(path) })
   const inject = () => {
     const result = run('node', [join(copy, 'inject.mjs'), '--surface', 'terminal'], copy)
     equal('isolated/inject/exit', result.status, 2)
