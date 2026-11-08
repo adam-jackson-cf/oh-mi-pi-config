@@ -143,6 +143,12 @@ function checkOmp(theme, context, slot) {
     }
   }
   for (const bg of ['userMessageBg', 'selectedBg', 'customMessageBg']) measure('vars.text', resolvedVars.text, bg, resolved[bg])
+  if ([resolved.dim, resolved.muted, resolvedVars.base].every(color => hex.test(color))) {
+    const dim = contrast(resolved.dim, resolvedVars.base)
+    const muted = contrast(resolved.muted, resolvedVars.base)
+    if (dim < 3) fail(context, 'dim', `${resolved.dim} on vars.base ${resolvedVars.base}: ${dim.toFixed(6)}:1 < 3.0:1`)
+    if (!(dim < muted)) fail(context, 'dim', `contrast ${dim.toFixed(6)}:1 must be strictly lower than muted ${muted.toFixed(6)}:1`)
+  } else fail(context, 'dim', 'dim/muted contrast against vars.base unavailable')
   return { colors: resolved, vars: resolvedVars, minimum }
 }
 

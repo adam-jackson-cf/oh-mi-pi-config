@@ -98,7 +98,7 @@ installed, so a new palette file needs a full `node inject.mjs`.
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
 - `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp
-  tokens and ≥4.5:1 text contrast (except deliberately dimmed `dim` and decorative borders),
+  tokens and ≥4.5:1 text contrast (decorative borders exempt; `dim` ≥3.0:1 and quieter than `muted`),
   app-background/foreground matches, mode overlays, slot resolution, config and generator idempotence.
   Exit 1 on any failed check.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
