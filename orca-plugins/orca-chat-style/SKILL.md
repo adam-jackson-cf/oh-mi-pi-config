@@ -1,8 +1,8 @@
 ---
 name: "orca-chat-style"
 description: >-
-  Use when the user asks about Orca's chat look, switches its layout mode, or finds Orca chat
-  styling missing after an update or reinstall.
+  Use when the user asks about Orca's chat or terminal look, switches its layout mode, or finds
+  Orca chat styling missing after an update or reinstall.
 ---
 
 # Guidance
@@ -16,6 +16,9 @@ description: >-
 - App colours: Orca theme (Settings → Appearance; Catppuccin dev plugin `local.catppuccin-sections`
   in `~/.omp/orca-plugins/catppuccin-sections/`). Chat accents: palette. Settings → Chat UI:
   contrast 124, width Wide.
+- Terminal: no injection. Orca terminal themes Catppuccin Mocha/Latte, line height 1.25, plus omp
+  TUI themes `~/.omp/agent/themes/catppuccin-sections-{mocha,latte}.json` carrying the chat
+  palette. Details and limits: the README's "Terminal" section.
 - Before changes or repairs, read `~/.omp/orca-plugins/chat-section-style/README.md`: the runbook
   for reapplying, re-mapping selectors, theme limits and removal.
 
