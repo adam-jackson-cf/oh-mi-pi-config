@@ -110,6 +110,12 @@ tests/*
 !orca-plugins/
 !orca-plugins/**
 
+# Style choices belong to this machine, not the shared configuration.
+orca-plugins/chat-section-style/mode
+orca-plugins/chat-section-style/palette
+orca-plugins/chat-section-style/terminal-mode
+orca-plugins/chat-section-style/terminal-palette
+
 # Generated state inside owned source trees remains runtime-only.
 **/.DS_Store
 **/__pycache__/

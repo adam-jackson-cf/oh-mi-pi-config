@@ -23,7 +23,10 @@ runbook.
   Yes, while Orca's terminal-theme and omp's theme contracts remain compatible
 
 `~/.omp/orca-plugins/` is tracked in the oh-mi-pi-config repo (`~/.omp`), so a new Mac gets it
-from a clone.
+from a clone. The choice files `mode`, `palette`, `terminal-mode` and `terminal-palette` are
+machine-local, untracked and ignored. Before parsing flags, `inject.mjs` creates missing `mode`
+and `palette` files with `gutter` and `auto`, respectively; existing choices are never overwritten
+and terminal override files are not created by this initialization.
 
 ## Layout modes
 
@@ -97,6 +100,10 @@ installed, so a new palette file needs a full `node inject.mjs`.
 - `bun harness/palette-auto.mjs` checks that palette `auto` maps every installed theme to its
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
+- `bun harness/choice-files.mjs` checks that `mode`, `palette`, `terminal-mode` and
+  `terminal-palette` are ignored and untracked. In an isolated copy without those files,
+  `inject.mjs` creates `mode=gutter` and `palette=auto`, preserves an existing choice and
+  creates no terminal override. Exit 1 on failure; it never touches Orca.
 - `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp
   tokens and ≥4.5:1 text contrast (decorative borders exempt; `dim` ≥3.0:1 and quieter than `muted`),
   app-background/foreground matches, mode overlays, slot resolution, config and generator idempotence.
@@ -179,7 +186,7 @@ state their value explicitly (for example the reply container's transparent back
    `EnableNodeCliInspectArguments is Enabled`. If disabled, injection is impossible; never patch
    `app.asar` (breaks the signature, lost on the next update). Keep only the theme and settings
    layers.
-2. Run `node inject.mjs`. With the committed settings and a Catppuccin theme, success prints:
+2. Run `node inject.mjs`. With the default local choices and a Catppuccin theme, success prints:
 
    ```text
    {"pid":…,"styled":[1],"mode":"gutter","palette":"auto",
