@@ -568,7 +568,10 @@ export default function agentRails(
 		}
 		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: 20000 });
 		if (ancestry.code !== 0 || ancestry.killed) throw new Error("external bot parent is not an ancestor of head");
-		const commits = (await gitValue(scope.worktree, ["rev-list", `${parent}..${head}`])).split("\n");
+		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: 20000 });
+		if (range.code !== 0 || range.killed) throw new Error(`cannot resolve external bot commit range: ${range.stderr}`);
+		if (!range.stdout.trim()) throw new Error("empty external bot commit range");
+		const commits = range.stdout.trim().split("\n");
 		for (const sha of commits) {
 			const commit = z.object({
 				author: z.object({ login: z.string() }).nullable(),

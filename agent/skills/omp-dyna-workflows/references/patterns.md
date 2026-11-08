@@ -19,7 +19,7 @@ with `git worktree remove --force <absolute-scratch-path>`. No spike code is reu
 
 Missing author ledgers may identify Dependabot only as `external`: GitHub must
 report the Dependabot app as PR author, the PR head must match the checked-out
-SHA on a `dependabot/` branch, and every commit in `parent..head` must have
+SHA on a `dependabot/` branch, and every commit in a nonempty `parent..head` must have
 `dependabot[bot]` as GitHub author with verified signature. Any unavailable or
 failed check leaves authorship unknown. Existing ledgers always take precedence.
 
