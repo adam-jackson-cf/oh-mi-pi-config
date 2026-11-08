@@ -122,6 +122,20 @@ your response:
   other sections.
         <!-- OMP_GLOBAL_RULES_END -->
 
+Git: agents own branch → PR → review → merge without asking, unless `.omp/gate.json` sets
+`"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
+
+Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,
+`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or to git-tool and other skills in
+skills-directory, are not finished at merge: roll out to every device in the same task.
+After merging oh-mi-pi-config to main, sync main into `nuc-config` via an `agent/nuc-sync-<date>` PR
+merged with a merge commit (the nuc-config sync exception in `skill://git-tool/references/merge-and-recover.md`).
+Preserve NUC-only files; inspect `git diff --name-only origin/main origin/nuc-config`.
+Then run `python3 ~/.omp/scripts/device-rollout.py` from the Mac; it fast-forwards remote `~/.agents`
+and starts the NUC deploy service. Done only when every row is `current` and it exits 0.
+Never run Git in or copy into the NUC's `~/.omp`; `omp-config-pull.service` deploys it from `nuc-config`.
+Restart OMP sessions on each device after rails or extension changes; old sessions keep the old rails.
+
 ## Projects folder structure
 
 Use `~/Projects/` for projects on this machine. Place each project in one of
@@ -143,16 +157,3 @@ under `~/Projects/`. Default new product or application ideas to `inflight/`,
 day-to-day tooling to `tools/`, and learning references to `examples/`.
 When moving a version 1 project into `complete/`, update any affected local
 paths, scripts, shortcuts, or automation references.
-Git: agents own branch → PR → review → merge without asking, unless `.omp/gate.json` sets
-`"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
-
-Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or to git-tool and other skills in
-skills-directory, are not finished at merge: roll out to every device in the same task.
-After merging oh-mi-pi-config to main, sync main into `nuc-config` via an `agent/nuc-sync-<date>` PR
-merged with a merge commit (the nuc-config sync exception in `skill://git-tool/references/merge-and-recover.md`).
-Preserve NUC-only files; inspect `git diff --name-only origin/main origin/nuc-config`.
-Then run `python3 ~/.omp/scripts/device-rollout.py` from the Mac; it fast-forwards remote `~/.agents`
-and starts the NUC deploy service. Done only when every row is `current` and it exits 0.
-Never run Git in or copy into the NUC's `~/.omp`; `omp-config-pull.service` deploys it from `nuc-config`.
-Restart OMP sessions on each device after rails or extension changes; old sessions keep the old rails.
