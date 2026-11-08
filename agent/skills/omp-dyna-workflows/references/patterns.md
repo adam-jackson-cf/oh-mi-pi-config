@@ -70,6 +70,8 @@ Generated frozen output (not a draft input):
   both green head outputs. `preserve`: baseline passes. `new-surface`: baseline
   does not pass; this is not proof of API absence. Infrastructure failure is
   never valid red evidence.
+  A proof whose files are only documentation is green at the baseline by construction
+  (freeze overlays the new text), so declare it `preserve`; it checks head wording only.
 - Each detached scratch tree starts fresh at its pinned commit and runs setup
   once, on first use. After checking that setup did not change tracked bytes,
   record its untracked and ignored entries (including collapsed directories).
@@ -151,8 +153,14 @@ Rails records repository-file edit-tool editors and committers, excluding local
 workflow/proposal metadata. It does not discover arbitrary bash-written authors.
 Supported tool-runner launchers are `mise exec`/`mise x` (with `--` before the
 command), `pnpm exec`/`pnpm dlx`, `npx`, `bunx`, `uv run` and `poetry run`.
-Ambiguous launcher options with a later `git`/`gh` word block rather than silently
-skipping checks; put the Git command first after options or use `--`.
+`uv run` and `poetry run` honour `--` as the end of launcher options, including
+unknown options and their values. Without that separator, ambiguous launcher
+options with a later `git`/`gh` word block rather than silently skipping checks;
+put the Git command first after options or use `--`. Rails recursively scans
+`$(...)` and backtick command substitutions, including inside double quotes,
+without evaluating their output. Alias and shell function definitions whose bodies
+contain a `git` or `gh` word fail closed: persistent-shell invocations cannot be
+resolved safely. Definitions without those words remain allowed.
 Provenance persists per real worktree/full branch ref, not session lineage:
 `<git-common-dir>/omp-authors/<sha256(worktree + "\0" + branch)>.json`, UTF-8 input,
 with `{schemaVersion:1, worktree, branch, authors:[{family, model, agent}]}`.
