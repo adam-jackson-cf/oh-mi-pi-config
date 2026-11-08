@@ -100,6 +100,10 @@ installed, so a new palette file needs a full `node inject.mjs`.
 - `bun harness/palette-auto.mjs` checks that palette `auto` maps every installed theme to its
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
+- `bun harness/choice-files.mjs` checks that `mode`, `palette`, `terminal-mode` and
+  `terminal-palette` are ignored and untracked. In an isolated copy without those files,
+  `inject.mjs` creates `mode=gutter` and `palette=auto`, preserves an existing choice and
+  creates no terminal override. Exit 1 on failure; it never touches Orca.
 - `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp
   tokens and ≥4.5:1 text contrast (decorative borders exempt; `dim` ≥3.0:1 and quieter than `muted`),
   app-background/foreground matches, mode overlays, slot resolution, config and generator idempotence.
