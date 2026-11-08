@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { TERMINAL_MODES, TERMINAL_PALETTES, VARIANTS, appThemeFor, buildOmpTheme,
   buildOrcaTerminalTheme, resolveSlots, syncTerminalThemes } from '../terminal/build.mjs'
 import { LOCAL_THEME_DIRS, PLUGIN_PALETTES, THEME_PLUGINS_DIR, readThemes } from '../theme-palettes.mjs'
+import { PALETTES } from '../terminal/palettes.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const required = new Set(`accent border borderAccent borderMuted success error warning muted dim text thinkingText
@@ -23,6 +24,8 @@ const decorative = new Set(['border', 'borderAccent', 'borderMuted', 'mdHr', 'md
   'thinkingOff', 'thinkingMinimal', 'dim', 'statusLineSep'])
 const terminalKeys = `background foreground cursor selectionBackground black red green yellow blue magenta cyan white
 brightBlack brightRed brightGreen brightYellow brightBlue brightMagenta brightCyan brightWhite`.split(/\s+/)
+const areaTokens = ['mdHeading', 'accent', 'toolTitle', 'muted', 'thinkingText',
+  'success', 'error', 'warning', 'customMessageLabel']
 const hex = /^#[0-9a-f]{6}$/i
 const object = (value) => Object.prototype.toString.call(value) === '[object Object]'
 const canonical = (value) => hex.test(value) ? value.toLowerCase() : value
@@ -45,6 +48,50 @@ function luminance(color) {
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
   })
   return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+}
+
+function contrast(a, b) {
+  const x = luminance(a), y = luminance(b)
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+}
+
+function oklab(color) {
+  const [r, g, b] = [1, 3, 5].map(index => {
+    const value = parseInt(color.slice(index, index + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  // Björn Ottosson's published linear-sRGB → OKLab matrices:
+  // https://bottosson.github.io/posts/oklab/#converting-from-linear-srgb-to-oklab
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  ]
+}
+
+function checkAreas({ colors }, context) {
+  const labs = new Map()
+  for (const token of areaTokens) {
+    if (!hex.test(colors[token])) {
+      fail(context, token, `area color must resolve to non-empty #RRGGBB, got ${JSON.stringify(colors[token])}`)
+    } else labs.set(token, oklab(colors[token]))
+  }
+  let minimum = Infinity
+  for (let i = 0; i < areaTokens.length; i++) {
+    const a = areaTokens[i], lab = labs.get(a)
+    if (!lab) continue
+    for (const b of areaTokens.slice(i + 1)) {
+      const other = labs.get(b)
+      if (!other) continue
+      const distance = Math.hypot(...lab.map((value, index) => value - other[index]))
+      minimum = Math.min(minimum, distance)
+      if (distance < 0.05) fail(context, `${a}+${b}`, `OKLab distance ${distance.toFixed(6)} < 0.05`)
+    }
+  }
+  return minimum
 }
 
 function checkOmp(theme, context, slot) {
@@ -96,10 +143,16 @@ function checkOmp(theme, context, slot) {
     }
   }
   for (const bg of ['userMessageBg', 'selectedBg', 'customMessageBg']) measure('vars.text', resolvedVars.text, bg, resolved[bg])
+  if ([resolved.dim, resolved.muted, resolvedVars.base].every(color => hex.test(color))) {
+    const dim = contrast(resolved.dim, resolvedVars.base)
+    const muted = contrast(resolved.muted, resolvedVars.base)
+    if (dim < 3) fail(context, 'dim', `${resolved.dim} on vars.base ${resolvedVars.base}: ${dim.toFixed(6)}:1 < 3.0:1`)
+    if (!(dim < muted)) fail(context, 'dim', `contrast ${dim.toFixed(6)}:1 must be strictly lower than muted ${muted.toFixed(6)}:1`)
+  } else fail(context, 'dim', 'dim/muted contrast against vars.base unavailable')
   return { colors: resolved, vars: resolvedVars, minimum }
 }
 
-function checkMode(theme, checked, context, mode) {
+function checkMode(theme, checked, context, mode, mantle) {
   const { colors, vars } = checked
   const symbols = theme.symbols?.overrides ?? {}
   const expectedBullet = { document: '•', 'split-cards': '•', gutter: '●', editorial: '◆' }[mode]
@@ -108,6 +161,12 @@ function checkMode(theme, checked, context, mode) {
     if (mode === 'split-cards') {
       if (colors[token] === vars.base) fail(context, token, 'split-cards must be filled, not base')
     } else equal(context, token, colors[token], vars.base)
+  }
+  if (mode === 'document') equal(context, 'customMessageBg', colors.customMessageBg, vars.base)
+  if (mode === 'gutter') equal(context, 'customMessageBg', colors.customMessageBg, mantle)
+  if (mode === 'split-cards') {
+    if (colors.customMessageBg === vars.base) fail(context, 'customMessageBg', 'split-cards must differ from bg')
+    if (colors.customMessageBg === canonical(mantle)) fail(context, 'customMessageBg', 'split-cards must differ from mantle')
   }
   if (mode === 'gutter' || mode === 'editorial') {
     for (const part of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight', 'vertical']) {
@@ -124,21 +183,21 @@ function checkMode(theme, checked, context, mode) {
     equal(context, 'symbols.md.hrChar', symbols['md.hrChar'], '─')
   } else {
     equal(context, 'mdCodeBlockBorder', colors.mdCodeBlockBorder, colors.mdCode)
-    equal(context, 'mdListBullet', colors.mdListBullet, colors.accent)
+    equal(context, 'mdListBullet', colors.mdListBullet, colors.mdHeading)
   }
   if (mode === 'split-cards') equal(context, 'borderAccent', colors.borderAccent, colors.accent)
   if (mode === 'editorial') {
     equal(context, 'symbols.md.quoteBorder', symbols['md.quoteBorder'], '▏')
     equal(context, 'symbols.md.hrChar', symbols['md.hrChar'], '─')
-    equal(context, 'mdHeading', colors.mdHeading, colors.accent)
   }
 }
 
 const themes = attempt('all/all/all/all', 'readThemes', () => readThemes(fs, THEME_PLUGINS_DIR, LOCAL_THEME_DIRS, PLUGIN_PALETTES)) ?? []
 for (const palette of TERMINAL_PALETTES) {
-  let count = 0, minimum = Infinity
+  let count = 0, minimum = Infinity, minimumPair = Infinity
   for (const slot of ['dark', 'light']) {
     for (const variant of VARIANTS[palette][slot]) {
+      const checkedModes = new Map()
       for (const mode of TERMINAL_MODES) {
         const context = `${palette}/${variant}/${mode}/${slot}`
         const options = { palette, variant, mode, slot }
@@ -147,7 +206,9 @@ for (const palette of TERMINAL_PALETTES) {
         if (omp) {
           const checked = checkOmp(omp, context, slot)
           minimum = Math.min(minimum, checked.minimum)
-          checkMode(omp, checked, context, mode)
+          minimumPair = Math.min(minimumPair, checkAreas(checked, context))
+          checkMode(omp, checked, context, mode, PALETTES[palette][variant].roles.mantle)
+          checkedModes.set(mode, checked)
           count++
         }
         if (!terminal) continue
@@ -166,9 +227,18 @@ for (const palette of TERMINAL_PALETTES) {
           equal(context, `terminal.${token}`, colors[token], app.tokens[appToken])
         }
       }
+      const editorial = checkedModes.get('editorial'), gutter = checkedModes.get('gutter')
+      if (editorial && gutter) {
+        const context = `${palette}/${variant}/editorial/${slot}`
+        if ([editorial.colors.muted, editorial.vars.base, gutter.colors.muted, gutter.vars.base].every(color => hex.test(color))) {
+          const quiet = contrast(editorial.colors.muted, editorial.vars.base)
+          const normal = contrast(gutter.colors.muted, gutter.vars.base)
+          if (!(quiet < normal)) fail(context, 'muted', `contrast ${quiet.toFixed(6)}:1 must be strictly lower than gutter ${normal.toFixed(6)}:1`)
+        } else fail(context, 'muted', 'editorial/gutter contrast unavailable')
+      }
     }
   }
-  summaries.push(`${palette}: ${count} themes, min contrast ${minimum.toFixed(2)}:1`)
+  summaries.push(`${palette}: ${count} themes, min contrast ${minimum.toFixed(2)}:1, min area distance ${minimumPair.toFixed(6)}`)
 }
 
 const defaults = { dark: { palette: 'catppuccin', variant: 'mocha' }, light: { palette: 'catppuccin', variant: 'latte' } }

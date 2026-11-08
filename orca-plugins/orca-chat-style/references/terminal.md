@@ -15,6 +15,43 @@ All four JSON files are runtime output, not tracked sources. `terminal/build.mjs
 bytes differ; `terminal/palettes.mjs` holds palette/variant source data, and `terminal/modes.mjs`
 holds mode overlays. Table and diagram hues are retained as source data but have no terminal tokens.
 
+## Area colours and modes
+
+All palettes, including Catppuccin, use one role mapping (no theme-template passthrough):
+
+| Area / tokens | Palette role |
+| --- | --- |
+| Prose headings and bullets (`mdHeading`, `mdListBullet`) | Chat `accent` |
+| TODO/Subagents titles, progress percent, TODO spine (`accent`) | `decision`, mauve family |
+| Tool and IRC headers (`toolTitle`) | `code` hue |
+| Secondary details/output/meta/labels (`muted`, `toolOutput`) | Neutral `subtle` |
+| Italic reasoning prose (`thinkingText`) | `subtle` mixed 25% toward `decision` |
+| Status (`success`, `error`, `warning`) | `suggestion` green / `gap` red / `review` orange |
+| Custom/skill labels and user skill rail (`customMessageLabel`) | `related` teal |
+| Links (`mdLink`) | `key` blue |
+
+Secondary ink covers tool details/output, IRC metadata, subagent descriptions and reasoning labels.
+
+The mapping follows omp 18.16.0: `tools/wait.ts:787–796` (IRC),
+`chat/assistant-message.ts:1454–1457,774–794` (reasoning),
+`tools/job-widget.ts:410–520` and `tools/agent-tree.ts:127` (progress),
+`pi-coding-agent/src/modes/interactive-mode.ts:5096–5243,4789–4805` (TODO) and
+`:1261–1327` (Subagents), `chat/user-message.ts`, `custom-message.ts:21`, and
+`chat/tool-execution.ts` / `chat/execution-shared.ts` (messages/tools).
+
+- **document:** tool and custom backgrounds equal the canvas; user fill is soft mantle.
+- **split-cards:** pending tools use mantle, success/error tools get state tints; custom messages
+  mix the canvas 8% toward related teal; user fill uses the palette's user-message colour.
+- **gutter:** unfilled tools, mantle custom messages, open frames and `●` bullets.
+- **editorial:** unfilled tools; secondary ink, tool output and reasoning fade another 15% toward
+  the canvas; chat-accent headings, `◆` bullets and `▏` quotes.
+
+Existing frame behaviour remains: document has neutral code borders, other modes code-hue borders.
+Text inks are adjusted toward black/white only as needed for ≥4.5:1 contrast on their backgrounds.
+The nine area inks stay pairwise ≥0.05 apart in OKLab, including after editorial fading.
+Quiet counts, durations, ages and truncated-output notices use `dim`: a 50% subtle/canvas mix
+adjusted to ≥3.5:1 contrast, strictly below secondary `muted` ink. Borders keep separate surface inks.
+
 ## One-time setup
 
 From the installed checkout, generate the files first:
@@ -76,9 +113,30 @@ bun orca-plugins/chat-section-style/harness/terminal-themes.mjs
 
 The harness checks every palette/variant/mode/slot: required omp tokens and contrast, Orca theme
 shape and paired app colours, observable mode differences, slot resolution, config selection,
-generator idempotence. Deliberately dimmed `dim` and decorative borders are contrast exemptions.
+generator idempotence, non-empty tool titles and ≥0.05 pairwise OKLab area separation. Editorial
+secondary ink must have lower contrast than gutter while retaining ≥4.5:1.
+`dim` must retain ≥3.0:1 contrast and stay quieter than `muted`; decorative borders are exempt.
 Validate the data plugin after generation with
 `orca plugin validate <absolute-checkout>/orca-plugins/terminal-sections`.
+
+Review generated themes without switching Orca or touching a live session:
+
+```sh
+bun orca-plugins/chat-section-style/harness/terminal-shoot-check.mjs
+bun orca-plugins/chat-section-style/harness/terminal-shoot.mjs \
+  orca-plugins/chat-section-style/harness/fixtures/terminal-shoot-session.jsonl \
+  /tmp/terminal-preview --palette catppuccin --all
+```
+
+The screenshot harness resumes a disposable copy in a temporary agent directory, captures the
+real interactive TUI in a 150×60 PTY and renders it through xterm and headless Google Chrome.
+It needs `omp`, Python 3 and Chrome on macOS. Each selected palette/variant/mode/slot produces
+a named HTML/PNG pair and a JSON summary. Defaults are gutter, both slots, slot-default variants
+and the last 70 non-trailing-blank lines; use `--anchor TEXT` to place its last occurrence about
+30% down the window, or `--lines N` to change the window. `--all` includes every mode and variant
+for the selected palette. The proof checks real tool/thinking truecolour output, fixture text,
+backgrounds, styled spans, PNGs and source-session preservation. This proves generated previews,
+not the live Orca terminal's selected theme.
 
 Read settings without writing:
 
@@ -102,8 +160,12 @@ that the visible terminal is using the selected themes.
 
 ## Limits
 
-Terminal mode is an equivalent, not a chat layout clone: filled/unfilled tools, frame symbols,
-bullets, rules, quotes, headings and quieter output convey its intent. omp exposes no tokens for
-per-section K/C/S/F ID colouring, per-embed-type hues (there is one `mdCodeBlockBorder`), hover/fade
-or table zebra rows. The table and diagram hues are unused. Terminal colour generation needs no
-inspector; chat still depends on Orca's inspector fuse and renderer selectors.
+Terminal mode is an equivalent, not a chat layout clone: area hues, filled/unfilled tools, frame
+symbols, bullets, rules, quotes and quieter secondary/reasoning ink convey its intent. Tokens are
+shared across areas: TODO and Subagents cannot have independent title hues, nor can each IRC kind.
+There is no per-ID-kind colouring: the only extension hook, `registerAssistantTextRenderer`,
+replaces markdown text; omp strips escape codes before lexing
+(`pi-tui/src/components/markdown.ts:2556–2566`), so per-span colours require an omp host change.
+There are no per-embed-type hues (one `mdCodeBlockBorder`), hover/fade or table zebra rows.
+The table and diagram hues are unused. Terminal colour generation needs no inspector; chat still
+depends on Orca's inspector fuse and renderer selectors.

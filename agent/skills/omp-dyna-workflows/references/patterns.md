@@ -15,6 +15,20 @@ no prototype can settle the question. The task returns findings, commands, actua
 outputs and failures. Main saves `local://spike-<slug>.md` before removing the tree
 with `git worktree remove --force <absolute-scratch-path>`. No spike code is reused.
 
+## External bot PRs
+
+Missing author ledgers may identify Dependabot only as `external`: GitHub must
+report the Dependabot app as PR author, the PR head must match the checked-out
+SHA on a `dependabot/` branch, and every commit in a nonempty `parent..head` must have
+`dependabot[bot]` as GitHub author with verified signature. Any unavailable or
+failed check leaves authorship unknown. Existing ledgers always take precedence.
+
+Main checks out the Dependabot branch in a dedicated worktree, freezes a
+`preserve` proof running the full repository gate with `setup`, and runs
+`prove(..., target_ref=<fetched default>)`, followed by normal CI and rebase-merge.
+Never re-apply the bump as an agent PR. Agent fixups pushed to a Dependabot branch
+are written through rails, creating a ledger and restoring normal author rules.
+
 ## Proof manifest
 
 ```python
@@ -168,16 +182,19 @@ with `{schemaVersion:1, worktree, branch, authors:[{family, model, agent}]}`.
 Rails owns atomic writes and model/family resolution. Editing/committing sessions
 must run this version of agent-rails to record provenance; prove does not create
 or backfill a ledger from commit metadata. Detached spikes and other branches do
-not authorize this change. Prove reads the ledger into result/brief. A missing,
-empty, malformed, unsorted or unreadable ledger fails closed as authorship unknown;
-do not fabricate one to unblock verification.
+not authorize this change. Prove reads the ledger into result/brief. A missing
+ledger fails closed unless the [External bot PRs](#external-bot-prs) checks pass.
+Empty, malformed, unsorted or unreadable ledgers always fail closed as authorship
+unknown; do not fabricate one to unblock verification.
 
 Immediately before dispatch prove atomically writes
 `<git-common-dir>/omp-prove/verifier-context.json` with
-`{schemaVersion:1, worktree, branch, head}`, then removes it in `finally`.
+`{schemaVersion:1, worktree, branch, head, parent}`, then removes it in `finally`.
 Rails uses that source ledger and checks current branch/head; malformed or stale
-context blocks with a rerun-prove explanation. Without context a standalone
-verifier uses its spawning session's scope. There is no lock or pid protocol.
+context blocks with a rerun-prove explanation. For missing ledgers, `parent` pins
+the external bot commit range. Without context a standalone verifier uses its
+spawning session's scope and the PR base merge-base for that range. There is no
+lock or pid protocol.
 
 Default `verifier_model=None` preserves configured routing and omits a model
 keyword. Codex-only authors can use the default Sonnet verifier. When Anthropic

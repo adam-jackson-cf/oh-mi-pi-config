@@ -9,6 +9,8 @@
     "@oxlint/plugins": "1.91.0",
     "@types/bun": "1.4.4",
     "@types/node": "26.6.6",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
     "markdownlint-cli2": "0.24.0",
     "oxlint": "1.91.0",
     "typescript": "7.0.2"
