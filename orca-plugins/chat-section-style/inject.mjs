@@ -11,13 +11,16 @@
 //        node inject.mjs --if-needed   skip when this Orca process already has the hook (for launchd)
 //        node inject.mjs --mode NAME   switch layout mode; a hooked Orca picks it up within a second
 //        node inject.mjs --palette NAME switch palette (a palette name or auto); combinable with --mode NAME
+//        node inject.mjs --surface chat|terminal|both --mode NAME --palette NAME
+//        Choices default to both surfaces; chat-only changes pin the terminal's current choice.
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LOCAL_THEME_DIRS, PLUGIN_PALETTES, THEME_PLUGINS_DIR, readThemes } from './theme-palettes.mjs'
+import { syncTerminalThemes } from './terminal/build.mjs'
 
 const ORCA_BINARY = '/Applications/Orca.app/Contents/MacOS/Orca'
 const INSPECTOR_LIST_URL = 'http://127.0.0.1:9229/json/list'
@@ -144,33 +147,89 @@ async function evaluateInOrca(expression) {
   return reply.result.result.value
 }
 
-const modeIndex = process.argv.indexOf('--mode')
-const paletteIndex = process.argv.indexOf('--palette')
-// Validate both flags before writing either setting.
-for (const [index, label, names] of [[modeIndex, 'mode', MODES], [paletteIndex, 'palette', PALETTE_CHOICES]]) {
-  if (index === -1) continue
-  const name = process.argv[index + 1]
-  if (!names.includes(name)) {
-    console.error(`Unknown ${label} "${name}". Choose one of: ${names.join(', ')}`)
+const choices = { mode: MODES, palette: PALETTE_CHOICES, surface: ['chat', 'terminal', 'both'] }
+const flags = {}
+for (let index = 2; index < process.argv.length; index++) {
+  const flag = process.argv[index]
+  if (flag === '--if-needed' && !flags.ifNeeded) { flags.ifNeeded = true; continue }
+  const label = flag.slice(2)
+  if (!flag.startsWith('--') || !choices[label] || Object.hasOwn(flags, label)) {
+    console.error(`Unknown or duplicate flag "${flag}"`)
     process.exit(2)
   }
+  const value = process.argv[++index]
+  if (!choices[label].includes(value)) {
+    console.error(`Unknown ${label} "${value}". Choose one of: ${choices[label].join(', ')}`)
+    process.exit(2)
+  }
+  flags[label] = value
 }
-if (modeIndex !== -1) writeFileSync(MODE_PATH, `${process.argv[modeIndex + 1]}\n`)
-if (paletteIndex !== -1) writeFileSync(PALETTE_PATH, `${process.argv[paletteIndex + 1]}\n`)
+if (flags.surface && !flags.mode && !flags.palette) {
+  console.error('--surface requires --mode or --palette')
+  process.exit(2)
+}
+const surface = flags.surface ?? 'both'
+const modeIndex = flags.mode ? 1 : -1
+const paletteIndex = flags.palette ? 1 : -1
+const terminalPaths = { mode: join(STYLE_DIR, 'terminal-mode'), palette: join(STYLE_DIR, 'terminal-palette') }
+const chatPaths = { mode: MODE_PATH, palette: PALETTE_PATH }
+const effective = label => readFileSync(existsSync(terminalPaths[label]) ? terminalPaths[label] : chatPaths[label], 'utf8').trim()
+// Validate current choices as well: no partial writes if an input file is invalid.
+const current = Object.fromEntries(['mode', 'palette'].map(label => [label, effective(label)]))
+for (const label of ['mode', 'palette']) {
+  if (!choices[label].includes(current[label])) throw new Error(`Unknown terminal ${label} "${current[label]}"`)
+}
+if (flags.mode || flags.palette) {
+  // Pin both effective choices before a chat-only switch; both clears all pins.
+  for (const label of ['mode', 'palette']) {
+    if (surface === 'chat' && !existsSync(terminalPaths[label])) writeFileSync(terminalPaths[label], `${current[label]}\n`)
+    if (flags[label]) writeFileSync(surface === 'terminal' ? terminalPaths[label] : chatPaths[label], `${flags[label]}\n`)
+    if (surface === 'both' && existsSync(terminalPaths[label])) unlinkSync(terminalPaths[label])
+  }
+}
+
+async function readTerminalSettings() {
+  let database
+  try {
+    const { DatabaseSync } = await import('node:sqlite')
+    database = new DatabaseSync(join(homedir(), 'Library/Application Support/orca/profiles/local-default/profile-state.db'), { readOnly: true })
+    const row = database.prepare("select payload from profile_state_documents where domain='settings'").get()
+    return row ? JSON.parse(row.payload) : null
+  } catch { return null }
+  finally { database?.close() }
+}
+const ORCA_CLI = '/Applications/Orca.app/Contents/Resources/bin/orca'
+let terminal
+try {
+  const pluginDir = join(dirname(STYLE_DIR), 'terminal-sections')
+  terminal = syncTerminalThemes({ mode: effective('mode'), palette: effective('palette'),
+    settings: await readTerminalSettings(), ompThemesDir: join(homedir(), '.omp/agent/themes'), pluginDir })
+  terminal.reload = { status: 'unchanged' }
+  if (terminal.changed.orca.length) {
+    try {
+      const plugins = JSON.parse(execFileSync(ORCA_CLI, ['plugin', 'list', '--json'], { encoding: 'utf8' }))
+      if (JSON.stringify(plugins).includes('local.terminal-sections')) {
+        const output = execFileSync(ORCA_CLI, ['plugin', 'dev', 'reload', pluginDir], { encoding: 'utf8' })
+        terminal.reload = { status: 'reloaded', output: output.trim() }
+      } else terminal.reload = { status: 'not-loaded' }
+    } catch (error) { terminal.reload = { status: 'error', error: String(error) } }
+  }
+} catch (error) { terminal = { mode: effective('mode'), palette: effective('palette'), error: String(error) } }
+const printResult = result => console.log(JSON.stringify({ ...result, terminal }))
 
 const pid = findOrcaMainPid()
 if (pid === null) {
-  console.log('Orca is not running')
+  printResult({ message: 'Orca is not running' })
   process.exit(0)
 }
 let marker = null
 try { marker = Number(readFileSync(MARKER_PATH, 'utf8')) } catch {}
 if ((modeIndex !== -1 || paletteIndex !== -1) && marker === pid) {
   // The hook watches both setting files, so no inspector session is needed.
-  console.log(`Mode ${readFileSync(MODE_PATH, 'utf8').trim()}, palette ${readFileSync(PALETTE_PATH, 'utf8').trim()}; Orca applies settings within a second`)
+  printResult({ mode: readFileSync(MODE_PATH, 'utf8').trim(), palette: readFileSync(PALETTE_PATH, 'utf8').trim(), message: 'Orca applies settings within a second' })
   process.exit(0)
 }
-if (process.argv.includes('--if-needed') && marker === pid) process.exit(0)
+if (process.argv.includes('--if-needed') && marker === pid) { printResult({ pid, skipped: true }); process.exit(0) }
 if (await inspectorIsListening()) {
   // Another process owns 9229, or a previous run left Orca's inspector open; never talk to a stranger.
   console.error('Port 9229 is already in use; not injecting')
@@ -192,4 +251,4 @@ const result = await evaluateInOrca(installerSource(CSS_PATH, SCRIPT_PATH, MODE_
 if (result.pid !== pid) throw new Error(`Inspector belongs to pid ${result.pid}, expected Orca ${pid}`)
 if (result.lastError) throw new Error(`Orca reported: ${result.lastError}`)
 writeFileSync(MARKER_PATH, String(pid))
-console.log(JSON.stringify(result))
+printResult(result)

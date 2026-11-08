@@ -211,6 +211,8 @@ Untracked remote files are preserved; tracked changes block pulls. Use `--check`
 to fetch and report only, without pulls or service starts. The table exits nonzero
 for stale, failed, unreachable, dirty-blocked, or behind-`main` deployments.
 Hosts and paths live in `scripts/device-rollout-hosts.json`.
+Local rows use the registry's `local` mapping for the lowercase short hostname
+(or that hostname itself when unknown), and the local device is skipped as a remote target.
 
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in or
