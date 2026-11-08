@@ -11,15 +11,15 @@ export function applyMode(theme, roles, mode) {
     toolSuccessBg: cards ? roles.successBg : roles.bg,
     toolErrorBg: cards ? roles.errorBg : roles.bg,
     userMessageBg: document ? roles.mantle : roles.userMessage,
-    customMessageBg: roles.mantle,
+    customMessageBg: document ? roles.bg : cards ? roles.customBg : roles.mantle,
     border: cards ? roles.surface2 : roles.surface1,
     mdCodeBlockBorder: document ? roles.surface1 : roles.code,
-    mdListBullet: document ? roles.subtle : roles.accent,
+    mdListBullet: roles.accent,
     mdHr: document ? roles.surface2 : roles.surface1,
   })
-  if (cards) colors.borderAccent = roles.accent
+  if (cards) colors.borderAccent = roles.decision
   if (mode === 'editorial') Object.assign(colors, {
-    mdHeading: roles.accent, toolOutput: roles.subtle, thinkingText: roles.quietThinking,
+    muted: roles.quietSubtle, toolOutput: roles.quietSubtle, thinkingText: roles.quietThinking,
   })
   theme.symbols = { overrides: {
     'boxRound.topLeft': open ? ' ' : '╭', 'boxRound.topRight': open ? ' ' : '╮',
