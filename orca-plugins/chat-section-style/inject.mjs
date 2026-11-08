@@ -28,8 +28,10 @@ const STYLE_DIR = dirname(fileURLToPath(import.meta.url))
 const CSS_PATH = join(STYLE_DIR, 'chat.css')
 const SCRIPT_PATH = join(STYLE_DIR, 'id-highlight.js')
 const MODE_PATH = join(STYLE_DIR, 'mode')
+const DEFAULT_MODE = 'gutter'
 const MODES = ['document', 'split-cards', 'gutter', 'editorial']
 const PALETTE_PATH = join(STYLE_DIR, 'palette')
+const DEFAULT_PALETTE = 'auto'
 const PALETTE_CSS_PATHS = readdirSync(join(STYLE_DIR, 'palettes')).filter(name => name.endsWith('.css')).sort().map(name => join(STYLE_DIR, 'palettes', name))
 const PALETTES = PALETTE_CSS_PATHS.map(path => path.slice(path.lastIndexOf('/') + 1, -4))
 const PALETTE_CHOICES = [...PALETTES, 'auto']
@@ -146,6 +148,10 @@ async function evaluateInOrca(expression) {
   if (reply.result?.exceptionDetails) throw new Error(JSON.stringify(reply.result.exceptionDetails))
   return reply.result.result.value
 }
+
+// Fresh clones have no machine-local choices; preserve existing choices and leave terminal pins absent.
+if (!existsSync(MODE_PATH)) writeFileSync(MODE_PATH, `${DEFAULT_MODE}\n`, { flag: 'wx' })
+if (!existsSync(PALETTE_PATH)) writeFileSync(PALETTE_PATH, `${DEFAULT_PALETTE}\n`, { flag: 'wx' })
 
 const choices = { mode: MODES, palette: PALETTE_CHOICES, surface: ['chat', 'terminal', 'both'] }
 const flags = {}

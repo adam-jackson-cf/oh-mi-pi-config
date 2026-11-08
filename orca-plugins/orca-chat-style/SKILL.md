@@ -23,10 +23,15 @@ Two surfaces share `~/.omp/orca-plugins/chat-section-style/mode` and `palette`:
 - Before changes or repairs, read `~/.omp/orca-plugins/chat-section-style/README.md`, the maintenance
   runbook for reapplying, selectors, theme limits and removal.
 
+All four choice files are machine-local, untracked and ignored. Before parsing flags, `inject.mjs`
+creates missing shared `mode`/`palette` files with `gutter`/`auto`; it preserves existing choices
+and does not create terminal overrides during initialization.
+
 ## Choose the surface
 
 Use `--surface chat|terminal|both` with `--mode`, `--palette`, or both; the default is `both`.
-Flags and effective terminal inputs are validated before choice files are written.
+Flags and effective terminal inputs are validated before requested choice changes are written;
+missing shared defaults are initialized first.
 
 - **both:** write supplied choices to chat files and delete both terminal override files, restoring
   terminal following even for the choice not supplied.
