@@ -386,15 +386,19 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     if revisions:
         manifest["revisions"] = revisions
     _validate(manifest, max_checks)
-    trees, baselines, failure = [], {}, None
+    trees, parent_trees, baselines, failure = [], {}, {}, None
     with tempfile.TemporaryDirectory(prefix="omp-freeze-") as scratch:
         try:
             for proof in manifest["proofs"]:
                 if proof["id"] in old_proofs and proof["id"] not in changed:
                     continue
-                tree = Path(scratch) / f"tree-{len(trees)}"
-                _git(root, "worktree", "add", "--detach", str(tree), proof["parent"])
-                trees.append(tree)
+                commit = proof["parent"]
+                if commit not in parent_trees:
+                    tree = Path(scratch) / f"tree-{len(trees)}"
+                    _git(root, "worktree", "add", "--detach", str(tree), commit)
+                    trees.append(tree)
+                    parent_trees[commit] = tree
+                tree = parent_trees[commit]
                 overlay = {name: _proof_path(root, name).read_bytes() for name in proof["files"]}
                 record = _execute(tree, proof, baselines, setup, overlay, location="baseline", roots=(root,))
                 error = record.get("error") or _kind_failure(proof, record["ok"], record["output"], "baseline")
@@ -524,7 +528,7 @@ def gate_changes(paths, root, gate, diagnostics=None):
     return [path for path in paths if path in named or path in (".omp/gate.json", "lefthook.yml", ".pre-commit-config.yaml") or path.startswith((".github/workflows/", ".githooks/"))]
 
 
-def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_parents=None, source_root=None):
+def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_parents=None, source_root=None, baselines=None):
     """Run proof executions only; repository gates belong to hook/CI."""
     result = {"proofs": {}, "blocking": [], "gateChanges": [], "gateDiagnostics": []}
     diagnostics = result["gateDiagnostics"]
@@ -543,7 +547,7 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
     # Preserve proof bytes before any scratch tree reset or overlay.
     overlays = {p["id"]: {name: _proof_path(head_tree, name).read_bytes() for name in p["files"]} for p in manifest["proofs"]}
     roots = tuple(x for x in (source_root, parent_tree, head_tree, *(proof_parents or {}).values()) if x is not None)
-    baselines = {}
+    baselines = {} if baselines is None else baselines
     for proof in manifest["proofs"]:
         runs = result["proofs"].setdefault(proof["id"], [])
         for n in (1, 2):
@@ -695,22 +699,23 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         snapshot = (_git(repo, "status", "--porcelain=v2"), _commit(repo, "HEAD"))
         with tempfile.TemporaryDirectory(prefix="omp-prove-") as scratch:
             try:
-                labels = []
+                labels, commit_trees, baselines = [], {}, {}
                 def tree_at(label, ref):
-                    tree = Path(scratch) / f"tree-{len(trees)}"
-                    _git(repo, "worktree", "add", "--detach", str(tree), ref)
-                    trees.append(tree)
-                    labels.append({"label": label, "sha": ref, "path": str(tree)})
-                    return tree
+                    if ref not in commit_trees:
+                        tree = Path(scratch) / f"tree-{len(trees)}"
+                        _git(repo, "worktree", "add", "--detach", str(tree), ref)
+                        trees.append(tree)
+                        commit_trees[ref] = tree
+                        labels.append({"label": label, "sha": ref, "path": str(tree)})
+                    return commit_trees[ref]
                 parent_tree, head_tree = tree_at("PR parent", parent), tree_at("head", head)
-                parent_trees = {parent: parent_tree}
+                parent_trees = {}
                 for proof in manifest["proofs"]:
                     commit = proof.get("parent", base)
-                    if commit not in parent_trees:
-                        parent_trees[commit] = tree_at(f"baseline {proof['id']}", commit)
+                    parent_trees[commit] = tree_at("baseline", commit)
                     labels.append({"label": f"baseline {proof['id']}", "sha": commit, "path": str(parent_trees[commit])})
                 paths = [p for p in _git(repo, "diff", "--name-only", "--no-renames", "-z", parent, head).split("\0") if p]
-                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, parent_trees, repo)
+                deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, parent_trees, repo, baselines)
                 result["deterministic"] = deterministic
                 result["blocking"].extend(deterministic["blocking"])
                 if not result["blocking"]:
@@ -719,14 +724,15 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         for commit in commits:
                             if commit == head:
                                 continue
-                            tree = tree_at(f"earlier {proof['id']}", commit)
+                            tree = tree_at("earlier commit", commit)
+                            labels.append({"label": f"earlier {proof['id']}", "sha": commit, "path": str(tree)})
                             present = [_proof_path(tree, name).is_file() for name in proof["files"]]
                             if not any(present):
                                 continue
                             if not all(present):
                                 result["blocking"].append(f"{proof['id']}: partial proof at {commit}")
                                 continue
-                            record = _execute(tree, proof, {}, manifest.get("setup"), location=f"earlier commit {commit}", roots=(repo, *trees))
+                            record = _execute(tree, proof, baselines, manifest.get("setup"), location=f"earlier commit {commit}", roots=(repo, *trees))
                             deterministic["proofs"][proof["id"]].append(record)
                             if record.get("error"):
                                 result["blocking"].append(record["error"])
