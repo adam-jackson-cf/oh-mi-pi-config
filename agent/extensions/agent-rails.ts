@@ -851,7 +851,7 @@ export default function agentRails(
 			} catch (error) {
 				throw new Error(`stale verifier context; rerun prove(): ${String(error)}`);
 			}
-			if (!(await dynaflowsOn(ctx, scope.worktree))) return;
+			if (contextText === null && !(await dynaflowsOn(ctx, scope.worktree))) return;
 			const authors = await authorsAt(scope, true, parent);
 			const candidates = event.patterns.length
 				? event.patterns.map(pattern => ({ pattern, model: ctx.models.resolve(pattern) }))
