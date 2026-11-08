@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 2,
+  "id": "terminal-sections",
+  "name": "Terminal Sections",
+  "version": "0.1.0",
+  "description": "Orca terminal colours (background, foreground, 16 ANSI) generated from the chat palette, so the terminal matches the chat layout mode and palette.",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.246"
+  },
+  "execution": "data",
+  "contributes": {
+    "terminalThemes": [
+      {
+        "id": "sections-dark",
+        "title": "Sections Dark",
+        "path": "terminal/dark.json"
+      },
+      {
+        "id": "sections-light",
+        "title": "Sections Light",
+        "path": "terminal/light.json"
+      }
+    ]
+  }
+}
