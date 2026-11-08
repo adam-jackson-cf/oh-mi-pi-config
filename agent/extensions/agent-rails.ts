@@ -236,11 +236,56 @@ const toolLaunchers = {
 
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
-// `scan` is shared with nested `sh -c` and `env -S` scripts so a variable touched anywhere marks
-// every git action of the whole command.
+// `scan` is shared with nested scripts and command substitutions so a variable touched anywhere
+// marks every git action of the whole command. Substitutions never change the outer cwd.
 async function gitActions(command: string, cwd: string | undefined, scan: { hookSkip?: string } = {}, depth = 0): Promise<GitAction[]> {
 	if (depth > 16 || command.length > 131072) throw new Error("shell scan exceeds supported bounds");
-	const tokens = command.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
+	if (command.includes("\0")) throw new Error("shell scan does not support NUL bytes");
+	const substitutions: string[] = [];
+	// Keep substitutions opaque to the outer tokenizer, including those inside double quotes.
+	// Find balanced syntax only; never execute expansions or infer their output.
+	const endOf = (start: number, closing: string, nesting = 0): number => {
+		if (nesting > 16) throw new Error("shell scan exceeds supported bounds");
+		for (let i = start; i < command.length; i++) {
+			const char = command[i];
+			if (char === "\\" && closing !== "'") { i++; continue; }
+			if (char === closing) return i;
+			if (closing === "'") continue;
+			if (char === "'" && closing !== '"') i = endOf(i + 1, "'", nesting + 1);
+			else if (char === '"' && closing !== '"') i = endOf(i + 1, '"', nesting + 1);
+			else if (char === "`" && closing !== "`") i = endOf(i + 1, "`", nesting + 1);
+			else if (char === "$" && command[i + 1] === "(") i = endOf(i + 2, ")", nesting + 1);
+			else if (char === "(" && closing === ")") i = endOf(i + 1, ")", nesting + 1);
+		}
+		throw new Error("unterminated shell quote or command substitution; cannot parse safely");
+	};
+	let shell = "";
+	let quoted = false;
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i];
+		if (char === "\\") { shell += command.slice(i, i + 2); i++; }
+		else if (char === "'" && !quoted) {
+			const end = endOf(i + 1, "'");
+			shell += command.slice(i, end + 1); i = end;
+		} else if (char === '"') { quoted = !quoted; shell += char; }
+		else if (char === "`" || (char === "$" && command[i + 1] === "(")) {
+			const start = i + (char === "`" ? 1 : 2);
+			const end = endOf(start, char === "`" ? "`" : ")");
+			shell += `\0${substitutions.length}\0`;
+			const script = command.slice(start, end);
+			substitutions.push(char === "`" ? script.replace(/\\([$`\\])/g, "$1") : script);
+			i = end;
+		} else shell += char;
+	}
+	const tokens = shell.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
+	const hasGitWord = (body: string) => {
+		const source = body.replace(/\0(\d+)\0/g, (_match, index: string) => substitutions[Number(index)]);
+		return /\b(?:git|gh)\b/.test(source) || /\b(?:git|gh)\b/.test(
+			source.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
+				(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
+					double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""),
+		);
+	};
 	const actions: GitAction[] = [];
 	const directory = async (path: string | undefined, from: string | undefined) => {
 		if (!path || path === "-" || /[$`*?[\]]/.test(path)) return;
@@ -265,7 +310,11 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				if (toolLauncher.separator && !words.includes("--")) {
 					throw new Error(`${launcher} exec/x requires -- before the wrapped command; cannot parse safely`);
 				}
-				while (words.length && (toolLauncher.separator || words[0].startsWith("-"))) {
+				const separator = words.indexOf("--");
+				const git = words.findIndex(word => ["git", "gh"].includes(basename(word)));
+				const explicitSeparator = toolLauncher.separator ||
+					(["uv", "poetry"].includes(launcher) && separator >= 0 && (git < 0 || separator < git));
+				while (words.length && (explicitSeparator || words[0].startsWith("-"))) {
 					const option = words.shift()!;
 					if (option === "--") break;
 					const name = option.split("=")[0];
@@ -300,6 +349,9 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 			if (launcher === "timeout") words.shift();
 		}
 		const executable = basename(words.shift() ?? "");
+		if (executable === "alias" && words.some(word => word.includes("=") && hasGitWord(word.slice(word.indexOf("=") + 1)))) {
+			throw new Error("alias definition contains a git/gh word; persistent shell aliases cannot be parsed safely");
+		}
 		if (["export", "unset", "declare", "typeset", "readonly", "local"].includes(executable)) words.forEach(touch);
 		else if (executable === "eval") actions.push(...await gitActions(words.join(" "), cwd, scan, depth + 1));
 		else if (["bash", "sh", "zsh"].includes(executable)) {
@@ -337,14 +389,42 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 		words = [];
 	};
 	const subshells: (string | undefined)[] = [];
-	for (const token of tokens) {
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index];
+		let body = index;
+		const commandStart = words.every(word => ["then", "do", "else", "{", "!"].includes(word));
+		if (commandStart && token === "function" && /^[A-Za-z_]\w*$/.test(tokens[body + 1] ?? "")) body += 2;
+		else if (commandStart && /^[A-Za-z_]\w*$/.test(token) && tokens[body + 1] === "(" && tokens[body + 2] === ")") body++;
+		if (body !== index) {
+			if (tokens[body] === "(" && tokens[body + 1] === ")") body += 2;
+			while (tokens[body] === "\n") body++;
+			if (tokens[body] === "{") {
+				let braces = 1;
+				let end = body + 1;
+				for (; end < tokens.length && braces; end++) {
+					if (tokens[end] === "{") braces++;
+					if (tokens[end] === "}") braces--;
+				}
+				if (braces) throw new Error("unterminated shell function definition; cannot parse safely");
+				if (hasGitWord(tokens.slice(body + 1, end - 1).join(" "))) {
+					throw new Error("shell function definition contains a git/gh word; persistent shell functions cannot be parsed safely");
+				}
+				await flush();
+				index = end - 1;
+				continue;
+			}
+		}
+		for (const match of token.matchAll(/\0(\d+)\0/g)) {
+			actions.push(...await gitActions(substitutions[Number(match[1])], cwd, scan, depth + 1));
+		}
 		if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) {
 			await flush();
 			if (token === "(") subshells.push(cwd);
 			if (token === ")") cwd = subshells.pop();
-		} else words.push(token.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
-			(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
-				double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
+		} else words.push(token.replace(/\0(\d+)\0/g, (_match, substitution: string) => `$(${substitutions[Number(substitution)]})`)
+			.replace(/"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g,
+				(_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
+					double?.replace(/\\(["\\$`])/g, "$1") ?? single ?? escaped ?? ""));
 	}
 	await flush();
 	if (scan.hookSkip && !actions.length) actions.push({ command: "hook environment", args: [], cwd, config: [], hookSkip: scan.hookSkip });

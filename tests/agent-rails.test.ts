@@ -915,3 +915,93 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 		assert.ok(unresolved?.reason?.includes("effective cwd"));
 	} finally { h.cleanup(); target.cleanup(); }
 });
+
+test("command substitutions enforce hook checks without executing shell expansion", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		for (const command of [
+			"echo $(git commit --no-verify -m x)",
+			"echo `git commit --no-verify -m x`",
+			'echo "$(git commit --no-verify -m x)"',
+			'echo "`git commit --no-verify -m x`"',
+			"echo $(echo $(git commit --no-verify -m x))",
+			'echo "$(echo "$(git commit --no-verify -m x)")"',
+			"echo `echo \\`git commit --no-verify -m x\\``",
+			"echo $(printf ')'; git commit --no-verify -m x)",
+			"echo $(export HUSKY=0); git commit -m x",
+		]) {
+			const result = await h.call("bash", { command });
+			assert.equal(result?.block, true, command);
+			assert.ok(result?.reason?.includes("pre-commit hook"), command);
+		}
+		for (const command of [
+			"echo $(date)", "echo `date`", 'echo "$(date)"',
+			"echo '$(git commit --no-verify -m x)'",
+			"echo '`git commit --no-verify -m x`'",
+			"echo \\$(date)", "echo \\`date\\`",
+		]) assert.equal(await h.call("bash", { command }), undefined, command);
+	} finally { h.cleanup(); }
+});
+
+test("persistent aliases and functions containing git or gh fail closed", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		for (const command of [
+			"alias ci=$(printf git)",
+			"alias ci='git commit -m x'", "alias review='gh pr view'",
+			"alias -p ci='git status'", "alias ll='ls -l' ci='git status'",
+			"ci() { git commit -m x; }", "ci(){ git status; }",
+			"ci()\n{ git status; }", "if true; then ci() { git status; }; fi",
+			"function ci { gh pr view; }", "function ci() { git status; }",
+			"function ci {\nif true; then { echo git; }; fi\n}",
+			"ci() { echo $(git status); }",
+			'ci() { g"it" status; }', "alias ci='g\"it\" status'",
+		]) {
+			const result = await h.call("bash", { command });
+			assert.equal(result?.block, true, command);
+			assert.ok(result?.reason?.includes("definition contains a git/gh word"), command);
+			assert.ok(result?.reason?.includes("cannot be parsed safely"), command);
+		}
+		for (const command of [
+			"alias ll='ls -l'", "ll() { ls -l; }", "function ll { ls -l; }",
+			"function ll() { echo $(date); }", "ll() { cd /missing; }; git commit -m x",
+			"echo 'alias ci=git'", "echo 'ci() { git status; }'",
+		]) assert.equal(await h.call("bash", { command }), undefined, command);
+	} finally { h.cleanup(); }
+});
+
+test("uv and poetry separators disambiguate unknown launcher options without consuming Git arguments", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		for (const launcher of ["uv run", "poetry run"]) {
+			for (const args of [
+				"--some-unknown-flag value -- git commit --no-verify",
+				"-- git commit --no-verify", "git commit --no-verify -- file",
+			]) {
+				const command = `${launcher} ${args}`;
+				const result = await h.call("bash", { command });
+				assert.equal(result?.block, true, command);
+				assert.ok(result?.reason?.includes("commits must run the pre-commit hook"), command);
+			}
+			assert.equal(await h.call("bash", { command: `${launcher} -- date` }), undefined);
+		}
+	} finally { h.cleanup(); }
+});
+
+test("uv and poetry separator commits record author ledgers", async () => {
+	for (const launcher of ["uv run", "poetry run"]) {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			assert.equal(await h.emit("tool_call", {
+				toolName: "bash", input: { command: `${launcher} -- git commit -m x` },
+			}), undefined);
+			const key = createHash("sha256").update(`${h.root}\0refs/heads/agent/test`).digest("hex");
+			const ledger = JSON.parse(readFileSync(join(h.root, ".git/omp-authors", `${key}.json`), "utf8"));
+			assert.equal(ledger.authors[0].family, "openai", launcher);
+		} finally { h.cleanup(); }
+	}
+});
