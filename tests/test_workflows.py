@@ -337,12 +337,13 @@ class RepositoryTests(unittest.TestCase):
     def test_context_authors_model_and_cleanup(self):
         self.change()
         context = workflow._common(self.repo) / "omp-prove/verifier-context.json"
-        def inspect(brief, **kwargs):
+        def inspect(brief, proof_ids, **kwargs):
             payload = json.loads(context.read_text())
             self.assertEqual(set(payload), {"schemaVersion", "worktree", "branch", "head"})
             self.assertEqual(payload["head"], self.head)
             self.assertEqual(payload["worktree"], str(self.repo.resolve()))
             self.assertEqual(kwargs, {"model": "openai-codex/gpt-6.1-sol:medium"})
+            self.assertEqual(proof_ids, ["P1"])
             for fragment in ("Source repo", "PR target/ref", self.parent + ".." + self.head, "baseline P1", "Objective: fix value", "recorded-model", "skill://git-tool", workflow.BLOCKING_RULE):
                 self.assertIn(fragment, brief)
             return verdict()
@@ -352,9 +353,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result["authors"][0]["family"], "openai")
         self.assertFalse(context.exists())
 
+    def test_verifier_brief_names_manifest_proof_ids(self):
+        self.change(proofs=[self.proof(ident="P2", filename="second.py"), self.proof()])
+        self.assertEqual(self.prove()["status"], "pass")
+        brief, proof_ids = self.verifier.call_args.args
+        self.assertEqual(proof_ids, ["P1", "P2"])
+        self.assertIn("Each criteria entry's proofId must be one of: P1, P2; "
+                      "put any other observation in blocking or followUps.", brief)
+
     def test_source_change_is_not_attributed_to_verifier(self):
         self.change()
-        def external_change(brief):
+        def external_change(brief, proof_ids):
             self.write("external", "changed")
             return verdict()
         self.verifier.side_effect = external_change
@@ -399,7 +408,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_long_output_has_live_full_evidence(self):
         self.change("preserve", "print('x'*6000)\n")
-        def inspect(brief):
+        def inspect(brief, proof_ids):
             self.assertIn("[TRUNCATED; full evidence:", brief)
             path = re.search(r"Full deterministic evidence: (.+)", brief).group(1)
             self.assertIn("x" * 6000, Path(path).read_text())
@@ -751,12 +760,14 @@ class SchemaTests(unittest.TestCase):
 
     def test_run_verifier_seam_selector_schema_and_override(self):
         with patch.object(workflow, "agent", create=True, return_value="handle") as spawn, patch.object(workflow, "wait", create=True, return_value=[verdict()]) as wait:
-            workflow._run_verifier("brief")
+            workflow._run_verifier("brief", ["P2", "P1"])
             self.assertEqual(spawn.call_args.kwargs["agent"], "verifier")
             self.assertNotIn("model", spawn.call_args.kwargs)
             self.assertFalse(spawn.call_args.kwargs["schema"]["additionalProperties"])
+            proof_id_schema = spawn.call_args.kwargs["schema"]["properties"]["criteria"]["items"]["properties"]["proofId"]
+            self.assertEqual(proof_id_schema, {"enum": ["P1", "P2"]})
             self.assertEqual(wait.call_args.kwargs, {"raise_errors": False})
-            workflow._run_verifier("brief", model="openai-codex/gpt-6.1-sol:medium")
+            workflow._run_verifier("brief", ["P1"], model="openai-codex/gpt-6.1-sol:medium")
             self.assertEqual(spawn.call_args.kwargs["model"], "openai-codex/gpt-6.1-sol:medium")
 
     def test_load_safe_no_bang_lines(self):

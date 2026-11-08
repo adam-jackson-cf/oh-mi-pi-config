@@ -573,7 +573,7 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
     return result
 
 
-def _run_verifier(brief, model=None):
+def _run_verifier(brief, proof_ids, model=None):
     schema = {"type": "object", "required": ["status", "blocking", "followUps", "criteria"],
               "additionalProperties": False, "properties": {
                   "status": {"enum": ["pass", "fail"]},
@@ -581,7 +581,7 @@ def _run_verifier(brief, model=None):
                   "followUps": {"type": "array", "items": {"type": "string"}},
                   "criteria": {"type": "array", "items": {"type": "object", "required": ["proofId", "command", "observed", "verdict"],
                       "additionalProperties": False, "properties": {
-                          "proofId": {"type": "string", "minLength": 1}, "command": {"type": "string", "minLength": 1},
+                          "proofId": {"enum": sorted(proof_ids)}, "command": {"type": "string", "minLength": 1},
                           "observed": {"type": "string", "minLength": 1}, "verdict": {"enum": ["pass", "fail"]}}}}}}
     kwargs = {"agent": "verifier", "label": "Prove", "schema": schema}
     if model is not None:
@@ -740,6 +740,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         for record in runs:
                             if len(record["output"]) > 4096:
                                 record["output"] = f"[TRUNCATED; full evidence: {full_path}]\n" + record["output"][-4096:]
+                    proof_ids = sorted(p["id"] for p in manifest["proofs"])
                     brief = (
                         "Read skill://codegraph/references/readiness-and-bootstrap.md, "
                         "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git.\n"
@@ -749,17 +750,19 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         f"Objective: {objective}\nAuthors: {json.dumps(result['authors'])}\nVerifier model override: {verifier_model}\n"
                         f"Manifest: {json.dumps(manifest)}\nDeterministic: {json.dumps(brief_checks)}\n"
                         f"Full deterministic evidence: {full_path}\nDiff stat: {_git(repo, 'diff', '--stat', parent, head)}\n"
-                        "Drive every criterion live; return proofId, command, observed, verdict. Audit undeclared "
+                        "Drive every criterion live; return proofId, command, observed, verdict. "
+                        f"Each criteria entry's proofId must be one of: {', '.join(proof_ids)}; "
+                        "put any other observation in blocking or followUps. Audit undeclared "
                         "harness/config tampering, wrong/stale docs caused by this PR and diff scope/coverage. "
                         "Each finding needs exact command, actual and required output; omit anything not run. " + BLOCKING_RULE)
                     context = common / "omp-prove" / "verifier-context.json"
                     try:
                         _atomic_json(context, {"schemaVersion": 1, "worktree": str(repo), "branch": branch, "head": head})
                         try:
-                            verdict = _run_verifier(brief) if verifier_model is None else _run_verifier(brief, model=verifier_model)
+                            verdict = _run_verifier(brief, proof_ids) if verifier_model is None else _run_verifier(brief, proof_ids, model=verifier_model)
                         except Exception as exc:
                             verdict = exc
-                        _verdict(result, verdict, {p["id"] for p in manifest["proofs"]})
+                        _verdict(result, verdict, set(proof_ids))
                     finally:
                         context.unlink(missing_ok=True)
                         after = (_git(repo, "status", "--porcelain=v2"), _commit(repo, "HEAD"))
