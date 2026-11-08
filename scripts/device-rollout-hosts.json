@@ -1,4 +1,8 @@
 {
+  "local": {
+    "cdhvc2hw3l": "mac-cf3",
+    "adams-macbook-pro": "mac-cf2"
+  },
   "mac-cf2": {
     "agents": "~/.agents"
   },

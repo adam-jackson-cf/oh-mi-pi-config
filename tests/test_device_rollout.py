@@ -58,8 +58,9 @@ class Runner:
 
 
 class DeviceRolloutTests(unittest.TestCase):
-    def execute(self, runner, check=True):
-        deployment = rollout.Rollout(HOSTS, check=check, runner=runner, home="/local")
+    def execute(self, runner, check=True, hostname="cdhvc2hw3l"):
+        deployment = rollout.Rollout(HOSTS, check=check, runner=runner, home="/local",
+                                    hostname=hostname)
         code = deployment.execute()
         return deployment, code
 
@@ -73,6 +74,26 @@ class DeviceRolloutTests(unittest.TestCase):
                              for cmd in runner.commands))
         self.assertIn("device", deployment.report())
         self.assertFalse(any(row[:2] == ("mac-cf2", "omp") for row in deployment.rows))
+
+    def test_local_label_resolves_normalized_hostname(self):
+        deployment, code = self.execute(Runner(), hostname="CDHVC2HW3L.example.test")
+        self.assertEqual(code, 0)
+        self.assertEqual([row[0] for row in deployment.rows[:2]], ["mac-cf3"] * 2)
+
+    def test_unknown_local_label_uses_short_hostname(self):
+        deployment, code = self.execute(Runner(), hostname="OTHER-MAC.example.test")
+        self.assertEqual(code, 0)
+        self.assertEqual([row[0] for row in deployment.rows[:2]], ["other-mac"] * 2)
+
+    def test_local_registry_host_is_not_contacted(self):
+        runner = Runner()
+        deployment, code = self.execute(runner, hostname="Adams-MacBook-Pro.local")
+        self.assertEqual(code, 0)
+        self.assertEqual([row[0] for row in deployment.rows[:2]], ["mac-cf2"] * 2)
+        self.assertEqual(len(deployment.rows), 4)
+        self.assertEqual([row[0] for row in deployment.rows[2:]],
+                         ["codex-omarchy-nuc"] * 2)
+        self.assertTrue(all(cmd[5] != "mac-cf2" for cmd in runner.commands if cmd[0] == "ssh"))
 
     def test_stale_is_nonzero(self):
         deployment, code = self.execute(Runner(stale=True))
