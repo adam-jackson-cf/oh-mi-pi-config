@@ -46,6 +46,9 @@ agent/*
 !agent/config.yml
 !agent/lsp.json
 !agent/agent-rails.yml
+!agent/themes/
+agent/themes/*
+!agent/themes/catppuccin-sections-*.json
 !agent/rules/
 agent/rules/*
 !agent/rules/agent-rails-*.md

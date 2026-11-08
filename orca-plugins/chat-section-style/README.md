@@ -93,6 +93,9 @@ installed, so a new palette file needs a full `node inject.mjs`.
 - `bun harness/palette-auto.mjs` checks that palette `auto` maps every installed theme to its
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
+- `bun harness/omp-themes.mjs [repo-root]` checks required omp tokens, app-background matches,
+  ≥4.5:1 text contrast except deliberately dimmed `dim` (about 4.4:1), and config slots. Exit 1 on
+  any failed check.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
   filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
   no other arguments at load and every 30 seconds, and sends stdout and stderr to
@@ -232,6 +235,42 @@ remove it; it sits outside Orca's React tree.
   `--background`/`--muted`, `--chat-user-message` against chat strong text). Latte `#c9d3fa` failed
   at 4.42:1; `#d0d8f9` passes at 4.64:1.
 - `--muted-foreground` is app-wide, so sidebar captions and inactive tabs turn teal too.
+
+## Terminal
+
+Orca's terminal draws text cells, so `chat.css` cannot reach it. The same look comes from two
+settings layers, with no injection:
+
+- `Orca terminal settings` (Settings → Appearance → Terminal): terminal themes Catppuccin Mocha
+  (dark) and Catppuccin Latte (light), line height 1.25 (default 1). The stock presets' backgrounds
+  equal the Catppuccin Sections app backgrounds (`#1e1e2e`, `#eff1f5`), so no `terminalThemes`
+  plugin contribution is needed. Orca swaps them with the app's light/dark mode, the terminal
+  equivalent of palette `auto`.
+- `omp TUI themes` (`~/.omp/agent/themes/catppuccin-sections-{mocha,latte}.json`, selected by
+  `theme.dark`/`theme.light` in `~/.omp/agent/config.yml`): carry the chat palette into omp's own
+  colours: headings and bullets in the chat accent, tool output in the teal activity ink, the user
+  message fill, code borders and inline code in the code hue, quiet rules and borders. Every text
+  token except `dim` is at least 4.5:1 on its background; `dim` is deliberately dimmed, like older
+  chat turns, at about 4.4:1. omp picks the slot from the terminal background, so it follows Orca's
+  terminal theme; new omp sessions pick up changes.
+
+No route exists for ID colouring by kind, section gutter marks, per-embed-type hues, table zebra
+rows or fading older turns: omp exposes no theme token for them.
+
+Read without writing:
+
+```sh
+sqlite3 -readonly \
+  ~/Library/Application\ Support/orca/profiles/local-default/profile-state.db \
+  "select json_extract(payload,'$.terminalThemeDark'), "\
+"json_extract(payload,'$.terminalThemeLight'), json_extract(payload,'$.terminalLineHeight') "\
+"from profile_state_documents where domain='settings'"
+omp config get theme.dark && omp config get theme.light
+```
+
+Expected: `Catppuccin Mocha|Catppuccin Latte|1.25`, then the two `catppuccin-sections-*` names. In
+Settings, search `terminal theme` or `line height`; the line-height field ignores `set-value`, so
+click it, select all and type.
 
 ## Orca settings through computer use
 
