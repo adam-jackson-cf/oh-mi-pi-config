@@ -40,15 +40,20 @@ Flags and effective terminal inputs are validated before choice files are writte
 
 | Mode | Chat look | Terminal look | Choose when |
 | --- | --- | --- | --- |
-| `document` | Flat, hairlines | Unfilled, neutral, `•` | Calm long replies |
-| `split-cards` | Text cards | Filled, rounded, `•` | Separate text/embeds |
-| `gutter` | Coloured dots | Open sides, `●` | Minimal framing |
-| `editorial` | Section glyphs | Open sides, quiet, `◆` | Polished reading |
+| `document` | Flat, hairlines | Unfilled role hues, soft user fill, `•` | Calm long replies |
+| `split-cards` | Text cards | State tool cards, teal custom fill, `•` | Separate text/embeds |
+| `gutter` | Coloured dots | Open role hues, mantle custom fill, `●` | Minimal framing |
+| `editorial` | Section glyphs | Open, quiet secondary/reasoning, `◆` | Polished reading |
 
-Document uses neutral embed/code borders and soft user fill. Split-cards tints tool cards by state,
-with accented bullets and code-hue borders. Gutter has borderless tinted chat embeds and code-hue
-terminal borders. Editorial chat uses ◆ ▲ ✚ ● glyphs, K hairlines and quieter older turns;
-terminal adds `▏` quotes and quieter output/thinking.
+Terminal prose headings/bullets use the chat accent; HUD/live-work titles use decision mauve,
+tool/IRC headers the code hue, and secondary text neutral subtle ink. Reasoning mixes subtle ink
+25% toward decision; success/error/warning use green/red/orange, custom/skill labels related teal,
+and links key blue. Editorial fades secondary text, tool output and reasoning another 15% toward
+the background, retaining ≥4.5:1 contrast; it adds `▏` quotes. Document keeps neutral code frames;
+other modes keep code-hue frames. Editorial chat uses ◆ ▲ ✚ ● glyphs, K hairlines and quieter
+older turns.
+Terminal has no per-ID-kind colour hook: `registerAssistantTextRenderer` replaces markdown text,
+and omp strips escapes before lexing; per-span colour needs an omp host change.
 
 Modes and palettes combine freely. Shared chat styling goes in `chat.css`, mode rules in
 `:root[data-omp-chat-mode='<mode>']`. Add new modes to `MODES` in `inject.mjs`; full

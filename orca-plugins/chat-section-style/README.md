@@ -98,9 +98,20 @@ installed, so a new palette file needs a full `node inject.mjs`.
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
 - `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp
-  tokens and ≥4.5:1 text contrast (except deliberately dimmed `dim` and decorative borders),
+  tokens and ≥4.5:1 text contrast (decorative borders exempt; `dim` ≥3.0:1 and quieter than `muted`),
   app-background/foreground matches, mode overlays, slot resolution, config and generator idempotence.
   Exit 1 on any failed check.
+- `bun harness/terminal-shoot.mjs <session.jsonl> <out-dir> [--palette catppuccin] [--mode gutter]`
+  screenshots a real resumed omp TUI in an isolated temporary agent directory; the source session
+  is copied, never resumed in place. Requires `omp`, Python 3 and Google Chrome on macOS.
+  Defaults to both slots and their default variants; `--slot dark|light|both`, `--variant`,
+  `--lines 70` and `--anchor TEXT` select a shot/window. `--all` covers every mode and every
+  dark/light variant of the selected palette. Writes named PNG/HTML pairs and one JSON line per
+  shot (paths, theme selection, captured byte count and requested lines). Temporary profiles
+  are removed even on failure; no live agent configuration or Orca state is changed.
+- `bun harness/terminal-shoot-check.mjs` proves the real PTY emits generated tool/thinking
+  truecolour ink, the HTML retains fixture text and terminal background, both slots produce
+  non-blank Chrome PNGs, and the synthetic source fixture remains unchanged. Exit 1 on failure.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
   filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
   no other arguments at load and every 30 seconds, and sends stdout and stderr to
@@ -248,6 +259,15 @@ The same mode/palette choice now drives two generated terminal layers: the data-
 `orca-sections-dark/light` themes supply TUI colours and mode symbols. Optional `terminal-mode`
 and `terminal-palette` files override chat choices; `inject.mjs --surface chat|terminal|both`
 controls which choices a switch writes (default `both`).
+
+Every palette separates prose headings (chat accent), live-work HUD titles (decision mauve),
+tool/IRC headers (code hue), secondary text (neutral subtle), reasoning (decision-tinted subtle),
+success/error/warning (green/red/orange) and custom/skill labels (related teal). Document leaves
+tools/custom messages unfilled; split-cards uses state-tinted tools and teal custom fill; gutter
+uses unfilled tools and mantle custom messages; editorial fades secondary/reasoning ink another 15%.
+Text keeps ≥4.5:1 contrast, with ≥0.05 pairwise OKLab separation for the nine area inks.
+Per-ID-kind colours need an omp host change: its text-renderer hook supplies markdown, whose
+escape codes are stripped before lexing.
 
 Generation runs before chat pid/marker early exits; the existing 30-second LaunchAgent therefore
 also keeps terminal `auto` synchronized. Generated JSON files are ignored, not committed.

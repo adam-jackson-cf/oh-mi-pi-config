@@ -391,12 +391,66 @@ class RepositoryTests(unittest.TestCase):
         self.assert_block(self.prove(), "authorship unknown")
         self.verifier.assert_not_called()
 
+    def bot_github(self, *, author="app/dependabot", branch="dependabot/bun/js-minor-8e002485ce", verified=True, commit_author="dependabot[bot]", bad_commit=None):
+        git(self.repo, "remote", "add", "origin", "git@github.com:adam-jackson-cf/oh-mi-pi-config.git")
+        def response(repo, *args):
+            self.assertEqual(repo, self.repo.resolve())
+            if args[:2] == ("pr", "list"):
+                return [{"author": {"is_bot": True, "login": author}, "headRefName": branch, "headRefOid": self.head}]
+            self.assertEqual(args[0], "api")
+            self.assertTrue(args[1].startswith("repos/adam-jackson-cf/oh-mi-pi-config/commits/"))
+            trusted = bad_commit is not None and not args[1].endswith("/" + bad_commit)
+            return {"author": {"login": "dependabot[bot]" if trusted else commit_author},
+                    "commit": {"verification": {"verified": True if trusted else verified}}}
+        return response
+
+    def test_dependabot_missing_ledger_all_commits_external(self):
+        self.change()
+        self.ledger().unlink()
+        first = self.head
+        self.head = self.commit("second bot commit")
+        with patch.object(workflow, "_github", side_effect=self.bot_github()) as github:
+            result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.assertEqual(result["authors"], [{"family": "external", "model": "dependabot[bot]", "agent": "dependabot[bot]"}])
+        self.assertEqual({call.args[2].rsplit("/", 1)[-1] for call in github.call_args_list if call.args[1] == "api"}, {first, self.head})
+        self.verifier.assert_called_once()
+
+    def test_dependabot_missing_ledger_rejects_untrusted_metadata(self):
+        self.change()
+        self.ledger().unlink()
+        first = self.head
+        self.head = self.commit("second verified bot commit")
+        cases = [({"verified": False}, "not verified"), ({"commit_author": "human"}, "author is not dependabot"),
+                 ({"author": "human"}, "PR author is not Dependabot"), ({"branch": "agent/bump"}, "not dependabot/")]
+        for values, reason in cases:
+            with self.subTest(values=values):
+                response = self.bot_github(**values, bad_commit=first)
+                with patch.object(workflow, "_github", side_effect=response):
+                    self.assert_block(self.prove(), reason)
+                git(self.repo, "remote", "remove", "origin")
+        self.verifier.assert_not_called()
+
+    def test_dependabot_gh_failure_fails_closed(self):
+        self.change()
+        self.ledger().unlink()
+        self.bot_github()
+        with patch.object(workflow, "_github", side_effect=workflow.WorkflowError("gh failed: unavailable")):
+            self.assert_block(self.prove(), "authorship unknown: gh failed: unavailable")
+        self.verifier.assert_not_called()
+
+    def test_existing_ledger_never_queries_dependabot(self):
+        self.change()
+        with patch.object(workflow, "_github", side_effect=AssertionError("must not query gh")):
+            self.assertEqual(self.prove()["authors"][0]["family"], "openai")
+
     def test_context_authors_model_and_cleanup(self):
         self.change()
         context = workflow._common(self.repo) / "omp-prove/verifier-context.json"
         def inspect(brief, proof_ids, **kwargs):
             payload = json.loads(context.read_text())
-            self.assertEqual(set(payload), {"schemaVersion", "worktree", "branch", "head"})
+            self.assertEqual(set(payload), {"schemaVersion", "worktree", "branch", "head", "parent"})
+            self.assertEqual(payload["parent"], self.parent)
             self.assertEqual(payload["head"], self.head)
             self.assertEqual(payload["worktree"], str(self.repo.resolve()))
             self.assertEqual(kwargs, {"model": "openai-codex/gpt-6.1-sol:medium"})
