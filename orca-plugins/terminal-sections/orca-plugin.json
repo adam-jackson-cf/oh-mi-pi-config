@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 2,
+  "id": "terminal-sections",
+  "name": "Terminal Sections",
+  "version": "0.1.0",
+  "description": "Generated terminal colours paired with the chat palette, with dark and light slots.",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.246"
+  },
+  "execution": "data",
+  "contributes": {
+    "terminalThemes": [
+      { "id": "sections-dark", "title": "Sections Dark", "path": "terminal/dark.json" },
+      { "id": "sections-light", "title": "Sections Light", "path": "terminal/light.json" }
+    ]
+  }
+}

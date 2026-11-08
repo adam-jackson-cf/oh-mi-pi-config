@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import shlex
+import socket
 import subprocess
 import sys
 
@@ -22,8 +23,11 @@ def shell_path(path):
 
 
 class Rollout:
-    def __init__(self, hosts, check=False, runner=run_command, home=None):
-        self.hosts = hosts
+    def __init__(self, hosts, check=False, runner=run_command, home=None, hostname=None):
+        hostname = (socket.gethostname() if hostname is None else hostname).split(".")[0].lower()
+        self.local = hosts.get("local", {}).get(hostname, hostname)
+        self.hosts = {host: config for host, config in hosts.items()
+                      if host not in ("local", self.local, hostname)}
         self.check = check
         self.runner = runner
         self.home = Path.home() if home is None else Path(home)
@@ -114,8 +118,8 @@ class Rollout:
         self.rows.append((host, "omp", deployed, expected, state))
 
     def execute(self):
-        local_omp = self.checkout("mac-cf3", "omp", self.home / ".omp")
-        self.checkout("mac-cf3", "agents", self.home / ".agents")
+        local_omp = self.checkout(self.local, "omp", self.home / ".omp")
+        self.checkout(self.local, "agents", self.home / ".agents")
         for host, config in self.hosts.items():
             self.checkout(host, "agents", config["agents"], host)
             if "omp" in config:

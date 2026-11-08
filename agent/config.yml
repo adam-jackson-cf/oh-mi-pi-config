@@ -1,7 +1,7 @@
 symbolPreset: nerd
 theme:
-  dark: catppuccin-sections-mocha
-  light: catppuccin-sections-latte
+  dark: orca-sections-dark
+  light: orca-sections-light
 setupVersion: 2
 extensions:
   - ~/.omp/agent/extensions/analyse.ts
