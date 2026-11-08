@@ -837,6 +837,35 @@ test("linked worktrees share primary toggle and verifier context selects only th
 	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
 });
 
+test("prove dispatch enforces verifier family independence with dynaflows off", async () => {
+	const h = harness();
+	const unknown = harness();
+	try {
+		for (const source of [h, unknown]) {
+			source.dynaflows(false);
+			await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "seed"], { cwd: source.root });
+			const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: source.root })).stdout.trim();
+			const contextDir = join(source.root, ".git/omp-prove");
+			mkdirSync(contextDir, { recursive: true });
+			writeFileSync(join(contextDir, "verifier-context.json"), JSON.stringify({
+				schemaVersion: 1, worktree: source.root, branch: "refs/heads/agent/test", parent: head, head,
+			}));
+		}
+		await h.read(integrity, structure, naming);
+		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+		const sameFamily = await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["openai/review"] });
+		assert.equal(sameFamily?.block, true, "prove() must block an author-family verifier even with dynaflows off");
+		assert.ok(sameFamily?.reason?.includes("different model family"), JSON.stringify(sameFamily));
+		assert.equal(await h.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] }), undefined);
+		assert.deepEqual((await h.emit("before_subagent_spawn", {
+			agent: "verifier", patterns: ["openai/review", "anthropic/review"],
+		}))?.model, ["anthropic/review"]);
+		const missingLedger = await unknown.emit("before_subagent_spawn", { agent: "verifier", patterns: ["anthropic/review"] });
+		assert.equal(missingLedger?.block, true, "prove() must fail closed without an author ledger even with dynaflows off");
+		assert.ok(missingLedger?.reason?.includes("authorship unknown"), JSON.stringify(missingLedger));
+	} finally { h.cleanup(); unknown.cleanup(); }
+});
+
 test("dynaflows off ignores unresolved models while on rejects every unresolved candidate", async () => {
 	const h = harness();
 	try {
