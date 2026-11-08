@@ -224,6 +224,16 @@ const wrapperOptions = {
 	timeout: ["-k", "--kill-after", "-s", "--signal"],
 } satisfies Record<string, string[]>;
 
+type ToolLauncher = { subcommands: string[]; valued: string[]; separator?: boolean };
+const toolLaunchers = {
+	mise: { subcommands: ["exec", "x"], valued: ["-C", "--cd", "-E", "--env", "-j", "--jobs"], separator: true },
+	pnpm: { subcommands: ["exec", "dlx"], valued: ["--package", "-p"] },
+	npx: { subcommands: [], valued: ["--package", "-p"] },
+	bunx: { subcommands: [], valued: ["--package", "-p"] },
+	uv: { subcommands: ["run"], valued: ["--python", "--project", "--directory", "--with", "--with-editable", "--with-requirements", "--extra", "--group"] },
+	poetry: { subcommands: ["run"], valued: ["--directory", "-C", "--project", "-P"] },
+} satisfies Record<string, ToolLauncher>;
+
 // Parse command positions and known launchers, not quoted prose/arguments.
 // Dynamic shell expansion is not evaluated: an unresolved directory fails closed for publishing.
 // `scan` is shared with nested `sh -c` and `env -S` scripts so a variable touched anywhere marks
@@ -246,6 +256,25 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 		while (words.length) {
 			while (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || ["then", "do", "else", "{", "!", "if", "while", "until"].includes(words[0] ?? "")) touch(words.shift());
 			const launcher = basename(words[0] ?? "");
+			// SAFETY: hasOwn restricts indexing to the static launcher's keys.
+			const toolLauncher: ToolLauncher | undefined = Object.hasOwn(toolLaunchers, launcher) ?
+				toolLaunchers[launcher as keyof typeof toolLaunchers] : undefined;
+			if (toolLauncher && (!toolLauncher.subcommands.length || toolLauncher.subcommands.includes(words[1] ?? ""))) {
+				words.shift();
+				if (toolLauncher.subcommands.length) words.shift();
+				if (toolLauncher.separator && !words.includes("--")) {
+					throw new Error(`${launcher} exec/x requires -- before the wrapped command; cannot parse safely`);
+				}
+				while (words.length && (toolLauncher.separator || words[0].startsWith("-"))) {
+					const option = words.shift()!;
+					if (option === "--") break;
+					const name = option.split("=")[0];
+					const value = toolLauncher.valued.includes(name) ?
+						(option.includes("=") ? option.slice(option.indexOf("=") + 1) : words.shift()) : undefined;
+					if (launcher === "mise" && ["-C", "--cd"].includes(name)) cwd = await directory(value, cwd);
+				}
+				continue;
+			}
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
 			// SAFETY: hasOwn above restricts the command name to the static lookup's keys.
 			const valued: string[] = wrapperOptions[launcher as keyof typeof wrapperOptions];
