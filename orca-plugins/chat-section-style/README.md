@@ -249,6 +249,15 @@ The same mode/palette choice now drives two generated terminal layers: the data-
 and `terminal-palette` files override chat choices; `inject.mjs --surface chat|terminal|both`
 controls which choices a switch writes (default `both`).
 
+Every palette separates prose headings (chat accent), live-work HUD titles (decision mauve),
+tool/IRC headers (code hue), secondary text (neutral subtle), reasoning (decision-tinted subtle),
+success/error/warning (green/red/orange) and custom/skill labels (related teal). Document leaves
+tools/custom messages unfilled; split-cards uses state-tinted tools and teal custom fill; gutter
+uses unfilled tools and mantle custom messages; editorial fades secondary/reasoning ink another 15%.
+Text keeps ≥4.5:1 contrast, with ≥0.05 pairwise OKLab separation for the nine area inks.
+Per-ID-kind colours need an omp host change: its text-renderer hook supplies markdown, whose
+escape codes are stripped before lexing.
+
 Generation runs before chat pid/marker early exits; the existing 30-second LaunchAgent therefore
 also keeps terminal `auto` synchronized. Generated JSON files are ignored, not committed.
 See [terminal setup, switching, checks and limits](../orca-chat-style/references/terminal.md).

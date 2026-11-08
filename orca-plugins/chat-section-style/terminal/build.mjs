@@ -83,35 +83,29 @@ export function buildOmpTheme({ palette, variant, mode, slot }) {
   const r = { ...data.roles }
   r.successBg = mix(r.bg, r.suggestion, 0.07)
   r.errorBg = mix(r.bg, r.gap, 0.07)
-  let theme
-  if (data.reviewed) {
-    theme = structuredClone(data.reviewed)
-    // The reviewed theme's aliases remain authoritative for Catppuccin.
-    const resolve = value => theme.vars[value] ?? value
-    Object.assign(r, { code: resolve(theme.colors.mdCode), accent: resolve(theme.colors.accent),
-      activity: resolve(theme.colors.muted), subtle: resolve(theme.colors.thinkingText) })
-  } else {
-    const colors = {
-      accent: r.accent, border: r.surface1, borderAccent: r.key, borderMuted: r.surface0,
-      success: r.suggestion, error: r.gap, warning: r.decision, muted: r.activity, dim: r.surface2,
-      text: '', thinkingText: r.subtle, selectedBg: r.surface0, userMessageBg: r.userMessage,
-      customMessageBg: r.mantle, toolPendingBg: r.bg, toolSuccessBg: r.bg, toolErrorBg: r.bg,
-      statusLineBg: r.mantle, userMessageText: '', customMessageText: '', customMessageLabel: r.key,
-      toolTitle: '', toolOutput: r.activity, assistantMessageText: '', mdHeading: r.accent,
-      mdLink: r.related, mdLinkUrl: r.subtle, mdCode: r.code, mdCodeBlock: r.fg,
-      mdCodeBlockBorder: r.code, mdQuote: r.subtle, mdQuoteBorder: r.surface2, mdHr: r.surface1,
-      mdListBullet: r.accent, toolDiffAdded: r.suggestion, toolDiffRemoved: r.gap, toolDiffContext: r.subtle,
-      thinkingOff: r.surface2, thinkingMinimal: r.surface1, thinkingLow: r.related, thinkingMedium: r.review,
-      thinkingHigh: r.key, thinkingXhigh: r.gap, thinkingMax: r.decision, bashMode: r.suggestion,
-      pythonMode: r.code, statusLineSep: r.surface2, statusLineModel: r.key, statusLinePath: r.related,
-      statusLineGitClean: r.suggestion, statusLineGitDirty: r.decision, statusLineContext: r.review,
-      statusLineSpend: r.command, statusLineStaged: r.suggestion, statusLineDirty: r.decision,
-      statusLineUntracked: r.gap, statusLineOutput: r.fg, statusLineCost: r.decision, statusLineSubagents: r.key,
-    }
-    for (const key of ['Comment', 'Keyword', 'Function', 'Variable', 'String', 'Number', 'Type', 'Operator', 'Punctuation']) colors[`syntax${key}`] = r[`syntax${key}`]
-    theme = { vars: { base: r.bg, text: r.fg }, colors, export: { pageBg: r.bg, cardBg: r.mantle, infoBg: r.surface0 } }
+  r.customBg = mix(r.bg, r.related, 0.08)
+  r.thinking = mix(r.subtle, r.decision, 0.25)
+  r.quietSubtle = mix(r.subtle, r.bg, 0.15)
+  r.quietThinking = mix(r.thinking, r.bg, 0.15)
+  const colors = {
+    accent: r.decision, border: r.surface1, borderAccent: r.key, borderMuted: r.surface0,
+    success: r.suggestion, error: r.gap, warning: r.review, muted: r.subtle, dim: r.surface2,
+    text: '', thinkingText: r.thinking, selectedBg: r.surface0, userMessageBg: r.userMessage,
+    customMessageBg: r.mantle, toolPendingBg: r.bg, toolSuccessBg: r.bg, toolErrorBg: r.bg,
+    statusLineBg: r.mantle, userMessageText: '', customMessageText: '', customMessageLabel: r.related,
+    toolTitle: r.code, toolOutput: r.subtle, assistantMessageText: '', mdHeading: r.accent,
+    mdLink: r.key, mdLinkUrl: r.subtle, mdCode: r.code, mdCodeBlock: r.fg,
+    mdCodeBlockBorder: r.code, mdQuote: r.subtle, mdQuoteBorder: r.surface2, mdHr: r.surface1,
+    mdListBullet: r.accent, toolDiffAdded: r.suggestion, toolDiffRemoved: r.gap, toolDiffContext: r.subtle,
+    thinkingOff: r.surface2, thinkingMinimal: r.surface1, thinkingLow: r.related, thinkingMedium: r.review,
+    thinkingHigh: r.key, thinkingXhigh: r.gap, thinkingMax: r.decision, bashMode: r.suggestion,
+    pythonMode: r.code, statusLineSep: r.surface2, statusLineModel: r.key, statusLinePath: r.related,
+    statusLineGitClean: r.suggestion, statusLineGitDirty: r.decision, statusLineContext: r.review,
+    statusLineSpend: r.command, statusLineStaged: r.suggestion, statusLineDirty: r.decision,
+    statusLineUntracked: r.gap, statusLineOutput: r.fg, statusLineCost: r.decision, statusLineSubagents: r.key,
   }
-  r.quietThinking = mix(r.subtle, r.bg, 0.2)
+  for (const key of ['Comment', 'Keyword', 'Function', 'Variable', 'String', 'Number', 'Type', 'Operator', 'Punctuation']) colors[`syntax${key}`] = r[`syntax${key}`]
+  const theme = { vars: { base: r.bg, text: r.fg }, colors, export: { pageBg: r.bg, cardBg: r.mantle, infoBg: r.surface0 } }
   theme.name = `orca-sections-${slot}`
   applyMode(theme, r, mode)
   const decorative = new Set(['border', 'borderAccent', 'borderMuted', 'mdHr', 'mdQuoteBorder', 'mdCodeBlockBorder', 'thinkingOff', 'thinkingMinimal', 'dim', 'statusLineSep'])
@@ -119,7 +113,8 @@ export function buildOmpTheme({ palette, variant, mode, slot }) {
   for (const [token, value] of Object.entries(theme.colors)) {
     if (!value || token.endsWith('Bg') || decorative.has(token)) continue
     const backgrounds = token.startsWith('statusLine') ? [resolve(theme.colors.statusLineBg)] : [r.bg]
-    if (token === 'toolOutput') backgrounds.push(...['toolPendingBg', 'toolSuccessBg', 'toolErrorBg'].map(key => resolve(theme.colors[key])))
+    if (token === 'toolOutput' || token === 'toolTitle' || token === 'muted') backgrounds.push(...['toolPendingBg', 'toolSuccessBg', 'toolErrorBg'].map(key => resolve(theme.colors[key])))
+    if (token === 'customMessageLabel') backgrounds.push(resolve(theme.colors.customMessageBg), resolve(theme.colors.userMessageBg))
     const adjusted = readable(resolve(value), backgrounds, slot)
     if (adjusted !== resolve(value)) theme.colors[token] = adjusted
   }
