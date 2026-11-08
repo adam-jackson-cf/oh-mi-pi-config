@@ -60,6 +60,50 @@ def _git(repo, *args):
     return p.stdout
 
 
+def _github(repo, *args):
+    try:
+        process = subprocess.run(["gh", *args], cwd=repo, capture_output=True,
+                                 text=True, errors="replace", timeout=20)
+        if process.returncode:
+            raise WorkflowError(f"gh failed: {process.stderr.strip()}")
+        return json.loads(process.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise WorkflowError(f"gh unavailable or invalid response: {exc}") from exc
+
+
+def _external_authors(repo, parent, head):
+    remotes = _git(repo, "remote").splitlines()
+    remote = "origin" if "origin" in remotes else remotes[0] if len(remotes) == 1 else None
+    if remote is None:
+        raise WorkflowError("cannot resolve primary GitHub remote")
+    url = _git(repo, "remote", "get-url", remote).strip()
+    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?", url)
+    if not match:
+        raise WorkflowError("primary remote is not a validated GitHub repository")
+    prs = _github(repo, "pr", "list", "--search", head, "--state", "open",
+                  "--json", "author,headRefName,headRefOid")
+    matches = [pr for pr in prs if isinstance(pr, dict) and pr.get("headRefOid") == head] if isinstance(prs, list) else []
+    if len(matches) != 1:
+        raise WorkflowError("no unique open PR at requested head")
+    pr = matches[0]
+    if not isinstance(pr.get("author"), dict) or pr["author"].get("login") not in ("app/dependabot", "dependabot[bot]"):
+        raise WorkflowError("PR author is not Dependabot")
+    if not isinstance(pr.get("headRefName"), str) or not pr["headRefName"].startswith("dependabot/"):
+        raise WorkflowError("PR head branch is not dependabot/")
+    commits = _git(repo, "rev-list", f"{parent}..{head}").splitlines()
+    if not commits:
+        raise WorkflowError("empty external bot commit range")
+    for sha in commits:
+        commit = _github(repo, "api", f"repos/{match[1]}/commits/{sha}")
+        if (not isinstance(commit, dict) or not isinstance(commit.get("author"), dict)
+                or commit["author"].get("login") != "dependabot[bot]"):
+            raise WorkflowError(f"commit {sha} author is not dependabot[bot]")
+        verification = commit.get("commit", {}).get("verification", {}) if isinstance(commit.get("commit"), dict) else {}
+        if not isinstance(verification, dict) or verification.get("verified") is not True:
+            raise WorkflowError(f"commit {sha} is not verified")
+    return [{"family": "external", "model": "dependabot[bot]", "agent": "dependabot[bot]"}]
+
+
 def _sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -593,7 +637,7 @@ def _run_verifier(brief, proof_ids, model=None):
     return wait([agent(brief, **kwargs)], raise_errors=False)[0]
 
 
-def _authors(repo, head):
+def _authors(repo, parent, head):
     worktree = str(Path(repo).resolve())
     branch = _git(repo, "symbolic-ref", "--quiet", "HEAD").strip()
     if not branch.startswith("refs/heads/") or _commit(repo, "HEAD") != head:
@@ -601,7 +645,10 @@ def _authors(repo, head):
     key = hashlib.sha256((worktree + "\0" + branch).encode()).hexdigest()
     path = _common(repo) / "omp-authors" / f"{key}.json"
     if not path.exists():
-        raise WorkflowError(f"no author ledger for {worktree} {branch}; authorship unknown")
+        try:
+            return branch, _external_authors(repo, parent, head)
+        except WorkflowError as exc:
+            raise WorkflowError(f"no author ledger for {worktree} {branch}; authorship unknown: {exc}") from exc
     try:
         ledger = json.loads(path.read_text())
         if (not isinstance(ledger, dict) or type(ledger.get("schemaVersion")) is not int or ledger["schemaVersion"] != 1 or ledger.get("worktree") != worktree
@@ -675,7 +722,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         base = manifest["base"]
         if not _ancestor(repo, base, parent):
             raise WorkflowError("base must be an ancestor of parent")
-        branch, result["authors"] = _authors(repo, head)
+        branch, result["authors"] = _authors(repo, parent, head)
         result.update(worktree=str(repo), branch=branch)
         try:
             gate_process = subprocess.run(["git", "-C", str(repo), "show", f"{head}:.omp/gate.json"], capture_output=True)
@@ -763,7 +810,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         "Each finding needs exact command, actual and required output; omit anything not run. " + BLOCKING_RULE)
                     context = common / "omp-prove" / "verifier-context.json"
                     try:
-                        _atomic_json(context, {"schemaVersion": 1, "worktree": str(repo), "branch": branch, "head": head})
+                        _atomic_json(context, {"schemaVersion": 1, "worktree": str(repo), "branch": branch, "head": head, "parent": parent})
                         try:
                             verdict = _run_verifier(brief, proof_ids) if verifier_model is None else _run_verifier(brief, proof_ids, model=verifier_model)
                         except Exception as exc:

@@ -540,7 +540,46 @@ export default function agentRails(
 		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
 		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
 	}
-	async function authorsAt(scope: AuthorScope, required: boolean): Promise<Author[]> {
+	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
+		const remotes = (await gitValue(scope.worktree, ["remote"])).split("\n");
+		const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
+		if (!remote) throw new Error("cannot resolve primary GitHub remote");
+		const url = await gitValue(scope.worktree, ["remote", "get-url", remote]);
+		const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(url);
+		if (!match) throw new Error("primary remote is not a validated GitHub repository");
+		async function github(args: string[]): Promise<string> {
+			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: 20000 });
+			if (result.code !== 0 || result.killed) throw new Error(`gh failed: ${result.stderr}`);
+			return result.stdout;
+		}
+		const head = await gitValue(scope.worktree, ["rev-parse", "HEAD"]);
+		const prs = z.array(z.object({
+			author: z.object({ login: z.string() }).nullable(), headRefName: z.string(), headRefOid: z.string(),
+		})).parse(JSON.parse(await github(["pr", "list", "--search", head, "--state", "open", "--json", "author,headRefName,headRefOid"])));
+		const matches = prs.filter(pr => pr.headRefOid === head);
+		if (matches.length !== 1) throw new Error("no unique open PR at requested head");
+		const pr = matches[0];
+		if (!pr.author || !["app/dependabot", "dependabot[bot]"].includes(pr.author.login)) throw new Error("PR author is not Dependabot");
+		if (!pr.headRefName.startsWith("dependabot/")) throw new Error("PR head branch is not dependabot/");
+		if (!parent) {
+			const base = z.object({ baseRefOid: z.string().regex(/^[0-9a-f]{40}$/) }).parse(
+				JSON.parse(await github(["pr", "view", pr.headRefName, "--json", "baseRefOid"])));
+			parent = await gitValue(scope.worktree, ["merge-base", base.baseRefOid, head]);
+		}
+		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: 20000 });
+		if (ancestry.code !== 0 || ancestry.killed) throw new Error("external bot parent is not an ancestor of head");
+		const commits = (await gitValue(scope.worktree, ["rev-list", `${parent}..${head}`])).split("\n");
+		for (const sha of commits) {
+			const commit = z.object({
+				author: z.object({ login: z.string() }).nullable(),
+				commit: z.object({ verification: z.object({ verified: z.boolean() }) }),
+			}).parse(JSON.parse(await github(["api", `repos/${match[1]}/commits/${sha}`])));
+			if (commit.author?.login !== "dependabot[bot]") throw new Error(`commit ${sha} author is not dependabot[bot]`);
+			if (!commit.commit.verification.verified) throw new Error(`commit ${sha} is not verified`);
+		}
+		return [{ family: "external", model: "dependabot[bot]", agent: "dependabot[bot]" }];
+	}
+	async function authorsAt(scope: AuthorScope, required: boolean, parent?: string): Promise<Author[]> {
 		try {
 			const ledger = ledgerSchema.parse(JSON.parse(await readFile(scope.ledger, "utf8")));
 			if (ledger.worktree !== scope.worktree || ledger.branch !== scope.branch) throw new Error("author ledger scope mismatch");
@@ -550,7 +589,11 @@ export default function agentRails(
 			return ledger.authors;
 		} catch (error) {
 			const parsed = fileErrorSchema.safeParse(error);
-			if (!required && parsed.success && parsed.data.code === "ENOENT") return [];
+			if (parsed.success && parsed.data.code === "ENOENT") {
+				if (!required) return [];
+				try { return await externalAuthors(scope, parent); }
+				catch (reason) { throw new Error(`no author ledger for ${scope.worktree} ${scope.branch}; authorship unknown: ${String(reason)}`); }
+			}
 			throw new Error(`authorship unknown for ${scope.worktree} ${scope.branch}: ${String(error)}`);
 		}
 	}
@@ -787,24 +830,26 @@ export default function agentRails(
 		if (event.agent !== "verifier") return;
 		try {
 			let scope = await scopeAt(ctx.cwd);
+			let parent: string | undefined;
 			const contextPath = resolve(scope.common, "omp-prove/verifier-context.json");
 			const contextText = await readFile(contextPath, "utf8").catch(absentFile);
 			try {
 				if (contextText !== null) {
 					const raw: unknown = JSON.parse(contextText);
-					const context = z.object({ schemaVersion: z.literal(1), worktree: z.string(), branch: z.string().refine(value => value.startsWith("refs/heads/")), head: z.string().refine(value => /^[0-9a-f]{40}$/.test(value)) }).parse(raw);
+					const context = z.object({ schemaVersion: z.literal(1), worktree: z.string(), branch: z.string().refine(value => value.startsWith("refs/heads/")), head: z.string().refine(value => /^[0-9a-f]{40}$/.test(value)), parent: z.string().regex(/^[0-9a-f]{40}$/) }).parse(raw);
 					// SAFETY: the object schema above rejects null and primitive values before inspecting raw keys.
-					if (Object.keys(raw as object).sort().join(",") !== "branch,head,schemaVersion,worktree") throw new Error("unexpected verifier context fields");
+					if (Object.keys(raw as object).sort().join(",") !== "branch,head,parent,schemaVersion,worktree") throw new Error("unexpected verifier context fields");
 					const source = await scopeAt(context.worktree);
 					if (source.common !== scope.common || source.worktree !== context.worktree || source.branch !== context.branch ||
 						await gitValue(source.worktree, ["rev-parse", "HEAD"]) !== context.head) throw new Error("scope mismatch");
 					scope = source;
+					parent = context.parent;
 				}
 			} catch (error) {
 				throw new Error(`stale verifier context; rerun prove(): ${String(error)}`);
 			}
 			if (!(await dynaflowsOn(ctx, scope.worktree))) return;
-			const authors = await authorsAt(scope, true);
+			const authors = await authorsAt(scope, true, parent);
 			const candidates = event.patterns.length
 				? event.patterns.map(pattern => ({ pattern, model: ctx.models.resolve(pattern) }))
 				: [{ pattern: undefined, model: ctx.models.current() }];
