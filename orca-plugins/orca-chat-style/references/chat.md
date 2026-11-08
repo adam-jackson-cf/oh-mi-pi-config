@@ -3,6 +3,11 @@
 Paths below are relative to `~/.omp/orca-plugins/chat-section-style/` unless stated otherwise.
 Use `--surface chat` for a chat-only choice switch; it pins both effective terminal choices.
 
+The choice files `mode`, `palette`, `terminal-mode` and `terminal-palette` are machine-local,
+untracked and ignored. Before parsing flags, `inject.mjs` creates missing `mode` and `palette`
+files with `gutter` and `auto`, respectively, preserving existing files. This initialization
+never creates terminal overrides.
+
 ## Injection and recovery
 
 ## How it is installed
@@ -36,7 +41,7 @@ state their value explicitly (for example the reply container's transparent back
    `EnableNodeCliInspectArguments is Enabled`. If disabled, injection is impossible; never patch
    `app.asar` (breaks the signature, lost on the next update). Keep only the theme and settings
    layers.
-2. Run `node inject.mjs`. With the committed settings and a Catppuccin theme, success prints:
+2. Run `node inject.mjs`. With the default local choices and a Catppuccin theme, success prints:
 
    ```text
    {"pid":…,"styled":[1],"mode":"gutter","palette":"auto",

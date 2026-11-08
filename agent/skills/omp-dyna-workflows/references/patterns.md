@@ -190,8 +190,9 @@ unknown; do not fabricate one to unblock verification.
 Immediately before dispatch prove atomically writes
 `<git-common-dir>/omp-prove/verifier-context.json` with
 `{schemaVersion:1, worktree, branch, head, parent}`, then removes it in `finally`.
-Rails uses that source ledger and checks current branch/head; malformed or stale
-context blocks with a rerun-prove explanation. For missing ledgers, `parent` pins
+Rails enforces verifier family independence for every prove dispatch, regardless
+of the dynaflows switch. It uses that source ledger and checks current branch/head;
+malformed or stale context blocks with a rerun-prove explanation. For missing ledgers, `parent` pins
 the external bot commit range. Without context a standalone verifier uses its
 spawning session's scope and the PR base merge-base for that range. There is no
 lock or pid protocol.
