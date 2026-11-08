@@ -446,6 +446,8 @@ class RepositoryTests(unittest.TestCase):
                 self.assert_block(self.prove(), "invalid or failed result")
         self.verifier.return_value = verdict(("unknown",))
         self.assert_block(self.prove(), "unknown proof ID")
+        self.verifier.return_value = verdict(("P1", "unknown"))
+        self.assert_block(self.prove(), "unknown proof ID")
         self.verifier.return_value = dict(verdict(), status="fail")
         self.assert_block(self.prove(), "without reason")
         self.verifier.return_value = dict(verdict(), blocking=["real reason"])
