@@ -138,18 +138,75 @@ class RepositoryTests(unittest.TestCase):
                  "Path('setup').mkdir(exist_ok=True)\n"
                  "p = Path('setup/count')\n"
                  "p.write_text(p.read_text() + 'x' if p.exists() else 'x')\n"]
-        proof = self.proof(code="from pathlib import Path\nassert Path('setup/count').read_text() == 'x'\n"
-                           "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
-        self.freeze([proof], setup=setup)
+        code = ("from pathlib import Path\n"
+                "assert not Path('residue').exists()\n"
+                "Path('residue').write_text('run')\n"
+                "assert Path('setup/count').read_text() == 'x'\n"
+                "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
+        proofs = [self.proof(filename=f"proof{n}.py", ident=f"P{n}", code=code) for n in (1, 2, 3)]
+        self.freeze(proofs, setup=setup)
         frozen_trees = counter.read_text().splitlines()
         self.assertEqual(len(frozen_trees), 1)  # Baseline and negative control share setup.
-        data = self.change(proofs=[proof])
+        data = self.change(proofs=proofs)
         data["setup"] = setup
         self.save(data)
         self.assertEqual(self.prove()["status"], "pass")
         trees = counter.read_text().splitlines()
         self.assertEqual(len(trees), 3)  # Two head runs and two parent runs use two trees.
         self.assertEqual(len(set(trees)), 3)
+
+    def test_earlier_proofs_share_setup_and_remain_isolated(self):
+        counter = self.tmp / "setup-count"
+        setup = [sys.executable, "-c",
+                 "from pathlib import Path\nimport subprocess\n"
+                 "commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
+                 f"with Path({str(counter)!r}).open('a') as out: out.write(commit + '\\n')\n"]
+        code = ("from pathlib import Path\n"
+                "assert not Path('residue').exists()\n"
+                "Path('residue').write_text('run')\n")
+        proofs = [self.proof("preserve", filename=f"proof{n}.py", ident=f"P{n}", code=code) for n in (1, 2)]
+        earlier = self.commit("introduce both proofs")
+        data = self.change(proofs=proofs)
+        data["setup"] = setup
+        self.save(data)
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.assertCountEqual(counter.read_text().splitlines(), [self.parent, self.head, earlier])
+        for proof in proofs:
+            self.assertEqual(result["deterministic"]["proofs"][proof["id"]][-1]["location"],
+                             f"earlier commit {earlier}")
+        brief = self.verifier.call_args.args[0]
+        labels = json.loads(re.search(r"Read-only scratch trees: (.*); your TMPDIR", brief).group(1))
+        earlier_labels = [label for label in labels if label["sha"] == earlier]
+        self.assertEqual({label["label"] for label in earlier_labels},
+                         {"earlier commit", "earlier P1", "earlier P2"})
+        self.assertEqual(len({label["path"] for label in earlier_labels}), 1)
+
+    def test_earlier_commit_reuses_existing_parent_and_baseline_setup(self):
+        counter = self.tmp / "setup-count"
+        setup = [sys.executable, "-c",
+                 "from pathlib import Path\nimport subprocess\n"
+                 "commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
+                 f"with Path({str(counter)!r}).open('a') as out: out.write(commit + '\\n')\n"]
+        proofs = [self.proof("preserve", filename=f"proof{n}.py", ident=f"P{n}", code="assert True\n")
+                  for n in (1, 2)]
+        baseline = self.commit("introduce proofs")
+        proofs.append(self.proof("preserve", filename="proof3.py", ident="P3", code="assert True\n"))
+        proofs[-1]["parent"] = baseline
+        proofs[0]["parent"] = git(self.repo, "rev-parse", f"{baseline}^")
+        self.write("proof1.py", "assert 1 == 1\n")
+        self.parent = self.commit("update first proof at PR parent")
+        data = self.change(proofs=proofs)
+        data["base"] = proofs[0]["parent"]
+        data["setup"] = setup
+        self.save(data)
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.assertCountEqual(counter.read_text().splitlines(),
+                              [proofs[0]["parent"], baseline, self.parent, self.head])
+        locations = [run["location"] for run in result["deterministic"]["proofs"]["P1"]]
+        self.assertIn(f"earlier commit {baseline}", locations)
+        self.assertIn(f"earlier commit {self.parent}", locations)
 
     def test_setup_outputs_survive_and_proof_artifacts_are_removed(self):
         self.write(".gitignore", "ignored-ready/\nignored-run*\n")
