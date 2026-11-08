@@ -862,7 +862,6 @@ test("tool-runner launchers cannot bypass commit hooks or publishing checks", as
 			"pnpm exec git commit --no-verify", "npx git commit --no-verify",
 			"bunx --package git git commit --no-verify", "pnpm dlx --package git git commit --no-verify",
 			"uv run --python 3.12 git commit --no-verify", "poetry run git commit --no-verify",
-			"env FOO=x mise exec -- pnpm exec git commit --no-verify",
 		]) {
 			const result = await h.emit("tool_call", { toolName: "bash", input: { command } });
 			assert.equal(result?.block, true, command);
@@ -879,6 +878,17 @@ test("tool-runner launchers cannot bypass commit hooks or publishing checks", as
 			assert.equal(result?.block, true);
 			assert.ok(result?.reason?.includes("requires --"));
 		}
+		for (const command of [
+			"pnpm exec --filter web git commit --no-verify -m x",
+			"uv run -p 3.12 git push", "uv run --env-file .env git push",
+			"npx --yes --unknown value git commit --no-verify",
+			"env FOO=x mise exec -- pnpm exec git commit --no-verify",
+		]) {
+			const result = await h.call("bash", { command });
+			assert.equal(result?.block, true, command);
+			assert.ok(result?.reason?.includes("wrapped command could not be parsed safely"), command);
+		}
+		assert.equal(await h.call("bash", { command: "pnpm exec eslint ." }), undefined);
 	} finally { h.cleanup(); }
 });
 

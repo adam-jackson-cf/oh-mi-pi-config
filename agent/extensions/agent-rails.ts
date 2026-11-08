@@ -273,6 +273,10 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 						(option.includes("=") ? option.slice(option.indexOf("=") + 1) : words.shift()) : undefined;
 					if (launcher === "mise" && ["-C", "--cd"].includes(name)) cwd = await directory(value, cwd);
 				}
+				if (!["git", "gh"].includes(basename(words[0] ?? "")) &&
+					words.some(word => ["git", "gh"].includes(basename(word)))) {
+					throw new Error(`${launcher} wrapped command could not be parsed safely; put git first after options or use --`);
+				}
 				continue;
 			}
 			if (!Object.hasOwn(wrapperOptions, launcher)) break;
