@@ -94,7 +94,8 @@ installed, so a new palette file needs a full `node inject.mjs`.
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
 - `bun harness/omp-themes.mjs [repo-root]` checks required omp tokens, app-background matches,
-  ≥4.5:1 text contrast and config slots. Exit 1 on any failed check.
+  ≥4.5:1 text contrast except deliberately dimmed `dim` (about 4.4:1), and config slots. Exit 1 on
+  any failed check.
 - `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
   filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
   no other arguments at load and every 30 seconds, and sends stdout and stderr to
@@ -249,8 +250,9 @@ settings layers, with no injection:
   `theme.dark`/`theme.light` in `~/.omp/agent/config.yml`): carry the chat palette into omp's own
   colours: headings and bullets in the chat accent, tool output in the teal activity ink, the user
   message fill, code borders and inline code in the code hue, quiet rules and borders. Every text
-  token is at least 4.5:1 on its background. omp picks the slot from the terminal background, so it
-  follows Orca's terminal theme; new omp sessions pick up changes.
+  token except `dim` is at least 4.5:1 on its background; `dim` is deliberately dimmed, like older
+  chat turns, at about 4.4:1. omp picks the slot from the terminal background, so it follows Orca's
+  terminal theme; new omp sessions pick up changes.
 
 No route exists for ID colouring by kind, section gutter marks, per-embed-type hues, table zebra
 rows or fading older turns: omp exposes no theme token for them.
