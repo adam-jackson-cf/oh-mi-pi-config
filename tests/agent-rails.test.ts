@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, test } from "node:test";
@@ -652,6 +652,22 @@ test("history operations record the acting family and command-specific bypass se
 			h.setSession(command);
 			assert.ok((await h.call("bash", { command }))?.reason?.includes("skill://git-tool"));
 		}
+	} finally { h.cleanup(); }
+});
+
+test("merge-base queries leave authorship empty while history operations record the acting family", async () => {
+	const h = harness();
+	try {
+		h.dynaflows(true);
+		await h.read("skill://git-tool");
+		const key = createHash("sha256").update(`${h.root}\0refs/heads/agent/test`).digest("hex");
+		const ledger = join(h.root, ".git/omp-authors", `${key}.json`);
+		for (const command of ["git merge-base HEAD HEAD", "git merge-base --is-ancestor HEAD HEAD"]) {
+			assert.equal(await h.call("bash", { command }), undefined);
+		}
+		assert.equal(existsSync(ledger), false, "read-only git merge-base must not create an author ledger");
+		assert.equal(await h.call("bash", { command: "git cherry-pick -n HEAD" }), undefined);
+		assert.deepEqual(JSON.parse(readFileSync(ledger, "utf8")).authors.map((author: { family: string }) => author.family), ["openai"]);
 	} finally { h.cleanup(); }
 });
 
