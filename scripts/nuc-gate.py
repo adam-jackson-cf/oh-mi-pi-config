@@ -171,6 +171,23 @@ def submit(repo, sha):
         if (job / 'result.json').exists():
             result = load(job / 'result.json')
             if result['state'] != 'error':
+                if result.get('publicationError'):
+                    state = result['state']
+                    description = f"{state}: {result.get('error') or 'gate'} ({result['durationSeconds']:.1f}s)"
+                    try:
+                        if os.environ.get(repositories()[repo]['tokenEnv']):
+                            publish(job, state, description)
+                        else:
+                            with (job / 'log').open('a') as log:
+                                subprocess.run(infisical() + [sys.executable, str(SELF), 'publish',
+                                               str(job), state, description],
+                                               check=True, stdout=log, stderr=log)
+                    except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+                        message = str(error) if isinstance(error, RuntimeError) else 'GitHub status publication failed'
+                        print(message, file=sys.stderr)
+                        return 1
+                    del result['publicationError']
+                    save(job / 'result.json', result)
                 print(json.dumps(result))
                 return 0
             # Wait for the previous run to release its lock before replacing its result.

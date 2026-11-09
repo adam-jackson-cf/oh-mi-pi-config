@@ -21,6 +21,7 @@ const discovery = [
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
+	ciHost?: "github" | "nuc";
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Answer = { question?: string; selectedOptions?: string[]; timedOut?: boolean };
@@ -137,16 +138,18 @@ type PrCiHarness = {
 	};
 };
 
-function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: string, failure?: string) {
+function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: string, failure?: string, url = "https://github.com/owner/repo/pull/3") {
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
 		assert.equal(options.cwd, h.root);
 		assert.equal(options.timeout, 20000);
-		assert.deepEqual(args, ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup"]);
+		assert.deepEqual(args.slice(0, -1), ["pr", "view", ...(selector ? [selector] : []), "--json"]);
+		assert.ok(args.at(-1)?.split(",").includes("headRefOid"));
+		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 
@@ -681,6 +684,93 @@ for (const scenario of [
 	});
 }
 
+for (const scenario of [
+	{ name: "audit success without gate", rollup: [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], state: "missing" },
+	{ name: "check run named gate", rollup: [{ __typename: "CheckRun", name: "gate", status: "COMPLETED", conclusion: "SUCCESS" }], state: "missing" },
+	{ name: "pending gate status", rollup: [{ __typename: "StatusContext", context: "gate", state: "PENDING" }], state: "PENDING" },
+	{ name: "empty without checks.ci", rollup: [], noCi: true, state: "missing" },
+	{ name: "successful gate status and audit", rollup: [
+		{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
+		{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" },
+	] },
+	{ name: "GitHub host remains unchanged", host: "github", rollup: [{ __typename: "CheckRun", name: "merge-ok", status: "COMPLETED", conclusion: "SUCCESS" }] },
+] as const) {
+	test(`${"state" in scenario ? "nuc label status" : "nuc preserve"}: ${scenario.name}`, async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.dynaflows(false);
+			const host = "host" in scenario ? scenario.host : "nuc";
+			h.gate("noCi" in scenario ? { schemaVersion: 2, ciHost: host }
+				: { schemaVersion: 2, ciHost: host, checks: { ci: ["bun", "ci"] } });
+			mockPrCi(h, [...scenario.rollup], ciHead, "3", undefined, "https://github.com/base-owner/base-repo/pull/3");
+			const result = await h.call("bash", { command: "gh pr edit 3 --add-label agent-verified" });
+			if ("state" in scenario) {
+				assert.equal(result?.block, true, "NUC status must block the verification label");
+				assert.equal(result?.reason, `Agent rails: NUC gate status ${scenario.state} for ${ciHead} in base-owner/base-repo. Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/nuc-gate.py submit base-owner/base-repo ${ciHead}"', then the same with wait base-owner/base-repo ${ciHead} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).`);
+			} else assert.equal(result, undefined);
+		} finally { h.cleanup(); }
+	});
+}
+
+for (const remote of ["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"]) {
+	test(`nuc URL repository: ${remote}`, async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			await execute("git", ["remote", "add", "origin", remote], { cwd: h.root });
+			h.gate({ schemaVersion: 2, ciHost: "nuc", checks: { ci: ["bun", "ci"] } });
+			const url = "https://github.com/other/checkout/pull/3";
+			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url, undefined, url);
+			const result = await h.call("bash", { command: `gh pr edit ${url} --add-label agent-verified` });
+			assert.equal(result?.block, true, "cross-repo URL must not use checkout policy");
+			assert.ok(result?.reason?.includes("run from a checkout of other/checkout"), result?.reason ?? "missing refusal reason");
+		} finally { h.cleanup(); }
+	});
+}
+
+test("nuc preserve: URL selector accepts the checkout repository case-insensitively", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		await execute("git", ["remote", "add", "origin", "git@github.com:OWNER/REPO.git"], { cwd: h.root });
+		h.gate({ schemaVersion: 2, ciHost: "nuc" });
+		const url = "https://github.com/owner/repo/pull/3";
+		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url);
+		assert.equal(await h.call("bash", { command: `gh pr edit ${url} --add-label agent-verified` }), undefined);
+	} finally { h.cleanup(); }
+});
+
+test("nuc merge status: blocks missing status with dynaflows on", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(true);
+		h.gate({ schemaVersion: 2, ciHost: "nuc", checks: { ci: ["bun", "ci"] } });
+		passMarker(h);
+		mockPrCi(h, [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], ciHead, "3");
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		assert.equal(result?.block, true, "NUC status must block merge despite a valid proof marker");
+		assert.ok(result?.reason?.includes(`NUC gate status missing for ${ciHead} in owner/repo`), result?.reason ?? "missing refusal reason");
+	} finally { h.cleanup(); }
+});
+
+test("nuc query contract: requests the PR URL", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		mockPrCi(h, greenCi, ciHead, "3");
+		const exec = h.api.exec.bind(h.api);
+		let fields: string | undefined;
+		h.api.exec = async (command, args, options) => {
+			if (command === "gh") fields = args.at(-1);
+			return exec(command, args, options);
+		};
+		await h.call("bash", { command: "gh pr edit 3 --add-label agent-verified" });
+		assert.equal(fields, "headRefOid,statusCheckRollup,url");
+	} finally { h.cleanup(); }
+});
+
 for (const marker of ["missing", "wrong head", "malformed", "failed", "wrong kind", "valid"] as const) {
 	test(`label proof gate: ${marker}`, async () => {
 		const h = harness();
@@ -722,6 +812,7 @@ for (const scenario of [
 			await h.read("skill://git-tool");
 			h.dynaflows(true);
 			passMarker(h);
+			if (scenario.name === "issue URL") await execute("git", ["remote", "add", "origin", "git@github.com:owner/repo.git"], { cwd: h.root });
 			const exec = h.api.exec.bind(h.api);
 			if ("unaffected" in scenario || scenario.name === "API label bypass") {
 				h.api.exec = async (command, args, options) => {
