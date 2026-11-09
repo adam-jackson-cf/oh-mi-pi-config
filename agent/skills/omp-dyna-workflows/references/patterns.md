@@ -74,13 +74,6 @@ Generated frozen output (not a draft input):
   validation does not depend on host temporary-directory contents.
 - Only listed files may be dirty. Freeze whole files, including shared fixtures.
   Each proof is overlaid alone, never with another proof's files.
-- After rejecting unfrozen changes, freeze reads `.omp/gate.json` from HEAD.
-  An absent gate or absent `checks.proof` skips the optional proof-format check;
-  an invalid HEAD gate fails. When configured, its nonempty argv runs once in the
-  source worktree with sorted, deduplicated proof paths appended. It must be
-  check-only: nonzero output fails freeze, as do before/after porcelain status or
-  frozen-proof hash changes. Mutations are reported and never restored. This
-  preflight does not run lint/typecheck or replace the commit hook.
 - Inspect each argv token literally, including the value after its first `=`;
   strip one leading `./` for comparison. Every token naming an existing regular
   repository file, even an unchanged tracked runner, must be in that proof's
@@ -165,31 +158,10 @@ attributed infrastructure failures (`ok: null`, error/output/location), not fail
 assertions. Previously collected evidence is retained; deterministic failure
 prevents verifier dispatch. Cleanup failure prevents pass.
 
-### Newly added relative links
-
-Before creating any scratch trees, prove checks added/modified Markdown files
-(`.md`, case-insensitive) for new inline links and images, including angle-bracket
-destinations. It removes backtick/tilde fenced blocks and inline code spans,
-strips query/anchor suffixes and percent-decodes destinations. Only newly added
-file/target pairs are checked; pre-existing links are not revalidated.
-
-Targets resolve relative to the document against the exact-case head Git tree,
-not the host filesystem. Files with extensions and trailing-slash directories
-are checked; URL schemes, fragment/root/query prefixes, extensionless routes and
-paths leaving the repository are skipped. Missing targets beneath symlinks or
-submodules are skipped because Git does not contain their destination trees.
-Any broken relative link blocks before proofs or the verifier can run.
-
-Known gaps: reference-style links, bare prose paths, unchanged documentation
-pointing at deleted targets, extensionless routes, indented code and links leaving
-the repository. This is not a complete Markdown parser or stale-path search;
-writers still perform the SKILL's literal full-path documentation search.
-
 ### Gate changes
 
 `gateChanges` unions parent/head references: `.omp/gate.json`, workflows, hooks,
-lefthook/pre-commit roots and `checks.commit`, `checks.ci`, `checks.proof` and
-`pathCheck` argv file tokens. For each directly referenced
+lefthook/pre-commit roots and gate argv file tokens. For each directly referenced
 regular text file, one generic `re.findall(r"[\w./-]+", text)` scan discovers
 existing canonical in-root regular file tokens. It does not recurse or parse a
 language; computed/quoted paths or paths containing spaces inside text are not a
@@ -282,8 +254,6 @@ Exclude any segment `skills`, `agents`, `rules`, `prompts`, `commands`, `.agents
 Check additions, deletions and both rename sides. Main must choose prove for known
 runtime-loaded content even in an otherwise eligible location. This exempts the
 verifier, never required CI; each new head needs fresh exemption evidence.
-The same newly added relative-link check above runs before writing the marker;
-broken links raise `WorkflowError`, leaving no pass marker.
 
 ## blind_label
 
