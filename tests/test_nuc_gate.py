@@ -332,6 +332,45 @@ class NucGateTests(unittest.TestCase):
                 self.cli('status', REPO, sha, expected=1)
                 self.cli('run', self.job(sha), expected=1)
 
+    def test_resubmit_republishes_failed_final_status_without_rerunning_gate(self):
+        for mode in ('shell', 'infisical'):
+            with self.subTest(mode=mode):
+                (self.source / 'publication-retry').write_text(mode)
+                sha = self.commit()
+                self.submit(sha)
+                self.final_status_code = 503
+                self.cli('run', self.job(sha), expected=1)
+                saved = json.loads((self.job(sha) / 'result.json').read_text())
+                self.assertEqual(saved['state'], 'success')
+                self.assertIn('GitHub status publication failed', saved['publicationError'])
+                self.cli('wait', REPO, sha, '--timeout', 0, expected=1)
+                before = len(self.requests)
+                launches = len(self.calls('systemd-run'))
+                runs = len([call for call in self.calls('podman') if call[0] == 'run'])
+                self.final_status_code = 201
+                environment = {**self.env}
+                if mode == 'infisical':
+                    del environment[TOKEN_ENV]
+                    environment['FAKE_INFISICAL_TOKEN'] = self.env[TOKEN_ENV]
+                retried = json.loads(self.cli('submit', REPO, sha, env=environment).stdout)
+                self.assertEqual(len(self.requests), before + 1,
+                                 'resubmit must POST the cached final status again')
+                self.assertEqual(self.requests[-1]['body']['state'], 'success')
+                self.assertEqual(self.requests[-1]['body']['description'],
+                                 f"success: gate ({saved['durationSeconds']:.1f}s)")
+                self.assertNotIn('publicationError', retried)
+                self.assertEqual(retried, {key: value for key, value in saved.items()
+                                           if key != 'publicationError'})
+                self.assertEqual(json.loads((self.job(sha) / 'result.json').read_text()), retried)
+                self.assertEqual(json.loads(self.cli('wait', REPO, sha, '--timeout', 0).stdout), retried)
+                self.assertEqual(len(self.calls('systemd-run')), launches)
+                self.assertEqual(len([call for call in self.calls('podman') if call[0] == 'run']), runs)
+                if mode == 'infisical':
+                    self.assertTrue(any(call[call.index('--') + 1:] ==
+                                        [sys.executable, str(SCRIPT), 'publish', str(self.job(sha)),
+                                         'success', f"success: gate ({saved['durationSeconds']:.1f}s)"]
+                                        for call in self.calls('infisical')))
+
     def test_wait_finishes_after_final_status_publication(self):
         for exit_code, state in ((0, 'success'), (7, 'failure'), (125, 'error')):
             with self.subTest(state=state):

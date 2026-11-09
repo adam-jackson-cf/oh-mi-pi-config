@@ -61,6 +61,34 @@ Install only approved guardrails while keeping unrelated target work intact.
    or `disabled`; absent field or file defaults to `allowed`. Do not infer merge
    permission from this setup skill; honor the governing Git authorization.
 
+   Optional `checks.proof` is a check-only, nonempty argv used by `freeze()` in
+   the source worktree, with sorted proof paths appended. It checks proof
+   formatting before freezing; it is not another commit/CI suite. Freeze fails
+   on nonzero exit or status/proof-byte mutation and never restores changed
+   files. Do not reuse a fixing/staging commit command. Adoption in any repository
+   is a separate owner-approved gate change, not automatic setup.
+
+   For example, game-system would copy its hook runner's Prettier check flags,
+   including both ignore files, and add `--ignore-unknown` for non-Prettier proofs:
+
+   ```json
+   {
+     "checks": {
+       "proof": [
+         "pnpm", "exec", "prettier", "--check",
+         "--config", "tools/guardrails/config/.prettierrc.json",
+         "--ignore-path", ".gitignore",
+         "--ignore-path", "tools/guardrails/config/.prettierignore",
+         "--ignore-unknown"
+       ]
+     }
+   }
+   ```
+
+   This is an opt-in example, not a change to game-system's gate. Before adopting,
+   confirm that its ignore files intentionally skip malformed canary fixtures;
+   explicitly passed ignored files may not be checked.
+
    Optional `ciHost` accepts `github` (the default when absent) or `nuc`.
    `github` means GitHub Actions on every push and pull request; personal
    projects, including repos owned by `adam-versed`, use it. `nuc` is for the
