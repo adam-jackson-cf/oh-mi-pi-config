@@ -687,7 +687,7 @@ export default function agentRails(
 			if (!status || status.__typename !== "StatusContext" || status.state !== "SUCCESS") {
 				const statusState = status?.__typename === "StatusContext" ? status.state : "missing";
 				return { head: pr.headRefOid,
-					reason: `Agent rails: NUC gate status ${statusState} for ${pr.headRefOid} in ${repository}. Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/nuc-gate.py submit ${repository} ${pr.headRefOid}"', then the same with wait ${repository} ${pr.headRefOid} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).` };
+					reason: `Agent rails: CI gate status ${statusState} for ${pr.headRefOid} in ${repository} (ciHost nuc). Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/ci-gate.py submit ${repository} ${pr.headRefOid}"', then the same with wait ${repository} ${pr.headRefOid} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).` };
 			}
 		}
 		if (!checks.length) {

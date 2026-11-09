@@ -707,7 +707,7 @@ for (const scenario of [
 			const result = await h.call("bash", { command: "gh pr edit 3 --add-label agent-verified" });
 			if ("state" in scenario) {
 				assert.equal(result?.block, true, "NUC status must block the verification label");
-				assert.equal(result?.reason, `Agent rails: NUC gate status ${scenario.state} for ${ciHead} in base-owner/base-repo. Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/nuc-gate.py submit base-owner/base-repo ${ciHead}"', then the same with wait base-owner/base-repo ${ciHead} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).`);
+				assert.equal(result?.reason, `Agent rails: CI gate status ${scenario.state} for ${ciHead} in base-owner/base-repo (ciHost nuc). Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/ci-gate.py submit base-owner/base-repo ${ciHead}"', then the same with wait base-owner/base-repo ${ciHead} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).`);
 			} else assert.equal(result, undefined);
 		} finally { h.cleanup(); }
 	});
@@ -751,7 +751,7 @@ test("nuc merge status: blocks missing status with dynaflows on", async () => {
 		mockPrCi(h, [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], ciHead, "3");
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 		assert.equal(result?.block, true, "NUC status must block merge despite a valid proof marker");
-		assert.ok(result?.reason?.includes(`NUC gate status missing for ${ciHead} in owner/repo`), result?.reason ?? "missing refusal reason");
+		assert.ok(result?.reason?.includes(`CI gate status missing for ${ciHead} in owner/repo`), result?.reason ?? "missing refusal reason");
 	} finally { h.cleanup(); }
 });
 
