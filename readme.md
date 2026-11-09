@@ -57,6 +57,14 @@ until verification references are read after that session's code edits and faile
 `pathCheck` paths pass on retry (deleted paths are dropped). The check covers edited
 paths plus previous failures, not every repository file; handoff runs no suite.
 
+Rails checks the PR's exact-head CI before adding `agent-verified` through
+`gh pr edit` or `gh issue edit`, even with dynaflows off; direct API label writes
+must use `gh pr edit --add-label` instead. Checks must all be green with at least
+one success; an empty rollup is allowed only with neither `checks.ci` nor a
+workflows directory. With dynaflows on, labeling also requires a valid exact-head pass marker,
+and merge requires that marker, a literal `--match-head-commit` SHA matching the
+current PR head, and green CI again.
+
 Repository checks follow the test tiers. `.omp/gate.json` schema version 2 declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code)
 and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
