@@ -37,7 +37,9 @@ freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
 ```
 
 `proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.
-Store the manifest outside the repository, for example `$TMPDIR/omp-proofs/<slug>.json`.
+Store the manifest at `<git-common-dir>/omp-manifests/<slug>.json`, outside tracked
+repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`;
+`previous=` may still read a manifest from a temporary location.
 `MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
 The entire draft and top-level inputs are validated before hashing or execution.
@@ -109,11 +111,21 @@ Generated frozen output (not a draft input):
   records require nonblank `revise={id: reason}` and record
   `{id, oldSha256, reason}`; the digest covers the entire old record.
 
+### Recovery
+
+- Main's verification comment embeds the full manifest in `<details>` so a lost
+  manifest can be restored with its recorded digest.
+- Re-run `freeze()` in a clean worktree with the same base, setup and proof bytes
+  to reproduce a byte-identical manifest digest.
+- A writer finding a frozen proof unfixable (for example, formatting) STOPs.
+  Main authorises a proof-only change, then re-freezes with `previous=(path, digest)`
+  and `revise={id: reason}` before implementation resumes.
+
 ## prove
 
 ```python
 prove(repo, parent, head, manifest_path, manifest_sha256, objective, *,
-      target_ref, max_checks=MAX_PROOFS, verifier_model=None)
+      target_ref, max_checks=MAX_PROOFS, verifier_model=None, objective_revision=None)
 ```
 
 Main calls this in Python eval. `repo` is the dedicated source worktree on a named
@@ -121,6 +133,15 @@ branch at `head`, even when main's session is in the primary checkout. Resolve t
 actual fetched PR target and require `parent == git merge-base(target_ref, head)`
 with strict ancestry, not `HEAD~1`. The helper checks consistency; git-tool owns
 confirming actual GitHub target metadata (including its NUC sync exception).
+
+Completed attempts append atomically to
+`<git-common-dir>/omp-prove/attempts/<head>.json` as
+`{objective, manifestSha256, status}` records. If the latest attempt for that head
+failed and the objective changes, pass a nonblank `objective_revision=<reason>`.
+Otherwise supplying it is an input error. An accepted revision appears in the
+result as `objectiveRevision: {previous, reason}` and in the verifier brief.
+Never put waivers such as "not a finding" in an objective; sequence dependencies
+so their decisions land before proving dependent work.
 
 Head gate schema is validated before scratch trees/setup. Missing prerequisites
 route to SKILL's owner-approved project setup; an invalid parent gate is a visible

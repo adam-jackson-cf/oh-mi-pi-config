@@ -22,6 +22,14 @@ One manifest/slug `<epic>-<unit>` per unit PR. Choose defect, preserve or new-su
 by actual behaviour. Name a final flag-removal/cutover unit with its own end-to-end
 proofs, not an unverified closing edit.
 
+Give each owner-delegated decision one ADR with a Deciders line naming the
+delegation. Mark recommendations revised after delegation as revised and raise
+them to the owner before dependent units rely on them. Keep workflow/harness
+mechanics out of product ADRs.
+
+Assign a shared status file (e.g. `HANDOFF.md`) one owning unit per wave; other
+units report status in their PR bodies.
+
 ## 4. Implement
 
 Run shared stage 4 for every unit with a separate implementation task. Main
@@ -31,6 +39,7 @@ coordinates independent units; the final unit writer removes the flag and obsole
 
 Each unit, including final flag removal, gets its own prove and exact-head CI.
 Final proofs cover combined end-to-end behaviour.
+Land decision/ADR units before proving their dependent units.
 
 ## 6. Integrate
 

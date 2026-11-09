@@ -34,7 +34,7 @@ class RepositoryTests(unittest.TestCase):
         env = patch.dict(os.environ, environment, clear=True)
         env.start()
         self.addCleanup(env.stop)
-        scratch = tempfile.TemporaryDirectory(prefix="omp-proof-test-")
+        scratch = tempfile.TemporaryDirectory(prefix="omp-proof-test-", dir=Path.home())
         self.addCleanup(scratch.cleanup)
         self.tmp = Path(scratch.name)
         self.repo = self.tmp / "repo"
@@ -46,7 +46,8 @@ class RepositoryTests(unittest.TestCase):
         self.write("value", "old")
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.manifest_path = self.tmp / "manifest.json"
+        self.manifest_path = workflow._common(self.repo) / "omp-manifests" / "example.json"
+        self.manifest_path.parent.mkdir(parents=True)
         self.verifier_patch = patch.object(workflow, "_run_verifier", return_value=verdict())
         self.verifier = self.verifier_patch.start()
         self.addCleanup(self.verifier_patch.stop)
@@ -95,9 +96,9 @@ class RepositoryTests(unittest.TestCase):
     def save(self, data):
         self.manifest_path.write_text(json.dumps(data))
 
-    def prove(self, **kwargs):
+    def prove(self, objective="fix value", **kwargs):
         args = dict(target_ref=self.parent, **kwargs)
-        result = workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix value", **args)
+        result = workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), objective, **args)
         self.assert_cleaned()
         json.dumps(result)
         return result
@@ -112,6 +113,100 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail", result)
         self.assertIn(fragment, "\n".join(result["blocking"]))
         self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{self.head}.json").exists())
+
+    def test_freeze_requires_durable_manifest_but_reads_temporary_previous(self):
+        proof = self.proof()
+        durable = self.manifest_path
+        for root in dict.fromkeys((Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve())):
+            with self.subTest(root=str(root)), tempfile.TemporaryDirectory(dir=root) as scratch:
+                self.manifest_path = Path(scratch) / "manifest.json"
+                with self.assertRaisesRegex(workflow.WorkflowError, re.escape("<git-common-dir>/omp-manifests/<slug>.json")):
+                    self.freeze([proof])
+                self.assertFalse(self.manifest_path.exists())
+        self.manifest_path = durable
+        path, digest = self.freeze([proof])
+        self.assertEqual(path, durable.resolve())
+        self.assertEqual(workflow._sha(path), digest)
+        with tempfile.TemporaryDirectory() as scratch:
+            previous = Path(scratch) / "previous.json"
+            previous.write_bytes(path.read_bytes())
+            self.assertEqual(self.freeze([proof], previous=(previous, digest)), (path, digest))
+
+    def test_changed_objective_after_failed_prove_requires_revision(self):
+        self.change()
+        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
+        self.assert_block(self.prove(), "value still wrong")
+        self.verifier.return_value = verdict()
+        self.verifier.reset_mock()
+        result = self.prove(objective="fix only the documented value")
+        self.assert_block(result, f"objective changed after a failed prove of {self.head}; pass objective_revision=<reason>")
+        self.verifier.assert_not_called()
+
+    def test_objective_revision_is_recorded_and_briefed_after_failure(self):
+        self.change()
+        digest = workflow._sha(self.manifest_path)
+        self.verifier.return_value = dict(verdict(), status="fail", blocking=["scope ambiguous"])
+        self.assert_block(self.prove(), "scope ambiguous")
+        self.verifier.return_value = verdict()
+        reason = "owner clarified the required value"
+        objective = "fix the documented value"
+        result = self.prove(objective=objective, objective_revision=reason)
+        self.assertEqual(result["status"], "pass", result)
+        self.assertEqual(result["objectiveRevision"], {"previous": "fix value", "reason": reason})
+        brief = self.verifier.call_args.args[0]
+        self.assertIn("fix value", brief)
+        self.assertIn(reason, brief)
+        attempts = workflow._common(self.repo) / "omp-prove" / "attempts" / f"{self.head}.json"
+        self.assertEqual(json.loads(attempts.read_text()), [
+            {"objective": "fix value", "manifestSha256": digest, "status": "fail"},
+            {"objective": objective, "manifestSha256": digest, "status": "pass"},
+        ])
+
+    def test_same_objective_after_failure_needs_no_revision(self):
+        self.change()
+        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
+        self.assert_block(self.prove(), "value still wrong")
+        self.verifier.return_value = verdict()
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.assertNotIn("objectiveRevision", result)
+        attempts = workflow._common(self.repo) / "omp-prove" / "attempts" / f"{self.head}.json"
+        self.assertTrue(attempts.is_file(), "completed prove attempts must be recorded per head")
+        self.assertEqual([item["status"] for item in json.loads(attempts.read_text())], ["fail", "pass"])
+
+    def test_objective_revision_without_failed_differing_objective_is_rejected(self):
+        self.change()
+        for prior in ("none", "pass", "fail"):
+            with self.subTest(prior=prior):
+                if prior != "none":
+                    self.verifier.return_value = verdict() if prior == "pass" else dict(
+                        verdict(), status="fail", blocking=["value still wrong"])
+                    objective = "previous successful objective" if prior == "pass" else "fix value"
+                    self.assertEqual(self.prove(objective=objective)["status"], prior)
+                self.verifier.reset_mock()
+                result = self.prove(objective_revision="unsolicited scope change")
+                self.assertEqual(result["status"], "fail", result)
+                self.assertTrue(result["blocking"], result)
+                self.assertIn("objective_revision", "\n".join(result["blocking"]))
+                self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{self.head}.json").exists())
+                self.verifier.assert_not_called()
+
+    def test_objective_attempt_history_is_per_head(self):
+        self.change()
+        failed_head = self.head
+        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
+        self.assert_block(self.prove(), "value still wrong")
+        self.head = self.commit("new implementation head")
+        self.verifier.return_value = verdict()
+        result = self.prove(objective="fix the clarified value")
+        self.assertEqual(result["status"], "pass", result)
+        self.assertNotIn("objectiveRevision", result)
+        attempts = workflow._common(self.repo) / "omp-prove" / "attempts"
+        self.assertTrue((attempts / f"{failed_head}.json").is_file(), "failed head attempt history must survive a new head")
+        self.assertEqual(json.loads((attempts / f"{failed_head}.json").read_text()), [
+            {"objective": "fix value", "manifestSha256": workflow._sha(self.manifest_path), "status": "fail"}])
+        self.assertEqual(json.loads((attempts / f"{self.head}.json").read_text()), [
+            {"objective": "fix the clarified value", "manifestSha256": workflow._sha(self.manifest_path), "status": "pass"}])
 
     def test_valid_kinds(self):
         for kind, code in (("defect", None), ("new-surface", None), ("preserve", "assert True\n")):
