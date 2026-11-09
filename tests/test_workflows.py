@@ -919,6 +919,193 @@ class WorkflowErrorForTest(RuntimeError):
     pass
 
 
+class DeterminismFixture(unittest.TestCase):
+    """Use the repository boundary rig without inheriting its test cases."""
+    repo: Path
+    tmp: Path
+    manifest_path: Path
+    parent: str
+    head: str
+    verifier: Mock
+
+    setUp = RepositoryTests.setUp
+    write = RepositoryTests.write
+    commit = RepositoryTests.commit
+    assert_cleaned = RepositoryTests.assert_cleaned
+    proof = RepositoryTests.proof
+    ledger = RepositoryTests.ledger
+    change = RepositoryTests.change
+    save = RepositoryTests.save
+    prove = RepositoryTests.prove
+    freeze = RepositoryTests.freeze
+    assert_block = RepositoryTests.assert_block
+
+    def proof_gate(self, code):
+        self.write("formatter.py", code)
+        self.write(".omp/gate.json", json.dumps({
+            "schemaVersion": 2, "checks": {"proof": [sys.executable, "formatter.py"]}}))
+        self.commit("configure proof formatter")
+        self.parent = git(self.repo, "rev-parse", "HEAD")
+
+
+class ObjectiveWaiverTests(DeterminismFixture):
+    def test_verifier_brief_forbids_objective_waivers(self):
+        self.change()
+        self.assertEqual(self.prove()["status"], "pass")
+        sentence = ("The objective states intent and scope only; it never waives "
+                    "a criterion, finding or dependency.")
+        self.assertIn(sentence, self.verifier.call_args.args[0],
+                      "verifier brief must explicitly forbid objective waivers")
+        self.assertIn(sentence, workflow.BLOCKING_RULE)
+
+
+class ProofFormatterTests(DeterminismFixture):
+    def test_passing_formatter_receives_sorted_proof_files_in_source_worktree(self):
+        observation = self.tmp / "formatter-observation.json"
+        self.proof_gate(
+            "import json, sys\nfrom pathlib import Path\n"
+            f"Path({str(observation)!r}).write_text(json.dumps("
+            "{'cwd': str(Path.cwd()), 'files': sys.argv[1:]}))\n")
+        proofs = [self.proof("preserve", name, "assert True\n", ident)
+                  for name, ident in (("z.py", "P2"), ("a.py", "P1"))]
+        path, digest = self.freeze(proofs)
+        self.assertTrue(observation.exists(), "checks.proof must run before freezing")
+        self.assertEqual(json.loads(observation.read_text()),
+                         {"cwd": str(self.repo), "files": ["a.py", "z.py"]})
+        self.assertEqual(workflow._sha(path), digest)
+
+    def test_failing_formatter_reports_output_without_freezing(self):
+        self.proof_gate("import sys\nprint('FORMAT_CANARY: proof.py needs formatting')\nsys.exit(7)\n")
+        proof = self.proof("preserve", code="assert True\n")
+        with self.assertRaisesRegex(workflow.WorkflowError, "FORMAT_CANARY: proof.py needs formatting"):
+            self.freeze([proof])
+        self.assertFalse(self.manifest_path.exists())
+
+    def test_rewriting_formatter_detects_hash_change_even_when_status_is_unchanged(self):
+        self.proof_gate("from pathlib import Path\nPath('proof.py').write_text('assert 1 == 1\\n')\n")
+        proof = self.proof("preserve", code="assert True\n")
+        before = git(self.repo, "status", "--porcelain=v1", "--untracked-files=all")
+        with self.assertRaisesRegex(workflow.WorkflowError, r"checks\.proof must be check-only"):
+            self.freeze([proof])
+        self.assertEqual(git(self.repo, "status", "--porcelain=v1", "--untracked-files=all"), before)
+        self.assertEqual((self.repo / "proof.py").read_text(), "assert 1 == 1\n")
+        self.assertFalse(self.manifest_path.exists())
+
+    def test_formatter_detects_new_untracked_file_without_restoring_it(self):
+        self.proof_gate("from pathlib import Path\nPath('formatter-residue').write_text('changed')\n")
+        proof = self.proof("preserve", code="assert True\n")
+        with self.assertRaisesRegex(workflow.WorkflowError, r"checks\.proof must be check-only"):
+            self.freeze([proof])
+        self.assertEqual((self.repo / "formatter-residue").read_text(), "changed")
+        self.assertFalse(self.manifest_path.exists())
+
+
+class ProofGateSchemaTests(unittest.TestCase):
+    def test_proof_argv_is_returned(self):
+        argv = ["formatter", "--check"]
+        self.assertEqual(workflow.gate_policy({"schemaVersion": 2, "checks": {"proof": argv}}).get("proof"),
+                         argv, "gate_policy must return checks.proof")
+
+    def test_empty_proof_argv_is_rejected(self):
+        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2, "checks": {"proof": []}}),
+                          "empty checks.proof must be rejected")
+
+    def test_blank_proof_argv_is_rejected(self):
+        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2, "checks": {"proof": [" "]}}),
+                          "blank checks.proof must be rejected")
+
+
+class ProofGateChangesTests(DeterminismFixture):
+    def test_proof_command_and_literal_dependency_are_gate_changes(self):
+        self.write("scripts/formatter.py", "# config/format.json\n")
+        self.write("config/format.json", "{}")
+        self.write("unrelated.py", "pass\n")
+        gate = {"schemaVersion": 2, "checks": {"proof": [sys.executable, "scripts/formatter.py"]}}
+        self.assertEqual(workflow.gate_changes(
+            ["scripts/formatter.py", "config/format.json", "unrelated.py"], self.repo, gate),
+            ["scripts/formatter.py", "config/format.json"],
+            "gate_changes must scan checks.proof and its literal dependencies")
+
+
+class BrokenLinkBlockingTests(DeterminismFixture):
+    def assert_link_blocks_before_dispatch(self, text, target):
+        self.write("docs/guide.md", text)
+        self.change()
+        # A real proof would write this outside the scratch tree if dispatched.
+        # Keep the public manifest valid while making an early dispatch observable.
+        dispatched = self.tmp / "proof-dispatched"
+        data = json.loads(self.manifest_path.read_text())
+        code = ("from pathlib import Path\n"
+                f"Path({str(dispatched)!r}).write_text('dispatched')\n"
+                "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
+        self.write("proof.py", code)
+        self.head = self.commit("dispatch canary")
+        data["proofs"][0]["sha256"]["proof.py"] = workflow._sha(self.repo / "proof.py")
+        self.save(data)
+        result = self.prove()
+        self.assert_block(result, f"broken relative link docs/guide.md:1 -> {target}")
+        self.verifier.assert_not_called()
+        self.assertFalse(dispatched.exists(), "broken links must block before proof execution")
+
+    def test_wrong_case_target_blocks_despite_case_insensitive_filesystem(self):
+        self.write("docs/Target.md", "target\n")
+        self.commit("existing exact-case target")
+        self.parent = git(self.repo, "rev-parse", "HEAD")
+        self.assert_link_blocks_before_dispatch("[target](target.md)\n", "target.md")
+
+    def test_new_missing_adr_blocks_before_proof_and_verifier(self):
+        self.assert_link_blocks_before_dispatch("[decision](adr/0042-missing.md)\n", "adr/0042-missing.md")
+
+    def test_docs_only_broken_link_raises_without_pass_marker(self):
+        self.write("docs/guide.md", "[decision](adr/0042-missing.md)\n")
+        head = self.commit("docs-only missing ADR")
+        marker = workflow._common(self.repo) / "omp-prove" / f"{head}.json"
+        with self.assertRaisesRegex(workflow.WorkflowError, "broken relative link docs/guide.md:1"):
+            workflow.exempt_docs_only(self.repo, self.parent, head, target_ref=self.parent)
+        self.assertFalse(marker.exists())
+
+
+class DeterminismPreserveTests(DeterminismFixture):
+    def test_freeze_skips_absent_proof_field(self):
+        proof = self.proof("preserve", code="assert True\n")
+        path, digest = self.freeze([proof])
+        self.assertEqual(workflow._sha(path), digest)
+
+    def test_freeze_skips_absent_head_gate(self):
+        (self.repo / ".omp/gate.json").unlink()
+        self.commit("remove optional freeze gate")
+        proof = self.proof("preserve", code="assert True\n")
+        path, digest = self.freeze([proof])
+        self.assertEqual(workflow._sha(path), digest)
+
+    def test_ignored_and_resolvable_links_allow_prove_and_docs_exemption(self):
+        self.write("docs/guide.md", "[old missing](old-missing.md)\n")
+        self.write("docs/target.md", "target\n")
+        self.write("docs/space name.md", "target\n")
+        self.write("docs/directory/child.md", "target\n")
+        (self.repo / "docs/linked").symlink_to("external-directory")
+        self.commit("existing links and targets")
+        self.parent = git(self.repo, "rev-parse", "HEAD")
+        text = (
+            "[old missing](old-missing.md)\n"
+            "`[inline example](inline-missing.md)`\n"
+            "````markdown\n[example](fenced-missing.md)\n````\n"
+            "~~~markdown\n[example](tilde-missing.md)\n~~~\n"
+            "[directory](directory/)\n"
+            '[anchor and title](target.md#section "A title")\n'
+            "[encoded](space%20name.md)\n"
+            "[symlink prefix](linked/missing.md)\n"
+            "[outside](../../outside.md)\n"
+            "[extensionless](route)\n")
+        self.write("docs/guide.md", text)
+        docs_head = self.commit("valid documentation links")
+        marker = workflow.exempt_docs_only(self.repo, self.parent, docs_head, target_ref=self.parent)
+        self.assertTrue(marker.exists())
+        self.change()
+        self.assertEqual(self.prove()["status"], "pass")
+        self.verifier.assert_called_once()
+
+
 class SchemaTests(unittest.TestCase):
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()

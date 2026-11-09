@@ -42,7 +42,7 @@ const policyFields = {
 // `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
 const gateSchema = z.object({
 	schemaVersion: z.literal(2),
-	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
+	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional(), proof: argvSchema.optional() }).optional(),
 	...policyFields,
 }).transform(gate => ({
 	commit: gate.checks?.commit,
