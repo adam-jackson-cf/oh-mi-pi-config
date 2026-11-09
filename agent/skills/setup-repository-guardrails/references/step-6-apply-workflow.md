@@ -68,7 +68,7 @@ Install only approved guardrails while keeping unrelated target work intact.
    `.devcontainer/devcontainer.json` specifying `build.dockerfile` or `image`
    mirroring the CI runner's toolchain, with an optional `postCreateCommand`
    for dependency installation. Add the repo's `owner/repo` to oh-mi-pi-config's
-   `scripts/nuc-gate-repos.json` with
+   `scripts/ci-gate-repos.json` with
    `tokenEnv: NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` via a PR to that repo.
    The NUC runs `checks.ci` on the exact SHA and posts the GitHub commit
    status `gate`. Keep `checks.ci` in the GitHub CI workflow, scheduled weekly
