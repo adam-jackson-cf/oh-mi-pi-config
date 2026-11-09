@@ -887,7 +887,7 @@ export default function agentRails(
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
-					if (/^git (?:merge|rebase|cherry-pick|revert|am|pull)\b/.test(action.command)) {
+					if (/^git (?:merge|rebase|cherry-pick|revert|am|pull)(?![-\w])/.test(action.command)) {
 						const bypass = commitBypass(action);
 						if (bypass) return { block: true, reason: `Agent rails: drop hook bypass ${bypass}` };
 						if (!action.cwd) throw new Error("cannot resolve history operation cwd");
