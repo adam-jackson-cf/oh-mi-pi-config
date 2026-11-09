@@ -119,7 +119,9 @@ the sole cross-family `verifier`; never spawn a second verifier or substitute a
 `task`. Helper details live in [patterns](references/patterns.md#prove), and the
 exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
 Main posts verification evidence and applies `agent-verified` only after this
-risk-tier verification and exact-head CI pass. Every new SHA invalidates evidence.
+risk-tier verification and exact-head CI pass. Rails enforce exact-head green
+checks before the label and at merge, plus a valid pass marker with dynaflows on;
+main applies the label only after both pass. Every new SHA invalidates evidence.
 
 ### 6. Integrate
 
