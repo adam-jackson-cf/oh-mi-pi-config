@@ -14,7 +14,7 @@ import threading
 import time
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/nuc-gate.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/ci-gate.py'
 REPO = 'adam-jackson-cf/oh-mi-pi-config'
 TOKEN_ENV = 'NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'
 
@@ -62,9 +62,9 @@ sys.exit(0)
 '''
 
 
-class NucGateTests(unittest.TestCase):
+class CiGateTests(unittest.TestCase):
     def setUp(self):
-        scratch = tempfile.TemporaryDirectory(prefix='nuc-gate-test-')
+        scratch = tempfile.TemporaryDirectory(prefix='ci-gate-test-')
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
         self.source = self.root / 'repo'
@@ -119,10 +119,10 @@ class NucGateTests(unittest.TestCase):
         self.env = {**os.environ, 'XDG_STATE_HOME': str(self.root / 'state'),
                     'XDG_DATA_HOME': str(self.root / 'data'), 'FAKE_ROOT': str(self.root),
                     'FAKE_REPO': str(self.source), 'REAL_GIT': shutil.which('git'),
-                    'NUC_GATE_GITHUB_API': f'http://127.0.0.1:{server.server_port}',
+                    'CI_GATE_GITHUB_API': f'http://127.0.0.1:{server.server_port}',
                     TOKEN_ENV: 'test-super-secret-token'}
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
-            self.env['NUC_GATE_' + name.upper().replace('-', '_')] = str(binary / name)
+            self.env['CI_GATE_' + name.upper().replace('-', '_')] = str(binary / name)
         self.children = []
         self.addCleanup(self.stop_children)
 
@@ -147,7 +147,7 @@ class NucGateTests(unittest.TestCase):
         return result
 
     def job(self, sha=None):
-        return self.root / 'state/nuc-gate/jobs' / REPO / (sha or self.sha)
+        return self.root / 'state/ci-gate/jobs' / REPO / (sha or self.sha)
 
     def submit(self, sha=None):
         return self.cli('submit', REPO, sha or self.sha)
@@ -234,7 +234,7 @@ class NucGateTests(unittest.TestCase):
                                         for call in self.calls('infisical')))
                 if mode == 'infisical-private':
                     self.assertEqual(self.requests[-1]['headers']['Authorization'], 'Bearer ' + token)
-                mirror = self.root / 'data/nuc-gate/mirrors' / (REPO + '.git')
+                mirror = self.root / 'data/ci-gate/mirrors' / (REPO + '.git')
                 config = (mirror / 'config').read_text()
                 self.assertNotIn('extraheader', config.lower())
                 self.assertNotIn(token, config)
@@ -431,10 +431,10 @@ class NucGateTests(unittest.TestCase):
         # The second process is alive but cannot enter podman before the first releases.
         self.until(lambda: (self.job(second) / 'run.lock').exists())
         self.assertFalse((self.root / ('entered-' + second)).exists())
-        with (self.root / 'state/nuc-gate/locks/slot-0').open('a') as held_slot:
+        with (self.root / 'state/ci-gate/locks/slot-0').open('a') as held_slot:
             with self.assertRaises(BlockingIOError):
                 fcntl.flock(held_slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        self.assertEqual(len(list((self.root / 'state/nuc-gate/locks').glob('slot-*'))), 1)
+        self.assertEqual(len(list((self.root / 'state/ci-gate/locks').glob('slot-*'))), 1)
         (self.root / ('release-' + self.sha)).touch()
         self.until(lambda: (self.root / ('entered-' + second)).exists())
         (self.root / ('release-' + second)).touch()

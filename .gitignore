@@ -26,8 +26,8 @@
 scripts/*
 !scripts/run-ci-quality-gates.sh
 !scripts/check-paths.py
-!scripts/nuc-gate.py
-!scripts/nuc-gate-repos.json
+!scripts/ci-gate.py
+!scripts/ci-gate-repos.json
 !scripts/device-rollout.py
 !scripts/device-rollout-hosts.json
 
@@ -91,7 +91,7 @@ tests/*
 !tests/agent-autocomplete.test.ts
 !tests/agent-rails.test.ts
 !tests/test_check_paths.py
-!tests/test_nuc_gate.py
+!tests/test_ci_gate.py
 !tests/test_python_reference.py
 !tests/test_validate_rule_coverage.py
 !tests/test_device_rollout.py

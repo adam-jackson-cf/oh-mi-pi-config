@@ -236,17 +236,17 @@ copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target.
 
-## NUC gate (CI)
+## CI gate (NUC host)
 
 The owner's Linux NUC runs exact-SHA gates in rootless Podman with gVisor.
-Only repositories in `scripts/nuc-gate-repos.json` can run. Push an
+Only repositories in `scripts/ci-gate-repos.json` can run. Push an
 `agent/<slug>` branch, then submit and wait over SSH:
 
 ```sh
 ssh codex-omarchy-nuc \
-  'python3 ~/.omp/scripts/nuc-gate.py submit adam-jackson-cf/oh-mi-pi-config SHA'
+  'python3 ~/.omp/scripts/ci-gate.py submit adam-jackson-cf/oh-mi-pi-config SHA'
 ssh codex-omarchy-nuc \
-  'python3 ~/.omp/scripts/nuc-gate.py wait adam-jackson-cf/oh-mi-pi-config SHA --timeout 1200'
+  'python3 ~/.omp/scripts/ci-gate.py wait adam-jackson-cf/oh-mi-pi-config SHA --timeout 1200'
 ```
 
 Replace `SHA` with the pushed 40-character lowercase commit SHA.
@@ -265,11 +265,11 @@ The runner executes `checks.ci` (schema version 1: `gate`) after the
 devcontainer's `postCreateCommand`.
 
 Logs and atomic `result.json` files remain under
-`${XDG_STATE_HOME:-~/.local/state}/nuc-gate/jobs/<owner>/<repo>/<sha>/`;
+`${XDG_STATE_HOME:-~/.local/state}/ci-gate/jobs/<owner>/<repo>/<sha>/`;
 checkouts are removed after completion. Bare mirrors live under
-`${XDG_DATA_HOME:-~/.local/share}/nuc-gate/mirrors/`. Jobs default to one
-global slot (`NUC_GATE_SLOTS`), with a 1,200-second systemd runtime limit
-(`NUC_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
+`${XDG_DATA_HOME:-~/.local/share}/ci-gate/mirrors/`. Jobs default to one
+global slot (`CI_GATE_SLOTS`), with a 1,200-second systemd runtime limit
+(`CI_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
 retention; the service never globally prunes Podman resources.
 
 Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into host-side fetches
@@ -284,13 +284,13 @@ need no token; authenticated fetches use GitHub Basic authentication through
 process-local Git configuration environment variables, never command-line
 arguments or saved mirror configuration.
 
-`NUC_GATE_INFISICAL_PROJECT`, `NUC_GATE_INFISICAL_ENV`, `NUC_GATE_REPOS`,
-`NUC_GATE_GITHUB_API`, and executable overrides `NUC_GATE_GIT`,
-`NUC_GATE_PODMAN`, `NUC_GATE_SYSTEMD_RUN`, `NUC_GATE_INFISICAL` support
+`CI_GATE_INFISICAL_PROJECT`, `CI_GATE_INFISICAL_ENV`, `CI_GATE_REPOS`,
+`CI_GATE_GITHUB_API`, and executable overrides `CI_GATE_GIT`,
+`CI_GATE_PODMAN`, `CI_GATE_SYSTEMD_RUN`, `CI_GATE_INFISICAL` support
 deployment and isolated tests. Runtime flags are JSON arrays:
-`NUC_GATE_RUNTIME_FLAGS` defaults to
+`CI_GATE_RUNTIME_FLAGS` defaults to
 `["--runtime", "/usr/local/bin/runsc", "--runtime-flag=ignore-cgroups"]`;
-`NUC_GATE_BUILD_RUNTIME_FLAGS` defaults to `[]` (Podman's default build runtime).
+`CI_GATE_BUILD_RUNTIME_FLAGS` defaults to `[]` (Podman's default build runtime).
 On the NUC, rootless Podman 6.1.4 passes `--no-new-keyring` to its build runtime,
 which runsc rejects. The default-runtime build succeeded, followed by two full
 gates under runsc with GitHub pending/success statuses. Builds run only the
@@ -317,9 +317,9 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/lsp.json` — LSP configuration.
 - `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
-- `scripts/nuc-gate.py` and `scripts/nuc-gate-repos.json` — NUC job service and
+- `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — CI job service and
   repository/token-name allowlist.
 - `.omp/gate.json` — gate commands and declared CI host.
 - `.devcontainer/` — pinned gate image and dependency installation.
-- `tests/test_nuc_gate.py` — isolated CLI, container, and GitHub-status contracts.
+- `tests/test_ci_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.
