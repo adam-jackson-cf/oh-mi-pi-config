@@ -60,10 +60,15 @@ paths plus previous failures, not every repository file; handoff runs no suite.
 Rails checks the PR's exact-head CI before adding `agent-verified` through
 `gh pr edit` or `gh issue edit`, even with dynaflows off; direct API label writes
 must use `gh pr edit --add-label` instead. Checks must all be green with at least
-one success; an empty rollup is allowed only with neither `checks.ci` nor a
-workflows directory. With dynaflows on, labeling also requires a valid exact-head pass marker,
-and merge requires that marker, a literal `--match-head-commit` SHA matching the
-current PR head, and green CI again.
+one success. The checkout's `.omp/gate.json` is the policy authority: `ciHost: nuc`
+also requires a successful `gate` commit status on the exact PR head; a check run
+named `gate` does not count. Other hosts allow an empty rollup only with neither
+`checks.ci` nor a workflows directory. URL selectors must match the checkout's
+primary GitHub repository. With dynaflows on, labeling also requires a valid
+exact-head pass marker, and the merge gate requires that marker, a literal
+`--match-head-commit` SHA matching the current PR head, and green CI again
+(including the NUC status). The label CI gate always applies; the merge gate
+applies only with dynaflows on.
 
 Repository checks follow the test tiers. `.omp/gate.json` schema version 2 declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code)

@@ -42,7 +42,7 @@ const policyFields = {
 // `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
 const gateSchema = z.object({
 	schemaVersion: z.literal(2),
-	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
+	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional(), proof: argvSchema.optional() }).optional(),
 	...policyFields,
 }).transform(gate => ({
 	commit: gate.checks?.commit,
@@ -55,6 +55,7 @@ const gateSchema = z.object({
 }));
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
+	url: z.string().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/),
 	statusCheckRollup: z.array(z.union([
 		z.object({ __typename: z.literal("CheckRun"), name: z.string(), status: z.string(), conclusion: z.union([z.string(), z.literal(null)]) }),
 		z.object({ __typename: z.literal("StatusContext"), context: z.string(), state: z.string() }),
@@ -555,13 +556,17 @@ export default function agentRails(
 		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
 		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
 	}
-	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
-		const remotes = (await gitValue(scope.worktree, ["remote"])).split("\n");
+	async function primaryGithubRepository(cwd: string): Promise<string> {
+		const remotes = (await gitValue(cwd, ["remote"])).split("\n");
 		const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
 		if (!remote) throw new Error("cannot resolve primary GitHub remote");
-		const url = await gitValue(scope.worktree, ["remote", "get-url", remote]);
+		const url = await gitValue(cwd, ["remote", "get-url", remote]);
 		const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(url);
 		if (!match) throw new Error("primary remote is not a validated GitHub repository");
+		return match[1];
+	}
+	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
+		const repository = await primaryGithubRepository(scope.worktree);
 		async function github(args: string[]): Promise<string> {
 			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: 20000 });
 			if (result.code !== 0 || result.killed) throw new Error(`gh failed: ${result.stderr}`);
@@ -591,7 +596,7 @@ export default function agentRails(
 			const commit = z.object({
 				author: z.object({ login: z.string() }).nullable(),
 				commit: z.object({ verification: z.object({ verified: z.boolean() }) }),
-			}).parse(JSON.parse(await github(["api", `repos/${match[1]}/commits/${sha}`])));
+			}).parse(JSON.parse(await github(["api", `repos/${repository}/commits/${sha}`])));
 			if (commit.author?.login !== "dependabot[bot]") throw new Error(`commit ${sha} author is not dependabot[bot]`);
 			if (!commit.commit.verification.verified) throw new Error(`commit ${sha} is not verified`);
 		}
@@ -664,15 +669,28 @@ export default function agentRails(
 		const root = await repoRoot(action.cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
 		const selector = prSelector(action.args);
-		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup"],
+		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup,url"],
 			{ cwd: action.cwd, timeout: 20000 });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
 		};
 		const pr = prCiSchema.parse(JSON.parse(result.stdout));
+		const repository = new URL(pr.url).pathname.split("/").slice(1, 3).join("/");
+		if (selector && /^https?:\/\//i.test(selector) &&
+			(await primaryGithubRepository(root)).toLowerCase() !== repository.toLowerCase()) {
+			return { head: pr.headRefOid, reason: `Agent rails: run from a checkout of ${repository}` };
+		}
+		const gate = await gateAt(root, state, ctx, true);
 		const checks = pr.statusCheckRollup;
+		if (gate?.ciHost === "nuc") {
+			const status = checks.find(check => check.__typename === "StatusContext" && check.context === "gate");
+			if (!status || status.__typename !== "StatusContext" || status.state !== "SUCCESS") {
+				const statusState = status?.__typename === "StatusContext" ? status.state : "missing";
+				return { head: pr.headRefOid,
+					reason: `Agent rails: NUC gate status ${statusState} for ${pr.headRefOid} in ${repository}. Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/nuc-gate.py submit ${repository} ${pr.headRefOid}"', then the same with wait ${repository} ${pr.headRefOid} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).` };
+			}
+		}
 		if (!checks.length) {
-			const gate = await gateAt(root, state, ctx, true);
 			const workflows = await stat(resolve(root, ".github/workflows")).catch(absentFile);
 			return { head: pr.headRefOid, reason: gate?.ci || workflows?.isDirectory()
 				? `Agent rails: no CI checks reported for ${pr.headRefOid}` : undefined };

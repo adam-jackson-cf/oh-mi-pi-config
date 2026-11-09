@@ -61,7 +61,7 @@ Plan review is optional unless the owner requests approval.
 
 Main checks prerequisites before ordinary implementation: a valid schemaVersion 2
 `.omp/gate.json` with `checks.commit`, `pathCheck`, and an installed executable
-pre-commit hook. Schema fields are `schemaVersion`, `checks` (`commit`, `ci`),
+pre-commit hook. Schema fields are `schemaVersion`, `checks` (`commit`, `ci`, `proof`),
 `pathCheck`, `pathCheckTimeoutMs`, `testGlobs`, `agentMerge` and `ciHost`; accepted
 types/values are owned by `agent/extensions/agent-rails.ts`. `prove()` mirrors
 schema validation, while rails checks the installed hook at `git commit`.
@@ -85,6 +85,8 @@ internal URI paths are exempt from this filesystem-path check.
 3. Separate implementation `task` makes the greening change and commits proofs
    with it, normally atomically. No proof may enter history red before its fix;
    split only if every earlier commit passes the hook with all proofs present.
+   For each changed, renamed or deleted path, the writer runs
+   `git grep -n -F -e <repo-relative path> -- '*.md'` and fixes stale hits before handoff.
    Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
@@ -120,8 +122,12 @@ the sole cross-family `verifier`; never spawn a second verifier or substitute a
 exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
 Main posts verification evidence and applies `agent-verified` only after this
 risk-tier verification and exact-head CI pass. Rails enforce exact-head green
-checks before the label and at merge, plus a valid pass marker with dynaflows on;
-main applies the label only after both pass. Every new SHA invalidates evidence.
+checks before the label always, and at merge only with dynaflows on. The checkout's
+`.omp/gate.json` is the policy authority; `ciHost: nuc` requires a successful
+`gate` commit status on that head, not a check run named `gate`. URL selectors
+must match the checkout's primary GitHub repository. With dynaflows on, both gates
+also require a valid pass marker; main applies the label only after both pass.
+Every new SHA invalidates evidence.
 
 ### 6. Integrate
 
