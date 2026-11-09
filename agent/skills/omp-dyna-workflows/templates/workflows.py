@@ -381,6 +381,9 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     if not isinstance(revise, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in revise.items()):
         raise WorkflowError("revise must map proof IDs to nonblank reasons")
     root, path = Path(worktree).resolve(), Path(manifest_path).resolve()
+    if any(path.is_relative_to(directory) for directory in
+           (Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve())):
+        raise WorkflowError("manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json")
     old = load_manifest(previous[0], previous[1], max_checks) if previous else {"proofs": []}
     old_proofs = {p["id"]: p for p in old["proofs"]}
     if set(revise) - set(old_proofs):
@@ -702,11 +705,12 @@ def _verdict(result, verdict, ids):
 
 
 def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, target_ref,
-          max_checks=MAX_PROOFS, verifier_model=None):
+          max_checks=MAX_PROOFS, verifier_model=None, objective_revision=None):
     """Run frozen proofs then one cross-family verifier; CI independently owns repository gates."""
     result = {"status": "fail", "deterministic": {}, "verifier": {}, "blocking": [], "followUps": [],
               "authors": [], "verifierModel": _json_safe(verifier_model)}
     trees = []
+    attempts_path, attempts = None, []
     try:
         repo = Path(repo).resolve()
         head = _commit(repo, head)
@@ -743,6 +747,26 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             if not _ancestor(repo, commit, head, strict=True) or not _ancestor(repo, base, commit):
                 raise WorkflowError(f"{proof['id']}: proof parent must be an ancestor of head at or after base")
             _command_files(proof, (repo,))
+        history_path = common / "omp-prove" / "attempts" / f"{head}.json"
+        if history_path.exists():
+            attempts = json.loads(history_path.read_text())
+            if (not isinstance(attempts, list)
+                    or any(not isinstance(item, dict)
+                           or set(item) != {"objective", "manifestSha256", "status"}
+                           or not isinstance(item["objective"], str) or not item["objective"].strip()
+                           or not isinstance(item["manifestSha256"], str)
+                           or not re.fullmatch(r"[0-9a-f]{64}", item["manifestSha256"])
+                           or item["status"] not in ("pass", "fail") for item in attempts)):
+                raise WorkflowError("invalid prove attempt history")
+        previous = attempts[-1] if attempts else None
+        changed = previous is not None and previous["status"] == "fail" and previous["objective"] != objective
+        if previous is not None and changed:
+            if not isinstance(objective_revision, str) or not objective_revision.strip():
+                raise WorkflowError(f"objective changed after a failed prove of {head}; pass objective_revision=<reason>")
+            result["objectiveRevision"] = {"previous": previous["objective"], "reason": objective_revision}
+        elif objective_revision is not None:
+            raise WorkflowError("objective_revision requires a changed objective after a failed prove")
+        attempts_path = history_path
         snapshot = (_git(repo, "status", "--porcelain=v2"), _commit(repo, "HEAD"))
         with tempfile.TemporaryDirectory(prefix="omp-prove-") as scratch:
             try:
@@ -801,6 +825,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         f"PR parent SHA: {parent}\nHead SHA: {head}\nDiff range: {parent}..{head}\n"
                         f"Read-only scratch trees: {json.dumps(labels)}; your TMPDIR is allowed. Never spawn agents.\n"
                         f"Objective: {objective}\nAuthors: {json.dumps(result['authors'])}\nVerifier model override: {verifier_model}\n"
+                        f"Objective revision: {json.dumps(result.get('objectiveRevision'))}\n"
                         f"Manifest: {json.dumps(manifest)}\nDeterministic: {json.dumps(brief_checks)}\n"
                         f"Full deterministic evidence: {full_path}\nDiff stat: {_git(repo, 'diff', '--stat', parent, head)}\n"
                         "Drive every criterion live; return proofId, command, observed, verdict. "
@@ -831,6 +856,14 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             result["status"] = "pass"
     except Exception as exc:
         result["blocking"].append(f"infrastructure: {exc}")
+    if attempts_path is not None:
+        try:
+            _atomic_json(attempts_path, [*attempts, {
+                "objective": objective, "manifestSha256": manifest_sha256, "status": result["status"]}])
+        except Exception as exc:
+            (attempts_path.parent.parent / f"{head}.json").unlink(missing_ok=True)
+            result["status"] = "fail"
+            result["blocking"].append(f"infrastructure: recording prove attempt: {exc}")
     return result
 
 
