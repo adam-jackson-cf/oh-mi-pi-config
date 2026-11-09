@@ -53,6 +53,21 @@ const gateSchema = z.object({
 	agentMerge: gate.agentMerge,
 	ciHost: gate.ciHost,
 }));
+const prCiSchema = z.object({
+	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
+	statusCheckRollup: z.array(z.union([
+		z.object({ __typename: z.literal("CheckRun"), name: z.string(), status: z.string(), conclusion: z.union([z.string(), z.literal(null)]) }),
+		z.object({ __typename: z.literal("StatusContext"), context: z.string(), state: z.string() }),
+	])),
+});
+
+function prSelector(args: string[]): string | undefined {
+	for (let i = 2; i < args.length; i++) {
+		if (args[i] === "--") return args[i + 1];
+		if (!args[i].startsWith("-")) return args[i];
+		if (!args[i].includes("=") && !["--auto", "--admin", "--delete-branch", "-d", "--squash", "-s", "--merge", "-m", "--rebase", "-r", "--help"].includes(args[i])) i++;
+	}
+}
 const pathValueSchema = z.union([z.string(), stringList]).optional().catch(undefined);
 const inputFieldsSchema = z.record(z.string(), pathValueSchema).catch({});
 const inputSchema = z.object({
@@ -632,6 +647,52 @@ export default function agentRails(
 			return;
 		}
 	}
+	async function passMarkerReason(cwd: string, head: string): Promise<string | undefined> {
+		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: 20000 });
+		if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for pass marker");
+		const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.json`);
+		const marker = z.object({
+			schemaVersion: z.literal(1), head: z.literal(head), status: z.literal("pass"), kind: z.enum(["prove", "docs-only"]),
+		});
+		try {
+			if (marker.safeParse(JSON.parse(await readFile(path, "utf8"))).success) return;
+		} catch { /* Missing or corrupt proof is not a pass. */ }
+		return `Agent rails: no valid pass marker for ${head} at ${path}; run prove() or exempt_docs_only() for this head`;
+	}
+	async function prCi(action: GitAction, state: State, ctx: ExtensionContext) {
+		if (!action.cwd) throw new Error("cannot resolve PR action cwd");
+		const root = await repoRoot(action.cwd);
+		if (!root) throw new Error("PR checks require a validated local Git repository");
+		const selector = prSelector(action.args);
+		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup"],
+			{ cwd: action.cwd, timeout: 20000 });
+		if (result.code !== 0 || result.killed) return {
+			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
+		};
+		const pr = prCiSchema.parse(JSON.parse(result.stdout));
+		const checks = pr.statusCheckRollup;
+		if (!checks.length) {
+			const gate = await gateAt(root, state, ctx, true);
+			const workflows = await stat(resolve(root, ".github/workflows")).catch(absentFile);
+			return { head: pr.headRefOid, reason: gate?.ci || workflows?.isDirectory()
+				? `Agent rails: no CI checks reported for ${pr.headRefOid}` : undefined };
+		}
+		let success = false;
+		const nonGreen: string[] = [];
+		for (const check of checks) {
+			if (check.__typename === "StatusContext") {
+				if (check.state === "SUCCESS") success = true;
+				else nonGreen.push(`${check.context}: ${check.state}`);
+			} else {
+				if (check.status === "COMPLETED" && check.conclusion === "SUCCESS") success = true;
+				if (check.status !== "COMPLETED" || !["SUCCESS", "NEUTRAL", "SKIPPED"].includes(check.conclusion ?? "")) {
+					nonGreen.push(`${check.name}: ${check.status}/${check.conclusion ?? ""}`);
+				}
+			}
+		}
+		return { head: pr.headRefOid, reason: nonGreen.length || !success
+			? `Agent rails: CI is not green for ${pr.headRefOid}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined };
+	}
 	function readJson(path: string, schema: typeof dynaflowsSchema, state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined>;
 	function readJson(path: string, schema: typeof proposalSchema, state: State, ctx: ExtensionContext): Promise<Proposal | undefined>;
 	async function readJson(
@@ -884,6 +945,21 @@ export default function agentRails(
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 				for (const action of await gitActions(event.input.command, cwd)) {
 					if (action.hookSkip) return { block: true, reason: `Agent rails: pre-commit hook environment mutation is forbidden: ${action.hookSkip}` };
+					if (action.args[0] === "api" && action.command.startsWith("gh ") &&
+						action.args.some(arg => /\/issues\/\d+\/labels(?:[/?#]|$)/.test(arg)) &&
+						action.args.some(arg => arg.includes("agent-verified"))) {
+						return { block: true, reason: "Agent rails: use gh pr edit --add-label so rails can check CI" };
+					}
+					if (/^gh (?:pr|issue) edit\b/.test(action.command) && action.args.some((arg, index, args) =>
+						(arg === "--add-label" ? args[index + 1] ?? "" : arg.startsWith("--add-label=") ? arg.slice("--add-label=".length) : "")
+							.split(",").includes("agent-verified"))) {
+						const pr = await prCi(action, state, ctx);
+						if (pr.reason) return { block: true, reason: pr.reason };
+						if (pr.head && action.cwd && await dynaflowsOn(ctx, action.cwd)) {
+							const reason = await passMarkerReason(action.cwd, pr.head);
+							if (reason) return { block: true, reason };
+						}
+					}
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
@@ -923,13 +999,18 @@ export default function agentRails(
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
-							const reason = `Agent rails: merge requires a valid pass marker for ${head ?? "<missing 40-hex SHA>"}; use --match-head-commit <40-hex> and run prove() or exempt_docs_only() first.`;
-							if (!head || !/^[0-9a-f]{40}$/.test(head)) return { block: true, reason };
-							const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd: action.cwd, timeout: 20000 });
-							if (common.code !== 0 || common.killed) return { block: true, reason };
-							let marker: { schemaVersion?: unknown; head?: unknown; status?: unknown; kind?: unknown } | undefined;
-							try { marker = JSON.parse(await readFile(resolve(action.cwd, common.stdout.trim(), "omp-prove", `${head}.json`), "utf8")); } catch { /* Missing or corrupt proof is not a pass. */ }
-							if (marker?.schemaVersion !== 1 || marker.head !== head || marker.status !== "pass" || (marker.kind !== "prove" && marker.kind !== "docs-only")) return { block: true, reason };
+							if (at < 0 || !head) return { block: true, reason: "Agent rails: merge requires --match-head-commit <40-hex verified SHA>" };
+							if (/[$`]/.test(head)) return {
+								block: true, reason: `Agent rails: received unexpanded shell text \`${head}\`; rails check the literal command, so pass the 40-hex SHA itself`,
+							};
+							if (!/^[0-9a-f]{40}$/.test(head)) return { block: true, reason: `Agent rails: --match-head-commit must be a lowercase 40-hex SHA, got ${head}` };
+							const reason = await passMarkerReason(action.cwd, head);
+							if (reason) return { block: true, reason };
+							const pr = await prCi(action, state, ctx);
+							if (pr.head && pr.head !== head) return {
+								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; re-verify the current head`,
+							};
+							if (pr.reason) return { block: true, reason: pr.reason };
 						}
 					}
 				}
