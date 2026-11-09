@@ -24,16 +24,16 @@ PROJECT = '052b4c81-b9cc-4694-9019-d131ec3817cc'
 
 
 def executable(name):
-    return os.environ.get('NUC_GATE_' + name.upper().replace('-', '_'), name)
+    return os.environ.get('CI_GATE_' + name.upper().replace('-', '_'), name)
 
 
 def root(kind):
     default = '~/.local/state' if kind == 'STATE' else '~/.local/share'
-    return Path(os.environ.get('XDG_' + kind + '_HOME', default)).expanduser() / 'nuc-gate'
+    return Path(os.environ.get('XDG_' + kind + '_HOME', default)).expanduser() / 'ci-gate'
 
 
 def repositories():
-    return json.loads(Path(os.environ.get('NUC_GATE_REPOS', SELF.with_name('nuc-gate-repos.json'))).read_text())
+    return json.loads(Path(os.environ.get('CI_GATE_REPOS', SELF.with_name('ci-gate-repos.json'))).read_text())
 
 
 def validate(repo, sha):
@@ -81,9 +81,9 @@ def lock(path):
 
 @contextmanager
 def slot():
-    count = int(os.environ.get('NUC_GATE_SLOTS', '1'))
+    count = int(os.environ.get('CI_GATE_SLOTS', '1'))
     if count < 1:
-        raise RuntimeError('NUC_GATE_SLOTS must be positive')
+        raise RuntimeError('CI_GATE_SLOTS must be positive')
     streams = []
     try:
         directory = root('STATE') / 'locks'
@@ -108,8 +108,8 @@ def repo_lock(repo):
 
 
 def infisical():
-    return [executable('infisical'), 'run', '--projectId', os.environ.get('NUC_GATE_INFISICAL_PROJECT', PROJECT),
-            '--env', os.environ.get('NUC_GATE_INFISICAL_ENV', 'dev'), '--']
+    return [executable('infisical'), 'run', '--projectId', os.environ.get('CI_GATE_INFISICAL_PROJECT', PROJECT),
+            '--env', os.environ.get('CI_GATE_INFISICAL_ENV', 'dev'), '--']
 
 
 def publish(job, state, description):
@@ -119,11 +119,11 @@ def publish(job, state, description):
     if not token:
         raise RuntimeError(f'Missing GitHub token environment variable: {name}')
     body = json.dumps({'context': 'gate', 'state': state, 'description': description[:140]}).encode()
-    url = os.environ.get('NUC_GATE_GITHUB_API', 'https://api.github.com').rstrip('/')
+    url = os.environ.get('CI_GATE_GITHUB_API', 'https://api.github.com').rstrip('/')
     url += f"/repos/{metadata['repo']}/statuses/{metadata['sha']}"
     request = urllib.request.Request(url, data=body, method='POST', headers={
         'Authorization': 'Bearer ' + token, 'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'nuc-gate', 'Accept': 'application/vnd.github+json'})
+        'User-Agent': 'ci-gate', 'Accept': 'application/vnd.github+json'})
     with urllib.request.urlopen(request, timeout=30) as response:
         response.read()
 
@@ -218,17 +218,17 @@ def submit(repo, sha):
                     pending(job, log)
                 except (RuntimeError, OSError) as error:
                     log.write(str(error) if isinstance(error, RuntimeError) else 'Pending status publication failed')
-                unit = 'nuc-gate-' + repo.replace('/', '-') + '-' + sha[:12]
+                unit = 'ci-gate-' + repo.replace('/', '-') + '-' + sha[:12]
                 if retry:
                     # The previous transient unit may still be collecting.
                     unit += '-retry-' + str(time.time_ns())
                 command = [executable('systemd-run'), '--user', '--unit', unit, '--collect',
-                           '-p', 'RuntimeMaxSec=' + os.environ.get('NUC_GATE_TIMEOUT', '1200'),
+                           '-p', 'RuntimeMaxSec=' + os.environ.get('CI_GATE_TIMEOUT', '1200'),
                            '-p', 'TimeoutStopSec=45', '-p', 'KillMode=mixed']
                 # Transient units do not inherit SSH's environment. Forward service settings,
                 # never credentials; Infisical owns the unit's secret injection.
                 for key, value in os.environ.items():
-                    if key.startswith('NUC_GATE_') and key not in {entry['tokenEnv'] for entry in repositories().values()} or key in ('XDG_DATA_HOME', 'XDG_STATE_HOME'):
+                    if key.startswith('CI_GATE_') and key not in {entry['tokenEnv'] for entry in repositories().values()} or key in ('XDG_DATA_HOME', 'XDG_STATE_HOME'):
                         command.append('--setenv=' + key + '=' + value)
                 subprocess.run(command + infisical() + [sys.executable, str(SELF), 'run', str(job)],
                                check=True, stdout=log, stderr=log)
@@ -250,7 +250,7 @@ def runtime_flags(build=False):
     # NUC Podman 6.1.4 passes --no-new-keyring during builds; runsc rejects it.
     # Build only the owner's allowlisted repositories' Containerfiles with
     # Podman's default runtime. Actual gate execution stays inside gVisor.
-    key = 'NUC_GATE_BUILD_RUNTIME_FLAGS' if build else 'NUC_GATE_RUNTIME_FLAGS'
+    key = 'CI_GATE_BUILD_RUNTIME_FLAGS' if build else 'CI_GATE_RUNTIME_FLAGS'
     default = [] if build else ['--runtime', '/usr/local/bin/runsc', '--runtime-flag=ignore-cgroups']
     return json.loads(os.environ.get(key, json.dumps(default)))
 
@@ -300,7 +300,7 @@ def container_lifetime(podman, container, log):
 def execute(job, metadata):
     start, started = time.monotonic(), now()
     image, state, code, reason = None, 'error', 1, None
-    container = 'nuc-gate-' + metadata['repo'].replace('/', '-') + '-' + metadata['sha'][:12]
+    container = 'ci-gate-' + metadata['repo'].replace('/', '-') + '-' + metadata['sha'][:12]
     podman = executable('podman')
     src = job / 'src'
 
@@ -323,7 +323,7 @@ def execute(job, metadata):
                         if 'build' in config:
                             dockerfile = checkout_file(src, '.devcontainer/' + config['build']['dockerfile'])
                             digest = hashlib.sha256(dockerfile.read_bytes()).hexdigest()[:12]
-                            image = 'localhost/nuc-gate/' + metadata['repo'].replace('/', '-') + ':' + digest
+                            image = 'localhost/ci-gate/' + metadata['repo'].replace('/', '-') + ':' + digest
                             exists = container_command([podman, 'image', 'exists', image], log)
                             if exists == 1:
                                 built = container_command([podman, 'build', *runtime_flags(True), '-t', image,
@@ -437,5 +437,5 @@ if __name__ == '__main__':
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         # Never print subprocess argv/output or HTTP exception details: authentication
         # headers may be present. Repository-controlled output is only in the job log.
-        print(str(error) if isinstance(error, RuntimeError) else 'NUC gate operation failed; inspect the job log.', file=sys.stderr)
+        print(str(error) if isinstance(error, RuntimeError) else 'CI gate operation failed; inspect the job log.', file=sys.stderr)
         sys.exit(1)

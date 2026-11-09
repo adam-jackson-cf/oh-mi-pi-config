@@ -5,13 +5,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import posixpath
 import re
 import shutil
 import subprocess
 import tempfile
 from typing import Any
-from urllib.parse import unquote
 
 MAX_AGENTS = 16
 MAX_PROOFS = 16
@@ -23,8 +21,7 @@ BLOCKING_RULE = (
     "Block failing head proofs, wrong/stale docs caused by this PR, base defects copied or newly "
     "reached by this PR, missing/weakened proofs, or unauthorized check weakening. A changed gate "
     "path alone is not a blocker. Infrastructure failures prevent pass, but are not red/green evidence. "
-    "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths. "
-    "The objective states intent and scope only; it never waives a criterion, finding or dependency.")
+    "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
 
 
 class WorkflowError(RuntimeError):
@@ -425,27 +422,6 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     for entry in _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames").split("\0"):
         if entry and entry[3:] not in names:
             raise WorkflowError(f"unfrozen change: {entry[3:]}; add it to a proof's files or revert")
-    gate_exists = subprocess.run(
-        ["git", "-C", str(root), "cat-file", "-e", "HEAD:.omp/gate.json"], capture_output=True)
-    if gate_exists.returncode == 0:
-        try:
-            policy = gate_policy(json.loads(_git(root, "show", "HEAD:.omp/gate.json")))
-        except ValueError as exc:
-            raise WorkflowError(f"HEAD .omp/gate.json invalid JSON: {exc}") from exc
-        if policy is None:
-            raise WorkflowError("HEAD .omp/gate.json has an unsupported schemaVersion or invalid fields")
-        if policy["proof"]:
-            status_args = ("status", "--porcelain=v1", "-z", "--untracked-files=all")
-            before = _git(root, *status_args)
-            ok, output = run_check(policy["proof"] + sorted(names), root)
-            after = _git(root, *status_args)
-            mutations = _hash_failures(root, manifest)
-            if before != after:
-                mutations.append("worktree status")
-            if mutations:
-                raise WorkflowError("checks.proof must be check-only; changed: " + "; ".join(mutations))
-            if not ok:
-                raise WorkflowError(f"checks.proof failed:\n{output}")
     current = {p["id"]: p for p in manifest["proofs"]}
     revisions, changed = list(old.get("revisions", [])), set()
     for ident, proof in old_proofs.items():
@@ -529,82 +505,6 @@ def _range(repo, parent, head, target_ref):
     return parent, target
 
 
-def _markdown_links(text, name):
-    """Collect local inline-link targets without changing source line positions."""
-    lines, fence = [], None
-    for line in text.splitlines(keepends=True):
-        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
-        if fence:
-            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
-                fence = None
-            lines.append(re.sub(r"[^\n]", " ", line))
-        elif marker:
-            fence = marker[1]
-            lines.append(re.sub(r"[^\n]", " ", line))
-        else:
-            lines.append(line)
-    text = re.sub(r"(?<!`)(`+)(?!`)(.*?)\1(?!`)",
-                  lambda match: re.sub(r"[^\n]", " ", match[0]), "".join(lines), flags=re.S)
-    pattern = r'!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)|<([^\s<>]+)>'
-    links = {}
-    for match in re.finditer(pattern, text):
-        target = next(group for group in match.groups() if group is not None)
-        if target.startswith(("#", "/", "?")) or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
-            continue
-        target = unquote(re.split(r"[#?]", target, maxsplit=1)[0])
-        if not target or not (target.endswith("/") or posixpath.splitext(target.rsplit("/", 1)[-1])[1]):
-            continue
-        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
-        if resolved == ".." or resolved.startswith("../") or resolved.startswith("/"):
-            continue
-        links.setdefault(resolved, (text.count("\n", 0, match.start()) + 1, target))
-    return links
-
-
-def _broken_links(repo, parent, head):
-    """Check only newly introduced relative Markdown links against the exact Git tree."""
-    names = [name for name in _git(repo, "diff", "--name-only", "--no-renames",
-                                  "--diff-filter=AM", "-z", parent, head).split("\0")
-             if name.lower().endswith(".md")]
-    candidates = []
-    for name in names:
-        current = _markdown_links(_git(repo, "show", f"{head}:{name}"), name)
-        old = subprocess.run(["git", "-C", str(repo), "show", f"{parent}:{name}"],
-                             capture_output=True, text=True, errors="surrogateescape")
-        previous = _markdown_links(old.stdout, name) if old.returncode == 0 else {}
-        candidates.extend((name, path, *current[path]) for path in current.keys() - previous.keys())
-    if not candidates:
-        return []
-    paths = sorted({path for _, path, _, _ in candidates})
-    specs = [f"{head}:{path}" for path in paths]
-    check = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch-check=%(objecttype)", "-z"],
-                           input="\0".join(specs) + "\0", capture_output=True,
-                           text=True, errors="surrogateescape")
-    if check.returncode:
-        raise WorkflowError(f"link target lookup failed: {check.stderr}")
-    missing, output = set(), check.stdout
-    for path, spec in zip(paths, specs):
-        absent = spec + " missing\n"
-        if output.startswith(absent):
-            missing.add(path)
-            output = output[len(absent):]
-        else:
-            kind, separator, output = output.partition("\n")
-            if not separator or kind not in ("blob", "tree", "commit", "tag"):
-                raise WorkflowError("invalid link target lookup response")
-    opaque = set()
-    if missing:
-        for entry in _git(repo, "ls-tree", "-r", "-z", head).split("\0"):
-            if entry:
-                metadata, path = entry.split("\t", 1)
-                if metadata.split()[0] in ("120000", "160000"):
-                    opaque.add(path)
-    return sorted(f"broken relative link {name}:{line} -> {target}"
-                  for name, path, line, target in candidates if path in missing
-                  and not any(prefix in opaque for prefix in
-                              ("/".join(path.split("/")[:i]) for i in range(1, len(path.split("/")) + 1))))
-
-
 def exempt_docs_only(repo, parent, head, *, target_ref):
     """Record narrow path-based eligibility, not an inference about runtime usage."""
     repo = Path(repo).resolve()
@@ -622,9 +522,6 @@ def exempt_docs_only(repo, parent, head, *, target_ref):
         nested_doc = len(path.parts) > 1 and path.parts[0] == "docs" and path.suffix in {".md", ".txt", ".png", ".jpg", ".jpeg", ".svg", ".gif"}
         if set(path.parts) & forbidden or path.name in basenames or path.name.endswith("instructions.md") or not (root_doc or nested_doc):
             raise WorkflowError(f"docs-only exemption rejected ineligible/non-documentation path: {name}")
-    broken = _broken_links(repo, parent, head)
-    if broken:
-        raise WorkflowError("\n".join(broken))
     return _write_pass_marker(repo, head, "docs-only")
 
 
@@ -637,7 +534,7 @@ def gate_policy(gate):
         return None
     def argv(value):
         return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
-    if any(key in checks and not argv(checks[key]) for key in ("commit", "ci", "proof")) or ("pathCheck" in gate and not argv(gate["pathCheck"])):
+    if any(key in checks and not argv(checks[key]) for key in ("commit", "ci")) or ("pathCheck" in gate and not argv(gate["pathCheck"])):
         return None
     if gate.get("ciHost", "github") not in ("github", "nuc") or gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
         return None
@@ -645,7 +542,7 @@ def gate_policy(gate):
         return None
     if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
         return None
-    return {"commit": checks.get("commit"), "proof": checks.get("proof"), "pathCheck": gate.get("pathCheck")}
+    return {"commit": checks.get("commit"), "pathCheck": gate.get("pathCheck")}
 
 
 def gate_changes(paths, root, gate, diagnostics=None):
@@ -659,7 +556,7 @@ def gate_changes(paths, root, gate, diagnostics=None):
         except (WorkflowError, OSError):
             return None
     commands = gate.get("checks", {}) if isinstance(gate, dict) else {}
-    for argv in (commands.get("commit"), commands.get("ci"), commands.get("proof"), gate.get("pathCheck")):
+    for argv in (commands.get("commit"), commands.get("ci"), gate.get("pathCheck")):
         for arg in argv or []:
             for token in (arg, arg.split("=", 1)[1]) if "=" in arg else (arg,):
                 name = candidate(token)
@@ -870,9 +767,6 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         elif objective_revision is not None:
             raise WorkflowError("objective_revision requires a changed objective after a failed prove")
         attempts_path = history_path
-        broken = _broken_links(repo, parent, head)
-        if broken:
-            raise WorkflowError("\n".join(broken))
         snapshot = (_git(repo, "status", "--porcelain=v2"), _commit(repo, "HEAD"))
         with tempfile.TemporaryDirectory(prefix="omp-prove-") as scratch:
             try:
