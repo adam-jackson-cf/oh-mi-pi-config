@@ -1164,6 +1164,9 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 		{ schemaVersion: 2, testGlobs: [1] }, { schemaVersion: 2, testGlobs: null },
 		{ schemaVersion: 2, agentMerge: "maybe" }, { schemaVersion: 2, ciHost: "other" },
 		{ schemaVersion: true }, { schemaVersion: 3 },
+		{ schemaVersion: 2, checks: { proof: ["x"] } },
+		{ schemaVersion: 2, checks: { proof: [] } },
+		{ schemaVersion: 2, checks: { proof: [" "] } },
 	];
 	const h = harness();
 	try {
@@ -1173,9 +1176,11 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 			writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify(value));
 			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
 		}
+		assert.deepEqual(rails.slice(-3), [true, false, false], "rails checks.proof must accept argv and reject empty or blank argv");
 		const modulePath = join(import.meta.dir, "../agent/skills/omp-dyna-workflows/templates/workflows.py");
 		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
 		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
+		assert.deepEqual(JSON.parse(result.stdout).slice(-3), [true, false, false], "Python checks.proof must accept argv and reject empty or blank argv");
 		assert.deepEqual(JSON.parse(result.stdout), rails);
 	} finally { h.cleanup(); }
 });

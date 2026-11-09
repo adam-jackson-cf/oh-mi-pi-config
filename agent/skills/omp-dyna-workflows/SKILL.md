@@ -61,7 +61,7 @@ Plan review is optional unless the owner requests approval.
 
 Main checks prerequisites before ordinary implementation: a valid schemaVersion 2
 `.omp/gate.json` with `checks.commit`, `pathCheck`, and an installed executable
-pre-commit hook. Schema fields are `schemaVersion`, `checks` (`commit`, `ci`),
+pre-commit hook. Schema fields are `schemaVersion`, `checks` (`commit`, `ci`, `proof`),
 `pathCheck`, `pathCheckTimeoutMs`, `testGlobs`, `agentMerge` and `ciHost`; accepted
 types/values are owned by `agent/extensions/agent-rails.ts`. `prove()` mirrors
 schema validation, while rails checks the installed hook at `git commit`.
@@ -85,6 +85,8 @@ internal URI paths are exempt from this filesystem-path check.
 3. Separate implementation `task` makes the greening change and commits proofs
    with it, normally atomically. No proof may enter history red before its fix;
    split only if every earlier commit passes the hook with all proofs present.
+   For each changed, renamed or deleted path, the writer runs
+   `git grep -n -F -e <repo-relative path> -- '*.md'` and fixes stale hits before handoff.
    Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
