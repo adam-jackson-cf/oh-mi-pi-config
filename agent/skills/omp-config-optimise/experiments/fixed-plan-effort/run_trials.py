@@ -19,10 +19,14 @@ import json
 import random
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from toolset import toolset_label  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 WORKSPACES = Path("/tmp/omp-effort-ws")
@@ -53,7 +57,7 @@ def prepare_workspace(fixture: Path, ws: Path) -> None:
     shutil.copytree(fixture / "repo", ws)
     sh(["git", "init", "-q"], ws)
     # Test runs and indexing tools leave byproducts that are not model edits.
-    (ws / ".git" / "info" / "exclude").write_text("__pycache__/\n*.pyc\n.pytest_cache/\nnode_modules/\n.codegraph/\n")
+    (ws / ".git" / "info" / "exclude").write_text("__pycache__/\n*.pyc\n.pytest_cache/\nnode_modules/\n")
     sh(["git", "add", "-A"], ws)
     sh(["git", "-c", "user.email=eval@local", "-c", "user.name=eval", "commit", "-qm", "baseline"], ws)
 
@@ -168,6 +172,7 @@ def main() -> None:
 
     fixture_ids = args.fixtures or sorted(p.name for p in FIXTURES.iterdir() if (p / "task.md").exists())
     jobs = [(f, a, r) for f in fixture_ids for a in args.arms for r in range(args.reps)]
+    label = toolset_label()  # one effective config per run; stored on every record
     random.Random(args.seed).shuffle(jobs)  # interleave arms so time-of-day/load effects spread evenly
     runs = args.out / "runs"
     runs.mkdir(parents=True, exist_ok=True)
@@ -179,7 +184,7 @@ def main() -> None:
                 rec = fut.result()
             except Exception as exc:  # record harness failure against the job, never drop it
                 rec = {"fixture": fixture_id, "arm": arm.name, "rep": rep, "harnessError": repr(exc)}
-            out.write(json.dumps(rec) + "\n")
+            out.write(json.dumps({**rec, **label}) + "\n")
             out.flush()
             print(json.dumps({k: rec.get(k) for k in ("fixture", "arm", "rep", "testsPassed", "testsTotal", "scopeViolations", "wallSeconds", "harnessError")}), flush=True)
 
