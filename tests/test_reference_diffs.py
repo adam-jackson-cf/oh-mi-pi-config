@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -16,7 +18,13 @@ REFERENCE = ROOT / "agent/skills/setup-repository-guardrails/assets/python-refer
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.diffs import coverage_ratchet, golden_record, identity_artefacts  # noqa: E402
+from omp_guardrails.diffs import (  # noqa: E402
+    affected,
+    coverage_ratchet,
+    golden_record,
+    identity_artefacts,
+    timeouts,
+)
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "Fixture",
@@ -295,6 +303,171 @@ class IdentityArtefactTests(unittest.TestCase):
         exempt = {**BASE_PROFILE, "identity_artefacts": {"none": "no ids", "approval": "ADR-3"}}
         self.repo.commit({"migrations/001_init.sql": "changed\n"})
         self.assertEqual(self.check(exempt), [])
+
+
+class TimeoutIncreaseTests(unittest.TestCase):
+    """TEST.no-evasion: a changed test never raises a timeout literal."""
+
+    def setUp(self) -> None:
+        self.repo = FixtureRepo(self)
+        self.base = self.repo.commit(
+            {
+                "tests/unit/test_sync.py": (
+                    "import subprocess\n\n\ndef test_sync():\n"
+                    "    subprocess.run(['sync'], timeout=5, check=True)\n"
+                ),
+                "tests/unit/sync.test.ts": "it('syncs', async () => {}, { timeout: 2000 });\n",
+                "src/app.py": "TIMEOUT_S = 5\nrequest(timeout=5)\n",
+            },
+            BASE_PROFILE,
+        )
+
+    def check(self, profile: dict = BASE_PROFILE) -> list:
+        return timeouts.run(self.repo.path, profile, ["--base", self.base])
+
+    def test_raised_timeout_in_a_changed_test_is_reported(self) -> None:
+        self.repo.commit(
+            {
+                "tests/unit/test_sync.py": (
+                    "import subprocess\n\n\ndef test_sync():\n"
+                    "    subprocess.run(['sync'], timeout=30, check=True)\n"
+                )
+            }
+        )
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.no-evasion", "tests/unit/test_sync.py")])
+        self.assertIn("raises timeout 'timeout' from 5 to 30", findings[0].message)
+
+    def test_raised_object_style_timeout_is_reported(self) -> None:
+        layout = {**BASE_PROFILE["layout"], "test_file_patterns": ["*.test.ts"]}
+        profile = {**BASE_PROFILE, "layout": layout}
+        self.repo.commit(
+            {"tests/unit/sync.test.ts": "it('syncs', async () => {}, { timeout: 9000 });\n"}
+        )
+        self.assertEqual(
+            rules(self.check(profile)), [("TEST.no-evasion", "tests/unit/sync.test.ts")]
+        )
+
+    def test_lowered_new_or_production_timeouts_pass(self) -> None:
+        self.repo.commit(
+            {
+                "tests/unit/test_sync.py": (
+                    "import subprocess\n\n\ndef test_sync():\n"
+                    "    subprocess.run(['sync'], timeout=2, check=True)\n\n\n"
+                    "def test_other():\n    subprocess.run(['true'], timeout=60, check=True)\n"
+                ),
+                "src/app.py": "TIMEOUT_S = 50\nrequest(timeout=50)\n",
+            }
+        )
+        self.assertEqual(self.check(), [])
+
+    def test_adr_backed_exception_waives_the_increase(self) -> None:
+        self.repo.commit(
+            {
+                "tests/unit/test_sync.py": (
+                    "import subprocess\n\n\ndef test_sync():\n"
+                    "    subprocess.run(['sync'], timeout=30, check=True)\n"
+                )
+            }
+        )
+        exception = {"rule": "TEST.no-evasion", "path": "tests/unit/test_sync.py", "adr": "ADR-4"}
+        waived = {**BASE_PROFILE, "house_style": {"version": 1, "exceptions": [exception]}}
+        self.assertEqual(self.check(waived), [])
+
+
+AFFECTED_PROFILE = {
+    **BASE_PROFILE,
+    "adapter": "pytest",
+    "tiers": {
+        "t1": {"location": "tests/unit"},
+        "t2": {"location": "tests/boundary", "selector": "boundary"},
+    },
+    "coverage": {"scope": ["src/shop"], "line_floor": 90, "branch_floor": 80},
+    "verification_surface": {"journey_file_pattern": "journeys/*.journey.py"},
+    "ownership_areas": {
+        "map": {
+            "tests/boundary/test_cart_*.py": "cart",
+            "tests/boundary/test_billing_*.py": "billing",
+            "journeys/checkout.journey.py": "cart",
+            "journeys/invoice.journey.py": "billing",
+        }
+    },
+    "structure": {
+        "owners": {
+            "files": {"src/shop/pricing.py": "billing"},
+            "directories": {"src/shop/": "cart", "src/shop/billing/": "billing"},
+        }
+    },
+}
+AFFECTED_FILES = {
+    "src/shop/cart.py": "x = 1\n",
+    "src/shop/pricing.py": "x = 1\n",
+    "src/shop/billing/invoice.py": "x = 1\n",
+    "tests/boundary/test_cart_flow.py": "def test_a():\n    pass\n",
+    "tests/boundary/test_billing_flow.py": "def test_b():\n    pass\n",
+    "tests/unit/test_cart.py": "def test_c():\n    pass\n",
+    "journeys/checkout.journey.py": "x = 1\n",
+    "journeys/invoice.journey.py": "x = 1\n",
+    "docs/readme.md": "docs\n",
+}
+
+
+class AffectedSelectionTests(unittest.TestCase):
+    """Affected T2 from Ownership areas: seams and journeys of the changed areas."""
+
+    def setUp(self) -> None:
+        self.repo = FixtureRepo(self)
+        self.base = self.repo.commit(AFFECTED_FILES, AFFECTED_PROFILE)
+
+    def select(self, profile: dict = AFFECTED_PROFILE) -> affected.Selection:
+        return affected.affected(self.repo.path, profile, ["--base", self.base])
+
+    def test_change_selects_the_owning_areas_seams_and_journeys(self) -> None:
+        self.repo.commit({"src/shop/billing/invoice.py": "x = 2\n"})
+        self.assertEqual(
+            self.select().paths,
+            ("journeys/invoice.journey.py", "tests/boundary/test_billing_flow.py"),
+        )
+
+    def test_exact_file_owner_beats_its_directory(self) -> None:
+        self.repo.commit({"src/shop/pricing.py": "x = 2\n"})
+        self.assertIn("tests/boundary/test_billing_flow.py", self.select().paths)
+        self.assertNotIn("tests/boundary/test_cart_flow.py", self.select().paths)
+
+    def test_changed_t2_file_is_selected_and_docs_select_nothing(self) -> None:
+        self.repo.commit(
+            {
+                "tests/boundary/test_cart_flow.py": "def test_a():\n    pass\n\n",
+                "docs/readme.md": "x\n",
+            }
+        )
+        self.assertEqual(self.select().paths, ("tests/boundary/test_cart_flow.py",))
+
+    def test_unowned_production_change_selects_all_t2(self) -> None:
+        profile = json.loads(json.dumps(AFFECTED_PROFILE))
+        profile["structure"]["owners"]["directories"] = {"src/shop/billing/": "billing"}
+        self.repo.commit({"src/shop/cart.py": "x = 2\n"})
+        selection = self.select(profile)
+        self.assertEqual(len(selection.paths), 4)
+        self.assertIn("src/shop/cart.py", selection.reason)
+
+    def test_cli_and_adapter_print_the_selection(self) -> None:
+        self.repo.commit({"src/shop/cart.py": "x = 2\n"})
+        args = ["--repo", str(self.repo.path), "affected", "--base", self.base]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(["affected", *args[:2], "--base", self.base])
+            adapter_code = cli.main(["adapter", *args])
+        self.assertEqual((code, adapter_code), (0, 0))
+        lines = out.getvalue().splitlines()
+        self.assertEqual(
+            lines,
+            [
+                "journeys/checkout.journey.py",
+                "tests/boundary/test_cart_flow.py",
+                "-m boundary -- journeys/checkout.journey.py tests/boundary/test_cart_flow.py",
+            ],
+        )
 
 
 class DiffCheckCliTests(unittest.TestCase):

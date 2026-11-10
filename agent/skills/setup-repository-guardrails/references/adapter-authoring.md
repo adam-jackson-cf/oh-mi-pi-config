@@ -26,9 +26,12 @@ An adapter does only these six things. No framework is assumed.
 4. **Source patterns.** Supply `ast-grep` YAML rules for the framework's mock,
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
-   means the packages owning the profile's `public_entry_points`.
-5. **Mutation tool.** Name the framework's mutation tool and the command that
-   scopes it to changed code (`TEST.mutation-sensitivity`, a T3 nightly rule).
+   means the packages owning the profile's `public_entry_points`. For
+   `TEST.no-test-hooks`, also report production symbols that only tests use.
+5. **Mutation tool.** Name the framework's mutation tool, pin it, and convert
+   its results into the shared mutation report (mutant, file, line span,
+   status). `omp-guardrails mutation-check` judges that report against the diff
+   (`TEST.mutation-sensitivity`, a T3 nightly rule).
 6. **Normalisation.** Convert the framework's JUnit dialect (durations, skip
    reasons, retry markers, empty-collection exit codes) into the shared run
    report schema. Dialects differ, so normalisation lives in the adapter, never

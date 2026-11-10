@@ -145,11 +145,11 @@
       "contributed": "grab-bag folders common, utils, misc, helpers; one root test folder with fixtures beside the tests"
     },
     {
-      "source": "oh-mi-pi-config setup-repository-guardrails python-reference v1 check-python-quality.py (PYQ103/PYQ104)",
+      "source": "oh-mi-pi-config commit d84e943, setup-repository-guardrails Python reference v1 quality checker (PYQ103/PYQ104)",
       "contributed": "generic names common, helpers, misc, stuff, temp"
     },
     {
-      "source": "raidar tag guardrails-v1-final scripts/checks/check-structure.py and check-python-quality.py",
+      "source": "raidar tag guardrails-v1-final, structure and Python-quality checkers under scripts/checks",
       "contributed": "version token pattern (?<![A-Za-z0-9])v\\d+(?![A-Za-z0-9]); generic names common, helpers, misc, stuff, temp; PascalCase classes and snake_case functions; kebab-case skill directories and commands; plural data trees experiments, problems, agents, workflows, stages"
     },
     {

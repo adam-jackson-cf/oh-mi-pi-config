@@ -17,10 +17,12 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    missing part, such as a verification surface). `init` pins the reference as
    a dev dependency at a commit of the skill repository, with
    `#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference`;
-   it writes `.omp/gate.json`, the pre-commit hook, the CI wiring and native-tool
-   configs generated from the house style, and checks language-server
-   readiness. It never creates empty folders. Then write every per-repo value
-   in the front matter of `.omp/test-profile.md`: tiers, layout, `structure`,
+   it writes `.omp/gate.json`, the pre-commit hook, the CI wiring (pass
+   `--ci-setup` with the install command when `ciHost` is `github`) and
+   native-tool configs generated from the reference's data, and proves
+   language-server readiness with a canary `references` query. It never
+   creates empty folders. Then write every per-repo value in the front matter
+   of `.omp/test-profile.md`: tiers, layout, `structure`,
    `house_style.exceptions` (each with an ADR) and `guardrails.<checker>`
    settings. A behaviour the settings cannot express is a change to the
    reference itself, never a local fork. If the target's test framework has no
@@ -57,10 +59,14 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    Prepare the remaining test-guidance rules from each catalogue row's
    contract; with the reference, the row's `reference` names the
    `omp-guardrails` subcommand to wire: `diff-check` (coverage ratchet, golden
-   change record, identity artefacts), `guard-run` (user-data guard, fast-tier
-   isolation), `surface-lint` and `lever-selftest` (verification surface),
-   `profile-check` (`PROFILE.complete`) and `adapter` (source patterns for
-   self-mocking, test hooks, evasion markers and property seeds).
+   change record, identity artefacts, timeout increases), `guard-run`
+   (user-data guard, fast-tier isolation), `surface-lint` and `lever-selftest`
+   (verification surface), `profile-check` (`PROFILE.complete`), `adapter`
+   (source patterns for self-mocking, test hooks, evasion markers and property
+   seeds) and, in T3 only, `mutation-check` after the adapter's
+   `mutation-report`. The commit hook selects affected T2 with
+   `omp-guardrails adapter affected --base <ref>`, which reads the profile's
+   Ownership areas.
 5. Draft a check-only full runner for `GATE.local-ci-parity` with tier
    selectors, and CI wiring that runs `checks.ci` (full T1 and T2) on every
    push and pull request, either as one job named `gate` or as parallel jobs

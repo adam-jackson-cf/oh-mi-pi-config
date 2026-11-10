@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "about": "Settings init writes into native-tool configs for Python repos. Every value mirrors the RUFF.* and MYPY.* rows of setup-repository-guardrails/assets/guardrail-rules.json; tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots) come from the repo at init time, never from this file.",
+  "ruff": {
+    "root": {
+      "line-length": 88,
+      "fix": true,
+      "output-format": "full",
+      "respect-gitignore": true,
+      "preview": true,
+      "exclude": [
+        ".build",
+        ".git",
+        ".tox",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "*.egg-info",
+        "build",
+        "dist",
+        "node_modules",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache"
+      ]
+    },
+    "lint": {
+      "select": [
+        "E",
+        "W",
+        "F",
+        "I",
+        "B",
+        "C4",
+        "C901",
+        "UP",
+        "SIM",
+        "PT",
+        "PGH",
+        "A",
+        "D",
+        "N",
+        "PLR0904",
+        "PLR0911",
+        "PLR0912",
+        "PLR0913",
+        "PLR0914",
+        "PLR0915",
+        "PLR0917"
+      ],
+      "ignore": ["E501", "D100", "D101", "D102", "D103", "D104", "D105", "D107", "B006", "B008", "A005"]
+    },
+    "lint.per-file-ignores": {
+      "__init__.py": ["F401", "F403", "D104"],
+      "test_*.py": ["D", "S101", "PLR2004"],
+      "**/tests/**": ["D", "S101", "PLR2004"],
+      "conftest.py": ["D"],
+      "setup.py": ["D"]
+    },
+    "lint.isort": {
+      "force-single-line": false,
+      "combine-as-imports": true,
+      "split-on-trailing-comma": true
+    },
+    "lint.mccabe": {"max-complexity": 10},
+    "lint.pylint": {
+      "max-args": 5,
+      "max-branches": 12,
+      "max-locals": 15,
+      "max-positional-args": 5,
+      "max-public-methods": 20,
+      "max-returns": 6,
+      "max-statements": 50
+    },
+    "lint.pydocstyle": {"convention": "numpy"},
+    "format": {
+      "quote-style": "double",
+      "indent-style": "space",
+      "line-ending": "auto",
+      "docstring-code-format": true
+    }
+  },
+  "mypy": {
+    "strict": true,
+    "warn_unused_ignores": true,
+    "follow_imports": "skip",
+    "show_error_codes": true
+  }
+}

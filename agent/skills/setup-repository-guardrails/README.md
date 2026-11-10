@@ -58,10 +58,13 @@ Python has one: the `omp-guardrails` package in `assets/python-reference/`.
 Repositories configure and pin it; they never copy or edit it.
 
 - `omp-guardrails init --greenfield|--adopt|--extend` writes `.omp/gate.json`,
-  the pre-commit hook, the CI wiring, native-tool configs generated from the
-  house style, and the pinned reference dependency, and checks language-server
-  readiness. `adopt` replaces hand-written checkers after a shadow run;
-  `extend` adds only a missing part, such as a verification surface.
+  the pre-commit hook, the CI wiring (a GitHub workflow running `checks.ci`
+  when `ciHost` is `github`), native-tool configs (Ruff, mypy, import-linter)
+  generated from the reference's data and the repository, and the pinned
+  reference dependency in `pyproject.toml`. It proves language-server readiness
+  with a canary `references` query. It never replaces an existing config.
+  `adopt` replaces hand-written checkers after a shadow run; `extend` adds
+  only a missing part, such as a verification surface.
 - Per-repo settings live in the front matter of `.omp/test-profile.md`. Shared
   style rules live in the reference's `omp_guardrails/data/house-style.json`.
 - Each catalogue row the reference implements has a `reference` field naming

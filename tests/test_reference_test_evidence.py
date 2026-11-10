@@ -18,7 +18,13 @@ FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.test_evidence import budgets, collection, junit, propagation  # noqa: E402
+from omp_guardrails.test_evidence import (  # noqa: E402
+    budgets,
+    collection,
+    junit,
+    mutation,
+    propagation,
+)
 
 REVISION = "0123456789abcdef0123456789abcdef01234567"
 PYTEST_LIKE = junit.Dialect(name="pytest-like", source_suffix=".py", xfail_markers=("pytest.xfail",))
@@ -435,6 +441,44 @@ class CollectionTests(RepoTestCase):
         code, out, _ = self.cli("collection-check", *self.lists(**self.clean()))
         self.assertEqual(code, 1)
         self.assertIn("tests/unit/test_orphan.py: TEST.tier-selectors", out)
+
+
+
+class MutationSensitivityTests(unittest.TestCase):
+    """TEST.mutation-sensitivity over synthetic normalised mutation reports."""
+
+    ADDED = {"src/app.py": {4, 5}}
+
+    @staticmethod
+    def mutant(status: str, start: int = 3, end: int = 6) -> mutation.Mutant:
+        return mutation.Mutant(f"app.x_run__mutmut_{status}", "src/app.py", start, end, status)
+
+    def test_surviving_and_untested_mutants_in_changed_code_fail(self) -> None:
+        found = mutation.check(
+            [self.mutant("survived"), self.mutant("no_tests"), self.mutant("incomplete")],
+            self.ADDED,
+        )
+        self.assertEqual([f.rule_id for f in found], ["TEST.mutation-sensitivity"] * 3)
+        self.assertIn("survived in changed code", found[0].message)
+
+    def test_killed_or_unchanged_mutants_pass(self) -> None:
+        mutants = [
+            self.mutant("killed"),
+            self.mutant("timeout"),
+            self.mutant("survived", start=10, end=12),
+            mutation.Mutant("other", "src/other.py", 1, 9, "survived"),
+        ]
+        self.assertEqual(mutation.check(mutants, self.ADDED), [])
+
+    def test_missing_or_malformed_report_never_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            self.assertIn("pass --report", mutation.run(repo, {}, ["--base", "HEAD"])[0].message)
+            bad = repo / "report.json"
+            bad.write_text(json.dumps({"version": 1, "mutants": [{"id": "x"}]}))
+            found = mutation.run(repo, {}, ["--report", str(bad), "--base", "HEAD"])
+            self.assertEqual([f.rule_id for f in found], ["TEST.mutation-sensitivity"])
+            self.assertIn("does not follow the report schema", found[0].message)
 
 
 if __name__ == "__main__":

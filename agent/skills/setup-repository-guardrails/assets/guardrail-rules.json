@@ -1236,12 +1236,13 @@
         "reject_unapproved_static_skip_xfail_focus_or_flaky_markers": true,
         "reject_unapproved_skips_and_retries_to_green_in_run_report": true,
         "reject_timeout_increases_in_changed_tests": true,
-        "mechanism": ["adapter_source_patterns", "normalised_junit_run_report"]
+        "mechanism": ["adapter_source_patterns", "normalised_junit_run_report", "git_diff"]
       },
       "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
       "reference": [
         {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"},
-        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.propagation"}
+        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.propagation"},
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.timeouts"}
       ]
     },
     {
@@ -1366,11 +1367,14 @@
         "tool_source": "adapter_mutation_tool",
         "run_event": "t3_nightly",
         "surviving_mutant_in_changed_behaviour_is_failure": true,
+        "untested_or_unfinished_mutant_in_changed_behaviour_is_failure": true,
+        "mechanism": "normalised_mutation_report",
         "proofs_covered_by_red_at_parent": true
       },
       "summary": "Fail when a mutation of changed code leaves every test green.",
       "reference": [
-        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"},
+        {"subcommand": "mutation-check", "module": "omp_guardrails.test_evidence.mutation"}
       ]
     },
     {

@@ -23,13 +23,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/skills/setup-repository-guardrails/assets/python-reference"
 LOCK = REFERENCE / "requirements-pytest.lock"
+MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
 CONTAINERFILE = ROOT / ".devcontainer/Containerfile"
 FIXTURES = ROOT / "tests/fixtures/reference/adapter_pytest"
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails import cli  # noqa: E402
 from omp_guardrails.adapters import pytest as adapter  # noqa: E402
-from omp_guardrails.adapters.pytest import guards  # noqa: E402
+from omp_guardrails.adapters.pytest import guards, mutation, symbol_usage  # noqa: E402
 from omp_guardrails.adapters.pytest.dialect import DIALECT  # noqa: E402
 from omp_guardrails.test_evidence.junit import dialect_for, parse_report  # noqa: E402
 
@@ -83,7 +84,7 @@ def write_profile(repo: Path, profile: dict) -> None:
 
 def run_cli(*argv: str) -> tuple[int, str]:
     out = io.StringIO()
-    with contextlib.redirect_stdout(out):
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
         code = cli.main(list(argv))
     return code, out.getvalue()
 
@@ -208,6 +209,165 @@ class StandardLibraryTests(unittest.TestCase):
             code, out = run_cli("adapter", "--repo", str(repo), "mutation-tool")
             self.assertEqual(code, 0)
             self.assertTrue(out.startswith("mutmut "))
+
+
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "Fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+    "GIT_COMMITTER_NAME": "Fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+}
+
+
+class MutationTests(unittest.TestCase):
+    """TEST.mutation-sensitivity: mutmut results normalised, then judged against the diff."""
+
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.repo = Path(scratch.name)
+        write_profile(self.repo, {"adapter": "pytest"})
+        source = FIXTURES / "mutmut-run"
+        self.core = self.repo / "src/ledger/core.py"
+        self.core.parent.mkdir(parents=True)
+        # The fixture holds one real mutmut 3.8.1 run: its source file and its results file.
+        text = (source / "core.py.txt").read_text()
+        # The base differs from the head only inside clamp's body (lines 6-10).
+        self.core.write_text(text.replace("value > high", "high < value"))
+        self.commit()
+        self.core.write_text(text)
+        self.commit()
+        meta = self.repo / "mutants/src/ledger/core.py.meta"
+        meta.parent.mkdir(parents=True)
+        meta.write_bytes((source / "core.py.meta").read_bytes())
+
+    def commit(self):
+        environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        environment.update(GIT_ENV)
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True,
+                           env={**environment, "GIT_CONFIG_GLOBAL": os.devnull})
+
+    def test_mutmut_results_normalise_to_function_spans(self):
+        code, out = run_cli("adapter", "--repo", str(self.repo), "mutation-report",
+                            "--out", "reports/mutation.json")
+        self.assertEqual(code, 0, out)
+        report = json.loads((self.repo / "reports/mutation.json").read_text())
+        spans = {(m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
+                 for m in report["mutants"]}
+        self.assertEqual(spans, {
+            ("x_total__mutmut_1", 1, 2, "killed"),
+            ("x_clamp__mutmut_1", 5, 10, "survived"),
+            ("x_clamp__mutmut_2", 5, 10, "survived"),
+            ("xǁAccountǁdeposit__mutmut_1", 14, 15, "killed"),
+        })
+        self.assertEqual({m["path"] for m in report["mutants"]}, {"src/ledger/core.py"})
+
+    def test_surviving_mutant_in_changed_code_fails_the_check(self):
+        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json")
+        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", "m.json",
+                            "--base", "HEAD~1")
+        self.assertEqual(code, 1)
+        self.assertEqual(out.count("TEST.mutation-sensitivity"), 2)
+        self.assertIn("x_clamp__mutmut_1 survived in changed code", out)
+        self.assertNotIn("x_total", out)
+
+    def test_killed_mutants_of_changed_code_pass_the_check(self):
+        meta = self.repo / "mutants/src/ledger/core.py.meta"
+        data = json.loads(meta.read_text())
+        data["exit_code_by_key"] = {key: 1 for key in data["exit_code_by_key"]}
+        meta.write_text(json.dumps(data))
+        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json")
+        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", "m.json",
+                            "--base", "HEAD~1")
+        self.assertEqual((code, out.strip()), (0, "mutation-check: ok"))
+
+    def test_missing_mutmut_results_are_a_finding(self):
+        (self.repo / "mutants/src/ledger/core.py.meta").unlink()
+        code, out = run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json"
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("no mutmut results", out)
+
+    def test_exit_codes_map_to_shared_statuses(self):
+        self.assertEqual(
+            [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)],
+            ["killed", "survived", "no_tests", "timeout", "incomplete", "incomplete", "incomplete"],
+        )
+
+    def test_mutation_lock_pins_both_extras_with_hashes(self):
+        pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
+        extras = pyproject["project"]["optional-dependencies"]
+        entries = requirement_entries(MUTATION_LOCK.read_text())
+        specs = {spec.split(";")[0].strip() for spec in entries}
+        self.assertLessEqual(set(extras["mutation"]) | set(extras["pytest"]), specs)
+        self.assertTrue(all(entries.values()), "every locked requirement carries a hash")
+
+
+class TestOnlySymbolTests(unittest.TestCase):
+    """TEST.no-test-hooks: a production symbol only tests use is reported."""
+
+    PRODUCTION = {
+        "shop/cart.py": (
+            "def total(items):\n    return sum(items)\n\n\n"
+            "def reset_cache_for_tests():\n    pass\n\n\n"
+            "def _private():\n    pass\n\n\nclass Basket:\n    pass\n"
+        ),
+        "shop/cli.py": "from shop.cart import total\n\n\ndef main():\n    print(total([1]))\n",
+    }
+    TESTS = {
+        "tests/test_cart.py": (
+            "from shop.cart import Basket, _private, reset_cache_for_tests, total\n"
+            "from shop.cli import main\n"
+        )
+    }
+    PROFILE = {"public_entry_points": {"shop": "shop.cli:main"}}
+
+    def findings(self, production=None, profile=None):
+        production = production or self.PRODUCTION
+        return symbol_usage.test_only_findings(
+            production, self.TESTS, profile or self.PROFILE, set(production)
+        )
+
+    def test_symbol_only_tests_use_is_reported(self):
+        found = self.findings()
+        self.assertEqual(
+            sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found),
+            [
+                ("TEST.no-test-hooks", "shop/cart.py", "Basket"),
+                ("TEST.no-test-hooks", "shop/cart.py", "reset_cache_for_tests"),
+            ],
+        )
+        self.assertIn("(tests/test_cart.py)", found[0].message)
+
+    def test_production_use_entry_points_and_exports_pass(self):
+        production = {
+            **self.PRODUCTION,
+            "shop/__init__.py": (
+                "from shop.cart import Basket\n__all__ = ['reset_cache_for_tests']\n"
+            ),
+        }
+        self.assertEqual(self.findings(production), [])
+
+    def test_symbol_nothing_uses_is_left_to_other_rules(self):
+        production = {"shop/cart.py": "def unused():\n    pass\n"}
+        self.assertEqual(self.findings(production), [])
+
+    @needs_extra
+    def test_lint_reports_test_only_symbols_in_linted_production_files(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            profile = {"adapter": "pytest", **self.PROFILE,
+                       "tiers": {"t1": {"location": "tests"}},
+                       "layout": {"test_file_patterns": ["test_*.py"]}}
+            write_profile(repo, profile)
+            for path, text in {**self.PRODUCTION, **self.TESTS}.items():
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            code, out = run_cli("adapter", "--repo", str(repo), "lint", "shop/cart.py")
+        self.assertEqual(code, 1)
+        self.assertIn("production symbol 'reset_cache_for_tests' is used only by tests", out)
 
 
 def adapter_lint_rules() -> list[dict]:

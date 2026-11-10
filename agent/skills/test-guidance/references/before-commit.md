@@ -24,6 +24,6 @@ Complete applicable verification without weakening assertions or hiding failures
 - Drive caller input through the public entry point and the same production inputs/adapters callers use,
   never by private-state mutation. Enforced by TEST.no-self-mocking (omp-guardrails adapter).
 - Never loosen expectations, thresholds or owned coverage rules to hide failures.
-  Enforced by TEST.no-evasion (omp-guardrails adapter, report-check).
+  Enforced by TEST.no-evasion (omp-guardrails adapter, report-check, diff-check).
   Owner-approved measured timing-limit changes follow [suite-budget.md](suite-budget.md).
   Follow the repo's PR and review process.

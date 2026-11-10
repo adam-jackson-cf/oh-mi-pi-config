@@ -10,6 +10,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -22,11 +23,56 @@ sys.path.insert(0, str(REFERENCE))
 from omp_guardrails import cli  # noqa: E402
 from omp_guardrails.config.house_style import load_house_style  # noqa: E402
 from omp_guardrails.config.profile import load_profile  # noqa: E402
-from omp_guardrails.init import gate_config, lsp, pin  # noqa: E402
+from omp_guardrails.init import ci_wiring, gate_config, lsp, native_config, pin  # noqa: E402
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
-PIN_ARGS = ["--pin-url", "https://example.invalid/reference.git", "--pin-commit", COMMIT]
-SERVER_PRESENT = "/usr/local/bin/language-server"
+PIN_URL = "https://example.invalid/reference.git"
+PIN_ARGS = ["--pin-url", PIN_URL, "--pin-commit", COMMIT]
+PIN_LINE = (
+    f"omp-guardrails @ git+{PIN_URL}@{COMMIT}"
+    "#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference"
+)
+CATALOGUE = ROOT / "agent/skills/setup-repository-guardrails/assets/guardrail-rules.json"
+CI_SETUP = ["--ci-setup", "make dev-install"]
+# A language server speaking just enough LSP over stdio: it asks the client for configuration
+# (which the client must answer) before it answers a references query with one location.
+FAKE_SERVER = """import json, sys
+
+def read():
+    length = None
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            sys.exit(0)
+        if not line.strip():
+            break
+        name, _, value = line.decode().partition(":")
+        if name.lower() == "content-length":
+            length = int(value)
+    return json.loads(sys.stdin.buffer.read(length))
+
+def send(message):
+    body = json.dumps({"jsonrpc": "2.0", **message}).encode()
+    sys.stdout.buffer.write(b"Content-Length: %d\\r\\n\\r\\n" % len(body) + body)
+    sys.stdout.buffer.flush()
+
+while True:
+    message = read()
+    method = message.get("method")
+    if method == "initialize":
+        send({"id": message["id"], "result": {"capabilities": {"referencesProvider": True}}})
+    elif method == "textDocument/references":
+        send({"id": "ask", "method": "workspace/configuration", "params": {"items": [{}]}})
+        answer = read()
+        assert answer.get("id") == "ask" and answer.get("result") == [None], answer
+        uri = message["params"]["textDocument"]["uri"]
+        span = {"start": message["params"]["position"], "end": message["params"]["position"]}
+        send({"id": message["id"], "result": [{"uri": uri, "range": span}]})
+    elif method == "shutdown":
+        send({"id": message["id"], "result": None})
+    elif method == "exit":
+        sys.exit(0)
+"""
 
 
 def clean_environment() -> dict[str, str]:
@@ -61,10 +107,20 @@ class InitCase(unittest.TestCase):
         self.repo = Path(self.temporary.name).resolve() / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q")
-        (self.repo / "pyproject.toml").write_text('[project]\nname = "target"\n')
-        which = mock.patch.object(lsp.shutil, "which", return_value=SERVER_PRESENT)
+        (self.repo / "pyproject.toml").write_text(
+            '[project]\nname = "target"\nrequires-python = ">=3.11"\n'
+        )
+        self.server = self.executable("language-server", FAKE_SERVER)
+        which = mock.patch.object(lsp.shutil, "which", return_value=str(self.server))
         which.start()
         self.addCleanup(which.stop)
+
+    def executable(self, name: str, body: str) -> Path:
+        path = self.repo.parent / "bin" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"#!{sys.executable}\n{body}")
+        path.chmod(0o755)
+        return path
 
     def init(self, *args: str) -> tuple[int, str]:
         output = io.StringIO()
@@ -90,15 +146,16 @@ class InitCase(unittest.TestCase):
 
 
 class GreenfieldTests(InitCase):
-    def test_writes_profile_gate_hook_and_pin(self) -> None:
-        code, output = self.init("--ci-host", "github", *PIN_ARGS)
+    def test_writes_profile_gate_hook_ci_native_configs_and_pin(self) -> None:
+        code, output = self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)
         self.assertEqual(code, 0, output)
         self.assertIn("init (greenfield)", output)
-        self.assertIn(
-            f"omp-guardrails @ git+https://example.invalid/reference.git@{COMMIT}"
-            "#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference",
-            output,
-        )
+        project = tomllib.loads((self.repo / "pyproject.toml").read_text())
+        self.assertEqual(project["dependency-groups"]["dev"], [PIN_LINE])
+        self.assertTrue((self.repo / "ruff.toml").is_file())
+        workflow = (self.repo / ci_wiring.WORKFLOW_PATH).read_text()
+        self.assertIn('run: "make dev-install"', workflow)
+        self.assertIn("checks", workflow)
         self.assertEqual(
             self.gate(),
             {
@@ -123,9 +180,10 @@ class GreenfieldTests(InitCase):
         self.assertEqual(git(self.repo, "config", "--get", "core.hooksPath"), ".githooks")
 
     def test_second_run_changes_nothing(self) -> None:
-        self.assertEqual(self.init("--ci-host", "github", *PIN_ARGS)[0], 0)
-        self.assert_second_run_changes_nothing("--ci-host", "github", *PIN_ARGS)
+        self.assertEqual(self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)[0], 0)
+        self.assert_second_run_changes_nothing("--ci-host", "github", *CI_SETUP, *PIN_ARGS)
         self.assert_second_run_changes_nothing("--greenfield", *PIN_ARGS)
+        self.assert_second_run_changes_nothing("--greenfield")
 
     def test_creates_no_empty_folder(self) -> None:
         self.assertEqual(self.init(*PIN_ARGS)[0], 0)
@@ -209,7 +267,9 @@ class AdoptTests(InitCase):
         )
 
     def adopt(self, *extra: str) -> tuple[int, str]:
-        return self.init("--adopt", "--settings", str(self.settings), *PIN_ARGS, *extra)
+        return self.init(
+            "--adopt", "--settings", str(self.settings), *CI_SETUP, *PIN_ARGS, *extra
+        )
 
     def test_keeps_existing_checks_and_adds_reference_after_them(self) -> None:
         code, output = self.adopt("--ci-host", "other-host")
@@ -254,7 +314,7 @@ class AdoptTests(InitCase):
     def test_second_run_changes_nothing(self) -> None:
         self.assertEqual(self.adopt()[0], 0)
         self.assert_second_run_changes_nothing(
-            "--adopt", "--settings", str(self.settings), *PIN_ARGS
+            "--adopt", "--settings", str(self.settings), *CI_SETUP, *PIN_ARGS
         )
         self.assert_second_run_changes_nothing(*PIN_ARGS)
 
@@ -331,6 +391,185 @@ class LspTests(InitCase):
         self.assertEqual(code, 0, output)
         self.assertNotIn("lsp", load_profile(self.repo)["command_notes"])
         self.assertIn("lsp: no pyproject.toml", output)
+
+
+class CanaryTests(InitCase):
+    def test_canary_queries_a_symbol_from_the_repo(self) -> None:
+        self.write("src/target/core.py", "import os\n\n\ndef total(values):\n    return 1\n")
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertIn("canary ok: references src/target/core.py:4 total -> 1 locations", output)
+
+    def test_canary_uses_a_canary_module_when_the_repo_has_no_source(self) -> None:
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertIn("canary ok: references in a canary module omp_lsp_canary", output)
+        self.assertFalse(list(self.repo.glob("omp_lsp_*")))
+
+    def test_server_that_exits_fails_even_when_missing_servers_are_allowed(self) -> None:
+        broken = self.executable("broken-server", "import sys\nsys.exit(97)\n")
+        with mock.patch.object(lsp.shutil, "which", return_value=str(broken)):
+            code, output = self.init(*PIN_ARGS, "--allow-missing-lsp")
+        self.assertEqual(code, 1)
+        self.assertIn("PROFILE.complete", output)
+        self.assertIn("failed the canary: the server exited (code 97)", output)
+
+    def test_server_that_never_answers_fails_within_the_time_limit(self) -> None:
+        silent = self.executable("silent-server", "import time\ntime.sleep(30)\n")
+        with mock.patch.object(lsp.shutil, "which", return_value=str(silent)):
+            code, output = self.init(*PIN_ARGS, "--lsp-timeout", "0.5")
+        self.assertEqual(code, 1)
+        self.assertIn("no answer to initialize before the time limit", output)
+
+
+class CiWiringTests(InitCase):
+    def test_other_hosts_run_checks_ci_without_a_workflow(self) -> None:
+        code, output = self.init("--ci-host", "nuc", *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertIn("ci: the nuc runner runs .omp/gate.json checks.ci", output)
+        self.assertFalse((self.repo / ".github").exists())
+
+    def test_github_without_an_install_step_is_a_gap(self) -> None:
+        code, output = self.init("--ci-host", "github", *PIN_ARGS)
+        self.assertEqual(code, 1)
+        self.assertIn("GATE.local-ci-parity", output)
+        self.assertIn("--ci-setup", output)
+        self.assertFalse((self.repo / ".github").exists())
+
+    def test_workflow_runs_the_gate_files_ci_argv(self) -> None:
+        self.assertEqual(self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)[0], 0)
+        workflow = (self.repo / ci_wiring.WORKFLOW_PATH).read_text()
+        script = workflow.split("run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in script.splitlines())
+        gate = self.gate()
+        gate["checks"]["ci"] = [sys.executable, "-c", "raise SystemExit(6)"]
+        self.write(".omp/gate.json", json.dumps(gate))
+        result = subprocess.run(["bash", "-c", script], cwd=self.repo, check=False)
+        self.assertEqual(result.returncode, 6)
+        self.assertIn("  gate:\n", workflow)
+
+    def test_existing_workflow_is_kept(self) -> None:
+        self.write(ci_wiring.WORKFLOW_PATH, "name: ours\n")
+        code, output = self.init("--ci-host", "github", *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertEqual((self.repo / ci_wiring.WORKFLOW_PATH).read_text(), "name: ours\n")
+
+
+def catalogue_values() -> dict[str, object]:
+    rules = json.loads(CATALOGUE.read_text())["rules"]
+    native = ("RUFF.", "MYPY.")
+    return {rule["id"]: rule["contract"] for rule in rules if rule["id"].startswith(native)}
+
+
+class NativeConfigTests(InitCase):
+    def test_data_mirrors_the_catalogue_contracts(self) -> None:
+        data = native_config.load_data()
+        ruff, contracts = data["ruff"], catalogue_values()
+        selected = {key.split(".", 2)[2] for key in contracts if key.startswith("RUFF.SELECT.")}
+        self.assertEqual(set(ruff["lint"]["select"]), selected)
+        self.assertEqual(ruff["lint"]["ignore"], contracts["RUFF.IGNORES"]["ignore"])
+        self.assertEqual(ruff["lint.per-file-ignores"], contracts["RUFF.IGNORES"]["per_file"])
+        tables = {
+            "ROOT": ruff["root"],
+            "FORMAT": ruff["format"],
+            "ISORT": ruff["lint.isort"],
+            "LIMIT": ruff["lint.pylint"],
+            "PYDOCSTYLE": ruff["lint.pydocstyle"],
+        }
+        for rule_id, contract in contracts.items():
+            if "value" not in contract:
+                continue
+            family, _, name = rule_id.partition(".")[2].partition(".")
+            if rule_id.startswith("MYPY."):
+                key = rule_id.removeprefix("MYPY.").removeprefix("SETTING.")
+                self.assertEqual(str(data["mypy"][key]), str(contract["value"]), rule_id)
+            elif family == "SETTING":
+                where = ruff["lint.mccabe"] if name.startswith("mccabe.") else ruff["root"]
+                self.assertEqual(where[name.removeprefix("mccabe.")], contract["value"], rule_id)
+            else:
+                self.assertEqual(tables[family][name], contract["value"], rule_id)
+
+    def test_writes_ruff_and_mypy_from_the_repo_and_data(self) -> None:
+        self.write("src/target/__init__.py", "")
+        self.assertEqual(self.init(*PIN_ARGS)[0], 0)
+        ruff = tomllib.loads((self.repo / "ruff.toml").read_text())
+        self.assertEqual(ruff["target-version"], "py311")
+        self.assertEqual(ruff["lint"]["isort"]["known-first-party"], ["target"])
+        self.assertEqual(ruff["lint"]["pylint"]["max-args"], 5)
+        mypy = (self.repo / "mypy.ini").read_text()
+        self.assertIn("python_version = 3.11", mypy)
+        self.assertIn("packages = target", mypy)
+        self.assertIn("mypy_path = src", mypy)
+        self.assertIn("strict = True", mypy)
+
+    def test_keeps_existing_tool_configuration(self) -> None:
+        self.write("src/target/__init__.py", "")
+        self.write(
+            "pyproject.toml",
+            '[project]\nname = "target"\nrequires-python = ">=3.12"\n\n'
+            "[tool.ruff]\nline-length = 100\n",
+        )
+        self.write("setup.cfg", "[mypy]\nstrict = True\n")
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.repo / "ruff.toml").exists())
+        self.assertFalse((self.repo / "mypy.ini").exists())
+        self.assertIn("kept the existing ruff configuration in pyproject.toml [tool.ruff]", output)
+        self.assertIn("kept the existing mypy configuration in setup.cfg [mypy]", output)
+
+    def test_values_init_cannot_derive_leave_configs_unwritten(self) -> None:
+        self.write("pyproject.toml", '[project]\nname = "target"\n')
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.repo / "ruff.toml").exists())
+        self.assertIn("ruff not written; set project.requires-python first", output)
+
+    def test_import_contract_follows_recorded_structure_tiers(self) -> None:
+        self.assertEqual(self.init(*PIN_ARGS)[0], 0)
+        self.assertFalse((self.repo / ".importlinter").exists())
+        path = self.repo / ".omp/test-profile.md"
+        text = path.read_text()
+        values = load_profile(self.repo)
+        values["structure"]["tiers"] = ["core", "cli"]
+        values["structure"]["import_direction"] = {"package": "target", "source_root": "src"}
+        body = text.split("\n---\n", 1)[1]
+        path.write_text(f"---\n{json.dumps(values, indent=2)}\n---\n{body}")
+        self.assertEqual(self.init(*PIN_ARGS)[0], 0)
+        contract = (self.repo / ".importlinter").read_text()
+        self.assertIn("root_package = target", contract)
+        self.assertIn("layers =\n    cli\n    core\n", contract)
+
+
+class PinWriteTests(InitCase):
+    def test_keeps_a_different_existing_pin(self) -> None:
+        older = PIN_LINE.replace(COMMIT, "f" * 40)
+        self.write(
+            "pyproject.toml",
+            f'[project]\nname = "target"\n\n[dependency-groups]\ndev = ["{older}"]\n',
+        )
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        project = tomllib.loads((self.repo / "pyproject.toml").read_text())
+        self.assertEqual(project["dependency-groups"]["dev"], [older])
+        self.assertIn("kept the existing pin", output)
+
+    def test_adds_to_an_existing_dev_group(self) -> None:
+        self.write(
+            "pyproject.toml",
+            '[project]\nname = "target"\n\n[dependency-groups]\n'
+            'dev = [\n  "ruff==0.9.0",\n]\nlint = ["x"]\n\n[tool.other]\nkey = 1\n',
+        )
+        self.assertEqual(self.init(*PIN_ARGS)[0], 0)
+        project = tomllib.loads((self.repo / "pyproject.toml").read_text())
+        self.assertEqual(project["dependency-groups"]["dev"], ["ruff==0.9.0", PIN_LINE])
+        self.assertEqual(project["dependency-groups"]["lint"], ["x"])
+        self.assertEqual(project["tool"]["other"], {"key": 1})
+
+    def test_unknown_source_with_an_existing_pin_is_not_a_gap(self) -> None:
+        self.assertEqual(self.init(*PIN_ARGS)[0], 0)
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertIn("pin: kept the existing pin", output)
 
 
 class PinTests(unittest.TestCase):

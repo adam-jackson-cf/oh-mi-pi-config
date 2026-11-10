@@ -39,6 +39,8 @@ CONTRACT_SUBCOMMANDS = {
     "report-check",
     "collection-check",
     "diff-check",
+    "affected",
+    "mutation-check",
     "guard-run",
     "surface-lint",
     "lever-selftest",

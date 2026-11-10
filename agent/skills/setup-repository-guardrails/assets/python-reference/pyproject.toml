@@ -12,6 +12,8 @@ dependencies = []
 
 [project.optional-dependencies]
 pytest = ["pytest==9.1.1", "ast-grep-py==0.51.0"]
+# TEST.mutation-sensitivity runs in T3 only; the gate container does not install this extra.
+mutation = ["mutmut==3.8.1"]
 
 [project.scripts]
 omp-guardrails = "omp_guardrails.cli:main"

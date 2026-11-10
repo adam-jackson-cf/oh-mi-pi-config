@@ -10,6 +10,10 @@ standard ``json`` module and needs no YAML parser. Keys beyond ast-grep's own:
   ``keyword:<name>,<name>`` or ``assigned-attribute-object``.
 - ``message`` and ``fix``: finding text; ``{target}`` and ``{match}`` are filled in.
 
+Besides the pattern rules, ``symbol_usage`` reports production symbols that only tests use
+(TEST.no-test-hooks). It reads every Python file in the repo for references and reports the
+symbols defined in the linted production files.
+
 Owned packages (D2) are the top-level packages that own the profile's ``public_entry_points``
 keys. Test files are files under a tier ``location``, files matching ``layout.test_file_patterns``
 and ``conftest.py`` files. Production files are the other Python files with an owned package
@@ -26,6 +30,7 @@ from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path, PurePosixPath
 
+from omp_guardrails.adapters.pytest.symbol_usage import test_only_findings
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import as_list, matches_any, name_matches
 
@@ -234,20 +239,50 @@ def lint(repo: Path, profile: dict, paths: list[str]) -> list[Finding]:
     locations, patterns = test_patterns(profile)
     rules = load_rules()
     findings: list[Finding] = []
+    production: set[str] = set()
     for path in python_files(repo, paths):
         if is_test_file(path, locations, patterns):
             scoped = [rule for rule in rules if rule.scope == "tests"]
-        elif owned & {*PurePosixPath(path).parts[:-1], PurePosixPath(path).stem}:
+        elif is_owned(path, owned):
             scoped = [rule for rule in rules if rule.scope == "production"]
+            production.add(path)
         else:
             continue
-        try:
-            source = (repo / path).read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+        source = read_source(repo, path)
+        if source is None:
             continue
-        findings.extend(
-            finding
-            for finding in file_findings(path, source, scoped, owned)
-            if not waived(finding.rule_id, path, profile)
-        )
-    return findings
+        findings.extend(file_findings(path, source, scoped, owned))
+    findings.extend(test_only_symbol_findings(repo, profile, production))
+    return [finding for finding in findings if not waived(finding.rule_id, finding.path, profile)]
+
+
+def is_owned(path: str, owned: frozenset[str]) -> bool:
+    return bool(owned & {*PurePosixPath(path).parts[:-1], PurePosixPath(path).stem})
+
+
+def read_source(repo: Path, path: str) -> str | None:
+    try:
+        return (repo / path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+
+
+def test_only_symbol_findings(repo: Path, profile: dict, reported: set[str]) -> list[Finding]:
+    """TEST.no-test-hooks over the whole repo's references, reported for the linted files."""
+    if not reported:
+        return []
+    owned = owned_packages(profile)
+    locations, patterns = test_patterns(profile)
+    production: dict[str, str] = {}
+    tests: dict[str, str] = {}
+    for path in python_files(repo, []):
+        if is_test_file(path, locations, patterns):
+            target = tests
+        elif is_owned(path, owned):
+            target = production
+        else:
+            continue
+        source = read_source(repo, path)
+        if source is not None:
+            target[path] = source
+    return test_only_findings(production, tests, profile, reported)
