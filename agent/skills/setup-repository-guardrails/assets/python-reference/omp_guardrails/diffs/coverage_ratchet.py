@@ -5,7 +5,8 @@ Over ``git diff <base> <head>`` the checker reports:
 1. an added coverage pragma (``no cover``, ``no branch``, ``istanbul ignore``, ``c8 ignore``,
    ``v8 ignore``) in any changed file;
 2. a lowered or removed floor in a coverage config file (``fail_under``, ``--cov-fail-under``,
-   ``lines``, ``branches``, ``statements``, ``functions``);
+   ``lines``, ``branches``, ``statements``, ``functions``), including every floor of a config
+   file the diff deletes or renames to a non-config name;
 3. an added line inside a coverage exclusion setting (``omit``, ``exclude_lines``,
    ``exclude_also``, ``coveragePathIgnorePatterns``, a vitest/c8 ``exclude`` list ...);
 4. a lowered ``coverage.line_floor`` or ``coverage.branch_floor`` in the test profile.
@@ -31,6 +32,7 @@ from pathlib import Path
 
 from omp_guardrails.config.profile import PROFILE_PATH, is_missing_text
 from omp_guardrails.diffs.changes import (
+    Change,
     DiffError,
     DiffRange,
     changed_files,
@@ -138,8 +140,16 @@ def floors(lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]) -> dic
     return found
 
 
-def config_findings(repo: Path, diff: DiffRange, path: str, config: dict) -> list[Finding]:
-    changes = line_changes(repo, diff, path)
+def config_findings(
+    repo: Path, diff: DiffRange, paths: tuple[str, ...], head_path: str | None, config: dict
+) -> list[Finding]:
+    """Floors removed or lowered across ``paths``, then exclusions added to ``head_path``.
+
+    ``head_path`` is None when no config file remains at head (deleted, or renamed to a name
+    that is not a config file); every floor the base file held then counts as removed.
+    """
+    path = head_path or paths[0]
+    changes = line_changes(repo, diff, *paths)
     floor_re = key_pattern(
         as_list(config.get("floor_keys")) or DEFAULT_FLOOR_KEYS, r"(?P<value>\d+(?:\.\d+)?)"
     )
@@ -153,7 +163,7 @@ def config_findings(repo: Path, diff: DiffRange, path: str, config: dict) -> lis
             found.append(
                 Finding(RULE, path, f"coverage floor '{key}' lowered from {old:g} to {new:g}", FIX)
             )
-    head_text = file_at(repo, diff.head, path)
+    head_text = None if head_path is None else file_at(repo, diff.head, head_path)
     if head_text is None:
         return found
     exclusion_re = key_pattern(as_list(config.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, "")
@@ -166,6 +176,16 @@ def config_findings(repo: Path, diff: DiffRange, path: str, config: dict) -> lis
                 Finding(RULE, path, f"line {number} adds a coverage exclusion: {text.strip()}", FIX)
             )
     return found
+
+
+def change_config_findings(
+    repo: Path, diff: DiffRange, change: Change, config_files: list[str], config: dict
+) -> list[Finding]:
+    paths = tuple(name for name in change.paths if is_config(name, config_files))
+    if not paths:
+        return []
+    kept = change.status != "D" and is_config(change.path, config_files)
+    return config_findings(repo, diff, paths, change.path if kept else None, config)
 
 
 def entry_text(line: str) -> str:
@@ -234,11 +254,10 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         skip = as_list(config.get("pragma_skip")) or DEFAULT_PRAGMA_SKIP
         found = profile_floor_findings(base_profile, head_profile)
         for change in changes:
+            path = change.path
+            found.extend(change_config_findings(repo, diff, change, config_files, config))
             if change.status == "D":
                 continue
-            path = change.path
-            if is_config(path, config_files):
-                found.extend(config_findings(repo, diff, path, config))
             if not any(name_matches(path, pattern) for pattern in skip):
                 found.extend(pragma_findings(repo, diff, path, pragma))
     except DiffError as error:

@@ -11,7 +11,9 @@ one argv, so both results show on every run (shadow comparison)::
     ["sh", "-c", 'status=0; "$@" || status=$?; <reference check> || status=$?; exit $status',
      "omp-guardrails-shadow", <existing argv>...]
 
-The ``omp-guardrails-shadow`` script name marks a composed argv, so a second run leaves it alone.
+The ``omp-guardrails-shadow`` script name marks a composed argv. A later adopt run reads which
+reference checks an argv already runs and adds only the requested checks it is missing, so a
+second run with the same checks leaves the gate alone.
 """
 
 from __future__ import annotations
@@ -70,6 +72,40 @@ def runs_reference(argv: object, reference: list[str]) -> bool:
     return composed or argv[: len(reference)] == reference
 
 
+def reference_parts(argv: list, reference: list[str]) -> tuple[list[str], list]:
+    """The reference subcommands an argv already runs, and the repo's own command it wraps.
+
+    A plain ``[*reference, check]`` runs one check and wraps nothing; a composed argv runs the
+    checks named in its script and wraps ``argv[4:]``; any other argv is the repo's own command.
+    """
+    if argv[:2] == ["sh", "-c"] and argv[3:4] == [SHADOW_NAME] and isinstance(argv[2], str):
+        steps = argv[2].split(" || status=$?")[:-1]
+        found = []
+        for step in steps:
+            try:
+                words = shlex.split(step.rsplit("; ", 1)[-1])
+            except ValueError:
+                continue
+            if words[: len(reference)] == reference and len(words) == len(reference) + 1:
+                found.append(words[-1])
+        return found, list(argv[4:])
+    if argv[: len(reference)] == reference and len(argv) == len(reference) + 1:
+        return [argv[-1]], []
+    return [], list(argv)
+
+
+def adopted_argv(argv: list, reference: list[str], checks: list[str]) -> list:
+    """``argv`` running every requested check: missing checks are added, nothing is removed."""
+    present, existing = reference_parts(argv, reference)
+    missing = [check for check in checks if check not in present]
+    if not missing:
+        return argv
+    wanted = [*present, *missing]
+    if existing:
+        return shadow_argv(existing, reference, wanted)
+    return reference_argv(reference, wanted)
+
+
 def planned_gate(
     gate: dict | None,
     *,
@@ -86,8 +122,8 @@ def planned_gate(
         argv = current.get(event)
         if argv is None:
             current[event] = reference_argv(reference, checks)
-        elif adopt and not runs_reference(argv, reference):
-            current[event] = shadow_argv(argv, reference, checks)
+        elif adopt and isinstance(argv, list):
+            current[event] = adopted_argv(argv, reference, checks)
     planned["checks"] = current
     planned.setdefault("pathCheck", [*reference, "path-check"])
     if ci_host:
