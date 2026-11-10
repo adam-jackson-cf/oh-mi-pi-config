@@ -142,6 +142,32 @@ class CoverageRatchetTests(unittest.TestCase):
         self.repo.commit({".coveragerc": "[run]\nomit =\n    build/*\n"})
         self.assertIn("was removed", self.check()[0].message)
 
+    def test_deleted_config_file_removes_its_floors(self) -> None:
+        self.repo.commit({".coveragerc": None})
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.coverage-ratchet", ".coveragerc")])
+        self.assertIn("coverage floor 'fail_under' 90 was removed", findings[0].message)
+
+    def test_deleted_config_file_with_new_approval_passes(self) -> None:
+        approved = json.loads(json.dumps(BASE_PROFILE))
+        approved["guardrails"]["coverage_ratchet"] = {
+            "approvals": [{"path": ".coveragerc", "approval": "ADR-13"}]
+        }
+        self.repo.commit({".coveragerc": None}, approved)
+        self.assertEqual(self.check(approved), [])
+
+    def test_config_renamed_to_a_non_config_name_removes_its_floors(self) -> None:
+        text = (self.repo.path / ".coveragerc").read_text()
+        self.repo.commit({".coveragerc": None, "notes/old-coveragerc.txt": text})
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.coverage-ratchet", ".coveragerc")])
+        self.assertIn("was removed", findings[0].message)
+
+    def test_config_renamed_to_another_config_name_keeps_its_floors(self) -> None:
+        text = (self.repo.path / ".coveragerc").read_text()
+        self.repo.commit({".coveragerc": None, "tox.ini": text})
+        self.assertEqual(self.check(), [])
+
     def test_raised_floor_passes(self) -> None:
         self.repo.commit({".coveragerc": "[run]\nomit =\n    build/*\n[report]\nfail_under = 95\n"})
         self.assertEqual(self.check(), [])

@@ -89,10 +89,14 @@ def changed_files(repo: Path, diff: DiffRange) -> list[Change]:
     return changes
 
 
-def hunks(repo: Path, diff: DiffRange, path: str) -> list[LineChanges]:
-    """The file's ``-U0`` hunks, each with its removed and added lines."""
+def hunks(repo: Path, diff: DiffRange, *paths: str) -> list[LineChanges]:
+    """The ``-U0`` hunks of the named paths, each with its removed and added lines.
+
+    Naming both paths of a rename diffs the renamed content against its base, not as one
+    whole-file deletion plus one whole-file addition.
+    """
     output = git(
-        repo, "diff", "-U0", "--no-color", "--no-ext-diff", diff.base, diff.head, "--", path
+        repo, "diff", "-U0", "-M", "--no-color", "--no-ext-diff", diff.base, diff.head, "--", *paths
     )
     found: list[LineChanges] = []
     added: list[tuple[int, str]] = []
@@ -120,9 +124,9 @@ def hunks(repo: Path, diff: DiffRange, path: str) -> list[LineChanges]:
     return found
 
 
-def line_changes(repo: Path, diff: DiffRange, path: str) -> LineChanges:
-    """Added lines (head line numbers) and removed lines (base line numbers) of one file."""
-    parts = hunks(repo, diff, path)
+def line_changes(repo: Path, diff: DiffRange, *paths: str) -> LineChanges:
+    """Added lines (head line numbers) and removed lines (base line numbers) of the paths."""
+    parts = hunks(repo, diff, *paths)
     return LineChanges(
         tuple(line for part in parts for line in part.added),
         tuple(line for part in parts for line in part.removed),

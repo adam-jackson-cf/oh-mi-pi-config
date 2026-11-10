@@ -285,6 +285,40 @@ class AdoptTests(InitCase):
         self.assertEqual(gate["agentMerge"], "allowed")
         self.assertIn("keeps ciHost 'github'", output)
 
+    def test_requested_checks_are_added_to_a_gate_that_already_runs_the_reference(self) -> None:
+        self.existing["checks"] = {
+            "commit": ["omp-guardrails", "profile-check"],
+            "ci": ["omp-guardrails", "profile-check"],
+        }
+        self.write(".omp/gate.json", json.dumps(self.existing))
+        code, output = self.adopt("--check", "python-quality")
+        self.assertEqual(code, 0, output)
+        for event in ("commit", "ci"):
+            argv = self.gate()["checks"][event]
+            self.assertEqual(argv[:2], ["sh", "-c"])
+            self.assertEqual(argv[3:], [gate_config.SHADOW_NAME])
+            self.assertIn("omp-guardrails profile-check", argv[2])
+            self.assertIn("omp-guardrails python-quality", argv[2])
+        self.assert_second_run_changes_nothing(
+            "--adopt", "--settings", str(self.settings), *CI_SETUP, *PIN_ARGS,
+            "--check", "python-quality",
+        )
+
+    def test_requested_checks_are_added_to_a_shadow_gate_keeping_the_repo_command(self) -> None:
+        self.assertEqual(self.adopt()[0], 0)
+        code, output = self.adopt("--check", "python-quality")
+        self.assertEqual(code, 0, output)
+        for event, existing in (("commit", ["make", "gate-commit"]), ("ci", ["make", "gate-ci"])):
+            argv = self.gate()["checks"][event]
+            self.assertEqual(argv[3:], [gate_config.SHADOW_NAME, *existing])
+            self.assertIn('"$@" || status=$?', argv[2])
+            self.assertIn("omp-guardrails profile-check", argv[2])
+            self.assertIn("omp-guardrails python-quality", argv[2])
+
+    def test_adopt_keeps_a_gate_that_already_runs_every_requested_check(self) -> None:
+        argv = ["omp-guardrails", "profile-check"]
+        self.assertIs(gate_config.adopted_argv(argv, ["omp-guardrails"], ["profile-check"]), argv)
+
     def test_shadow_argv_runs_both_and_fails_when_either_fails(self) -> None:
         log = self.repo.parent / "ran.log"
         script = f"import sys; open({str(log)!r}, 'a').write(sys.argv[1] + '\\n')"
