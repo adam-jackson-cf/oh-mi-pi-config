@@ -1,0 +1,15 @@
+{
+  "id": "TEST.no-self-mocking",
+  "language": "python",
+  "scope": "tests",
+  "target": "keyword:spec,spec_set",
+  "message": "test builds a mock of the repo's own code ({target})",
+  "fix": "use the real owned object through the public entry point; fake only third-party or OS boundaries",
+  "rule": {
+    "kind": "call",
+    "has": {
+      "field": "function",
+      "regex": "(^|\\.)(Mock|MagicMock|AsyncMock|NonCallableMock|NonCallableMagicMock)$"
+    }
+  }
+}

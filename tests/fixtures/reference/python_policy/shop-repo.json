@@ -1,0 +1,421 @@
+{
+  "profile": {
+    "public_entry_points": {
+      "shop": "shop.cli:main"
+    },
+    "guardrails": {
+      "python": {
+        "maintained_roots": [
+          "src/shop",
+          "scripts",
+          "tests",
+          ".agents/skills"
+        ],
+        "source_roots": [
+          "src"
+        ],
+        "script_roots": [
+          "scripts"
+        ],
+        "script_names": [
+          "build-catalogue.py"
+        ],
+        "test_roots": [
+          "tests"
+        ],
+        "test_groups": {
+          "behaviour": [
+            "tests/test_*.py"
+          ],
+          "support": [
+            "tests/support/*.py"
+          ]
+        },
+        "test_root_files": [
+          "tests/conftest.py"
+        ],
+        "skill_roots": [
+          ".agents/skills"
+        ],
+        "subprocess_wrappers": {
+          "src/shop/process.py": [
+            "run_tool"
+          ],
+          "scripts/build-catalogue.py": [
+            "main"
+          ]
+        },
+        "dynamic_import_adapters": [
+          "src/shop/plugins.py"
+        ],
+        "contract_files": [
+          "src/shop/contracts.py"
+        ],
+        "contract_data_annotations": {
+          "src/shop/contracts.py": {
+            "price.raw": "Any"
+          }
+        },
+        "analyzer_roots": [
+          "src/shop/analysis"
+        ],
+        "analyzer_bases": [
+          "AnalyzerBase"
+        ],
+        "analyzer_entrypoints": {
+          "AnalyzerBase": "analyse_project"
+        },
+        "analyzer_like_roots": [
+          "src/shop/analysis"
+        ],
+        "ownership_markers": [
+          "src/shop/analysis/OWNERS.md"
+        ]
+      }
+    }
+  },
+  "files": {
+    "src/shop/__init__.py": "",
+    "src/shop/cli.py": "import json\n\nfrom .orders import place\n\n\ndef main():\n    return json.dumps(place())\n",
+    "src/shop/orders.py": "class Order:\n    def __init__(self, sku, quantity):\n        self.sku = sku\n        self.quantity = quantity\n\n\ndef place():\n    return [[cell for cell in row] for row in [[1], [2]]]\n",
+    "src/shop/process.py": "import subprocess\n\n\ndef run_tool(args):\n    return subprocess.run(args, check=False)\n",
+    "src/shop/plugins.py": "import importlib\n\n\ndef load(name):\n    return importlib.import_module(name)\n",
+    "src/shop/contracts.py": "from collections.abc import Callable\nfrom typing import Any\n\nPricer = Callable[[int], int]\n\n\ndef price(pricer: Pricer, raw: Any) -> int:\n    return pricer(raw)\n",
+    "src/shop/analysis/__init__.py": "",
+    "src/shop/analysis/OWNERS.md": "Owned by the pricing team.\n",
+    "src/shop/analysis/base.py": "class AnalyzerBase:\n    def analyse_project(self, project):\n        return project\n",
+    "src/shop/analysis/stock.py": "from shop.analysis.base import AnalyzerBase\n\n\nclass StockAnalyzer(AnalyzerBase):\n    def analyse_project(self, project):\n        return sorted(project)\n",
+    "scripts/build-catalogue.py": "import subprocess\n\n\ndef main():\n    return subprocess.run(['true'], check=False)\n",
+    "tests/conftest.py": "",
+    "tests/test_orders.py": "from shop.orders import place\n\n\ndef test_place():\n    assert place()\n",
+    "tests/support/orders_builder.py": "def order():\n    return {}\n",
+    ".agents/skills/order-audit/SKILL.md": "# Order audit\n"
+  },
+  "violations": [
+    {
+      "checker": "quality",
+      "rule": "PYQ100",
+      "path": "lib/orphan.py",
+      "files": {
+        "lib/orphan.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ101",
+      "path": "scripts/rebuild_all.py",
+      "files": {
+        "scripts/rebuild_all.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": "unapproved, not kebab-case"
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ101",
+      "path": "scripts/rebuild-all.py",
+      "files": {
+        "scripts/rebuild-all.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": "kebab-case but not in script_names"
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ102",
+      "path": "tests/orders/test_refunds.py",
+      "files": {
+        "tests/orders/test_refunds.py": "def test_refund():\n    assert True\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ103",
+      "path": "src/shop/helpers/tax.py",
+      "files": {
+        "src/shop/helpers/tax.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ104",
+      "path": "src/shop/utils.py",
+      "files": {
+        "src/shop/utils.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ105",
+      "path": "src/shop/Billing/invoice.py",
+      "files": {
+        "src/shop/Billing/invoice.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ106",
+      "path": ".agents/skills/Order_Audit",
+      "files": {
+        ".agents/skills/Order_Audit/SKILL.md": "# Audit\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ107",
+      "path": "src/shop/Invoice.py",
+      "files": {
+        "src/shop/Invoice.py": "X = 1\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ200",
+      "path": "src/shop/orders.py",
+      "files": {},
+      "settings": {
+        "class_limits": {
+          "max_lines": 3
+        }
+      },
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ201",
+      "path": "src/shop/ledger.py",
+      "files": {
+        "src/shop/ledger.py": "class Ledger:\n    def post(self):\n        return 1\n\n    def void(self):\n        return 0\n"
+      },
+      "settings": {
+        "class_limits": {
+          "max_public_methods": 1
+        }
+      },
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ202",
+      "path": "src/shop/wide.py",
+      "files": {
+        "src/shop/wide.py": "class Wide:\n    def __init__(self, a, b, c, d, e, f, g, h, i):\n        self.a = a\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ203",
+      "path": "src/shop/stateful.py",
+      "files": {
+        "src/shop/stateful.py": "class Stateful:\n    def __init__(self):\n        self.a0 = 0\n        self.a1 = 1\n        self.a2 = 2\n        self.a3 = 3\n        self.a4 = 4\n        self.a5 = 5\n        self.a6 = 6\n        self.a7 = 7\n        self.a8 = 8\n        self.a9 = 9\n        self.a10 = 10\n        self.a11 = 11\n        self.a12 = 12\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ210",
+      "path": "src/shop/analysis/price.py",
+      "files": {
+        "src/shop/analysis/price.py": "class PriceAnalyzer:\n    pass\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ211",
+      "path": "src/shop/analysis/stock.py",
+      "files": {
+        "src/shop/analysis/stock.py": "from shop.analysis.base import AnalyzerBase\n\n\nclass StockAnalyzer(AnalyzerBase):\n    def scan(self, project):\n        return project\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ220",
+      "path": "src/shop/sync.py",
+      "files": {
+        "src/shop/sync.py": "import subprocess as sp\n\n\ndef sync():\n    return sp.run(['x'], check=False)\n"
+      },
+      "settings": {},
+      "note": "alias resolved"
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ220",
+      "path": "src/shop/process.py",
+      "files": {
+        "src/shop/process.py": "import subprocess\n\n\ndef run_tool(args):\n    def inner():\n        return subprocess.run(args, check=False)\n    return inner()\n"
+      },
+      "settings": {},
+      "note": "nested function does not inherit approval"
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ221",
+      "path": "src/shop/loader.py",
+      "files": {
+        "src/shop/loader.py": "import importlib\n\n\ndef load(name):\n    return importlib.import_module(name)\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ230",
+      "path": "src/shop/contracts.py",
+      "files": {
+        "src/shop/contracts.py": "from collections.abc import Callable\n\n\ndef apply(fn: Callable[[int], int]) -> int:\n    return fn(1)\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ231",
+      "path": "src/shop/contracts.py",
+      "files": {
+        "src/shop/contracts.py": "from typing import Any\n\n\ndef apply(store: Any) -> int:\n    return store.count()\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "quality",
+      "rule": "PYQ299",
+      "path": "src/shop/broken.py",
+      "files": {
+        "src/shop/broken.py": "def broken(:\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS000",
+      "path": "src/shop/broken.py",
+      "files": {
+        "src/shop/broken.py": "def broken(:\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS250",
+      "path": "src/shop/grid.py",
+      "files": {
+        "src/shop/grid.py": "def cells(cube):\n    for plane in cube:\n        for row in plane:\n            for cell in row:\n                print(cell)\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS250",
+      "path": "src/shop/grid.py",
+      "files": {
+        "src/shop/grid.py": "def cells(cube):\n    for plane in cube:\n        return [cell for row in plane for cell in row]\n"
+      },
+      "settings": {},
+      "note": "comprehension generators count"
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS251",
+      "path": "src/shop/analysis/reader.py",
+      "files": {
+        "src/shop/analysis/reader.py": "def read(path):\n    return path.read_text()\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS252",
+      "path": "src/shop/analysis/env.py",
+      "files": {
+        "src/shop/analysis/env.py": "import os\n\n\ndef token():\n    return os.environ['TOKEN']\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS252",
+      "path": "src/shop/analysis/proc.py",
+      "files": {
+        "src/shop/analysis/proc.py": "from subprocess import run\n\n\ndef scan():\n    return run(['ls'], check=False)\n"
+      },
+      "settings": {},
+      "note": ""
+    },
+    {
+      "checker": "scalability",
+      "rule": "PYS253",
+      "path": ".omp/test-profile.md",
+      "files": {},
+      "settings": {
+        "ownership_markers": [
+          "src/shop/analysis/MISSING.md"
+        ]
+      },
+      "note": ""
+    },
+    {
+      "checker": "fanout",
+      "rule": "FANOUT.general",
+      "path": "src/shop/hub.py",
+      "files": {
+        "src/shop/hub.py": "import shop.orders\nimport shop.process\nimport os\n"
+      },
+      "settings": {
+        "fanout": {
+          "architectural_max": 1
+        }
+      },
+      "note": ""
+    },
+    {
+      "checker": "fanout",
+      "rule": "FANOUT.large-module",
+      "path": "src/shop/cli.py",
+      "files": {},
+      "settings": {
+        "fanout": {
+          "large_module_nloc": 1,
+          "large_module_architectural_max": 0
+        }
+      },
+      "note": ""
+    },
+    {
+      "checker": "fanout",
+      "rule": "FANOUT.general",
+      "path": ".omp/test-profile.md",
+      "files": {},
+      "settings": {
+        "source_roots": []
+      },
+      "note": "unconfigured source roots fail closed"
+    }
+  ]
+}

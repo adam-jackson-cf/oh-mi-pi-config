@@ -11,7 +11,7 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
   Use T1 when in-process, T2 seams when the actual host process is needed; never invent a lever for an exempt repo.
 - The lever is one command performing launch → doctor → drive → evidence → cleanup.
   Doctor proves ready means usable, not merely that a process or port exists.
-- Print a distinct doctor-failure marker for environment failures and document it in Command notes.
+- Document the doctor-failure marker in Command notes. Enforced by SURFACE.lever-isolation (omp-guardrails lever-selftest).
   Classify that marker as blocked infrastructure, never as a defect proof's expectRed,
   even when the command exits nonzero. Stop that run, retain marker/probe evidence, clean up and report blocked
   to the calling workflow. Repair only within authorized scope; otherwise ask the owner once:
@@ -19,20 +19,17 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
   Resume only after the evidenced cause is repaired and doctor succeeds; rejection leaves the proof blocked.
   Never retry merely to get green.
 - Accept Data directory argument and Evidence directory argument from the profile.
-  Use isolated gitignored or temporary directories; evidence survives cleanup.
-- Use per-instance ephemeral ports and data. Never drive a shared user instance.
-  Kill only processes started by the lever, including its whole process group; no background process may hold stdout.
+  Use isolated gitignored or temporary directories. Never drive a shared user instance.
 - Clean up after every failed iteration. Verify what dry runs actually skip;
   list stand-in-only setup steps as unverified, never as exercised production setup.
 
 ## Feature map and journeys
 
-- At Feature map path, use one document per feature, with exactly four H2s:
-  Sub-features; How to get to it (user POV); `Driving it with <lever>`; Gotchas.
-  Replace `<lever>` with the profile's Lever command; put the observable end state in the Sub-features body.
+- Enforced by SURFACE.feature-map (omp-guardrails surface-lint).
+  Put the observable end state in the Sub-features body.
   Retain existing file organization when it supports these sections. If the existing map cannot carry them,
   report the layout gap to the calling workflow before writing; do not silently relax headings or create parallel maps.
-- Script deterministic T2 journeys calling the lever, using Journey file pattern.
+- Script deterministic T2 journeys. Enforced by SURFACE.journeys (omp-guardrails surface-lint).
   A library's map points to T1 outcome tests when no process, build or UI boundary is crossed.
   Agent exploration belongs in T3, not deterministic journey proofs.
 - Under DynaFlows, a defect proof must fail with its asserted expectRed on the broken baseline;

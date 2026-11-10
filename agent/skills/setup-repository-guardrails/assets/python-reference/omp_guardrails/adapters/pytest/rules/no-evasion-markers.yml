@@ -1,0 +1,26 @@
+{
+  "id": "TEST.no-evasion",
+  "language": "python",
+  "scope": "tests",
+  "message": "test skips, expects failure or retries instead of passing ({match})",
+  "fix": "make the test pass, or record an ADR-backed house_style exception for this path",
+  "rule": {
+    "any": [
+      {
+        "kind": "decorator",
+        "regex": "^@\\s*((pytest\\.)?mark\\.(skip|skipif|xfail|flaky)|(unittest\\.)?(skip|skipIf|skipUnless|expectedFailure)|flaky)\\b"
+      },
+      {
+        "kind": "call",
+        "has": {
+          "field": "function",
+          "regex": "^(pytest\\.(skip|xfail|importorskip)|self\\.skipTest)$"
+        }
+      },
+      {
+        "kind": "assignment",
+        "regex": "^pytestmark\\s*=[\\s\\S]*mark\\.(skip|skipif|xfail|flaky)\\b"
+      }
+    ]
+  }
+}

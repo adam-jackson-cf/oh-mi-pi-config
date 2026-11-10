@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "banned_words": [
+    "common",
+    "compat",
+    "fallback",
+    "helpers",
+    "legacy",
+    "manager",
+    "misc",
+    "new",
+    "old",
+    "stuff",
+    "temp",
+    "utils"
+  ],
+  "banned_words_scope": "Exact whole directory segments and file stems (the part before the first dot). Compound names such as snapshot-compat or common_types stay valid.",
+  "casing_patterns": {
+    "snake_case": "^_*[a-z][a-z0-9_]*$",
+    "kebab-case": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+    "PascalCase": "^_*[A-Z][A-Za-z0-9]*$",
+    "UPPER_CASE": "^[A-Z][A-Z0-9_-]*$"
+  },
+  "casing": {
+    "python": {
+      "extensions": [".py"],
+      "file": ["snake_case"],
+      "directory": ["snake_case"],
+      "class": ["PascalCase"],
+      "function": ["snake_case"],
+      "framework_symbols": [
+        "^(setUp|tearDown)(Class|Module)?$",
+        "^async(SetUp|TearDown)$",
+        "^visit_[A-Za-z]+$"
+      ]
+    },
+    "typescript": {
+      "extensions": [".ts", ".tsx", ".mts", ".cts"],
+      "file": ["kebab-case"],
+      "directory": ["kebab-case"]
+    },
+    "markdown": {
+      "extensions": [".md"],
+      "file": ["kebab-case", "UPPER_CASE"],
+      "directory": ["kebab-case"]
+    },
+    "asset_id": {
+      "extensions": [],
+      "file": ["kebab-case"],
+      "directory": ["kebab-case"],
+      "applies_to": "Ids of non-code assets: skill, workflow and command names."
+    }
+  },
+  "versioning": {
+    "token": "(?<![A-Za-z0-9])v\\d+(?![A-Za-z0-9])",
+    "attached_suffix": "(?<=.)[-_]?v\\d+$",
+    "standalone": "^v\\d+$",
+    "standalone_allowed": true,
+    "rule": "Never add a v<N> token to a name; versions live only as <name>/v<N> folders or files, and only for what must be reproduced or compared."
+  },
+  "child_repeats_parent": "banned",
+  "catalogue_plurals": [
+    "agents",
+    "assets",
+    "commands",
+    "docs",
+    "experiments",
+    "extensions",
+    "fixtures",
+    "problems",
+    "references",
+    "rules",
+    "scripts",
+    "skills",
+    "stages",
+    "templates",
+    "tests",
+    "tools",
+    "workflows"
+  ],
+  "test_roots": {
+    "single_root": true,
+    "root": "tests",
+    "fixtures_dir": "fixtures",
+    "support_dir": "support",
+    "file_patterns": {
+      "python": ["test_*.py"],
+      "typescript": ["*.test.ts"]
+    },
+    "test_like_patterns": [
+      "test_*.py",
+      "*_test.py",
+      "*.test.ts",
+      "*.spec.ts",
+      "*.test.tsx",
+      "*.spec.tsx",
+      "*.test.mts",
+      "*.spec.mts",
+      "*.test.js",
+      "*.spec.js",
+      "*.test.jsx",
+      "*.spec.jsx",
+      "*.test.mjs",
+      "*.spec.mjs"
+    ],
+    "name_tokens": {
+      "ignored": ["test", "tests", "spec"],
+      "ticket": "^(?:\\d+|(?:issue|bug|ticket|pr|gh|jira)\\d+)$",
+      "version": "^(?:v\\d+|[a-z]+v\\d+)$",
+      "date": "^(?:(?:19|20)\\d{2}(?:\\d{4})?)$",
+      "trailing_number": "^[a-z]+\\d+$",
+      "numbered_allowlist": [
+        "base32",
+        "base64",
+        "float32",
+        "float64",
+        "http2",
+        "http3",
+        "int16",
+        "int32",
+        "int64",
+        "int8",
+        "ipv4",
+        "ipv6",
+        "md5",
+        "oauth2",
+        "s3",
+        "sha1",
+        "sha256",
+        "sha512",
+        "uint8",
+        "utf16",
+        "utf8",
+        "x509"
+      ]
+    }
+  },
+  "sources": [
+    {
+      "source": "oh-mi-pi-config agent/skills/coding-guidance/references/naming.md",
+      "contributed": "banned words utils, helpers, manager, misc, common, new, old, legacy, compat, fallback; v<N> only as <name>/v<N>; child never repeats parent; plural only for catalogues (skills, references, commands, tests); snake_case Python, kebab-case asset ids; no version, date or ticket names"
+    },
+    {
+      "source": "oh-mi-pi-config agent/skills/coding-guidance/references/structure-and-grouping.md",
+      "contributed": "grab-bag folders common, utils, misc, helpers; one root test folder with fixtures beside the tests"
+    },
+    {
+      "source": "oh-mi-pi-config setup-repository-guardrails python-reference v1 check-python-quality.py (PYQ103/PYQ104)",
+      "contributed": "generic names common, helpers, misc, stuff, temp"
+    },
+    {
+      "source": "raidar tag guardrails-v1-final scripts/checks/check-structure.py and check-python-quality.py",
+      "contributed": "version token pattern (?<![A-Za-z0-9])v\\d+(?![A-Za-z0-9]); generic names common, helpers, misc, stuff, temp; PascalCase classes and snake_case functions; kebab-case skill directories and commands; plural data trees experiments, problems, agents, workflows, stages"
+    },
+    {
+      "source": "game-system tools/guardrails/src/checkers/path-policy.ts (owner decision G3) and paths.ts",
+      "contributed": "forbidden names utils, manager, new, old, legacy, compat, fallback; generic names common, helpers, misc, stuff, temp; attached suffix pattern (?<=.)[-_]?v\\d+$ with standalone <name>/v<N> allowed"
+    },
+    {
+      "source": "game-system tools/guardrails/config/.ls-lint.yml and rules/path-policy.md",
+      "contributed": "kebab-case TypeScript files and directories; kebab-case or upper-case Markdown names; *.test.ts as the only runnable TypeScript test suffix, with .spec and other test-like suffixes rejected"
+    },
+    {
+      "source": "oh-mi-pi-config agent/skills/test-guidance/references/naming-and-layout.md",
+      "contributed": "test files mirror their owner and carry no ticket, version or date tokens; support and fixtures live at the profile's locations"
+    }
+  ]
+}

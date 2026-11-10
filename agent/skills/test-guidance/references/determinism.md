@@ -26,8 +26,8 @@ Prove that the same seed and inputs yield the same state across runs, hosts, ord
 - When a property fails, reproduce it using the generator's reported seed and shrink path.
   Keep the shrunk counterexample as a named example test, then fix the implementation.
 - Change a golden only when an intended domain or protocol rule change justifies it.
-  Record the reason in the repo's change record and PR body, including the first divergent step
-  and whether externally visible outcomes changed.
+  Enforced by TEST.golden-change-record (omp-guardrails diff-check).
+  The recorded reason and PR body name the first divergent step and whether externally visible outcomes changed.
 - A golden that changes without an intended rule change is a failure to investigate.
   Never regenerate expected output merely to make a test pass.
   Use the repo's established golden verification and regeneration commands.

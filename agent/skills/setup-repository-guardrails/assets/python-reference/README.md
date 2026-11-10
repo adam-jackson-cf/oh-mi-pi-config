@@ -1,37 +1,52 @@
-# Python reference implementations
+# omp-guardrails
 
-These files implement the bundled guardrail rules with Python AST checks, import
-normalization, portable thresholds, and Ruff and mypy settings. The authoritative
-contract is `../guardrail-rules.json`; no external source checkout is required.
+`omp-guardrails` is the configured Python reference for the
+[rule catalogue](../guardrail-rules.json). Repositories install it pinned and
+configure it with data. They never copy, adapt or edit its code. A behaviour
+the settings cannot express is a change to this package, made here.
 
-They are reference implementations, not drop-in target files. Before application,
-the target adapts every per-target configuration below from its maintained-source
-inventory and approved ownership maps:
+## Install
 
-- `python_quality_scope.py`: populate `MAINTAINED_ROOTS` and, where relevant,
-  `SKILL_ROOTS`. Empty maintained roots leave discovered Python files unmapped
-  (`PYQ100`), not approved. Add exclusions only for documented non-maintained
-  paths; generic build, dependency, and tool-cache exclusions are bundled.
-- `check-python-quality.py`: populate test/script roots, canonical test groups,
-  script names, non-package directory names, and justified path exceptions. Map
-  analyzer roots and approved bases, project-analyzer bases to entrypoint method
-  names, dynamic-import scope and adapters, and contract files. Empty allowlists
-  grant no exceptions. Subprocess calls require an approved file/function wrapper.
-- `check-python-scalability.py`: set `ANALYZER_PREFIX` to the target's analyzer-like
-  source prefixes and `OWNERSHIP_MARKERS` to its approved ownership files. An empty
-  prefix tuple means no analyzer-like scope has been configured, not proof that
-  those conditional rules are inapplicable. Loop-depth checks remain independent.
-- `check-python-fanout.py`: pass every maintained import root with `--source-root`
-  and review any additional non-maintained exclusions.
-- `mypy.ini`: set the supported Python version, every maintained import root and
-  package, and justified exclusions. Add named module overrides only with evidence
-  for missing stubs or decorator typing; no project-specific exceptions ship.
-- `ruff.toml`: set the supported Python version and maintained first-party package
-  names. Review exclusions and lint exceptions against the target inventory.
+Add a dev dependency pinned to a commit of the skill repository, never to a
+branch, and lock it (for example with `uv.lock`):
 
-All empty collections and per-target comments are configuration obligations, not
-completed target enforcement. Copying these files without adaptation does not
-satisfy the rule-coverage gate. Prove every applicable rule with positive and
-negative canaries and reject missing coverage. A target without Python maps the
-portable semantics to its chosen language; Python-only exclusions still need
-user-approved evidence.
+```text
+omp-guardrails @ git+https://github.com/adam-jackson-cf/oh-mi-pi-config@<commit>#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference
+```
+
+Use the `omp-guardrails[pytest]` extra when the repository runs pytest. The
+runtime code otherwise needs only the standard library (Python 3.11 or newer).
+To upgrade, bump `<commit>` in a normal pull request so the gate runs.
+`omp-guardrails init` writes this pin together with the gate, hook and CI
+wiring.
+
+## Configure
+
+Every per-repository value lives in the JSON front matter of
+`.omp/test-profile.md`:
+
+- The test-guidance keys (tiers, layout, `public_entry_points`, budgets and
+  others) feed the test-evidence, diff, environment and surface checkers.
+- `guardrails.<checker>` holds checker settings, such as
+  `guardrails.python` for `python-quality`, `python-scalability` and
+  `python-fanout`, or `guardrails.structure` and `guardrails.naming`.
+- `house_style.version` records the shipped
+  `omp_guardrails/data/house-style.json` version. `house_style.exceptions`
+  lists exceptions as `{rule, path, adr}`; an exception without an ADR is
+  ignored.
+
+Each checker module's docstring lists its settings and defaults. Defaults grant
+nothing: an unset allowlist approves no path, and an unset rule scope covers
+every maintained root. Unconfigured repositories therefore fail with findings
+instead of passing silently. Numeric defaults are the catalogue contract
+values.
+
+## Run
+
+```text
+omp-guardrails <subcommand> [--repo DIR] [path ...]
+omp-guardrails --help
+```
+
+Each finding prints as `path: RULE: message; fix`. The exit code is `0` with
+no findings, `1` with findings and `2` for a usage error.

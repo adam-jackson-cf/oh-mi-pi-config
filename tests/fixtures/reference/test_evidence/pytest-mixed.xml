@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="1" failures="1" skipped="2" tests="6" time="2.000" timestamp="2026-11-10T12:00:00" hostname="runner">
+    <properties>
+      <property name="omp.revision" value="0123456789abcdef0123456789abcdef01234567"/>
+      <property name="omp.runtime" value="python 3.12.4"/>
+      <property name="omp.tier" value="t1"/>
+      <property name="omp.exit_code" value="1"/>
+    </properties>
+    <testcase classname="tests.test_parser.TestParse" name="test_reads_header" time="0.120"/>
+    <testcase classname="tests.test_parser.TestParse" name="test_rejects_empty" time="0.050">
+      <failure message="AssertionError: expected ValueError">trace</failure>
+    </testcase>
+    <testcase classname="tests.test_parser" name="test_unicode" time="0.000">
+      <skipped type="pytest.skip" message="needs locale">skip</skipped>
+    </testcase>
+    <testcase classname="tests.test_parser" name="test_known_bug" time="0.010">
+      <skipped type="pytest.xfail" message="issue pending">xfail</skipped>
+    </testcase>
+    <testcase classname="tests.test_flaky" name="test_eventually" time="0.300">
+      <rerunFailure message="timeout">first attempt</rerunFailure>
+    </testcase>
+    <testcase classname="" name="tests.test_broken" time="0.000">
+      <error message="collection failure">ImportError</error>
+    </testcase>
+  </testsuite>
+</testsuites>

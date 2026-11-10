@@ -21,6 +21,9 @@ Establish a safe, reproducible target and adoption scope before analysis.
 6. Record whether the target has an existing hook, gate runner, test suite, type checker, linter, or
    documentation ownership rule. Existing files remain owned by the target until the user chooses
    keep, merge, or replace.
+7. Record the setup mode for `init`: `greenfield` when the target has no guardrail checks,
+   `adopt` when hand-written checkers exist that a skill reference would replace, and `extend`
+   when guardrails exist and only a missing part is added, such as a verification surface.
 
 ## Done when
 

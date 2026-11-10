@@ -25,6 +25,26 @@ def _json_object(path: Path) -> dict[str, Any]:
     return data
 
 
+def _reference(value: object, rule_id: str) -> None:
+    """Check a catalog ``reference``: the omp-guardrails subcommands and modules enforcing it.
+
+    It records where the pinned Python reference implements the rule. A target still proves
+    the rule through its own ledger row, invocations and canaries.
+    """
+    if not isinstance(value, list) or not value:
+        raise CoverageError(f"invalid catalog reference: {rule_id}")
+    for item in value:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"subcommand", "module"}
+            or not isinstance(item["subcommand"], str)
+            or not item["subcommand"].strip()
+            or not isinstance(item["module"], str)
+            or not item["module"].startswith("omp_guardrails.")
+        ):
+            raise CoverageError(f"invalid catalog reference: {rule_id}")
+
+
 def _rows(data: dict[str, Any], label: str) -> dict[str, dict[str, Any]]:
     if data.get("schema_version") != 1 or not isinstance(data.get("rules"), list):
         raise CoverageError(f"invalid {label} schema")
@@ -35,6 +55,8 @@ def _rows(data: dict[str, Any], label: str) -> dict[str, dict[str, Any]]:
         rule_id = row["id"]
         if rule_id in rows:
             raise CoverageError(f"duplicate {label} rule: {rule_id}")
+        if label == "catalog" and "reference" in row:
+            _reference(row["reference"], rule_id)
         rows[rule_id] = row
     if not rows:
         raise CoverageError(f"empty {label} rule set")

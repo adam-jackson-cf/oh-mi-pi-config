@@ -11,7 +11,11 @@
         "reject_unmapped_or_forbidden_dependency_edges": true,
         "diagnostic_names_file_edge_and_fix": true
       },
-      "summary": "Reject dependencies outside the target's declared layer direction."
+      "summary": "Reject dependencies outside the target's declared layer direction.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"},
+        {"subcommand": "structure", "module": "omp_guardrails.structure.layout"}
+      ]
     },
     {
       "id": "STRUCT.folder-placement",
@@ -21,9 +25,14 @@
       "contract": {
         "target_path_ownership_map_required": true,
         "reject_unmapped_or_misplaced_files": true,
-        "diagnostic_names_file_and_destination": true
+        "diagnostic_names_file_and_destination": true,
+        "grab_bag_folder_words_source": "house_style_banned_words"
       },
-      "summary": "Require files to live under their declared capability owner."
+      "summary": "Require files to live under their declared capability owner.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"},
+        {"subcommand": "structure", "module": "omp_guardrails.structure.layout"}
+      ]
     },
     {
       "id": "NAME.conventions",
@@ -35,7 +44,10 @@
         "reject_nonmatching_names": true,
         "diagnostic_names_file_and_correct_name": true
       },
-      "summary": "Enforce the target's explicit file, folder, and symbol naming conventions."
+      "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
+      "reference": [
+        {"subcommand": "naming", "module": "omp_guardrails.structure.naming"}
+      ]
     },
     {
       "id": "TEST.placement",
@@ -45,9 +57,14 @@
       "contract": {
         "target_test_to_owner_and_tier_map_required": true,
         "reject_unmapped_or_misplaced_tests": true,
-        "diagnostic_names_file_and_destination": true
+        "diagnostic_names_file_and_destination": true,
+        "fixtures_and_support_under_profile_layout": true,
+        "t2_files_map_to_profile_ownership_areas": true
       },
-      "summary": "Place tests with their declared behavior owner and test tier."
+      "summary": "Place tests with their declared behavior owner and test tier.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"}
+      ]
     },
     {
       "id": "TEST.budget.fast-tier-time",
@@ -55,15 +72,21 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "input": "test_runner_json_report",
-        "measurement": "fast_tier_wall_clock_seconds",
-        "limit_source": "target_owned_limit_set_from_recorded_baseline_runs",
+        "input": "normalised_junit_run_report",
+        "limit_source": "profile_fast_tier_budget_machines",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
         "baseline_runs_min": 5,
-        "limit_reported_provisional_until_repo_measure_run": true,
         "limit_increase_requires_owner_approval": true,
-        "missing_or_invalid_measurement_is_failure": true
+        "local_commit_blocks_over_approved_limit": true,
+        "ci_timing_report_only": true,
+        "unknown_machine_report_only_with_record_baseline_prompt": true,
+        "missing_invalid_or_stale_report_is_failure_everywhere": true,
+        "measurement": "fast_tier_wall_clock_seconds"
       },
-      "summary": "Fail when the fast test tier exceeds its wall-clock budget."
+      "summary": "Block a local commit when the fast tier exceeds the machine's approved wall-clock limit.",
+      "reference": [
+        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.budgets"}
+      ]
     },
     {
       "id": "TEST.budget.per-test-time",
@@ -71,15 +94,22 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "input": "test_runner_json_report",
-        "scope": "fast_tier_test_cases",
-        "limit_source": "target_owned_limit_set_from_recorded_baseline_runs",
+        "input": "normalised_junit_run_report",
+        "limit_source": "profile_fast_tier_budget_machines",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
         "baseline_runs_min": 5,
         "limit_increase_requires_owner_approval": true,
-        "missing_or_invalid_measurement_is_failure": true,
+        "local_commit_blocks_over_approved_limit": true,
+        "ci_timing_report_only": true,
+        "unknown_machine_report_only_with_record_baseline_prompt": true,
+        "missing_invalid_or_stale_report_is_failure_everywhere": true,
+        "scope": "fast_tier_test_cases",
         "diagnostic_names_test_and_speedup_fix_never_tier_move": true
       },
-      "summary": "Fail when an individual fast-tier test exceeds its duration budget."
+      "summary": "Block a local commit when a fast-tier test exceeds the machine's approved per-test limit.",
+      "reference": [
+        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.budgets"}
+      ]
     },
     {
       "id": "TEST.growth.justified",
@@ -129,7 +159,10 @@
         "check_only": true,
         "nonzero_exit_propagates": true
       },
-      "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite."
+      "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite.",
+      "reference": [
+        {"subcommand": "gate", "module": "omp_guardrails.catalogue.gate_runner"}
+      ]
     },
     {
       "id": "GATE.pre-commit",
@@ -145,7 +178,10 @@
         "hook_installed_in_every_clone": true,
         "nonzero_exit_blocks_commit": true
       },
-      "summary": "Run checks.commit before every commit through an installed hook and propagate failure."
+      "summary": "Run checks.commit before every commit through an installed hook and propagate failure.",
+      "reference": [
+        {"subcommand": "hook-check", "module": "omp_guardrails.catalogue.hook_installation"}
+      ]
     },
     {
       "id": "GATE.path-check",
@@ -161,7 +197,10 @@
         "diagnostic": "one_error_per_line_naming_file_and_fix",
         "checks": ["structure", "naming", "test_placement"]
       },
-      "summary": "Expose executable changed-path checks with actionable per-file errors."
+      "summary": "Expose executable changed-path checks with actionable per-file errors.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"}
+      ]
     },
     {
       "id": "GIT.required-checks",
@@ -185,7 +224,10 @@
         "count": "distinct_non_stdlib_architectural_imports",
         "max_non_stdlib_dependencies": 10
       },
-      "summary": "Bound non-stdlib architectural imports."
+      "summary": "Bound non-stdlib architectural imports.",
+      "reference": [
+        {"subcommand": "python-fanout", "module": "omp_guardrails.python_policy.fanout"}
+      ]
     },
     {
       "id": "FANOUT.large-module",
@@ -196,7 +238,10 @@
         "count": "distinct_non_stdlib_architectural_imports",
         "max_non_stdlib_dependencies": 3
       },
-      "summary": "Use a tighter fan-out limit for large modules."
+      "summary": "Use a tighter fan-out limit for large modules.",
+      "reference": [
+        {"subcommand": "python-fanout", "module": "omp_guardrails.python_policy.fanout"}
+      ]
     },
     {
       "id": "MYPY.SETTING.exclude",
@@ -292,14 +337,20 @@
       "contract": {
         "declared_analyzer_dependencies_match_install": true
       },
-      "summary": "Fail when declared optional analyzer dependencies and installation behavior drift."
+      "summary": "Fail when declared optional analyzer dependencies and installation behavior drift.",
+      "reference": [
+        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
+      ]
     },
     {
       "id": "PARITY.install-guidance",
       "kind": "process",
       "applicability": "conditional",
       "contract": {},
-      "summary": "Keep documented install commands aligned with the actual installer."
+      "summary": "Keep documented install commands aligned with the actual installer.",
+      "reference": [
+        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
+      ]
     },
     {
       "id": "PARITY.lock-version",
@@ -309,7 +360,10 @@
         "tracked_lockfile": true,
         "version_sync": true
       },
-      "summary": "Fail when package metadata and lockfile versions drift."
+      "summary": "Fail when package metadata and lockfile versions drift.",
+      "reference": [
+        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
+      ]
     },
     {
       "id": "PRETTIER.version",
@@ -328,7 +382,10 @@
       "contract": {
         "target_maintained_roots_required": true
       },
-      "summary": "Maintained Python source roots"
+      "summary": "Maintained Python source roots",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ101",
@@ -338,7 +395,10 @@
         "target_script_name_allowlist_required": true,
         "kebab_case_for_command_scripts": true
       },
-      "summary": "Approved script file naming and allowlist"
+      "summary": "Approved script file naming and allowlist",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ102",
@@ -348,27 +408,36 @@
         "target_canonical_test_groups_required": true,
         "target_must_map_groups": true
       },
-      "summary": "Canonical test directory groups"
+      "summary": "Canonical test directory groups",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ103",
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "restricted_name_parts": ["common", "helpers", "misc", "stuff", "temp"],
+        "restricted_name_parts": "python-reference/omp_guardrails/data/house-style.json banned_words",
         "target_allowlist_required": true
       },
-      "summary": "No unapproved generic directory names"
+      "summary": "No unapproved generic directory names",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ104",
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "restricted_name_parts": ["common", "helpers", "misc", "stuff", "temp"],
+        "restricted_name_parts": "python-reference/omp_guardrails/data/house-style.json banned_words",
         "target_allowlist_required": true
       },
-      "summary": "No unapproved generic module names"
+      "summary": "No unapproved generic module names",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ105",
@@ -377,7 +446,10 @@
       "contract": {
         "style": "snake_case"
       },
-      "summary": "Python package directories use snake_case"
+      "summary": "Python package directories use snake_case",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ106",
@@ -386,7 +458,10 @@
       "contract": {
         "style": "kebab-case"
       },
-      "summary": "Skill directories use kebab-case"
+      "summary": "Skill directories use kebab-case",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ107",
@@ -395,7 +470,10 @@
       "contract": {
         "style": "snake_case"
       },
-      "summary": "Python module names use snake_case"
+      "summary": "Python module names use snake_case",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ200",
@@ -404,7 +482,22 @@
       "contract": {
         "max_lines": 700
       },
-      "summary": "Class length at most 700 lines"
+      "summary": "Class length at most 700 lines",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
+    },
+    {
+      "id": "PYQ201",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_public_methods": "profile guardrails.python.class_limits.max_public_methods; off when unset"
+      },
+      "summary": "Public methods per class at most the profile's approved limit",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ202",
@@ -413,7 +506,10 @@
       "contract": {
         "max_parameters": 8
       },
-      "summary": "Constructor parameters at most 8"
+      "summary": "Constructor parameters at most 8",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ203",
@@ -422,7 +518,10 @@
       "contract": {
         "max_attributes": 12
       },
-      "summary": "Instance attributes at most 12"
+      "summary": "Instance attributes at most 12",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ210",
@@ -431,7 +530,10 @@
       "contract": {
         "approved_base_or_mixin_required": true
       },
-      "summary": "Analyzer classes inherit an approved analyzer base or mixin"
+      "summary": "Analyzer classes inherit an approved analyzer base or mixin",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ211",
@@ -440,7 +542,10 @@
       "contract": {
         "project_entrypoint_required": true
       },
-      "summary": "Project analyzers implement the project entrypoint"
+      "summary": "Project analyzers implement the project entrypoint",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ220",
@@ -449,7 +554,10 @@
       "contract": {
         "approved_subprocess_wrapper_map_required": true
       },
-      "summary": "Subprocess calls stay in approved seam wrappers"
+      "summary": "Subprocess calls stay in approved seam wrappers",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ221",
@@ -458,7 +566,10 @@
       "contract": {
         "dynamic_import_adapter_allowlist_required": true
       },
-      "summary": "Dynamic imports stay in adapter modules"
+      "summary": "Dynamic imports stay in adapter modules",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ230",
@@ -467,7 +578,10 @@
       "contract": {
         "named_callable_aliases_required": true
       },
-      "summary": "Contract callables use named aliases"
+      "summary": "Contract callables use named aliases",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ231",
@@ -476,7 +590,10 @@
       "contract": {
         "prohibit_any_collaborator_boundary": true
       },
-      "summary": "Collaborator contracts do not use Any"
+      "summary": "Collaborator contracts do not use Any",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYQ299",
@@ -485,7 +602,10 @@
       "contract": {
         "parse_error_is_failure": true
       },
-      "summary": "Undecodable source fails closed"
+      "summary": "Undecodable source fails closed",
+      "reference": [
+        {"subcommand": "python-quality", "module": "omp_guardrails.python_policy.quality"}
+      ]
     },
     {
       "id": "PYS000",
@@ -494,7 +614,10 @@
       "contract": {
         "parse_error_is_failure": true
       },
-      "summary": "Unparsable source fails closed"
+      "summary": "Unparsable source fails closed",
+      "reference": [
+        {"subcommand": "python-scalability", "module": "omp_guardrails.python_policy.scalability"}
+      ]
     },
     {
       "id": "PYS250",
@@ -503,7 +626,10 @@
       "contract": {
         "max_loop_depth": 2
       },
-      "summary": "Nested loop and comprehension depth at most 2"
+      "summary": "Nested loop and comprehension depth at most 2",
+      "reference": [
+        {"subcommand": "python-scalability", "module": "omp_guardrails.python_policy.scalability"}
+      ]
     },
     {
       "id": "PYS251",
@@ -513,7 +639,10 @@
         "scope": "analyzer_like_code",
         "approved_seam_required": true
       },
-      "summary": "No synchronous filesystem I/O in analyzer-like code"
+      "summary": "No synchronous filesystem I/O in analyzer-like code",
+      "reference": [
+        {"subcommand": "python-scalability", "module": "omp_guardrails.python_policy.scalability"}
+      ]
     },
     {
       "id": "PYS252",
@@ -523,7 +652,10 @@
         "scope": "analyzer_like_code",
         "approved_seam_required": true
       },
-      "summary": "No direct subprocess or environment access in analyzer-like code"
+      "summary": "No direct subprocess or environment access in analyzer-like code",
+      "reference": [
+        {"subcommand": "python-scalability", "module": "omp_guardrails.python_policy.scalability"}
+      ]
     },
     {
       "id": "PYS253",
@@ -533,7 +665,10 @@
         "scope": "analyzer_like_code",
         "ownership_marker_required": true
       },
-      "summary": "Analyzer-like subsystem has an ownership marker"
+      "summary": "Analyzer-like subsystem has an ownership marker",
+      "reference": [
+        {"subcommand": "python-scalability", "module": "omp_guardrails.python_policy.scalability"}
+      ]
     },
     {
       "id": "RUFF.FORMAT.docstring-code-format",
@@ -1036,9 +1171,15 @@
       "kind": "process",
       "applicability": "always",
       "contract": {
-        "negative_case_required": true
+        "negative_case_required": true,
+        "missing_skipped_timed_out_or_infrastructure_failed_required_check_is_failure": true,
+        "empty_collection_is_failure": true
       },
-      "summary": "A failed prerequisite cannot be reported as a passing gate."
+      "summary": "A failed prerequisite cannot be reported as a passing gate.",
+      "reference": [
+        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.propagation"},
+        {"subcommand": "collection-check", "module": "omp_guardrails.test_evidence.collection"}
+      ]
     },
     {
       "id": "TEST.subprocess-timeouts",
@@ -1053,6 +1194,283 @@
       "applicability": "conditional",
       "contract": {},
       "summary": "Run fast unit and integration checks at commit time and reserve real slow seams for their owning release path."
+    },
+    {
+      "id": "TEST.no-self-mocking",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owned_code": "packages_owning_profile_public_entry_points",
+        "reject_mock_stub_fake_or_runtime_patch_targets_inside_owned_code": true,
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_test_target_and_public_entry_point_fix": true
+      },
+      "summary": "Reject tests that mock, stub, fake or patch the repository's own code.",
+      "reference": [
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+      ]
+    },
+    {
+      "id": "TEST.no-test-hooks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_production_symbols_referenced_only_from_tests": true,
+        "reject_test_marker_env_or_flag_names_in_production_code": true,
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_symbol_and_production_input_fix": true
+      },
+      "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
+      "reference": [
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+      ]
+    },
+    {
+      "id": "TEST.no-evasion",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_unapproved_static_skip_xfail_focus_or_flaky_markers": true,
+        "reject_unapproved_skips_and_retries_to_green_in_run_report": true,
+        "reject_timeout_increases_in_changed_tests": true,
+        "mechanism": ["adapter_source_patterns", "normalised_junit_run_report"]
+      },
+      "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
+      "reference": [
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"},
+        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.propagation"}
+      ]
+    },
+    {
+      "id": "TEST.fast-tier-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "t1_setup_call_and_teardown",
+        "subprocess_creation_is_failure": true,
+        "network_connection_is_failure": true,
+        "guard_location_source": "profile_guards_process_and_network",
+        "ci_mechanism": "network_denied_test_container",
+        "local_mechanism": "adapter_guard_hook"
+      },
+      "summary": "Fail any T1 test that starts a process or opens a network connection.",
+      "reference": [
+        {"subcommand": "guard-run", "module": "omp_guardrails.environment.guarded_run"},
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+      ]
+    },
+    {
+      "id": "TEST.user-data-guard",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_with_home_and_xdg_directories_in_temp_directory": true,
+        "changed_file_under_real_user_home_outside_temp_is_failure": true,
+        "guard_location_source": "profile_guards_user_data"
+      },
+      "summary": "Fail the test session when a live user file changes.",
+      "reference": [
+        {"subcommand": "guard-run", "module": "omp_guardrails.environment.guarded_run"}
+      ]
+    },
+    {
+      "id": "TEST.tier-selectors",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "collect_only_test_ids_per_tier",
+        "selector_source": "profile_tiers",
+        "one_tier_per_file": true,
+        "overlapping_selection_is_failure": true,
+        "unselected_test_file_is_failure": true
+      },
+      "summary": "Require strict, disjoint tier selectors that together select every test file.",
+      "reference": [
+        {"subcommand": "collection-check", "module": "omp_guardrails.test_evidence.collection"}
+      ]
+    },
+    {
+      "id": "TEST.coverage-ratchet",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "floor_source": "profile_coverage",
+        "added_coverage_exclusion_or_pragma_is_failure": true,
+        "lowered_floor_or_changed_exclusion_config_requires_approval_reference": true
+      },
+      "summary": "Reject new coverage exclusions and unapproved floor or exclusion changes.",
+      "reference": [
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.coverage_ratchet"}
+      ]
+    },
+    {
+      "id": "TEST.golden-change-record",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "changed_golden_requires_change_record_entry_naming_it": true,
+        "reason_correctness": "verifier_review"
+      },
+      "summary": "Require a change-record entry naming every changed golden file.",
+      "reference": [
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.golden_record"}
+      ]
+    },
+    {
+      "id": "TEST.identity-artefacts",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "artefact_source": "profile_identity_artefacts",
+        "applies_when_no_production_file_changed": true,
+        "changed_identity_artefact_is_failure": true
+      },
+      "summary": "Keep identity-bearing artefacts unchanged in test-only work.",
+      "reference": [
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.identity_artefacts"}
+      ]
+    },
+    {
+      "id": "TEST.property-seed",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "property_tests_set_or_report_seed": true,
+        "mechanism": "adapter_source_patterns"
+      },
+      "summary": "Require property tests to set or report their seed.",
+      "reference": [
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+      ]
+    },
+    {
+      "id": "TEST.mutation-sensitivity",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "changed_code_relative_to_base_ref",
+        "tool_source": "adapter_mutation_tool",
+        "run_event": "t3_nightly",
+        "surviving_mutant_in_changed_behaviour_is_failure": true,
+        "proofs_covered_by_red_at_parent": true
+      },
+      "summary": "Fail when a mutation of changed code leaves every test green.",
+      "reference": [
+        {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
+      ]
+    },
+    {
+      "id": "NAME.test-files",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_sources": ["house_style_test_roots", "profile_layout_test_file_patterns"],
+        "reject_ticket_version_or_date_tokens": true,
+        "nonmatching_test_file_is_failure": true,
+        "diagnostic_names_file_and_correct_name": true
+      },
+      "summary": "Require test file names to match the profile patterns without ticket, version or date tokens.",
+      "reference": [
+        {"subcommand": "naming", "module": "omp_guardrails.structure.naming"}
+      ]
+    },
+    {
+      "id": "PROFILE.complete",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "profile": ".omp/test-profile.md",
+        "format": "json_front_matter",
+        "missing_values": [
+          "absent",
+          "empty",
+          "template_placeholder",
+          "n/a",
+          "TBD",
+          "unapproved_none"
+        ],
+        "exemptable_sections": [
+          "verification_surface",
+          "run_events.nightly_scheduler",
+          "identity_artefacts"
+        ],
+        "exemption_requires": ["none_reason", "approval_reference"],
+        "prove_prerequisite": true
+      },
+      "summary": "Require every repo test profile value, allowing only three approved exemptions.",
+      "reference": [
+        {"subcommand": "profile-check", "module": "omp_guardrails.config.profile"}
+      ]
+    },
+    {
+      "id": "SURFACE.feature-map",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "path_source": "profile_verification_surface_feature_map_path",
+        "one_document_per_feature": true,
+        "exact_h2_sections": [
+          "Sub-features",
+          "How to get to it (user POV)",
+          "Driving it with <lever>",
+          "Gotchas"
+        ],
+        "stale_link_is_failure": true
+      },
+      "summary": "Require one feature-map document per feature with exactly the four fixed sections.",
+      "reference": [
+        {"subcommand": "surface-lint", "module": "omp_guardrails.surface.feature_map"}
+      ]
+    },
+    {
+      "id": "SURFACE.journeys",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_source": "profile_verification_surface_journey_file_pattern",
+        "nonmatching_journey_file_is_failure": true,
+        "journey_must_call_lever": true
+      },
+      "summary": "Require journeys to match the profile pattern and drive the lever.",
+      "reference": [
+        {"subcommand": "surface-lint", "module": "omp_guardrails.surface.journeys"}
+      ]
+    },
+    {
+      "id": "SURFACE.lever-isolation",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_event": "ci",
+        "doctor_failure_prints_profile_marker": true,
+        "kills_only_own_process_group": true,
+        "per_instance_ports_and_data": true,
+        "no_leftover_processes_or_ports": true,
+        "evidence_directory_survives_cleanup": true
+      },
+      "summary": "Self-test the lever: visible doctor failure, own-process cleanup and surviving evidence.",
+      "reference": [
+        {"subcommand": "lever-selftest", "module": "omp_guardrails.surface.lever_selftest"}
+      ]
     }
   ]
 }

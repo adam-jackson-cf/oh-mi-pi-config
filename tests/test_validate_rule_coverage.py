@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -27,6 +28,48 @@ AGENTIC_RULE_IDS = {
     "GATE.path-check",
     "GIT.required-checks",
 }
+# Rules added with Python reference v2 (test-guidance v2 determinism map, verification surface).
+V2_RULE_IDS = {
+    "TEST.no-self-mocking",
+    "TEST.no-test-hooks",
+    "TEST.no-evasion",
+    "TEST.fast-tier-isolation",
+    "TEST.user-data-guard",
+    "TEST.tier-selectors",
+    "TEST.coverage-ratchet",
+    "TEST.golden-change-record",
+    "TEST.identity-artefacts",
+    "TEST.property-seed",
+    "TEST.mutation-sensitivity",
+    "NAME.test-files",
+    "PROFILE.complete",
+    "SURFACE.feature-map",
+    "SURFACE.journeys",
+    "SURFACE.lever-isolation",
+}
+REFERENCE_ROOT = VALIDATOR.parents[1] / "assets/python-reference"
+
+
+def _module_sources(module: str) -> list[Path]:
+    """Source files of a reference module: one ``.py`` file, or a package's code and rules."""
+    path = REFERENCE_ROOT.joinpath(*module.split("."))
+    if path.is_dir():
+        return sorted(p for p in path.rglob("*") if p.suffix in {".py", ".yml", ".json"})
+    return [path.with_suffix(".py")] if path.with_suffix(".py").is_file() else []
+
+
+def _reference_imports(sources: list[Path]) -> set[str]:
+    """``omp_guardrails`` modules imported by the given Python sources."""
+    imported: set[str] = set()
+    for source in sources:
+        if source.suffix != ".py":
+            continue
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "omp_guardrails."
+            ):
+                imported.add(node.module)
+    return imported
 
 
 class CoverageGateTests(unittest.TestCase):
@@ -278,13 +321,14 @@ class CoverageGateTests(unittest.TestCase):
         catalog = json.loads(catalog_path.read_text())
         rows = {row["id"]: row for row in catalog["rules"]}
         assert len(rows) == len(catalog["rules"])
-        assert AGENTIC_RULE_IDS <= rows.keys()
-        for rule_id in AGENTIC_RULE_IDS:
+        assert AGENTIC_RULE_IDS | V2_RULE_IDS <= rows.keys()
+        for rule_id in AGENTIC_RULE_IDS | V2_RULE_IDS:
             with self.subTest(rule=rule_id):
                 row = rows[rule_id]
-                assert set(row) == {
+                assert set(row) - {"reference"} == {
                     "id", "kind", "applicability", "contract", "summary", "evidence_kind"
                 }
+                assert rule_id not in V2_RULE_IDS or "reference" in row
                 assert row["kind"] in {"bespoke", "process", "tool"}
                 assert row["applicability"] in {"always", "conditional"}
                 assert isinstance(row["contract"], dict) and row["contract"]
@@ -314,6 +358,52 @@ class CoverageGateTests(unittest.TestCase):
         result = self._run()
         assert result.returncode != 0
         assert "missing rule:" in result.stderr
+
+    def test_catalog_reference_must_name_omp_guardrails_modules(self) -> None:
+        for reference in (
+            [],
+            "omp-guardrails naming",
+            [{"subcommand": "naming"}],
+            [{"subcommand": "naming", "module": "checks.naming"}],
+            [{"subcommand": " ", "module": "omp_guardrails.structure.naming"}],
+        ):
+            with self.subTest(reference=reference):
+                self.catalog["rules"][0]["reference"] = reference
+                result = self._run()
+                assert result.returncode != 0
+                assert "invalid catalog reference: RULE.A" in result.stderr
+        self.catalog["rules"][0]["reference"] = [
+            {"subcommand": "naming", "module": "omp_guardrails.structure.naming"}
+        ]
+        result = self._run()
+        assert result.returncode == 0, result.stderr
+
+    def test_catalog_references_resolve_to_reference_subcommands_and_modules(self) -> None:
+        sys.path.insert(0, str(REFERENCE_ROOT))
+        self.addCleanup(sys.path.remove, str(REFERENCE_ROOT))
+        from omp_guardrails import cli
+
+        catalog = json.loads((VALIDATOR.parents[1] / "assets/guardrail-rules.json").read_text())
+        for row in catalog["rules"]:
+            for item in row.get("reference", []):
+                subcommand, module = item["subcommand"], item["module"]
+                with self.subTest(rule=row["id"], subcommand=subcommand, module=module):
+                    assert subcommand in cli.SUBCOMMANDS
+                    if subcommand == "adapter":
+                        assert module.startswith(cli.ADAPTER_PACKAGE + ".")
+                    else:
+                        assert module in cli.SUBCOMMANDS[subcommand].modules
+                    sources = _module_sources(module)
+                    assert sources, f"missing module {module}"
+                    # The module, or a reference module it imports, emits the rule ID.
+                    sources += [
+                        source
+                        for imported in _reference_imports(sources)
+                        for source in _module_sources(imported)
+                    ]
+                    assert any(
+                        row["id"] in source.read_text(encoding="utf-8") for source in sources
+                    ), f"{module} never names {row['id']}"
 
     def test_target_derived_tool_rules_require_live_configuration_evidence(self) -> None:
         assets = VALIDATOR.parent.parent / "assets"
