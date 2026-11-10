@@ -801,15 +801,20 @@ export default function agentRails(
 				}
 			}
 			changed = [...new Set(candidates)];
-			if (changed.length) {
-				// exec has no stdin option: pass filenames as positional arguments, never shell source.
-				const ignored = await pi.exec("sh", ["-c", 'printf "%s\\0" "$@" | git check-ignore -z --stdin', "agent-rails", ...changed], { cwd: canonicalRoot, timeout: 20000 });
-				// Fake/non-Git repositories and Git errors do not exempt any existing path.
-				if (!ignored.killed && (ignored.code === 0 || ignored.code === 1)) {
-					const excluded = new Set(ignored.stdout.split("\0").filter(Boolean));
-					changed = changed.filter(path => !excluded.has(path));
-				}
+			const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: 20000 });
+			if (status.code !== 0 || status.killed) {
+				throw new Error(`git status failed${status.killed ? " (killed)" : ` (exit ${status.code})`}: ${status.stderr || status.stdout}`.trim());
 			}
+			const changedPaths = new Set<string>();
+			const records = status.stdout.split("\0");
+			for (let index = 0; index < records.length; index++) {
+				const record = records[index];
+				if (!record) continue;
+				changedPaths.add(record.slice(3));
+				// In NUL-delimited porcelain, rename/copy destinations precede their source path.
+				if (record.slice(0, 2).includes("R") || record.slice(0, 2).includes("C")) index++;
+			}
+			changed = changed.filter(path => changedPaths.has(relative(canonicalRoot, path)));
 			if (!changed.length) { state.pathFailures.delete(root); return; }
 			const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changed], {
 				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? 20000,
