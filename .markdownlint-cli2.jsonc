@@ -3,5 +3,19 @@
     "MD013": {
       "line_length": 100
     }
-  }
+  },
+  "overrides": [
+    {
+      "filter": [
+        "agent/skills/codegraph/**",
+        "agent/skills/coding-guidance/**",
+        "agent/skills/test-guidance/**",
+        "agent/skills/git-tool/**"
+      ],
+      "config": {
+        "MD013": false
+      },
+      "combine": "merge"
+    }
+  ]
 }
