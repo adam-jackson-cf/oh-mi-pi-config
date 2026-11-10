@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "about": "Framework-agnostic adapter conformance spec (plan section 1.12). Every adapter implements each case as a fixture in its framework and must classify it as stated. 'evidence' names the layer the adapter produces: source (ast-grep patterns), run-report (guarded run plus normalised JUnit report) or collection (collect-only IDs per tier). 'expect' is finding (the rule reports it), clean (the rule does not), or a normalised record or collected IDs the adapter must produce.",
+  "cases": [
+    {"id": "self-mocking-dotted-target", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test patches a function of an owned package by its dotted name", "expect": "finding"},
+    {"id": "self-mocking-imported-object", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test patches an attribute of an imported owned module object", "expect": "finding"},
+    {"id": "self-mocking-assignment", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test rebinds an attribute of an owned module by assignment", "expect": "finding"},
+    {"id": "self-mocking-spec", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test builds a mock specced on an owned class", "expect": "finding"},
+    {"id": "boundary-fake-allowed", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test fakes only standard-library and third-party boundaries", "expect": "clean"},
+    {"id": "unapproved-static-skip", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test carries a static skip marker with no recorded exception", "expect": "finding"},
+    {"id": "approved-static-skip", "rule": "TEST.no-evasion", "evidence": "source", "situation": "the same static skip is covered by an ADR-backed house-style exception for its path", "expect": "clean"},
+    {"id": "retry-marker", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test is marked for automatic reruns until green", "expect": "finding"},
+    {"id": "expected-failure-marker", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test is marked as an expected failure", "expect": "finding"},
+    {"id": "property-without-seed", "rule": "TEST.property-seed", "evidence": "source", "situation": "a property test neither fixes nor reports its seed", "expect": "finding"},
+    {"id": "property-with-seed", "rule": "TEST.property-seed", "evidence": "source", "situation": "a property test fixes its seed", "expect": "clean"},
+    {"id": "production-test-flag", "rule": "TEST.no-test-hooks", "evidence": "source", "situation": "owned production code branches on a test-marker environment variable", "expect": "finding"},
+    {"id": "production-test-hook-parameter", "rule": "TEST.no-test-hooks", "evidence": "source", "situation": "owned production code declares a parameter that exists only for tests", "expect": "finding"},
+    {"id": "production-clean", "rule": "TEST.no-test-hooks", "evidence": "source", "situation": "owned production code reads only real configuration", "expect": "clean"},
+    {"id": "fast-tier-network", "rule": "TEST.fast-tier-isolation", "evidence": "run-report", "situation": "a fast-tier test opens a network connection", "expect": "finding"},
+    {"id": "fast-tier-process", "rule": "TEST.fast-tier-isolation", "evidence": "run-report", "situation": "a fast-tier test starts a process", "expect": "finding"},
+    {"id": "fast-tier-teardown-process", "rule": "TEST.fast-tier-isolation", "evidence": "run-report", "situation": "a fast-tier fixture starts a process during teardown", "expect": "finding"},
+    {"id": "fast-tier-swallowed-violation", "rule": "TEST.fast-tier-isolation", "evidence": "run-report", "situation": "a fast-tier test catches the guard's error and carries on", "expect": "finding"},
+    {"id": "fast-tier-clean", "rule": "TEST.fast-tier-isolation", "evidence": "run-report", "situation": "a fast-tier test computes in memory and writes only its temporary directory; the report shows the tier's guards", "expect": "clean"},
+    {"id": "user-data-write", "rule": "TEST.user-data-guard", "evidence": "run-report", "situation": "a test writes a file under the user's real home directory", "expect": "finding"},
+    {"id": "user-data-temporary-home", "rule": "TEST.user-data-guard", "evidence": "run-report", "situation": "a test writes under its temporary directory and the redirected home", "expect": "clean"},
+    {"id": "runtime-skip-recorded", "rule": "TEST.no-evasion", "evidence": "run-report", "situation": "a test skips at runtime; the normalised record keeps the outcome and reason for the shared report check", "expect": {"outcome": "skipped", "reason": "waiting on vendor fix"}},
+    {"id": "expected-failure-recorded", "rule": "TEST.no-evasion", "evidence": "run-report", "situation": "an expected failure is normalised as xfail with its reason", "expect": {"outcome": "xfail", "reason": "known defect"}},
+    {"id": "empty-collection", "rule": "TEST.failure-propagation", "evidence": "collection", "situation": "a tier selector collects no tests", "expect": "finding"},
+    {"id": "tier-selection", "rule": "TEST.tier-selectors", "evidence": "collection", "situation": "a tier selector lists exactly the tests it selects", "expect": {"ids": ["tests/test_case.py::test_fast_total"]}}
+  ]
+}

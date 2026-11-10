@@ -97,7 +97,11 @@ tests/*
 !tests/agent-rails.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
-!tests/test_python_reference.py
+!tests/test_reference_*.py
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/reference/
+!tests/fixtures/reference/**
 !tests/test_validate_rule_coverage.py
 !tests/test_device_rollout.py
 !tests/test_skill_references.py
@@ -127,5 +131,8 @@ orca-plugins/chat-section-style/terminal-palette
 **/__pycache__/
 **/*.py[cod]
 **/.pytest_cache/
+**/.ruff_cache/
+**/*.egg-info/
+agent/skills/setup-repository-guardrails/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/

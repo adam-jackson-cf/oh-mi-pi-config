@@ -1,0 +1,11 @@
+{
+  "id": "TEST.no-test-hooks",
+  "language": "python",
+  "scope": "production",
+  "message": "production code reads a test marker ({match})",
+  "fix": "remove the test-only branch; tests must exercise the production path unchanged",
+  "rule": {
+    "kind": "string",
+    "regex": "^[rRbBuU]*['\"]([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?['\"]$|^[rRbBuU]*['\"](pytest|unittest)['\"]$"
+  }
+}

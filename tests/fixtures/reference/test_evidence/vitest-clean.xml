@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3" failures="0" errors="0" time="0.912">
+    <properties>
+        <property name="omp.revision" value="0123456789abcdef0123456789abcdef01234567"/>
+        <property name="omp.runtime" value="node 22.3.0"/>
+        <property name="omp.tier" value="t1"/>
+    </properties>
+    <testsuite name="src/parser.test.ts" timestamp="2026-11-10T12:00:00" hostname="runner" tests="2" failures="0" errors="0" skipped="0" time="0.010">
+        <testcase classname="src/parser.test.ts" name="parser &gt; reads a header" time="0.004"/>
+        <testcase classname="src/parser.test.ts" name="parser &gt; rejects empty input" time="0.006"/>
+    </testsuite>
+    <testsuite name="src/cli.test.ts" timestamp="2026-11-10T12:00:00" hostname="runner" tests="1" failures="0" errors="0" skipped="0" time="0.050">
+        <testcase classname="src/cli.test.ts" name="cli &gt; prints help" time="0.050"/>
+    </testsuite>
+</testsuites>

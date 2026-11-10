@@ -162,6 +162,10 @@
       "status": "blocked"
     },
     {
+      "id": "PYQ201",
+      "status": "blocked"
+    },
+    {
       "id": "PYQ202",
       "status": "blocked"
     },
@@ -431,6 +435,86 @@
     },
     {
       "id": "TEST.tiers",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.no-self-mocking",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.no-test-hooks",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.no-evasion",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.fast-tier-isolation",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.user-data-guard",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.tier-selectors",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.coverage-ratchet",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.golden-change-record",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.identity-artefacts",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.property-seed",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "TEST.mutation-sensitivity",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "NAME.test-files",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "PROFILE.complete",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "SURFACE.feature-map",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "SURFACE.journeys",
+      "evidence_kind": "local_ci",
+      "status": "blocked"
+    },
+    {
+      "id": "SURFACE.lever-isolation",
+      "evidence_kind": "local_ci",
       "status": "blocked"
     }
   ]

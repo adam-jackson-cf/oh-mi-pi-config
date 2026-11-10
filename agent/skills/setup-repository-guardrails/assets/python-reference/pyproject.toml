@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omp-guardrails"
+version = "2.0.0"
+description = "Configured guardrail checkers for the setup-repository-guardrails rule catalogue."
+requires-python = ">=3.11"
+# Runtime code is standard-library only; only the pytest adapter needs its pinned extra.
+dependencies = []
+
+[project.optional-dependencies]
+pytest = ["pytest==9.1.1", "ast-grep-py==0.51.0"]
+
+[project.scripts]
+omp-guardrails = "omp_guardrails.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["omp_guardrails*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yml", "*.md"]

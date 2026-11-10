@@ -13,9 +13,12 @@ Install only approved guardrails while keeping unrelated target work intact.
    decision. Remove approved superseded runner/hook policies instead of
    retaining duplicate authorities; where nothing can be removed, record why the
    added contract has no predecessor.
-3. Pin tools and install only approved dependencies through the target package
-   manager. Keep target roots, exceptions, allowlists, naming/ownership maps,
-   and CI wiring explicit.
+3. Where the stack has a skill reference, run the approved
+   `omp-guardrails init --greenfield|--adopt|--extend` in the isolated checkout,
+   then write the approved profile values; compare what it wrote with the
+   approved matrix before continuing. Pin tools and install only approved
+   dependencies through the target package manager. Keep target roots, exceptions,
+   allowlists, naming/ownership maps, and CI wiring explicit.
 4. Write `<repo>/.omp/gate.json` with `schemaVersion: 2` and the approved
    command arrays. This example illustrates the exact schema; substitute real
    target commands and test globs:

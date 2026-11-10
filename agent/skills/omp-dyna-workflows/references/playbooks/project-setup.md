@@ -34,7 +34,9 @@ Keep the Step 5 STOP; existing controls are not permission to skip approval.
 
 After freeze, implementation writes the feature map and copies
 `skill://test-guidance/assets/templates/test-profile.md` to `.omp/test-profile.md`, filling its
-values before guardrails application. Preserve existing profile values when extending it.
+machine-readable front matter and prose before guardrails application. `omp-guardrails init`
+writes the same template; `omp-guardrails profile-check` must pass (PROFILE.complete).
+Preserve existing profile values when extending it.
 Use `git check-ignore .omp/test-profile.md`; if ignored, re-include that exact path in the
 repo ignore rules and confirm it is trackable. Never force-add an ignored profile.
 Then invoke guardrails Step 6 using the profile and Step 7 coverage verification.

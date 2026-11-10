@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.010">
+    <properties>
+      <property name="omp.tier" value="t1"/>
+      <property name="omp.guards" value="user-data"/>
+    </properties>
+    <testcase classname="tests.test_basket" name="test_total" file="tests/test_basket.py" line="3" time="0.010"/>
+  </testsuite>
+</testsuites>
