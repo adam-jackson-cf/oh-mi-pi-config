@@ -89,10 +89,12 @@ def changed_files(repo: Path, diff: DiffRange) -> list[Change]:
     return changes
 
 
-def line_changes(repo: Path, diff: DiffRange, path: str) -> LineChanges:
+def hunks(repo: Path, diff: DiffRange, path: str) -> list[LineChanges]:
+    """The file's ``-U0`` hunks, each with its removed and added lines."""
     output = git(
         repo, "diff", "-U0", "--no-color", "--no-ext-diff", diff.base, diff.head, "--", path
     )
+    found: list[LineChanges] = []
     added: list[tuple[int, str]] = []
     removed: list[tuple[int, str]] = []
     old_line = new_line = 0
@@ -100,6 +102,9 @@ def line_changes(repo: Path, diff: DiffRange, path: str) -> LineChanges:
     for line in output.splitlines():
         header = HUNK.match(line)
         if header:
+            if in_hunk:
+                found.append(LineChanges(tuple(added), tuple(removed)))
+            added, removed = [], []
             old_line, new_line = int(header.group(1)), int(header.group(2))
             in_hunk = True
         elif not in_hunk or line.startswith("\\"):
@@ -110,9 +115,18 @@ def line_changes(repo: Path, diff: DiffRange, path: str) -> LineChanges:
         elif line.startswith("-"):
             removed.append((old_line, line[1:]))
             old_line += 1
-        elif line.startswith("diff --git"):
-            in_hunk = False
-    return LineChanges(tuple(added), tuple(removed))
+    if in_hunk:
+        found.append(LineChanges(tuple(added), tuple(removed)))
+    return found
+
+
+def line_changes(repo: Path, diff: DiffRange, path: str) -> LineChanges:
+    """Added lines (head line numbers) and removed lines (base line numbers) of one file."""
+    parts = hunks(repo, diff, path)
+    return LineChanges(
+        tuple(line for part in parts for line in part.added),
+        tuple(line for part in parts for line in part.removed),
+    )
 
 
 def file_at(repo: Path, ref: str, path: str) -> str | None:

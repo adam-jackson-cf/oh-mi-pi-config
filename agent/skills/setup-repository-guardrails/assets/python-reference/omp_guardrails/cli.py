@@ -27,6 +27,9 @@ class Subcommand:
     modules: tuple[str, ...]
     summary: str
     needs_profile: bool = True
+    # Commands whose standard output is data (paths, arguments) print their status line on
+    # standard error, so ``$(omp-guardrails ...)`` captures only the data.
+    prints_data: bool = False
 
 
 # The adapter subcommand resolves its module from the profile's ``adapter`` value.
@@ -87,8 +90,19 @@ SUBCOMMANDS: dict[str, Subcommand] = {
             "omp_guardrails.diffs.coverage_ratchet",
             "omp_guardrails.diffs.golden_record",
             "omp_guardrails.diffs.identity_artefacts",
+            "omp_guardrails.diffs.timeouts",
         ),
-        "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts",
+        "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts and "
+        "TEST.no-evasion timeout increases",
+    ),
+    "affected": Subcommand(
+        ("omp_guardrails.diffs.affected",),
+        "affected T2 test files for a diff range, from the profile's Ownership areas",
+        prints_data=True,
+    ),
+    "mutation-check": Subcommand(
+        ("omp_guardrails.test_evidence.mutation",),
+        "TEST.mutation-sensitivity over a normalised mutation report and the diff (T3)",
     ),
     "guard-run": Subcommand(
         ("omp_guardrails.environment.guarded_run",),
@@ -101,7 +115,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "lever-selftest": Subcommand(
         ("omp_guardrails.surface.lever_selftest",), "SURFACE.lever-isolation"
     ),
-    "adapter": Subcommand((), "run the profile's test-framework adapter"),
+    "adapter": Subcommand((), "run the profile's test-framework adapter", prints_data=True),
 }
 
 
@@ -201,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     if findings:
         print(format_findings(findings))
     else:
-        print(f"{name}: ok")
+        print(f"{name}: ok", file=sys.stderr if SUBCOMMANDS[name].prints_data else sys.stdout)
     return exit_code(findings)
 
 

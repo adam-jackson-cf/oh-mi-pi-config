@@ -11,8 +11,13 @@
 - ``guard-evidence REPORT --tier T``: the report's ``omp.guards`` property shows the tier's
   guards were armed (T1: fast-tier and user-data; T2 and T3: user-data) and ``omp.tier`` names
   the tier.
-- ``mutation-tool``: prints the mutation tool for TEST.mutation-sensitivity. It runs only in T3
-  (nightly) on changed code; the adapter never runs it in CI.
+- ``affected --base REF [--head REF]``: the pytest arguments that run the affected T2 tests
+  (shared selection in ``omp_guardrails.diffs.affected``); prints nothing when none are
+  affected, and the reason on standard error.
+- ``mutation-tool``: prints the mutation tool for TEST.mutation-sensitivity (mutmut, pinned by
+  the ``mutation`` extra). It runs only in T3 (nightly); the adapter never runs it in CI.
+- ``mutation-report --out FILE``: after ``mutmut run``, writes mutmut's results as the shared
+  mutation report that ``omp-guardrails mutation-check`` reads.
 - ``conformance [--case ID ...]``: runs the framework-agnostic conformance cases.
 
 ``lint``, ``tiers`` and ``conformance`` need the ``pytest`` extra; the others are stdlib-only.
@@ -49,7 +54,12 @@ def parser() -> argparse.ArgumentParser:
     evidence = actions.add_parser("guard-evidence")
     evidence.add_argument("report", type=Path)
     evidence.add_argument("--tier", required=True, choices=sorted(TIER_GUARDS))
+    affected = actions.add_parser("affected")
+    affected.add_argument("--base", required=True)
+    affected.add_argument("--head", default="HEAD")
     actions.add_parser("mutation-tool")
+    mutation_report = actions.add_parser("mutation-report")
+    mutation_report.add_argument("--out", required=True, type=Path)
     conformance = actions.add_parser("conformance")
     conformance.add_argument("--case", action="append", default=[])
     return root
@@ -66,6 +76,29 @@ def tier_arguments(tier: str, report_path: str) -> list[str]:
         f"--omp-tier={tier}",
         *junit_arguments(report_path),
     ]
+
+
+def affected_arguments(repo: Path, profile: dict, base: str, head: str) -> list[Finding]:
+    """Print the affected T2 files with the T2 marker selector as pytest arguments."""
+    import sys
+
+    from omp_guardrails.diffs.affected import RULE, affected
+    from omp_guardrails.diffs.changes import DiffError, range_finding
+
+    try:
+        selection = affected(repo, profile, ["--base", base, "--head", head])
+    except DiffError as error:
+        return [range_finding(RULE, error)]
+    print(f"selection: {selection.reason}", file=sys.stderr)
+    if selection.paths:
+        from omp_guardrails.adapters.pytest.tiers import selector_arguments
+
+        tiers = profile.get("tiers") if isinstance(profile.get("tiers"), dict) else {}
+        t2 = tiers.get("t2") if isinstance(tiers.get("t2"), dict) else {}
+        selector = t2.get("selector")
+        chosen = selector_arguments(selector) if isinstance(selector, str) and selector else []
+        print(shlex.join([*chosen, "--", *selection.paths]))
+    return []
 
 
 def report_finding(report: Path, error: Exception) -> Finding:
@@ -117,9 +150,15 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         return []
     if action == "guard-evidence":
         return guard_evidence(options.report, options.tier)
+    if action == "affected":
+        return affected_arguments(repo, profile, options.base, options.head)
     if action == "mutation-tool":
         print(f"{MUTATION_TOOL} (tier {MUTATION_TIER}, scoped to changed code; never run in CI)")
         return []
+    if action == "mutation-report":
+        from omp_guardrails.adapters.pytest.mutation import write_report
+
+        return write_report(repo, options.out)
     from omp_guardrails.adapters.pytest.conformance import run_cases
 
     return run_cases(options.case)

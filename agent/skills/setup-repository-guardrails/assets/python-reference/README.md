@@ -14,11 +14,14 @@ branch, and lock it (for example with `uv.lock`):
 omp-guardrails @ git+https://github.com/adam-jackson-cf/oh-mi-pi-config@<commit>#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference
 ```
 
-Use the `omp-guardrails[pytest]` extra when the repository runs pytest. The
-runtime code otherwise needs only the standard library (Python 3.11 or newer).
-To upgrade, bump `<commit>` in a normal pull request so the gate runs.
-`omp-guardrails init` writes this pin together with the gate, hook and CI
-wiring.
+Use the `omp-guardrails[pytest]` extra when the repository runs pytest
+(`requirements-pytest.lock` pins it with hashes). The T3 mutation run adds the
+`mutation` extra (`requirements-mutation.lock`). The runtime code otherwise
+needs only the standard library (Python 3.11 or newer). To upgrade, bump
+`<commit>` in a normal pull request so the gate runs.
+`omp-guardrails init` writes this pin into `[dependency-groups] dev` of
+`pyproject.toml` together with the gate, hook, CI wiring and native-tool
+configs; the repository's own lock command then locks it.
 
 ## Configure
 
