@@ -260,7 +260,8 @@ wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
 `.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
 host, posting GitHub commit status context `gate`. `ciHost: "github"` (the
-default) means the repository's GitHub Actions; personal projects use it.
+default when absent) means the repository's GitHub Actions. Any `adam-versed`
+or `adam-jackson-cf` repository may opt into `nuc` via the allowlist.
 The runner executes `checks.ci` (schema version 1: `gate`) after the
 devcontainer's `postCreateCommand`.
 
@@ -272,13 +273,14 @@ global slot (`CI_GATE_SLOTS`), with a 1,200-second systemd runtime limit
 (`CI_GATE_TIMEOUT`). Retained logs/results and cached images need owner-managed
 retention; the service never globally prunes Podman resources.
 
-Infisical injects `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` into host-side fetches
-and the status publisher, never the container. Allowlisted public and private
-repositories are supported, including submissions from SSH shells without a
-token. Grant the NUC identity access to that secret in project
-`052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`. The fine-grained GitHub
-token needs access to every opted-in repository (or **All repositories**) with
-**Contents: read** and **Commit statuses: write** permissions. Missing credentials
+Infisical injects each allowlisted repository's `tokenEnv` into host-side fetches
+and the status publisher, never the container. It names that owner's secret:
+`NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` or `NUC_GATE_GITHUB_TOKEN_ADAM_VERSED`.
+Allowlisted public and private repositories are supported, including submissions
+from SSH shells without a token. Grant the NUC identity access to each secret in
+project `052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`. Each fine-grained
+GitHub token needs access to that owner's opted-in repositories (or **All
+repositories**) with **Contents: read** and **Commit statuses: write** permissions. Missing credentials
 leave local results intact but make publication exit nonzero. Public fetches
 need no token; authenticated fetches use GitHub Basic authentication through
 process-local Git configuration environment variables, never command-line

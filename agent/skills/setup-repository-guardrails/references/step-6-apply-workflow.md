@@ -62,19 +62,23 @@ Install only approved guardrails while keeping unrelated target work intact.
    permission from this setup skill; honor the governing Git authorization.
 
    Optional `ciHost` accepts `github` (the default when absent) or `nuc`.
-   `github` means GitHub Actions on every push and pull request; personal
-   projects, including repos owned by `adam-versed`, use it. `nuc` is for the
-   agent-config repos owned by `adam-jackson-cf`. Add
+   `github` means GitHub Actions on every push and pull request. Any repository
+   owned by `adam-versed` or `adam-jackson-cf` may use `nuc` when the owner
+   chooses it. Other owners default to `github` unless the user says otherwise. Add
    `.devcontainer/devcontainer.json` specifying `build.dockerfile` or `image`
    mirroring the CI runner's toolchain, with an optional `postCreateCommand`
    for dependency installation. Add the repo's `owner/repo` to oh-mi-pi-config's
-   `scripts/ci-gate-repos.json` with
-   `tokenEnv: NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` via a PR to that repo.
+   `scripts/ci-gate-repos.json` via a PR to that repo, using the owner's
+   `tokenEnv: NUC_GATE_GITHUB_TOKEN_<OWNER>` (owner uppercased, `-` replaced
+   with `_`), for example `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` or
+   `NUC_GATE_GITHUB_TOKEN_ADAM_VERSED`. A missing owner token in Infisical is
+   a blocker to report for the owner to provision, never a reason to fall back
+   to `github`.
    The NUC runs `checks.ci` on the exact SHA and posts the GitHub commit
    status `gate`. Keep `checks.ci` in the GitHub CI workflow, scheduled weekly
    plus manual `workflow_dispatch` as a fallback, rather than on PRs. Follow
    git-tool's verify loop to submit/wait for each head or dispatch the
-   fallback. Any other owner defaults to GitHub unless the user says otherwise.
+   fallback.
 
 5. Add the complete coverage ledger and bundled validator or proven equivalent
    to the check-only `checks.ci`. Install the approved pre-commit hook
