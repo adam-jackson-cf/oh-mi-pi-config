@@ -629,6 +629,74 @@ test("path checks forget deleted and ignored failures without skipping live repo
 	} finally { h.cleanup(); }
 });
 
+test("path checks exclude Git directory internals while checking live files", async () => {
+	const h = harness();
+	try {
+		const internal = join(h.root, ".git/info/exclude");
+		const live = join(h.root, "live.ts");
+		writeFileSync(internal, "# session edit\n");
+		writeFileSync(live, "export const live = true;\n");
+		const checked: string[][] = [];
+		const exec = h.api.exec.bind(h.api);
+		h.api.exec = async (command, args, options) => {
+			if (command === "checker") { checked.push(args); return { code: 0, killed: false, stdout: "", stderr: "" }; }
+			return exec(command, args, options);
+		};
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
+		await h.call("edit", { paths: [internal, live] });
+		assert.deepEqual(checked, [[live]], "git directory paths must not reach pathCheck");
+	} finally { h.cleanup(); }
+});
+
+test("path checks forget failures for files restored to HEAD", async () => {
+	const h = harness();
+	try {
+		const path = join(h.root, "existing.ts");
+		const committed = readFileSync(path, "utf8");
+		await execute("git", ["add", "--", "existing.ts"], { cwd: h.root });
+		await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "tracked fixture"], { cwd: h.root });
+		writeFileSync(path, "export const answer = 43;\n");
+		const checked: string[][] = [];
+		const exec = h.api.exec.bind(h.api);
+		h.api.exec = async (command, args, options) => {
+			if (command === "checker") { checked.push(args); return { code: 1, killed: false, stdout: "", stderr: "bad tracked path" }; }
+			return exec(command, args, options);
+		};
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
+		const failure = await h.call("edit", { path });
+		assert.ok(failure?.additionalContext?.includes("bad tracked path"));
+		assert.deepEqual(checked, [[path]]);
+		writeFileSync(path, committed);
+		await h.read(verification);
+		assert.equal(await h.emit("session_stop"), undefined, "a file restored to HEAD must clear its pathCheck failure");
+		assert.deepEqual(checked, [[path]], "a file restored to HEAD must clear its pathCheck failure");
+	} finally { h.cleanup(); }
+});
+
+test("path checks keep ignored files excluded when a path crosses a symlink", async () => {
+	const h = harness();
+	const outside = mkdtempSync(join(tmpdir(), "agent-rails-pathcheck-"));
+	try {
+		writeFileSync(join(h.root, ".gitignore"), "node_modules/\n");
+		mkdirSync(join(h.root, "node_modules/pkg"), { recursive: true });
+		const ignored = join(h.root, "node_modules/pkg/index.js");
+		writeFileSync(ignored, "module.exports = true;\n");
+		writeFileSync(join(outside, "file"), "live\n");
+		// An escaping symlink retains its lexical path when rails prepares the Git query.
+		symlinkSync(outside, join(h.root, "link"), "dir");
+		const checked: string[][] = [];
+		const exec = h.api.exec.bind(h.api);
+		h.api.exec = async (command, args, options) => {
+			if (command === "checker") { checked.push(args); return { code: 0, killed: false, stdout: "", stderr: "" }; }
+			return exec(command, args, options);
+		};
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
+		await h.call("edit", { paths: [ignored, join(h.root, "link/file")] });
+		assert.ok(!checked.some(args => args.some(path => path.includes("node_modules/"))),
+			"ignored paths must not reach pathCheck when another path breaks git check-ignore");
+	} finally { h.cleanup(); rmSync(outside, { recursive: true, force: true }); }
+});
+
 test("dynaflows merge requires an exact-head valid proof marker in the Git common directory", async () => {
 	const h = harness();
 	try {

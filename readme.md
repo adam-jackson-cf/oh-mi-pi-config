@@ -54,8 +54,10 @@ Repository `.omp/gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. All-session handoff, including subagents, stays blocked
 until verification references are read after that session's code edits and failed
-`pathCheck` paths pass on retry (deleted paths are dropped). The check covers edited
-paths plus previous failures, not every repository file; handoff runs no suite.
+`pathCheck` paths pass on retry. The check covers edited paths plus prior failures
+that `git status` reports as changed or untracked, not every repository file.
+Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
+`git status` query fails the check. Handoff runs no suite.
 
 Rails checks the PR's exact-head CI before adding `agent-verified` through
 `gh pr edit` or `gh issue edit`, even with dynaflows off; direct API label writes
