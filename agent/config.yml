@@ -20,7 +20,7 @@ modelRoles:
   verifier: anthropic/claude-sonnet-5-5:medium
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
-  experiment-design: anthropic/claude-fable-5-1:high
+  experiment-design: anthropic/claude-fable-5-2:high
   experiment-peer: anthropic/claude-opus-5-5:high
   reviewer: anthropic/claude-sonnet-5-5:medium
   kiss: openai-codex/gpt-6.1-sol:low
