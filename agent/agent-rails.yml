@@ -6,10 +6,6 @@ references:
     - skill://coding-guidance/references/naming.md
   test:
     - skill://test-guidance/references/tiers.md
-  # Required only when a codegraph executable is on PATH (lookup cached per session).
-  discovery:
-    - skill://codegraph/references/readiness-and-bootstrap.md
-    - skill://codegraph/references/query-selection.md
   verification:
     - skill://coding-guidance/references/verification.md
   workflow:
@@ -21,7 +17,6 @@ testGlobs:
   - '**/{test,tests,__tests__}/**'
 codeGlobs:
   - '**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}'
-discoveryTools: [find, grep, glob, ast_grep]
 editTools: [write, edit, ast_edit]
 # Applied to parsed command positions after env assignments and git global options.
 # Quoted echo/rg arguments are not commands and do not trigger this check.

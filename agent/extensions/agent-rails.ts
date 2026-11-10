@@ -15,7 +15,7 @@ const regexpSource = z.string().refine(value => {
 });
 const mappingSchema = z.object({
 	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
-		for (const key of ["firstEdit", "newFile", "test", "discovery", "verification", "workflow", "git"]) {
+		for (const key of ["firstEdit", "newFile", "test", "verification", "workflow", "git"]) {
 			const urls = references[key];
 			if (!urls?.length || urls.some(url => !url.startsWith("skill://"))) {
 				ctx.addIssue({ code: "custom", message: `invalid references.${key}` });
@@ -24,7 +24,6 @@ const mappingSchema = z.object({
 	}),
 	testGlobs: stringList,
 	codeGlobs: stringList,
-	discoveryTools: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
 	pathFields: z.record(z.string(), stringList),
@@ -77,9 +76,6 @@ const inputSchema = z.object({
 	cwd: z.string().optional().catch(undefined),
 	input: z.string().optional().catch(undefined),
 }).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined });
-const scopeSchema = z.object({
-	path: z.unknown().optional(), paths: z.unknown().optional(),
-}).catch({ path: undefined, paths: undefined });
 const answerSchema = z.object({
 	question: z.string().optional().catch(undefined),
 	selectedOptions: stringList.optional().catch(undefined),
@@ -116,8 +112,6 @@ interface State {
 	// Repository roots where this session edited a file matching `codeGlobs`.
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
-	codegraphAvailable?: boolean;
-	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
 	guardrailApproval?: Approval;
@@ -127,17 +121,14 @@ type ToolEvent = {
 	toolCallId: string;
 	input: z.infer<typeof inputSchema>;
 	pathFields: z.infer<typeof inputFieldsSchema>;
-	hasScope: boolean;
 	isError?: boolean;
 	details: z.infer<typeof detailsSchema>;
 };
 
 function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
-	const scope = scopeSchema.parse(event.input);
 	return {
 		toolName: event.toolName, toolCallId: event.toolCallId,
 		input: inputSchema.parse(event.input), pathFields: inputFieldsSchema.parse(event.input),
-		hasScope: scope.path !== undefined || scope.paths !== undefined,
 		isError: event.type === "tool_result" ? event.isError : undefined,
 		details: detailsSchema.parse(event.type === "tool_result" ? event.details : undefined),
 	};
@@ -146,7 +137,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		discovered: false, pointed: false, proposal: [],
+		pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -886,12 +877,11 @@ export default function agentRails(
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
 		state.pathFailures = previous?.pathFailures ?? new Map();
-		state.codegraphAvailable = previous?.codegraphAvailable;
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type === "compaction") { state.reads.clear(); state.discovered = false; continue; }
+			if (entry.type === "compaction") { state.reads.clear(); continue; }
 			if (entry.type !== "message") continue;
 			const message = entry.message;
 			if (message.role === "assistant") for (const block of message.content) {
@@ -911,7 +901,7 @@ export default function agentRails(
 	pi.on("session_tree", rebuild);
 	pi.on("session_compact", (_event, ctx) => {
 		const state = stateFor(ctx);
-		state.reads.clear(); state.discovered = false;
+		state.reads.clear();
 	});
 	pi.on("before_subagent_spawn", async (event, ctx) => {
 		if (event.agent !== "verifier") return;
@@ -954,16 +944,6 @@ export default function agentRails(
 		if (loadError) return { block: true, reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			if (map.discoveryTools.includes(event.toolName) && !state.discovered) {
-				state.codegraphAvailable ??= (await pi.exec("sh", ["-c", "command -v codegraph"], { cwd: ctx.cwd, timeout: 20000 })).code === 0;
-				const scopes = paths(event, map, ctx.cwd);
-				if (!scopes.length && !event.hasScope) scopes.push(ctx.cwd);
-				if (state.codegraphAvailable && (await Promise.all(scopes.map(repoRoot))).some(Boolean)) {
-					const urls = missing(state, map, ["discovery"]);
-					if (urls.length) return { block: true, reason: readReason(urls) };
-					state.discovered = true;
-				}
-			}
 			if (event.toolName === "bash" && event.input.command !== undefined) {
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 				for (const action of await gitActions(event.input.command, cwd)) {
@@ -1057,7 +1037,8 @@ export default function agentRails(
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
 				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
-				if (!(await access(path).then(() => true, () => false))) triggers.push("newFile");
+				// New-file reads apply only to code files inside a repository, not scratch paths.
+				if (root && matches(rel, map.codeGlobs) && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
 				if (matches(rel, gate?.testGlobs ?? map.testGlobs)) triggers.push("test");
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}

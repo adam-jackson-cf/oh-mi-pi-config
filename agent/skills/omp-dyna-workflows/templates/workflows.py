@@ -819,8 +819,8 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                                 record["output"] = f"[TRUNCATED; full evidence: {full_path}]\n" + record["output"][-4096:]
                     proof_ids = sorted(p["id"] for p in manifest["proofs"])
                     brief = (
-                        "Read skill://codegraph/references/readiness-and-bootstrap.md, "
-                        "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git.\n"
+                        "Discover with find (-k synonyms; repeat until no new files), lsp for definitions/references, "
+                        "ast_grep for structure, then grep/glob. Read skill://git-tool before git.\n"
                         f"Source repo (never edit): {repo}\nPR target/ref: {target_ref} ({target})\n"
                         f"PR parent SHA: {parent}\nHead SHA: {head}\nDiff range: {parent}..{head}\n"
                         f"Read-only scratch trees: {json.dumps(labels)}; your TMPDIR is allowed. Never spawn agents.\n"

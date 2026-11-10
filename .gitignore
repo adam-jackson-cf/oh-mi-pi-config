@@ -51,8 +51,6 @@ agent/rules/*
 !agent/rules/agent-rails-*.md
 !agent/skills/
 agent/skills/*
-!agent/skills/create-watchdog/
-!agent/skills/create-watchdog/**
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
 !agent/skills/omp-dyna-workflows/
@@ -61,8 +59,6 @@ agent/skills/*
 !agent/skills/jev-actions/**
 !agent/skills/setup-repository-guardrails/
 !agent/skills/setup-repository-guardrails/**
-!agent/skills/codegraph/
-!agent/skills/codegraph/**
 !agent/skills/coding-guidance/
 !agent/skills/coding-guidance/**
 !agent/skills/test-guidance/
