@@ -26,9 +26,8 @@ modelRoles:
   kiss: openai-codex/gpt-6.1-sol:low
   operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
+  judge: openrouter/typesafe/jev-1.14
   default: anthropic/claude-opus-5-5:medium
-dev:
-  autoqaConsent: granted
 textVerbosity: low
 disabledProviders:
   - claude
@@ -46,8 +45,6 @@ edit:
   enforceSeenLines: true
 lsp:
   diagnosticsOnEdit: true
-bashInterceptor:
-  enabled: true
 bash:
   gitGuard: true
 task:
@@ -62,6 +59,10 @@ task:
     reviewer: "@reviewer"
     scout: anthropic/claude-haiku-5-5:medium
   perCallModel: "on"
+find:
+  enabled: "on"
+session:
+  warnCost: 150
 checkpoint:
   enabled: true
 memory:
@@ -76,6 +77,7 @@ compaction:
   handoffSaveToDisk: true
   methodOrder:
     - handoff
+    - shake
   thresholdPercent: 50
 composer:
   shape: box
@@ -85,6 +87,8 @@ codexResets:
   autoRedeem: "yes"
 retry:
   fallbackChains:
+    judge:
+      - openrouter/typesafe/jev-1.13
     web:
       - web/perplexity
       - google/gemini-2.5-flash
