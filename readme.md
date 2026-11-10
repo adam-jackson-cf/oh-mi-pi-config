@@ -131,10 +131,17 @@ source.
 Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
 `~/.omp` and `~/.agents` revisions (never pull either local checkout), fast-forward
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
-Untracked remote files are preserved; tracked changes block pulls. Use `--check`
-to fetch and report only, without pulls or service starts. The table exits nonzero
-for stale, failed, unreachable, dirty-blocked, or behind-`main` deployments.
-Hosts and paths live in `scripts/device-rollout-hosts.json`.
+On each reachable device it also deletes retired `~/.agents/by-request` husks
+(folders without a `SKILL.md`), streams the judge key from Infisical into
+`omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
+the `find` column. Untracked remote files are preserved; tracked changes block
+pulls. Use `--check` to fetch and report only, without pulls, service starts, key
+provisioning, or husk deletion. The table exits nonzero for stale, failed,
+unreachable, dirty-blocked, or behind-`main` deployments, for `husks-present`
+agents checkouts, and for `find-blocked` devices whose canary coverage is not
+`complete` (including `key-failed` when key provisioning fails).
+Hosts, paths, the `judgeKey` source and the `findCanary` query live in
+`scripts/device-rollout-hosts.json`.
 Local rows use the registry's `local` mapping for the lowercase short hostname
 (or that hostname itself when unknown), and the local device is skipped as a remote target.
 
