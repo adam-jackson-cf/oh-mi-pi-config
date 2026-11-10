@@ -1,55 +1,70 @@
 ---
 name: "test-guidance"
-description: >-
-  Use when creating, moving, changing or deleting a test, chasing a flaky test or intermittent CI
-  failure, controlling test-suite size or run time, or drawing a claim from a test run or seed sweep.
+description: "Use when creating, changing, moving or deleting tests, chasing flakes, controlling suite size or run time, or drawing claims from test evidence."
 hide: true
 disable-model-invocation: true
 ---
 
 # Task
 
-## Start here: pick the tier
+## 1. Start here
 
-- **Purpose**: Place each assertion at the tier that drives its behaviour, without duplicate owners.
-- **When**: Before creating, moving, changing or deleting a test.
-- A project's own test skill or AGENTS.md test rules take precedence; this skill fills gaps.
+- **Purpose**: Assign tiers, run events and repo test profile values.
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
-- Runbook: [Test tiers and layout](references/tiers.md)
+- Runbook: [Start here](references/tiers.md)
 
-## Write a T1 unit test
+## 2. Choose what to test
 
-- **Purpose**: Test decisions in memory with injected dependencies and behavioural coverage.
-- **When**: Creating or changing a unit test, its fixtures or its dependency seams.
-- Runbook: [T1 unit-test patterns](references/unit-tests.md)
+- **Purpose**: Select realistic behaviour cases without duplicates.
+- Runbook: [Choose what to test](references/case-selection.md)
 
-## Test determinism
+## 3. Name and place
 
-- **Purpose**: Prove seeded execution, replay, arithmetic and order-insensitivity.
-- **When**: Testing deterministic computation, codecs, replay, host parity or goldens.
-- Runbook: [Determinism tests](references/determinism.md)
+- **Purpose**: Name tests and place fixtures under their owner.
+- Runbook: [Name and place](references/naming-and-layout.md)
 
-## Test behaviour and statistics
+## 4. Write an outcome test
 
-- **Purpose**: Assess behaviour using invariants, audits and adequately supported measured claims.
-- **When**: A test, sweep or report claims how a system behaves or that its behaviour changed.
-- Runbook: [Behaviour and statistics](references/behaviour-and-statistics.md)
+- **Purpose**: Drive caller-visible outcomes through public entry points.
+- Runbook: [Write an outcome test](references/outcome-tests.md)
 
-## Chase a flaky test
+## 5. Write a property test
 
-- **Purpose**: Reproduce and remove an intermittent failure's cause rather than hide it.
-- **When**: A test passes and fails on the same tree locally or in CI.
-- Runbook: [Flaky tests](references/flakes.md)
+- **Purpose**: Prove pure-core properties with generated inputs.
+- Runbook: [Write a property test](references/property-tests.md)
 
-## Before committing
+## 6. Test determinism
 
-- **Purpose**: Complete the applicable gates and report only checks that actually passed.
-- **When**: Before committing, pushing or handing over a change that affects tests.
+- **Purpose**: Prove replay, seed and host parity.
+- Runbook: [Test determinism](references/determinism.md)
+
+## 7. Test behaviour and statistics
+
+- **Purpose**: Support behavioural and measured claims.
+- Runbook: [Test behaviour and statistics](references/behaviour-and-statistics.md)
+
+## 8. Use the verification surface
+
+- **Purpose**: Drive isolated journeys and maintain the feature map.
+- Runbook: [Use the verification surface](references/verification-surface.md)
+
+## 9. Chase a flaky test
+
+- **Purpose**: Reproduce and remove intermittent failure causes.
+- Runbook: [Chase a flaky test](references/flakes.md)
+
+## 10. Review and prune
+
+- **Purpose**: Retain meaningful coverage and remove brittle duplicates.
+- Runbook: [Review and prune](references/suite-review.md)
+
+## 11. Before committing
+
+- **Purpose**: Complete required gates and report actual event results.
 - Runbook: [Before committing](references/before-commit.md)
 
-## Control suite growth and time
+## 12. Control suite growth and time
 
-- **Purpose**: Keep each test justified, singly owned and within its tier's time budget.
-- **When**: Adding, moving or deleting tests, or changing suite count, placement or run time.
-- Runbook: [Suite budget](references/suite-budget.md)
+- **Purpose**: Keep singly owned tests within approved local budgets.
+- Runbook: [Control suite growth and time](references/suite-budget.md)

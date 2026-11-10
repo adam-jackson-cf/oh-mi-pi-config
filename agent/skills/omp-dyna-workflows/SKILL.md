@@ -21,8 +21,9 @@ set means off. Outside a Git project, edit the machine default separately.
 Choose exactly one active playbook:
 
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
-- Missing approved implementation controls: [Project setup](references/playbooks/project-setup.md)
-  is a prerequisite PR; complete it before resuming the original request.
+- Missing controls, or user-visible work without a Verification surface in `.omp/test-profile.md`:
+  [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
+  An owner-approved no-runnable-app surface exemption does not trigger setup.
 - Multiple PRs or flagged delivery: [Multi-phase](references/playbooks/multi-phase.md).
 - Otherwise the primary deliverable selects [Bug fix](references/playbooks/bug-fix.md),
   behaviour-preserving [Refactor](references/playbooks/refactor.md), or
@@ -53,32 +54,24 @@ ends here with its report; other playbooks continue in order.
 
 Keep the plan draft until spike answers land. Map every criterion to a named proof
 in a draft manifest using [proof contracts](references/patterns.md#proof-manifest).
-Missing proof surfaces are first tasks. Read `skill://test-guidance/references/tiers.md`
-and `skill://test-guidance/references/suite-budget.md` when selecting coverage.
-Plan review is optional unless the owner requests approval.
+Read `skill://test-guidance/references/tiers.md`, `case-selection.md` and `suite-budget.md`
+under that reference prefix, plus `.omp/test-profile.md`. Missing surfaces follow Start here.
+Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main checks prerequisites before ordinary implementation: a valid schemaVersion 2
-`.omp/gate.json` with `checks.commit`, `pathCheck`, and an installed executable
-pre-commit hook. Schema fields are `schemaVersion`, `checks` (`commit`, `ci`),
-`pathCheck`, `pathCheckTimeoutMs`, `testGlobs`, `agentMerge` and `ciHost`; accepted
-types/values are owned by `agent/extensions/agent-rails.ts`. `prove()` mirrors
-schema validation, while rails checks the installed hook at `git commit`.
-Missing controls require owner approval
-and the project-setup prerequisite PR. Read `skill://setup-repository-guardrails`
-for its proposal, Minimal/Full approval and application protocol; do not apply
-controls before approval. Bootstrap installs the approved hook before its first
-commit, not before proposing the controls.
+Main requires schema-v2 `.omp/gate.json` with `checks.commit`, `pathCheck` and an executable
+pre-commit hook. `agent/extensions/agent-rails.ts` owns accepted schema fields/types;
+`prove()` mirrors validation, and rails checks the hook at commit.
+Missing controls or the lazy surface trigger above require the owner-approved project-setup PR.
+Read `skill://setup-repository-guardrails` for proposal, Minimal/Full approval and application;
+never apply before approval. Bootstrap installs the hook before its first commit.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
-from spike code. Delegate code edits, including small fixes. Tasks run non-isolated,
-sequentially in that worktree with absolute paths. Assigned-worktree confinement
-is a brief/instruction invariant: the edit rail requires absolute filesystem paths
-and rejects symlink escapes from enclosing Git roots, not selection of a particular
-assigned worktree. Absolute outside-repository scratch paths remain allowed;
-internal URI paths are exempt from this filesystem-path check.
+from spike code. Delegate edits, including small fixes, to sequential non-isolated tasks in that
+worktree using absolute paths. Confinement is a brief invariant; rails reject enclosing-root
+symlink escapes, not another worktree. Outside-repo scratch and internal URIs remain allowed.
 
 1. Proof `task` writes proof files and stops uncommitted: no staging, push or PR.
 2. Main calls `freeze()` on those bytes.
@@ -88,21 +81,21 @@ internal URI paths are exempt from this filesystem-path check.
    Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
-Each task brief requires explicit reads before editing. The proof brief supplies
-`skill://test-guidance/references/unit-tests.md`,
-`skill://test-guidance/references/determinism.md`,
-`skill://test-guidance/references/behaviour-and-statistics.md` and
-`skill://test-guidance/references/tiers.md`.
-The implementation brief supplies
-`skill://coding-guidance/references/implementation-integrity.md`, applicable
-`skill://coding-guidance/references/structure-and-grouping.md` and
-`skill://coding-guidance/references/naming.md`,
-`skill://test-guidance/references/before-commit.md`, `skill://git-tool`,
-`skill://git-tool/references/branch-and-integrate.md` and
-`skill://git-tool/references/pr-description.md`. Both briefs include the worktree,
-criteria, manifest, allowed scope and applicable task-specific references.
+Each brief requires reads before editing. Proof briefs supply `.omp/test-profile.md` and
+`skill://test-guidance/references/case-selection.md`, `naming-and-layout.md`, `outcome-tests.md`
+and `tiers.md` under that reference prefix; add `property-tests.md`, `determinism.md`,
+`behaviour-and-statistics.md` and `verification-surface.md` when applicable.
+Proofs use outcome tests or lever journeys; journeys use defect with asserted expectRed or preserve,
+never new-surface. Freeze required lever changes with runner-invoked journey files.
+Implementation changes product code and feature-map docs, never frozen lever/proof bytes.
+Implementation briefs supply `skill://coding-guidance/references/implementation-integrity.md`,
+applicable `structure-and-grouping.md` and `naming.md` under that prefix,
+`skill://test-guidance/references/before-commit.md`, and `verification-surface.md` when a mapped
+feature changes (map docs only). Also supply `skill://git-tool`,
+`skill://git-tool/references/branch-and-integrate.md` and `pr-description.md` under that prefix.
+Both briefs include worktree, criteria, manifest, scope and task-specific references.
 Require `skill://coding-guidance/references/verification.md` before writer handoff.
-The writer lists discovered gate paths/effects in optional **Gate changes** per
+The writer lists gate paths/effects in **Gate changes** per
 [patterns](references/patterns.md#gate-changes); listing alone is not a merge gate.
 
 ### 5. Verify

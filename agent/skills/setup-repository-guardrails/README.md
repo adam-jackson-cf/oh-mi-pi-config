@@ -29,8 +29,8 @@ A rule is enforced only after its implementation and proof pass.
 ## Agentic repository gate
 
 Approved setup writes `.omp/gate.json` schema version 2: `checks.commit` for
-the pre-commit hook (static checks, every T1 test, and T2 seam tests only for
-affected code), `checks.ci` for CI on every push and pull request (the full T1
+the pre-commit hook (static checks, every T1, affected T2 boundary tests: seams and journeys),
+`checks.ci` for CI on every push and pull request (the full T1
 and T2 suite), an actionable changed-path `pathCheck`, and `ciHost`. Setup also
 installs the pre-commit hook; there is no pre-push hook. CI exposes a
 status named `gate`: either the full runner job or an always-running aggregate
@@ -38,9 +38,11 @@ depending on every parallel tier job of that runner. The aggregate passes only
 when every tier succeeded; failure, cancellation, or skipping any tier must fail
 `gate`. New rules enforce dependency direction, folder ownership, naming, test
 placement, fast-tier and per-test budgets, justified test growth, duplicate
-call-path/assertion detection, and required host checks. Test budgets are
-target-owned limits set from at least five recorded baseline runs and stay
-provisional until a measure run; raising one requires explicit approval.
+call-path/assertion detection, and required host checks. Budget limits are per machine,
+based on at least five baseline runs and provisional until a measure run. The first limit
+and raises need owner approval. `checks.commit` blocks locally against the approved machine
+limit; CI runs the same checker report-only for timing. Missing, invalid or stale reports
+are fatal everywhere; an unapproved machine reports only and prompts to record a baseline.
 Supported hosts enable auto-merge and rebase-merge. Existing Step 5 approval
 remains the boundary before any repository mutation.
 

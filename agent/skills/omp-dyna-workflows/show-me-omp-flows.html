@@ -29,6 +29,30 @@
 <article class="card verifier"><b>5 · Verify</b><p>Main independently confirms writer-ready green CI, then calls prove in Python eval (or fresh docs exemption). Prove dispatches the <b>sole cross-family verifier</b>; no second review task.</p><p>Use the configured verifier model only when its family differs from every recorded author. Otherwise select an eligible cross-family model through <code>verifier_model</code>: always a <b>verifier</b>, never a task substitute. Rails decides family eligibility.</p><p><a href="references/patterns.md#external-bot-prs">Dependabot PRs</a> without an author ledger count as <code>external</code> only when GitHub confirms the Dependabot PR author, a <code>dependabot/</code> head at the checked-out SHA, and verified <code>dependabot[bot]</code> commits across a nonempty range. Main freezes a <code>preserve</code> full-gate proof and runs prove; never re-apply the bump as an agent PR.</p><p>Main posts evidence, then labels only after verification and exact-head green CI.</p></article>
 <article class="card"><b>6 · Integrate</b><p>Main rechecks exact-head eligibility and merges under <a href="skill://git-tool/references/merge-and-recover.md">merge-and-recover</a>, respecting <code>agentMerge: disabled</code>. <code>--auto</code> is useful only with actual required checks and does not finish the job: wait for <code>MERGED</code>.</p><p>NUC sync uses the documented merge-commit exception. Serial integration and post-merge recovery have one home: git-tool.</p></article>
 </div></section>
+<section aria-labelledby="tests"><h2 id="tests">Outcome-first verification</h2>
+<p>Under DynaFlows, global <a href="skill://test-guidance">test-guidance</a> rules
+override repo-local test rules; <code>.omp/test-profile.md</code> supplies values
+and may tighten them. Plan reads tiers, case selection and suite budgets.</p>
+<p>User-visible work without a verification surface first completes owner-approved
+Project setup, including guarded repos in surface-only extend mode. An approved
+no-runnable-app exemption does not divert config or skill work. Setup demonstrates
+a broken variant in scratch, then discards that code. Proof tasks write the lever
+and runner-invoked journeys, freeze them together as preserve proofs; new-control
+canaries remain new-surface. Implementation writes map, profile and guardrails,
+in that order; Step 5 approval remains mandatory and the hook precedes the first commit.</p>
+<p>Outcome tests drive public entry points; property tests cover pure cores.
+Lever journeys use defect with asserted expectRed or preserve, never new-surface.
+Run them repeatedly before freeze; doctor/environment failures are not accepted red.
+Proof briefs read case selection, naming/layout, outcome tests, tiers and profile,
+plus property, determinism, statistics and surface guidance when applicable.
+Implementation reads surface guidance for mapped-feature changes and edits map docs only,
+not frozen lever bytes. Verifiers use the profile lever with temporary data and evidence.</p>
+<p>T1 has no processes or network; T2 owns seams and boundary-crossing journeys;
+T3 owns agent exploration and live paid calls. Commit runs static checks, T1 and affected
+T2; CI runs T1 + T2; nightly adds T3 on scheduler-enumerated active branches.
+Approved per-machine timing limits block locally only; CI timing is report-only,
+but missing, invalid or stale reports fail everywhere. First limits and raises need approval.</p>
+</section>
 <section aria-labelledby="loop"><h2 id="loop">Ready PR → evidence → merge</h2>
 <div class="loop">
 <div class="card"><b>1 · Writer ready</b>No pending edits; exact pushed SHA has required green CI. Main independently confirms existing/cached exact-SHA status.</div>

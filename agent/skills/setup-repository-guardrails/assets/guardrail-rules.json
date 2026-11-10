@@ -139,7 +139,7 @@
       "contract": {
         "configuration": ".omp/gate.json",
         "required_command_field": "checks.commit",
-        "scope": "static_checks_all_t1_and_t2_seams_for_affected_code",
+        "scope": "static_checks_all_t1_and_t2_boundary_tests_for_affected_code",
         "hook_manager": "any_tracked_manager_or_native_hook",
         "installed_pre_commit_hook_executes_exact_checks_commit_argv": true,
         "hook_installed_in_every_clone": true,

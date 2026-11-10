@@ -41,7 +41,7 @@ Install only approved guardrails while keeping unrelated target work intact.
    not shell strings. Checks follow the test tiers and run only at these events:
 
    1. Commit: the pre-commit hook runs `checks.commit`: static checks, every
-      T1 test, and T2 seam tests only for affected code. agent-rails blocks
+      T1 test, and affected T2 boundary tests (seams and journeys). agent-rails blocks
       agent commits that bypass the hook, and commits in a repo that declares
       `checks.commit` without an installed executable hook.
    2. Push and pull request: CI runs `checks.ci`, the full T1 and T2 suite.
@@ -86,9 +86,11 @@ Install only approved guardrails while keeping unrelated target work intact.
    has one, propagating nonzero status. With no manager, commit a native
    `.githooks/pre-commit` and set `git config core.hooksPath .githooks`.
    Installing the hook is part of setup in every clone that commits, including
-   agent machines; document the install command. Include path, budget, growth,
-   and duplicate checks in the appropriate runner tiers. Keep auto-fix explicit
-   and outside check-only CI.
+   agent machines; document the install command. Include path, growth and duplicate checks.
+   Budget timing blocks locally in `checks.commit` using the profile's approved machine limit;
+   CI runs the same checker report-only for timing. Missing, invalid or stale reports fail everywhere.
+   First limits and raises need owner approval; unapproved machines report only and prompt for a baseline.
+   Keep auto-fix explicit and outside check-only CI.
 6. Configure approved protection on the resolved default branch to require the
    `gate` status check and all other approved required checks. Enable auto-merge
    and rebase-merge where the host supports them. Read back actual settings;

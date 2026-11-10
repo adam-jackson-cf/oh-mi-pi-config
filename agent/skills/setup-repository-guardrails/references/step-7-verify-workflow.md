@@ -26,9 +26,11 @@ execution.
    owner/tier path and reject a misplaced test. Assert that each failure names
    the file and exact corrective action.
 3. For `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time`, feed valid
-   below-limit, exactly-at-limit, and over-limit runner JSON reports to the real
-   checker. Confirm missing, invalid, stale reports and missing measurements
-   fail, not silently pass. For `TEST.growth.justified`, accept a new file/case
+   below-limit, exactly-at-limit and over-limit reports to the real checker. Prove machine
+   selection and local `checks.commit` blocking against approved limits; CI timing is report-only.
+   Prove first limits and raises need owner approval; unapproved machines prompt for a baseline
+   and report timing only. Missing, invalid or stale reports and missing measurements fail everywhere.
+   For `TEST.growth.justified`, accept a new file/case
    mapped to changed source and behavior; reject unmapped or unresolved mappings
    with the test name and map-or-remove fix. For `TEST.duplicate-path`, accept
    distinct fingerprints and reject a new case sharing an existing/other new

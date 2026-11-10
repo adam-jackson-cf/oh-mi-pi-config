@@ -1,7 +1,8 @@
 # Current routing
 
-Routing decision updated 2026-11-04 for the proof-first workflow. The installed source of truth is
-`~/.omp/agent/config.yml`; update this reference alongside routing changes. Claude routes use
+Routing decision updated 2026-11-10 for the owner's Fable 5.2 experiment-design upgrade.
+The installed source of truth is `~/.omp/agent/config.yml`; update this reference alongside
+routing changes. Claude routes use
 `anthropic`; GPT routes use `openai-codex`.
 
 ## Roles
@@ -37,8 +38,9 @@ Routing decision updated 2026-11-04 for the proof-first workflow. The installed 
   (challenger); the lead had drifted to Fable 5.1 high in `config.yml` while this table said Opus.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
-- `experiment-design` → Fable 5.1 : high. Used by experiment lead. Owner: Fable leads novel-problem
-  framing.
+- `experiment-design` → Fable 5.2 : high. Used by experiment lead. Owner: Fable leads novel-problem
+  framing. Owner decision 2026-11-10; Fable 5.2 released 2026-11-09, $8/$40 per Mtok input/output
+  versus Fable 5.1 $10/$50 per snapshot catalog.
 - `experiment-peer` → Opus 5.5 : high. Used by experiment-design peer. Owner: Opus participates.
 
 ## Service tiers

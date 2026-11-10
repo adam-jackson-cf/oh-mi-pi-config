@@ -23,11 +23,12 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    text. Normalize to `fastTierWallClockMs` and `tests` entries with `id`,
    `tier`, and `durationMs`. Measure wall-clock independently of summed parallel
    case durations; reject missing, invalid, negative, non-finite, or stale
-   measurements and missing fast-tier cases. Compare fast-tier wall-clock and
-   each fast-tier case with the approved target-owned limits from Step 2. Name
-   each overrunning test with a speed-up fix (inject the clock or runner, cut
-   needless steps); never propose moving a test to another tier because it is
-   slow.
+   measurements and missing fast-tier cases everywhere. Select approved limits by machine
+   from the repo test profile; block overruns locally in `checks.commit`, report CI timing only.
+   An unapproved machine reports timing only and prompts to record a baseline. First limits
+   and raises require owner approval under `limit_increase_requires_owner_approval`.
+   Name overrunning tests with a speed-up fix using production inputs or fewer steps;
+   never propose moving a test to another tier merely because it is slow.
 4. Prepare diff-aware checks for `TEST.growth.justified` and
    `TEST.duplicate-path`. Compare against the recorded base ref; detect added
    files and cases, including parameter rows. Require a machine-readable mapping
@@ -44,7 +45,7 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    failure (for GitHub Actions, `if: ${{ always() }}`) and succeed only if
    every tier's result is `success`; failed, cancelled, or skipped tiers must
    make `gate` fail. Prepare one hook entry: pre-commit runs `checks.commit`
-   (static checks, every T1 test, and T2 seam tests only for affected code) for
+   (static checks, every T1, affected T2 boundary tests: seams and journeys) for
    `GATE.pre-commit`. Do not add a pre-push hook; remove an existing one by the
    approved decision. Add the entry to the repo's tracked hook manager when it
    has one; otherwise draft a native `.githooks/pre-commit`, enabled with
