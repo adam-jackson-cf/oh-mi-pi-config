@@ -16,6 +16,10 @@ Missingness: records are de-duplicated per (case, arm, rep), latest wins.
 Failed, timed-out and leak-flagged trials are re-run once
 (`run_reviews.py --rerun-failed`); the decision table is withheld unless every
 arm has every trial scored.
+
+Toolset: each record carries a toolset label (`find` availability plus a config hash, see
+../toolset.py). Every table is computed per label; unlabelled records form a `pre-find` group,
+and mixing labels prints a warning because arms then ran with different tools.
 """
 from __future__ import annotations
 
@@ -24,6 +28,9 @@ import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from toolset import describe, label_of, warn_if_mixed  # noqa: E402
 
 WINDOW = 3
 FP_VETO = 3.0
@@ -37,12 +44,18 @@ CREDITS = {  # Codex Standard credits per 1M tokens: input, cached input, output
 LEAK_MARKERS = ("fixed-plan-effort", "review-detection", "/reference/")
 
 
-def latest_records(out: Path) -> dict[tuple[str, str, int], dict]:
-    latest: dict[tuple[str, str, int], dict] = {}
+def latest_by_label(out: Path) -> dict[tuple[str, str], dict[tuple[str, str, int], dict]]:
+    """Per toolset label, the latest record for each (case, arm, rep)."""
+    groups: dict[tuple[str, str], dict[tuple[str, str, int], dict]] = defaultdict(dict)
     for line in (out / "results.jsonl").read_text().splitlines():
-        rec = json.loads(line)
-        latest[(rec["case"], rec["arm"], rec["rep"])] = rec
-    return latest
+        if line.strip():
+            rec = json.loads(line)
+            groups[label_of(rec)][(rec["case"], rec["arm"], rec["rep"])] = rec
+    return groups
+
+
+def latest_records(out: Path, label: tuple[str, str]) -> dict[tuple[str, str, int], dict]:
+    return latest_by_label(out).get(label, {})
 
 
 def leaked(rec: dict, out: Path) -> bool:
@@ -115,9 +128,7 @@ def shared_clusters(clean: list[dict]) -> set[tuple[str, str, int]]:
     return shared
 
 
-def main() -> None:
-    out = Path(sys.argv[1])
-    latest = latest_records(out)
+def analyse(out: Path, latest: dict[tuple[str, str, int], dict]) -> tuple[list[str], dict[str, dict]]:
     arms = sorted({arm for _, arm, _ in latest})
     cases = sorted({case for case, _, _ in latest})
     reps = sorted({rep for _, _, rep in latest})
@@ -183,7 +194,21 @@ def main() -> None:
               f"Complete (every arm {expected}/{expected} scored): {complete}"]
     if not complete:
         lines.append("INCOMPLETE — decision withheld; run `run_reviews.py --rerun-failed` once, then re-analyse.")
-    text = "\n".join(lines)
+    return lines, summary
+
+
+def main() -> None:
+    out = Path(sys.argv[1])
+    groups = latest_by_label(out)
+    lines: list[str] = []
+    summary: dict[str, dict] = {}
+    warning = warn_if_mixed(set(groups))
+    if warning:
+        lines += [warning, ""]
+    for label in sorted(groups):
+        group_lines, summary[describe(label)] = analyse(out, groups[label])
+        lines += [f"## Toolset: {describe(label)}", "", *group_lines, ""]
+    text = "\n".join(lines).rstrip()
     (out / "analysis.md").write_text(text + "\n")
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(text)
