@@ -24,10 +24,10 @@ Identify, reproduce and remove an intermittent failure's cause with failing-befo
 - If no attempt reproduces the cause, do not make a speculative fix or call it environmental.
   Keep the attempts and CI evidence; report the cause as unknown and classification provisional.
 - Write a test that fails on the old implementation before applying the repair.
-  Prefer a deterministic injected clock step, forced async ordering or dependency contract check
-  over relying on another chance failure.
-- Fix the cause: inject time and count fixed steps, explicitly order operations, isolate resources
-  per run or correct the dependency through the repo's dependency-change process.
+  Prefer a deterministic step supplied through the production clock input, controlled async ordering
+  or a dependency contract check over relying on another chance failure.
+- Fix the cause: supply time through the production clock input and count fixed steps,
+  explicitly order operations, isolate resources per run or correct the dependency through its change process.
 - Never treat a retry, re-run to green, skip, quarantine, longer timeout or loosened assertion
   as a fix.
   A genuinely unavailable tool, host or credential requires concrete evidence; a flaky assertion

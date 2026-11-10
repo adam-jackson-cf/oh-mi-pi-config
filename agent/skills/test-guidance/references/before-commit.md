@@ -2,28 +2,28 @@
 
 ## Objective
 
-Complete the applicable verification before committing without weakening assertions or hiding failures.
+Complete applicable verification without weakening assertions or hiding failures.
 
 ## Guidance
 
-- Commit through the repo's pre-commit hook: it runs `checks.commit` from `.omp/gate.json`
-  (static checks, every T1 test, and T2 seam tests only for affected code). Never bypass it.
-  Treat the command array as the repo-owned invocation; do not substitute an easier command.
-  If the manifest or `checks.commit` is absent, use the repo's documented pre-commit checks.
-  If none is defined, report the missing check rather than inventing a pass.
-- Select additional checks by changed behaviour and blast radius, using codegraph impact when
-  available; include affected boundary cases and journeys when their wiring changed.
-  CI runs `checks.ci` (full T1 and T2) on every push; do not default every local iteration to
-  the whole suite.
-- Use the repo runner's per-test duration report during targeted verification.
-  Check applicable per-test and fast-tier budgets and retain the evidence for the PR.
-- A skipped, missing or timed-out required tool is a failure, never a pass.
-  A blocked check is not green; name what did not run and why.
-  Use write-mode tools only when an authorized change calls for them, not to conceal a check result.
-- Drive caller input through the same public input or client seam as production callers.
-  Use the package's scripted or injected client for T1 wiring, not direct private-state mutation.
-- Never fix a failure by weakening assertions or checks: no loosened expected value, lowered
-  threshold, unowned coverage exclusion, skip, focused-only marker, retry or longer timeout.
-- Report commands actually exercised and their outcomes; do not claim an unrun check passed.
-  Include test-count and fast-tier duration deltas in the PR body as [suite-budget.md](suite-budget.md)
-  requires, and follow the repo's PR and review process.
+- Read Run events and Command notes in the repo test profile. Run its Commit command:
+  static checks, all T1 and affected T2 boundary tests (seams and journeys).
+  When committing under the caller's Git authority, let the pre-commit hook run that command; never bypass it.
+  This runbook grants no Git authority. If no Commit command is defined, report the gap, never invent a pass.
+- Select additional checks by changed behaviour and blast radius, using codegraph impact when available.
+  Follow [tiers.md](tiers.md) for event membership: CI runs all T1 and T2; nightly adds T3 on active branches.
+  Do not default every local iteration to the whole suite; local green never replaces the CI merge gate.
+- Use Fast-tier budget's Duration-report command and per-machine approved limits;
+  retain comparable counts and timing evidence as [suite-budget.md](suite-budget.md) requires.
+- Leave Identity-bearing artefacts' bytes untouched during test-only work; follow their preservation rules.
+- Missing, skipped, empty-collection, timed-out or infrastructure-failed required checks never pass.
+  Report a blocked required check (or guardrail coverage-ledger rule) as blocked, not green.
+  Name commands, events and outcomes actually exercised.
+- Only the repo's authorized fix command, recorded in Command notes, may write authorized check fixes.
+  If none is designated, stay check-only. Do not use write mode to conceal failures.
+- Drive caller input through the public entry point and the same production inputs/adapters callers use,
+  never by private-state mutation or runtime patching.
+- Never loosen expectations, thresholds or owned coverage rules to hide failures.
+  Never use skips, focused-only markers, retries to green or longer timeouts.
+  Owner-approved measured timing-limit changes follow [suite-budget.md](suite-budget.md).
+  Follow the repo's PR and review process.

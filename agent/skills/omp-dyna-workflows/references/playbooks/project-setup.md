@@ -1,37 +1,49 @@
 # Project setup playbook
 
-Establish owner-approved controls as a prerequisite PR before ordinary implementation resumes.
-
-Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
-only the deltas below belong here. Ordinary implementation cannot skip its
-owner-approved project-setup prerequisite. Helper mechanics live in
-[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
+Establish the approved verification surface before guardrails in a prerequisite PR.
+Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order.
+Helper mechanics live in [patterns](../patterns.md); Git mechanics in `skill://git-tool`.
 
 ## 1. Frame
 
-Identify stack, protected work, missing controls and owners. Read `skill://setup-repository-guardrails`.
+Identify stack, protected work, missing controls and owners. Read `skill://setup-repository-guardrails`
+and `skill://test-guidance/references/verification-surface.md`.
+Read `.omp/test-profile.md` when present. Trigger surface setup lazily for user-visible work
+without a surface; an owner-approved no-runnable-app exemption does not trigger it.
+For an already guarded repo, use surface-only extend mode, not a second guardrail system.
 
 ## 2. Spike
 
-Inventory is mandatory: use setup Step 0 target/safety, Steps 1–2 inventory/rule
-mapping, Step 3 candidates and Step 4 dry-run impact. Scratch work prepares the
-Step 5 approval; do not apply controls during inventory.
+Build a scratch lever and journey; execute a deliberately broken variant to show the intended
+failure and a doctor/environment failure to show it cannot count as red. Save evidence,
+never reuse spike code. Inventory guardrails using Steps 0–2, candidates Step 3 and dry-run
+Step 4. Scratch work prepares Step 5 approval; never apply controls during inventory.
 
 ## 3. Plan
 
-Map canary criteria to new-surface proofs for new controls and preserve proofs
-for existing controls, including intentional violations rejected and valid inputs
-accepted. Complete explicit owner approval at setup Step 5 before application.
+Map lever journeys to `preserve` proofs; new-control canaries remain `new-surface`, existing
+controls `preserve`. Cover intentional violations rejected and valid inputs accepted.
+The proof task writes the production lever and runner-invoked journey files and freezes them
+ together; implementation owns the feature map, profile and guardrails, not lever bytes.
+Run journey proofs several times before freezing. Complete guardrails Step 5 owner approval.
+Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
+`STRUCT.folder-placement`, `NAME.conventions`, ownership areas and affected-T2 selection.
+Keep the Step 5 STOP; existing controls are not permission to skip approval.
 
 ## 4. Implement
 
-Invoke setup Step 6 approved application, then Step 7 rule coverage verification.
-Install the approved hook before the first commit. Bootstrap is the exception to
-needing completed controls before proposing/installing them, not an approval bypass.
+After freeze, implementation writes the feature map and copies
+`skill://test-guidance/assets/templates/test-profile.md` to `.omp/test-profile.md`, filling its
+values before guardrails application. Preserve existing profile values when extending it.
+Use `git check-ignore .omp/test-profile.md`; if ignored, re-include that exact path in the
+repo ignore rules and confirm it is trackable. Never force-add an ignored profile.
+Then invoke guardrails Step 6 using the profile and Step 7 coverage verification.
+Install the approved hook before the first commit; commit frozen proofs and greening changes
+atomically through it. Bootstrap permits proposing controls before they exist, not bypassing approval.
 
 ## 5. Verify
 
-Use canary/live evidence under the shared contract.
+Use canary/live evidence under the shared contract; reject doctor failures as proof assertions.
 
 ## 6. Integrate
 
