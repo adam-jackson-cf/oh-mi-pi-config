@@ -14,7 +14,8 @@ Prove that the same seed and inputs yield the same state across runs, hosts, ord
 - Test host parity and replay through the applicable boundary tier.
   Replay the recorded input log and compare the same state sequence.
   A change to stepping, hashing or logging extends the cross-host or cross-restart case.
-  Test internal decoding errors and computed values separately at T1, as [tiers.md](tiers.md) says.
+  Test caller-visible decoding errors and computed values through the public entry point at T1;
+  use [property-tests.md](property-tests.md) for pure-core properties.
 - For arithmetic and codec changes, use generated-input property tests against an independent
   reference implementation, including edge values and overflow or invalid-input boundaries.
   Use a wider or exact numeric representation when it provides a trustworthy arithmetic oracle.

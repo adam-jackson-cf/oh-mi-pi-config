@@ -17,13 +17,16 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
 3. Map `STRUCT.dependency-direction` to a layer-edge allowlist and
    `STRUCT.folder-placement` to path ownership; unmapped edges/files fail. Map
    `NAME.conventions` to path/symbol patterns and `TEST.placement` to owner/tier
-   paths. Diagnostics must name the file and corrective edge, name, or
-   destination.
+   paths from the repo test profile when present. Use its ownership areas and affected-T2
+   selection; unmapped T2 files fail and unknown changed-code ownership selects all T2.
+   Diagnostics name the file and corrective edge, name, or destination.
 4. Map `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time` to a checker
-   consuming the runner's JSON report. There are no global caps: set
-   target-owned limits from at least five recorded baseline runs, report them as
-   provisional until the repo's measure run, and treat any later increase as a
-   deviation requiring Step 5 approval. Map `TEST.growth.justified` to a
+   consuming the runner's JSON report. Select limits by machine from the repo test profile;
+   block timing locally in `checks.commit`, run the same checker report-only for CI timing.
+   Missing, invalid or stale reports remain fatal everywhere. Derive limits from at least
+   five baseline runs, provisional until the measure run. First limits and raises require
+   owner approval at Step 5; unapproved machines report timing only and prompt to record a baseline.
+   Map `TEST.growth.justified` to a
    base-ref diff plus a changed-behavior mapping for each new test file/case; a
    missing mapping fails with the test name and map-or-remove fix. Map
    `TEST.duplicate-path` to normalized call-path/assertion fingerprints,

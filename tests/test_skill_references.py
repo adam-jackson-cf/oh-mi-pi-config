@@ -16,6 +16,7 @@ class SkillReferenceTests(unittest.TestCase):
             ROOT / "agent/agent-rails.yml",
             ROOT / "agent/extensions/agent-rails.ts",
             *(ROOT / "agent/agents").glob("*.md"),
+            *(ROOT / "agent/rules").glob("*.md"),
             *(path for path in (SKILLS / "omp-dyna-workflows").rglob("*")
               if path.suffix in {".md", ".py", ".html"} and path.is_file()),
         }
@@ -46,6 +47,24 @@ class SkillReferenceTests(unittest.TestCase):
                 unresolved.append(
                     f"unresolved skill reference: {reference} (cited by: {', '.join(sorted(sources))})"
                 )
+        if unresolved:
+            self.fail("\n".join(unresolved))
+
+    def test_core_skill_relative_markdown_links_resolve_locally(self):
+        unresolved = []
+        for name in CORE_SKILLS:
+            for source in sorted((SKILLS / name).rglob("*.md")):
+                text = source.read_text(encoding="utf-8")
+                for match in re.finditer(r"\[[^\]\n]*\]\(([^)\s]+)\)", text):
+                    target = match.group(1)
+                    if target.startswith("#") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
+                        continue
+                    relative = target.split("#", 1)[0]
+                    if not (source.parent / relative).is_file():
+                        unresolved.append(
+                            f"unresolved relative markdown link: {target} "
+                            f"(cited by: {source.relative_to(ROOT)})"
+                        )
         if unresolved:
             self.fail("\n".join(unresolved))
 
