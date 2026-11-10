@@ -1,34 +1,74 @@
-# Test tiers and layout
+# Test tiers and run events
 
-Place each test by what it drives; split decisions from boundary wiring; one owner per assertion.
+## Objective
 
-- The project's own test skill or AGENTS.md test rules take precedence; this fills gaps.
-- Where this is silent: keep existing content, make no irreversible write, ask the user once when the choice changes the outcome, state the choice in the result.
-- Pick the tier by what the test drives, never by duration. Map these tiers onto the repo's existing tiers; never create parallel ones.
+Assign each test one tier and report green only for the event actually exercised.
 
-## Tiers
+## Start here
 
-- **T1 unit**: decisions, codecs, schemas, parsers and checkers in memory; also a thin process or file shell through an injected clock or runner.
-  Follow the repo's unit-test layout, coverage threshold and per-test time budget.
-- **T2 boundary**: a real process, build, transport, storage or external-service boundary.
-  Seam test for a boundary contract; journey test for a caller-visible path across the boundary.
-  Keep T2 outside the fast tier; use repo-owned boundary fixtures and isolated resources.
-- **T3 scheduled/on-demand**: soak, broad sweeps, resource-budget benchmarks. Never move a test to T3 to escape a T1 or T2 limit.
+- Under DynaFlows these rules override repo-local test skills and AGENTS.md test rules during coexistence.
+  The repo test profile supplies values and may tighten, never relax, these rules. Outside DynaFlows this is guidance.
+- Where this skill is silent, use judgement: keep existing content, make no irreversible write,
+  ask the user once when the choice changes the outcome, and state the choice in the result.
+- The calling workflow supplies the repo test profile's location and whether DynaFlows is active.
+  If either is unknown, ask once before choosing that branch; never guess a profile from a repo-local skill.
+  Read its values using the shipped [profile template](../assets/templates/test-profile.md) field names.
+- Start with tiers, case selection, naming/layout and outcome tests; add property tests for pure cores.
+  Read the surface runbook for mapped features, then before-commit and suite-budget before delivery.
+  Read determinism, statistics, flakes and suite-review when their named topic applies.
+- Missing means absent, empty, template placeholders or non-values such as `n/a`, `TBD` or unsupported `none`.
+  No sentinel waives a required section, including in config repos. Under an active DynaFlows playbook,
+  missing profile/surface plus user-visible work routes to that workflow's Project setup prerequisite.
+  Hand off the missing values; resume implementation only after its owner-approved prerequisite PR completes.
+  Rejection leaves implementation blocked. Outside DynaFlows, report gaps and follow repo delivery policy.
+  Otherwise report gaps and continue only work not dependent on the missing values.
+- Accept `none: <owner-approved reason>` only for Verification surface (no runnable app), Nightly scheduler,
+  and Identity-bearing artefacts. Require a nonempty reason and recorded owner approval;
+  malformed or unapproved exemptions count as missing. Elsewhere `none` is a reported gap, never a waiver.
+  A valid surface exemption does not trigger setup.
+- During Project setup, the setup owner checks profile tracking with `git check-ignore` using its supplied path:
+  an ignored profile cannot be frozen or pass changed-path checks. Re-include that exact path in the repo ignore rules;
+  never force-add it.
+
+## Membership
+
+- T1 local fast: outcome tests through the public entry point, using only in-process storage (unique temp directory
+  or SQLite file), and property tests on pure cores. No processes or network in setup, call or teardown.
+- T2 boundary: real process, build, transport, server-database or loopback seams, and scripted feature-map journeys.
+- T3 scheduled: agent exploration over the feature map, live paid or LLM calls, soak, sweeps, security/performance
+  phase-exit checks, formal checks and feature-map drift. Never move tests here to evade a budget.
+- A public entry point is the interface a caller outside the owning package or feature uses: CLI entry, API handler
+  or exported package API. Read each package's entry point from Tiers. Reach internals through it,
+  except property tests on pure cores.
+  If the changed area's public entry point is missing, ask once for the owner-approved entry point;
+  do not write tests against a guessed private function.
+- Map tiers onto existing repo tiers, never create parallel ones. Tier by what a test drives, not duration.
+  Keep one tier per file; use strict registered, disjoint selectors. Markers may overlay; selectors remain disjoint.
+- Enforce fast-tier process/network guards across setup, call and teardown. Probe readiness at the first selected test,
+  never collection. Use Environments' require flag so missing environments fail.
+- Run boundary suites through their entry point. Every T2 file maps to an Ownership area; unmapped files fail.
+  Select affected T2 using Ownership areas' Affected T2 test selection.
+  Apply the repo's existing placement check; if absent, report missing enforcement to the calling workflow.
+  An unmapped T2 file is a policy failure: hand its missing mapping to the approved setup extension before claiming green.
+  Unknown changed-production-code ownership is different: run all T2 and report that selection.
+
+## Run events
+
+- Commit: static checks, all T1, affected T2 boundary tests (seams and journeys).
+- CI: all T1 and T2 before merge. Local runs never replace this gate.
+- Nightly: T1, T2 and T3 on scheduler-enumerated active branches, as Run events records.
+  If Nightly scheduler is exempt, report no nightly run; do not imply a scheduler exists.
+- Minimal is the calling workflow's lightest guardrail level. Without a CI command report `no CI event`,
+  not CI green; also report the missing profile value.
+  Name the event and commands exercised, never an unqualified all-tier pass.
 
 ## Assertion ownership
 
-- T2 proves only what crosses the boundary: what another process receives, what survives restart, or a stable public diagnostic identifier.
-  Without a stable identifier, assert the observable refusal or recovery result, never error prose or a bare throw that could pass for the wrong reason.
-- Exact branch, computed-value and decision-error assertions belong in the owning T1 test, with the exact expected value and no boundary-added decoration.
-  Tighten an existing case before adding one; extract the decision if necessary.
-- Behaviour needing both tiers: T1 proves the decision in memory; T2 proves only wiring the injected T1 seam cannot.
-  When an injected timer or runner suffices, test decision and wiring at T1 with no T2 case.
-  Caller-facing behaviour alone never justifies a journey when no real boundary is involved.
-- A moved test takes its fixtures and leaves no duplicate. Each assertion has one owner across tiers.
-
-## Layout
-
-- Follow the owning package's test and support layout and naming.
-  Name new tests for the module or behaviour they prove; place fixtures with their test owner.
-- Create a directory with its first file, never as empty scaffolding.
-- This is guidance only: no new tier, runner or gate, and it replaces no existing mechanism.
+- Require a journey only when the user outcome crosses a process, build or UI boundary.
+  Otherwise point the feature map to the T1 outcome test, including library repos.
+- T1 owns exact values reachable through its public entry point or a pure-core property.
+  A journey owns the mapped user end state across the boundary, not a duplicate parser/computation assertion.
+  It may own an exact end-state value only when no T1 path reaches that value.
+  For a pure-core bug, the property asserts computed values; the journey asserts their user-visible consequence.
+  Seams assert only what crosses the boundary, never error prose.
+- Give each assertion one owner. On a move, move fixtures and remove the superseded copy.

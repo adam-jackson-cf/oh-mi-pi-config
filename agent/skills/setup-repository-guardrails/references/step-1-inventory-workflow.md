@@ -15,6 +15,8 @@ Capture what the target actually enforces and what it only documents or proposes
    bespoke-check configuration. Record the exact command and trigger that runs each check.
 4. List test layers and evidence: unit, integration, seam, end-to-end, smoke, coverage, timeouts,
    fixtures, and CI matrix. Do not treat a config file as active unless an invoked command reads it.
+   Read `.omp/test-profile.md` when present; record its tiers, entry points, ownership
+   areas, affected-T2 selection, verification surface and per-machine budget approvals.
 5. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
 6. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
