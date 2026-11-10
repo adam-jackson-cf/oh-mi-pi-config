@@ -11,7 +11,6 @@ import json
 import subprocess
 import tempfile
 from collections.abc import Callable
-from pathlib import Path
 
 PRE_FIND = ("pre-find", "-")
 
@@ -30,18 +29,25 @@ def find_available(enabled: str, judge: str | None) -> bool:
     return bool(judge) and enabled != "off"
 
 
-def config_hash(config_file: Path) -> str:
-    return hashlib.sha256(config_file.read_bytes()).hexdigest() if config_file.is_file() else "absent"
+def config_hash(settings: dict) -> str:
+    """Hash the effective settings omp resolved (defaults plus every layer), not one file.
+
+    `auth.*` keys are dropped so a credential rotation does not split trial groups; values
+    are only hashed, never stored.
+    """
+    effective = {k: v.get("value") if isinstance(v, dict) else v
+                 for k, v in settings.items() if not k.startswith("auth.")}
+    return hashlib.sha256(json.dumps(effective, sort_keys=True).encode()).hexdigest()
 
 
 def toolset_label(run: Callable[[list[str], str], str] = _omp) -> dict:
     """Read the effective global config from a neutral cwd (trial workspaces carry no .omp layer)."""
     with tempfile.TemporaryDirectory() as cwd:
-        enabled = str(json.loads(run(["config", "get", "find.enabled", "--json"], cwd))["value"])
-        judge = (json.loads(run(["config", "get", "modelRoles", "--json"], cwd)).get("value") or {}).get("judge")
-        agent_dir = Path(run(["config", "path"], cwd).strip())
+        settings = json.loads(run(["config", "list", "--json"], cwd))
+    enabled = str(settings["find.enabled"]["value"])
+    judge = (settings.get("modelRoles", {}).get("value") or {}).get("judge")
     return {"findAvailable": find_available(enabled, judge), "findEnabled": enabled, "judgeRole": judge,
-            "configHash": config_hash(agent_dir / "config.yml")}
+            "configHash": config_hash(settings)}
 
 
 def label_of(rec: dict) -> tuple[str, str]:
