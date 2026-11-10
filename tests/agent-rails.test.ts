@@ -14,10 +14,6 @@ const structure = "skill://coding-guidance/references/structure-and-grouping.md"
 const naming = "skill://coding-guidance/references/naming.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://coding-guidance/references/verification.md";
-const discovery = [
-	"skill://codegraph/references/readiness-and-bootstrap.md",
-	"skill://codegraph/references/query-selection.md",
-];
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
@@ -81,7 +77,6 @@ function harness() {
 		on(name: string, handler: Handler) { handlers.set(name, handler); },
 		registerCommand() {},
 		async exec(command: string, args: string[], options: { cwd: string; timeout: number }) {
-			if (command === "sh" && args.join(" ") === "-c command -v codegraph") return { code: 0, killed: false, stdout: "/test/codegraph", stderr: "" };
 			try {
 				const { stdout, stderr } = await execute(command, args, options);
 				return { code: 0, killed: false, stdout, stderr };
@@ -242,23 +237,34 @@ describe("agent rails", () => {
 		});
 	}
 
-	test("codegraph blocks discovery until both references, once per session and again after compaction", async () => {
+	test("discovery tools are never gated by reference reads, before or after compaction", async () => {
 		const h = harness();
 		try {
-			assert.equal(await h.call("find", { path: "omp://" }), undefined);
 			for (const tool of ["find", "grep", "glob", "ast_grep"]) {
-				const blocked = await h.call(tool, {});
-				assert.equal(blocked?.block, true);
-				for (const url of discovery) assert.ok(blocked?.reason?.includes(url));
+				assert.equal(await h.call(tool, {}), undefined);
+				assert.equal(await h.call(tool, { path: h.root }), undefined);
 			}
-			await h.read(discovery[0]);
-			assert.equal((await h.call("glob", { path: "**/*.ts" }))?.block, true);
-			await h.read(discovery[1]);
-			assert.equal(await h.call("glob", { path: "**/*.ts" }), undefined);
-			assert.equal(await h.call("grep", {}), undefined);
 			await h.emit("session_compact");
-			assert.equal((await h.call("find", {}))?.block, true);
+			assert.equal(await h.call("grep", { path: h.root }), undefined);
+			assert.equal(await h.call("glob", { path: "**/*.ts" }), undefined);
 		} finally { h.cleanup(); }
+	});
+
+	test("newFile reads apply only to new code files inside a repository", async () => {
+		const h = harness();
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-scratch-")));
+		try {
+			assert.equal(await h.call("write", { path: join(scratch, "notes.md"), content: "# notes\n" }), undefined,
+				"a new file outside any repository needs no reads");
+			await h.read(integrity);
+			assert.equal(await h.call("write", { path: join(scratch, "scratch.ts"), content: "export {};\n" }), undefined,
+				"a new code file outside any repository needs no newFile reads");
+			assert.equal(await h.call("write", { path: "notes.md", content: "# notes\n" }), undefined,
+				"a new non-code file inside a repository needs no reads");
+			const blocked = await h.call("write", { path: "src/new.ts", content: "export {};\n" });
+			assert.equal(blocked?.block, true);
+			for (const url of [structure, naming]) assert.ok(blocked?.reason?.includes(url));
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 	});
 
 	test("integration git commands need git-tool, while inspection and look-alikes pass", async () => {
@@ -593,18 +599,6 @@ for (const family of ["openai", "anthropic"]) {
 		} finally { h.cleanup(); unrelated.cleanup(); }
 	});
 }
-
-test("discovery skips unavailable codegraph and caches the lookup across compaction", async () => {
-	const h = harness();
-	try {
-		let lookups = 0;
-		h.api.exec = async () => { lookups++; return { code: 1, killed: false, stdout: "", stderr: "" }; };
-		assert.equal(await h.call("glob", { path: h.root }), undefined);
-		await h.emit("session_compact");
-		assert.equal(await h.call("grep", { path: h.root }), undefined);
-		assert.equal(lookups, 1);
-	} finally { h.cleanup(); }
-});
 
 test("path checks forget deleted and ignored failures without skipping live repository paths", async () => {
 	const h = harness();

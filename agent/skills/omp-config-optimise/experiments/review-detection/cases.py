@@ -190,7 +190,7 @@ def build_workspace(case: Case, ws: Path, mutations: tuple[Mutation, ...] | None
     fixture = FIXTURES / case.fixture
     shutil.copytree(fixture / "repo", ws)
     _git(ws, "init", "-q")
-    (ws / ".git" / "info" / "exclude").write_text("__pycache__/\n*.pyc\n.pytest_cache/\nnode_modules/\n.codegraph/\n")
+    (ws / ".git" / "info" / "exclude").write_text("__pycache__/\n*.pyc\n.pytest_cache/\nnode_modules/\n")
     _git(ws, "add", "-A")
     _git(ws, "-c", "user.email=eval@local", "-c", "user.name=eval", "commit", "-qm", "baseline")
     shutil.copytree(fixture / "reference", ws, dirs_exist_ok=True)

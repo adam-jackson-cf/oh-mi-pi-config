@@ -38,9 +38,10 @@ is not permission to implement. Playbooks contain deltas to the contract below.
 
 Main defines the requested outcome, every acceptance criterion and only questions
 whose answers change the plan. `kiss` cuts unnecessary work and questions, never
-requested behaviour. Before discovery read
-`skill://codegraph/references/readiness-and-bootstrap.md`, then
-`skill://codegraph/references/query-selection.md`; discover owners and callers.
+requested behaviour. Discover owners and callers in this order: `find` for
+behaviour and concepts (`-k` synonyms; repeat until no new files appear), `lsp`
+for definitions, references and implementations, `ast_grep` for structure, then
+`grep`/`glob` for exact text.
 
 ### 2. Spike
 
@@ -132,8 +133,6 @@ merge or post-merge CI mechanics into playbooks.
 - Refactors: `skill://coding-guidance/references/clean-cutovers.md`.
 - Bugs: `skill://coding-guidance/references/regression-coverage.md`.
 - Intermittent failures: `skill://test-guidance/references/flakes.md`.
-- Graph maintenance/access: `skill://codegraph/references/index-maintenance.md`,
-  `mcp-registration.md`, `fallback-and-handoff.md` under the same reference prefix.
 - Owner correction: `skill://codify-omp-workflow-corrections`.
 - `orchestrate`: frame, delegate independent units, prove each unit.
 - `workflowz`: native `workpool()` for independent fan-out.

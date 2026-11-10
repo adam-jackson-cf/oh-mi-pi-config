@@ -10,7 +10,7 @@ Complete applicable verification without weakening assertions or hiding failures
   static checks, all T1 and affected T2 boundary tests (seams and journeys).
   When committing under the caller's Git authority, let the pre-commit hook run that command; never bypass it.
   This runbook grants no Git authority. If no Commit command is defined, report the gap, never invent a pass.
-- Select additional checks by changed behaviour and blast radius, using codegraph impact when available.
+- Select additional checks by changed behaviour and blast radius, using `lsp references` and the repo test profile's affected-T2 selection.
   Follow [tiers.md](tiers.md) for event membership: CI runs all T1 and T2; nightly adds T3 on active branches.
   Do not default every local iteration to the whole suite; local green never replaces the CI merge gate.
 - Use Fast-tier budget's Duration-report command and per-machine approved limits;

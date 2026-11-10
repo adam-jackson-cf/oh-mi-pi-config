@@ -8,10 +8,11 @@ tools: [read, grep, glob, find, bash, lsp, yield]
 # Verifier
 
 - Interpret the supplied objective, proof manifest, deterministic results, and diff.
-- Read `skill://codegraph/references/readiness-and-bootstrap.md` and
-  `skill://codegraph/references/query-selection.md` before discovery tools; read
-  `skill://git-tool` before git or worktree commands. Only explicit `read` calls
-  to these URLs count; autoloaded skills do not.
+- Discover code in this order: `find` for behaviour and concepts (pass `-k`
+  synonyms; repeat until no new files appear); `lsp` for definitions,
+  references and implementations; `ast_grep` for structure; `grep`/`glob` for
+  exact text. Read `skill://git-tool` before git or worktree commands. Only an
+  explicit `read` of that URL counts; autoloaded skills do not.
 - Work only in the worktrees supplied by `prove()` and your own `$TMPDIR`
   scratch directory. Never edit the repository. Do not spawn agents or hand UI
   work to another agent.

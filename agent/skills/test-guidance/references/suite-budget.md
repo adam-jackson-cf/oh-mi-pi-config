@@ -59,7 +59,7 @@ Keep test growth justified, assertions singly owned and verification within appr
   in the current change, then reruns Duration-report and Commit commands. Rejection keeps the limit and commit blocked;
   do not ask again for this change. Obtain any scope permission the calling workflow requires before editing the profile.
   Avoid nested worker pools; use one owner for test parallelism.
-- Select targeted checks by behaviour and blast radius, using codegraph when available.
+- Select targeted checks by behaviour and blast radius, using `lsp references` and the repo test profile's affected-T2 selection.
   Targeted checks never replace the pre-commit hook or CI merge gate.
 - In the PR report baseline/head counts and fast-tier durations, deltas, units and measurement conditions.
   Explain additions, removals and variation. Mark unavailable comparable evidence unavailable, never zero or passed.
