@@ -74,6 +74,8 @@ CLASS_LIMIT_DEFAULTS = {
 }
 CALLABLE_NAMES = {"typing.Callable", "collections.abc.Callable", "Callable"}
 ANY_NAMES = {"typing.Any", "Any"}
+# ``type X = ...`` statements (ast.TypeAlias) exist from Python 3.12; 3.11 cannot parse them.
+TYPE_ALIAS = getattr(ast, "TypeAlias", ())
 
 
 def casing(kind: str, ecosystem: str = "python") -> list[str]:
@@ -449,7 +451,7 @@ def module_aliases(tree: ast.Module) -> dict[str, ast.AST]:
             aliases[node.targets[0].id] = node.value
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
             aliases[node.target.id] = node.value
-        elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+        elif isinstance(node, TYPE_ALIAS) and isinstance(node.name, ast.Name):
             aliases[node.name.id] = node.value
     return aliases
 
