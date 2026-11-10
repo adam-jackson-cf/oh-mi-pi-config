@@ -61,6 +61,14 @@ agent/skills/*
 !agent/skills/jev-actions/**
 !agent/skills/setup-repository-guardrails/
 !agent/skills/setup-repository-guardrails/**
+!agent/skills/codegraph/
+!agent/skills/codegraph/**
+!agent/skills/coding-guidance/
+!agent/skills/coding-guidance/**
+!agent/skills/test-guidance/
+!agent/skills/test-guidance/**
+!agent/skills/git-tool/
+!agent/skills/git-tool/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -95,6 +103,7 @@ tests/*
 !tests/test_python_reference.py
 !tests/test_validate_rule_coverage.py
 !tests/test_device_rollout.py
+!tests/test_skill_references.py
 
 !.omp/
 .omp/*

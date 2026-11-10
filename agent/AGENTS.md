@@ -126,8 +126,9 @@ Git: agents own branch → PR → review → merge without asking, unless `.omp/
 `"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
 
 Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or to git-tool and other skills in
-skills-directory, are not finished at merge: roll out to every device in the same task.
+`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or its git-tool, codegraph, coding-guidance
+and test-guidance skills, or to other skills in skills-directory, are not finished at merge:
+roll out to every device in the same task.
 After merging oh-mi-pi-config to main, sync main into `nuc-config` via an `agent/nuc-sync-<date>` PR
 merged with a merge commit (the nuc-config sync exception in `skill://git-tool/references/merge-and-recover.md`).
 Preserve NUC-only files; inspect `git diff --name-only origin/main origin/nuc-config`.
