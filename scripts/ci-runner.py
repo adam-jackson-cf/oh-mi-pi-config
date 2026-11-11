@@ -4,8 +4,9 @@
 Roles map to commands in the machine config `<omp base>/ci-runners.json` (override the
 path with OMP_CI_RUNNERS), written per device by `scripts/device-rollout.py`. A null
 submit means the runner starts on push. A null wait or status uses the built-in GitHub
-poller: the required context must be a `success` commit status or a successful check run
-on the exact SHA, whoever posts it.
+poller for --context: the required context must be a `success` commit status or a
+successful check run on the exact SHA, whoever posts it. Each role's `timeout` (seconds)
+is the default wait limit; --timeout overrides it.
 
 Exit codes: 0 success, 1 failure or error, 2 configuration error, 3 pending (status),
 124 built-in wait timed out; configured commands pass their own exit code through.
@@ -55,6 +56,9 @@ def load_role(role):
                                  or any(not isinstance(arg, str) or not arg for arg in argv)):
             raise ConfigError(f"runner role {role!r} has an invalid {operation!r} command in {path}; "
                               f"{rollout_hint()}")
+    timeout = spec.get("timeout")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        raise ConfigError(f"runner role {role!r} has no positive timeout in {path}; {rollout_hint()}")
     return spec
 
 
@@ -120,9 +124,10 @@ def parse(argv):
     parser.add_argument("role")
     parser.add_argument("repo")
     parser.add_argument("sha")
-    parser.add_argument("--context", default="gate",
-                        help="required status context or check-run name (built-in poller)")
-    parser.add_argument("--timeout", type=float, default=1200, help="wait limit in seconds")
+    parser.add_argument("--context",
+                        help="the gate's ci.requiredContext; required by the built-in poller")
+    parser.add_argument("--timeout", type=float,
+                        help="wait limit in seconds (default: the role's configured timeout)")
     parser.add_argument("--tail", type=int, default=200, help="log lines to show")
     parser.add_argument("--interval", type=float, default=10,
                         help="built-in poller interval in seconds")
@@ -131,9 +136,9 @@ def parse(argv):
         parser.error("repo must be OWNER/REPO")
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha):
         parser.error("sha must be 40 lowercase hex characters")
-    if not args.context.strip():
+    if args.context is not None and not args.context.strip():
         parser.error("--context must be non-empty")
-    if not args.timeout >= 0 or args.tail < 0 or not args.interval > 0:
+    if args.timeout is not None and not args.timeout >= 0 or args.tail < 0 or not args.interval > 0:
         parser.error("--timeout and --tail must be non-negative and --interval positive")
     return args
 
@@ -146,12 +151,18 @@ def main(argv=None):
         print(str(error), file=sys.stderr)
         return 2
     command = spec[args.operation]
+    if args.timeout is None:
+        args.timeout = float(spec["timeout"])
     if command is None:
         if args.operation == "submit":
             print(f"runner {args.role!r} starts on push; nothing to submit for {args.sha}")
             return 0
         if args.operation == "logs":
             print(f"runner {args.role!r} has no logs command configured", file=sys.stderr)
+            return 2
+        if args.context is None:
+            print(f"runner {args.role!r} {args.operation} uses the built-in poller; "
+                  "pass --context with the gate's ci.requiredContext", file=sys.stderr)
             return 2
         try:
             return poll(args)

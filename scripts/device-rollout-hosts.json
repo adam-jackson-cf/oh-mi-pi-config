@@ -18,10 +18,12 @@
     "roles": {
       "ci-gate": {
         "kind": "ci-gate",
-        "host": "codex-omarchy-nuc"
+        "host": "codex-omarchy-nuc",
+        "timeout": 1200
       },
       "github-actions": {
-        "kind": "github-actions"
+        "kind": "github-actions",
+        "timeout": 1200
       }
     }
   },

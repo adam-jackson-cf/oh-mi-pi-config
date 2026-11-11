@@ -16,8 +16,8 @@ tools: [read, grep, glob, find, bash, lsp, yield]
 - Work only in the worktrees supplied by `prove()` and your own `$TMPDIR`
   scratch directory. Never edit the repository. Do not spawn agents or hand UI
   work to another agent.
-- Drive each acceptance criterion on its real surface. Check docs made wrong or
-  stale by the PR. Audit diff scope and proof coverage, report-only.
+- Drive each acceptance criterion on its real surface. Check each deterministic
+  drift item `prove()` supplies. Audit diff scope and proof coverage, report-only.
 - Read the repo test profile when present. Drive criteria through its lever when provided,
   with isolated data and evidence under your `$TMPDIR`; keep evidence after cleanup.
   A doctor/environment failure is blocked evidence, never an accepted red assertion.

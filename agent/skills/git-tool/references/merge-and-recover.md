@@ -68,7 +68,7 @@ python3 <omp base>/scripts/ci-runner.py status <runner> OWNER/REPO SHA --context
 python3 <omp base>/scripts/ci-runner.py logs <runner> OWNER/REPO SHA [--tail N]
 ```
 
-A role whose runner starts on push reports that submit is not needed. A role without its own wait/status commands uses
+Wait defaults to the role's configured `timeout`; `--timeout` overrides it. A role whose runner starts on push reports that submit is not needed. A role without its own wait/status commands uses
 the built-in GitHub poller over the exact SHA's commit statuses and check runs; wait exits 0 on success, 124 on timeout
 and non-zero on failure. A missing role means the device's machine config is not set up: run `scripts/device-rollout.py`;
 that is a setup gap, never a CI waiver. Exit codes alone can be ambiguous: inspect status and logs before choosing the table action.

@@ -92,9 +92,9 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    existing hooks by the approved decision; keep explicit fix mode separate.
    With the reference, `init` drafts this wiring and `omp-guardrails
    hook-check` proves the installation.
-   Draft host settings for `GIT.required-checks`: require `gate`, auto-merge,
-   and rebase-merge where supported; prepare an offline settings fixture and a
-   live readback plan.
+   Draft host settings for `GIT.required-checks`: require the declared
+   `ci.requiredContext`, auto-merge, and rebase-merge where supported; prepare
+   an offline settings fixture and a live readback plan.
 6. For every applicable rule, including all IDs above, prepare
    compliant/violating fixtures. The intended checker must accept the positive
    and reject the negative with its ID. Use valid/forbidden edges, correct/wrong
