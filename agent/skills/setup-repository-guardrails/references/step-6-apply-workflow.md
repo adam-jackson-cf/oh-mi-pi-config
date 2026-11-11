@@ -35,7 +35,8 @@ Install only approved guardrails while keeping unrelated target work intact.
      "pathCheckTimeoutMs": 20000,
      "testGlobs": ["**/*.test.ts", "tests/**"],
      "agentMerge": "allowed",
-     "ci": { "requiredContext": "gate", "runner": "github-actions" }
+     "ci": { "requiredContext": "gate", "runner": "github-actions" },
+     "dynaflowsContract": 2
    }
    ```
 
@@ -71,6 +72,12 @@ Install only approved guardrails while keeping unrelated target work intact.
    Python reference, its `profile-check` subcommand); `prove()` runs it first
    and blocks on failure. Optional `checks.format` is the formatter `freeze()`
    runs before hashing proofs.
+
+   Optional `dynaflowsContract` is the positive-integer dynaflows contract
+   version the repo was set up against; the current version is
+   `agent/agent-rails.yml` `dynaflowsContract`. `omp-guardrails init` writes it
+   when absent, and `--adopt`/`--extend` raise a lower value; never lower it by
+   hand. With dynaflows on, a missing or lower value blocks `freeze()` and `prove()`.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the

@@ -35,7 +35,8 @@ the pre-commit hook (static checks, every T1, affected T2 boundary tests: seams 
 and T2 suite), `checks.profile` for profile completeness, an actionable
 changed-path `pathCheck`, and `ci` (`requiredContext`, normally `gate`: the
 status or check run that must be green on the exact head; `runner`: a role each
-machine's runner config resolves to commands). Setup also installs the
+machine's runner config resolves to commands), and `dynaflowsContract` (the
+dynaflows contract version the repo was set up against). Setup also installs the
 pre-commit hook; there is no pre-push hook. CI exposes the required context:
 either the full runner job or an always-running aggregate
 depending on every parallel tier job of that runner. The aggregate passes only
@@ -67,7 +68,9 @@ Repositories configure and pin it; they never copy or edit it.
   reference dependency in `pyproject.toml`. It proves language-server readiness
   with a canary `references` query. It never replaces an existing config.
   `adopt` replaces hand-written checkers after a shadow run; `extend` adds
-  only a missing part, such as a verification surface.
+  only a missing part, such as a verification surface. Every mode records
+  `dynaflowsContract`, read from `agent/agent-rails.yml` beside the skill or from
+  `--dynaflows-contract N`; `adopt` and `extend` raise a lower value, none lowers it.
 - Per-repo settings live in the front matter of `.omp/test-profile.md`. Shared
   style rules live in the reference's `omp_guardrails/data/house-style.json`.
 - Each catalogue row the reference implements has a `reference` field naming

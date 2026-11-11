@@ -23,7 +23,9 @@ sys.path.insert(0, str(REFERENCE))
 from omp_guardrails import cli  # noqa: E402
 from omp_guardrails.config.house_style import load_house_style  # noqa: E402
 from omp_guardrails.config.profile import load_profile  # noqa: E402
-from omp_guardrails.init import ci_wiring, gate_config, lsp, native_config, pin  # noqa: E402
+from omp_guardrails.init import ci_wiring, command, gate_config, lsp  # noqa: E402
+from omp_guardrails.init import native_config, pin  # noqa: E402
+from omp_guardrails.init import contract as dynaflows_contract  # noqa: E402
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 PIN_URL = "https://example.invalid/reference.git"
@@ -35,6 +37,8 @@ PIN_LINE = (
 CATALOGUE = ROOT / "agent/skills/setup-repository-guardrails/assets/guardrail-rules.json"
 CI_SETUP = ["--ci-setup", "make dev-install"]
 GITHUB = ["--runner", "github-actions"]
+# The version this omp config declares, read from agent/agent-rails.yml as init reads it.
+CURRENT = dynaflows_contract.current(None)
 # A language server speaking just enough LSP over stdio: it asks the client for configuration
 # (which the client must answer) before it answers a references query with one location.
 FAKE_SERVER = """import json, sys
@@ -168,6 +172,7 @@ class GreenfieldTests(InitCase):
                 },
                 "pathCheck": ["omp-guardrails", "path-check"],
                 "ci": {"requiredContext": "gate", "runner": "github-actions"},
+                "dynaflowsContract": CURRENT,
             },
         )
         profile = load_profile(self.repo)
@@ -375,7 +380,6 @@ class ExtendTests(InitCase):
         values = {"adapter": "pytest", "command_notes": {"lsp": [{"server": "custom"}]}}
         self.write(".omp/test-profile.md", f"---\n{json.dumps(values)}\n---\nbody\n")
         self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["x"]}}))
-        gate_before = (self.repo / ".omp/gate.json").read_text()
         code, output = self.init("--extend")
         self.assertEqual(code, 0, output)
         profile = load_profile(self.repo)
@@ -392,7 +396,10 @@ class ExtendTests(InitCase):
                 "evidence_dir_arg",
             },
         )
-        self.assertEqual((self.repo / ".omp/gate.json").read_text(), gate_before)
+        self.assertEqual(
+            self.gate(),
+            {"schemaVersion": 2, "checks": {"commit": ["x"]}, "dynaflowsContract": CURRENT},
+        )
         self.assertFalse((self.repo / ".githooks").exists())
         self.assertEqual(git(self.repo, "config", "--get", "core.hooksPath"), "")
         self.assertNotIn("pin:", output)
@@ -403,6 +410,105 @@ class ExtendTests(InitCase):
         self.assertEqual(code, 1)
         self.assertIn("--extend needs an existing", output)
         self.assertFalse((self.repo / ".omp").exists())
+
+
+class ContractTests(InitCase):
+    """dynaflowsContract: written when absent, raised by adopt and extend, never lowered."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write(".omp/test-profile.md", '---\n{"adapter": "pytest"}\n---\n')
+
+    def record(self, version: object) -> dict:
+        gate = {
+            "schemaVersion": 2,
+            "checks": {"commit": ["make", "gate"], "ci": ["make", "gate"]},
+            "dynaflowsContract": version,
+        }
+        self.write(".omp/gate.json", json.dumps(gate))
+        return gate
+
+    def test_source_is_the_agent_rails_yml_of_this_config(self) -> None:
+        self.assertEqual(dynaflows_contract.SOURCE, ROOT / "agent/agent-rails.yml")
+        self.assertGreater(CURRENT, 0)
+
+    def test_extend_and_adopt_raise_a_lower_version_once(self) -> None:
+        for mode, extra in (("--extend", ()), ("--adopt", PIN_ARGS)):
+            with self.subTest(mode=mode):
+                gate = self.record(3)
+                args = (mode, "--dynaflows-contract", "5", *extra)
+                code, output = self.init(*args)
+                self.assertEqual(code, 0, output)
+                self.assertIn("wrote dynaflowsContract 5", output)
+                self.assertEqual(self.gate()["dynaflowsContract"], 5)
+                if mode == "--extend":
+                    self.assertEqual(self.gate(), {**gate, "dynaflowsContract": 5})
+                self.assert_second_run_changes_nothing(*args)
+
+    def test_greenfield_keeps_a_lower_version_and_says_how_to_raise_it(self) -> None:
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": 3}))
+        code, output = self.init("--greenfield", "--dynaflows-contract", "5", *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.gate()["dynaflowsContract"], 3)
+        self.assertIn("kept v3 (current v5); run init --extend", output)
+
+    def test_never_lowers_a_higher_version(self) -> None:
+        for mode, extra in (("--extend", ()), ("--adopt", PIN_ARGS)):
+            with self.subTest(mode=mode):
+                self.record(9)
+                code, output = self.init(mode, "--dynaflows-contract", "5", *extra)
+                self.assertEqual(code, 0, output)
+                self.assertEqual(self.gate()["dynaflowsContract"], 9)
+                self.assertIn("expects a newer dynaflows contract than v5; update omp", output)
+
+    def test_missing_source_without_flag_is_a_clear_error_and_writes_nothing(self) -> None:
+        self.record(3)
+        before = snapshot(self.repo)
+        for text in (None, "references: {}\n"):
+            source = self.repo.parent / "agent-rails.yml"
+            if text is not None:
+                source.write_text(text)
+            with self.subTest(text=text), mock.patch.object(dynaflows_contract, "SOURCE", source):
+                code, output = self.init("--extend")
+                self.assertEqual(code, 1)
+                self.assertIn("cannot find the current dynaflows contract", output)
+                self.assertIn("pass --dynaflows-contract N", output)
+                self.assertEqual(snapshot(self.repo), before)
+
+    def test_flag_supplies_the_version_when_the_source_is_absent(self) -> None:
+        self.record(3)
+        missing = self.repo.parent / "absent.yml"
+        with mock.patch.object(dynaflows_contract, "SOURCE", missing):
+            code, output = self.init("--extend", "--dynaflows-contract", "4")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.gate()["dynaflowsContract"], 4)
+
+    def test_invalid_recorded_or_flag_value_is_reported_not_rewritten(self) -> None:
+        for value in (0, "2", True, None):
+            with self.subTest(value=value):
+                self.record(value)
+                before = snapshot(self.repo)
+                code, output = self.init("--extend")
+                self.assertEqual(code, 1)
+                self.assertIn("dynaflowsContract must be a positive integer", output)
+                self.assertEqual(snapshot(self.repo), before)
+        self.record(3)
+        code, output = self.init("--extend", "--dynaflows-contract", "0")
+        self.assertEqual(code, 1)
+        self.assertIn("--dynaflows-contract must be a positive integer", output)
+
+    def test_raise_waits_for_the_other_writes(self) -> None:
+        self.record(3)
+        failing = mock.patch.object(command, "apply_pin", side_effect=RuntimeError("pin failed"))
+        with failing, self.assertRaises(RuntimeError):
+            self.init("--adopt", "--dynaflows-contract", "5", *PIN_ARGS)
+        self.assertEqual(self.gate()["dynaflowsContract"], 3)
+
+    def test_extend_without_a_gate_creates_none(self) -> None:
+        code, output = self.init("--extend")
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.repo / ".omp/gate.json").exists())
+        self.assertIn("dynaflowsContract: no .omp/gate.json", output)
 
 
 class LspTests(InitCase):

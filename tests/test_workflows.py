@@ -16,6 +16,8 @@ MODULE = Path(__file__).resolve().parents[1] / "agent/skills/omp-dyna-workflows/
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
 workflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workflow)
+RAILS = Path(__file__).resolve().parents[1] / "agent/agent-rails.yml"
+CONTRACT = workflow.dynaflows_contract()
 
 
 def git(repo, *args):
@@ -42,7 +44,7 @@ class RepositoryTests(unittest.TestCase):
         git(self.repo, "init", "-q")
         git(self.repo, "config", "user.email", "proof@example.test")
         git(self.repo, "config", "user.name", "Proof Test")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
         self.write("value", "old")
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
@@ -628,7 +630,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(self.prove()["status"], "pass")
 
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
-        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}), json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}})):
+        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "pathCheck": ["true"]}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["true"]}})):
             self.write(".omp/gate.json", text)
             self.change()
             with patch.object(workflow, "_setup", side_effect=AssertionError("setup must not run")):
@@ -642,7 +644,7 @@ class RepositoryTests(unittest.TestCase):
         self.write("pytest.ini", "old")
         self.commit("broken parent")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["runner", "apostrophe' with spaces"]}, "pathCheck": ["true"]}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner", "apostrophe' with spaces"]}, "pathCheck": ["true"]}))
         self.write("ruff.toml", "changed")
         self.write("pytest.ini", "changed")
         self.change()
@@ -844,10 +846,10 @@ class RepositoryTests(unittest.TestCase):
     def test_parent_only_gate_reference_and_outside_files(self):
         self.write("runner", "pytest.ini ../outside /etc/hosts escaped\n")
         self.write("pytest.ini", "configuration")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["runner"]}, "pathCheck": ["true"]}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner"]}, "pathCheck": ["true"]}))
         self.commit("parent runner")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}))
         (self.repo / "pytest.ini").unlink()
         self.change()
         result = self.prove()
@@ -918,7 +920,7 @@ class RepositoryTests(unittest.TestCase):
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def gate(self, **checks):
-        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
+        gate = {"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
                 "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
         self.write(".omp/gate.json", json.dumps(gate))
 
@@ -927,7 +929,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_retired_ci_host_blocks_freeze_and_prove(self):
         retired = "ciHost is retired; declare ci.requiredContext and ci.runner"
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
         self.rebase_parent("retired gate")
         with self.assertRaisesRegex(workflow.WorkflowError, re.escape(retired)):
             self.freeze([self.proof()])
@@ -935,6 +937,37 @@ class RepositoryTests(unittest.TestCase):
         self.change()
         self.assert_block(self.prove(), retired)
         self.verifier.assert_not_called()
+
+    def test_stale_absent_or_newer_contract_blocks_freeze_and_prove(self):
+        stale = "Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract."
+        newer = "The repo expects a newer dynaflows contract; update omp."
+        cases = ((None, f"Dynaflows contract vnone recorded; current is v5. {stale}"),
+                 (4, f"Dynaflows contract v4 recorded; current is v5. {stale}"),
+                 (6, f"Dynaflows contract v6 recorded; current is v5. {newer}"))
+        with patch.object(workflow, "dynaflows_contract", return_value=5):
+            for recorded, text in cases:
+                with self.subTest(recorded=recorded):
+                    self.manifest_path.unlink(missing_ok=True)
+                    gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
+                    if recorded is not None:
+                        gate["dynaflowsContract"] = recorded
+                    self.write(".omp/gate.json", json.dumps(gate))
+                    self.rebase_parent(f"contract {recorded}")
+                    with self.assertRaises(workflow.WorkflowError) as raised:
+                        self.freeze([self.proof()])
+                    self.assertEqual(str(raised.exception), text)
+                    self.assertFalse(self.manifest_path.exists())
+                    self.change()
+                    result = self.prove()
+                    self.assert_block(result, text)
+                    self.assertIn(text, result["blocking"])
+            self.verifier.assert_not_called()
+
+    def test_freeze_without_gate_reports_missing_contract(self):
+        (self.repo / ".omp/gate.json").unlink()
+        self.rebase_parent("no gate")
+        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
+            self.freeze([self.proof()])
 
     def test_freeze_formats_before_hashing_and_reports_changed_files(self):
         self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
@@ -1235,6 +1268,40 @@ class SchemaTests(unittest.TestCase):
         policy = workflow.gate_policy(valid[2])
         self.assertEqual((policy["format"], policy["profile"], policy["ci"]),
                          (["ruff", "format"], ["omp-guardrails", "profile-check"], {"requiredContext": "gate", "runner": "ci-gate"}))
+
+    def test_gate_contract_must_be_positive_safe_integer(self):
+        self.assertEqual(workflow.gate_policy({"schemaVersion": 2, "dynaflowsContract": 3})["dynaflowsContract"], 3)
+        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2})["dynaflowsContract"])
+        for value in (0, -1, True, 2.0, "2", None, 9007199254740992):
+            with self.subTest(value=value):
+                self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "dynaflowsContract": value}),
+                                 "dynaflowsContract must be a positive safe integer")
+
+    def test_contract_reads_the_single_top_level_rails_line(self):
+        self.assertEqual(workflow.dynaflows_contract(), workflow.dynaflows_contract(RAILS))
+        self.assertGreater(CONTRACT, 0)
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "agent-rails.yml"
+            for text, expected in (("# note\ndynaflowsContract: 7  # current\nreferences: {}\n", 7),
+                                   ("dynaflowsContract: 3\r\n", 3)):
+                path.write_text(text, newline="")
+                self.assertEqual(workflow.dynaflows_contract(path), expected)
+            for text in ("references: {}\n", "dynaflowsContract: 0\n", "dynaflowsContract: two\n",
+                         "  dynaflowsContract: 2\n", "dynaflowsContract: 2\ndynaflowsContract: 3\n"):
+                path.write_text(text)
+                with self.subTest(text=text), self.assertRaises(workflow.WorkflowError):
+                    workflow.dynaflows_contract(path)
+            with self.assertRaises(workflow.WorkflowError):
+                workflow.dynaflows_contract(Path(scratch) / "missing.yml")
+        loaded = {"__name__": "kernel"}
+        exec(compile(MODULE.read_text(), "<cell>", "exec"), loaded)
+        with self.assertRaisesRegex(loaded["WorkflowError"], "without __file__"):
+            loaded["dynaflows_contract"]()
+        # The eval kernel's %load sets __file__ in the shared namespace; a later %load replaces it.
+        kernel = {"__name__": "kernel", "__file__": str(MODULE)}
+        exec(compile(MODULE.read_text(), str(MODULE), "exec"), kernel)
+        kernel["__file__"] = "/elsewhere/other.py"
+        self.assertEqual(kernel["dynaflows_contract"](), CONTRACT)
 
     def test_retired_ci_host_is_rejected_with_migration_message(self):
         for value in ("github", "self-hosted", None):
