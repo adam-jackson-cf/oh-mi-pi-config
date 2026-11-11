@@ -7,26 +7,28 @@ execution.
 
 ## Guidance
 
-1. Run this skill's `scripts/validate_rule_coverage.py` with `--root <repo>`,
-   `--catalog <skill>/assets/guardrail-rules.json`, and
-   `--ledger <approved-ledger>`. Expected exit: 0 only for complete coverage
-   with approved conditional exclusions. It must reject missing/duplicate IDs,
-   unjustified exclusions, evidence kinds that differ from the catalog, absent
-   required implementation/runner paths, failed canaries or hook installation
-   checks, and missing host-query assertions. Use the catalog's
+1. With a skill reference, run the target's pinned `omp-guardrails
+   rule-coverage` at the repository root. It compares the ledger with the
+   catalogue packaged in that pin; the target tracks no catalogue copy. Expected
+   exit: 0 only when every always-applicable rule the package does not prove
+   has exactly one valid repository-checker row and each row's canary and hook
+   installation check pass. It rejects missing or duplicate rows, rows for
+   rules the package proves, unmarked non-catalogue IDs, evidence kinds that
+   differ from the catalogue, absent implementation or runner paths, and failed
+   canaries or hook installation checks. Use the catalogue's
    [evidence kind](../README.md#coverage-evidence-kinds); hook rules do not
-   claim CI execution and host rules require recorded live queries rather than
-   runner paths or fixture canaries. `--structure-only` is planning evidence,
-   never final proof.
-2. Run positive and negative checker/hook canaries for every applicable local/CI
+   claim CI execution. `omp-guardrails rule-evidence` checks the rows without
+   running them; it is planning evidence, never final proof. Without a
+   reference, prove every applicable rule with the stack's own checkers.
+2. Run positive and negative checker/hook canaries for every repository
+   checker. On a stack without a reference, do so for every applicable local/CI
    or hook ID. For `STRUCT.dependency-direction`, allow a legal edge and reject
    a reversed/unmapped edge. For `STRUCT.folder-placement`, accept an owned path
    and reject a misplaced/unmapped file. For `NAME.conventions`, accept valid
    path/symbol names and reject invalid ones. For `TEST.placement`, accept an
    owner/tier path and reject a misplaced test. Assert that each failure names
-   the file and exact corrective action. Where a catalogue row names a
-   `reference`, run the target's pinned `omp-guardrails` subcommand against the
-   fixtures, and `omp-guardrails canaries` for the planted violations; never a
+   the file and exact corrective action. With a reference, the skill's own
+   tests prove tool rules and rules with a `reference` field; never run a
    copied checker.
 3. For `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time`, feed valid
    below-limit, exactly-at-limit and over-limit reports to the real checker. Prove machine
@@ -53,18 +55,12 @@ execution.
    protected branch. Prove `GATE.path-check` with present/missing command
    fixtures and clean/violating paths; assert appended argv, nonzero failure,
    and one actionable file/fix error per output line.
-5. Test `GIT.required-checks`' checker against protected/unprotected
-   host-settings fixtures; record live branch-protection readback requiring
-   `gate` and other approved checks, plus auto-merge and rebase-merge where
-   supported. Preserve query argv, exit status and stdout/stderr. A fixture
-   alone cannot establish live host enforcement. Unsupported settings require a
-   recorded host query, concrete exclusion reason and explicit owner approval.
-6. Verify tool selectors, limits, exceptions, and pinned versions. Run focused
+5. Verify tool selectors, limits, exceptions, and pinned versions. Run focused
    checker tests, `checks.commit`, `checks.ci` (or its CI tier jobs), and
    local/CI parity tests. In an isolated canary environment, confirm disabling/corrupting a
    checker makes coverage fail. Do not count skipped, unavailable, or timed-out
    checks as passes. Verify actual CI on the final checked commit when approved.
-7. Rerun coverage after repairs; compare final paths with the approved dry-run
+6. Rerun coverage after repairs; compare final paths with the approved dry-run
    matrix. Confirm superseded contracts were removed or record why nothing could
    be removed. Return the specified terminal format with rule IDs, scope,
    commands/results, change counts, documentation changes, and blockers. Do not

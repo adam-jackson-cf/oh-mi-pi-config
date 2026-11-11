@@ -1,9 +1,10 @@
 # omp-guardrails
 
 `omp-guardrails` is the configured Python reference for the
-[rule catalogue](../guardrail-rules.json). Repositories install it pinned and
-configure it with data. They never copy, adapt or edit its code. A behaviour
-the settings cannot express is a change to this package, made here.
+[rule catalogue](omp_guardrails/data/guardrail-rules.json), which ships inside
+the package. Repositories install it pinned and configure it with data. They
+never copy, adapt or edit its code or the catalogue. A behaviour the settings
+cannot express is a change to this package, made here.
 
 ## Install
 
@@ -58,3 +59,20 @@ The commit gate runs `report-check` (TEST.failure-propagation and run-report
 hygiene) and `budget-check` (TEST.budget.* test-time budgets). The CI gate runs
 `report-check` only: budgets apply to the local commit gate, and CI never
 measures or reports test timing.
+
+## Rule coverage
+
+The pinned package version decides which catalogue rules apply, so a
+repository keeps no catalogue copy, no validator copy and no catalogue hash.
+
+- Tool rules (`kind: "tool"`) and rules that name a `reference` module are
+  proven once, by this skill's own test suite. A repository records no ledger
+  row and no canary for them.
+- A rule the package does not implement needs a repository checker. Only those
+  checkers, and repository-local rules marked `"local": true`, have rows in
+  `.omp/rule-coverage.json` (`schema_version` 2). A repository with no such
+  checker needs no ledger file.
+- `rule-evidence` checks the ledger rows without running anything.
+  `rule-coverage` also runs each row's canaries and hook installation check.
+  `init` keeps `rule-coverage` and `canaries` out of `checks.commit`; they run
+  in `checks.ci` or during setup.

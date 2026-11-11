@@ -7,7 +7,7 @@ configures none is itself a finding, so an unconfigured check never passes silen
 Settings (``guardrails.toolchain_parity``):
 
 - ``python_pins``: pin files (e.g. ``.python-version``) that must be byte-equal and match the
-  running interpreter (``RUNNER.local-ci-parity``: local and CI run one interpreter).
+  running interpreter (``GATE.local-ci-parity``: local and CI run one interpreter).
 - ``uv``: ``project`` (pyproject path), ``lock`` (``uv.lock`` path), ``lock_projects`` (pyprojects
   whose requirements and own version must match the lock; default ``[project]``),
   ``installer_sources`` (repo globs scanned for ``uv sync`` lines; Makefile recipes also name make
@@ -56,7 +56,7 @@ GUIDANCE = "PARITY.install-guidance"
 LOCK_VERSION = "PARITY.lock-version"
 PRETTIER = "PRETTIER.version"
 AUDIT = "SECURITY.dependency-audit"
-RUNNER = "RUNNER.local-ci-parity"
+LOCAL_CI = "GATE.local-ci-parity"
 PROFILE = ".omp/test-profile.md"
 UV_SYNC = re.compile(r"\buv\s+sync\b")
 MAKE_TARGET = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)")
@@ -273,18 +273,18 @@ def exact_uv_pin_findings(
 def python_pin_findings(pins: Mapping[str, bytes | None], interpreter: str) -> list[Finding]:
     fix = "keep every pin file byte-equal and install the pinned interpreter"
     findings = [
-        Finding(RUNNER, path, "interpreter pin file is missing", fix)
+        Finding(LOCAL_CI, path, "interpreter pin file is missing", fix)
         for path, value in pins.items()
         if value is None
     ]
     present = {path: value for path, value in pins.items() if value is not None}
     if len(set(present.values())) > 1:
-        findings.append(Finding(RUNNER, ", ".join(present), "interpreter pin files differ", fix))
+        findings.append(Finding(LOCAL_CI, ", ".join(present), "interpreter pin files differ", fix))
     for path, value in present.items():
         pinned = value.decode(errors="replace").strip()
         if interpreter != pinned:
             findings.append(
-                Finding(RUNNER, path, f"running Python {interpreter} differs from {pinned}", fix)
+                Finding(LOCAL_CI, path, f"running Python {interpreter} differs from {pinned}", fix)
             )
             break
     return findings
@@ -542,7 +542,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     if not any(options.get(key) for key in configured):
         return [
             Finding(
-                RUNNER,
+                LOCAL_CI,
                 PROFILE,
                 f"guardrails.toolchain_parity configures no {mode} section",
                 f"configure one of {', '.join(configured)} or drop this check from the gate",

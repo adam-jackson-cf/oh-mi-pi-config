@@ -34,7 +34,7 @@ PIN_LINE = (
     f"omp-guardrails @ git+{PIN_URL}@{COMMIT}"
     "#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference"
 )
-CATALOGUE = ROOT / "agent/skills/setup-repository-guardrails/assets/guardrail-rules.json"
+CATALOGUE = REFERENCE / "omp_guardrails/data/guardrail-rules.json"
 CI_SETUP = ["--ci-setup", "make dev-install"]
 GITHUB = ["--runner", "github-actions"]
 # The version this omp config declares, read from agent/agent-rails.yml as init reads it.
@@ -260,6 +260,21 @@ class GreenfieldTests(InitCase):
         code, output = self.init("--check", "budget-check", *PIN_ARGS)
         self.assertEqual(code, 1)
         self.assertIn("runs only on the local commit gate", output)
+        self.assertFalse((self.repo / ".omp").exists())
+
+    def test_rule_coverage_and_canaries_run_in_ci_and_never_on_commit(self) -> None:
+        checks = ("profile-check", "rule-coverage", "canaries")
+        code, output = self.init(*(f"--check={name}" for name in checks), *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        gate = self.gate()["checks"]
+        self.assertEqual(gate["commit"], ["omp-guardrails", "profile-check"])
+        for name in checks:
+            self.assertIn(f"omp-guardrails {name}", gate["ci"][2])
+
+    def test_rejects_a_gate_whose_only_checks_are_ci_only(self) -> None:
+        code, output = self.init("--check", "rule-coverage", "--check", "canaries", *PIN_ARGS)
+        self.assertEqual(code, 1)
+        self.assertIn("runs only in CI", output)
         self.assertFalse((self.repo / ".omp").exists())
 
 
@@ -644,7 +659,8 @@ class NativeConfigTests(InitCase):
     def test_data_mirrors_the_catalogue_contracts(self) -> None:
         data = native_config.load_data()
         ruff, contracts = data["ruff"], catalogue_values()
-        selected = {key.split(".", 2)[2] for key in contracts if key.startswith("RUFF.SELECT.")}
+        # A rule may carry a selector, a value or both (a limit and the rule code enforcing it).
+        selected = {item["selector"] for item in contracts.values() if "selector" in item}
         self.assertEqual(set(ruff["lint"]["select"]), selected)
         self.assertEqual(ruff["lint"]["ignore"], contracts["RUFF.IGNORES"]["ignore"])
         self.assertEqual(ruff["lint.per-file-ignores"], contracts["RUFF.IGNORES"]["per_file"])

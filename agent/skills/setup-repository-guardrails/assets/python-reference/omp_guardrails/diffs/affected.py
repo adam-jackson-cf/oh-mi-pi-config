@@ -15,7 +15,7 @@ affects, one per line, and a ``selection:`` line on standard error that says why
    ``selection:`` line names the unowned files. Unknown ownership never narrows the run.
 
 Changed files that are neither production code nor T2 files (docs, other tiers) select nothing.
-The command reports no findings; a bad diff range is a ``TEST.tiers`` finding.
+The command reports no findings; a bad diff range is a ``TEST.tier-selectors`` finding.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from omp_guardrails.structure.inventory import (
 )
 from omp_guardrails.structure.naming import is_test_file
 
-RULE = "TEST.tiers"
+RULE = "TEST.tier-selectors"
 
 
 @dataclass(frozen=True)

@@ -70,7 +70,12 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         ("omp_guardrails.catalogue.canaries",), "rule canaries: planted violations must fail"
     ),
     "rule-evidence": Subcommand(
-        ("omp_guardrails.catalogue.rule_evidence",), "rule evidence freshness"
+        ("omp_guardrails.catalogue.rule_evidence",),
+        "repo-checker ledger against the packaged rule catalogue (no processes run)",
+    ),
+    "rule-coverage": Subcommand(
+        ("omp_guardrails.catalogue.rule_coverage",),
+        "rule-evidence, then each repo checker's canaries run live (CI or setup only)",
     ),
     "hook-check": Subcommand(
         ("omp_guardrails.catalogue.hook_installation",), "GATE.pre-commit hook installation"

@@ -149,6 +149,7 @@
     },
     {
       "id": "GATE.local-ci-parity",
+      "aliases": ["RUNNER.local-ci-parity"],
       "kind": "process",
       "applicability": "always",
       "evidence_kind": "local_ci",
@@ -171,7 +172,8 @@
       },
       "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite.",
       "reference": [
-        {"subcommand": "gate", "module": "omp_guardrails.catalogue.gate_runner"}
+        {"subcommand": "gate", "module": "omp_guardrails.catalogue.gate_runner"},
+        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
       ]
     },
     {
@@ -211,21 +213,6 @@
       "reference": [
         {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"}
       ]
-    },
-    {
-      "id": "GIT.required-checks",
-      "kind": "process",
-      "applicability": "conditional",
-      "evidence_kind": "host_query",
-      "contract": {
-        "protected_branch": "resolved_default_branch",
-        "required_context_field": "ci.requiredContext",
-        "required_context_from_any_source": true,
-        "merge_blocked_until_required_checks_pass": true,
-        "auto_merge_enabled_where_supported": true,
-        "rebase_merge_enabled_where_supported": true
-      },
-      "summary": "Require the declared ci.requiredContext check before merging into the protected branch."
     },
     {
       "id": "FANOUT.general",
@@ -783,66 +770,80 @@
     },
     {
       "id": "RUFF.LIMIT.max-args",
+      "aliases": ["RUFF.SELECT.PLR0913"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0913",
         "value": 5
       },
-      "summary": "Enforce the max-args limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0913 rule with the max-args limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-branches",
+      "aliases": ["RUFF.SELECT.PLR0912"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0912",
         "value": 12
       },
-      "summary": "Enforce the max-branches limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0912 rule with the max-branches limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-locals",
+      "aliases": ["RUFF.SELECT.PLR0914"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0914",
         "value": 15
       },
-      "summary": "Enforce the max-locals limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0914 rule with the max-locals limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-positional-args",
+      "aliases": ["RUFF.SELECT.PLR0917"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0917",
         "value": 5
       },
-      "summary": "Enforce the max-positional-args limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0917 rule with the max-positional-args limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-public-methods",
+      "aliases": ["RUFF.SELECT.PLR0904"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0904",
         "value": 20
       },
-      "summary": "Enforce the max-public-methods limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0904 rule with the max-public-methods limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-returns",
+      "aliases": ["RUFF.SELECT.PLR0911"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0911",
         "value": 6
       },
-      "summary": "Enforce the max-returns limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0911 rule with the max-returns limit or target-language equivalent."
     },
     {
       "id": "RUFF.LIMIT.max-statements",
+      "aliases": ["RUFF.SELECT.PLR0915"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "PLR0915",
         "value": 50
       },
-      "summary": "Enforce the max-statements limit or target-language equivalent."
+      "summary": "Enable the Ruff PLR0915 rule with the max-statements limit or target-language equivalent."
     },
     {
       "id": "RUFF.PYDOCSTYLE.convention",
@@ -942,15 +943,6 @@
       "summary": "Enable the Ruff C4 rule selector or target-language equivalent."
     },
     {
-      "id": "RUFF.SELECT.C901",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "C901"
-      },
-      "summary": "Enable the Ruff C901 rule selector or target-language equivalent."
-    },
-    {
       "id": "RUFF.SELECT.D",
       "kind": "tool",
       "applicability": "conditional",
@@ -1005,69 +997,6 @@
       "summary": "Enable the Ruff PGH rule selector or target-language equivalent."
     },
     {
-      "id": "RUFF.SELECT.PLR0904",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0904"
-      },
-      "summary": "Enable the Ruff PLR0904 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0911",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0911"
-      },
-      "summary": "Enable the Ruff PLR0911 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0912",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0912"
-      },
-      "summary": "Enable the Ruff PLR0912 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0913",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0913"
-      },
-      "summary": "Enable the Ruff PLR0913 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0914",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0914"
-      },
-      "summary": "Enable the Ruff PLR0914 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0915",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0915"
-      },
-      "summary": "Enable the Ruff PLR0915 rule selector or target-language equivalent."
-    },
-    {
-      "id": "RUFF.SELECT.PLR0917",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "selector": "PLR0917"
-      },
-      "summary": "Enable the Ruff PLR0917 rule selector or target-language equivalent."
-    },
-    {
       "id": "RUFF.SELECT.PT",
       "kind": "tool",
       "applicability": "conditional",
@@ -1114,12 +1043,14 @@
     },
     {
       "id": "RUFF.SETTING.mccabe.max-complexity",
+      "aliases": ["RUFF.SELECT.C901"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
+        "selector": "C901",
         "value": 10
       },
-      "summary": "Preserve the mccabe.max-complexity setting or target-language equivalent."
+      "summary": "Enable the Ruff C901 rule with the max-complexity limit or target-language equivalent."
     },
     {
       "id": "RUFF.SETTING.target-version",
@@ -1131,29 +1062,14 @@
       "summary": "Preserve the target-version setting or target-language equivalent."
     },
     {
-      "id": "RUNNER.local-ci-parity",
-      "kind": "process",
-      "applicability": "always",
-      "contract": {
-        "check_only_ci": true
-      },
-      "summary": "Local and CI checks invoke one authoritative runner."
-    },
-    {
-      "id": "SEAM.evidence",
-      "kind": "process",
-      "applicability": "conditional",
-      "contract": {
-        "registry_manifest_artifact_report_runtime_freshness": true
-      },
-      "summary": "Check real workflow seam evidence and report paths where the target has workflow orchestration."
-    },
-    {
       "id": "SECURITY.dependency-audit",
       "kind": "process",
       "applicability": "conditional",
       "contract": {},
-      "summary": "Run a strict, stack-appropriate audit for dependency changes."
+      "summary": "Run a strict, stack-appropriate audit for dependency changes.",
+      "reference": [
+        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
+      ]
     },
     {
       "id": "SKILL.metadata",
@@ -1166,16 +1082,6 @@
         "shared_skill_scope_metadata_must_match_target_schema": true
       },
       "summary": "Validate agent skill metadata and linked support files when skills exist."
-    },
-    {
-      "id": "TEST.coverage-minimum",
-      "kind": "process",
-      "applicability": "conditional",
-      "contract": {
-        "threshold_percent": 85,
-        "owned_slice_required": true
-      },
-      "summary": "Enforce a meaningful owned coverage slice rather than a decorative global number."
     },
     {
       "id": "TEST.failure-propagation",
@@ -1207,13 +1113,6 @@
       "reference": [
         {"subcommand": "python-test-hygiene", "module": "omp_guardrails.python_policy.subprocess_timeouts"}
       ]
-    },
-    {
-      "id": "TEST.tiers",
-      "kind": "process",
-      "applicability": "conditional",
-      "contract": {},
-      "summary": "Run fast unit and integration checks at commit time and reserve real slow seams for their owning release path."
     },
     {
       "id": "TEST.no-self-mocking",
@@ -1301,6 +1200,7 @@
     },
     {
       "id": "TEST.tier-selectors",
+      "aliases": ["TEST.tiers"],
       "kind": "bespoke",
       "applicability": "always",
       "evidence_kind": "local_ci",
@@ -1318,6 +1218,7 @@
     },
     {
       "id": "TEST.coverage-ratchet",
+      "aliases": ["TEST.coverage-minimum"],
       "kind": "bespoke",
       "applicability": "always",
       "evidence_kind": "local_ci",

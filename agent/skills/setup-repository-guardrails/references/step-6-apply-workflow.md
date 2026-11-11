@@ -102,8 +102,11 @@ Install only approved guardrails while keeping unrelated target work intact.
    manual `workflow_dispatch` as a fallback, rather than on PRs. Follow
    git-tool's verify loop to submit and wait for each head.
 
-5. Add the complete coverage ledger and bundled validator or proven equivalent
-   to the check-only `checks.ci`. Install the approved pre-commit hook
+5. When the repository has its own checkers, add their ledger
+   (`.omp/rule-coverage.json`) and `omp-guardrails rule-coverage` (or the
+   stack's own proof without a reference) to the check-only `checks.ci`, never
+   to `checks.commit`. Track no catalogue copy, validator copy or catalogue
+   hash. Install the approved pre-commit hook
    executing `checks.commit` through the repo's tracked hook manager when it
    has one, propagating nonzero status. With no manager, commit a native
    `.githooks/pre-commit` and set `git config core.hooksPath .githooks`.
@@ -114,14 +117,11 @@ Install only approved guardrails while keeping unrelated target work intact.
    Missing, invalid or stale reports fail.
    First limits and raises need owner approval; unapproved machines report only and prompt for a baseline.
    Keep auto-fix explicit and outside check-only CI.
-6. Configure approved protection on the resolved default branch to require the
-   declared required context (`ci.requiredContext`) from any source, without
-   pinning an integration, and all other approved required checks. Enable auto-merge
-   and rebase-merge where the host supports them. Read back actual settings;
-   unsupported capability or permission is an explicit blocker or
-   evidence-backed conditional exclusion, never a fabricated successful
-   configuration.
-7. Install positive/negative canaries and checker tests near their owner. Update
+6. Do not configure host branch protection. Rails check that
+   `ci.requiredContext` is green on the exact head before merge; a server-side
+   ruleset is a later, optional owner step outside this skill.
+7. Install positive/negative canaries and checker tests for each repository
+   checker near their owner. Update
    contributor and application-user documentation separately. Inspect for
    out-of-scope edits, secrets, and generated output before publication; follow
    existing Git/PR authorization.
@@ -130,5 +130,4 @@ Install only approved guardrails while keeping unrelated target work intact.
 
 - Changes match the approved matrix, preserve unrelated work, and remove
   superseded authorities.
-- The gate contract, hook, checkers, host protection, and proof inputs are
-  installed or blocked.
+- The gate contract, hook, checkers and proof inputs are installed or blocked.

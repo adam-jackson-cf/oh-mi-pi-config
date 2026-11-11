@@ -7,8 +7,10 @@ Modes:
   ``profile-check``; ``--runner`` and ``--required-context`` write ``ci``), the tracked pre-commit
   hook, the CI wiring (``ci_wiring``), the native-tool configs (``native_config``) and the
   pinned reference in ``pyproject.toml`` ``[dependency-groups] dev`` (``pin``). Each ``--check``
-  runs in ``checks.commit``; ``checks.ci`` leaves out the local-only ``budget-check``
-  (``gate_config.LOCAL_ONLY_CHECKS``), since CI never measures test timing.
+  runs in ``checks.commit`` except the CI-only ``rule-coverage`` and ``canaries``
+  (``gate_config.CI_ONLY_CHECKS``), which spawn a process per canary; ``checks.ci`` leaves out
+  the local-only ``budget-check`` (``gate_config.LOCAL_ONLY_CHECKS``), since CI never measures
+  test timing.
 - ``--adopt`` (a repo with its own checkers): as greenfield, but existing ``checks.commit`` and
   ``checks.ci`` keep running and the reference checks run after them (shadow comparison).
   ``--settings FILE`` adds per-checker settings under the profile's ``guardrails``. Existing
@@ -87,7 +89,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         dest="checks",
         help="reference subcommand the gate runs (repeatable; default profile-check; "
-        "budget-check runs on commit only, never in CI)",
+        "budget-check runs on commit only; rule-coverage and canaries run in CI only)",
     )
     command.add_argument("--settings", type=Path, help="JSON object of guardrails settings")
     command.add_argument("--allow-missing-lsp", action="store_true")
@@ -127,6 +129,11 @@ def gate_checks(names: list[str] | None) -> list[str]:
         raise UsageError(
             f"--check {checks} runs only on the local commit gate; add a check that CI runs, "
             "e.g. --check report-check"
+        )
+    if all(name in gate_config.CI_ONLY_CHECKS for name in checks):
+        raise UsageError(
+            f"--check {checks} runs only in CI; add a check the commit gate runs, "
+            "e.g. --check profile-check"
         )
     return checks
 

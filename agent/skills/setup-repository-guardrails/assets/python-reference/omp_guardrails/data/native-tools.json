@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Settings init writes into native-tool configs for Python repos. Every value mirrors the RUFF.* and MYPY.* rows of setup-repository-guardrails/assets/guardrail-rules.json; tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots) come from the repo at init time, never from this file.",
+  "about": "Settings init writes into native-tool configs for Python repos. Every value mirrors the RUFF.* and MYPY.* rows of the packaged rule catalogue, omp_guardrails/data/guardrail-rules.json; tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots) come from the repo at init time, never from this file.",
   "ruff": {
     "root": {
       "line-length": 88,
