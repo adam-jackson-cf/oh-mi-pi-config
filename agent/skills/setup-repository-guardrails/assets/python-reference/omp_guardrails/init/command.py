@@ -6,7 +6,9 @@ Modes:
   from the template, a schema-v2 gate that runs the reference checks (``checks.profile`` runs
   ``profile-check``; ``--runner`` and ``--required-context`` write ``ci``), the tracked pre-commit
   hook, the CI wiring (``ci_wiring``), the native-tool configs (``native_config``) and the
-  pinned reference in ``pyproject.toml`` ``[dependency-groups] dev`` (``pin``).
+  pinned reference in ``pyproject.toml`` ``[dependency-groups] dev`` (``pin``). Each ``--check``
+  runs in ``checks.commit``; ``checks.ci`` leaves out the local-only ``budget-check``
+  (``gate_config.LOCAL_ONLY_CHECKS``), since CI never measures test timing.
 - ``--adopt`` (a repo with its own checkers): as greenfield, but existing ``checks.commit`` and
   ``checks.ci`` keep running and the reference checks run after them (shadow comparison).
   ``--settings FILE`` adds per-checker settings under the profile's ``guardrails``. Existing
@@ -84,7 +86,8 @@ def parser() -> argparse.ArgumentParser:
         "--check",
         action="append",
         dest="checks",
-        help="reference subcommand the gate runs (repeatable; default profile-check)",
+        help="reference subcommand the gate runs (repeatable; default profile-check; "
+        "budget-check runs on commit only, never in CI)",
     )
     command.add_argument("--settings", type=Path, help="JSON object of guardrails settings")
     command.add_argument("--allow-missing-lsp", action="store_true")
@@ -120,6 +123,11 @@ def gate_checks(names: list[str] | None) -> list[str]:
     unknown = [name for name in checks if name not in SUBCOMMANDS or name in NOT_GATE_CHECKS]
     if unknown:
         raise UsageError(f"--check names no gate subcommand: {unknown}")
+    if all(name in gate_config.LOCAL_ONLY_CHECKS for name in checks):
+        raise UsageError(
+            f"--check {checks} runs only on the local commit gate; add a check that CI runs, "
+            "e.g. --check report-check"
+        )
     return checks
 
 

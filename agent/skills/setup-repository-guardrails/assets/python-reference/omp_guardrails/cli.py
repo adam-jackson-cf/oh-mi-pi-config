@@ -80,11 +80,12 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     ),
     "gate": Subcommand(("omp_guardrails.catalogue.gate_runner",), "run the declared gate checks"),
     "report-check": Subcommand(
-        (
-            "omp_guardrails.test_evidence.budgets",
-            "omp_guardrails.test_evidence.propagation",
-        ),
-        "TEST.budget.* and TEST.failure-propagation over the normalised run report",
+        ("omp_guardrails.test_evidence.propagation",),
+        "TEST.failure-propagation over the normalised run report (commit and CI gates)",
+    ),
+    "budget-check": Subcommand(
+        ("omp_guardrails.test_evidence.budgets",),
+        "TEST.budget.* over the fast-tier duration report (local commit gate only)",
     ),
     "collection-check": Subcommand(
         ("omp_guardrails.test_evidence.collection",), "TEST.tier-selectors over tier collections"

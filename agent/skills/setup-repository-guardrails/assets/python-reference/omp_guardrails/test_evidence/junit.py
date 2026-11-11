@@ -249,18 +249,16 @@ def declared_counts(root: ElementTree.Element) -> dict[str, int]:
 class ReportOptions:
     junit: Path | None
     tier: str | None
-    mode: str
     revision: str | None
     exit_code: int | None
     dialect: str | None
 
 
-VALUED = {"--junit", "--tier", "--mode", "--revision", "--exit-code", "--dialect"}
-MODES = ("local", "ci")
+VALUED = {"--junit", "--tier", "--revision", "--exit-code", "--dialect"}
 
 
 def report_options(repo: Path, argv: list[str]) -> ReportOptions:
-    """Read the report-check arguments; unknown arguments belong to other checkers."""
+    """Read the report and budget checkers' arguments; unknown ones belong to other checkers."""
     values: dict[str, str] = {}
     index = 0
     while index < len(argv):
@@ -274,9 +272,6 @@ def report_options(repo: Path, argv: list[str]) -> ReportOptions:
             else:
                 raise UsageError(f"{flag} needs a value")
         index += 1
-    mode = values.get("--mode", "local")
-    if mode not in MODES:
-        raise UsageError(f"--mode must be one of {', '.join(MODES)}")
     exit_text = values.get("--exit-code")
     exit_code = as_int(exit_text) if exit_text is not None else None
     if exit_text is not None and exit_code is None:
@@ -285,7 +280,6 @@ def report_options(repo: Path, argv: list[str]) -> ReportOptions:
     return ReportOptions(
         junit=(repo / junit) if junit else None,
         tier=values.get("--tier"),
-        mode=mode,
         revision=values.get("--revision"),
         exit_code=exit_code,
         dialect=values.get("--dialect"),
@@ -305,13 +299,13 @@ def load_run_report(repo: Path, profile: dict, options: ReportOptions) -> Report
     settings = evidence_settings(profile)
     adapter = profile.get("adapter") if isinstance(profile.get("adapter"), str) else None
     dialect = dialect_for(options.dialect or adapter, settings.get("dialect"))
-    return parse_report(options.junit, dialect, display_path(repo, options.junit))
+    return parse_report(options.junit, dialect, display_path(repo, options.junit, "run report"))
 
 
-def display_path(repo: Path, path: Path | None) -> str:
-    """A report path relative to the repository when inside it; the subcommand otherwise."""
+def display_path(repo: Path, path: Path | None, subcommand: str) -> str:
+    """A report path relative to the repository when inside it; ``subcommand`` without one."""
     if path is None:
-        return "report-check"
+        return subcommand
     try:
         return path.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:

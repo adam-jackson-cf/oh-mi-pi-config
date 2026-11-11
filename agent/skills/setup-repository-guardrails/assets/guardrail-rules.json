@@ -70,7 +70,7 @@
       "id": "TEST.budget.fast-tier-time",
       "kind": "bespoke",
       "applicability": "always",
-      "evidence_kind": "local_ci",
+      "evidence_kind": "git_hook",
       "contract": {
         "input": "normalised_junit_run_report",
         "limit_source": "profile_fast_tier_budget_machines",
@@ -78,21 +78,22 @@
         "baseline_runs_min": 5,
         "limit_increase_requires_owner_approval": true,
         "local_commit_blocks_over_approved_limit": true,
-        "ci_timing_report_only": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
         "unknown_machine_report_only_with_record_baseline_prompt": true,
-        "missing_invalid_or_stale_report_is_failure_everywhere": true,
+        "missing_invalid_or_stale_report_is_failure": true,
         "measurement": "fast_tier_wall_clock_seconds"
       },
       "summary": "Block a local commit when the fast tier exceeds the machine's approved wall-clock limit.",
       "reference": [
-        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.budgets"}
+        {"subcommand": "budget-check", "module": "omp_guardrails.test_evidence.budgets"}
       ]
     },
     {
       "id": "TEST.budget.per-test-time",
       "kind": "bespoke",
       "applicability": "always",
-      "evidence_kind": "local_ci",
+      "evidence_kind": "git_hook",
       "contract": {
         "input": "normalised_junit_run_report",
         "limit_source": "profile_fast_tier_budget_machines",
@@ -100,15 +101,16 @@
         "baseline_runs_min": 5,
         "limit_increase_requires_owner_approval": true,
         "local_commit_blocks_over_approved_limit": true,
-        "ci_timing_report_only": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
         "unknown_machine_report_only_with_record_baseline_prompt": true,
-        "missing_invalid_or_stale_report_is_failure_everywhere": true,
+        "missing_invalid_or_stale_report_is_failure": true,
         "scope": "fast_tier_test_cases",
         "diagnostic_names_test_and_speedup_fix_never_tier_move": true
       },
       "summary": "Block a local commit when a fast-tier test exceeds the machine's approved per-test limit.",
       "reference": [
-        {"subcommand": "report-check", "module": "omp_guardrails.test_evidence.budgets"}
+        {"subcommand": "budget-check", "module": "omp_guardrails.test_evidence.budgets"}
       ]
     },
     {

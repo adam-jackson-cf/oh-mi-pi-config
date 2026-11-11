@@ -6,8 +6,9 @@
   TEST.no-evasion (static skip, xfail and retry markers) and TEST.property-seed.
 - ``tiers --out DIR [--tier T ...]``: collect-only test IDs per tier into ``DIR/<tier>.txt``.
 - ``junit-args --tier T --out FILE``: prints the pytest arguments a tier command adds to emit a
-  JUnit report with the run properties and arm the tier's guards. ``report-check`` then reads
-  the report through this adapter's ``dialect.DIALECT`` (the shared schema's pytest dialect).
+  JUnit report with the run properties and arm the tier's guards. ``report-check`` (commit and
+  CI gates) and ``budget-check`` (local commit gate only) then read the report through this
+  adapter's ``dialect.DIALECT`` (the shared schema's pytest dialect).
 - ``guard-evidence REPORT --tier T``: the report's ``omp.guards`` property shows the tier's
   guards were armed (T1: fast-tier and user-data; T2 and T3: user-data) and ``omp.tier`` names
   the tier.
