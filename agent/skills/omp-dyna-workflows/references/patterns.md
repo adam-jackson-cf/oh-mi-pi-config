@@ -33,7 +33,7 @@ are written through rails, creating a ledger and restoring normal author rules.
 
 ```python
 freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
-       previous=None, revise=None, max_checks=MAX_PROOFS)
+       previous=None, revise=None, max_checks=MAX_PROOFS, project_setup=False)
 ```
 
 `proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.

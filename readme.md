@@ -82,7 +82,8 @@ push and merge. Optional `checks.format` is the formatter `freeze()` runs before
 hashing, and optional `checks.profile` is the profile completeness command
 `prove()` runs first. Optional `dynaflowsContract` records the dynaflows contract
 version the repo was set up against (current: `agent/agent-rails.yml`); with dynaflows
-on, a missing or lower value gets a rails session note and blocks `freeze()`/`prove()`.
+on, a missing or lower value gets a rails session note and blocks `freeze()`/`prove()`;
+the project-setup playbook's `freeze(..., project_setup=True)` tolerates it until init records it.
 For `git commit`, rails blocks explicit hook bypass flags/settings and requires an
 executable pre-commit hook when `checks.commit` is declared. Supported merge/rebase
 forms also reject explicit hook disabling with command-specific flag semantics.

@@ -24,7 +24,9 @@ Step 4. Scratch work prepares Step 5 approval; never apply controls during inven
 Map lever journeys to `preserve` proofs; new-control canaries remain `new-surface`, existing
 controls `preserve`. Cover intentional violations rejected and valid inputs accepted.
 The proof task writes the production lever and runner-invoked journey files and freezes them
- together; implementation owns the feature map, profile and guardrails, not lever bytes.
+ together with `freeze(..., project_setup=True)`; implementation owns the feature map, profile and
+guardrails, not lever bytes. Project setup freezes before stage 4 records `dynaflowsContract`, so
+this flag tolerates a missing gate or an absent or lower recorded contract; a higher one still refuses.
 Run journey proofs several times before freezing. Complete guardrails Step 5 owner approval.
 Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
 `STRUCT.folder-placement`, `NAME.conventions`, ownership areas and affected-T2 selection.
@@ -37,7 +39,8 @@ After freeze, implementation writes the feature map and copies
 machine-readable front matter and prose before guardrails application. `omp-guardrails init`
 writes the same template; `omp-guardrails profile-check` must pass (PROFILE.complete).
 Init also records the current dynaflows contract version as `.omp/gate.json` `dynaflowsContract`
-(`--extend` raises a stale one); commit it with the setup.
+(`--greenfield` writes the gate; `--extend` raises a stale one and needs the profile written
+first); commit it with the setup so `prove()` sees the current version at head.
 Preserve existing profile values when extending it.
 Use `git check-ignore .omp/test-profile.md`; if ignored, re-include that exact path in the
 repo ignore rules and confirm it is trackable. Never force-add an ignored profile.

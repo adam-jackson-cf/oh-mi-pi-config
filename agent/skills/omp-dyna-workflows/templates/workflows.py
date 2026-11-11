@@ -66,7 +66,7 @@ def contract_mismatch(recorded, current):
     stated = f"Dynaflows contract v{'none' if recorded is None else recorded} recorded; current is v{current}."
     if recorded is not None and recorded > current:
         return f"{stated} The repo expects a newer dynaflows contract; update omp."
-    return f"{stated} Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract."
+    return f"{stated} Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract."
 
 
 def _is_argv(value):
@@ -486,8 +486,15 @@ def _format(root, argv):
 
 
 def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
-           previous=None, revise=None, max_checks=MAX_PROOFS):
-    """Freeze working-tree proofs against pinned, setup-preserving isolated baselines."""
+           previous=None, revise=None, max_checks=MAX_PROOFS, project_setup=False):
+    """Freeze working-tree proofs against pinned, setup-preserving isolated baselines.
+
+    Project setup freezes before its `omp-guardrails init` records dynaflowsContract, so
+    `project_setup=True` tolerates an absent or lower recorded contract; prove() still requires
+    the current one at head. A higher recorded contract always refuses.
+    """
+    if not isinstance(project_setup, bool):
+        raise WorkflowError("project_setup must be a bool")
     _limit(max_checks)
     if base is not None and (not isinstance(base, str) or not base.strip() or "\0" in base):
         raise WorkflowError("base must be a nonblank commit reference")
@@ -521,8 +528,9 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
         if marker and isinstance(proof.get("expectRed"), str) and marker in proof["expectRed"]:
             raise WorkflowError(f"{proof['id']}: expectRed matches the doctor marker; red came from the environment doctor, not the behaviour")
     policy = _read_gate(root)
-    mismatch = contract_mismatch(policy["dynaflowsContract"] if policy else None, dynaflows_contract())
-    if mismatch:
+    recorded, current = (policy["dynaflowsContract"] if policy else None), dynaflows_contract()
+    mismatch = contract_mismatch(recorded, current)
+    if mismatch and not (project_setup and (recorded is None or recorded < current)):
         raise WorkflowError(mismatch)
     formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
     manifest = {"schemaVersion": 1, "slug": slug, "base": resolved_base, "proofs": []}
