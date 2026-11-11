@@ -37,6 +37,8 @@ ask the user once when the choice changes the outcome, state the choice in the r
 - Remote/default resolution belongs to [branch-and-integrate](references/branch-and-integrate.md).
   Rebase conditions, force-with-lease and any project-documented merge-method exception belong to
   [merge-and-recover](references/merge-and-recover.md).
+- A PR that adds or changes an owner-approval field is the owner's to merge: approval = the owner merges the PR that
+  records it ([merge-and-recover](references/merge-and-recover.md#owner-approval-changes)).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit directly to the default branch.
 - Primary remote not GitHub: stop before pushing and ask the owner; this workflow authorizes no other host.

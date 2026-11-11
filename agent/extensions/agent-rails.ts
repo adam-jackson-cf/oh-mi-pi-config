@@ -72,6 +72,7 @@ const gateSchema = z.object({
 	dynaflowsContract: gate.dynaflowsContract,
 }));
 const prCiSchema = z.object({
+	baseRefOid: z.string().regex(/^[0-9a-f]{40}$/),
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
 	url: z.string().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/),
 	statusCheckRollup: z.array(z.union([
@@ -79,6 +80,66 @@ const prCiSchema = z.object({
 		z.object({ __typename: z.literal("StatusContext"), context: z.string(), state: z.string() }),
 	])),
 });
+
+// Owner-approval fields: the one list the merge guard uses. The owner's own merge is the approval
+// act, so rails refuse an agent merge whose PR adds or changes any of them; removals stay the
+// agent's. `files` are the repo-relative guardrail files the setup-repository-guardrails reference
+// defines (gate, test-profile front matter, rule-coverage ledger). An object holding a `record` key
+// is one approval record: the approval and everything it approves (exemptions, fast_tier_budget
+// machines, ledger user_approval rows). A `holder` key's value is a set of approval records
+// (approved_skips, coverage_ratchet approvals, ADR-backed house_style exceptions).
+const approvalFields = {
+	files: [".omp/gate.json", ".omp/test-profile.md", ".omp/rule-coverage.json"],
+	record: /^(?:\w+_)?approval$/,
+	holder: /^(?:approved_\w+|approvals|exceptions)$/,
+};
+// A parsed guardrail JSON value. Map entries are sorted, so canonical text ignores key order.
+class JsonNode {
+	constructor(
+		readonly kind: "list" | "map" | "leaf", readonly items: JsonNode[], readonly entries: [string, JsonNode][], readonly text: string,
+	) {}
+}
+const jsonLeafSchema = z.union([z.string(), z.number(), z.boolean(), z.literal(null)]);
+// JSON.parse revives bottom-up, so every child is already a JsonNode when its parent is built.
+function parseJsonNode(text: string): JsonNode {
+	const root = JSON.parse(text, (_key, value) => {
+		const leaf = jsonLeafSchema.safeParse(value);
+		if (leaf.success) return new JsonNode("leaf", [], [], JSON.stringify(leaf.data));
+		if (Array.isArray(value)) return new JsonNode("list", value.filter(item => item instanceof JsonNode), [], "");
+		const entries = Object.entries(value).flatMap(([key, item]): [string, JsonNode][] => item instanceof JsonNode ? [[key, item]] : []);
+		return new JsonNode("map", [], entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0), "");
+	});
+	if (!(root instanceof JsonNode)) throw new Error("not a JSON value");
+	return root;
+}
+function canonicalJson(node: JsonNode): string {
+	if (node.kind === "list") return `[${node.items.map(canonicalJson).join(",")}]`;
+	if (node.kind === "map") return `{${node.entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+	return node.text;
+}
+// Every approval record in a parsed guardrail file as "<field path>=<canonical JSON>". Array indexes
+// are dropped from paths, so removing one entry does not make its neighbours look changed.
+function approvalRecords(node: JsonNode, path = "", found = new Set<string>()): Set<string> {
+	if (node.kind === "list") for (const item of node.items) approvalRecords(item, `${path}[]`, found);
+	if (node.kind !== "map") return found;
+	if (node.entries.some(([key]) => approvalFields.record.test(key))) found.add(`${path || "."}=${canonicalJson(node)}`);
+	for (const [key, item] of node.entries) {
+		const at = path ? `${path}.${key}` : key;
+		if (approvalFields.holder.test(key)) {
+			for (const entry of item.kind === "list" ? item.items : [item]) found.add(`${at}${item.kind === "list" ? "[]" : ""}=${canonicalJson(entry)}`);
+		}
+		approvalRecords(item, at, found);
+	}
+	return found;
+}
+// JSON files parse whole; the test profile parses its `---` JSON front matter (config/profile.py).
+function guardrailJson(path: string, text: string): JsonNode {
+	if (!path.endsWith(".md")) return parseJsonNode(text);
+	const lines = text.split(/\r?\n/);
+	const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+	if (lines[0]?.trim() !== "---" || end < 0) throw new Error("no '---' JSON front matter");
+	return parseJsonNode(lines.slice(1, end).join("\n"));
+}
 
 const agentVerified = "agent-verified";
 const agentVerifiedStatusOnly = "Agent rails: agent-verified is a SHA-bound commit status; prove() posts it (non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified)";
@@ -695,24 +756,25 @@ export default function agentRails(
 		} catch { /* Missing or corrupt proof is not a pass. */ }
 		return `Agent rails: no valid pass marker for ${head} at ${path}; run prove() or exempt_docs_only() for this head`;
 	}
-	type PrCi = { head?: string; repository?: string; reason?: string; agentVerified?: string };
+	type PrCi = { base?: string; head?: string; repository?: string; reason?: string; agentVerified?: string };
 	// Reads the PR's exact head and its checks. `agent-verified` is evidence, not CI: it is reported
 	// separately and never counts towards (or against) the CI rule.
 	async function prCi(cwd: string | undefined, selector: string | undefined, state: State, ctx: ExtensionContext): Promise<PrCi> {
 		if (!cwd) throw new Error("cannot resolve PR action cwd");
 		const root = await repoRoot(cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
-		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup,url"],
+		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "baseRefOid,headRefOid,statusCheckRollup,url"],
 			{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
 		};
 		const pr = prCiSchema.parse(JSON.parse(result.stdout));
 		const head = pr.headRefOid;
+		const base = pr.baseRefOid;
 		const repository = new URL(pr.url).pathname.split("/").slice(1, 3).join("/");
 		if (selector && /^https?:\/\//i.test(selector) &&
 			(await primaryGithubRepository(root)).toLowerCase() !== repository.toLowerCase()) {
-			return { head, repository, reason: `Agent rails: run from a checkout of ${repository}` };
+			return { base, head, repository, reason: `Agent rails: run from a checkout of ${repository}` };
 		}
 		const gate = await gateAt(root, state, ctx, true);
 		const evidence = pr.statusCheckRollup.find(check => check.__typename === "StatusContext" && check.context === agentVerified);
@@ -727,15 +789,18 @@ export default function agentRails(
 			const named = checks.filter(check => (check.__typename === "StatusContext" ? check.context : check.name) === requiredContext);
 			if (!named.some(green)) {
 				const command = (verb: string) => `python3 ${shellWord(ciRunnerPath)} ${verb} ${shellWord(runner)} ${repository} ${head}`;
-				return { head, repository, agentVerified: agentVerifiedState, reason:
+				return { base, head, repository, agentVerified: agentVerifiedState, reason:
 					`Agent rails: required CI context "${requiredContext}" is ${named.length ? stateOf(named[0]) : "missing"} for ${head} in ${repository} (runner ${runner}). ` +
 					`Submit and wait: ${command("submit")}, then ${command("wait")} --context ${shellWord(requiredContext)}; ` +
 					"see skill://git-tool/references/merge-and-recover.md for failures." };
 			}
+			// A declared context alone decides; other reported checks (optional apps, previews) never block.
+			return { base, head, repository, agentVerified: agentVerifiedState };
 		}
+		// No ci block declared: every reported check must be green.
 		if (!checks.length) {
 			const workflows = await stat(resolve(root, ".github/workflows")).catch(absentFile);
-			return { head, repository, agentVerified: agentVerifiedState, reason: gate?.ciCheck || workflows?.isDirectory()
+			return { base, head, repository, agentVerified: agentVerifiedState, reason: gate?.ciCheck || workflows?.isDirectory()
 				? `Agent rails: no CI checks reported for ${head}` : undefined };
 		}
 		const nonGreen: string[] = [];
@@ -746,8 +811,40 @@ export default function agentRails(
 				nonGreen.push(`${name}: ${stateOf(check)}`);
 			}
 		}
-		return { head, repository, agentVerified: agentVerifiedState, reason: nonGreen.length || !checks.some(green)
+		return { base, head, repository, agentVerified: agentVerifiedState, reason: nonGreen.length || !checks.some(green)
 			? `Agent rails: CI is not green for ${head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined };
+	}
+	// Refuses an agent merge whose PR adds or changes an owner-approval field (`approvalFields`):
+	// compares each guardrail file's approval records at the PR base and at the exact head.
+	async function approvalChangeReason(cwd: string, pr: PrCi): Promise<string | undefined> {
+		const { base, head, repository } = pr;
+		if (!base || !head || !repository) throw new Error("cannot resolve PR base, head and repository for the approval check");
+		const content = async (path: string, ref: string): Promise<string | undefined> => {
+			const result = await pi.exec("gh", ["api", "-H", "Accept: application/vnd.github.raw+json", `repos/${repository}/contents/${path}?ref=${ref}`],
+				{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+			if (result.code === 0 && !result.killed) return result.stdout;
+			if (!result.killed && /HTTP 404/.test(result.stderr)) return;
+			throw new Error(`cannot read ${path} at ${ref} via gh: ${result.stderr.trim()}`);
+		};
+		const changed: string[] = [];
+		for (const path of approvalFields.files) {
+			const before = await content(path, base);
+			const after = await content(path, head);
+			if (after === undefined || after === before) continue;
+			let headRecords: Set<string>;
+			try { headRecords = approvalRecords(guardrailJson(path, after)); }
+			catch (error) { changed.push(`${path} (unreadable at head: ${String(error)})`); continue; }
+			let baseRecords = new Set<string>();
+			try { if (before !== undefined) baseRecords = approvalRecords(guardrailJson(path, before)); }
+			catch { /* An unreadable base approves nothing, so every head record counts as added. */ }
+			const fields = [...new Set([...headRecords].filter(record => !baseRecords.has(record))
+				.map(record => record.slice(0, record.indexOf("="))))];
+			if (fields.length) changed.push(`${path} ${fields.join(", ")}`);
+		}
+		if (!changed.length) return;
+		return `Agent rails: this PR adds or changes owner-approval fields (${changed.join("; ")}) in ${repository} at ${head}. ` +
+			"The owner's own merge is the approval: do not merge it yourself; hand the PR to the owner to review and merge " +
+			"(see skill://git-tool/references/merge-and-recover.md).";
 	}
 	// The open PR whose head is exactly `sha`; status posts are judged by that PR's checks.
 	async function prAtHead(cwd: string, sha: string): Promise<{ selector?: string; reason?: string }> {
@@ -1105,6 +1202,8 @@ export default function agentRails(
 							if (pr.agentVerified !== "SUCCESS") return {
 								block: true, reason: `Agent rails: agent-verified status is ${pr.agentVerified ?? "missing"} for ${head}${pr.repository ? ` in ${pr.repository}` : ""}; verify this exact head first (prove() posts it; non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified).`,
 							};
+							const approval = await approvalChangeReason(action.cwd, pr);
+							if (approval) return { block: true, reason: approval };
 						}
 					}
 				}

@@ -16,8 +16,10 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
    commit status on the exact head. [Verify-loop](verify-loop.md) owns evidence, the `agent-verified` status and every-new-SHA invalidation; [patterns](skill://omp-dyna-workflows/references/patterns.md)
    owns docs eligibility and pass markers. With dynaflows on, merge requires the valid exact-head marker and
    `--match-head-commit <40-hex>`. With `ci` declared in `.omp/gate.json` or dynaflows on, rails require
-   `--match-head-commit`, the declared required context and `agent-verified` successful on that SHA, and no other red checks.
+   `--match-head-commit` plus the declared required context and `agent-verified` successful on that SHA. With `ci` declared,
+   only that context decides; other reported checks never block. Without it, every reported check must be green.
    Never manufacture markers. Main independently rechecks exact-head CI immediately before merge.
+   If the PR adds or changes an owner-approval field, hand it to the owner to merge (see **Owner-approval changes** below).
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Ordinary PRs rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. Otherwise merge the verified head without rewriting the branch.
    Delegate the rebase/conflict resolution to the assigned writer, including conflict-free rebases; main never authors commits.
@@ -39,7 +41,8 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
 
 The writer submits/waits for PR-head CI; main independently confirms existing exact-head status before verification and merge.
 Main owns latest-target CI immediately before integration and post-merge recording/submission. Every dispatch, status and log refers to
-an exact SHA. If a branch moves, its run cannot approve the new SHA. Inspect all reported/required GitHub checks and protection settings;
+an exact SHA. If a branch moves, its run cannot approve the new SHA. With `ci` declared, the required context decides; otherwise inspect all
+reported/required GitHub checks. Inspect protection settings too;
 missing protection or a protection API error never waives an existing gate. CI must run `checks.ci`.
 
 | Observed state | Action for PR head | Action for latest target/default |
@@ -74,8 +77,9 @@ and non-zero on failure. A missing role means the device's machine config is not
 that is a setup gap, never a CI waiver. Exit codes alone can be ambiguous: inspect status and logs before choosing the table action.
 Require successful publication of the required context on GitHub for the exact head, not just a local successful result.
 
-Rails read `ci` from the checkout's `.omp/gate.json` and require the declared context `success` on the exact PR head,
-with no other red checks, before the `agent-verified` status may be posted and before `gh pr merge`.
+Rails read `ci` from the checkout's `.omp/gate.json` and require the declared context `success` on the exact PR head
+before the `agent-verified` status may be posted and before `gh pr merge`. Only that context decides: a red or pending
+optional check (a third-party app, a docs preview, a non-required workflow) never blocks.
 Without `ci` declared, inspect all reported and `--required` checks: for a PR use `gh pr checks <number> --watch` and
 validate their head/run SHA against the recorded PR head (watch success alone does not establish SHA identity); for the
 target/default use exact-SHA check-run and commit-status queries, not a PR-number watch. Record the exact run IDs/SHA.
@@ -96,6 +100,18 @@ that fallback cannot manufacture a prove marker. Risk-tier verification still ap
 
 After merge, record/submit target CI and continue; immediately before the next merge wait for the latest target SHA to be green.
 Recovery also waits for restored-green target CI after the revert before any further integration.
+
+### Owner-approval changes
+
+Approval = the owner merges the PR that records it. A single owner cannot approve their own PR on GitHub, so the owner's
+merge is the only checkable approval act. Guardrail approval fields (`approved_skips`, profile exemption `approval`,
+`guardrails.coverage_ratchet.approvals`, rule-coverage `user_approval`, `fast_tier_budget.machines` approvals,
+`house_style.exceptions`, and any field named `approval`, `*_approval` or `approved_*`) live in `.omp/gate.json`,
+`.omp/test-profile.md` front matter and `.omp/rule-coverage.json`. Rails compare those files at the PR base and exact head
+before `gh pr merge` and refuse an agent merge that adds or changes an approval record; removals stay mergeable.
+On that refusal, do not retry or split the change to evade it: leave the PR open with green CI and `agent-verified`,
+report it to the owner as awaiting owner merge, and continue with unrelated work. The field list lives in `approvalFields`
+in `agent/extensions/agent-rails.ts`.
 
 ## Recover a red default branch
 

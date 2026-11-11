@@ -49,6 +49,8 @@ Keep test growth justified, assertions singly owned and verification within appr
 - When the checker reports an unknown machine, ask the owner once to record a baseline;
   approval permits recording the measured limit and reference; rejection leaves timing report-only.
   The first limit and every raise require owner approval; record its reference per machine.
+  Approval = the owner merges the PR that records it: an agent never merges a PR that adds or changes an approval field
+  ([merge-and-recover](skill://git-tool/references/merge-and-recover.md#owner-approval-changes)).
   Derive proposed limits from repeated local measurements, never from a convenient single run.
 - Fix excess cost: remove real-clock waits, bound the actual waiting object, isolate contention and minimize steps.
   Keep one scenario per test; never split redundant work merely to disguise its total cost.
