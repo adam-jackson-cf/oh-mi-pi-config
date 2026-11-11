@@ -1741,7 +1741,8 @@ const currentContract = z.object({ dynaflowsContract: z.number().int().positive(
 	.parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8"))).dynaflowsContract;
 
 describe("dynaflows contract version", () => {
-	const stale = "Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract";
+	const stale = "Run omp-guardrails init --extend and commit its change as a mechanical commit (no proposal); " +
+		"ask the owner only when it adds a gate or profile field the repo lacks";
 	const newer = "The repo expects a newer dynaflows contract; update omp";
 	const scenarios = [
 		{ name: "absent", recorded: undefined, expected: `Dynaflows contract vnone recorded; current is v${currentContract}. ${stale}` },
