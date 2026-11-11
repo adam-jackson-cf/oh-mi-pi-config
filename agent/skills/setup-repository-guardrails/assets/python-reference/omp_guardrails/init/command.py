@@ -14,6 +14,12 @@ Modes:
 - ``--extend`` (surface only): add the profile sections and keys the repo's profile lacks, such
   as ``verification_surface``. It touches nothing else.
 
+Every mode records the dynaflows contract version in ``.omp/gate.json`` ``dynaflowsContract``
+(``contract``): the current version comes from the omp config's ``agent/agent-rails.yml`` when
+the package runs from its skill folder, else from ``--dynaflows-contract N``. An absent value is
+written; ``--adopt`` and ``--extend`` raise a lower one as their last write; none lowers one.
+``--extend`` writes only this gate field, and never creates a missing gate.
+
 Every mode records the detected language servers in ``command_notes.lsp`` and runs each
 server's canary references query (``lsp``). A server missing from ``PATH`` is a setup gap
 unless ``--allow-missing-lsp`` is given; a server that fails the canary always is. Init never
@@ -34,6 +40,7 @@ from omp_guardrails.config.profile import PROFILE_PATH, ProfileError
 from omp_guardrails.findings import Finding
 from omp_guardrails.init import (
     ci_wiring,
+    contract,
     gate_config,
     hook,
     lsp,
@@ -85,6 +92,12 @@ def parser() -> argparse.ArgumentParser:
         type=float,
         default=lsp.DEFAULT_TIMEOUT_S,
         help="seconds each language-server canary may take",
+    )
+    command.add_argument(
+        contract.FLAG,
+        type=int,
+        dest="dynaflows_contract",
+        help="current dynaflows contract version, when agent-rails.yml is not beside the package",
     )
     command.add_argument("--pin-url")
     command.add_argument("--pin-commit")
@@ -213,10 +226,30 @@ def apply_pin(
     return [report], []
 
 
+def apply_contract(repo: Path, mode: str, version: int, changes: list[str]) -> list[str]:
+    """Record ``version`` in the gate on disk; run after every other write succeeded."""
+    gate = gate_config.load_gate(repo)
+    if gate is None:
+        gate_path = gate_config.GATE_PATH
+        return [f"{contract.FIELD}: no {gate_path}; run --greenfield or --adopt to write it"]
+    planned, note = contract.planned(gate, version, mode)
+    if planned != gate:
+        write_if_changed(
+            repo / gate_config.GATE_PATH,
+            gate_config.render(planned),
+            changes,
+            f"{contract.FIELD} {version} in {gate_config.GATE_PATH}",
+        )
+    return [note] if note else []
+
+
 def initialise(repo: Path, options: argparse.Namespace) -> tuple[list[str], list[Finding]]:
     """Apply the selected mode; return report lines and setup-gap findings."""
     reference = shlex.split(options.reference_command)
     gate = gate_config.load_gate(repo)
+    if gate is not None:
+        contract.recorded(gate)
+    version = contract.current(options.dynaflows_contract)
     mode = resolve_mode(options.mode, gate, reference)
     if mode == "extend" and not (repo / PROFILE_PATH).exists():
         raise UsageError(f"--extend needs an existing {PROFILE_PATH}; run --greenfield or --adopt")
@@ -236,6 +269,7 @@ def initialise(repo: Path, options: argparse.Namespace) -> tuple[list[str], list
         pin_lines, pin_findings = apply_pin(repo, options, changes)
         report += pin_lines
         findings += pin_findings
+    report += apply_contract(repo, mode, version, changes)
     lsp_findings, lsp_lines = lsp.readiness(
         repo,
         lsp.detect(repo),
@@ -259,7 +293,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         return []
     try:
         lines, findings = initialise(repo, parse(argv))
-    except UsageError as error:
+    except (UsageError, contract.ContractError) as error:
         return [usage_finding(str(error))]
     except gate_config.GateError as error:
         return [gate_config.gate_finding(error)]

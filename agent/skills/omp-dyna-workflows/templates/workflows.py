@@ -36,6 +36,39 @@ class ProveBlocked(WorkflowError):
     """A prerequisite failed; report the reason itself rather than as infrastructure."""
 
 
+CONTRACT_LINE = re.compile(r"^dynaflowsContract:[ \t]*(\d+)[ \t]*(?:#.*)?\r?$", re.MULTILINE)
+MAX_SAFE_INTEGER = 9007199254740991
+# Captured at load: the eval kernel's %load sets __file__ in the shared namespace, and a later
+# %load of another script would overwrite it.
+_LOADED_FROM = globals().get("__file__")
+
+
+def dynaflows_contract(path=None):
+    """Installed dynaflows contract: the single top-level line in agent-rails.yml; `path` overrides the location."""
+    if path is None:
+        if not _LOADED_FROM:
+            raise WorkflowError("cannot locate agent-rails.yml: workflows.py was loaded without __file__")
+        path = Path(_LOADED_FROM).resolve().parents[3] / "agent-rails.yml"
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise WorkflowError(f"dynaflows contract unreadable: {exc}") from exc
+    found = CONTRACT_LINE.findall(text)
+    if len(found) != 1 or not 0 < int(found[0]) <= MAX_SAFE_INTEGER:
+        raise WorkflowError(f"{path}: expected one top-level 'dynaflowsContract: <positive int>' line")
+    return int(found[0])
+
+
+def contract_mismatch(recorded, current):
+    """Rails' contract note for a dynaflows-on repo, or None when gate.json records the current contract."""
+    if recorded == current:
+        return None
+    stated = f"Dynaflows contract v{'none' if recorded is None else recorded} recorded; current is v{current}."
+    if recorded is not None and recorded > current:
+        return f"{stated} The repo expects a newer dynaflows contract; update omp."
+    return f"{stated} Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract."
+
+
 def _is_argv(value):
     return isinstance(value, list) and bool(value) and all(
         isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value)
@@ -488,6 +521,9 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
         if marker and isinstance(proof.get("expectRed"), str) and marker in proof["expectRed"]:
             raise WorkflowError(f"{proof['id']}: expectRed matches the doctor marker; red came from the environment doctor, not the behaviour")
     policy = _read_gate(root)
+    mismatch = contract_mismatch(policy["dynaflowsContract"] if policy else None, dynaflows_contract())
+    if mismatch:
+        raise WorkflowError(mismatch)
     formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
     manifest = {"schemaVersion": 1, "slug": slug, "base": resolved_base, "proofs": []}
     if setup is not None:
@@ -660,8 +696,10 @@ def gate_reason(gate):
             return "ci must declare nonblank requiredContext and runner"
     if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
         return "agentMerge must be allowed or disabled"
-    if "pathCheckTimeoutMs" in gate and (type(gate["pathCheckTimeoutMs"]) is not int or not 0 < gate["pathCheckTimeoutMs"] <= 9007199254740991):
+    if "pathCheckTimeoutMs" in gate and (type(gate["pathCheckTimeoutMs"]) is not int or not 0 < gate["pathCheckTimeoutMs"] <= MAX_SAFE_INTEGER):
         return "pathCheckTimeoutMs must be a positive safe integer"
+    if "dynaflowsContract" in gate and (type(gate["dynaflowsContract"]) is not int or not 0 < gate["dynaflowsContract"] <= MAX_SAFE_INTEGER):
+        return "dynaflowsContract must be a positive safe integer"
     if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
         return "testGlobs must be a string list"
     return None
@@ -673,7 +711,7 @@ def gate_policy(gate):
         return None
     checks = gate.get("checks", {})
     return {"commit": checks.get("commit"), "pathCheck": gate.get("pathCheck"), "format": checks.get("format"),
-            "profile": checks.get("profile"), "ci": gate.get("ci")}
+            "profile": checks.get("profile"), "ci": gate.get("ci"), "dynaflowsContract": gate.get("dynaflowsContract")}
 
 
 def gate_changes(paths, root, gate, diagnostics=None):
@@ -993,6 +1031,9 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         policy = gate_policy(gate)
         if policy is None:
             raise WorkflowError(f".omp/gate.json has an unsupported schemaVersion or invalid fields: {gate_reason(gate)}")
+        mismatch = contract_mismatch(policy["dynaflowsContract"], dynaflows_contract())
+        if mismatch:
+            raise ProveBlocked(mismatch)
         if not policy["commit"] or not policy["pathCheck"]:
             raise WorkflowError(GUARDRAIL_PREREQUISITE)
         if policy["profile"]:

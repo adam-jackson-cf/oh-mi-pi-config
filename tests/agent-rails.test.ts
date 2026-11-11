@@ -17,7 +17,7 @@ const verification = "skill://coding-guidance/references/verification.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
-	ci?: { requiredContext: string; runner: string };
+	ci?: { requiredContext: string; runner: string }; dynaflowsContract?: number;
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Answer = { question?: string; selectedOptions?: string[]; timedOut?: boolean };
@@ -47,7 +47,7 @@ const wrappedPublishing = [
 	"env -S 'git push'", "env --split-string='git push'", "env -S git push",
 ];
 
-function harness() {
+function harness({ configPath }: { configPath?: string } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
 	execFileSync("git", ["init", "-b", "agent/test", root]);
@@ -88,7 +88,7 @@ function harness() {
 		},
 	};
 	// SAFETY: this fake supplies on, registerCommand and exec, the only API surfaces agentRails consumes.
-	agentRails(api as ExtensionAPI, { machineDynaflowsPath: join(machine, "dynaflows.json") });
+	agentRails(api as ExtensionAPI, { machineDynaflowsPath: join(machine, "dynaflows.json"), configPath });
 	let id = 0;
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
 		const handler = handlers.get(name);
@@ -1359,6 +1359,10 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 		{ schemaVersion: 2, testGlobs: [1] }, { schemaVersion: 2, testGlobs: null },
 		{ schemaVersion: 2, agentMerge: "maybe" },
 		{ schemaVersion: true }, { schemaVersion: 3 },
+		{ schemaVersion: 2, dynaflowsContract: 1 }, { schemaVersion: 2, dynaflowsContract: 9007199254740991 },
+		{ schemaVersion: 2, dynaflowsContract: 0 }, { schemaVersion: 2, dynaflowsContract: -1 }, { schemaVersion: 2, dynaflowsContract: 1.5 },
+		{ schemaVersion: 2, dynaflowsContract: "2" }, { schemaVersion: 2, dynaflowsContract: true }, { schemaVersion: 2, dynaflowsContract: null },
+		{ schemaVersion: 2, dynaflowsContract: 9007199254740992 },
 	];
 	const h = harness();
 	try {
@@ -1566,4 +1570,83 @@ test("uv and poetry separator commits record author ledgers", async () => {
 			assert.equal(ledger.authors[0].family, "openai", launcher);
 		} finally { h.cleanup(); }
 	}
+});
+
+const railsConfig = join(import.meta.dir, "../agent/agent-rails.yml");
+const currentContract = z.object({ dynaflowsContract: z.number().int().positive() })
+	.parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8"))).dynaflowsContract;
+
+describe("dynaflows contract version", () => {
+	const stale = "Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract";
+	const newer = "The repo expects a newer dynaflows contract; update omp";
+	const scenarios = [
+		{ name: "absent", recorded: undefined, expected: `Dynaflows contract vnone recorded; current is v${currentContract}. ${stale}` },
+		{ name: "lower", recorded: currentContract - 1, expected: `Dynaflows contract v${currentContract - 1} recorded; current is v${currentContract}. ${stale}` },
+		{ name: "equal", recorded: currentContract, expected: undefined },
+		{ name: "higher", recorded: currentContract + 1, expected: `Dynaflows contract v${currentContract + 1} recorded; current is v${currentContract}. ${newer}` },
+	];
+	for (const scenario of scenarios) {
+		test(`dynaflows on, recorded contract ${scenario.name}: ${scenario.expected ? "notes once" : "stays silent"}`, async () => {
+			assert.ok(currentContract > 1, "a lower contract must still be a positive int");
+			const h = harness();
+			try {
+				h.gate({ schemaVersion: 2, dynaflowsContract: scenario.recorded });
+				h.dynaflows(true);
+				const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }));
+				await h.emit("before_agent_start", { reason: "prompt", prompt: "more work" });
+				const contractNotes = h.notes.filter(note => note.includes("Dynaflows contract"));
+				if (scenario.expected) {
+					assert.deepEqual(contractNotes, [`Agent rails: ${scenario.expected}.`], "one note per session");
+					assert.ok(pointer.includes(scenario.expected), "the agent sees the same text");
+				} else {
+					assert.deepEqual(contractNotes, []);
+					assert.equal(pointer.includes("Dynaflows contract"), false);
+				}
+			} finally { h.cleanup(); }
+		});
+	}
+
+	test("dynaflows off never notes a stale contract", async () => {
+		const h = harness();
+		try {
+			h.gate({ schemaVersion: 2 });
+			h.dynaflows(false);
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
+			assert.equal(h.notes.some(note => note.includes("Dynaflows contract")), false);
+		} finally { h.cleanup(); }
+	});
+
+	test("gate.json accepts only a positive integer dynaflowsContract", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			for (const dynaflowsContract of [0, -1, 1.5, "2", true, null, 9007199254740992]) {
+				writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify({ schemaVersion: 2, dynaflowsContract }));
+				const blocked = await h.call("bash", { command: "git push" });
+				assert.equal(blocked?.block, true, JSON.stringify(dynaflowsContract));
+				assert.ok(blocked?.reason?.includes("dynaflowsContract"), blocked?.reason);
+			}
+			h.gate({ schemaVersion: 2, dynaflowsContract: currentContract });
+			assert.equal(await h.call("bash", { command: "git push" }), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("agent-rails.yml declares the contract once as a positive integer; invalid values fail the load", async () => {
+		const source = readFileSync(railsConfig, "utf8");
+		assert.equal(source.match(/^dynaflowsContract: \d+$/gm)?.length, 1, "workflows.py reads this single line");
+		const dir = mkdtempSync(join(tmpdir(), "agent-rails-config-"));
+		try {
+			for (const value of ["0", "-1", "1.5", "'2'", "true", null]) {
+				const configPath = join(dir, "agent-rails.yml");
+				writeFileSync(configPath, value === null
+					? source.replace(/^dynaflowsContract: .*\n/m, "")
+					: source.replace(/^dynaflowsContract: .*$/m, `dynaflowsContract: ${value}`));
+				const h = harness({ configPath });
+				try {
+					await h.emit("session_start");
+					assert.ok(h.notes.some(note => note.includes("cannot load agent-rails.yml") && note.includes("dynaflowsContract")), `${value}: ${h.notes.join("; ")}`);
+				} finally { h.cleanup(); }
+			}
+		} finally { rmSync(dir, { recursive: true, force: true }); }
+	});
 });

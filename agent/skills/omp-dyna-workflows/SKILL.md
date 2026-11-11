@@ -68,6 +68,12 @@ Missing controls or the lazy surface trigger above require the owner-approved pr
 Read `skill://setup-repository-guardrails` for proposal, Minimal/Full approval and application;
 never apply before approval. Bootstrap installs the hook before its first commit.
 
+The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
+current one, and each repo records the version it was set up against in tracked `.omp/gate.json`
+`dynaflowsContract` (`omp-guardrails init` writes it). With dynaflows on, a missing or lower
+recorded version makes rails emit a session note and `freeze()`/`prove()` refuse until project
+setup re-runs `omp-guardrails init --extend`; a higher one means omp needs updating.
+
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
 from spike code. Delegate edits, including small fixes, to sequential non-isolated tasks in that

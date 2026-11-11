@@ -1,3 +1,6 @@
+# Dynaflows contract version this install implements. Repos record the version they were set up
+# against as .omp/gate.json dynaflowsContract; workflows.py reads this exact line.
+dynaflowsContract: 2
 references:
   firstEdit:
     - skill://coding-guidance/references/implementation-integrity.md

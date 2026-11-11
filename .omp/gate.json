@@ -6,5 +6,6 @@
   },
   "pathCheck": ["python3", "scripts/check-paths.py"],
   "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-  "agentMerge": "allowed"
+  "agentMerge": "allowed",
+  "dynaflowsContract": 2
 }

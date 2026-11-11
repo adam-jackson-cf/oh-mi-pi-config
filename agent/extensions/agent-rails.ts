@@ -16,7 +16,10 @@ const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { new RegExp(value); return true; } catch { return false; }
 });
+const contractVersion = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const mappingSchema = z.object({
+	// The dynaflows contract this omp install implements; repos record theirs in gate.json.
+	dynaflowsContract: contractVersion,
 	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
 		for (const key of ["firstEdit", "newFile", "test", "verification", "workflow", "git"]) {
 			const urls = references[key];
@@ -45,6 +48,8 @@ const policyFields = {
 	// whoever posts it; `runner` is a role resolved by the machine's ci-runners.json.
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
 	ciHost: z.unknown().optional(),
+	// The dynaflows contract the repo was set up against; `omp-guardrails init` records it.
+	dynaflowsContract: contractVersion.optional(),
 };
 // `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs in CI for push and merge;
 // `checks.format` runs in freeze() before hashing; `checks.profile` runs first in prove().
@@ -64,6 +69,7 @@ const gateSchema = z.object({
 	testGlobs: gate.testGlobs,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
+	dynaflowsContract: gate.dynaflowsContract,
 }));
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
@@ -518,6 +524,15 @@ function commitBypass(action: GitAction): string | undefined {
 type Author = { family: string; model: string; agent: string };
 type AuthorScope = { worktree: string; common: string; branch: string; ledger: string };
 const authorText = z.string().refine(value => value.trim().length > 0);
+// Dynaflows-on repos whose recorded contract differs from the installed one get this note;
+// workflows.py freeze() and prove() refuse with the same text.
+function contractMismatch(recorded: number | undefined, current: number): string | undefined {
+	if (recorded === current) return;
+	const stated = `Dynaflows contract v${recorded ?? "none"} recorded; current is v${current}.`;
+	return recorded !== undefined && recorded > current
+		? `${stated} The repo expects a newer dynaflows contract; update omp.`
+		: `${stated} Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract.`;
+}
 const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
 const ledgerSchema = z.object({
 	schemaVersion: z.literal(1), worktree: z.string(), branch: z.string(), authors: z.array(authorSchema).min(1),
@@ -530,18 +545,22 @@ function compareAuthors(a: Author, b: Author): number {
 }
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
-// .omp/dynaflows.json overrides it; absent both, dynaflows is off.
+// .omp/dynaflows.json overrides it; absent both, dynaflows is off. `configPath` is the rails
+// mapping file (agent/agent-rails.yml beside this extension).
 export default function agentRails(
 	pi: ExtensionAPI,
-	{ machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)) }: { machineDynaflowsPath?: string } = {},
+	{
+		machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)),
+		configPath = fileURLToPath(new URL("../agent-rails.yml", import.meta.url)),
+	}: { machineDynaflowsPath?: string; configPath?: string } = {},
 ): void {
 	// Factories are rebound to child sessions; only the parent-keyed authorship registry is shared.
 	const states = new Map<string, State>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
-		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../agent-rails.yml", import.meta.url), "utf8")));
-		if (!parsed.success) throw new Error("invalid mappings");
+		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(configPath, "utf8")));
+		if (!parsed.success) throw new Error(`invalid mappings: ${parsed.error.message}`);
 		map = parsed.data;
 	} catch (error) {
 		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
@@ -1168,6 +1187,11 @@ export default function agentRails(
 		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
 		const root = await repoRoot(ctx.cwd);
 		const gate = root ? await gateAt(root, state, ctx) : undefined;
+		const contract = root ? contractMismatch(gate?.dynaflowsContract, map.dynaflowsContract) : undefined;
+		if (contract) {
+			note(state, ctx, `Agent rails: ${contract}`);
+			lines.push(contract);
+		}
 		if (root && !(gate?.commit && gate.pathCheck)) lines.push(
 			`Guardrails missing in ${root}: .omp/gate.json lacks checks.commit or pathCheck.`,
 			"Before guardrail work, ask the owner whether to analyse and propose guardrails.",

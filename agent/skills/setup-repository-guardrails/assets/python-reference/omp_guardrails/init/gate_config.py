@@ -2,10 +2,11 @@
 
 Accepted fields (``agent/extensions/agent-rails.ts`` ``gateSchema``): ``checks.commit``,
 ``checks.ci``, ``checks.format``, ``checks.profile``, ``pathCheck``, ``pathCheckTimeoutMs``,
-``testGlobs``, ``agentMerge`` and ``ci`` (``requiredContext``: the status context or check run
-that must be green on the exact head; ``runner``: a role the machine's runner config resolves).
-Init writes only ``checks.commit``, ``checks.ci``, ``checks.profile``, ``pathCheck`` and ``ci``,
-and only where they are absent. A gate that still declares the retired ``ciHost`` is refused.
+``testGlobs``, ``agentMerge``, ``ci`` (``requiredContext``: the status context or check run
+that must be green on the exact head; ``runner``: a role the machine's runner config resolves)
+and ``dynaflowsContract``. Init writes only ``checks.commit``, ``checks.ci``, ``checks.profile``,
+``pathCheck`` and ``ci``, and only where they are absent; ``contract`` writes
+``dynaflowsContract``. A gate that still declares the retired ``ciHost`` is refused.
 
 Adopt mode keeps a repo's own commit and CI checks and runs the reference checks after them in
 one argv, so both results show on every run (shadow comparison)::
