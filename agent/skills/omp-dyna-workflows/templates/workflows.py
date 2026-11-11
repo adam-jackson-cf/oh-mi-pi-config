@@ -770,6 +770,7 @@ DECLARATION_BY_SUFFIX = {**dict.fromkeys((".py", ".pyi"), PY_DECLARATION), **dic
                          ".go": GO_DECLARATION, ".rs": RUST_DECLARATION}
 RECORD_DIR = re.compile(r"adrs?|change[-_]?records?", re.IGNORECASE)
 COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|<!--)")
+JS_VARIABLES = re.compile(r"^[-+]export\s+(?:declare\s+)?(?:const|let|var)\s+(.*)")
 
 
 def _add_export_names(names, entries):
@@ -778,6 +779,24 @@ def _add_export_names(names, entries):
         public = re.sub(r"^type\s+", "", entry.strip()).split(" as ")[-1].strip()
         if re.fullmatch(r"[A-Za-z$][A-Za-z0-9_$]*", public) and public != "default":  # `_`-prefixed names stay private
             names.add(public)
+
+
+def _variable_names(declarators):
+    """Every binding in `a = 1, b: T = f(x, y), c`: identifiers that start a top-level comma segment."""
+    names, depth, segment = [], 0, ""
+    for char in declarators + ",":
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == "," and depth == 0:
+            name = re.match(r"\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:[=:;]|$)", segment)
+            if name:
+                names.append(name[1])
+            segment = ""
+        else:
+            segment += char
+    return names
 
 
 def _drift_terms(repo, parent, head):
@@ -827,6 +846,9 @@ def _drift_terms(repo, parent, head):
         match = pattern.match(line) if pattern else None
         if match and not match[2].startswith("_"):
             declared[match[1]].add(match[2])
+        variables = JS_VARIABLES.match(line) if pattern is JS_DECLARATION else None
+        if variables:
+            declared[line[0]].update(name for name in _variable_names(variables[1]) if not name.startswith("_"))
     return sorted(paths), sorted(removed)
 
 

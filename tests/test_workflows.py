@@ -1114,6 +1114,17 @@ class RepositoryTests(unittest.TestCase):
             self.assertIn(fragment, joined)
         self.assertNotIn("keptName", joined)
 
+    def test_drift_precheck_reports_every_binding_of_a_removed_variable_declaration(self):
+        self.write("web/vars.ts", "export const first = 1, removed = pair(1, 2), typed: Map<string, number> = new Map();\n")
+        self.write("guide.md", "Use removed.\nUse typed.\nUse first.\n")
+        self.rebase_parent()
+        self.write("web/vars.ts", "export const first = 1;\n")
+        self.change()
+        joined = "\n".join(self.prove()["drift"])
+        self.assertIn("guide.md:1: names removed symbol `removed`", joined)
+        self.assertIn("guide.md:2: names removed symbol `typed`", joined)
+        self.assertNotIn("`first`", joined)
+
     def test_drift_precheck_reports_docs_the_same_change_also_edits(self):
         self.write("old.py", "def removed_export():\n    pass\n")
         self.write("guide.md", "See old.py and removed_export.\n")
