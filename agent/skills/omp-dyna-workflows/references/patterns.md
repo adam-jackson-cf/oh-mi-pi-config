@@ -163,10 +163,12 @@ runs no other repository suites; hook/CI eligibility is main's responsibility
 under git-tool.
 
 Drift precheck: prove collects paths deleted or renamed in
-`git diff --name-status -M parent..head` and module-level symbols the diff removes
-(Python `def`/`class`, TS/JS `export` declarations). It runs `git grep -n -F` for
-each at head over tracked Markdown and code comments, excluding the changed files
-and change-record/ADR directories. Each hit becomes a `brief_checks` item the
+`git diff --name-status -M parent..head` and public module-level symbols a file's
+diff removes without re-declaring them in that same file (Python `def`/`class`,
+TS/JS `export` declarations and lists, Go exported `func`/`type`/`const`/`var`, Rust
+`pub` items). It runs `git grep -n -F` for each at head over tracked docs (Markdown,
+MDX, reStructuredText) and code comments, including files the change also edits;
+only change-record/ADR directories are skipped. Each hit becomes a `brief_checks` item the
 verifier must address. Hits do not block prove by themselves; the verifier brief
 has no separate stale-docs hunt.
 
