@@ -18,7 +18,11 @@ An adapter does only these six things. No framework is assumed.
 
 1. **Run report.** Emit a JUnit XML report for every tier run.
 2. **Tier listing.** List the collected test IDs per tier, without running
-   them, using the selectors in the profile's `tiers`.
+   them, using the selectors in the profile's `tiers`. Also collect test cases
+   statically from source (`cases.collect(path, text)`): each case's test ID
+   with a fingerprint of its normalised calls and assertions. The shared
+   `omp-guardrails diff-check` compares base and head with it for
+   `TEST.growth.justified` and `TEST.duplicate-path`.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and
    network connections across T1 setup, call and teardown
    (`TEST.fast-tier-isolation`). CI also denies the network at the container;

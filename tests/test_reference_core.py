@@ -31,6 +31,7 @@ CONTRACT_SUBCOMMANDS = {
     "python-quality",
     "python-fanout",
     "python-scalability",
+    "python-test-hygiene",
     "canaries",
     "rule-evidence",
     "hook-check",
@@ -118,6 +119,47 @@ class ProfileCompleteTests(unittest.TestCase):
             keys_of(profile_module.validate_profile(profile)),
             {"guards.network", "fast_tier_budget.machines", "layout.test_file_patterns"},
         )
+
+    def test_nested_nulls_in_free_form_values_count_as_missing(self) -> None:
+        cases = {
+            "public_entry_points": {"ledger": None},
+            "identity_artefacts": {"docs/ids.json": None},
+            "structure.owners": {"directories": {"src/ledger/": None}},
+        }
+        for key, value in cases.items():
+            with self.subTest(key=key):
+                profile = complete_profile()
+                target = profile
+                *parents, leaf = key.split(".")
+                for step in parents:
+                    target = target[step]
+                target[leaf] = value
+                self.assertEqual(keys_of(profile_module.validate_profile(profile)), {key})
+
+    def test_command_notes_need_both_owner_notes_and_allow_the_lsp_note(self) -> None:
+        cases = {
+            "text instead of the notes object": ("repo root", {"command_notes"}),
+            "missing interpretation": (
+                {"working_directory": "repo root"},
+                {"command_notes.interpretation"},
+            ),
+            "placeholder working directory": (
+                {"working_directory": "<directory>", "interpretation": "exit 0 passes"},
+                {"command_notes.working_directory"},
+            ),
+            "null lsp note": (
+                {"working_directory": "repo root", "interpretation": "exit 0", "lsp": None},
+                {"command_notes.lsp"},
+            ),
+        }
+        for name, (value, expected) in cases.items():
+            with self.subTest(name=name):
+                profile = complete_profile()
+                profile["command_notes"] = value
+                self.assertEqual(keys_of(profile_module.validate_profile(profile)), expected)
+        profile = complete_profile()
+        profile["command_notes"]["lsp"] = [{"server": "pyright", "install": "npm i -g pyright"}]
+        self.assertEqual(profile_module.validate_profile(profile), [])
 
     def test_approved_none_is_allowed_only_in_three_places(self) -> None:
         exemption = {"none": "owner-approved reason", "approval": "ADR-0001"}

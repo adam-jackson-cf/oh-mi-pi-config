@@ -62,6 +62,10 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "python-scalability": Subcommand(
         ("omp_guardrails.python_policy.scalability",), "PYS scalability rules"
     ),
+    "python-test-hygiene": Subcommand(
+        ("omp_guardrails.python_policy.subprocess_timeouts",),
+        "TEST.subprocess-timeouts: bounded process calls in Python tests",
+    ),
     "canaries": Subcommand(
         ("omp_guardrails.catalogue.canaries",), "rule canaries: planted violations must fail"
     ),
@@ -91,9 +95,10 @@ SUBCOMMANDS: dict[str, Subcommand] = {
             "omp_guardrails.diffs.golden_record",
             "omp_guardrails.diffs.identity_artefacts",
             "omp_guardrails.diffs.timeouts",
+            "omp_guardrails.diffs.growth",
         ),
-        "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts and "
-        "TEST.no-evasion timeout increases",
+        "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts, "
+        "TEST.no-evasion timeout increases, TEST.growth.justified and TEST.duplicate-path",
     ),
     "affected": Subcommand(
         ("omp_guardrails.diffs.affected",),

@@ -21,6 +21,7 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
   Live paid or LLM calls belong only in T3 and are never frozen proofs.
 - Assert fixed-step time: after N steps, X. Cover before, at and reset for thresholds.
   Put timeouts on the actual waiting object, not merely the test wrapper.
+  Enforced by TEST.subprocess-timeouts (omp-guardrails python-test-hygiene).
 - Isolate in-process storage in a unique temporary directory.
   Enforced by TEST.user-data-guard (omp-guardrails guard-run).
 - Use only the steps the assertion needs. Enforced by TEST.budget.per-test-time (omp-guardrails report-check).
