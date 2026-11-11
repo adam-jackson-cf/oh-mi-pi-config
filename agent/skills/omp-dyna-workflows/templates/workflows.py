@@ -22,10 +22,51 @@ BLOCKING_RULE = (
     "reached by this PR, missing/weakened proofs, or unauthorized check weakening. A changed gate "
     "path alone is not a blocker. Infrastructure failures prevent pass, but are not red/green evidence. "
     "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
+AGENT_VERIFIED = "agent-verified"
+PROFILE_PATH = ".omp/test-profile.md"
+JOURNEY_RUNS = 3
+DRIFT_HIT_LIMIT = 100
 
 
 class WorkflowError(RuntimeError):
     pass
+
+
+class ProveBlocked(WorkflowError):
+    """A prerequisite failed; report the reason itself rather than as infrastructure."""
+
+
+CONTRACT_LINE = re.compile(r"^dynaflowsContract:[ \t]*(\d+)[ \t]*(?:#.*)?\r?$", re.MULTILINE)
+MAX_SAFE_INTEGER = 9007199254740991
+# Captured at load: the eval kernel's %load sets __file__ in the shared namespace, and a later
+# %load of another script would overwrite it.
+_LOADED_FROM = globals().get("__file__")
+
+
+def dynaflows_contract(path=None):
+    """Installed dynaflows contract: the single top-level line in agent-rails.yml; `path` overrides the location."""
+    if path is None:
+        if not _LOADED_FROM:
+            raise WorkflowError("cannot locate agent-rails.yml: workflows.py was loaded without __file__")
+        path = Path(_LOADED_FROM).resolve().parents[3] / "agent-rails.yml"
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise WorkflowError(f"dynaflows contract unreadable: {exc}") from exc
+    found = CONTRACT_LINE.findall(text)
+    if len(found) != 1 or not 0 < int(found[0]) <= MAX_SAFE_INTEGER:
+        raise WorkflowError(f"{path}: expected one top-level 'dynaflowsContract: <positive int>' line")
+    return int(found[0])
+
+
+def contract_mismatch(recorded, current):
+    """Rails' contract note for a dynaflows-on repo, or None when gate.json records the current contract."""
+    if recorded == current:
+        return None
+    stated = f"Dynaflows contract v{'none' if recorded is None else recorded} recorded; current is v{current}."
+    if recorded is not None and recorded > current:
+        return f"{stated} The repo expects a newer dynaflows contract; update omp."
+    return f"{stated} Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract."
 
 
 def _is_argv(value):
@@ -71,7 +112,8 @@ def _github(repo, *args):
         raise WorkflowError(f"gh unavailable or invalid response: {exc}") from exc
 
 
-def _external_authors(repo, parent, head):
+def _github_repo(repo):
+    """Return OWNER/REPO of origin (or the only remote) when it is a GitHub URL."""
     remotes = _git(repo, "remote").splitlines()
     remote = "origin" if "origin" in remotes else remotes[0] if len(remotes) == 1 else None
     if remote is None:
@@ -80,6 +122,18 @@ def _external_authors(repo, parent, head):
     match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?", url)
     if not match:
         raise WorkflowError("primary remote is not a validated GitHub repository")
+    return match[1]
+
+
+def _post_agent_verified(repo, head):
+    """Post the SHA-bound agent-verified commit status; a new SHA has none, so evidence expires natively."""
+    slug = _github_repo(repo)
+    _github(repo, "api", "--method", "POST", f"repos/{slug}/statuses/{head}", "-f", "state=success",
+            "-f", f"context={AGENT_VERIFIED}", "-f", "description=prove() pass")
+
+
+def _external_authors(repo, parent, head):
+    slug = _github_repo(repo)
     prs = _github(repo, "pr", "list", "--search", head, "--state", "open",
                   "--json", "author,headRefName,headRefOid")
     matches = [pr for pr in prs if isinstance(pr, dict) and pr.get("headRefOid") == head] if isinstance(prs, list) else []
@@ -94,7 +148,7 @@ def _external_authors(repo, parent, head):
     if not commits:
         raise WorkflowError("empty external bot commit range")
     for sha in commits:
-        commit = _github(repo, "api", f"repos/{match[1]}/commits/{sha}")
+        commit = _github(repo, "api", f"repos/{slug}/commits/{sha}")
         if (not isinstance(commit, dict) or not isinstance(commit.get("author"), dict)
                 or commit["author"].get("login") != "dependabot[bot]"):
             raise WorkflowError(f"commit {sha} author is not dependabot[bot]")
@@ -175,6 +229,8 @@ def _validate(manifest, max_checks, *, frozen=True):
             raise WorkflowError(f"{ident}: parent must be 40-hex" if frozen else f"{ident}: invalid parent")
         if not _is_argv(proof.get("cmd")):
             raise WorkflowError(f"{ident}: cmd must be argv")
+        if "journey" in proof and type(proof["journey"]) is not bool:
+            raise WorkflowError(f"{ident}: journey must be a boolean")
         files = proof.get("files")
         if not isinstance(files, list) or not files:
             raise WorkflowError(f"{ident}: missing or duplicate proof files")
@@ -364,9 +420,81 @@ def _remove_trees(repo, trees):
     return errors
 
 
+class FreezeResult(tuple):
+    """`(manifest_path, sha256)`; `formatted` lists paths checks.format changed, for the agent to commit."""
+    def __new__(cls, path, digest, formatted=()):
+        result = super().__new__(cls, (path, digest))
+        result.formatted = list(formatted)
+        return result
+
+
+def _read_gate(root):
+    """Working-tree gate policy, or None when the repo declares no gate."""
+    path = Path(root) / ".omp/gate.json"
+    if not path.is_file():
+        return None
+    try:
+        gate = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise WorkflowError(f".omp/gate.json: {exc}") from exc
+    reason = gate_reason(gate)
+    if reason is not None:
+        raise WorkflowError(f".omp/gate.json: {reason}")
+    return gate_policy(gate)
+
+
+def _doctor_marker(root):
+    """verification_surface.doctor_marker from the profile front matter; absent profile or value skips."""
+    try:
+        lines = (Path(root) / PROFILE_PATH).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        raise WorkflowError(f"{PROFILE_PATH} unreadable: {exc}") from exc
+    if not lines or lines[0].strip() != "---":
+        return None
+    end = next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    if end is None:
+        raise WorkflowError(f"{PROFILE_PATH} front matter has no closing '---' line")
+    try:
+        values = json.loads("\n".join(lines[1:end]))
+    except ValueError as exc:
+        raise WorkflowError(f"{PROFILE_PATH} front matter is not valid JSON: {exc}") from exc
+    surface = values.get("verification_surface") if isinstance(values, dict) else None
+    marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
+    if not isinstance(marker, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL):
+        return None
+    return marker
+
+
+def _dirty(root):
+    status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames")
+    names = [entry[3:] for entry in status.split("\0") if entry]
+    return {name: _sha(root / name) if (root / name).is_file() and not (root / name).is_symlink() else None for name in names}
+
+
+def _format(root, argv):
+    """Run checks.format; return (paths it changed, paths it made dirty that were clean)."""
+    before = _dirty(root)
+    ok, out = run_check(argv, root)
+    if not ok:
+        raise WorkflowError(f"checks.format failed:\n{_scrub(out, root)}")
+    after = _dirty(root)
+    newly = set(after) - set(before)
+    changed = {name for name in after if name in newly or before[name] != after[name]} | (set(before) - set(after))
+    return sorted(changed), newly
+
+
 def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
-           previous=None, revise=None, max_checks=MAX_PROOFS):
-    """Freeze working-tree proofs against pinned, setup-preserving isolated baselines."""
+           previous=None, revise=None, max_checks=MAX_PROOFS, project_setup=False):
+    """Freeze working-tree proofs against pinned, setup-preserving isolated baselines.
+
+    Project setup freezes before its `omp-guardrails init` records dynaflowsContract, so
+    `project_setup=True` tolerates an absent or lower recorded contract; prove() still requires
+    the current one at head. A higher recorded contract always refuses.
+    """
+    if not isinstance(project_setup, bool):
+        raise WorkflowError("project_setup must be a bool")
     _limit(max_checks)
     if base is not None and (not isinstance(base, str) or not base.strip() or "\0" in base):
         raise WorkflowError("base must be a nonblank commit reference")
@@ -395,6 +523,16 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     head = _commit(root, "HEAD")
     if not _ancestor(root, resolved_base, head):
         raise WorkflowError("base is not an ancestor of HEAD")
+    marker = _doctor_marker(root)
+    for proof in proofs:
+        if marker and isinstance(proof.get("expectRed"), str) and marker in proof["expectRed"]:
+            raise WorkflowError(f"{proof['id']}: expectRed matches the doctor marker; red came from the environment doctor, not the behaviour")
+    policy = _read_gate(root)
+    recorded, current = (policy["dynaflowsContract"] if policy else None), dynaflows_contract()
+    mismatch = contract_mismatch(recorded, current)
+    if mismatch and not (project_setup and (recorded is None or recorded < current)):
+        raise WorkflowError(mismatch)
+    formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
     manifest = {"schemaVersion": 1, "slug": slug, "base": resolved_base, "proofs": []}
     if setup is not None:
         manifest["setup"] = setup
@@ -420,7 +558,7 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
         manifest["proofs"].append(item)
     names = {name for proof in manifest["proofs"] for name in proof["files"]}
     for entry in _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames").split("\0"):
-        if entry and entry[3:] not in names:
+        if entry and entry[3:] not in names and entry[3:] not in format_dirtied:
             raise WorkflowError(f"unfrozen change: {entry[3:]}; add it to a proof's files or revert")
     current = {p["id"]: p for p in manifest["proofs"]}
     revisions, changed = list(old.get("revisions", [])), set()
@@ -451,12 +589,28 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
                 error = record.get("error") or _kind_failure(proof, record["ok"], record["output"], "baseline")
                 if error:
                     raise WorkflowError(error)
+                if marker and proof.get("expectRed") is not None and marker in record["output"]:
+                    raise WorkflowError(f"{proof['id']}: red came from the environment doctor, not the behaviour")
                 if proof["kind"] == "defect":
                     control = _execute(tree, proof, baselines, setup, overlay, truncate=True, location="negative control", roots=(root,))
                     if control.get("error"):
                         raise WorkflowError(control["error"])
                     if proof["expectRed"] in control["output"]:
                         raise WorkflowError(f"{proof['id']}: expectRed survives negative control")
+                if proof.get("journey"):
+                    if head not in parent_trees:
+                        tree = Path(scratch) / f"tree-{len(trees)}"
+                        _git(root, "worktree", "add", "--detach", str(tree), head)
+                        trees.append(tree)
+                        parent_trees[head] = tree
+                    outcomes = set()
+                    for run in range(1, JOURNEY_RUNS + 1):
+                        record = _execute(parent_trees[head], proof, baselines, setup, overlay, location="head journey", run=run, roots=(root,))
+                        if record.get("error"):
+                            raise WorkflowError(record["error"])
+                        outcomes.add(record["ok"])
+                    if len(outcomes) != 1:
+                        raise WorkflowError(f"{proof['id']}: journey proof not stable over {JOURNEY_RUNS} clean runs")
             errors = _hash_failures(root, manifest)
             if errors:
                 raise WorkflowError("; ".join(errors))
@@ -467,7 +621,7 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
         if failure or cleanup:
             raise WorkflowError("; ".join(([failure] if failure else []) + cleanup))
     _atomic_json(path, manifest)
-    return path, _sha(path)
+    return FreezeResult(path, _sha(path), formatted)
 
 
 def _common(repo):
@@ -525,24 +679,47 @@ def exempt_docs_only(repo, parent, head, *, target_ref):
     return _write_pass_marker(repo, head, "docs-only")
 
 
-def gate_policy(gate):
-    """Mirror rails gate acceptance; return only the fields consumed here."""
+CI_HOST_RETIRED = "ciHost is retired; declare ci.requiredContext and ci.runner"
+
+
+def gate_reason(gate):
+    """Why rails would reject this gate, or None when it is accepted."""
     if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
-        return None
+        return "unsupported gate schemaVersion"
+    if "ciHost" in gate:
+        return CI_HOST_RETIRED
     checks = gate.get("checks", {})
     if not isinstance(checks, dict):
-        return None
+        return "checks must be an object"
     def argv(value):
         return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
-    if any(key in checks and not argv(checks[key]) for key in ("commit", "ci")) or ("pathCheck" in gate and not argv(gate["pathCheck"])):
-        return None
-    if gate.get("ciHost", "github") not in ("github", "nuc") or gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
-        return None
-    if "pathCheckTimeoutMs" in gate and (type(gate["pathCheckTimeoutMs"]) is not int or not 0 < gate["pathCheckTimeoutMs"] <= 9007199254740991):
-        return None
+    for key in ("commit", "ci", "format", "profile"):
+        if key in checks and not argv(checks[key]):
+            return f"checks.{key} must be argv"
+    if "pathCheck" in gate and not argv(gate["pathCheck"]):
+        return "pathCheck must be argv"
+    ci = gate.get("ci")
+    if "ci" in gate:
+        if not isinstance(ci, dict) or any(not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner")):
+            return "ci must declare nonblank requiredContext and runner"
+    if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
+        return "agentMerge must be allowed or disabled"
+    if "pathCheckTimeoutMs" in gate and (type(gate["pathCheckTimeoutMs"]) is not int or not 0 < gate["pathCheckTimeoutMs"] <= MAX_SAFE_INTEGER):
+        return "pathCheckTimeoutMs must be a positive safe integer"
+    if "dynaflowsContract" in gate and (type(gate["dynaflowsContract"]) is not int or not 0 < gate["dynaflowsContract"] <= MAX_SAFE_INTEGER):
+        return "dynaflowsContract must be a positive safe integer"
     if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
+        return "testGlobs must be a string list"
+    return None
+
+
+def gate_policy(gate):
+    """Mirror rails gate acceptance (None when rejected); return only the fields consumed here."""
+    if gate_reason(gate) is not None:
         return None
-    return {"commit": checks.get("commit"), "pathCheck": gate.get("pathCheck")}
+    checks = gate.get("checks", {})
+    return {"commit": checks.get("commit"), "pathCheck": gate.get("pathCheck"), "format": checks.get("format"),
+            "profile": checks.get("profile"), "ci": gate.get("ci"), "dynaflowsContract": gate.get("dynaflowsContract")}
 
 
 def gate_changes(paths, root, gate, diagnostics=None):
@@ -556,7 +733,7 @@ def gate_changes(paths, root, gate, diagnostics=None):
         except (WorkflowError, OSError):
             return None
     commands = gate.get("checks", {}) if isinstance(gate, dict) else {}
-    for argv in (commands.get("commit"), commands.get("ci"), gate.get("pathCheck")):
+    for argv in (*(commands.get(key) for key in ("commit", "ci", "format", "profile")), gate.get("pathCheck")):
         for arg in argv or []:
             for token in (arg, arg.split("=", 1)[1]) if "=" in arg else (arg,):
                 name = candidate(token)
@@ -581,8 +758,9 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
     diagnostics = result["gateDiagnostics"]
     try:
         parent_gate = json.loads((parent_tree / ".omp/gate.json").read_text())
-        if gate_policy(parent_gate) is None:
-            raise WorkflowError("invalid parent gate schema")
+        reason = gate_reason(parent_gate)
+        if reason is not None:
+            raise WorkflowError(f"invalid parent gate schema: {reason}")
     except (OSError, ValueError, WorkflowError) as exc:
         diagnostics.append(f"parent .omp/gate.json: {exc}")
         parent_gate = {}
@@ -622,6 +800,127 @@ def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_pa
             elif proof["expectRed"] in control["output"]:
                 failures.append(f"{proof['id']}: expectRed survives negative control")
     return result
+
+
+DOC_SUFFIXES = (".md", ".mdx", ".rst")
+CODE_SUFFIXES = (".py", ".pyi", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".sh", ".bash", ".go", ".rs",
+                 ".java", ".kt", ".rb", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".yml", ".yaml", ".toml")
+PY_DECLARATION = re.compile(r"^([-+])(?:async\s+)?(?:def|class)\s+([A-Za-z][A-Za-z0-9_]*)")
+JS_DECLARATION = re.compile(r"^([-+])export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+                            r"(?:function\*?|class|const|let|var|interface|type|enum|namespace)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+JS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+JS_EXPORT_LIST = re.compile(r"^([-+])\s*export\s+(?:type\s+)?\{([^}]*)(\}?)")
+GO_DECLARATION = re.compile(r"^([-+])(?:func\s+(?:\([^)]*\)\s*)?|type\s+|const\s+|var\s+)([A-Z][A-Za-z0-9_]*)")
+RUST_DECLARATION = re.compile(r"^([-+])pub\s+(?:async\s+)?(?:unsafe\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\s+([A-Za-z][A-Za-z0-9_]*)")
+DECLARATION_BY_SUFFIX = {**dict.fromkeys((".py", ".pyi"), PY_DECLARATION), **dict.fromkeys(JS_SUFFIXES, JS_DECLARATION),
+                         ".go": GO_DECLARATION, ".rs": RUST_DECLARATION}
+RECORD_DIR = re.compile(r"adrs?|change[-_]?records?", re.IGNORECASE)
+COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|<!--)")
+JS_VARIABLES = re.compile(r"^[-+]export\s+(?:declare\s+)?(?:const|let|var)\s+(.*)")
+
+
+def _add_export_names(names, entries):
+    """Public names from an export list body such as `a, b as c, type D`."""
+    for entry in entries.split(","):
+        public = re.sub(r"^type\s+", "", entry.strip()).split(" as ")[-1].strip()
+        if re.fullmatch(r"[A-Za-z$][A-Za-z0-9_$]*", public) and public != "default":  # `_`-prefixed names stay private
+            names.add(public)
+
+
+def _variable_names(declarators):
+    """Every binding in `a = 1, b: T = f(x, y), c`: identifiers that start a top-level comma segment."""
+    names, depth, segment = [], 0, ""
+    for char in declarators + ",":
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == "," and depth == 0:
+            name = re.match(r"\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:[=:;]|$)", segment)
+            if name:
+                names.append(name[1])
+            segment = ""
+        else:
+            segment += char
+    return names
+
+
+def _drift_terms(repo, parent, head):
+    """Deleted/renamed old paths and public symbols a file's diff removes without re-declaring in that same file."""
+    tokens = _git(repo, "diff", "--name-status", "-M", "-z", parent, head).split("\0")
+    paths, index = set(), 0
+    while index < len(tokens) and tokens[index]:
+        status = tokens[index]
+        names = tokens[index + 1:index + (3 if status[0] in "RC" else 2)]
+        index += 1 + len(names)
+        if status[0] in "DR":
+            paths.add(names[0])
+    removed = set()
+    declared = {"-": set(), "+": set()}
+    current, header, export_list = None, False, None
+    for line in _git(repo, "diff", "-M", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", parent, head).splitlines() + ["diff --git "]:
+        if line.startswith("diff --git "):
+            removed |= declared["-"] - declared["+"]  # scoped per file pair: an unrelated file adding the name does not hide it
+            declared = {"-": set(), "+": set()}
+            current, header, export_list = None, True, None
+            continue
+        if header:
+            if line.startswith(("--- a/", "+++ b/")):
+                current = line[6:]
+            header = not line.startswith("@@")
+            continue
+        if current is None:
+            continue
+        if export_list:
+            sign, entries = export_list
+            if line[:1] == sign:
+                body, closed, _ = line[1:].partition("}")
+                entries.append(body)
+                if closed:
+                    _add_export_names(declared[sign], ",".join(entries))
+                    export_list = None
+                continue
+            export_list = None
+        listed = JS_EXPORT_LIST.match(line) if current.endswith(JS_SUFFIXES) else None
+        if listed:
+            if listed[3]:
+                _add_export_names(declared[listed[1]], listed[2])
+            else:
+                export_list = (listed[1], [listed[2]])
+            continue
+        pattern = DECLARATION_BY_SUFFIX.get(Path(current).suffix)
+        match = pattern.match(line) if pattern else None
+        if match and not match[2].startswith("_"):
+            declared[match[1]].add(match[2])
+        variables = JS_VARIABLES.match(line) if pattern is JS_DECLARATION else None
+        if variables:
+            declared[line[0]].update(name for name in _variable_names(variables[1]) if not name.startswith("_"))
+    return sorted(paths), sorted(removed)
+
+
+def _drift_checks(repo, parent, head):
+    """git grep docs and code comments at head for paths/symbols this PR removed; hits brief the verifier."""
+    paths, symbols = _drift_terms(repo, parent, head)
+    hits, total = [], 0
+    for term, kind, word in [(p, "deleted or renamed path", False) for p in paths] + [(s, "removed symbol", True) for s in symbols]:
+        process = subprocess.run(["git", "-C", str(repo), "grep", "-n", "-I", "-z", "-F", *(["-w"] if word else []), "-e", term, head, "--"],
+                                 capture_output=True, text=True, errors="replace")
+        if process.returncode not in (0, 1):
+            raise WorkflowError(f"drift grep infrastructure: {process.stderr.strip()}")
+        for line in process.stdout.splitlines():
+            location, number, text = (line.split("\0", 2) + ["", ""])[:3]
+            name = location.removeprefix(f"{head}:")
+            if any(RECORD_DIR.fullmatch(part) for part in name.split("/")[:-1]):
+                continue
+            prefix = text[:text.find(term)] if term in text else text
+            if not name.endswith(DOC_SUFFIXES) and not (name.endswith(CODE_SUFFIXES) and COMMENT_START.search(prefix)):
+                continue
+            total += 1
+            if len(hits) < DRIFT_HIT_LIMIT:
+                hits.append(f"{name}:{number}: names {kind} `{term}` removed by this PR: {text.strip()[:200]}")
+    if total > len(hits):
+        hits.append(f"{total - len(hits)} more drift hits not listed; git grep {head} for: {', '.join(paths + symbols)}")
+    return hits
 
 
 def _run_verifier(brief, proof_ids, model=None):
@@ -708,7 +1007,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
           max_checks=MAX_PROOFS, verifier_model=None, objective_revision=None):
     """Run frozen proofs then one cross-family verifier; CI independently owns repository gates."""
     result = {"status": "fail", "deterministic": {}, "verifier": {}, "blocking": [], "followUps": [],
-              "authors": [], "verifierModel": _json_safe(verifier_model)}
+              "authors": [], "drift": [], "verifierModel": _json_safe(verifier_model)}
     trees = []
     attempts_path, attempts = None, []
     try:
@@ -739,9 +1038,20 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             raise WorkflowError(f"head .omp/gate.json invalid JSON/encoding: {exc}") from exc
         policy = gate_policy(gate)
         if policy is None:
-            raise WorkflowError(".omp/gate.json has an unsupported schemaVersion or invalid fields")
+            raise WorkflowError(f".omp/gate.json has an unsupported schemaVersion or invalid fields: {gate_reason(gate)}")
+        mismatch = contract_mismatch(policy["dynaflowsContract"], dynaflows_contract())
+        if mismatch:
+            raise ProveBlocked(mismatch)
         if not policy["commit"] or not policy["pathCheck"]:
             raise WorkflowError(GUARDRAIL_PREREQUISITE)
+        if policy["profile"]:
+            before = _git(repo, "status", "--porcelain=v2")
+            ok, out = run_check(policy["profile"], repo)
+            if not ok:
+                raise ProveBlocked(f"checks.profile failed; complete {PROFILE_PATH} before prove:\n{_scrub(out, repo)}")
+            if _git(repo, "status", "--porcelain=v2") != before:
+                raise WorkflowError("checks.profile changed the source checkout")
+        result["drift"] = _drift_checks(repo, parent, head)
         for proof in manifest["proofs"]:
             commit = proof.get("parent", base)
             if not _ancestor(repo, commit, head, strict=True) or not _ancestor(repo, base, commit):
@@ -813,14 +1123,15 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                     full_path = Path(scratch) / "deterministic.json"
                     _atomic_json(full_path, deterministic)
                     brief_checks = _json_safe(deterministic)
+                    brief_checks["drift"] = result["drift"]
                     for runs in brief_checks["proofs"].values():
                         for record in runs:
                             if len(record["output"]) > 4096:
                                 record["output"] = f"[TRUNCATED; full evidence: {full_path}]\n" + record["output"][-4096:]
                     proof_ids = sorted(p["id"] for p in manifest["proofs"])
                     brief = (
-                        "Read skill://codegraph/references/readiness-and-bootstrap.md, "
-                        "skill://codegraph/references/query-selection.md and skill://git-tool before discovery/git.\n"
+                        "Discover with find (-k synonyms; repeat until no new files), lsp for definitions/references, "
+                        "ast_grep for structure, then grep/glob. Read skill://git-tool before git.\n"
                         f"Source repo (never edit): {repo}\nPR target/ref: {target_ref} ({target})\n"
                         f"PR parent SHA: {parent}\nHead SHA: {head}\nDiff range: {parent}..{head}\n"
                         f"Read-only scratch trees: {json.dumps(labels)}; your TMPDIR is allowed. Never spawn agents.\n"
@@ -831,7 +1142,9 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                         "Drive every criterion live; return proofId, command, observed, verdict. "
                         f"Each criteria entry's proofId must be one of: {', '.join(proof_ids)}; "
                         "put any other observation in blocking or followUps. Audit undeclared "
-                        "harness/config tampering, wrong/stale docs caused by this PR and diff scope/coverage. "
+                        "harness/config tampering and diff scope/coverage. Address every Deterministic drift item "
+                        "(a doc or comment at head naming a path or symbol this PR removed): block when it is now wrong, "
+                        "otherwise state in followUps why it stands. "
                         "Each finding needs exact command, actual and required output; omit anything not run. " + BLOCKING_RULE)
                     context = common / "omp-prove" / "verifier-context.json"
                     try:
@@ -852,8 +1165,16 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             finally:
                 result["blocking"].extend(_remove_trees(repo, trees))
         if not result["blocking"]:
-            _write_pass_marker(repo, head, "prove")
-            result["status"] = "pass"
+            marker = _write_pass_marker(repo, head, "prove")
+            try:
+                _post_agent_verified(repo, head)
+            except Exception as exc:
+                marker.unlink(missing_ok=True)
+                result["blocking"].append(f"infrastructure: posting {AGENT_VERIFIED} status: {exc}")
+            else:
+                result["status"] = "pass"
+    except ProveBlocked as exc:
+        result["blocking"].append(str(exc))
     except Exception as exc:
         result["blocking"].append(f"infrastructure: {exc}")
     if attempts_path is not None:

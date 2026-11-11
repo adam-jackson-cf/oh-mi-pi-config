@@ -38,9 +38,10 @@ is not permission to implement. Playbooks contain deltas to the contract below.
 
 Main defines the requested outcome, every acceptance criterion and only questions
 whose answers change the plan. `kiss` cuts unnecessary work and questions, never
-requested behaviour. Before discovery read
-`skill://codegraph/references/readiness-and-bootstrap.md`, then
-`skill://codegraph/references/query-selection.md`; discover owners and callers.
+requested behaviour. Discover owners and callers in this order: `find` for
+behaviour and concepts (`-k` synonyms; repeat until no new files appear), `lsp`
+for definitions, references and implementations, `ast_grep` for structure, then
+`grep`/`glob` for exact text.
 
 ### 2. Spike
 
@@ -66,6 +67,14 @@ pre-commit hook. `agent/extensions/agent-rails.ts` owns accepted schema fields/t
 Missing controls or the lazy surface trigger above require the owner-approved project-setup PR.
 Read `skill://setup-repository-guardrails` for proposal, Minimal/Full approval and application;
 never apply before approval. Bootstrap installs the hook before its first commit.
+
+The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
+current one, and each repo records the version it was set up against in tracked `.omp/gate.json`
+`dynaflowsContract` (`omp-guardrails init` writes it). With dynaflows on, a missing or lower
+recorded version makes rails emit a session note and `freeze()`/`prove()` refuse; run the
+project-setup playbook, whose stage-3 `freeze(..., project_setup=True)` tolerates it and whose
+stage-4 `omp-guardrails init` records the current version before `prove()` checks head. A higher
+one means omp needs updating, and refuses even under `project_setup=True`.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
@@ -102,7 +111,7 @@ The writer lists gate paths/effects in **Gate changes** per
 
 Main independently confirms exact-head green CI and no pending writer edits.
 Follow `skill://git-tool/references/verify-loop.md` for risk tiers, durable fix
-rounds, changed-head invalidation and evidence/label mechanics. Eligible docs-only
+rounds, changed-head invalidation and evidence/status mechanics. Eligible docs-only
 work uses a fresh `exempt_docs_only(..., target_ref=...)` plus green CI, without a
 manifest or verifier. Runtime-loaded prose is not exempt.
 
@@ -111,14 +120,16 @@ with objective and fetched PR `target_ref`. It assembles the brief and dispatche
 the sole cross-family `verifier`; never spawn a second verifier or substitute a
 `task`. Helper details live in [patterns](references/patterns.md#prove), and the
 exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
-Main posts verification evidence and applies `agent-verified` only after this
-risk-tier verification and exact-head CI pass. Rails enforce exact-head green
-checks before the label always, and at merge only with dynaflows on. The checkout's
-`.omp/gate.json` is the policy authority; `ciHost: nuc` requires a successful
-`gate` commit status on that head, not a check run named `gate`. URL selectors
-must match the checkout's primary GitHub repository. With dynaflows on, both gates
-also require a valid pass marker; main applies the label only after both pass.
-Every new SHA invalidates evidence.
+Main posts verification evidence. On a pass, `prove()` posts the SHA-bound
+`agent-verified` commit status on that head; it is never a label. Rails allow an
+`agent-verified` status write only when exact-head CI passes, and block label
+writes. The checkout's `.omp/gate.json` is the policy authority: when it declares
+`ci`, the declared required context must be green on the exact head, whoever posts
+it. Submit and wait with `python3 ~/.omp/scripts/ci-runner.py` and the gate's `ci.runner` role.
+URL selectors must match the checkout's primary GitHub repository. Merge requires
+`--match-head-commit`, the required context and `agent-verified` green on that SHA;
+with dynaflows on, a valid pass marker too. A new SHA has no status, so every new
+SHA invalidates evidence.
 
 ### 6. Integrate
 
@@ -132,8 +143,6 @@ merge or post-merge CI mechanics into playbooks.
 - Refactors: `skill://coding-guidance/references/clean-cutovers.md`.
 - Bugs: `skill://coding-guidance/references/regression-coverage.md`.
 - Intermittent failures: `skill://test-guidance/references/flakes.md`.
-- Graph maintenance/access: `skill://codegraph/references/index-maintenance.md`,
-  `mcp-registration.md`, `fallback-and-handoff.md` under the same reference prefix.
 - Owner correction: `skill://codify-omp-workflow-corrections`.
 - `orchestrate`: frame, delegate independent units, prove each unit.
 - `workflowz`: native `workpool()` for independent fan-out.

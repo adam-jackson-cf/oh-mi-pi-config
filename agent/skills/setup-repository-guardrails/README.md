@@ -3,7 +3,8 @@
 ## Overview
 
 Apply the bundled guardrail rules to a selected Git repository. The skill
-inventories existing practice, prepares runnable target-stack checks, measures
+inventories existing practice, configures and pins the stack's reference
+checkers (or prepares runnable target-stack checks where none exists), measures
 full and scoped impact without target edits, and applies only approved changes.
 A rule is enforced only after its implementation and proof pass.
 
@@ -31,20 +32,53 @@ A rule is enforced only after its implementation and proof pass.
 Approved setup writes `.omp/gate.json` schema version 2: `checks.commit` for
 the pre-commit hook (static checks, every T1, affected T2 boundary tests: seams and journeys),
 `checks.ci` for CI on every push and pull request (the full T1
-and T2 suite), an actionable changed-path `pathCheck`, and `ciHost`. Setup also
-installs the pre-commit hook; there is no pre-push hook. CI exposes a
-status named `gate`: either the full runner job or an always-running aggregate
+and T2 suite), `checks.profile` for profile completeness, an actionable
+changed-path `pathCheck`, and `ci` (`requiredContext`, normally `gate`: the
+status or check run that must be green on the exact head; `runner`: a role each
+machine's runner config resolves to commands), and `dynaflowsContract` (the
+dynaflows contract version the repo was set up against). Setup also installs the
+pre-commit hook; there is no pre-push hook. CI exposes the required context:
+either the full runner job or an always-running aggregate
 depending on every parallel tier job of that runner. The aggregate passes only
 when every tier succeeded; failure, cancellation, or skipping any tier must fail
-`gate`. New rules enforce dependency direction, folder ownership, naming, test
+the required context. New rules enforce dependency direction, folder ownership, naming, test
 placement, fast-tier and per-test budgets, justified test growth, duplicate
-call-path/assertion detection, and required host checks. Budget limits are per machine,
-based on at least five baseline runs and provisional until a measure run. The first limit
-and raises need owner approval. `checks.commit` blocks locally against the approved machine
+call-path/assertion detection, and required host checks. Test-guidance v2 rules add
+profile completeness, test-file names, tier selectors, no self-mocking, no test hooks, no
+evasion, fast-tier isolation, the user-data guard, the coverage ratchet, golden change
+records, identity artefacts, property seeds, mutation sensitivity and the verification
+surface. Budget limits are per machine, selected by a deterministic local machine probe and
+based on at least five baseline runs. The first limit and raises need owner approval.
+`checks.commit` blocks locally against the approved machine
 limit; CI runs the same checker report-only for timing. Missing, invalid or stale reports
 are fatal everywhere; an unapproved machine reports only and prompts to record a baseline.
 Supported hosts enable auto-merge and rebase-merge. Existing Step 5 approval
 remains the boundary before any repository mutation.
+
+## Reference implementation and `init`
+
+A stack gets a skill reference once two repositories need it (the rule of two).
+Python has one: the `omp-guardrails` package in `assets/python-reference/`.
+Repositories configure and pin it; they never copy or edit it.
+
+- `omp-guardrails init --greenfield|--adopt|--extend` writes `.omp/gate.json`,
+  the pre-commit hook, the CI wiring (a GitHub workflow running `checks.ci`
+  when `--runner` is `github-actions`), native-tool configs (Ruff, mypy, import-linter)
+  generated from the reference's data and the repository, and the pinned
+  reference dependency in `pyproject.toml`. It proves language-server readiness
+  with a canary `references` query. It never replaces an existing config.
+  `adopt` replaces hand-written checkers after a shadow run; `extend` adds
+  only a missing part, such as a verification surface. Every mode records
+  `dynaflowsContract`, read from `agent/agent-rails.yml` beside the skill or from
+  `--dynaflows-contract N`; `adopt` and `extend` raise a lower value, none lowers it.
+- Per-repo settings live in the front matter of `.omp/test-profile.md`. Shared
+  style rules live in the reference's `omp_guardrails/data/house-style.json`.
+- Each catalogue row the reference implements has a `reference` field naming
+  the `omp-guardrails` subcommand and module. The target still proves the rule
+  through its ledger row and canaries.
+- A test framework without an adapter gets one through
+  [adapter authoring](references/adapter-authoring.md), accepted by a
+  deterministic conformance run.
 
 ## Coverage evidence kinds
 
@@ -89,5 +123,6 @@ or canaries. It is never final proof.
 
 - [Bundled rule contract](assets/guardrail-rules.json)
 - [Python reference implementation](assets/python-reference/README.md)
+- [Adapter authoring](references/adapter-authoring.md)
 - [Coverage ledger shape](assets/coverage-ledger.example.json)
 - [Rule coverage validator](scripts/validate_rule_coverage.py)

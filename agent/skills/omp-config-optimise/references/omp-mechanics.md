@@ -57,10 +57,7 @@ the docs live at `omp://models.md`, `omp://settings.md`,
 
 ## Advisor
 
-- With a `WATCHDOG.yml` roster, each entry uses its own `model`;
-  `modelRoles.advisor` applies to roster entries without one and to subagent
-  advisors enabled through `task.agentAdvisor`. This setup runs no advisor:
-  no roster, `advisor.enabled` unset, no `modelRoles.advisor`.
+- This setup runs no advisor: `advisor.enabled` unset, no `modelRoles.advisor`.
 
 ## Files and runtime
 

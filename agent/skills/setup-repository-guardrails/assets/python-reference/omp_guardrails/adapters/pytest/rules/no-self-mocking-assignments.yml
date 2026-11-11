@@ -1,0 +1,12 @@
+{
+  "id": "TEST.no-self-mocking",
+  "language": "python",
+  "scope": "tests",
+  "target": "assigned-attribute-object",
+  "message": "test replaces an attribute of the repo's own code ({target})",
+  "fix": "drive the behaviour through the declared public entry point instead of rebinding owned names",
+  "rule": {
+    "kind": "assignment",
+    "has": {"field": "left", "kind": "attribute"}
+  }
+}

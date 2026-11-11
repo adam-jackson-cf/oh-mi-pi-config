@@ -1,0 +1,17 @@
+{
+  "id": "TEST.property-seed",
+  "language": "python",
+  "scope": "tests",
+  "message": "Hypothesis property test neither fixes nor reports its seed ({match})",
+  "fix": "add @seed(<n>), or @settings(print_blob=True) or @settings(derandomize=True), to the test",
+  "rule": {
+    "kind": "decorated_definition",
+    "has": {"kind": "decorator", "regex": "^@\\s*(hypothesis\\.)?given\\b"},
+    "not": {
+      "has": {
+        "kind": "decorator",
+        "regex": "^@\\s*(hypothesis\\.)?seed\\b|print_blob\\s*=\\s*True|derandomize\\s*=\\s*True"
+      }
+    }
+  }
+}

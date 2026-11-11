@@ -24,7 +24,10 @@ execution.
    and reject a misplaced/unmapped file. For `NAME.conventions`, accept valid
    path/symbol names and reject invalid ones. For `TEST.placement`, accept an
    owner/tier path and reject a misplaced test. Assert that each failure names
-   the file and exact corrective action.
+   the file and exact corrective action. Where a catalogue row names a
+   `reference`, run the target's pinned `omp-guardrails` subcommand against the
+   fixtures, and `omp-guardrails canaries` for the planted violations; never a
+   copied checker.
 3. For `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time`, feed valid
    below-limit, exactly-at-limit and over-limit reports to the real checker. Prove machine
    selection and local `checks.commit` blocking against approved limits; CI timing is report-only.

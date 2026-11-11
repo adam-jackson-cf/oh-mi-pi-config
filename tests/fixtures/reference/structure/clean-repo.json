@@ -1,0 +1,73 @@
+{
+  "profile": {
+    "tiers": {
+      "t1": {"selector": "not boundary", "location": "tests/unit", "command": "make test-fast"},
+      "t2": {"selector": "boundary", "location": "tests/boundary", "command": "make test-boundary"},
+      "t3": {"selector": "scheduled", "location": "tests/scheduled", "command": "make test-nightly"}
+    },
+    "ownership_areas": {
+      "map": {"tests/boundary/test_orders_*.py": "orders"},
+      "affected_t2_selection": "all"
+    },
+    "layout": {
+      "support_dir": "tests/support",
+      "fixtures_dir": "tests/fixtures",
+      "test_file_patterns": ["test_*.py"]
+    },
+    "structure": {
+      "owners": {
+        "files": {
+          "README.md": "repository",
+          "pyproject.toml": "repository",
+          "docs/design-v2.md": "design records",
+          "docs/README.md": "design records",
+          "lab/workflows/team/nightly/workflow.yaml": "workflows"
+        },
+        "directories": {
+          "src/orders/": "orders",
+          "src/orders/contract/": "orders contract",
+          "src/orders/engine/": "orders engine",
+          "src/orders/cli/": "orders cli",
+          "tests/unit/": "orders tests",
+          "tests/boundary/": "orders tests"
+        }
+      },
+      "tiers": ["contract", "engine", "cli"],
+      "import_direction": {"package": "orders", "source_root": "src/orders"}
+    },
+    "house_style": {"version": 1, "exceptions": []},
+    "guardrails": {
+      "structure": {
+        "root_directories": ["src", "tests", "lab", "docs"],
+        "root_files": ["README.md", "pyproject.toml"],
+        "areas": {"lab": {"directories": ["workflows"], "files": []}},
+        "packages": [
+          {"root": "src/orders", "children": {"contract": [], "engine": ["stages"], "cli": []}, "max_depth": 2}
+        ],
+        "instances": [{"root": "lab/workflows", "depth": 2, "marker": "workflow.yaml"}],
+        "forbidden_imports": [{"root": "src/orders/contract", "modules": ["requests"]}]
+      },
+      "naming": {
+        "ecosystems": {"python": ["src", "tests"], "markdown": ["docs"]},
+        "version_exempt": ["docs/"]
+      }
+    }
+  },
+  "files": {
+    "README.md": "# Orders\n",
+    "pyproject.toml": "[project]\nname = \"orders\"\n",
+    "docs/README.md": "# Design records\n",
+    "docs/design-v2.md": "# Design, second revision\n",
+    "lab/workflows/team/nightly/workflow.yaml": "name: nightly\n",
+    "src/orders/__init__.py": "",
+    "src/orders/contract/__init__.py": "",
+    "src/orders/contract/model.py": "class OrderTotal:\n    pass\n",
+    "src/orders/engine/__init__.py": "",
+    "src/orders/engine/runner.py": "from orders.contract.model import OrderTotal\nfrom . import pricing\n\n\ndef run_order(total: OrderTotal) -> OrderTotal:\n    return total\n",
+    "src/orders/engine/pricing.py": "def price_order() -> int:\n    return 1\n",
+    "src/orders/cli/__init__.py": "",
+    "src/orders/cli/main.py": "from orders.engine import runner\n\n\ndef main() -> None:\n    runner.run_order(None)\n",
+    "tests/unit/test_order_totals.py": "import unittest\n\n\nclass OrderTotalTests(unittest.TestCase):\n    def setUp(self) -> None:\n        self.total = 1\n\n    def test_total_is_kept(self) -> None:\n        self.assertEqual(self.total, 1)\n",
+    "tests/boundary/test_orders_export.py": "def test_export_writes_one_row() -> None:\n    assert True\n"
+  }
+}

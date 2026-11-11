@@ -1,0 +1,15 @@
+{
+  "id": "TEST.no-self-mocking",
+  "language": "python",
+  "scope": "tests",
+  "target": "first-argument",
+  "message": "test patches or mocks the repo's own code ({target})",
+  "fix": "drive the behaviour through the declared public entry point and fake only third-party or OS boundaries",
+  "rule": {
+    "kind": "call",
+    "has": {
+      "field": "function",
+      "regex": "(^|\\.)(patch|patch\\.object|patch\\.dict|patch\\.multiple|setattr|delattr|create_autospec)$"
+    }
+  }
+}

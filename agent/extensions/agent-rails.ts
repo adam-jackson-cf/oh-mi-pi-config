@@ -9,13 +9,19 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 
+// Hang guard for the rails' own short git/gh reads. CI waits never use it: their timeouts come
+// from the runner config. gate.json `pathCheckTimeoutMs` overrides it for the path check.
+const SUBPROCESS_TIMEOUT_MS = 20_000;
 const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { new RegExp(value); return true; } catch { return false; }
 });
+const contractVersion = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const mappingSchema = z.object({
+	// The dynaflows contract this omp install implements; repos record theirs in gate.json.
+	dynaflowsContract: contractVersion,
 	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
-		for (const key of ["firstEdit", "newFile", "test", "discovery", "verification", "workflow", "git"]) {
+		for (const key of ["firstEdit", "newFile", "test", "verification", "workflow", "git"]) {
 			const urls = references[key];
 			if (!urls?.length || urls.some(url => !url.startsWith("skill://"))) {
 				ctx.addIssue({ code: "custom", message: `invalid references.${key}` });
@@ -24,7 +30,6 @@ const mappingSchema = z.object({
 	}),
 	testGlobs: stringList,
 	codeGlobs: stringList,
-	discoveryTools: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
 	pathFields: z.record(z.string(), stringList),
@@ -32,26 +37,39 @@ const mappingSchema = z.object({
 	rejectDevice: z.string(),
 });
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
+const nonEmpty = z.string().refine(value => value.trim().length > 0);
+const retiredCiHost = "ciHost is retired; declare ci.requiredContext and ci.runner";
 const policyFields = {
 	pathCheck: argvSchema.optional(),
 	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
-	ciHost: z.enum(["github", "nuc"]).optional(),
+	// `requiredContext` is the commit status or check run that must be SUCCESS on the exact PR head,
+	// whoever posts it; `runner` is a role resolved by the machine's ci-runners.json.
+	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
+	ciHost: z.unknown().optional(),
+	// The dynaflows contract the repo was set up against; `omp-guardrails init` records it.
+	dynaflowsContract: contractVersion.optional(),
 };
-// `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs on the CI host for push and merge.
+// `checks.commit` runs in the Git pre-commit hook; `checks.ci` runs in CI for push and merge;
+// `checks.format` runs in freeze() before hashing; `checks.profile` runs first in prove().
 const gateSchema = z.object({
 	schemaVersion: z.literal(2),
-	checks: z.object({ commit: argvSchema.optional(), ci: argvSchema.optional() }).optional(),
+	checks: z.object({
+		commit: argvSchema.optional(), ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
+	}).optional(),
 	...policyFields,
+}).superRefine((gate, ctx) => {
+	if (gate.ciHost !== undefined) ctx.addIssue({ code: "custom", path: ["ciHost"], message: retiredCiHost });
 }).transform(gate => ({
 	commit: gate.checks?.commit,
-	ci: gate.checks?.ci,
+	ciCheck: gate.checks?.ci,
 	pathCheck: gate.pathCheck,
 	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
 	testGlobs: gate.testGlobs,
 	agentMerge: gate.agentMerge,
-	ciHost: gate.ciHost,
+	requiredCi: gate.ci,
+	dynaflowsContract: gate.dynaflowsContract,
 }));
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
@@ -61,6 +79,14 @@ const prCiSchema = z.object({
 		z.object({ __typename: z.literal("StatusContext"), context: z.string(), state: z.string() }),
 	])),
 });
+
+const agentVerified = "agent-verified";
+const agentVerifiedStatusOnly = "Agent rails: agent-verified is a SHA-bound commit status; prove() posts it (non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified)";
+// Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci-runner.py.
+const ciRunnerPath = fileURLToPath(new URL("../../scripts/ci-runner.py", import.meta.url));
+function shellWord(value: string): string {
+	return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
 
 function prSelector(args: string[]): string | undefined {
 	for (let i = 2; i < args.length; i++) {
@@ -77,9 +103,6 @@ const inputSchema = z.object({
 	cwd: z.string().optional().catch(undefined),
 	input: z.string().optional().catch(undefined),
 }).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined });
-const scopeSchema = z.object({
-	path: z.unknown().optional(), paths: z.unknown().optional(),
-}).catch({ path: undefined, paths: undefined });
 const answerSchema = z.object({
 	question: z.string().optional().catch(undefined),
 	selectedOptions: stringList.optional().catch(undefined),
@@ -116,8 +139,6 @@ interface State {
 	// Repository roots where this session edited a file matching `codeGlobs`.
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
-	codegraphAvailable?: boolean;
-	discovered: boolean;
 	pointed: boolean;
 	proposal: string[];
 	guardrailApproval?: Approval;
@@ -127,17 +148,14 @@ type ToolEvent = {
 	toolCallId: string;
 	input: z.infer<typeof inputSchema>;
 	pathFields: z.infer<typeof inputFieldsSchema>;
-	hasScope: boolean;
 	isError?: boolean;
 	details: z.infer<typeof detailsSchema>;
 };
 
 function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
-	const scope = scopeSchema.parse(event.input);
 	return {
 		toolName: event.toolName, toolCallId: event.toolCallId,
 		input: inputSchema.parse(event.input), pathFields: inputFieldsSchema.parse(event.input),
-		hasScope: scope.path !== undefined || scope.paths !== undefined,
 		isError: event.type === "tool_result" ? event.isError : undefined,
 		details: detailsSchema.parse(event.type === "tool_result" ? event.details : undefined),
 	};
@@ -146,7 +164,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		discovered: false, pointed: false, proposal: [],
+		pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -506,6 +524,15 @@ function commitBypass(action: GitAction): string | undefined {
 type Author = { family: string; model: string; agent: string };
 type AuthorScope = { worktree: string; common: string; branch: string; ledger: string };
 const authorText = z.string().refine(value => value.trim().length > 0);
+// Dynaflows-on repos whose recorded contract differs from the installed one get this note;
+// workflows.py freeze() and prove() refuse with the same text.
+function contractMismatch(recorded: number | undefined, current: number): string | undefined {
+	if (recorded === current) return;
+	const stated = `Dynaflows contract v${recorded ?? "none"} recorded; current is v${current}.`;
+	return recorded !== undefined && recorded > current
+		? `${stated} The repo expects a newer dynaflows contract; update omp.`
+		: `${stated} Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract.`;
+}
 const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
 const ledgerSchema = z.object({
 	schemaVersion: z.literal(1), worktree: z.string(), branch: z.string(), authors: z.array(authorSchema).min(1),
@@ -518,18 +545,22 @@ function compareAuthors(a: Author, b: Author): number {
 }
 
 // `machineDynaflowsPath` holds the per-machine default (~/.omp/dynaflows.json); a project's
-// .omp/dynaflows.json overrides it; absent both, dynaflows is off.
+// .omp/dynaflows.json overrides it; absent both, dynaflows is off. `configPath` is the rails
+// mapping file (agent/agent-rails.yml beside this extension).
 export default function agentRails(
 	pi: ExtensionAPI,
-	{ machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)) }: { machineDynaflowsPath?: string } = {},
+	{
+		machineDynaflowsPath = fileURLToPath(new URL("../../dynaflows.json", import.meta.url)),
+		configPath = fileURLToPath(new URL("../agent-rails.yml", import.meta.url)),
+	}: { machineDynaflowsPath?: string; configPath?: string } = {},
 ): void {
 	// Factories are rebound to child sessions; only the parent-keyed authorship registry is shared.
 	const states = new Map<string, State>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
-		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(new URL("../agent-rails.yml", import.meta.url), "utf8")));
-		if (!parsed.success) throw new Error("invalid mappings");
+		const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(configPath, "utf8")));
+		if (!parsed.success) throw new Error(`invalid mappings: ${parsed.error.message}`);
 		map = parsed.data;
 	} catch (error) {
 		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
@@ -544,14 +575,14 @@ export default function agentRails(
 		return state;
 	};
 	async function gitValue(cwd: string, args: string[]): Promise<string> {
-		const result = await pi.exec("git", args, { cwd, timeout: 20000 });
+		const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
 		return result.stdout.trim();
 	}
 	async function scopeAt(cwd: string) {
 		const worktree = await realpath(await gitValue(cwd, ["rev-parse", "--show-toplevel"]));
 		const common = await realpath(resolve(worktree, await gitValue(worktree, ["rev-parse", "--git-common-dir"])));
-		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: 20000 });
+		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		const branch = branchResult.code === 0 ? branchResult.stdout.trim() : `detached:${await gitValue(worktree, ["rev-parse", "HEAD"])}`;
 		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
 		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
@@ -568,7 +599,7 @@ export default function agentRails(
 	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
 		const repository = await primaryGithubRepository(scope.worktree);
 		async function github(args: string[]): Promise<string> {
-			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: 20000 });
+			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 			if (result.code !== 0 || result.killed) throw new Error(`gh failed: ${result.stderr}`);
 			return result.stdout;
 		}
@@ -586,9 +617,9 @@ export default function agentRails(
 				JSON.parse(await github(["pr", "view", pr.headRefName, "--json", "baseRefOid"])));
 			parent = await gitValue(scope.worktree, ["merge-base", base.baseRefOid, head]);
 		}
-		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: 20000 });
+		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (ancestry.code !== 0 || ancestry.killed) throw new Error("external bot parent is not an ancestor of head");
-		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: 20000 });
+		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (range.code !== 0 || range.killed) throw new Error(`cannot resolve external bot commit range: ${range.stderr}`);
 		if (!range.stdout.trim()) throw new Error("empty external bot commit range");
 		const commits = range.stdout.trim().split("\n");
@@ -653,7 +684,7 @@ export default function agentRails(
 		}
 	}
 	async function passMarkerReason(cwd: string, head: string): Promise<string | undefined> {
-		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: 20000 });
+		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for pass marker");
 		const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.json`);
 		const marker = z.object({
@@ -664,52 +695,100 @@ export default function agentRails(
 		} catch { /* Missing or corrupt proof is not a pass. */ }
 		return `Agent rails: no valid pass marker for ${head} at ${path}; run prove() or exempt_docs_only() for this head`;
 	}
-	async function prCi(action: GitAction, state: State, ctx: ExtensionContext) {
-		if (!action.cwd) throw new Error("cannot resolve PR action cwd");
-		const root = await repoRoot(action.cwd);
+	type PrCi = { head?: string; repository?: string; reason?: string; agentVerified?: string };
+	// Reads the PR's exact head and its checks. `agent-verified` is evidence, not CI: it is reported
+	// separately and never counts towards (or against) the CI rule.
+	async function prCi(cwd: string | undefined, selector: string | undefined, state: State, ctx: ExtensionContext): Promise<PrCi> {
+		if (!cwd) throw new Error("cannot resolve PR action cwd");
+		const root = await repoRoot(cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
-		const selector = prSelector(action.args);
 		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup,url"],
-			{ cwd: action.cwd, timeout: 20000 });
+			{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
 		};
 		const pr = prCiSchema.parse(JSON.parse(result.stdout));
+		const head = pr.headRefOid;
 		const repository = new URL(pr.url).pathname.split("/").slice(1, 3).join("/");
 		if (selector && /^https?:\/\//i.test(selector) &&
 			(await primaryGithubRepository(root)).toLowerCase() !== repository.toLowerCase()) {
-			return { head: pr.headRefOid, reason: `Agent rails: run from a checkout of ${repository}` };
+			return { head, repository, reason: `Agent rails: run from a checkout of ${repository}` };
 		}
 		const gate = await gateAt(root, state, ctx, true);
-		const checks = pr.statusCheckRollup;
-		if (gate?.ciHost === "nuc") {
-			const status = checks.find(check => check.__typename === "StatusContext" && check.context === "gate");
-			if (!status || status.__typename !== "StatusContext" || status.state !== "SUCCESS") {
-				const statusState = status?.__typename === "StatusContext" ? status.state : "missing";
-				return { head: pr.headRefOid,
-					reason: `Agent rails: CI gate status ${statusState} for ${pr.headRefOid} in ${repository} (ciHost nuc). Submit and wait: ssh -o BatchMode=yes codex-omarchy-nuc 'bash -lc "python3 ~/.omp/scripts/ci-gate.py submit ${repository} ${pr.headRefOid}"', then the same with wait ${repository} ${pr.headRefOid} --timeout 900; failures follow skill://git-tool/references/merge-and-recover.md (NUC-hosted CI).` };
+		const evidence = pr.statusCheckRollup.find(check => check.__typename === "StatusContext" && check.context === agentVerified);
+		const agentVerifiedState = evidence?.__typename === "StatusContext" ? evidence.state : "missing";
+		const checks = pr.statusCheckRollup.filter(check => !(check.__typename === "StatusContext" && check.context === agentVerified));
+		const stateOf = (check: typeof checks[number]) => check.__typename === "StatusContext"
+			? check.state : `${check.status}/${check.conclusion ?? ""}`;
+		const green = (check: typeof checks[number]) => check.__typename === "StatusContext"
+			? check.state === "SUCCESS" : check.status === "COMPLETED" && check.conclusion === "SUCCESS";
+		if (gate?.requiredCi) {
+			const { requiredContext, runner } = gate.requiredCi;
+			const named = checks.filter(check => (check.__typename === "StatusContext" ? check.context : check.name) === requiredContext);
+			if (!named.some(green)) {
+				const command = (verb: string) => `python3 ${shellWord(ciRunnerPath)} ${verb} ${shellWord(runner)} ${repository} ${head}`;
+				return { head, repository, agentVerified: agentVerifiedState, reason:
+					`Agent rails: required CI context "${requiredContext}" is ${named.length ? stateOf(named[0]) : "missing"} for ${head} in ${repository} (runner ${runner}). ` +
+					`Submit and wait: ${command("submit")}, then ${command("wait")} --context ${shellWord(requiredContext)}; ` +
+					"see skill://git-tool/references/merge-and-recover.md for failures." };
 			}
 		}
 		if (!checks.length) {
 			const workflows = await stat(resolve(root, ".github/workflows")).catch(absentFile);
-			return { head: pr.headRefOid, reason: gate?.ci || workflows?.isDirectory()
-				? `Agent rails: no CI checks reported for ${pr.headRefOid}` : undefined };
+			return { head, repository, agentVerified: agentVerifiedState, reason: gate?.ciCheck || workflows?.isDirectory()
+				? `Agent rails: no CI checks reported for ${head}` : undefined };
 		}
-		let success = false;
 		const nonGreen: string[] = [];
 		for (const check of checks) {
-			if (check.__typename === "StatusContext") {
-				if (check.state === "SUCCESS") success = true;
-				else nonGreen.push(`${check.context}: ${check.state}`);
-			} else {
-				if (check.status === "COMPLETED" && check.conclusion === "SUCCESS") success = true;
-				if (check.status !== "COMPLETED" || !["SUCCESS", "NEUTRAL", "SKIPPED"].includes(check.conclusion ?? "")) {
-					nonGreen.push(`${check.name}: ${check.status}/${check.conclusion ?? ""}`);
-				}
+			const name = check.__typename === "StatusContext" ? check.context : check.name;
+			if (check.__typename === "StatusContext" ? check.state !== "SUCCESS"
+				: check.status !== "COMPLETED" || !["SUCCESS", "NEUTRAL", "SKIPPED"].includes(check.conclusion ?? "")) {
+				nonGreen.push(`${name}: ${stateOf(check)}`);
 			}
 		}
-		return { head: pr.headRefOid, reason: nonGreen.length || !success
-			? `Agent rails: CI is not green for ${pr.headRefOid}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined };
+		return { head, repository, agentVerified: agentVerifiedState, reason: nonGreen.length || !checks.some(green)
+			? `Agent rails: CI is not green for ${head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined };
+	}
+	// The open PR whose head is exactly `sha`; status posts are judged by that PR's checks.
+	async function prAtHead(cwd: string, sha: string): Promise<{ selector?: string; reason?: string }> {
+		const result = await pi.exec("gh", ["pr", "list", "--search", sha, "--state", "open", "--json", "number,headRefOid"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+		if (result.code !== 0 || result.killed) return {
+			reason: `Agent rails: cannot find the PR for ${sha} via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
+		};
+		const prs = z.array(z.object({ number: z.number().int(), headRefOid: z.string() })).parse(JSON.parse(result.stdout))
+			.filter(pr => pr.headRefOid === sha);
+		if (prs.length !== 1) return { reason: `Agent rails: ${prs.length ? "several open PRs have" : "no open PR has"} head ${sha}; agent-verified is posted only on the exact head of one open PR.` };
+		return { selector: String(prs[0].number) };
+	}
+	// `gh api .../statuses/<sha>` posting the agent-verified context: allowed only when the PR whose
+	// head is <sha> has green exact-head CI (and, with dynaflows on, a valid pass marker for <sha>).
+	async function statusPostReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+		const endpoint = action.args.slice(1).map(arg => /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/statuses\/([^/?#\s]*)/.exec(arg)).find(match => match);
+		if (!endpoint) return;
+		const method = action.args.findIndex(arg => ["-X", "--method"].includes(arg));
+		const verb = method >= 0 ? action.args[method + 1] : action.args.find(arg => /^(?:-X|--method=)/.test(arg))?.replace(/^(?:-X|--method=)/, "");
+		if (verb?.toUpperCase() === "GET") return;
+		// A payload rails cannot read (file input or @file values) may carry the agent-verified context.
+		if (action.args.some(arg => arg === "--input" || arg.startsWith("--input=") || /^[^=]+=@/.test(arg))) {
+			return "Agent rails: commit status posts must pass fields with -f/-F literals (no --input or @file), so rails can check the context.";
+		}
+		if (!action.args.some(arg => arg.includes(agentVerified))) return;
+		const [, owner, name, sha] = endpoint;
+		if (/[$`]/.test(sha)) return `Agent rails: received unexpanded shell text \`${sha}\`; rails check the literal command, so pass the 40-hex SHA itself`;
+		if (!/^[0-9a-f]{40}$/.test(sha)) return `Agent rails: agent-verified status needs a lowercase 40-hex SHA, got ${sha}`;
+		if (!action.cwd) throw new Error("cannot resolve status post cwd");
+		const root = await repoRoot(action.cwd);
+		if (!root) throw new Error("status posts require a validated local Git repository");
+		const checkout = await primaryGithubRepository(root);
+		if (!(owner === "{owner}" && name === "{repo}") && checkout.toLowerCase() !== `${owner}/${name}`.toLowerCase()) {
+			return `Agent rails: run from a checkout of ${owner}/${name}`;
+		}
+		const found = await prAtHead(action.cwd, sha);
+		if (found.reason) return found.reason;
+		const pr = await prCi(action.cwd, found.selector, state, ctx);
+		if (pr.reason) return pr.reason;
+		if (pr.head !== sha) return `Agent rails: PR head is ${pr.head}, not ${sha}; re-verify the current head`;
+		if (await dynaflowsOn(ctx, action.cwd)) return passMarkerReason(action.cwd, sha);
 	}
 	function readJson(path: string, schema: typeof dynaflowsSchema, state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined>;
 	function readJson(path: string, schema: typeof proposalSchema, state: State, ctx: ExtensionContext): Promise<Proposal | undefined>;
@@ -777,7 +856,7 @@ export default function agentRails(
 	}
 	// The pre-commit hook Git would run: respects core.hooksPath; must be an executable file.
 	async function commitHookInstalled(cwd: string): Promise<boolean> {
-		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: 20000 });
+		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) throw new Error(`cannot resolve the pre-commit hook: ${result.stderr}`);
 		const info = await stat(resolve(cwd, result.stdout.trim())).catch(() => null);
 		return Boolean(info?.isFile() && info.mode & 0o111);
@@ -801,7 +880,7 @@ export default function agentRails(
 				}
 			}
 			changed = [...new Set(candidates)];
-			const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: 20000 });
+			const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: SUBPROCESS_TIMEOUT_MS });
 			if (status.code !== 0 || status.killed) {
 				throw new Error(`git status failed${status.killed ? " (killed)" : ` (exit ${status.code})`}: ${status.stderr || status.stdout}`.trim());
 			}
@@ -817,7 +896,7 @@ export default function agentRails(
 			changed = changed.filter(path => changedPaths.has(relative(canonicalRoot, path)));
 			if (!changed.length) { state.pathFailures.delete(root); return; }
 			const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changed], {
-				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? 20000,
+				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? SUBPROCESS_TIMEOUT_MS,
 			});
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);
@@ -886,12 +965,11 @@ export default function agentRails(
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
 		state.pathFailures = previous?.pathFailures ?? new Map();
-		state.codegraphAvailable = previous?.codegraphAvailable;
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type === "compaction") { state.reads.clear(); state.discovered = false; continue; }
+			if (entry.type === "compaction") { state.reads.clear(); continue; }
 			if (entry.type !== "message") continue;
 			const message = entry.message;
 			if (message.role === "assistant") for (const block of message.content) {
@@ -911,7 +989,7 @@ export default function agentRails(
 	pi.on("session_tree", rebuild);
 	pi.on("session_compact", (_event, ctx) => {
 		const state = stateFor(ctx);
-		state.reads.clear(); state.discovered = false;
+		state.reads.clear();
 	});
 	pi.on("before_subagent_spawn", async (event, ctx) => {
 		if (event.agent !== "verifier") return;
@@ -954,34 +1032,21 @@ export default function agentRails(
 		if (loadError) return { block: true, reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			if (map.discoveryTools.includes(event.toolName) && !state.discovered) {
-				state.codegraphAvailable ??= (await pi.exec("sh", ["-c", "command -v codegraph"], { cwd: ctx.cwd, timeout: 20000 })).code === 0;
-				const scopes = paths(event, map, ctx.cwd);
-				if (!scopes.length && !event.hasScope) scopes.push(ctx.cwd);
-				if (state.codegraphAvailable && (await Promise.all(scopes.map(repoRoot))).some(Boolean)) {
-					const urls = missing(state, map, ["discovery"]);
-					if (urls.length) return { block: true, reason: readReason(urls) };
-					state.discovered = true;
-				}
-			}
 			if (event.toolName === "bash" && event.input.command !== undefined) {
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 				for (const action of await gitActions(event.input.command, cwd)) {
 					if (action.hookSkip) return { block: true, reason: `Agent rails: pre-commit hook environment mutation is forbidden: ${action.hookSkip}` };
-					if (action.args[0] === "api" && action.command.startsWith("gh ") &&
-						action.args.some(arg => /\/issues\/\d+\/labels(?:[/?#]|$)/.test(arg)) &&
-						action.args.some(arg => arg.includes("agent-verified"))) {
-						return { block: true, reason: "Agent rails: use gh pr edit --add-label so rails can check CI" };
+					if (action.command.startsWith("gh ") && action.args[0] === "api") {
+						if (action.args.some(arg => /(?:^|\/)labels(?:[/?#]|$)/.test(arg)) && action.args.some(arg => arg.includes(agentVerified))) {
+							return { block: true, reason: agentVerifiedStatusOnly };
+						}
+						const reason = await statusPostReason(action, state, ctx);
+						if (reason) return { block: true, reason };
 					}
 					if (/^gh (?:pr|issue) edit\b/.test(action.command) && action.args.some((arg, index, args) =>
 						(arg === "--add-label" ? args[index + 1] ?? "" : arg.startsWith("--add-label=") ? arg.slice("--add-label=".length) : "")
-							.split(",").includes("agent-verified"))) {
-						const pr = await prCi(action, state, ctx);
-						if (pr.reason) return { block: true, reason: pr.reason };
-						if (pr.head && action.cwd && await dynaflowsOn(ctx, action.cwd)) {
-							const reason = await passMarkerReason(action.cwd, pr.head);
-							if (reason) return { block: true, reason };
-						}
+							.split(",").includes(agentVerified))) {
+						return { block: true, reason: agentVerifiedStatusOnly };
 					}
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
@@ -1018,7 +1083,8 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd)) {
+						const dynaflows = /^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd);
+						if (/^gh pr merge\b/.test(action.command) && (gate?.requiredCi || dynaflows)) {
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
@@ -1027,13 +1093,18 @@ export default function agentRails(
 								block: true, reason: `Agent rails: received unexpanded shell text \`${head}\`; rails check the literal command, so pass the 40-hex SHA itself`,
 							};
 							if (!/^[0-9a-f]{40}$/.test(head)) return { block: true, reason: `Agent rails: --match-head-commit must be a lowercase 40-hex SHA, got ${head}` };
-							const reason = await passMarkerReason(action.cwd, head);
-							if (reason) return { block: true, reason };
-							const pr = await prCi(action, state, ctx);
+							if (dynaflows) {
+								const reason = await passMarkerReason(action.cwd, head);
+								if (reason) return { block: true, reason };
+							}
+							const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
 							if (pr.head && pr.head !== head) return {
 								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; re-verify the current head`,
 							};
 							if (pr.reason) return { block: true, reason: pr.reason };
+							if (pr.agentVerified !== "SUCCESS") return {
+								block: true, reason: `Agent rails: agent-verified status is ${pr.agentVerified ?? "missing"} for ${head}${pr.repository ? ` in ${pr.repository}` : ""}; verify this exact head first (prove() posts it; non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified).`,
+							};
 						}
 					}
 				}
@@ -1057,7 +1128,8 @@ export default function agentRails(
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
 				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
-				if (!(await access(path).then(() => true, () => false))) triggers.push("newFile");
+				// New-file reads apply only to code files inside a repository, not scratch paths.
+				if (root && matches(rel, map.codeGlobs) && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
 				if (matches(rel, gate?.testGlobs ?? map.testGlobs)) triggers.push("test");
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
@@ -1115,6 +1187,11 @@ export default function agentRails(
 		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
 		const root = await repoRoot(ctx.cwd);
 		const gate = root ? await gateAt(root, state, ctx) : undefined;
+		const contract = root ? contractMismatch(gate?.dynaflowsContract, map.dynaflowsContract) : undefined;
+		if (contract) {
+			note(state, ctx, `Agent rails: ${contract}`);
+			lines.push(contract);
+		}
 		if (root && !(gate?.commit && gate.pathCheck)) lines.push(
 			`Guardrails missing in ${root}: .omp/gate.json lacks checks.commit or pathCheck.`,
 			"Before guardrail work, ask the owner whether to analyse and propose guardrails.",

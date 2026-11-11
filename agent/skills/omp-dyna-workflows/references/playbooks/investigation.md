@@ -14,8 +14,8 @@ State competing explanations, evidence predicates and questions that change the 
 ## 2. Spike
 
 Deliver the saved spike report with answers, commands, actual outputs, failures,
-uncertainty and recommendation. For graph access gaps use
-`skill://codegraph/references/fallback-and-handoff.md`; do not repair source state
+uncertainty and recommendation. When `find` or `lsp` is unavailable, record the
+gap and fall back to `ast_grep`, then `grep`/`glob`; do not repair source state
 incidentally. The report is the deliverable; stop here.
 
 ## 3. Plan

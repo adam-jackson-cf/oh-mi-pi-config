@@ -5,6 +5,7 @@
     "ci": ["bash", "scripts/run-ci-quality-gates.sh"]
   },
   "pathCheck": ["python3", "scripts/check-paths.py"],
-  "ciHost": "nuc",
-  "agentMerge": "allowed"
+  "ci": {"requiredContext": "gate", "runner": "ci-gate"},
+  "agentMerge": "allowed",
+  "dynaflowsContract": 2
 }

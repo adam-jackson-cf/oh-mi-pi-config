@@ -16,16 +16,13 @@ Assign each test one tier and report green only for the event actually exercised
 - Start with tiers, case selection, naming/layout and outcome tests; add property tests for pure cores.
   Read the surface runbook for mapped features, then before-commit and suite-budget before delivery.
   Read determinism, statistics, flakes and suite-review when their named topic applies.
-- Missing means absent, empty, template placeholders or non-values such as `n/a`, `TBD` or unsupported `none`.
-  No sentinel waives a required section, including in config repos. Under an active DynaFlows playbook,
+- Enforced by PROFILE.complete (omp-guardrails profile-check).
+  Under an active DynaFlows playbook,
   missing profile/surface plus user-visible work routes to that workflow's Project setup prerequisite.
   Hand off the missing values; resume implementation only after its owner-approved prerequisite PR completes.
   Rejection leaves implementation blocked. Outside DynaFlows, report gaps and follow repo delivery policy.
   Otherwise report gaps and continue only work not dependent on the missing values.
-- Accept `none: <owner-approved reason>` only for Verification surface (no runnable app), Nightly scheduler,
-  and Identity-bearing artefacts. Require a nonempty reason and recorded owner approval;
-  malformed or unapproved exemptions count as missing. Elsewhere `none` is a reported gap, never a waiver.
-  A valid surface exemption does not trigger setup.
+- A valid surface exemption does not trigger setup.
 - During Project setup, the setup owner checks profile tracking with `git check-ignore` using its supplied path:
   an ignored profile cannot be frozen or pass changed-path checks. Re-include that exact path in the repo ignore rules;
   never force-add it.
@@ -33,7 +30,7 @@ Assign each test one tier and report green only for the event actually exercised
 ## Membership
 
 - T1 local fast: outcome tests through the public entry point, using only in-process storage (unique temp directory
-  or SQLite file), and property tests on pure cores. No processes or network in setup, call or teardown.
+  or SQLite file), and property tests on pure cores. Enforced by TEST.fast-tier-isolation (omp-guardrails guard-run).
 - T2 boundary: real process, build, transport, server-database or loopback seams, and scripted feature-map journeys.
 - T3 scheduled: agent exploration over the feature map, live paid or LLM calls, soak, sweeps, security/performance
   phase-exit checks, formal checks and feature-map drift. Never move tests here to evade a budget.
@@ -43,13 +40,11 @@ Assign each test one tier and report green only for the event actually exercised
   If the changed area's public entry point is missing, ask once for the owner-approved entry point;
   do not write tests against a guessed private function.
 - Map tiers onto existing repo tiers, never create parallel ones. Tier by what a test drives, not duration.
-  Keep one tier per file; use strict registered, disjoint selectors. Markers may overlay; selectors remain disjoint.
-- Enforce fast-tier process/network guards across setup, call and teardown. Probe readiness at the first selected test,
-  never collection. Use Environments' require flag so missing environments fail.
-- Run boundary suites through their entry point. Every T2 file maps to an Ownership area; unmapped files fail.
-  Select affected T2 using Ownership areas' Affected T2 test selection.
-  Apply the repo's existing placement check; if absent, report missing enforcement to the calling workflow.
-  An unmapped T2 file is a policy failure: hand its missing mapping to the approved setup extension before claiming green.
+  Enforced by TEST.tier-selectors (omp-guardrails collection-check).
+- Probe readiness at the first selected test, never collection. Use Environments' require flag so missing environments fail.
+- Run boundary suites through their entry point. Select affected T2 using Ownership areas' Affected T2 test selection.
+  Enforced by TEST.placement (omp-guardrails path-check).
+  Hand an unmapped T2 file's missing mapping to the approved setup extension before claiming green.
   Unknown changed-production-code ownership is different: run all T2 and report that selection.
 
 ## Run events

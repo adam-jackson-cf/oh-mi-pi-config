@@ -21,11 +21,12 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    selection; unmapped T2 files fail and unknown changed-code ownership selects all T2.
    Diagnostics name the file and corrective edge, name, or destination.
 4. Map `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time` to a checker
-   consuming the runner's JSON report. Select limits by machine from the repo test profile;
-   block timing locally in `checks.commit`, run the same checker report-only for CI timing.
-   Missing, invalid or stale reports remain fatal everywhere. Derive limits from at least
-   five baseline runs, provisional until the measure run. First limits and raises require
-   owner approval at Step 5; unapproved machines report timing only and prompt to record a baseline.
+   consuming the normalised JUnit run report. Select limits by a deterministic local machine
+   probe from the repo test profile; block timing locally in `checks.commit`, run the same
+   checker report-only for CI timing. Missing, invalid or stale reports remain fatal
+   everywhere. Derive limits from at least five baseline runs. First limits and raises
+   require owner approval at Step 5; unknown machines report timing only and prompt to record
+   a baseline.
    Map `TEST.growth.justified` to a
    base-ref diff plus a changed-behavior mapping for each new test file/case; a
    missing mapping fails with the test name and map-or-remove fix. Map
@@ -38,14 +39,17 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    (through the repo's existing hook manager, such as lefthook, husky or
    pre-commit, when one is tracked), and failure propagation. Record any
    existing pre-push hook as a practice to replace.
-   Map `GIT.required-checks` to host protection requiring the `gate` status
-   check on the resolved default branch; record support for auto-merge and
+   Map `GIT.required-checks` to host protection requiring the gate's
+   `ci.requiredContext` (default `gate`) from any source on the resolved
+   default branch; record support for auto-merge and
    rebase-merge or the evidence-backed host limitation using the catalog's
    `host_query` evidence kind.
 6. For tool rules, record selector, threshold, exceptions, pinned version, and
    canaries. For bespoke rules, require executable parsers/checkers and
-   positive/negative fixtures. Parameterize source-specific roots and
-   allowlists; do not copy inactive reference scripts.
+   positive/negative fixtures. A row with a `reference` field is implemented by
+   the named `omp-guardrails` subcommand: map it to profile settings, never to
+   copied or edited reference code. Elsewhere, read source-specific roots and
+   allowlists from target data rather than hard-coding them.
 7. Where no tool covers an applicable rule, prepare a bespoke implementation;
    keep it blocked until its checker and canaries exist. Record deviations as
    unresolved decisions, not passes. Reuse existing ownership/naming/runner

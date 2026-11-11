@@ -9,7 +9,7 @@ Select realistic cases that distinguish required behaviour without duplicating a
 - Start from the feature-map entry, or the requirement for a new feature or a valid surface exemption.
   Name the user path and realistic input for every case; drop an impossible case.
 - Per feature, cover boundary-crossing journey end states, user-reachable errors, side effects and preserved neighbours.
-  Use codegraph impact when available to name affected neighbours.
+  Use `lsp references` and the repo test profile's affected-T2 selection to name affected neighbours.
 - Per pure core, select domain edges, thresholds, ordering and independent-reference or round-trip properties.
   For a pure-core bug, add a property; add a T1 outcome case only for caller behaviour not covered by it or the journey.
 - Per external adapter, cover success, failure, timeout and malformed responses through the production input.

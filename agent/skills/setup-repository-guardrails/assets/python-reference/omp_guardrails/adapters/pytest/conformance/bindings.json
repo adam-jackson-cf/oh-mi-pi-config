@@ -1,0 +1,19 @@
+{
+  "about": "pytest bindings for cases.json. Each case runs fixtures/<case id with '-' as '_'>.py unless 'fixture' names another file. 'place' is test (tests/test_case.py, the default) or production (shop/settings.py inside the owned package). 'profile' entries replace top-level keys of the base conformance profile. 'tier' picks the guarded tier for run-report cases (default t1).",
+  "cases": {
+    "approved-static-skip": {
+      "fixture": "unapproved_static_skip.py",
+      "profile": {
+        "house_style": {
+          "version": 1,
+          "exceptions": [{"rule": "TEST.no-evasion", "path": "tests/test_case.py", "adr": "adr/0001-vendor-outage.md"}]
+        }
+      }
+    },
+    "production-test-flag": {"place": "production"},
+    "production-test-hook-parameter": {"place": "production"},
+    "production-clean": {"place": "production"},
+    "user-data-write": {"tier": "t2"},
+    "user-data-temporary-home": {"tier": "t2"}
+  }
+}

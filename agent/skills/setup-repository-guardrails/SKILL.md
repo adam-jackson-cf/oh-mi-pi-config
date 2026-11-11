@@ -9,8 +9,9 @@ disable-model-invocation: true
 
 ## Step 0: Set target and safety boundary
 
-- Purpose: Establish the Git checkout, chosen stack, adoption scope, and protected work.
-- Action: Check repository state and resolve inputs before reading or writing target files.
+- Purpose: Establish the Git checkout, chosen stack, adoption scope, setup mode, and protected work.
+- Action: Check repository state, resolve inputs, and record the `init` mode:
+  greenfield, adopt, or extend.
 - Workflow: [Target and safety boundary](references/step-0-target-and-safety-workflow.md).
 
 ## Step 1: Inventory existing controls
@@ -29,8 +30,11 @@ disable-model-invocation: true
 ## Step 3: Prepare concrete candidate checks
 
 - Purpose: Produce runnable lint, type, bespoke, test, hook, and CI changes for the selected stack.
-- Action: Draft candidates outside the target checkout and prepare positive and negative rule canaries.
+- Action: Configure and pin the reference; author an adapter if the framework has none.
+  Run `omp-guardrails init --greenfield|--adopt|--extend` in a temporary clone, write the
+  profile settings, and prepare positive and negative rule canaries outside the target checkout.
 - Workflow: [Candidate implementation](references/step-3-candidate-implementation-workflow.md).
+- Adapter: [Adapter authoring](references/adapter-authoring.md) when the test framework has none.
 
 ## Step 4: Measure the dry-run impact
 
@@ -47,7 +51,8 @@ disable-model-invocation: true
 ## Step 6: Apply approved changes
 
 - Purpose: Write only approved candidates while preserving unrelated repository work.
-- Action: Apply in an isolated checkout, then wire one authoritative gate into local and CI paths.
+- Action: Apply in an isolated checkout (with the reference, through `init`), then wire one
+  authoritative gate into local and CI paths.
 - Workflow: [Approved application](references/step-6-apply-workflow.md).
 
 ## Step 7: Prove every applicable rule
@@ -65,7 +70,8 @@ disable-model-invocation: true
 
 ## Target and audience
 
-- Repository, stack, CI provider, base ref, adoption scope, and protected paths.
+- Repository, stack, CI runner role and required context (`ci.runner`,
+  `ci.requiredContext`), base ref, adoption scope, and protected paths.
 
 ## Existing controls
 

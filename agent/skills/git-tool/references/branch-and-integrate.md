@@ -1,7 +1,7 @@
 # Branch and integrate
 
-One verified unit = one `agent/<slug>` branch = one PR. Ordinary units target the resolved default;
-[NUC sync](merge-and-recover.md#nuc-config-sync-exception) is the explicit target/merge-method exception.
+One verified unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the repository's
+project context (`.omp/AGENTS.md`) documents a target/merge-method exception.
 Authority and safety belong to [git-tool](../SKILL.md).
 
 ## Main prepares the unit

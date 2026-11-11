@@ -7,7 +7,6 @@
   "overrides": [
     {
       "filter": [
-        "agent/skills/codegraph/**",
         "agent/skills/coding-guidance/**",
         "agent/skills/test-guidance/**",
         "agent/skills/git-tool/**"
