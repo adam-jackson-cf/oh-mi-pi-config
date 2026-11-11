@@ -3,6 +3,30 @@
     "cdhvc2hw3l": "mac-cf3",
     "adams-macbook-pro": "mac-cf2"
   },
+  "judgeKey": {
+    "infisicalProject": "052b4c81-b9cc-4694-9019-d131ec3817cc",
+    "environment": "dev",
+    "secret": "OPENROUTER_API_KEY",
+    "provider": "openrouter"
+  },
+  "findCanary": {
+    "query": "check that referenced file paths exist",
+    "path": "~/.agents/scripts"
+  },
+  "ciRunners": {
+    "remoteBase": "~/.omp",
+    "roles": {
+      "ci-gate": {
+        "kind": "ci-gate",
+        "host": "codex-omarchy-nuc",
+        "timeout": 1200
+      },
+      "github-actions": {
+        "kind": "github-actions",
+        "timeout": 1200
+      }
+    }
+  },
   "mac-cf2": {
     "agents": "~/.agents"
   },

@@ -1,0 +1,26 @@
+{
+    "exit_code_by_key": {
+        "ledger.core.x_total__mutmut_1": 1,
+        "ledger.core.x_clamp__mutmut_1": 0,
+        "ledger.core.x_clamp__mutmut_2": 0,
+        "ledger.core.x\u01c1Account\u01c1deposit__mutmut_1": 1
+    },
+    "hash_by_function_name": {
+        "x_total": "9135c118b5f2",
+        "x_clamp": "f5078c920538",
+        "x\u01c1Account\u01c1deposit": "f7d77b90b941"
+    },
+    "type_check_error_by_key": {},
+    "durations_by_key": {
+        "ledger.core.x_clamp__mutmut_1": 0.034929,
+        "ledger.core.x_clamp__mutmut_2": 0.034746,
+        "ledger.core.x\u01c1Account\u01c1deposit__mutmut_1": 0.035862,
+        "ledger.core.x_total__mutmut_1": 0.036032
+    },
+    "estimated_durations_by_key": {
+        "ledger.core.x_clamp__mutmut_1": 0.0006904579931870103,
+        "ledger.core.x_clamp__mutmut_2": 0.0006904579931870103,
+        "ledger.core.x\u01c1Account\u01c1deposit__mutmut_1": 0.000708624953404069,
+        "ledger.core.x_total__mutmut_1": 0.0013117919443175197
+    }
+}

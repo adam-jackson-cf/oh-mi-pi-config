@@ -12,12 +12,13 @@ A file's path shows its owner and dependency direction.
   - Add an automated import check where the toolchain allows one.
 - Code two siblings both need moves down to the lowest tier both may read; never import one sibling from the other to reach it.
 - A part one owner uses lives under that owner; once a second owner uses it, move it to the lowest tier both may read.
-- Never create grab-bag folders (`common`, `utils`, `misc`, `helpers`); shared code goes in the lowest tier, in a folder named for what it holds.
+- Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repository-guardrails/assets/python-reference/omp_guardrails/data/house-style.json));
+  shared code goes in the lowest tier, in a folder named for what it holds.
   Sibling files sharing a name prefix (`audit_*`) that change together are a candidate folder named for that prefix.
 - Merge units with overlapping responsibilities into one owner; no near-duplicates.
 - Data loaded at run time (definitions, configuration, templates): outside the code package, in a root folder named for what it holds.
 - Tests: one root test folder, each file named for the behaviour it checks, unless the ecosystem places tests beside code.
-  Fixtures live in the root test folder beside the tests that load them.
+  Fixtures live beside the tests that load them; the root, fixture and support folder names are house-style `test_roots`.
   A code move updates test imports in the same step; test files stay where they are.
 - A CLI or API entry point is the product's interface, in the package's top tier.
   A consumer of the finished product (dashboard, report generator, operator tool) gets its own root folder, reads the package, and is never imported by it.

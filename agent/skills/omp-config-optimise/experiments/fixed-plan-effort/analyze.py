@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Aggregate <out>/results.jsonl per arm, arm x fixture kind, and fixture x arm.
 
+Every table is computed per toolset label (`find` availability plus a config hash, see
+../toolset.py). Unlabelled records form a `pre-find` group; mixing labels prints a warning
+because arms then ran with different tools.
+
 Usage: python3 analyze.py <out-dir>
 """
 from __future__ import annotations
@@ -10,6 +14,9 @@ import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from toolset import describe, label_of, warn_if_mixed  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -34,9 +41,7 @@ def row(label: str, recs: list[dict]) -> str:
             f"{out_tok:.0f} | ${cost:.4f} | {wall:.0f}s | {turns:.0f} |")
 
 
-def main() -> None:
-    out_dir = Path(sys.argv[1]).expanduser()
-    recs = [json.loads(l) for l in (out_dir / "results.jsonl").read_text().splitlines() if l.strip()]
+def report(recs: list[dict]) -> None:
     errors = [r for r in recs if "harnessError" in r]
     header = ("| Group | n | Full pass | Mean test fraction | Scope violations | "
               "Median output tokens | Mean API-equiv cost | Median wall | Median turns |\n"
@@ -48,19 +53,34 @@ def main() -> None:
         by_arm[r["arm"]].append(r)
         by_arm_kind[(r["arm"], kind_of(r["fixture"]))].append(r)
         by_arm_fixture[(r["fixture"], r["arm"])].append(r)
-    print("## By arm\n\n" + header)
+    print("### By arm\n\n" + header)
     for arm in sorted(by_arm):
         print(row(arm, by_arm[arm]))
-    print("\n## By arm and fixture kind\n\n" + header)
+    print("\n### By arm and fixture kind\n\n" + header)
     for key in sorted(by_arm_kind):
         print(row(f"{key[0]} / {key[1]}", by_arm_kind[key]))
-    print("\n## By fixture and arm\n\n" + header)
+    print("\n### By fixture and arm\n\n" + header)
     for key in sorted(by_arm_fixture):
         print(row(f"{key[0]} / {key[1]}", by_arm_fixture[key]))
     if errors:
         print(f"\nHarness errors: {len(errors)}")
         for e in errors:
             print(f"- {e['fixture']} {e['arm']} rep{e['rep']}: {e['harnessError']}")
+
+
+def main() -> None:
+    out_dir = Path(sys.argv[1]).expanduser()
+    recs = [json.loads(l) for l in (out_dir / "results.jsonl").read_text().splitlines() if l.strip()]
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in recs:
+        groups[label_of(r)].append(r)
+    warning = warn_if_mixed(set(groups))
+    if warning:
+        print(warning + "\n")
+    for label in sorted(groups):
+        print(f"## Toolset: {describe(label)}\n")
+        report(groups[label])
+        print()
 
 
 if __name__ == "__main__":

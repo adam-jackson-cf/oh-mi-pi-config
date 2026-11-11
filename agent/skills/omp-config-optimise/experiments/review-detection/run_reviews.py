@@ -18,10 +18,14 @@ import json
 import random
 import re
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from toolset import label_of, toolset_label  # noqa: E402
 
 from analyze import latest_records, needs_rerun
 from cases import CASES, FIXTURES, Case, build_workspace
@@ -159,8 +163,9 @@ def main() -> None:
 
     cases = [c for c in CASES if not args.cases or c.id in args.cases]
     jobs = [(c, a, r) for c in cases for a in args.arms for r in range(args.reps)]
+    label = toolset_label()  # one effective config per run; stored on every record
     if args.rerun_failed:
-        latest = latest_records(args.out)
+        latest = latest_records(args.out, label_of(label))
         jobs = [(c, a, r) for c, a, r in jobs if (c.id, a.name, r) in latest and needs_rerun(latest[(c.id, a.name, r)], args.out)]
     random.Random(args.seed).shuffle(jobs)
     runs = args.out / "runs"
@@ -173,7 +178,7 @@ def main() -> None:
                 rec = fut.result()
             except Exception as exc:  # record harness failure against the job, never drop it
                 rec = {"case": case.id, "arm": arm.name, "rep": rep, "harnessError": repr(exc)}
-            out.write(json.dumps(rec) + "\n")
+            out.write(json.dumps({**rec, **label}) + "\n")
             out.flush()
             found = rec.get("findings")
             print(json.dumps({"case": rec["case"], "arm": rec["arm"], "rep": rec["rep"],

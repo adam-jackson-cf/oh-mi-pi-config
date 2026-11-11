@@ -50,7 +50,7 @@ recommendation, not a silent edit.
 ## Evidence ladder
 
 - Decide with the cheapest mechanism that settles the question: **deterministic
-  process > OMP's native Jev judgments > LLM**. Rules, parsers, codegraph, LSP,
+  process > OMP's native Jev judgments > LLM**. Rules, parsers, LSP, ast-grep,
   grep, git and tests first; native `find` or eval `judge()` only for what rules
   cannot settle; an LLM or subagent only when those are unsure.
 - Compaction stays on the native mechanism until an experiment shows a better

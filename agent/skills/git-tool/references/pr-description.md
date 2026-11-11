@@ -6,7 +6,7 @@
 - The description exists to direct review attention, not to prove every claim. Evidence is a summary; the diff and linked docs hold the detail.
 - Target 400–650 words. If you are over, cut evidence before cutting the risk table.
 - The implementation writer owns the body and later corrections. Main's complete verification record is a separate
-  PR comment under [verify-loop](verify-loop.md#verification-comment-and-label), outside this word budget.
+  PR comment under [verify-loop](verify-loop.md#verification-comment-and-agent-verified-status), outside this word budget.
 
 ## Template
 
@@ -76,7 +76,7 @@ Closes #<n>. <Depends on <repo>#<n>, if any.>
 ## Decisions and notes
 
 - Phrase each owner decision as a question answerable with yes or no, and point to the risk row it relates to.
-- Put merge-method caveats ([including the NUC sync exception](merge-and-recover.md#nuc-config-sync-exception)), re-pinning and follow-ups in `Notes`, not `In short`.
+- Put merge-method caveats (including any project-documented merge-method exception), re-pinning and follow-ups in `Notes`, not `In short`.
 
 ## Avoid
 

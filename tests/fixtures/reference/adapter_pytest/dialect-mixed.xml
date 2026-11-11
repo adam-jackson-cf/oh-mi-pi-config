@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="1" failures="0" skipped="2" tests="6" time="0.420">
+    <properties>
+      <property name="omp.tier" value="t1"/>
+      <property name="omp.runtime" value="python 3.11.2"/>
+      <property name="omp.revision" value="0123456789abcdef0123456789abcdef01234567"/>
+      <property name="omp.wall_s" value="0.512"/>
+      <property name="omp.exit_code" value="1"/>
+      <property name="omp.guards" value="fast-tier,user-data"/>
+    </properties>
+    <testcase classname="tests.test_basket" name="test_total" file="tests/test_basket.py" line="3" time="0.010"/>
+    <testcase classname="tests.test_basket.TestPricing" name="test_price[2-4]" file="tests/test_basket.py" line="9" time="0.020"/>
+    <testcase classname="tests.test_basket" name="test_vendor" file="tests/test_basket.py" line="14" time="0.001">
+      <skipped type="pytest.skip" message="waiting on vendor fix">tests/test_basket.py:15: waiting on vendor fix</skipped>
+    </testcase>
+    <testcase classname="tests.test_basket" name="test_rounding" file="tests/test_basket.py" line="18" time="0.002">
+      <skipped type="pytest.xfail" message="known defect"/>
+    </testcase>
+    <testcase classname="tests.test_basket" name="test_receipt" file="tests/test_basket.py" line="22" time="0.030">
+      <error message="failed on teardown with &quot;TEST.fast-tier-isolation: the fast tier may not start a process&quot;">TEST.fast-tier-isolation: the fast tier may not start a process</error>
+    </testcase>
+    <testcase classname="tests.test_basket" name="test_flaky_total" file="tests/test_basket.py" line="30" time="0.050">
+      <rerunFailure message="assert 5 == 6">assert 5 == 6</rerunFailure>
+    </testcase>
+  </testsuite>
+</testsuites>

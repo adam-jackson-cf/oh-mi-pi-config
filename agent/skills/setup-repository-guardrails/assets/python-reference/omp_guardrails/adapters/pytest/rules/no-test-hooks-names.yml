@@ -1,0 +1,11 @@
+{
+  "id": "TEST.no-test-hooks",
+  "language": "python",
+  "scope": "production",
+  "message": "production code declares a test-only hook ({match})",
+  "fix": "remove the hook and drive the behaviour through the public entry point",
+  "rule": {
+    "kind": "identifier",
+    "regex": "(?i)(^|_)(for_tests?|for_testing|test_hooks?|testing_only|test_only|test_mode)$"
+  }
+}

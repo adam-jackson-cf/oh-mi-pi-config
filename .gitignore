@@ -28,6 +28,8 @@ scripts/*
 !scripts/check-paths.py
 !scripts/ci-gate.py
 !scripts/ci-gate-repos.json
+!scripts/ci-runner.py
+# ci-runners.json is machine config written by device-rollout.py; it stays untracked.
 !scripts/device-rollout.py
 !scripts/device-rollout-hosts.json
 
@@ -43,6 +45,7 @@ adr/*
 !agent/
 agent/*
 !agent/AGENTS.md
+!agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
 !agent/agent-rails.yml
@@ -51,8 +54,6 @@ agent/rules/*
 !agent/rules/agent-rails-*.md
 !agent/skills/
 agent/skills/*
-!agent/skills/create-watchdog/
-!agent/skills/create-watchdog/**
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
 !agent/skills/omp-dyna-workflows/
@@ -61,8 +62,6 @@ agent/skills/*
 !agent/skills/jev-actions/**
 !agent/skills/setup-repository-guardrails/
 !agent/skills/setup-repository-guardrails/**
-!agent/skills/codegraph/
-!agent/skills/codegraph/**
 !agent/skills/coding-guidance/
 !agent/skills/coding-guidance/**
 !agent/skills/test-guidance/
@@ -100,7 +99,12 @@ tests/*
 !tests/agent-rails.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
-!tests/test_python_reference.py
+!tests/test_ci_runner.py
+!tests/test_reference_*.py
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/reference/
+!tests/fixtures/reference/**
 !tests/test_validate_rule_coverage.py
 !tests/test_device_rollout.py
 !tests/test_skill_references.py
@@ -109,6 +113,7 @@ tests/*
 .omp/*
 !.omp/lsp.json
 !.omp/gate.json
+!.omp/AGENTS.md
 
 !.devcontainer/
 .devcontainer/*
@@ -130,6 +135,9 @@ orca-plugins/chat-section-style/terminal-palette
 **/__pycache__/
 **/*.py[cod]
 **/.pytest_cache/
+**/.ruff_cache/
+**/*.egg-info/
+agent/skills/setup-repository-guardrails/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/
 

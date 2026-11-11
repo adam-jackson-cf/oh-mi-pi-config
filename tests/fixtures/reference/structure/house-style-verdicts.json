@@ -1,0 +1,44 @@
+{
+  "house_style_version": 1,
+  "description": "Stack-neutral verdicts for one house-style version; every stack's reading of house-style.json must agree with these.",
+  "banned_words": {
+    "banned": ["utils", "helpers", "manager", "misc", "common", "new", "old", "legacy", "compat", "fallback", "stuff", "temp"],
+    "allowed": ["snapshot-compat", "common_types", "utility", "ledger", "engine", "newsletter"]
+  },
+  "casing": [
+    {"name": "order_totals", "casing": ["snake_case"], "matches": true},
+    {"name": "__init__", "casing": ["snake_case"], "matches": true},
+    {"name": "OrderTotals", "casing": ["snake_case"], "matches": false},
+    {"name": "order-totals", "casing": ["snake_case"], "matches": false},
+    {"name": "order-totals", "casing": ["kebab-case"], "matches": true},
+    {"name": "order_totals", "casing": ["kebab-case"], "matches": false},
+    {"name": "OrderTotal", "casing": ["PascalCase"], "matches": true},
+    {"name": "orderTotal", "casing": ["PascalCase"], "matches": false},
+    {"name": "SKILL", "casing": ["kebab-case", "UPPER_CASE"], "matches": true}
+  ],
+  "versions": [
+    {"segment": "parser-v2", "last": false, "standalone_allowed": true, "violates": true},
+    {"segment": "foo_v3.py", "last": true, "standalone_allowed": true, "violates": true},
+    {"segment": "parserv4", "last": false, "standalone_allowed": true, "violates": true},
+    {"segment": "api_v2_client.py", "last": true, "standalone_allowed": true, "violates": true},
+    {"segment": "v2", "last": false, "standalone_allowed": true, "violates": false},
+    {"segment": "v2.json", "last": true, "standalone_allowed": true, "violates": false},
+    {"segment": "v2", "last": false, "standalone_allowed": false, "violates": true},
+    {"segment": "invoice", "last": false, "standalone_allowed": true, "violates": false},
+    {"segment": "python3.py", "last": true, "standalone_allowed": true, "violates": false}
+  ],
+  "test_names": [
+    {"name": "test_base_comparison.py", "violates": false},
+    {"name": "test_sha256_digest.py", "violates": false},
+    {"name": "order-totals.test.ts", "violates": false},
+    {"name": "test_policy4.py", "violates": true},
+    {"name": "test_issue_1234.py", "violates": true},
+    {"name": "test_ticket_flow.py", "violates": false},
+    {"name": "test_bug42_export.py", "violates": true},
+    {"name": "test_export_v2.py", "violates": true},
+    {"name": "test_2026_11_10_export.py", "violates": true},
+    {"name": "test_utils.py", "violates": true},
+    {"name": "test_.py", "violates": true}
+  ],
+  "test_roots": {"root": "tests", "fixtures_dir": "fixtures", "python": "test_*.py", "typescript": "*.test.ts"}
+}
