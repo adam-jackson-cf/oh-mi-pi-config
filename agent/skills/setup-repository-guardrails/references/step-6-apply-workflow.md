@@ -78,7 +78,10 @@ Install only approved guardrails while keeping unrelated target work intact.
    `agent/agent-rails.yml` `dynaflowsContract`. `omp-guardrails init` writes it
    when absent, and `--adopt`/`--extend` raise a lower value; never lower it by
    hand. With dynaflows on, a missing or lower value blocks `freeze()` (except
-   project setup's `project_setup=True` freeze) and `prove()`.
+   project setup's `project_setup=True` freeze) and `prove()`. In a repo that
+   already has controls, raising it is a mechanical `omp-guardrails init --extend`
+   commit outside Steps 0–7: no proposal and no Step 5, unless the change adds a
+   gate or profile field the repo lacks.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the

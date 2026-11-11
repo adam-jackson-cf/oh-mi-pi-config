@@ -43,6 +43,10 @@ repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`
 `MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
 The entire draft and top-level inputs are validated before hashing or execution.
+Freeze records the installed `dynaflowsContract` in the manifest. Prove ignores
+that value and checks the head's `.omp/gate.json` against the current contract, so
+a contract bump during a PR needs only an `omp-guardrails init --extend` commit,
+not a re-freeze.
 When `.omp/gate.json` declares `checks.format`, freeze runs that formatter in the
 worktree before hashing. A nonzero exit fails freeze. The result lists files the
 formatter changed (from `git status`) so the writer commits them; hashes cover the
@@ -55,6 +59,7 @@ Generated frozen output (not a draft input):
   "schemaVersion": 1,
   "slug": "fix-login-redirect",
   "base": "<40-hex resolved baseline>",
+  "dynaflowsContract": 2,
   "proofs": [
     {
       "id": "P1",
@@ -96,15 +101,16 @@ Generated frozen output (not a draft input):
   once, on first use. After checking that setup did not change tracked bytes,
   record its untracked and ignored entries (including collapsed directories).
   Before and after every execution, reset tracked files and remove untracked
-  and ignored entries absent from that baseline. This includes both head runs,
+  and ignored entries absent from that baseline. This includes every head run,
   baseline, negative control and earlier-commit runs. Setup outputs survive;
   residue within baseline directories (e.g. `node_modules/.cache` or `target/`)
   intentionally persists. Setup or baseline-recording failure is infrastructure
   failure. Never clean the source checkout. Commands must defeat result caches,
   e.g. `go test -count=1`.
-- Optional `journey: true` marks a scripted journey proof. Freeze runs it 3 times
-  at head and requires identical pass/fail each time; otherwise it refuses with
-  `journey proof not stable over 3 clean runs`.
+- Optional `journey: true` marks a scripted journey proof. Prove runs it 3 times
+  on the head being merged instead of twice, and blocks unless every clean run
+  passes (`journey proof passed <n> of 3 clean head runs`). Freeze does not run a
+  stability loop, so proof tasks do not rerun journeys by hand.
 - When `.omp/test-profile.md` front-matter declares
   `verification_surface.doctor_marker`, freeze refuses an `expectRed` proof whose
   red output contains that marker: the red came from the environment doctor, not
@@ -124,7 +130,7 @@ Generated frozen output (not a draft input):
 
 ### Recovery
 
-- Main's verification comment embeds the full manifest in `<details>` so a lost
+- `prove()`'s result file (and its PR comment, when it fits) carries the full manifest so a lost
   manifest can be restored with its recorded digest.
 - Re-run `freeze()` in a clean worktree with the same base, setup and proof bytes
   to reproduce a byte-identical manifest digest.
@@ -158,9 +164,11 @@ so their decisions land before proving dependent work.
 Head gate schema is validated before scratch trees/setup. Missing prerequisites
 route to SKILL's owner-approved project setup; an invalid parent gate is a visible
 `gateDiagnostics` entry and does not prevent a valid head repair. When the gate
-declares `checks.profile`, prove runs it first and blocks on a nonzero exit. Prove
-runs no other repository suites; hook/CI eligibility is main's responsibility
-under git-tool.
+declares `ci`, prove reads `ci.requiredContext` on the exact head (a commit status
+or check run, whoever posts it) before any proof runs, and refuses unless it is
+success, so a red or pending head spends no verifier time. When the gate declares
+`checks.profile`, prove runs it next and blocks on a nonzero exit. Prove runs no
+other repository suites; the hook and CI own them.
 
 Drift precheck: prove collects paths deleted or renamed in
 `git diff --name-status -M parent..head` and public module-level symbols a file's
@@ -172,7 +180,8 @@ only change-record/ADR directories are skipped. Each hit becomes a `brief_checks
 verifier must address. Hits do not block prove by themselves; the verifier brief
 has no separate stale-docs hunt.
 
-Prove validates manifest/file hashes, executes every head proof twice, repeats
+Prove validates manifest/file hashes, executes every head proof twice (journeys
+3 times, all of which must pass), repeats
 isolated baseline checks by kind and checks earlier commits touching proof files
 once each with that commit's own bytes. Earlier proofs must already be green;
 committing a red proof before its greening fix is forbidden. Partial proofs,
@@ -202,11 +211,15 @@ authors, deterministic evidence and `BLOCKING_RULE` from `templates/workflows.py
 Apply that constant, not a second prose blocker list. Each run's brief output is
 limited to its last 4096 characters, prefixed with an explicit truncation/full-evidence-path
 marker when needed; full output remains in the supplied `deterministic.json` during verification.
-The read-only verifier drives criteria live, with exact command/observed/required
-output; no edits or agent spawns. Criteria entries cover every manifest proof ID;
-the yield schema restricts `proofId` to those IDs and unknown IDs still block as a
-backstop. Put other observations in `blocking` or `followUps`. Multiple entries
-for a known ID are allowed, and any fail blocks.
+The brief gives the deterministic proof records as settled evidence: the verifier
+does not re-run proofs. Its scope is proofs that pass vacuously or are red or
+green for the wrong reason, every drift item, objective criteria that no frozen
+proof encodes (driven live on their real surface), and design. Findings carry
+exact command/observed/required output; no edits or agent spawns. Criteria
+entries are needed only for proofs the verifier checked; the yield schema
+restricts `proofId` to manifest IDs and unknown IDs still block as a backstop.
+Put other observations in `blocking` or `followUps`. Multiple entries for a known
+ID are allowed, and any fail blocks.
 
 Rails records repository-file edit-tool editors and committers, excluding local
 workflow/proposal metadata. It does not discover arbitrary bash-written authors.
@@ -254,8 +267,14 @@ Prove compares source status/HEAD before/after: a difference means
 `source checkout changed during verification`, not proof the verifier caused it
 or a sandbox guarantee. Rerun after concurrent changes. Output includes `status`,
 `deterministic`, `verifier`, `authors`, `blocking`, `followUps`, `verifierModel`
-(the requested override or null), and resolved source `worktree`/`branch` once
-authorship validation succeeds.
+(the requested override or null), `head`, `objective`, `manifestSha256`, the loaded
+`manifest`, and resolved source `worktree`/`branch` once authorship validation
+succeeds. Prove writes that result to `<git-common-dir>/omp-prove/<head>.result.json`,
+beside the pass marker, and posts it as a PR comment on the one open PR at head
+(`prComment` holds the comment URL). Long proof outputs are tail-truncated in the
+comment only; the file keeps them whole. A pass whose result cannot be written or
+posted becomes `fail` with blocking `infrastructure: publishing prove result: ...`.
+Main does not copy the result; its own comment adds only objective and judgement.
 Only a final pass including cleanup atomically writes the existing schema-1
 exact-head marker. Prove then posts the `agent-verified` commit status
 (`state=success`, description `prove() pass`) on head to the origin repository
