@@ -3,7 +3,8 @@
 Modes:
 
 - ``--greenfield`` (default when the repo has no ``.omp/gate.json``): write the test profile
-  from the template, a schema-v2 gate that runs the reference checks, the tracked pre-commit
+  from the template, a schema-v2 gate that runs the reference checks (``checks.profile`` runs
+  ``profile-check``; ``--runner`` and ``--required-context`` write ``ci``), the tracked pre-commit
   hook, the CI wiring (``ci_wiring``), the native-tool configs (``native_config``) and the
   pinned reference in ``pyproject.toml`` ``[dependency-groups] dev`` (``pin``).
 - ``--adopt`` (a repo with its own checkers): as greenfield, but existing ``checks.commit`` and
@@ -55,9 +56,16 @@ def parser() -> argparse.ArgumentParser:
     modes = command.add_mutually_exclusive_group()
     for mode in ("greenfield", "adopt", "extend"):
         modes.add_argument(f"--{mode}", dest="mode", action="store_const", const=mode)
-    command.add_argument("--ci-host", help="ciHost to record in .omp/gate.json")
     command.add_argument(
-        "--ci-setup", help="install command the github workflow runs before checks.ci"
+        "--required-context",
+        default=gate_config.DEFAULT_CONTEXT,
+        help="ci.requiredContext: status context or check run that must be green on the head",
+    )
+    command.add_argument(
+        "--runner", help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)"
+    )
+    command.add_argument(
+        "--ci-setup", help="install command the github-actions workflow runs before checks.ci"
     )
     command.add_argument(
         "--reference-command",
@@ -101,6 +109,13 @@ def gate_checks(names: list[str] | None) -> list[str]:
     return checks
 
 
+def ci_flags(options: argparse.Namespace) -> None:
+    flags = (("--runner", options.runner), ("--required-context", options.required_context))
+    for flag, value in flags:
+        if value is not None and not value.strip():
+            raise UsageError(f"{flag} must be a non-empty name")
+
+
 def resolve_mode(requested: str | None, gate: dict | None, reference: list[str]) -> str:
     if requested:
         return requested
@@ -132,12 +147,13 @@ def apply_profile(repo: Path, options: argparse.Namespace, changes: list[str]) -
 def apply_gate(
     repo: Path, gate: dict | None, mode: str, options: argparse.Namespace, changes: list[str]
 ) -> tuple[dict, list[str]]:
+    requested = gate_config.requested_ci(options.runner, options.required_context)
     planned = gate_config.planned_gate(
         gate,
         adopt=mode == "adopt",
         reference=shlex.split(options.reference_command),
         checks=gate_checks(options.checks),
-        ci_host=options.ci_host,
+        ci=requested,
     )
     if planned != gate:
         write_if_changed(
@@ -146,7 +162,7 @@ def apply_gate(
             changes,
             gate_config.GATE_PATH,
         )
-    note = gate_config.ci_host_note(gate, options.ci_host)
+    note = gate_config.ci_note(gate, requested)
     return planned, [note] if note else []
 
 
@@ -155,7 +171,7 @@ def apply_ci(
 ) -> tuple[list[str], list[Finding]]:
     path = repo / ci_wiring.WORKFLOW_PATH
     text, report, findings = ci_wiring.planned_wiring(
-        gate.get("ciHost"), options.ci_setup, path.exists()
+        gate.get("ci"), options.ci_setup, path.exists()
     )
     write_if_changed(path, text, changes, ci_wiring.WORKFLOW_PATH)
     return report, findings
@@ -206,6 +222,7 @@ def initialise(repo: Path, options: argparse.Namespace) -> tuple[list[str], list
         raise UsageError(f"--extend needs an existing {PROFILE_PATH}; run --greenfield or --adopt")
     if mode != "extend":
         gate_checks(options.checks)
+        ci_flags(options)
     changes: list[str] = []
     report = apply_profile(repo, options, changes)
     findings: list[Finding] = []

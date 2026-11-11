@@ -70,7 +70,8 @@ disable-model-invocation: true
 
 ## Target and audience
 
-- Repository, stack, CI provider, base ref, adoption scope, and protected paths.
+- Repository, stack, CI runner role and required context (`ci.runner`,
+  `ci.requiredContext`), base ref, adoption scope, and protected paths.
 
 ## Existing controls
 

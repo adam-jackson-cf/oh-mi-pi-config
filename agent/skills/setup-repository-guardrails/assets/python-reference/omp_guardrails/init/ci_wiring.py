@@ -1,15 +1,18 @@
-"""CI wiring: how the repo's CI host runs ``.omp/gate.json`` ``checks.ci``.
+"""CI wiring: how the repo's CI runner runs ``.omp/gate.json`` ``checks.ci``.
 
-``checks.ci`` is the CI contract on every host. What init writes depends on the gate's
-``ciHost``:
+``checks.ci`` is the CI contract for every runner. The gate's ``ci`` object names the required
+context (``ci.requiredContext``) that must be green on the exact head and the runner role
+(``ci.runner``) that posts it; each machine's runner config resolves the role to commands.
+What init writes depends on the role:
 
-- ``github``: ``.github/workflows/omp-gate.yml`` with one job named ``gate`` (the required
-  status context). It checks out the head, runs the repo's ``--ci-setup`` command (the install
-  step only the repo knows, e.g. ``uv sync --frozen``), then executes ``checks.ci`` from the
-  gate file, so the workflow never repeats the check list. Without ``--ci-setup`` init writes no
-  workflow and reports the gap.
-- any other host, or none: no file. That host's runner reads ``checks.ci`` from the gate file
-  (for example a self-hosted runner role from the machine's runner config).
+- ``github-actions``: ``.github/workflows/omp-gate.yml`` with one job ``gate`` whose name is
+  the required context. It checks out the head, runs the repo's ``--ci-setup`` command (the
+  install step only the repo knows, e.g. ``uv sync --frozen``), then executes ``checks.ci`` from
+  the gate file, so the workflow never repeats the check list. Without ``--ci-setup`` init writes
+  no workflow and reports the gap.
+- any other role: no file. That role's runner reads ``checks.ci`` from the gate file and posts
+  the required context.
+- no ``ci`` object: no file, and the report asks for ``--runner``.
 
 An existing workflow file is kept, never replaced.
 """
@@ -22,6 +25,7 @@ from omp_guardrails.findings import Finding
 
 WORKFLOW_PATH = ".github/workflows/omp-gate.yml"
 RULE = "GATE.local-ci-parity"
+GITHUB_ACTIONS = "github-actions"
 CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
 RUN_CHECKS = """python3 - <<'PY'
 import json, os, sys
@@ -37,13 +41,14 @@ def indented(text: str, spaces: int) -> str:
     return "\n".join(pad + line if line else line for line in text.splitlines())
 
 
-def workflow(setup: str) -> str:
+def workflow(setup: str, context: str) -> str:
     return (
-        "# Runs .omp/gate.json checks.ci as the required context 'gate'. "
+        f"# Runs .omp/gate.json checks.ci as the required context {context!r}. "
         "Written by omp-guardrails init.\n"
         "name: gate\n\n"
         "on:\n  pull_request:\n  push:\n\n"
-        "jobs:\n  gate:\n    runs-on: ubuntu-latest\n    steps:\n"
+        f"jobs:\n  gate:\n    name: {json.dumps(context)}\n"
+        "    runs-on: ubuntu-latest\n    steps:\n"
         f"      - uses: {CHECKOUT}\n"
         f"      - name: setup\n        run: {json.dumps(setup)}\n"
         "      - name: checks.ci\n        run: |\n"
@@ -52,12 +57,28 @@ def workflow(setup: str) -> str:
 
 
 def planned_wiring(
-    ci_host: object, setup: str | None, existing: bool
+    ci: object, setup: str | None, existing: bool
 ) -> tuple[str | None, list[str], list[Finding]]:
     """Workflow text to write (or None), report lines and setup gaps."""
-    if ci_host != "github":
-        host = f"the {ci_host} runner" if isinstance(ci_host, str) else "the CI host's runner"
-        return None, [f"ci: {host} runs .omp/gate.json checks.ci; no workflow file needed"], []
+    if not isinstance(ci, dict):
+        return (
+            None,
+            [
+                "ci: .omp/gate.json declares no ci; run init again with --runner <role> "
+                "(and --required-context when it is not 'gate') so merges require it"
+            ],
+            [],
+        )
+    runner, context = ci.get("runner"), ci.get("requiredContext")
+    if runner != GITHUB_ACTIONS:
+        return (
+            None,
+            [
+                f"ci: runner role {runner!r} runs .omp/gate.json checks.ci and posts "
+                f"{context!r}; no workflow file needed"
+            ],
+            [],
+        )
     if existing:
         return None, [f"ci: kept the existing {WORKFLOW_PATH}"], []
     if not setup:
@@ -68,11 +89,11 @@ def planned_wiring(
                 Finding(
                     RULE,
                     WORKFLOW_PATH,
-                    "ciHost github needs a workflow that runs checks.ci, but no install step "
-                    "is known",
+                    f"runner {GITHUB_ACTIONS} needs a workflow that runs checks.ci, but no "
+                    "install step is known",
                     "run init again with --ci-setup '<command that installs the dev "
                     "dependencies>'",
                 )
             ],
         )
-    return workflow(setup), [], []
+    return workflow(setup, str(context)), [], []

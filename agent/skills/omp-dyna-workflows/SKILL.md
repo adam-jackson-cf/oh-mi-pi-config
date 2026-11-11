@@ -103,7 +103,7 @@ The writer lists gate paths/effects in **Gate changes** per
 
 Main independently confirms exact-head green CI and no pending writer edits.
 Follow `skill://git-tool/references/verify-loop.md` for risk tiers, durable fix
-rounds, changed-head invalidation and evidence/label mechanics. Eligible docs-only
+rounds, changed-head invalidation and evidence/status mechanics. Eligible docs-only
 work uses a fresh `exempt_docs_only(..., target_ref=...)` plus green CI, without a
 manifest or verifier. Runtime-loaded prose is not exempt.
 
@@ -112,14 +112,16 @@ with objective and fetched PR `target_ref`. It assembles the brief and dispatche
 the sole cross-family `verifier`; never spawn a second verifier or substitute a
 `task`. Helper details live in [patterns](references/patterns.md#prove), and the
 exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
-Main posts verification evidence and applies `agent-verified` only after this
-risk-tier verification and exact-head CI pass. Rails enforce exact-head green
-checks before the label always, and at merge only with dynaflows on. The checkout's
-`.omp/gate.json` is the policy authority; `ciHost: nuc` requires a successful
-`gate` commit status on that head, not a check run named `gate`. URL selectors
-must match the checkout's primary GitHub repository. With dynaflows on, both gates
-also require a valid pass marker; main applies the label only after both pass.
-Every new SHA invalidates evidence.
+Main posts verification evidence. On a pass, `prove()` posts the SHA-bound
+`agent-verified` commit status on that head; it is never a label. Rails allow an
+`agent-verified` status write only when exact-head CI passes, and block label
+writes. The checkout's `.omp/gate.json` is the policy authority: when it declares
+`ci`, the declared required context must be green on the exact head, whoever posts
+it. Submit and wait with `python3 ~/.omp/scripts/ci-runner.py` and the gate's `ci.runner` role.
+URL selectors must match the checkout's primary GitHub repository. Merge requires
+`--match-head-commit`, the required context and `agent-verified` green on that SHA;
+with dynaflows on, a valid pass marker too. A new SHA has no status, so every new
+SHA invalidates evidence.
 
 ### 6. Integrate
 

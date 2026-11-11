@@ -39,8 +39,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    (through the repo's existing hook manager, such as lefthook, husky or
    pre-commit, when one is tracked), and failure propagation. Record any
    existing pre-push hook as a practice to replace.
-   Map `GIT.required-checks` to host protection requiring the `gate` status
-   check on the resolved default branch; record support for auto-merge and
+   Map `GIT.required-checks` to host protection requiring the gate's
+   `ci.requiredContext` (default `gate`) from any source on the resolved
+   default branch; record support for auto-merge and
    rebase-merge or the evidence-backed host limitation using the catalog's
    `host_query` evidence kind.
 6. For tool rules, record selector, threshold, exceptions, pinned version, and

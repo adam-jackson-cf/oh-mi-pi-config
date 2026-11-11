@@ -178,6 +178,24 @@ class GateRunnerTests(RepoCase):
             rules_of(gate_runner.run(self.repo, profile, ["wiring"])), ["GATE.local-ci-parity"]
         )
 
+    def test_wiring_checks_the_ci_object_and_refuses_the_retired_ci_host(self) -> None:
+        cases = {
+            "retired ciHost": ({"ciHost": "github"}, "ciHost is retired"),
+            "missing runner": ({"ci": {"requiredContext": "gate"}}, "non-empty requiredContext"),
+            "empty context": (
+                {"ci": {"requiredContext": " ", "runner": "ci-gate"}},
+                "non-empty requiredContext",
+            ),
+        }
+        for name, (fields, message) in cases.items():
+            with self.subTest(name):
+                self.write_gate({"ci": ["true"]}, **fields)
+                findings = gate_runner.run(self.repo, {}, ["wiring"])
+                self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"])
+                self.assertIn(message, findings[0].message)
+        self.write_gate({"ci": ["true"]}, ci={"requiredContext": "gate", "runner": "ci-gate"})
+        self.assertEqual(gate_runner.run(self.repo, {}, ["wiring"]), [])
+
 
 def hook_script(body: str) -> str:
     return f"#!/bin/sh\n{body}\n"

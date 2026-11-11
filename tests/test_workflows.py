@@ -51,6 +51,9 @@ class RepositoryTests(unittest.TestCase):
         self.verifier_patch = patch.object(workflow, "_run_verifier", return_value=verdict())
         self.verifier = self.verifier_patch.start()
         self.addCleanup(self.verifier_patch.stop)
+        self.post_patch = patch.object(workflow, "_post_agent_verified")
+        self.post = self.post_patch.start()
+        self.addCleanup(self.post_patch.stop)
         self.addCleanup(self.assert_cleaned)
 
     def write(self, name, text):
@@ -487,13 +490,13 @@ class RepositoryTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def bot_github(self, *, author="app/dependabot", branch="dependabot/bun/js-minor-8e002485ce", verified=True, commit_author="dependabot[bot]", bad_commit=None):
-        git(self.repo, "remote", "add", "origin", "git@github.com:adam-jackson-cf/oh-mi-pi-config.git")
+        git(self.repo, "remote", "add", "origin", "git@github.com:example-owner/example-repo.git")
         def response(repo, *args):
             self.assertEqual(repo, self.repo.resolve())
             if args[:2] == ("pr", "list"):
                 return [{"author": {"is_bot": True, "login": author}, "headRefName": branch, "headRefOid": self.head}]
             self.assertEqual(args[0], "api")
-            self.assertTrue(args[1].startswith("repos/adam-jackson-cf/oh-mi-pi-config/commits/"))
+            self.assertTrue(args[1].startswith("repos/example-owner/example-repo/commits/"))
             trusted = bad_commit is not None and not args[1].endswith("/" + bad_commit)
             return {"author": {"login": "dependabot[bot]" if trusted else commit_author},
                     "commit": {"verification": {"verified": True if trusted else verified}}}
@@ -548,13 +551,13 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(payload["parent"], self.parent)
             self.assertEqual(payload["head"], self.head)
             self.assertEqual(payload["worktree"], str(self.repo.resolve()))
-            self.assertEqual(kwargs, {"model": "openai-codex/gpt-6.1-sol:medium"})
+            self.assertEqual(kwargs, {"model": "provider/example-verifier"})
             self.assertEqual(proof_ids, ["P1"])
             for fragment in ("Source repo", "PR target/ref", self.parent + ".." + self.head, "baseline P1", "Objective: fix value", "recorded-model", "skill://git-tool", workflow.BLOCKING_RULE):
                 self.assertIn(fragment, brief)
             return verdict()
         self.verifier.side_effect = inspect
-        result = self.prove(verifier_model="openai-codex/gpt-6.1-sol:medium")
+        result = self.prove(verifier_model="provider/example-verifier")
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["authors"][0]["family"], "openai")
         self.assertFalse(context.exists())
@@ -914,6 +917,191 @@ class RepositoryTests(unittest.TestCase):
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
+    def gate(self, **checks):
+        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
+                "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
+        self.write(".omp/gate.json", json.dumps(gate))
+
+    def rebase_parent(self, message="parent fixtures"):
+        self.parent = self.commit(message)
+
+    def test_retired_ci_host_blocks_freeze_and_prove(self):
+        retired = "ciHost is retired; declare ci.requiredContext and ci.runner"
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
+        self.rebase_parent("retired gate")
+        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(retired)):
+            self.freeze([self.proof()])
+        self.assertFalse(self.manifest_path.exists())
+        self.change()
+        self.assert_block(self.prove(), retired)
+        self.verifier.assert_not_called()
+
+    def test_freeze_formats_before_hashing_and_reports_changed_files(self):
+        self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
+                   "    p = Path(name)\n    if p.exists() and not p.read_text().endswith('# formatted\\n'):\n"
+                   "        p.write_text(p.read_text() + '# formatted\\n')\n")
+        self.write("other.txt", "untouched\n")
+        self.gate(format=[sys.executable, "fmt.py"])
+        self.rebase_parent()
+        proof = self.proof()
+        result = self.freeze([proof])
+        path, digest = result
+        self.assertEqual(result.formatted, ["other.txt", "proof.py"])
+        self.assertTrue((self.repo / "proof.py").read_text().endswith("# formatted\n"))
+        manifest = json.loads(path.read_text())
+        self.assertEqual(manifest["proofs"][0]["sha256"]["proof.py"], workflow._sha(self.repo / "proof.py"))
+        self.assertEqual(workflow._sha(path), digest)
+        with self.assertRaisesRegex(workflow.WorkflowError, "unfrozen change: other.txt"):
+            self.freeze([proof])
+        git(self.repo, "commit", "-qm", "commit formatter output", "--", "other.txt")
+        self.assertEqual(self.freeze([proof]).formatted, [])
+
+    def test_freeze_format_failure_refuses(self):
+        self.gate(format=[sys.executable, "-c", "import sys; print('cannot format'); sys.exit(3)"])
+        self.rebase_parent()
+        with self.assertRaisesRegex(workflow.WorkflowError, "checks.format failed:\n(.|\n)*cannot format"):
+            self.freeze([self.proof()])
+        self.assertFalse(self.manifest_path.exists())
+
+    def test_freeze_without_format_returns_no_formatted_paths(self):
+        result = self.freeze([self.proof()])
+        self.assertEqual(result.formatted, [])
+        self.assertEqual(len(result), 2)
+
+    def profile(self, marker):
+        front = json.dumps({"verification_surface": {"lever_command": "lever", "doctor_marker": marker}})
+        self.write(".omp/test-profile.md", f"---\n{front}\n---\n\n# Repo test profile\n")
+
+    def test_freeze_refuses_red_from_environment_doctor(self):
+        self.profile("DOCTOR:")
+        self.rebase_parent()
+        doctor = self.proof(code="from pathlib import Path\nprint('DOCTOR: database not reachable')\n"
+                                 "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
+        with self.assertRaisesRegex(workflow.WorkflowError, "P1: red came from the environment doctor, not the behaviour"):
+            self.freeze([doctor])
+        self.assertFalse(self.manifest_path.exists())
+        static = dict(self.proof(), expectRed="DOCTOR: database not reachable")
+        with self.assertRaisesRegex(workflow.WorkflowError, "expectRed matches the doctor marker"):
+            self.freeze([static])
+        path, _ = self.freeze([self.proof()])
+        self.assertTrue(path.exists())
+
+    def test_freeze_skips_doctor_check_for_placeholder_or_unparsed_profile(self):
+        doctor = "from pathlib import Path\nprint('<doctor failure marker>')\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n"
+        for text in (None, "# prose-only profile\n"):
+            with self.subTest(text=text):
+                if text is None:
+                    self.profile("<doctor failure marker>")
+                else:
+                    self.write(".omp/test-profile.md", text)
+                self.rebase_parent(f"profile {text}")
+                path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
+                self.assertTrue(path.exists())
+                path.unlink()
+        self.write(".omp/test-profile.md", "---\n{not json\n---\n")
+        self.rebase_parent("broken profile")
+        with self.assertRaisesRegex(workflow.WorkflowError, "front matter is not valid JSON"):
+            self.freeze([self.proof()], base=self.parent)
+
+    def journey(self, counter, flaky):
+        condition = "n == 3" if flaky else "Path('value').read_text() == 'fixed'"
+        code = ("import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
+                "n = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\n"
+                f"assert {condition}, 'journey not reached'\n")
+        self.write("journey.py", code)
+        return {"id": "J1", "criterion": "journey completes", "kind": "new-surface", "cmd": [sys.executable, "journey.py", str(counter)],
+                "files": ["journey.py"], "expectRed": None, "journey": True}
+
+    def test_freeze_runs_journey_three_times_at_head(self):
+        counter = self.tmp / "journey-count"
+        path, _ = self.freeze([self.journey(counter, flaky=False)])
+        self.assertEqual(counter.read_text(), "4", "one baseline run plus three head journey runs")
+        self.assertTrue(json.loads(path.read_text())["proofs"][0]["journey"])
+
+    def test_freeze_refuses_unstable_journey(self):
+        counter = self.tmp / "journey-count"
+        with self.assertRaisesRegex(workflow.WorkflowError, "J1: journey proof not stable over 3 clean runs"):
+            self.freeze([self.journey(counter, flaky=True)])
+        self.assertFalse(self.manifest_path.exists())
+
+    def test_prove_runs_profile_check_first_and_blocks(self):
+        self.gate(profile=[sys.executable, "-c", "import sys; print('PROFILE.complete: coverage missing'); sys.exit(1)"])
+        self.change()
+        with patch.object(workflow, "_setup", side_effect=AssertionError("trees must not be built")):
+            result = self.prove()
+        self.assert_block(result, "checks.profile failed; complete .omp/test-profile.md before prove:\nPROFILE.complete: coverage missing")
+        self.assertFalse(any(item.startswith("infrastructure") for item in result["blocking"]), result)
+        self.verifier.assert_not_called()
+        self.post.assert_not_called()
+
+    def test_prove_passes_after_profile_check_passes(self):
+        self.gate(profile=[sys.executable, "-c", "print('profile ok')"])
+        self.change()
+        self.assertEqual(self.prove()["status"], "pass")
+
+    def test_prove_posts_agent_verified_status_after_marker(self):
+        self.change()
+        marker = workflow._common(self.repo) / "omp-prove" / f"{self.head}.json"
+        self.post.side_effect = lambda repo, head: self.assertTrue(marker.is_file())
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.post.assert_called_once_with(self.repo.resolve(), self.head)
+        self.post.reset_mock()
+        self.verifier.return_value = dict(verdict(), status="fail", blocking=["wrong"])
+        self.assert_block(self.prove(), "wrong")
+        self.post.assert_not_called()
+
+    def test_prove_status_post_failure_fails_and_removes_marker(self):
+        self.change()
+        self.post.side_effect = workflow.WorkflowError("gh failed: HTTP 403")
+        result = self.prove()
+        self.assert_block(result, "infrastructure: posting agent-verified status: gh failed: HTTP 403")
+
+    def test_post_agent_verified_targets_origin_statuses_for_head(self):
+        self.post_patch.stop()
+        self.addCleanup(self.post_patch.start)
+        git(self.repo, "remote", "add", "origin", "https://github.com/example-owner/example-repo.git")
+        with patch.object(workflow, "_github", return_value={"state": "success"}) as github:
+            workflow._post_agent_verified(self.repo, "a" * 40)
+        github.assert_called_once_with(self.repo, "api", "--method", "POST", f"repos/example-owner/example-repo/statuses/{'a' * 40}",
+                                       "-f", "state=success", "-f", "context=agent-verified", "-f", "description=prove() pass")
+        git(self.repo, "remote", "set-url", "origin", "https://example.test/owner/repo.git")
+        with patch.object(workflow, "_github", side_effect=AssertionError("must not post")), \
+                self.assertRaisesRegex(workflow.WorkflowError, "not a validated GitHub repository"):
+            workflow._post_agent_verified(self.repo, "a" * 40)
+
+    def test_drift_precheck_briefs_docs_and_comments_naming_removed_paths_and_symbols(self):
+        self.write("lib/old_mod.py", "def helper_func():\n    pass\n\n\ndef _private_helper():\n    pass\n")
+        self.write("lib/renamed_from.py", "VALUE = 1\n")
+        self.write("web/mod.ts", "export function oldThing(): void {}\nexport const kept = 1;\n")
+        self.write("docs/guide.md", "Use lib/old_mod.py and helper_func.\nSee lib/renamed_from.py.\nCall oldThing.\nIgnore _private_helper.\n")
+        self.write("app.py", "# see helper_func for details\nhelper_func_count = 1\n")
+        self.write("use.py", "result = helper_func()\n")
+        self.write("docs/adr/0001-record.md", "We added helper_func.\n")
+        self.rebase_parent()
+        git(self.repo, "rm", "-q", "lib/old_mod.py")
+        git(self.repo, "mv", "lib/renamed_from.py", "lib/renamed_to.py")
+        self.write("web/mod.ts", "export const kept = 1;\n")
+        self.change()
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        drift = result["drift"]
+        joined = "\n".join(drift)
+        for fragment in ("docs/guide.md:1: names deleted or renamed path `lib/old_mod.py`", "docs/guide.md:1: names removed symbol `helper_func`",
+                         "docs/guide.md:2: names deleted or renamed path `lib/renamed_from.py`", "docs/guide.md:3: names removed symbol `oldThing`",
+                         "app.py:1: names removed symbol `helper_func`"):
+            self.assertIn(fragment, joined)
+        for absent in ("docs/adr/", "use.py", "_private_helper", "app.py:2", "`kept`", "web/mod.ts"):
+            self.assertNotIn(absent, joined)
+        brief = self.verifier.call_args.args[0]
+        self.assertIn("Address every Deterministic drift item", brief)
+        self.assertIn("docs/guide.md:3: names removed symbol `oldThing`", brief)
+        self.assertNotIn("Audit undeclared harness/config tampering, wrong/stale docs", brief)
+
+    def test_drift_precheck_is_empty_without_removals(self):
+        self.change()
+        self.assertEqual(self.prove()["drift"], [])
+
 
 class WorkflowErrorForTest(RuntimeError):
     pass
@@ -957,14 +1145,49 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(self.load(self.data), self.data)
 
     def test_gate_schema_optional_fields(self):
-        valid = [{"schemaVersion": 2}, {"schemaVersion": 2, "pathCheckTimeoutMs": 1, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}}]
+        valid = [{"schemaVersion": 2}, {"schemaVersion": 2, "pathCheckTimeoutMs": 1, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}},
+                 {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": "ci-gate"},
+                  "checks": {"format": ["ruff", "format"], "profile": ["omp-guardrails", "profile-check"]}}]
         invalid = [{"schemaVersion": True}, {"schemaVersion": 3}, *({"schemaVersion": 2, "pathCheckTimeoutMs": x} for x in (0, True, 1.5, None, 9007199254740992)),
                    {"schemaVersion": 2, "checks": {"ci": None}}, {"schemaVersion": 2, "pathCheck": None}, {"schemaVersion": 2, "testGlobs": [2]},
-                   {"schemaVersion": 2, "ciHost": "other"}, {"schemaVersion": 2, "agentMerge": False}]
+                   {"schemaVersion": 2, "agentMerge": False}, {"schemaVersion": 2, "checks": {"format": "ruff format"}},
+                   {"schemaVersion": 2, "checks": {"profile": []}}, {"schemaVersion": 2, "ci": None}, {"schemaVersion": 2, "ci": "gate"},
+                   {"schemaVersion": 2, "ci": {"requiredContext": "gate"}}, {"schemaVersion": 2, "ci": {"requiredContext": " ", "runner": "ci-gate"}},
+                   {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": 1}}]
         for data in valid:
             self.assertIsNotNone(workflow.gate_policy(data))
         for data in invalid:
-            self.assertIsNone(workflow.gate_policy(data), data)
+            with self.subTest(data=data):
+                self.assertIsNone(workflow.gate_policy(data))
+                self.assertIsInstance(workflow.gate_reason(data), str)
+        self.assertIsNone(workflow.gate_reason(valid[2]))
+        self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "ci": {"requiredContext": "gate"}}),
+                         "ci must declare nonblank requiredContext and runner")
+        policy = workflow.gate_policy(valid[2])
+        self.assertEqual((policy["format"], policy["profile"], policy["ci"]),
+                         (["ruff", "format"], ["omp-guardrails", "profile-check"], {"requiredContext": "gate", "runner": "ci-gate"}))
+
+    def test_retired_ci_host_is_rejected_with_migration_message(self):
+        for value in ("github", "self-hosted", None):
+            gate = {"schemaVersion": 2, "ciHost": value, "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
+            with self.subTest(value=value):
+                self.assertIsNone(workflow.gate_policy(gate))
+                self.assertEqual(workflow.gate_reason(gate), "ciHost is retired; declare ci.requiredContext and ci.runner")
+
+    def test_journey_flag_must_be_boolean(self):
+        for value in (True, False):
+            data = copy.deepcopy(self.data)
+            data["proofs"][0]["journey"] = value
+            self.assertEqual(self.load(data), data)
+        data = copy.deepcopy(self.data)
+        data["proofs"][0]["journey"] = "yes"
+        with self.assertRaisesRegex(workflow.WorkflowError, "journey must be a boolean"):
+            self.load(data)
+
+    def test_workflow_code_holds_no_model_ids_or_hosts(self):
+        text = MODULE.read_text()
+        for pattern in (r"gpt-\d", r"claude-", r"sonnet", r"opus", r"openai-codex", r"\bnuc\b", r"omarchy", r"/Users/"):
+            self.assertIsNone(re.search(pattern, text, re.IGNORECASE), pattern)
 
     def test_run_verifier_seam_selector_schema_and_override(self):
         with patch.object(workflow, "agent", create=True, return_value="handle") as spawn, patch.object(workflow, "wait", create=True, return_value=[verdict()]) as wait:
@@ -975,8 +1198,8 @@ class SchemaTests(unittest.TestCase):
             proof_id_schema = spawn.call_args.kwargs["schema"]["properties"]["criteria"]["items"]["properties"]["proofId"]
             self.assertEqual(proof_id_schema, {"enum": ["P1", "P2"]})
             self.assertEqual(wait.call_args.kwargs, {"raise_errors": False})
-            workflow._run_verifier("brief", ["P1"], model="openai-codex/gpt-6.1-sol:medium")
-            self.assertEqual(spawn.call_args.kwargs["model"], "openai-codex/gpt-6.1-sol:medium")
+            workflow._run_verifier("brief", ["P1"], model="provider/example-verifier")
+            self.assertEqual(spawn.call_args.kwargs["model"], "provider/example-verifier")
 
     def test_load_safe_no_bang_lines(self):
         self.assertIsNone(re.search(r"^\s*!", MODULE.read_text(), re.MULTILINE))

@@ -3,10 +3,12 @@
 
 Apply mode also provisions the judge key into each device's omp credential store
 (Infisical -> builder -> `omp auth import -`, streamed over stdin only), runs a
-`omp find` canary per device, and deletes retired `~/.agents/by-request` husks.
+`omp find` canary per device, deletes retired `~/.agents/by-request` husks, and writes
+each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import shlex
 import socket
@@ -15,7 +17,7 @@ import sys
 
 
 # Configuration keys in the registry that are not hosts.
-SETTINGS = ("local", "judgeKey", "findCanary")
+SETTINGS = ("local", "judgeKey", "findCanary", "ciRunners")
 # Retired skill names whose untracked by-request folders shadow skill:// resolution.
 HUSKS = ("coding-guidance", "test-guidance", "setup-repository-guardrails")
 # Reads the secret named by argv[1] from the environment and prints an
@@ -28,6 +30,73 @@ CREDENTIAL_BUILDER = (
     "json.dump({'version': 1, 'credentials': [{'provider': sys.argv[2],"
     " 'credential': {'type': 'api_key', 'key': key}}]}, sys.stdout)\n"
 )
+
+
+# Runs on the target device: argv[1] check|apply, argv[2] path, argv[3] runner document.
+# Expands home-relative argv elements there, then reports current, missing, stale or written.
+RUNNERS_WRITER = (
+    "import json, os, sys, tempfile\n"
+    "mode, path, document = sys.argv[1], os.path.expanduser(sys.argv[2]), json.loads(sys.argv[3])\n"
+    "for role in document['runners'].values():\n"
+    "    for name, argv in role.items():\n"
+    "        if argv:\n"
+    "            role[name] = [os.path.expanduser(a) if a.startswith('~/') else a for a in argv]\n"
+    "text = json.dumps(document, indent=2, sort_keys=True) + '\\n'\n"
+    "try:\n"
+    "    with open(path) as stream:\n"
+    "        current = stream.read()\n"
+    "except FileNotFoundError:\n"
+    "    current = None\n"
+    "if current == text:\n"
+    "    print('current')\n"
+    "elif mode == 'check':\n"
+    "    print('missing' if current is None else 'stale')\n"
+    "else:\n"
+    "    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.ci-runners.')\n"
+    "    with os.fdopen(handle, 'w') as stream:\n"
+    "        stream.write(text)\n"
+    "    os.chmod(temporary, 0o644)\n"
+    "    os.replace(temporary, path)\n"
+    "    print('written')\n"
+)
+CI_GATE_ARGS = {
+    "submit": ["submit", "{repo}", "{sha}"],
+    "wait": ["wait", "{repo}", "{sha}", "--timeout", "{timeout}"],
+    "status": ["status", "{repo}", "{sha}"],
+    "logs": ["logs", "{repo}", "{sha}", "--tail", "{tail}"],
+}
+# Failed-job logs of every GitHub Actions run for the SHA; placeholders arrive as positional args.
+GITHUB_LOGS = ("gh run list --repo \"$1\" --commit \"$2\" --json databaseId --jq '.[].databaseId' "
+               "| while read -r id; do gh run view \"$id\" --repo \"$1\" --log-failed; done "
+               "| tail -n \"$3\"")
+
+
+def runner_document(definition, device, base):
+    """Return the ci-runners.json document for `device`, whose omp base directory is `base`."""
+    remote_base = definition["remoteBase"]
+    if not re.fullmatch(r"~/[A-Za-z0-9_./-]+", remote_base):
+        raise ValueError("ciRunners.remoteBase must be a ~/ path of safe characters")
+    runners = {}
+    for role, spec in sorted(definition["roles"].items()):
+        if spec["kind"] == "ci-gate":
+            host = spec["host"]
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", host):
+                raise ValueError("ciRunners ci-gate host must be an ssh alias")
+            if device == host:
+                commands = {name: ["python3", base + "/scripts/ci-gate.py", *args]
+                            for name, args in CI_GATE_ARGS.items()}
+            else:
+                script = remote_base + "/scripts/ci-gate.py"
+                commands = {name: ["ssh", "-o", "BatchMode=yes", host,
+                                   'bash -lc "python3 ' + script + " " + " ".join(args) + '"']
+                            for name, args in CI_GATE_ARGS.items()}
+        elif spec["kind"] == "github-actions":
+            commands = {"submit": None, "wait": None, "status": None,
+                        "logs": ["sh", "-c", GITHUB_LOGS, "sh", "{repo}", "{sha}", "{tail}"]}
+        else:
+            raise ValueError("unknown ciRunners kind " + repr(spec["kind"]))
+        runners[role] = commands
+    return {"schemaVersion": 1, "runners": runners}
 
 
 class CommandError(Exception):
@@ -61,13 +130,15 @@ def shell_path(path):
 
 class Rollout:
     def __init__(self, hosts, check=False, runner=run_command, home=None, hostname=None,
-                 pipeline=run_pipeline):
+                 pipeline=run_pipeline, base=None):
         hostname = (socket.gethostname() if hostname is None else hostname).split(".")[0].lower()
         self.local = hosts.get("local", {}).get(hostname, hostname)
         self.hosts = {host: config for host, config in hosts.items()
                       if host not in (*SETTINGS, self.local, hostname)}
         self.judge_key = hosts.get("judgeKey")
         self.canary = hosts.get("findCanary")
+        self.ci_runners = hosts.get("ciRunners")
+        self.base = Path(__file__).resolve().parents[1] if base is None else Path(base)
         self.check = check
         self.runner = runner
         self.pipeline = pipeline
@@ -197,6 +268,34 @@ class Rollout:
             if coverage and coverage != "complete" and row[5] == "current":
                 row[5] = "find-blocked"
 
+    def runners(self, device, start, host=None):
+        """Check or write the device's ci-runners.json and record it as a row."""
+        if not self.ci_runners:
+            return
+        if any(row[5] == "unreachable" for row in self.rows[start:]):
+            state = "unreachable"
+        else:
+            if host:
+                base = self.ci_runners["remoteBase"]
+                python = "python3"
+            else:
+                base = str(self.base)
+                python = sys.executable
+            try:
+                document = json.dumps(runner_document(self.ci_runners, device, base), sort_keys=True)
+                result = self.command([python, "-c", RUNNERS_WRITER, "check" if self.check else "apply",
+                                       base + "/ci-runners.json", document], host)
+                state = result.stdout.strip()
+                state = "current" if state in ("current", "written") else (
+                    state if state in ("missing", "stale") else "failed")
+            except CommandError as error:
+                state = error.state
+            except (ValueError, KeyError, TypeError):
+                state = "failed"
+        if state in ("missing", "stale") and self.check:
+            self.notes.append(f"{device}: ci-runners.json {state}; run device-rollout.py without --check")
+        self.rows.append([device, "ci-runners", "-", "-", "-", state])
+
     def deployment(self, host, config, local_ready):
         deployed = expected = "-"
         state = "failed"
@@ -242,12 +341,14 @@ class Rollout:
         agents = self.home / ".agents"
         self.finish_device(self.local, 0, agents=agents,
                            agents_state=self.checkout(self.local, "agents", agents))
+        self.runners(self.local, 0)
         for host, config in self.hosts.items():
             start = len(self.rows)
             state = self.checkout(host, "agents", config["agents"], host)
             if "omp" in config:
                 self.deployment(host, config["omp"], local_omp in ("current", "stale"))
             self.finish_device(host, start, host, config["agents"], state)
+            self.runners(host, start, host)
         return int(any(row[5] != "current" for row in self.rows))
 
     def report(self):

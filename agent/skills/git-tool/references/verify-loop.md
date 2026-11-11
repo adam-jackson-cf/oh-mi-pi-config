@@ -2,7 +2,7 @@
 
 The implementation task returns a ready PR: no pending writer edits, complete writer-authored description,
 and required CI green for its exact head. Main independently confirms that SHA's existing/cached CI before
-verification, owns the verification comment/label and merges. Main never patches or commits; proof tasks do not publish PRs.
+verification, owns the verification comment and the `agent-verified` commit status, and merges. Main never patches or commits; proof tasks do not publish PRs.
 
 ## Canonical contracts
 
@@ -20,8 +20,8 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
 
 1. Main obtains the actual PR base branch and exact 40-hex head from GitHub, using the primary remote/default already
    resolved by [branch-and-integrate](branch-and-integrate.md). Fetch the actual target and record its remote-tracking
-   ref as `target_ref`. Ordinary PRs target the resolved default; [NUC sync](merge-and-recover.md#nuc-config-sync-exception)
-   targets nuc-config. Confirm that GitHub's PR target matches; helper range consistency cannot authenticate that metadata.
+   ref as `target_ref`. PRs target the resolved default unless the repository's project context (`.omp/AGENTS.md`)
+   documents a target exception. Confirm that GitHub's PR target matches; helper range consistency cannot authenticate that metadata.
 2. Set `parent` to `git merge-base <target_ref> <head>`, never `HEAD~1`. It must be a strict ancestor of head.
    This is the whole-PR range, distinct from each proof's pinned baseline parent.
 3. Independently confirm required CI success for the exact head using existing status, not gratuitous resubmission.
@@ -33,7 +33,7 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
    Otherwise main calls from Python eval:
    `prove(repo, parent, head, manifest_path, manifest_sha256, objective, target_ref=target_ref)`.
    `repo` is the dedicated source worktree on its named branch at head, not main's possibly different checkout.
-   Dependabot PRs use the [external-bot authorship exception](skill://omp-dyna-workflows/references/patterns.md#external-bot-prs) ("External bot PRs") with the same CI, `prove()` and rebase-merge path; for `ciHost: nuc`, main submits the Dependabot head SHA to the NUC gate; never re-apply as an agent PR.
+   Dependabot PRs use the [external-bot authorship exception](skill://omp-dyna-workflows/references/patterns.md#external-bot-prs) ("External bot PRs") with the same CI, `prove()` and rebase-merge path; when `.omp/gate.json` declares `ci`, main submits the Dependabot head SHA with the gate's runner role ([merge-and-recover](merge-and-recover.md#declared-ci-contract)); never re-apply as an agent PR.
 5. `prove()` assembles the brief and dispatches the sole `agent='verifier'` session. Do not manually author a second
    brief or spawn another verifier. It reads persisted author provenance; rails decides family independence.
    For supported verifier-model override and failure handling, follow patterns; do not substitute a task for verifier.
@@ -45,8 +45,8 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
 
 ## Changed heads and fix rounds
 
-Every new SHA invalidates previous evidence and `agent-verified`: remove the label immediately, including after amend,
-fix or rebase. The writer commits through the hook, pushes, updates the description and submits/waits for exact-head CI.
+Every new SHA invalidates previous evidence, including after amend, fix or rebase. `agent-verified` is a commit status
+bound to the SHA it was posted on, so a new head has none until it is verified again. The writer commits through the hook, pushes, updates the description and submits/waits for exact-head CI.
 Main then reconfirms CI and repeats the full risk tier: full `prove()` or a fresh eligible docs exemption.
 A wording-only change is not a no-verification exception. Old-head evidence never approves a new SHA.
 
@@ -56,7 +56,7 @@ Pre-initial-prove CI repairs and pure rebases do not consume a round, but do inv
 The assigned writer performs all rebases, even conflict-free ones, under [merge-and-recover](merge-and-recover.md).
 After round three, unresolved blockers stop integration: escalate with PR/head, findings, failed checks, attempted fixes and decisions needed.
 
-## Verification comment and label
+## Verification comment and agent-verified status
 
 Main posts a separate PR comment, outside the description's 400–650-word budget, containing the complete manifest,
 its SHA-256, full `prove()` result (deterministic evidence, verifier criteria/evidence, blockers and follow-ups), recorded
@@ -66,7 +66,11 @@ Do not truncate required evidence to fit the body budget; attach/link the full m
 If `gateChanges` discovers omitted paths, have the writer update the body's optional **Gate changes** section with paths/effects;
 a changed/listed path alone is not a blocker. The canonical `BLOCKING_RULE` governs unauthorized weakening and wrong/stale docs.
 
-Only after risk-tier verification and exact-head CI pass, main creates `agent-verified` if absent
-(`gh label create agent-verified`) and applies it. Rails enforce exact-head green checks when adding the label,
-plus a valid exact-head pass marker with dynaflows on. Never hand-write a pass marker.
+`agent-verified` is a commit status with context `agent-verified` on the exact head SHA, never a label.
+With dynaflows on, a passing `prove()` posts it after writing the pass marker; main does not post it by hand.
+Otherwise, only after risk-tier verification and exact-head CI pass, main posts it:
+`gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified`.
+Rails allow posting it only when the declared required context passes on that exact PR head with no other red checks,
+plus a valid exact-head pass marker with dynaflows on, and they block adding an `agent-verified` label.
+Never hand-write a pass marker.
 Main proceeds to [merge-and-recover](merge-and-recover.md), where CI is checked again at the merge boundary.

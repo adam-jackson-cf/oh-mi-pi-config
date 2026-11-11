@@ -28,13 +28,14 @@ Install only approved guardrails while keeping unrelated target work intact.
      "schemaVersion": 2,
      "checks": {
        "commit": ["pnpm", "check", "--tier", "t1", "--affected"],
-       "ci": ["pnpm", "check"]
+       "ci": ["pnpm", "check"],
+       "profile": ["pnpm", "guardrails", "profile-check"]
      },
      "pathCheck": ["pnpm", "guardrails", "paths"],
      "pathCheckTimeoutMs": 20000,
      "testGlobs": ["**/*.test.ts", "tests/**"],
      "agentMerge": "allowed",
-     "ciHost": "github"
+     "ci": { "requiredContext": "gate", "runner": "github-actions" }
    }
    ```
 
@@ -48,14 +49,16 @@ Install only approved guardrails while keeping unrelated target work intact.
       agent commits that bypass the hook, and commits in a repo that declares
       `checks.commit` without an installed executable hook.
    2. Push and pull request: CI runs `checks.ci`, the full T1 and T2 suite.
-   3. Merge: the `gate` status from `checks.ci` must be green on the exact head.
+   3. Merge: the declared required context (`ci.requiredContext`, normally
+      `gate`) from `checks.ci` must be green on the exact head, whoever posts it.
    4. Schedule: T3 runs on a schedule, outside `.omp/gate.json`.
 
    No pre-push hook and no handoff check run exist. CI runs `checks.ci` as one
-   job named `gate` or as parallel tier jobs of the same runner whose union
-   equals it. Parallel CI requires an aggregate job/status named `gate`
-   depending on every tier job. Run the aggregate unconditionally after
-   dependencies finish, including on failure, and fail unless every tier result
+   job named by `ci.requiredContext` or as parallel tier jobs of the same runner
+   whose union equals it. Parallel CI requires an aggregate job/status named by
+   `ci.requiredContext` depending on every tier job. Run the aggregate
+   unconditionally after dependencies finish, including on failure, and fail
+   unless every tier result
    is `success` (not failed, cancelled, or skipped). Append changed paths
    to `pathCheck` as arguments. It exits 0 when clean; nonzero output has one
    error per line, each naming the file and fix for structure, naming, or test
@@ -64,24 +67,32 @@ Install only approved guardrails while keeping unrelated target work intact.
    or `disabled`; absent field or file defaults to `allowed`. Do not infer merge
    permission from this setup skill; honor the governing Git authorization.
 
-   Optional `ciHost` accepts `github` (the default when absent) or `nuc`.
-   `github` means GitHub Actions on every push and pull request. Any repository
-   owned by `adam-versed` or `adam-jackson-cf` may use `nuc` when the owner
-   chooses it. Other owners default to `github` unless the user says otherwise. Add
+   Optional `checks.profile` is the profile completeness command (for the
+   Python reference, its `profile-check` subcommand); `prove()` runs it first
+   and blocks on failure. Optional `checks.format` is the formatter `freeze()`
+   runs before hashing proofs.
+
+   Optional `ci` declares the merge-time CI requirement: `requiredContext` is
+   the commit status context or check-run name that must be `success` on the
+   exact PR head, and `runner` is a role name. Neither field names a host or an
+   account. Each machine resolves the role to submit, wait, status and logs
+   commands in its machine-level runner config (`ci-runners.json`, written by
+   the device setup step, not by this skill); agents drive it with
+   `ci-runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`. Use the role the
+   owner chooses. The `github-actions` role means a GitHub Actions workflow
+   runs `checks.ci` on every push and pull request in a job whose name is the
+   required context (push triggers it, so there is nothing to submit). Any other role is
+   a runner that reads `checks.ci` from the gate file, runs it on the exact SHA
+   and posts the required context. For such a runner, add
    `.devcontainer/devcontainer.json` specifying `build.dockerfile` or `image`
-   mirroring the CI runner's toolchain, with an optional `postCreateCommand`
-   for dependency installation. Add the repo's `owner/repo` to oh-mi-pi-config's
-   `scripts/ci-gate-repos.json` via a PR to that repo, using the owner's
-   `tokenEnv: NUC_GATE_GITHUB_TOKEN_<OWNER>` (owner uppercased, `-` replaced
-   with `_`), for example `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` or
-   `NUC_GATE_GITHUB_TOKEN_ADAM_VERSED`. A missing owner token in Infisical is
-   a blocker to report for the owner to provision, never a reason to fall back
-   to `github`.
-   The NUC runs `checks.ci` on the exact SHA and posts the GitHub commit
-   status `gate`. Keep `checks.ci` in the GitHub CI workflow, scheduled weekly
-   plus manual `workflow_dispatch` as a fallback, rather than on PRs. Follow
-   git-tool's verify loop to submit/wait for each head or dispatch the
-   fallback.
+   mirroring the runner's toolchain, with an optional `postCreateCommand` for
+   dependency installation, and register the repository with that runner as
+   its own project or machine instructions describe. A missing registration,
+   credential or machine runner entry is a blocker to report for the owner to
+   provision, never a reason to switch roles. A repository with a non-Actions
+   runner may keep `checks.ci` in a GitHub workflow scheduled weekly plus
+   manual `workflow_dispatch` as a fallback, rather than on PRs. Follow
+   git-tool's verify loop to submit and wait for each head.
 
 5. Add the complete coverage ledger and bundled validator or proven equivalent
    to the check-only `checks.ci`. Install the approved pre-commit hook
@@ -95,7 +106,8 @@ Install only approved guardrails while keeping unrelated target work intact.
    First limits and raises need owner approval; unapproved machines report only and prompt for a baseline.
    Keep auto-fix explicit and outside check-only CI.
 6. Configure approved protection on the resolved default branch to require the
-   `gate` status check and all other approved required checks. Enable auto-merge
+   declared required context (`ci.requiredContext`) from any source, without
+   pinning an integration, and all other approved required checks. Enable auto-merge
    and rebase-merge where the host supports them. Read back actual settings;
    unsupported capability or permission is an explicit blocker or
    evidence-backed conditional exclusion, never a fabricated successful

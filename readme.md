@@ -59,23 +59,28 @@ that `git status` reports as changed or untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
 
-Rails checks the PR's exact-head CI before adding `agent-verified` through
-`gh pr edit` or `gh issue edit`, even with dynaflows off; direct API label writes
-must use `gh pr edit --add-label` instead. Checks must all be green with at least
-one success. The checkout's `.omp/gate.json` is the policy authority: `ciHost: nuc`
-also requires a successful `gate` commit status on the exact PR head; a check run
-named `gate` does not count. Other hosts allow an empty rollup only with neither
-`checks.ci` nor a workflows directory. URL selectors must match the checkout's
-primary GitHub repository. With dynaflows on, labeling also requires a valid
-exact-head pass marker, and the merge gate requires that marker, a literal
-`--match-head-commit` SHA matching the current PR head, and green CI again
-(including the NUC status). The label CI gate always applies; the merge gate
-applies only with dynaflows on.
+`agent-verified` is a SHA-bound commit status, not a label. `prove()` posts it on
+a pass. Rails allow a `gh api .../statuses/<sha>` write with context
+`agent-verified` only when the PR whose head is that SHA has green exact-head CI,
+even with dynaflows off. With dynaflows on, the write also requires a valid
+exact-head pass marker. Rails refuse `agent-verified` label writes. Checks must
+all be green with at least one success. The checkout's `.omp/gate.json` is the
+policy authority. When it declares `ci`, `ci.requiredContext` must be `SUCCESS` on
+the exact PR head as a commit status or check run, whoever posts it. Without
+`ci`, an empty rollup is allowed only with neither `checks.ci` nor a workflows
+directory. URL selectors must match the checkout's primary GitHub repository.
+`gh pr merge` in a repository with `ci` declared, or with dynaflows on, requires
+a literal `--match-head-commit` SHA matching the current PR head, the required
+context and the `agent-verified` status green on that SHA. With dynaflows on, it
+also requires the pass marker.
 
 Repository checks follow the test tiers. `.omp/gate.json` schema version 2 declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code)
 and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
-`checks.commit`; CI on `ciHost` runs `checks.ci` for every push and merge.
+`checks.commit`; the CI runner named by `ci.runner` runs `checks.ci` for every
+push and merge. Optional `checks.format` is the formatter `freeze()` runs before
+hashing, and optional `checks.profile` is the profile completeness command
+`prove()` runs first.
 For `git commit`, rails blocks explicit hook bypass flags/settings and requires an
 executable pre-commit hook when `checks.commit` is declared. Supported merge/rebase
 forms also reject explicit hook disabling with command-specific flag semantics.
@@ -131,6 +136,8 @@ source.
 Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
 `~/.omp` and `~/.agents` revisions (never pull either local checkout), fast-forward
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
+It also writes each device's untracked `~/.omp/ci-runners.json` from the runner
+role definitions in `scripts/device-rollout-hosts.json`.
 On each reachable device it also deletes retired `~/.agents/by-request` husks
 (folders without a `SKILL.md`), streams the judge key from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
@@ -149,37 +156,46 @@ The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in or
 copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
 `agent/nuc-sync-<date>` PR incorporating `main` into `nuc-config`, using a
-**merge commit** under the NUC sync exception in
-`skill://git-tool/references/merge-and-recover.md`, then rerun the command.
+**merge commit** under the nuc-config sync exception in
+[`.omp/AGENTS.md`](.omp/AGENTS.md), then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target.
 
-## CI gate (NUC host)
+## CI runners
 
-The owner's Linux NUC runs exact-SHA gates in rootless Podman with gVisor.
-Only repositories in `scripts/ci-gate-repos.json` can run. Push an
-`agent/<slug>` branch, then submit and wait over SSH:
+`.omp/gate.json` declares what must pass, not where it runs:
+`"ci": {"requiredContext": "gate", "runner": "ci-gate"}`. Rails and `prove()`
+check only that the required context is green on the exact head, whoever posts
+it. The runner is a role name. Each device's untracked `~/.omp/ci-runners.json`,
+written by `scripts/device-rollout.py`, maps roles to submit, wait, status and logs
+commands. Push an `agent/<slug>` branch, then submit and wait:
 
 ```sh
-ssh codex-omarchy-nuc \
-  'python3 ~/.omp/scripts/ci-gate.py submit adam-jackson-cf/oh-mi-pi-config SHA'
-ssh codex-omarchy-nuc \
-  'python3 ~/.omp/scripts/ci-gate.py wait adam-jackson-cf/oh-mi-pi-config SHA --timeout 1200'
+python3 ~/.omp/scripts/ci-runner.py submit ci-gate OWNER/REPO SHA
+python3 ~/.omp/scripts/ci-runner.py wait ci-gate OWNER/REPO SHA --timeout 1200
 ```
 
-Replace `SHA` with the pushed 40-character lowercase commit SHA.
+Replace `SHA` with the pushed 40-character lowercase commit SHA. `status` prints
+the result; `logs` prints output (`--tail N` limits it). A role without
+configured `wait`/`status` commands uses a built-in GitHub poller for the
+`--context` (default `gate`); its timeout exits 124. The `github-actions` role
+starts on push, so `submit` only reports that. A missing role exits 2 and names
+the device-rollout command to run. This repository's runner specifics and
+fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
 
-`status` prints the result; `logs` prints output (`--tail N` limits it).
+### ci-gate service
+
+The `ci-gate` role is `scripts/ci-gate.py` on the owner's Linux NUC, running
+exact-SHA gates in rootless Podman with gVisor. Only repositories in
+`scripts/ci-gate-repos.json` can run, and any of them may declare runner
+`ci-gate`. It posts GitHub commit status context `gate`.
+
 Resubmitting a running SHA does not launch another job. Successful and failed
 gate results stay cached; an infrastructure `error` is retried on resubmission.
 `wait` returns only after final GitHub status publication finishes. It exits 0
 for success, 1 for gate failure/error or status-publication failure, and 2 when its
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
-`.omp/gate.json` declares `ciHost: "nuc"`: the NUC is this repository's CI
-host, posting GitHub commit status context `gate`. `ciHost: "github"` (the
-default when absent) means the repository's GitHub Actions. Any `adam-versed`
-or `adam-jackson-cf` repository may opt into `nuc` via the allowlist.
 The runner executes `checks.ci` (schema version 1: `gate`) after the
 devcontainer's `postCreateCommand`.
 
@@ -237,9 +253,13 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/lsp.json` — LSP configuration.
 - `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
-- `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — CI job service and
+- `scripts/ci-runner.py` — runs a CI runner role's submit, wait, status or logs
+  command from `~/.omp/ci-runners.json`.
+- `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
-- `.omp/gate.json` — gate commands and declared CI host.
+- `.omp/gate.json` — gate commands, required CI context and runner role.
+- `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
+  fallback and the nuc-config sync exception.
 - `.devcontainer/` — pinned gate image and dependency installation.
 - `tests/test_ci_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.
