@@ -22,7 +22,8 @@ Complete applicable verification without weakening assertions or hiding failures
 - Only the repo's authorized fix command, recorded in Command notes, may write authorized check fixes.
   If none is designated, stay check-only. Do not use write mode to conceal failures.
 - Drive caller input through the public entry point and the same production inputs/adapters callers use,
-  never by private-state mutation. Enforced by TEST.no-self-mocking (omp-guardrails adapter).
+  never by private-state mutation or runtime patching.
+  Self-mocking is enforced by TEST.no-self-mocking (omp-guardrails adapter).
 - Never loosen expectations, thresholds or owned coverage rules to hide failures.
   Enforced by TEST.no-evasion (omp-guardrails adapter, report-check, diff-check).
   Owner-approved measured timing-limit changes follow [suite-budget.md](suite-budget.md).
