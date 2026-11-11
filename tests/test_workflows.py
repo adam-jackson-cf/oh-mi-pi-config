@@ -1125,6 +1125,37 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("guide.md:1: names deleted or renamed path `old.py`", joined)
         self.assertIn("guide.md:1: names removed symbol `removed_export`", joined)
 
+    def test_drift_precheck_reports_removals_another_file_redeclares(self):
+        self.write("old.py", "def public_api():\n    pass\n")
+        self.write("guide.md", "Import old.public_api.\n")
+        self.rebase_parent()
+        self.write("old.py", "VALUE = 1\n")
+        self.write("unrelated.py", "def public_api():\n    pass\n")
+        self.change()
+        self.assertIn("guide.md:1: names removed symbol `public_api`", "\n".join(self.prove()["drift"]))
+
+    def test_drift_precheck_keeps_symbols_the_same_file_redeclares(self):
+        self.write("mod.py", "def public_api():\n    return 1\n")
+        self.write("guide.md", "Call public_api.\n")
+        self.rebase_parent()
+        self.write("mod.py", "def public_api():\n    return 2\n\n\nVALUE = 1\n")
+        self.change()
+        self.assertEqual(self.prove()["drift"], [])
+
+    def test_drift_precheck_reports_removed_go_and_rust_public_items(self):
+        self.write("svc/api.go", "package svc\n\nfunc PublicAPI() {}\n\nfunc (s *Server) Handle() {}\n\nfunc private() {}\n")
+        self.write("core/lib.rs", "pub fn rust_api() {}\npub struct Widget;\nfn hidden() {}\n")
+        self.write("guide.md", "Call PublicAPI and Handle.\nUse rust_api with Widget.\nprivate hidden\n")
+        self.rebase_parent()
+        self.write("svc/api.go", "package svc\n")
+        self.write("core/lib.rs", "pub fn other() {}\n")
+        self.change()
+        joined = "\n".join(self.prove()["drift"])
+        for symbol in ("PublicAPI", "Handle", "rust_api", "Widget"):
+            self.assertIn(f"names removed symbol `{symbol}`", joined)
+        for absent in ("`private`", "`hidden`"):
+            self.assertNotIn(absent, joined)
+
     def test_drift_precheck_is_empty_without_removals(self):
         self.change()
         self.assertEqual(self.prove()["drift"], [])

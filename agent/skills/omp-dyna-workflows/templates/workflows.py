@@ -762,8 +762,12 @@ CODE_SUFFIXES = (".py", ".pyi", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".
 PY_DECLARATION = re.compile(r"^([-+])(?:async\s+)?(?:def|class)\s+([A-Za-z][A-Za-z0-9_]*)")
 JS_DECLARATION = re.compile(r"^([-+])export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
                             r"(?:function\*?|class|const|let|var|interface|type|enum|namespace)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
-JS_EXPORT_LIST = re.compile(r"^([-+])\s*export\s+(?:type\s+)?\{([^}]*)(\}?)")
 JS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+JS_EXPORT_LIST = re.compile(r"^([-+])\s*export\s+(?:type\s+)?\{([^}]*)(\}?)")
+GO_DECLARATION = re.compile(r"^([-+])(?:func\s+(?:\([^)]*\)\s*)?|type\s+|const\s+|var\s+)([A-Z][A-Za-z0-9_]*)")
+RUST_DECLARATION = re.compile(r"^([-+])pub\s+(?:async\s+)?(?:unsafe\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\s+([A-Za-z][A-Za-z0-9_]*)")
+DECLARATION_BY_SUFFIX = {**dict.fromkeys((".py", ".pyi"), PY_DECLARATION), **dict.fromkeys(JS_SUFFIXES, JS_DECLARATION),
+                         ".go": GO_DECLARATION, ".rs": RUST_DECLARATION}
 RECORD_DIR = re.compile(r"adrs?|change[-_]?records?", re.IGNORECASE)
 COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|<!--)")
 
@@ -777,7 +781,7 @@ def _add_export_names(names, entries):
 
 
 def _drift_terms(repo, parent, head):
-    """Deleted/renamed old paths and removed module-level public symbols."""
+    """Deleted/renamed old paths and public symbols a file's diff removes without re-declaring in that same file."""
     tokens = _git(repo, "diff", "--name-status", "-M", "-z", parent, head).split("\0")
     paths, index = set(), 0
     while index < len(tokens) and tokens[index]:
@@ -786,10 +790,13 @@ def _drift_terms(repo, parent, head):
         index += 1 + len(names)
         if status[0] in "DR":
             paths.add(names[0])
+    removed = set()
     declared = {"-": set(), "+": set()}
     current, header, export_list = None, False, None
-    for line in _git(repo, "diff", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", parent, head).splitlines():
+    for line in _git(repo, "diff", "-M", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", parent, head).splitlines() + ["diff --git "]:
         if line.startswith("diff --git "):
+            removed |= declared["-"] - declared["+"]  # scoped per file pair: an unrelated file adding the name does not hide it
+            declared = {"-": set(), "+": set()}
             current, header, export_list = None, True, None
             continue
         if header:
@@ -816,11 +823,11 @@ def _drift_terms(repo, parent, head):
             else:
                 export_list = (listed[1], [listed[2]])
             continue
-        pattern = PY_DECLARATION if current.endswith((".py", ".pyi")) else JS_DECLARATION if current.endswith(JS_SUFFIXES) else None
+        pattern = DECLARATION_BY_SUFFIX.get(Path(current).suffix)
         match = pattern.match(line) if pattern else None
         if match and not match[2].startswith("_"):
             declared[match[1]].add(match[2])
-    return sorted(paths), sorted(declared["-"] - declared["+"])
+    return sorted(paths), sorted(removed)
 
 
 def _drift_checks(repo, parent, head):
