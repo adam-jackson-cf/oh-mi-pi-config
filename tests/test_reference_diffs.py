@@ -498,16 +498,11 @@ class AffectedSelectionTests(unittest.TestCase):
 
 
 GROWTH_PROFILE = {**BASE_PROFILE, "adapter": "pytest"}
-MAP_PATH = ".omp/test-behavior-map.json"
 CART_TEST = (
     "from shop.cart import total\n\n\n"
     "def test_empty_cart_totals_zero():\n    assert total([]) == 0\n"
 )
-
-
-def behaviour_map(entries: dict[str, str], source: str = "src/shop/cart.py") -> str:
-    tests = {selector: {"source": source, "behavior": text} for selector, text in entries.items()}
-    return json.dumps({"schemaVersion": 1, "tests": tests})
+SUMMED = "def test_items_are_summed():\n{comment}    assert total([1, 2]) == 3\n"
 
 
 class TestGrowthTests(unittest.TestCase):
@@ -523,94 +518,79 @@ class TestGrowthTests(unittest.TestCase):
     def check(self, profile: dict = GROWTH_PROFILE) -> list:
         return growth.run(self.repo.path, profile, ["--base", self.base])
 
-    def test_mapped_growth_with_a_changed_source_passes(self) -> None:
-        self.repo.commit(
-            {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                "tests/unit/test_cart.py": CART_TEST
-                + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n",
-                MAP_PATH: behaviour_map(
-                    {"tests/unit/test_cart.py::test_items_are_summed": "totals sum the items"}
-                ),
-            }
-        )
-        self.assertEqual(self.check(), [])
+    def add_test(self, source: str) -> list:
+        self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n\n" + source})
+        return self.check()
 
-    def test_unmapped_growth_and_missing_map_are_reported(self) -> None:
-        self.repo.commit(
-            {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                "tests/unit/test_cart.py": CART_TEST
-                + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n",
-            }
-        )
-        findings = self.check()
-        self.assertEqual(rules(findings), [("TEST.growth.justified", MAP_PATH)])
-        self.repo.commit({MAP_PATH: behaviour_map({})})
-        findings = self.check()
-        self.assertEqual(rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")])
-        self.assertIn("test_items_are_summed has no behaviour map entry", findings[0].message)
-        self.assertIn("map or remove", findings[0].fix)
+    def test_new_test_with_a_behaviour_comment_passes(self) -> None:
+        placements = {
+            "in body": SUMMED.format(comment="    # behaviour: totals sum the items\n"),
+            "above def": "# behaviour: totals sum the items\n" + SUMMED.format(comment=""),
+            "trailing def": SUMMED.format(comment="").replace(
+                "():", "():  # behaviour: totals sum the items"
+            ),
+        }
+        for name, source in placements.items():
+            with self.subTest(name=name):
+                self.setUp()
+                self.assertEqual(self.add_test(source), [])
 
-    def test_mapping_to_an_unchanged_source_or_placeholder_behaviour_is_reported(self) -> None:
-        added = "tests/unit/test_cart.py::test_items_are_summed"
-        body = CART_TEST + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n"
-        for name, files in {
-            "unchanged source": {MAP_PATH: behaviour_map({added: "totals sum the items"})},
-            "placeholder": {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                MAP_PATH: behaviour_map({added: "<behaviour>"}),
-            },
+    def test_missing_or_placeholder_behaviour_comment_is_reported(self) -> None:
+        for name, comment in {
+            "missing": "",
+            "not a behaviour comment": "    # sums the items\n",
+            "empty": "    # behaviour:\n",
+            "placeholder": "    # behaviour: <what it proves>\n",
+            "tbd": "    # behaviour: TBD\n",
         }.items():
             with self.subTest(name=name):
-                repo = FixtureRepo(self)
-                base = repo.commit(
-                    {"src/shop/cart.py": "def total(items):\n    return 0\n",
-                     "tests/unit/test_cart.py": CART_TEST},
-                    GROWTH_PROFILE,
-                )
-                repo.commit({"tests/unit/test_cart.py": body, **files})
-                findings = growth.run(repo.path, GROWTH_PROFILE, ["--base", base])
+                self.setUp()
+                findings = self.add_test(SUMMED.format(comment=comment))
                 self.assertEqual(
                     rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")]
                 )
+                self.assertIn("tests/unit/test_cart.py::test_items_are_summed", findings[0].message)
+                self.assertIn("'behaviour:' comment", findings[0].fix)
 
-    def test_each_parameter_row_is_growth_with_pytest_ids(self) -> None:
+    def test_a_comment_belongs_only_to_its_own_function(self) -> None:
+        source = (
+            SUMMED.format(comment="    # behaviour: totals sum the items\n")
+            + "\n\ndef test_one_item():\n    assert total([4]) == 4\n"
+        )
+        findings = self.add_test(source)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("::test_one_item has no inline", findings[0].message)
+
+    def test_existing_tests_need_no_comment(self) -> None:
+        self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "# a trailing edit\n"})
+        self.assertEqual(self.check(), [])
+
+    def test_one_comment_covers_every_parameter_row(self) -> None:
         rows = (
             "import pytest\nfrom shop.cart import total\n\n\n"
-            "@pytest.mark.parametrize('items, expected', [([1], 1), ([2], 2)])\n"
-            "def test_total(items, expected):\n    assert total(items) == expected\n"
+            "class TestTotals:\n"
+            "    # behaviour: a cart totals the sum of its items\n"
+            "    @pytest.mark.parametrize('items, expected', [([1], 1), ([2], 2)])\n"
+            "    def test_total(self, items, expected):\n        assert total(items) == expected\n"
+            "\n"
+            "    @pytest.mark.parametrize('items', [[1], [2]])\n"
+            "    def test_positive(self, items):\n        assert total(items) > 0\n"
         )
-        self.repo.commit(
-            {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                "tests/unit/test_rows.py": rows,
-                MAP_PATH: behaviour_map(
-                    {
-                        "tests/unit/test_rows.py": "totals sum the items",
-                        "tests/unit/test_rows.py::test_total": "totals sum the items",
-                        "tests/unit/test_rows.py::test_total[items0-1]": "one item totals itself",
-                    }
-                ),
-            }
-        )
+        self.repo.commit({"tests/unit/test_rows.py": rows})
         findings = self.check()
         self.assertEqual(len(findings), 1)
-        self.assertIn("tests/unit/test_rows.py::test_total[items1-2]", findings[0].message)
+        self.assertIn(
+            "tests/unit/test_rows.py::TestTotals::test_positive has no", findings[0].message
+        )
 
     def test_duplicate_call_path_and_assertion_is_reported_with_both_names(self) -> None:
-        renamed = "def test_no_items_total_zero():\n    assert total([]) == 0\n"
+        renamed = (
+            "def test_no_items_total_zero():\n"
+            "    # behaviour: an empty cart totals zero\n"
+            "    assert total([]) == 0\n"
+        )
         self.repo.commit(
-            {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                "tests/unit/test_cart_again.py": "from shop.cart import total\n\n\n" + renamed,
-                MAP_PATH: behaviour_map(
-                    {
-                        "tests/unit/test_cart_again.py": "an empty cart is zero",
-                        "tests/unit/test_cart_again.py::test_no_items_total_zero": "zero",
-                    }
-                ),
-            }
+            {"tests/unit/test_cart_again.py": "from shop.cart import total\n\n\n" + renamed}
         )
         findings = self.check()
         self.assertEqual(rules(findings), [("TEST.duplicate-path", "tests/unit/test_cart_again.py")])
@@ -618,15 +598,11 @@ class TestGrowthTests(unittest.TestCase):
         self.assertIn("merge or remove", findings[0].fix)
 
     def test_distinct_assertions_are_not_duplicates(self) -> None:
-        self.repo.commit(
-            {
-                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
-                "tests/unit/test_cart.py": CART_TEST
-                + "\n\ndef test_one_item():\n    assert total([4]) == 4\n",
-                MAP_PATH: behaviour_map({"tests/unit/test_cart.py::test_one_item": "one item"}),
-            }
+        source = (
+            "# behaviour: one item totals itself\n"
+            "def test_one_item():\n    assert total([4]) == 4\n"
         )
-        self.assertEqual(self.check(), [])
+        self.assertEqual(self.add_test(source), [])
 
     def test_dynamic_rows_in_a_changed_test_are_reported(self) -> None:
         self.repo.commit(
@@ -640,7 +616,7 @@ class TestGrowthTests(unittest.TestCase):
         self.assertIn(("TEST.growth.justified", "tests/unit/test_cart.py"), rules(findings))
         self.assertTrue(any("cannot collect tests statically" in f.message for f in findings))
 
-    def test_no_changed_tests_needs_no_adapter_and_no_map(self) -> None:
+    def test_no_changed_tests_needs_no_adapter(self) -> None:
         self.repo.commit({"src/shop/cart.py": "def total(items):\n    return 1\n"})
         self.assertEqual(self.check({**BASE_PROFILE}), [])
 

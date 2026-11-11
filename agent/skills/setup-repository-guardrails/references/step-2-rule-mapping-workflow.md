@@ -30,8 +30,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    require owner approval at Step 5; unknown machines report timing only and prompt to record
    a baseline.
    Map `TEST.growth.justified` to a
-   base-ref diff plus a changed-behavior mapping for each new test file/case; a
-   missing mapping fails with the test name and map-or-remove fix. Map
+   base-ref diff that requires one inline `behaviour:` comment per new test
+   function; a missing or placeholder comment fails with the test name and
+   comment-or-remove fix. Map
    `TEST.duplicate-path` to normalized call-path/assertion fingerprints,
    compared against existing and other new cases; duplicates fail naming both
    tests and the merge-or-remove fix.

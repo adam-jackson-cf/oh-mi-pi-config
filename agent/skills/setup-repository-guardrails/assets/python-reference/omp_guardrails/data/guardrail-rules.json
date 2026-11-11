@@ -119,13 +119,16 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "scope": "new_test_files_and_cases_relative_to_base_ref",
-        "changed_behavior_mapping_required": true,
-        "mapping_must_reference_changed_source_and_behavior": true,
-        "unmapped_test_is_failure": true,
-        "diagnostic_names_test_and_map_or_remove_fix": true
+        "scope": "new_test_functions_relative_to_base_ref",
+        "inline_behaviour_comment_required": true,
+        "comment_uses_language_comment_syntax": true,
+        "one_comment_per_function_covers_parameter_rows": true,
+        "presence_only_placeholder_text_is_failure": true,
+        "uncollectable_changed_test_file_is_failure": true,
+        "truthfulness_sampled_by_jev_judge_batch_outside_check": true,
+        "diagnostic_names_test_and_comment_or_remove_fix": true
       },
-      "summary": "Require every added test file and case to map to a changed behavior.",
+      "summary": "Require every added test function to carry an inline behaviour comment.",
       "reference": [
         {"subcommand": "diff-check", "module": "omp_guardrails.diffs.growth"}
       ]
