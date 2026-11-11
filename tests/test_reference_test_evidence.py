@@ -187,7 +187,7 @@ class BudgetTests(unittest.TestCase):
     def test_a_slow_test_blocks_locally_with_a_speed_up_remedy(self) -> None:
         report = edited("pytest-clean.xml", 'time="0.400"', 'time="0.900"')
         findings = self.evaluate(report).findings
-        self.assertEqual(rules(findings), [budgets.PER_TEST])
+        self.assertEqual(rules(findings), ["TEST.budget.per-test-time"])
         self.assertIn("tests/unit/test_cli.py::test_help_exits_zero took 0.900s", findings[0].message)
         self.assertNotIn("inject", findings[0].fix)
         self.assertIn("never relabel", findings[0].fix)

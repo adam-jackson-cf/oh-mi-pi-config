@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "rules": [
-    {"id": "GATE.local-ci-parity", "applicability": "always", "evidence_kind": "local_ci"},
-    {"id": "GATE.pre-commit", "applicability": "always", "evidence_kind": "git_hook"},
-    {"id": "PRETTIER.version", "applicability": "conditional"}
-  ]
-}

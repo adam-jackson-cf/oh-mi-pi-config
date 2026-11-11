@@ -13,7 +13,7 @@ disable-model-invocation: true
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
 - A line `Enforced by <RULE-ID> (omp-guardrails <subcommand>)` marks a rule a guardrail check enforces.
-  Run that check and follow its diagnostic; the contract lives in the [rule catalogue](../setup-repository-guardrails/assets/guardrail-rules.json).
+  Run that check and follow its diagnostic; the contract lives in the [rule catalogue](../setup-repository-guardrails/assets/python-reference/omp_guardrails/data/guardrail-rules.json).
 - Runbook: [Start here](references/tiers.md)
 
 ## 2. Choose what to test

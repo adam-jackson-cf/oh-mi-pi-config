@@ -253,6 +253,10 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
+- `agent/skills/setup-repository-guardrails/` — repository guardrail setup. Its
+  `omp-guardrails` Python reference ships the rule catalogue
+  (`omp_guardrails/data/guardrail-rules.json`); repositories install it pinned
+  and keep no catalogue, validator or hash copies.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.

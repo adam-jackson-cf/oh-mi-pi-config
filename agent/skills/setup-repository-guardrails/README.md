@@ -42,8 +42,8 @@ either the full runner job or an always-running aggregate
 depending on every parallel tier job of that runner. The aggregate passes only
 when every tier succeeded; failure, cancellation, or skipping any tier must fail
 the required context. New rules enforce dependency direction, folder ownership, naming, test
-placement, fast-tier and per-test budgets, justified test growth, duplicate
-call-path/assertion detection, and required host checks. Test-guidance v2 rules add
+placement, fast-tier and per-test budgets, justified test growth and duplicate
+call-path/assertion detection. Test-guidance v2 rules add
 profile completeness, test-file names, tier selectors, no self-mocking, no test hooks, no
 evasion, fast-tier isolation, the user-data guard, the coverage ratchet, golden change
 records, identity artefacts, property seeds, mutation sensitivity and the verification
@@ -53,8 +53,9 @@ based on at least five baseline runs. The first limit and raises need owner appr
 limit. Budgets apply to the local commit gate only: CI never measures or reports test
 timing. Missing, invalid or stale reports are fatal; an unapproved machine reports only
 and prompts to record a baseline.
-Supported hosts enable auto-merge and rebase-merge. Existing Step 5 approval
-remains the boundary before any repository mutation.
+The catalogue holds no host branch-protection rule: rails check the required
+context on the exact head before merge. Existing Step 5 approval remains the
+boundary before any repository mutation.
 
 ## Reference implementation and `init`
 
@@ -74,56 +75,58 @@ Repositories configure and pin it; they never copy or edit it.
   `--dynaflows-contract N`; `adopt` and `extend` raise a lower value, none lowers it.
 - Per-repo settings live in the front matter of `.omp/test-profile.md`. Shared
   style rules live in the reference's `omp_guardrails/data/house-style.json`.
+- The rule catalogue ships inside the package
+  (`omp_guardrails/data/guardrail-rules.json`), so the pinned version decides
+  which rules apply. A repository keeps no catalogue copy, no validator copy,
+  no provenance file and no catalogue hash; upgrading is a one-line pin bump.
 - Each catalogue row the reference implements has a `reference` field naming
-  the `omp-guardrails` subcommand and module. The target still proves the rule
-  through its ledger row and canaries.
+  the `omp-guardrails` subcommand and module. Those rows, and every
+  `kind: "tool"` row, are proven once by this skill's own test suite; the
+  repository records no ledger row and no canary for them.
+- A row's optional `aliases` lists retired rule IDs it absorbed, so older
+  evidence and guidance that cite them resolve to the current rule.
 - A test framework without an adapter gets one through
   [adapter authoring](references/adapter-authoring.md), accepted by a
   deterministic conformance run.
 
 ## Coverage evidence kinds
 
-The catalog selects each rule's `evidence_kind`; ledger rows must match it. An
-omitted kind means `local_ci`. All catalog IDs must have a ledger row; `blocked`
-rows are plans, never enforcement evidence.
+Only repository checkers have ledger rows: code a repository writes because
+the pinned package does not implement the rule. The ledger is
+`.omp/rule-coverage.json` with `schema_version` 2. A repository with no such
+checker needs no ledger file.
+
+- An `always` catalogue rule that no tool or `reference` module enforces needs
+  exactly one row. A `conditional` one without a row is not adopted.
+- A row for a rule the package proves is an error; remove it.
+- A repository-local rule (an ID outside the catalogue) declares
+  `"local": true` and picks its own evidence kind.
+
+The catalogue selects each rule's `evidence_kind`; the row must match it. An
+omitted kind means `local_ci`.
 
 - `local_ci`: require existing `implementation_paths`, `local_runner` and
   `local_marker`, `ci_runner` and `ci_marker`, plus a `canary` with argv
-  `command` using `{fixture}`, `passing` and `violating` fixture paths, and a
-  `diagnostic`. Tool rules also require `configuration.path` and nonempty
-  `configuration.contains` assertions.
-- `git_hook`: require implementation paths, the local runner/marker, and the
-  same passing/violating canary, but no fictitious CI invocation. Add
-  `hook_install_check` with argv `command` and `diagnostic`. This command must
-  inspect the installed hook/manager wiring in an isolated checkout, fail if
-  absent or miswired, and print the diagnostic only on successful installation
-  proof. Canaries must exercise actual commits/pushes there and prove failure
-  propagation, without publishing to a protected remote.
-- `host_query`: require `host_query.path` pointing to a recorded JSON object
-  with the actual query argv `command`, integer `exit_code`, and strings
-  `stdout` and `stderr`. Add nonempty `host_query.contains` output assertions
-  proving the approved settings. Implemented host rules require exit 0 and
-  assertions in stdout; no local/CI runner or `{fixture}` canary is claimed.
-  Record the repository, resolved default branch, query time and verified head
-  alongside the query so the owner can assess its scope and freshness.
+  `command` using `{fixture}`, existing `passing` and `violating` fixture
+  paths, a `diagnostic`, and an optional `timeout_seconds`.
+- `git_hook`: require implementation paths, the local runner and marker, and
+  the same canary, but no fictitious CI invocation. Add `hook_install_check`
+  with argv `command` and `diagnostic`. This command must inspect the installed
+  hook or hook-manager wiring in an isolated checkout, fail if it is absent or
+  miswired, and print the diagnostic only on successful installation proof.
 
-A conditional rule may instead be `not_applicable` only with a concrete
-`reason`, `user_approval: "approved"`, and evidence. For host rules, keep the
-same `host_query` record and assertions over stdout/stderr, including failed
-queries such as HTTP 403 for protection unavailable on GitHub Free private
-repositories. Other conditional exclusions use `evidence_path` and
-`evidence_marker`. An unsupported host setting is an approved exclusion, not a
-claim that protection was installed; it does not waive existing CI checks.
-Offline host-setting fixtures are still useful checker tests, but cannot replace
-this live readback evidence.
+`omp-guardrails rule-evidence` checks the rows without running anything.
+`omp-guardrails rule-coverage` also runs each row's canary and hook
+installation check. It spawns processes, so it runs in `checks.ci` or during
+setup, never in `checks.commit`; `init` keeps it out of the commit gate.
 
-`--structure-only` checks planned evidence without executing hook-install checks
-or canaries. It is never final proof.
+A stack without a skill reference has no package to prove its rules. It proves
+every applicable rule with its own checkers and canaries, using the same row
+shape.
 
 ## References
 
-- [Bundled rule contract](assets/guardrail-rules.json)
+- [Bundled rule contract](assets/python-reference/omp_guardrails/data/guardrail-rules.json)
 - [Python reference implementation](assets/python-reference/README.md)
 - [Adapter authoring](references/adapter-authoring.md)
 - [Coverage ledger shape](assets/coverage-ledger.example.json)
-- [Rule coverage validator](scripts/validate_rule_coverage.py)
