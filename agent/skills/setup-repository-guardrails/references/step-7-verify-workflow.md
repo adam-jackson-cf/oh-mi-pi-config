@@ -39,8 +39,8 @@ execution.
    limits and raises need owner approval; unapproved machines prompt for a
    baseline and report timing only. Missing, invalid or stale reports and
    missing measurements fail. For `TEST.growth.justified`, accept a new
-   file/case mapped to changed source and behavior; reject unmapped or
-   unresolved mappings with the test name and map-or-remove fix. For
+   test function with an inline `behaviour:` comment; reject a missing or
+   placeholder comment with the test name and comment-or-remove fix. For
    `TEST.duplicate-path`, accept distinct fingerprints and reject a new case
    sharing an existing/other new case's call path and assertion; require both
    names and merge-or-remove fix. With a reference, the skill's own tests

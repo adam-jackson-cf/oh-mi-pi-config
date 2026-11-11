@@ -54,11 +54,12 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    test is slow.
 4. Prepare diff-aware checks for `TEST.growth.justified` and
    `TEST.duplicate-path`. With the reference, `omp-guardrails diff-check`
-   implements both; configure the behaviour map path if the default
-   `.omp/test-behavior-map.json` does not suit. Without one, compare against
-   the recorded base ref; detect added files and cases, including parameter
-   rows. Require a machine-readable mapping to changed source and behavior;
-   reject absent/unresolved mappings, naming the test and map-or-remove fix.
+   implements both. Without one, compare against the recorded base ref and
+   detect added test functions. Require one inline `behaviour:` comment per
+   new function in the language's comment syntax (Python `# behaviour:`,
+   JS/TS `// behaviour:`); parameter rows share it. Check presence and
+   non-placeholder text only; reject a missing or placeholder comment, naming
+   the test and comment-or-remove fix.
    Parse call paths and assertions into normalized fingerprints; reject
    duplicates against existing/other new cases, naming both cases and the
    merge-or-remove fix. Do not rely on filename similarity alone.
@@ -98,7 +99,7 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    prepare compliant/violating fixtures. The checker must accept the positive
    and reject the negative with its ID. Use, as the rule needs, valid/forbidden
    edges, correct/wrong destinations and names, below/over budget reports,
-   mapped/unmapped growth, distinct/duplicate fingerprints, matched/divergent
+   commented/uncommented growth, distinct/duplicate fingerprints, matched/divergent
    command arrays, working/bypassed hook failures and present/missing path
    commands. Never exercise a canary by weakening the real repository's
    protection. With a skill reference, tool rules and rules with a `reference`

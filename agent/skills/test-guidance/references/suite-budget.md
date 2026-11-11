@@ -13,7 +13,15 @@ Keep test growth justified, assertions singly owned and verification within appr
 ### TEST.growth.justified
 
 - Enforced by TEST.growth.justified (omp-guardrails diff-check).
-  Explain the coverage gap in the PR.
+- Give each new test function one inline behaviour comment in its language's comment syntax
+  (Python `# behaviour: <text>`, JS/TS `// behaviour: <text>`), inside the function or directly above it.
+  State the caller-visible behaviour the test proves; one comment covers every parameter row.
+  The check is presence only: missing, empty, `TBD` or `<...>` text fails.
+- Truthfulness is a Jev step, not part of the check: when reviewing a change set,
+  sample up to 20 new behaviour comments and ask per comment
+  "Does the stated behaviour match what the test asserts?".
+  When more than 2 sampled comments are vacuous, run native `judge_batch()` over every new comment
+  ([jev-actions](../../jev-actions/SKILL.md)) and rewrite or remove each test it rejects.
 - Prefer extending an existing case, except when DynaFlows proof freezing requires a dedicated file.
   A new file, internal branch or implementation detail is not a new behaviour.
 - Rewrite or delete tests that pass when their claimed behaviour breaks or fail only on harmless refactors,
