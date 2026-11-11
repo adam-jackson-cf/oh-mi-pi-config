@@ -96,6 +96,8 @@ reads as ordinary front matter. Checkers, `prove()` and `omp-guardrails profile-
   `line_floor` and `branch_floor` in percent.
 - `structure.tiers` may be an empty list while the code stays flat in one package.
 - `house_style.exceptions` may be an empty list; each entry needs an ADR reference.
+- Approval = the owner merges the PR that records it. Rails refuse an agent merge of a PR that adds
+  or changes an `approval`, `*_approval`, `approved_*` or `house_style.exceptions` record here.
 - `guardrails` holds per-checker settings such as `structure`, `naming` and `paths`; each
   checker's module documentation in the guardrails reference lists its settings.
 

@@ -133,14 +133,26 @@ type PrCiHarness = {
 	};
 };
 
-// Fakes `gh pr view` (and `gh pr list --search <sha>` for status posts); every other command runs for real.
+const ciBase = "c".repeat(40);
+// Guardrail file contents served by the fake contents API, keyed by ref then repo-relative path.
+type Contents = Record<string, Record<string, string>>;
+// Fakes `gh pr view`, `gh pr list --search <sha>` (status posts) and `gh api .../contents/<path>?ref=<sha>`
+// (the approval guard; absent files answer HTTP 404); every other command runs for real.
 function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: string, failure?: string,
-	url = "https://github.com/owner/repo/pull/3", listed: object[] = [{ number: 3, headRefOid: head }]) {
+	url = "https://github.com/owner/repo/pull/3", listed: object[] = [{ number: 3, headRefOid: head }], contents: Contents = {}) {
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
 		assert.equal(options.cwd, h.root);
 		assert.equal(options.timeout, 20000);
+		if (args[0] === "api" && args.at(-1)?.includes("/contents/")) {
+			assert.deepEqual(args.slice(0, 3), ["api", "-H", "Accept: application/vnd.github.raw+json"]);
+			const match = /^repos\/[^/]+\/[^/]+\/contents\/(.+)\?ref=([0-9a-f]{40})$/.exec(args[3]);
+			assert.ok(match, args[3]);
+			const text = contents[match[2]]?.[match[1]];
+			return text === undefined ? { code: 1, killed: false, stdout: "", stderr: "gh: Not Found (HTTP 404)" }
+				: { code: 0, killed: false, stdout: text, stderr: "" };
+		}
 		if (args[1] === "list") {
 			assert.match(args[3], /^[0-9a-f]{40}$/);
 			assert.deepEqual(args, ["pr", "list", "--search", args[3], "--state", "open", "--json", "number,headRefOid"]);
@@ -151,7 +163,7 @@ function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: st
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ baseRefOid: ciBase, headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 
@@ -779,10 +791,12 @@ for (const scenario of [
 		{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" },
 	] },
 	{ name: "success as CheckRun", rollup: [{ __typename: "CheckRun", name: "gate", status: "COMPLETED", conclusion: "SUCCESS" }] },
-	{ name: "success but another check red", rollup: [
+	// Only the declared context decides: optional checks, red or pending, never block.
+	{ name: "success while other checks are red or pending", rollup: [
 		{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
 		{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" },
-	], fragment: "CI is not green for" },
+		{ __typename: "StatusContext", context: "docs-preview", state: "PENDING" },
+	] },
 ] as const) {
 	for (const action of ["status post", "merge"] as const) {
 		test(`required context ${action}: ${scenario.name}`, async () => {
@@ -799,14 +813,105 @@ for (const scenario of [
 				if ("state" in scenario) {
 					assert.equal(result?.block, true, "the required context must block");
 					assert.equal(result?.reason, requiredRefusal(scenario.state));
-				} else if ("fragment" in scenario) {
-					assert.equal(result?.block, true, "other red checks still block");
-					assert.ok(result?.reason?.includes(scenario.fragment), result?.reason);
 				} else assert.equal(result, undefined);
 			} finally { h.cleanup(); }
 		});
 	}
 }
+
+test("without a ci block every reported check still decides the merge", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(true);
+		passMarker(h);
+		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
+			{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }, verified], ciHead, "3");
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		assert.equal(result?.block, true);
+		assert.ok(result?.reason?.includes(`CI is not green for ${ciHead}: lint: COMPLETED/FAILURE`), result?.reason);
+	} finally { h.cleanup(); }
+});
+
+// Owner-approval guard: the owner's own merge is the approval act, so an agent merge whose PR adds
+// or changes an approval field is handed to the owner. Contents are served at the PR base and head.
+type Approved = { approval: string };
+type ProfileFixture = {
+	guardrails: {
+		test_evidence: { approved_skips: (Approved & { id: string; reason: string })[]; slow_ms: number };
+		coverage_ratchet: { approvals: (Approved & { path: string })[] };
+	};
+	verification_surface: Approved & { none: string };
+	fast_tier_budget: { machines: (Approved & { id: string; wall_s: number })[] };
+	house_style: { version: number; exceptions: { rule: string; path: string; adr: string }[] };
+};
+const profile = (values: ProfileFixture) => `---\n${JSON.stringify(values, null, 2)}\n---\n\n# Test profile\n`;
+const skip = { id: "tests/test_vendor.py::*", reason: "vendor outage", approval: "owner 2026-11-01" };
+const baseProfile: ProfileFixture = {
+	guardrails: { test_evidence: { approved_skips: [skip], slow_ms: 200 }, coverage_ratchet: { approvals: [] } },
+	verification_surface: { none: "library only", approval: "owner 2026-10-01" },
+	fast_tier_budget: { machines: [{ id: "m1", wall_s: 30, approval: "owner 2026-10-02" }] },
+	house_style: { version: 1, exceptions: [] },
+};
+const ledger = (rows: object[]) => JSON.stringify({ schema_version: 1, rules: rows });
+const ledgerRow = { id: "GATE.pre-commit", evidence_kind: "git_hook", status: "implemented" };
+const approvedRow = { id: "PRETTIER.version", status: "not_applicable", user_approval: "approved", reason: "r", evidence_path: "readme.md", evidence_marker: "m" };
+const gateJson = JSON.stringify({ schemaVersion: 2, ci: ciGate });
+const baseFiles = { ".omp/test-profile.md": profile(baseProfile), ".omp/rule-coverage.json": ledger([ledgerRow]), ".omp/gate.json": gateJson };
+const withProfile = (change: (value: ProfileFixture) => void) => {
+	const value = structuredClone(baseProfile);
+	change(value);
+	return { ...baseFiles, ".omp/test-profile.md": profile(value) };
+};
+for (const scenario of [
+	{ name: "added approved skip", head: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: ".omp/test-profile.md guardrails.test_evidence.approved_skips[]" },
+	{ name: "widened approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips[0].id = "tests/**"; }), field: "approved_skips[]" },
+	{ name: "changed exemption approval", head: withProfile(value => { value.verification_surface.approval = "agent says ok"; }), field: ".omp/test-profile.md verification_surface" },
+	{ name: "added coverage ratchet approval", head: withProfile(value => { value.guardrails.coverage_ratchet.approvals = [{ path: "src/**", approval: "ok" }]; }), field: "guardrails.coverage_ratchet.approvals[]" },
+	{ name: "raised approved machine budget", head: withProfile(value => { value.fast_tier_budget.machines[0].wall_s = 90; }), field: "fast_tier_budget.machines[]" },
+	{ name: "added house style exception", head: withProfile(value => { value.house_style.exceptions = [{ rule: "TEST.no-evasion", path: "tests/x.py", adr: "adr/1.md" }]; }), field: "house_style.exceptions[]" },
+	{ name: "added ledger user_approval row", head: { ...baseFiles, ".omp/rule-coverage.json": ledger([ledgerRow, approvedRow]) }, field: ".omp/rule-coverage.json rules[]" },
+	{ name: "approval field in gate.json", head: { ...baseFiles, ".omp/gate.json": JSON.stringify({ schemaVersion: 2, ci: ciGate, approved_contexts: ["lint"] }) }, field: ".omp/gate.json approved_contexts[]" },
+	{ name: "new profile with an approval", base: {}, head: baseFiles, field: "approved_skips[]" },
+	{ name: "unreadable head profile", head: { ...baseFiles, ".omp/test-profile.md": "# no front matter\n" }, field: ".omp/test-profile.md (unreadable at head" },
+	{ name: "removed approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips = []; }) },
+	{ name: "non-approval profile change", head: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
+	{ name: "unchanged files", head: baseFiles },
+	{ name: "no guardrail files", base: {}, head: {} },
+] as const) {
+	test(`merge approval guard: ${scenario.name}`, async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.dynaflows(false);
+			h.gate({ schemaVersion: 2, ci: ciGate });
+			const base = "base" in scenario ? scenario.base : baseFiles;
+			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }, verified], ciHead, "3",
+				undefined, undefined, undefined, { [ciBase]: { ...base }, [ciHead]: { ...scenario.head } });
+			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+			if ("field" in scenario) {
+				assert.equal(result?.block, true, "an approval change is the owner's merge");
+				assert.ok(result?.reason?.includes(scenario.field), result?.reason);
+				assert.ok(result?.reason?.includes("do not merge it yourself; hand the PR to the owner"), result?.reason);
+			} else assert.equal(result, undefined);
+		} finally { h.cleanup(); }
+	});
+}
+
+test("merge approval guard fails closed when gh cannot read a guardrail file", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.gate({ schemaVersion: 2, ci: ciGate });
+		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }, verified], ciHead, "3");
+		const exec = h.api.exec.bind(h.api);
+		h.api.exec = async (command, args, options) => command === "gh" && args[0] === "api"
+			? { code: 1, killed: false, stdout: "", stderr: "HTTP 502" } : exec(command, args, options);
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		assert.equal(result?.block, true);
+		assert.ok(result?.reason?.includes("cannot read .omp/gate.json"), result?.reason);
+	} finally { h.cleanup(); }
+});
 
 test("ci-runner commands come from the extension's own location, never a host literal", async () => {
 	const source = readFileSync(join(import.meta.dir, "../agent/extensions/agent-rails.ts"), "utf8");
@@ -886,7 +991,7 @@ test("PR query contract: requests the PR URL", async () => {
 			return exec(command, args, options);
 		};
 		await h.call("bash", { command: statusPost() });
-		assert.equal(fields, "headRefOid,statusCheckRollup,url");
+		assert.equal(fields, "baseRefOid,headRefOid,statusCheckRollup,url");
 	} finally { h.cleanup(); }
 });
 

@@ -70,7 +70,7 @@ a changed/listed path alone is not a blocker. The canonical `BLOCKING_RULE` gove
 With dynaflows on, a passing `prove()` posts it after writing the pass marker; main does not post it by hand.
 Otherwise, only after risk-tier verification and exact-head CI pass, main posts it:
 `gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified`.
-Rails allow posting it only when the declared required context passes on that exact PR head with no other red checks,
-plus a valid exact-head pass marker with dynaflows on, and they block adding an `agent-verified` label.
+Rails allow posting it only when the declared required context passes on that exact PR head (with `ci` declared, only
+that context decides; without it, every reported check must be green), plus a valid exact-head pass marker with dynaflows on, and they block adding an `agent-verified` label.
 Never hand-write a pass marker.
 Main proceeds to [merge-and-recover](merge-and-recover.md), where CI is checked again at the merge boundary.
