@@ -107,9 +107,11 @@ Approval = the owner merges the PR that records it. A single owner cannot approv
 merge is the only checkable approval act. Guardrail approval fields (`approved_skips`, profile exemption `approval`,
 `guardrails.coverage_ratchet.approvals`, rule-coverage `user_approval`, `fast_tier_budget.machines` approvals,
 `house_style.exceptions`, and any field named `approval`, `*_approval` or `approved_*`) live in `.omp/gate.json`,
-`.omp/test-profile.md` front matter and `.omp/rule-coverage.json`. Rails compare those files at the PR base and exact head
-before every agent `gh pr merge`, whether or not the repo declares `ci` or turns dynaflows on, and refuse a merge that
-adds or changes an approval record; removals stay mergeable. A PR that rails cannot read also refuses the merge.
+`.omp/test-profile.md` front matter and the rule-coverage ledger. The ledger is the file that the profile's
+`guardrails.rule_evidence.ledger` names at each ref, else `.omp/rule-coverage.json`. Rails compare those files at the
+PR base and exact head before every agent `gh pr merge`, whether or not the repo declares `ci` or turns dynaflows on.
+They compare the base ledger with the head ledger, so moving the ledger to a file with new approved rows counts as adding them.
+Rails refuse a merge that adds or changes an approval record; removals stay mergeable. A PR that rails cannot read also refuses the merge.
 On that refusal, do not retry or split the change to evade it: leave the PR open with green CI and `agent-verified`,
 report it to the owner as awaiting owner merge, and continue with unrelated work. The field list lives in `approvalFields`
 in `agent/extensions/agent-rails.ts`.
