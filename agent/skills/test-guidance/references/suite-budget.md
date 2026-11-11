@@ -12,7 +12,8 @@ Keep test growth justified, assertions singly owned and verification within appr
 
 ### TEST.growth.justified
 
-- Map each new test to an added or altered caller-visible behaviour and explain the coverage gap in the PR.
+- Enforced by TEST.growth.justified (omp-guardrails diff-check).
+  Explain the coverage gap in the PR.
 - Prefer extending an existing case, except when DynaFlows proof freezing requires a dedicated file.
   A new file, internal branch or implementation detail is not a new behaviour.
 - Rewrite or delete tests that pass when their claimed behaviour breaks or fail only on harmless refactors,
@@ -20,6 +21,7 @@ Keep test growth justified, assertions singly owned and verification within appr
 
 ### TEST.duplicate-path
 
+- Enforced by TEST.duplicate-path (omp-guardrails diff-check).
 - Apply [tiers.md](tiers.md) Assertion ownership; keep exact caller values at the public entry point
   or in pure-core properties, never internal decision tests. Shared setup does not justify duplicate assertions.
 

@@ -18,7 +18,12 @@ FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.j
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.python_policy import fanout, quality, scalability  # noqa: E402
+from omp_guardrails.python_policy import (  # noqa: E402
+    fanout,
+    quality,
+    scalability,
+    subprocess_timeouts,
+)
 
 CHECKERS = {"quality": quality, "scalability": scalability, "fanout": fanout}
 
@@ -195,6 +200,79 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(code, cli.main([name, "--repo", str(repo.path)]))
             if code:
                 self.assertIn("src/shop/utils.py: PYQ104:", out.getvalue())
+
+
+HYGIENE_PROFILE = {
+    "layout": {"test_file_patterns": ["test_*.py"]},
+    "tiers": {"t2": {"location": "tests/boundary"}},
+}
+
+
+class SubprocessTimeoutTests(unittest.TestCase):
+    """TEST.subprocess-timeouts over the profile's Python test files."""
+
+    def repo(self, files: dict[str, str]) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name)
+        subprocess.run(["git", "init", "-q", str(path)], check=True)
+        for relpath, text in files.items():
+            target = path / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        return path
+
+    def check(self, files: dict[str, str], profile: dict = HYGIENE_PROFILE) -> list:
+        return subprocess_timeouts.run(self.repo(files), profile, [])
+
+    def test_bounded_process_calls_pass(self) -> None:
+        bounded = (
+            "import asyncio\nimport subprocess as sp\nfrom subprocess import Popen\n\n\n"
+            "def test_sync():\n    sp.run(['true'], timeout=5, check=True)\n\n\n"
+            "def test_popen():\n    with Popen(['cat']) as proc:\n        proc.communicate(b'', 5)\n\n\n"
+            "async def test_async():\n"
+            "    proc = await asyncio.create_subprocess_exec('true')\n"
+            "    await asyncio.wait_for(proc.wait(), timeout=5)\n\n\n"
+            "def test_unrelated(client):\n    client.run()\n    client.wait()\n"
+        )
+        self.assertEqual(self.check({"tests/unit/test_proc.py": bounded}), [])
+
+    def test_unbounded_process_calls_are_reported_by_line(self) -> None:
+        unbounded = (
+            "import asyncio\nimport subprocess\n\n\n"
+            "def test_sync():\n    subprocess.check_output(['true'])\n\n\n"
+            "def test_zero():\n    subprocess.run(['true'], timeout=0)\n\n\n"
+            "def test_popen():\n    proc = subprocess.Popen(['cat'])\n    proc.wait()\n\n\n"
+            "async def test_async():\n"
+            "    proc = await asyncio.create_subprocess_exec('true')\n    await proc.wait()\n"
+        )
+        findings = self.check({"tests/boundary/test_proc.py": unbounded})
+        self.assertEqual(
+            sorted(item.message.split(":", 1)[0] for item in findings),
+            ["line 10", "line 15", "line 20", "line 6"],
+        )
+        self.assertTrue(all(item.rule_id == "TEST.subprocess-timeouts" for item in findings))
+        self.assertIn("positive timeout", findings[0].fix)
+
+    def test_only_test_files_are_checked_and_conftest_counts(self) -> None:
+        call = "import subprocess\nsubprocess.run(['true'])\n"
+        findings = self.check(
+            {"src/shop/process.py": call, "tests/conftest.py": call, "tests/unit/helper.py": call}
+        )
+        self.assertEqual(rules_at(findings), {("TEST.subprocess-timeouts", "tests/conftest.py")})
+
+    def test_unparsable_test_file_is_reported(self) -> None:
+        findings = self.check({"tests/unit/test_bad.py": "def test_x(:\n"})
+        self.assertEqual(rules_at(findings), {("TEST.subprocess-timeouts", "tests/unit/test_bad.py")})
+
+    def test_cli_runs_python_test_hygiene(self) -> None:
+        path = self.repo({"tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"})
+        profile = path / ".omp/test-profile.md"
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text(f"---\n{json.dumps(HYGIENE_PROFILE)}\n---\n")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(1, cli.main(["python-test-hygiene", "--repo", str(path)]))
+        self.assertIn("tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:", out.getvalue())
 
 
 if __name__ == "__main__":

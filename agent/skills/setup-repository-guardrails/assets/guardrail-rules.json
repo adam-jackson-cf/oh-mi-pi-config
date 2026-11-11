@@ -123,7 +123,10 @@
         "unmapped_test_is_failure": true,
         "diagnostic_names_test_and_map_or_remove_fix": true
       },
-      "summary": "Require every added test file and case to map to a changed behavior."
+      "summary": "Require every added test file and case to map to a changed behavior.",
+      "reference": [
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.growth"}
+      ]
     },
     {
       "id": "TEST.duplicate-path",
@@ -137,7 +140,10 @@
         "duplicate_fingerprint_is_failure": true,
         "diagnostic_names_both_tests_and_merge_or_remove_fix": true
       },
-      "summary": "Reject new tests duplicating an existing call path and assertion."
+      "summary": "Reject new tests duplicating an existing call path and assertion.",
+      "reference": [
+        {"subcommand": "diff-check", "module": "omp_guardrails.diffs.growth"}
+      ]
     },
     {
       "id": "GATE.local-ci-parity",
@@ -1185,8 +1191,17 @@
       "id": "TEST.subprocess-timeouts",
       "kind": "process",
       "applicability": "conditional",
-      "contract": {},
-      "summary": "Bound subprocess calls in tests and keep failure output diagnosable."
+      "contract": {
+        "scope": "test_files_and_shared_fixtures",
+        "synchronous_process_call_requires_positive_timeout": true,
+        "process_wait_or_communicate_requires_positive_timeout": true,
+        "async_process_wait_requires_bounded_wait": true,
+        "diagnostic_names_file_line_and_timeout_fix": true
+      },
+      "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
+      "reference": [
+        {"subcommand": "python-test-hygiene", "module": "omp_guardrails.python_policy.subprocess_timeouts"}
+      ]
     },
     {
       "id": "TEST.tiers",

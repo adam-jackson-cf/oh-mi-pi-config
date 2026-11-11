@@ -43,7 +43,10 @@
     "fixtures_dir": "tests/fixtures",
     "test_file_patterns": ["test_*.py"]
   },
-  "command_notes": {"working_directory": "repository root after uv sync"},
+  "command_notes": {
+    "working_directory": "repository root after uv sync",
+    "interpretation": "exit 0 passes; exit 1 lists findings"
+  },
   "adapter": "pytest",
   "structure": {
     "owners": {"directories": {"src/ledger/": "ledger"}},

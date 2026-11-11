@@ -8,7 +8,8 @@ library's ``json`` module and needs no YAML parser. The human sections follow th
 PROFILE.complete: every required value is present and real. Template placeholders
 (``<...>``), ``n/a``, ``TBD``, empty values and a bare ``none`` count as missing. Only
 ``verification_surface``, ``run_events.nightly_scheduler`` and ``identity_artefacts`` may be
-``{"none": "<reason>", "approval": "<reference>"}``, and only with both fields filled.
+``{"none": "<reason>", "approval": "<reference>"}``, and only with both fields filled. A
+``null`` anywhere inside a free-form value counts as missing too.
 """
 
 from __future__ import annotations
@@ -81,7 +82,9 @@ def parse_front_matter(text: str) -> dict:
 # Leaf kinds: text (one real string), texts (a string or a non-empty list of strings),
 # percent (0..100), positive (> 0), integer, map (non-empty object), object (any object),
 # value (any non-empty value), list (a list, possibly empty). A tuple ("records", spec) is a
-# non-empty list of objects matching spec; ("optional_records", spec) may be empty.
+# non-empty list of objects matching spec; ("optional_records", spec) may be empty. A section key
+# ending in OPTIONAL_MARK may be left out; when present its value is checked like any other.
+OPTIONAL_MARK = "?"
 MACHINE = {
     "id": "text",
     "platform": "text",
@@ -121,7 +124,8 @@ SCHEMA: dict[str, Any] = {
     "ownership_areas": {"map": "map", "affected_t2_selection": "text"},
     "identity_artefacts": "value",
     "layout": {"support_dir": "text", "fixtures_dir": "text", "test_file_patterns": "texts"},
-    "command_notes": "value",
+    # ``lsp`` is written by ``omp-guardrails init``; the other two are the owner's notes.
+    "command_notes": {"working_directory": "text", "interpretation": "text", "lsp?": "value"},
     "adapter": "text",
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer", "exceptions": ("optional_records", EXCEPTION)},
@@ -204,10 +208,13 @@ def check_section(value: object, spec: dict, key: str, problems: list[tuple[str,
     if not isinstance(value, dict):
         problems.append((key, "is missing" if value is None else "must be an object"))
         return
-    for extra in sorted(set(value) - set(spec)):
+    names = {child.removesuffix(OPTIONAL_MARK): child for child in spec}
+    for extra in sorted(set(value) - set(names)):
         problems.append((f"{key}.{extra}", "is not a profile key; remove it or fix its spelling"))
-    for child, child_spec in spec.items():
-        check_value(value.get(child), child_spec, f"{key}.{child}", problems)
+    for name, child in names.items():
+        if child.endswith(OPTIONAL_MARK) and name not in value:
+            continue
+        check_value(value.get(name), spec[child], f"{key}.{name}", problems)
 
 
 def check_records(value: object, spec: tuple, key: str, problems: list[tuple[str, str]]) -> None:
@@ -265,7 +272,9 @@ def number_problem(value: object, kind: str) -> str | None:
 
 
 def placeholder_problem(value: object) -> str | None:
-    """Nested free-form values may not carry placeholders or bare sentinels anywhere."""
+    """Nested free-form values may not carry nulls, placeholders or bare sentinels anywhere."""
+    if value is None:
+        return "holds a null value"
     if isinstance(value, dict):
         for item in [*value.keys(), *value.values()]:
             problem = placeholder_problem(item)

@@ -22,6 +22,7 @@ from omp_guardrails.diffs import (  # noqa: E402
     affected,
     coverage_ratchet,
     golden_record,
+    growth,
     identity_artefacts,
     timeouts,
 )
@@ -494,6 +495,159 @@ class AffectedSelectionTests(unittest.TestCase):
                 "-m boundary -- journeys/checkout.journey.py tests/boundary/test_cart_flow.py",
             ],
         )
+
+
+GROWTH_PROFILE = {**BASE_PROFILE, "adapter": "pytest"}
+MAP_PATH = ".omp/test-behavior-map.json"
+CART_TEST = (
+    "from shop.cart import total\n\n\n"
+    "def test_empty_cart_totals_zero():\n    assert total([]) == 0\n"
+)
+
+
+def behaviour_map(entries: dict[str, str], source: str = "src/shop/cart.py") -> str:
+    tests = {selector: {"source": source, "behavior": text} for selector, text in entries.items()}
+    return json.dumps({"schemaVersion": 1, "tests": tests})
+
+
+class TestGrowthTests(unittest.TestCase):
+    """TEST.growth.justified and TEST.duplicate-path through the pytest static collector."""
+
+    def setUp(self) -> None:
+        self.repo = FixtureRepo(self)
+        self.base = self.repo.commit(
+            {"src/shop/cart.py": "def total(items):\n    return 0\n", "tests/unit/test_cart.py": CART_TEST},
+            GROWTH_PROFILE,
+        )
+
+    def check(self, profile: dict = GROWTH_PROFILE) -> list:
+        return growth.run(self.repo.path, profile, ["--base", self.base])
+
+    def test_mapped_growth_with_a_changed_source_passes(self) -> None:
+        self.repo.commit(
+            {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                "tests/unit/test_cart.py": CART_TEST
+                + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n",
+                MAP_PATH: behaviour_map(
+                    {"tests/unit/test_cart.py::test_items_are_summed": "totals sum the items"}
+                ),
+            }
+        )
+        self.assertEqual(self.check(), [])
+
+    def test_unmapped_growth_and_missing_map_are_reported(self) -> None:
+        self.repo.commit(
+            {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                "tests/unit/test_cart.py": CART_TEST
+                + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n",
+            }
+        )
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.growth.justified", MAP_PATH)])
+        self.repo.commit({MAP_PATH: behaviour_map({})})
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")])
+        self.assertIn("test_items_are_summed has no behaviour map entry", findings[0].message)
+        self.assertIn("map or remove", findings[0].fix)
+
+    def test_mapping_to_an_unchanged_source_or_placeholder_behaviour_is_reported(self) -> None:
+        added = "tests/unit/test_cart.py::test_items_are_summed"
+        body = CART_TEST + "\n\ndef test_items_are_summed():\n    assert total([1, 2]) == 3\n"
+        for name, files in {
+            "unchanged source": {MAP_PATH: behaviour_map({added: "totals sum the items"})},
+            "placeholder": {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                MAP_PATH: behaviour_map({added: "<behaviour>"}),
+            },
+        }.items():
+            with self.subTest(name=name):
+                repo = FixtureRepo(self)
+                base = repo.commit(
+                    {"src/shop/cart.py": "def total(items):\n    return 0\n",
+                     "tests/unit/test_cart.py": CART_TEST},
+                    GROWTH_PROFILE,
+                )
+                repo.commit({"tests/unit/test_cart.py": body, **files})
+                findings = growth.run(repo.path, GROWTH_PROFILE, ["--base", base])
+                self.assertEqual(
+                    rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")]
+                )
+
+    def test_each_parameter_row_is_growth_with_pytest_ids(self) -> None:
+        rows = (
+            "import pytest\nfrom shop.cart import total\n\n\n"
+            "@pytest.mark.parametrize('items, expected', [([1], 1), ([2], 2)])\n"
+            "def test_total(items, expected):\n    assert total(items) == expected\n"
+        )
+        self.repo.commit(
+            {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                "tests/unit/test_rows.py": rows,
+                MAP_PATH: behaviour_map(
+                    {
+                        "tests/unit/test_rows.py": "totals sum the items",
+                        "tests/unit/test_rows.py::test_total": "totals sum the items",
+                        "tests/unit/test_rows.py::test_total[items0-1]": "one item totals itself",
+                    }
+                ),
+            }
+        )
+        findings = self.check()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("tests/unit/test_rows.py::test_total[items1-2]", findings[0].message)
+
+    def test_duplicate_call_path_and_assertion_is_reported_with_both_names(self) -> None:
+        renamed = "def test_no_items_total_zero():\n    assert total([]) == 0\n"
+        self.repo.commit(
+            {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                "tests/unit/test_cart_again.py": "from shop.cart import total\n\n\n" + renamed,
+                MAP_PATH: behaviour_map(
+                    {
+                        "tests/unit/test_cart_again.py": "an empty cart is zero",
+                        "tests/unit/test_cart_again.py::test_no_items_total_zero": "zero",
+                    }
+                ),
+            }
+        )
+        findings = self.check()
+        self.assertEqual(rules(findings), [("TEST.duplicate-path", "tests/unit/test_cart_again.py")])
+        self.assertIn("tests/unit/test_cart.py::test_empty_cart_totals_zero", findings[0].message)
+        self.assertIn("merge or remove", findings[0].fix)
+
+    def test_distinct_assertions_are_not_duplicates(self) -> None:
+        self.repo.commit(
+            {
+                "src/shop/cart.py": "def total(items):\n    return sum(items)\n",
+                "tests/unit/test_cart.py": CART_TEST
+                + "\n\ndef test_one_item():\n    assert total([4]) == 4\n",
+                MAP_PATH: behaviour_map({"tests/unit/test_cart.py::test_one_item": "one item"}),
+            }
+        )
+        self.assertEqual(self.check(), [])
+
+    def test_dynamic_rows_in_a_changed_test_are_reported(self) -> None:
+        self.repo.commit(
+            {
+                "tests/unit/test_cart.py": CART_TEST.replace(
+                    "def test_empty", "@pytest.mark.parametrize('x', rows())\ndef test_empty"
+                ).replace("from shop", "import pytest\nfrom shop"),
+            }
+        )
+        findings = self.check()
+        self.assertIn(("TEST.growth.justified", "tests/unit/test_cart.py"), rules(findings))
+        self.assertTrue(any("cannot collect tests statically" in f.message for f in findings))
+
+    def test_no_changed_tests_needs_no_adapter_and_no_map(self) -> None:
+        self.repo.commit({"src/shop/cart.py": "def total(items):\n    return 1\n"})
+        self.assertEqual(self.check({**BASE_PROFILE}), [])
+
+    def test_changed_tests_without_a_collector_adapter_are_reported(self) -> None:
+        self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
+        findings = self.check({**BASE_PROFILE, "adapter": "vitest"})
+        self.assertEqual(rules(findings), [("TEST.growth.justified", ".omp/test-profile.md")])
 
 
 class DiffCheckCliTests(unittest.TestCase):

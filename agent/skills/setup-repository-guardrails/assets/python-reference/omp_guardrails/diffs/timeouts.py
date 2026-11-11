@@ -3,8 +3,8 @@
 Over ``git diff <base> <head>`` the checker pairs each hunk's removed and added lines of every
 changed test file. Within one hunk, the n-th removed value of a timeout key and the n-th added
 value of the same key form a pair; an added value larger than its pair is a finding. A new
-timeout with no removed counterpart is not an increase (``TEST.subprocess-timeouts`` asks for
-them), and a removed timeout is not an increase either.
+timeout with no removed counterpart is not an increase (``TEST.subprocess-timeouts``, run by
+``python-test-hygiene``, asks for them), and a removed timeout is not an increase either.
 
 Test files are files under a tier ``location``, files matching ``layout.test_file_patterns``
 (the house-style defaults when the profile has none) and ``conftest.py`` files.
