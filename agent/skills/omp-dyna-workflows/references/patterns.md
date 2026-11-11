@@ -43,6 +43,10 @@ repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`
 `MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
 The entire draft and top-level inputs are validated before hashing or execution.
+When `.omp/gate.json` declares `checks.format`, freeze runs that formatter in the
+worktree before hashing. A nonzero exit fails freeze. The result lists files the
+formatter changed (from `git status`) so the writer commits them; hashes cover the
+formatted bytes.
 
 Generated frozen output (not a draft input):
 
@@ -98,6 +102,13 @@ Generated frozen output (not a draft input):
   intentionally persists. Setup or baseline-recording failure is infrastructure
   failure. Never clean the source checkout. Commands must defeat result caches,
   e.g. `go test -count=1`.
+- Optional `journey: true` marks a scripted journey proof. Freeze runs it 3 times
+  at head and requires identical pass/fail each time; otherwise it refuses with
+  `journey proof not stable over 3 clean runs`.
+- When `.omp/test-profile.md` front-matter declares
+  `verification_surface.doctor_marker`, freeze refuses an `expectRed` proof whose
+  red output contains that marker: the red came from the environment doctor, not
+  the behaviour. An absent profile or key skips this check.
 - Each proof's parent is always pinned, defaulting to manifest base. A regression
   added during review must explicitly name the defective implementation commit
   as its parent. Prove requires strict parent/head ancestry and parents at/after
@@ -132,7 +143,8 @@ Main calls this in Python eval. `repo` is the dedicated source worktree on a nam
 branch at `head`, even when main's session is in the primary checkout. Resolve the
 actual fetched PR target and require `parent == git merge-base(target_ref, head)`
 with strict ancestry, not `HEAD~1`. The helper checks consistency; git-tool owns
-confirming actual GitHub target metadata (including its NUC sync exception).
+confirming actual GitHub target metadata. Repository-specific target exceptions
+live in that repository's project context (`.omp/AGENTS.md`).
 
 Completed attempts append atomically to
 `<git-common-dir>/omp-prove/attempts/<head>.json` as
@@ -145,8 +157,18 @@ so their decisions land before proving dependent work.
 
 Head gate schema is validated before scratch trees/setup. Missing prerequisites
 route to SKILL's owner-approved project setup; an invalid parent gate is a visible
-`gateDiagnostics` entry and does not prevent a valid head repair. Prove runs no
-repository suites; hook/CI eligibility is main's responsibility under git-tool.
+`gateDiagnostics` entry and does not prevent a valid head repair. When the gate
+declares `checks.profile`, prove runs it first and blocks on a nonzero exit. Prove
+runs no other repository suites; hook/CI eligibility is main's responsibility
+under git-tool.
+
+Drift precheck: prove collects paths deleted or renamed in
+`git diff --name-status -M parent..head` and module-level symbols the diff removes
+(Python `def`/`class`, TS/JS `export` declarations). It runs `git grep -n -F` for
+each at head over tracked Markdown and code comments, excluding the changed files
+and change-record/ADR directories. Each hit becomes a `brief_checks` item the
+verifier must address. Hits do not block prove by themselves; the verifier brief
+has no separate stale-docs hunt.
 
 Prove validates manifest/file hashes, executes every head proof twice, repeats
 isolated baseline checks by kind and checks earlier commits touching proof files
@@ -218,9 +240,10 @@ the external bot commit range. Without context a standalone verifier uses its
 spawning session's scope and the PR base merge-base for that range. There is no
 lock or pid protocol.
 
-Default `verifier_model=None` preserves configured routing and omits a model
-keyword. Codex-only authors can use the default Sonnet verifier. When Anthropic
-editors exclude it, pass `verifier_model="openai-codex/gpt-6.1-sol:medium"`; this is
+Default `verifier_model=None` preserves configured routing: the `verifier` agent
+takes its model from the `verifier` entry in `modelRoles`, and prove omits a model
+keyword. When recorded authors share that role's family, pass an eligible
+cross-family model from `modelRoles` as `verifier_model`; this is
 still a verifier, never a task. Rails requires a different family from every
 recorded author. Unavailable models or no remaining approved family block with
 the actual reason; do not substitute models or change routing config.
@@ -232,7 +255,11 @@ or a sandbox guarantee. Rerun after concurrent changes. Output includes `status`
 (the requested override or null), and resolved source `worktree`/`branch` once
 authorship validation succeeds.
 Only a final pass including cleanup atomically writes the existing schema-1
-exact-head marker. Resolve/revoke the head's old marker before validating other
+exact-head marker. Prove then posts the `agent-verified` commit status
+(`state=success`, description `prove() pass`) on head to the origin repository
+through `gh api repos/OWNER/REPO/statuses/<head>`. A failed post removes the
+marker and returns `fail` with blocking `infrastructure: posting agent-verified
+status: ...`. Resolve/revoke the head's old marker before validating other
 inputs. Marker format/merge consumption is internal, not an orchestration API.
 See `skill://git-tool/references/verify-loop.md` for every-new-SHA policy and fixes.
 
@@ -254,6 +281,8 @@ Exclude any segment `skills`, `agents`, `rules`, `prompts`, `commands`, `.agents
 Check additions, deletions and both rename sides. Main must choose prove for known
 runtime-loaded content even in an otherwise eligible location. This exempts the
 verifier, never required CI; each new head needs fresh exemption evidence.
+It posts no status: after exact-head CI is green, main posts `agent-verified` with
+`gh api repos/OWNER/REPO/statuses/<head> -f state=success -f context=agent-verified`.
 
 ## blind_label
 

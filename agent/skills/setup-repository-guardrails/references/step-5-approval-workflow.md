@@ -20,7 +20,8 @@ Make the user's scope and ownership decisions the boundary before target writes.
 5. Offer two tiers. `Minimal`: least change that gives `.omp/gate.json` (schema version 2) a
    `checks.commit` and a `pathCheck`, plus an installed pre-commit hook running `checks.commit`;
    state which applicable rules it leaves unenforced (narrower scope, not a relabel). `Full`:
-   every applicable rule and recommendation, including `checks.ci` wired into CI on `ciHost`.
+   every applicable rule and recommendation, including `checks.ci` wired into CI by the gate's
+   `ci.runner` role.
    Write the repo-relative candidate paths per tier to `.omp/guardrail-proposal.json` as
    `{"schemaVersion":1,"minimal":[...],"full":[...]}`; this file is the only target write
    allowed before approval.

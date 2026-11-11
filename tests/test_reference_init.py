@@ -34,6 +34,7 @@ PIN_LINE = (
 )
 CATALOGUE = ROOT / "agent/skills/setup-repository-guardrails/assets/guardrail-rules.json"
 CI_SETUP = ["--ci-setup", "make dev-install"]
+GITHUB = ["--runner", "github-actions"]
 # A language server speaking just enough LSP over stdio: it asks the client for configuration
 # (which the client must answer) before it answers a references query with one location.
 FAKE_SERVER = """import json, sys
@@ -147,7 +148,7 @@ class InitCase(unittest.TestCase):
 
 class GreenfieldTests(InitCase):
     def test_writes_profile_gate_hook_ci_native_configs_and_pin(self) -> None:
-        code, output = self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)
+        code, output = self.init(*GITHUB, *CI_SETUP, *PIN_ARGS)
         self.assertEqual(code, 0, output)
         self.assertIn("init (greenfield)", output)
         project = tomllib.loads((self.repo / "pyproject.toml").read_text())
@@ -163,9 +164,10 @@ class GreenfieldTests(InitCase):
                 "checks": {
                     "commit": ["omp-guardrails", "profile-check"],
                     "ci": ["omp-guardrails", "profile-check"],
+                    "profile": ["omp-guardrails", "profile-check"],
                 },
                 "pathCheck": ["omp-guardrails", "path-check"],
-                "ciHost": "github",
+                "ci": {"requiredContext": "gate", "runner": "github-actions"},
             },
         )
         profile = load_profile(self.repo)
@@ -180,8 +182,8 @@ class GreenfieldTests(InitCase):
         self.assertEqual(git(self.repo, "config", "--get", "core.hooksPath"), ".githooks")
 
     def test_second_run_changes_nothing(self) -> None:
-        self.assertEqual(self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)[0], 0)
-        self.assert_second_run_changes_nothing("--ci-host", "github", *CI_SETUP, *PIN_ARGS)
+        self.assertEqual(self.init(*GITHUB, *CI_SETUP, *PIN_ARGS)[0], 0)
+        self.assert_second_run_changes_nothing(*GITHUB, *CI_SETUP, *PIN_ARGS)
         self.assert_second_run_changes_nothing("--greenfield", *PIN_ARGS)
         self.assert_second_run_changes_nothing("--greenfield")
 
@@ -249,7 +251,7 @@ class AdoptTests(InitCase):
             "schemaVersion": 2,
             "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
             "pathCheck": ["python3", "scripts/check-paths.py"],
-            "ciHost": "github",
+            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
             "agentMerge": "allowed",
         }
         self.write(".omp/gate.json", json.dumps(self.existing))
@@ -272,7 +274,7 @@ class AdoptTests(InitCase):
         )
 
     def test_keeps_existing_checks_and_adds_reference_after_them(self) -> None:
-        code, output = self.adopt("--ci-host", "other-host")
+        code, output = self.adopt("--runner", "other-role")
         self.assertEqual(code, 0, output)
         gate = self.gate()
         for event, existing in (("commit", ["make", "gate-commit"]), ("ci", ["make", "gate-ci"])):
@@ -281,9 +283,10 @@ class AdoptTests(InitCase):
             self.assertEqual(argv[3:], [gate_config.SHADOW_NAME, *existing])
             self.assertIn("omp-guardrails profile-check", argv[2])
         self.assertEqual(gate["pathCheck"], self.existing["pathCheck"])
-        self.assertEqual(gate["ciHost"], "github")
+        self.assertEqual(gate["ci"], self.existing["ci"])
+        self.assertEqual(gate["checks"]["profile"], ["omp-guardrails", "profile-check"])
         self.assertEqual(gate["agentMerge"], "allowed")
-        self.assertIn("keeps ciHost 'github'", output)
+        self.assertIn('keeps ci {"requiredContext": "gate", "runner": "ci-gate"}', output)
 
     def test_requested_checks_are_added_to_a_gate_that_already_runs_the_reference(self) -> None:
         self.existing["checks"] = {
@@ -457,21 +460,43 @@ class CanaryTests(InitCase):
 
 
 class CiWiringTests(InitCase):
-    def test_other_hosts_run_checks_ci_without_a_workflow(self) -> None:
-        code, output = self.init("--ci-host", "nuc", *PIN_ARGS)
+    def test_other_runners_run_checks_ci_without_a_workflow(self) -> None:
+        code, output = self.init("--runner", "ci-gate", "--required-context", "ci", *PIN_ARGS)
         self.assertEqual(code, 0, output)
-        self.assertIn("ci: the nuc runner runs .omp/gate.json checks.ci", output)
+        self.assertIn(
+            "ci: runner role 'ci-gate' runs .omp/gate.json checks.ci and posts 'ci'", output
+        )
+        self.assertEqual(self.gate()["ci"], {"requiredContext": "ci", "runner": "ci-gate"})
         self.assertFalse((self.repo / ".github").exists())
 
+    def test_without_a_runner_no_ci_is_declared(self) -> None:
+        code, output = self.init(*PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("ci", self.gate())
+        self.assertIn("declares no ci; run init again with --runner <role>", output)
+
+    def test_empty_ci_names_are_refused(self) -> None:
+        for flags in (("--runner", " "), ("--runner", "ci-gate", "--required-context", "")):
+            code, output = self.init(*flags, *PIN_ARGS)
+            self.assertEqual(code, 1)
+            self.assertIn("must be a non-empty name", output)
+        self.assertFalse((self.repo / ".omp").exists())
+
+    def test_retired_ci_host_is_refused(self) -> None:
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "ciHost": "github"}))
+        code, output = self.init("--adopt", *PIN_ARGS)
+        self.assertEqual(code, 1)
+        self.assertIn("ciHost is retired; declare ci.requiredContext and ci.runner", output)
+
     def test_github_without_an_install_step_is_a_gap(self) -> None:
-        code, output = self.init("--ci-host", "github", *PIN_ARGS)
+        code, output = self.init(*GITHUB, *PIN_ARGS)
         self.assertEqual(code, 1)
         self.assertIn("GATE.local-ci-parity", output)
         self.assertIn("--ci-setup", output)
         self.assertFalse((self.repo / ".github").exists())
 
     def test_workflow_runs_the_gate_files_ci_argv(self) -> None:
-        self.assertEqual(self.init("--ci-host", "github", *CI_SETUP, *PIN_ARGS)[0], 0)
+        self.assertEqual(self.init(*GITHUB, *CI_SETUP, *PIN_ARGS)[0], 0)
         workflow = (self.repo / ci_wiring.WORKFLOW_PATH).read_text()
         script = workflow.split("run: |\n", 1)[1]
         script = "\n".join(line[10:] for line in script.splitlines())
@@ -480,11 +505,11 @@ class CiWiringTests(InitCase):
         self.write(".omp/gate.json", json.dumps(gate))
         result = subprocess.run(["bash", "-c", script], cwd=self.repo, check=False)
         self.assertEqual(result.returncode, 6)
-        self.assertIn("  gate:\n", workflow)
+        self.assertIn('  gate:\n    name: "gate"\n', workflow)
 
     def test_existing_workflow_is_kept(self) -> None:
         self.write(ci_wiring.WORKFLOW_PATH, "name: ours\n")
-        code, output = self.init("--ci-host", "github", *PIN_ARGS)
+        code, output = self.init(*GITHUB, *PIN_ARGS)
         self.assertEqual(code, 0, output)
         self.assertEqual((self.repo / ci_wiring.WORKFLOW_PATH).read_text(), "name: ours\n")
 

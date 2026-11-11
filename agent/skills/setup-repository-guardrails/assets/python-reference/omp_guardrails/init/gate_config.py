@@ -1,9 +1,11 @@
 """Write ``.omp/gate.json`` in the schema agent rails accepts today (``schemaVersion: 2``).
 
 Accepted fields (``agent/extensions/agent-rails.ts`` ``gateSchema``): ``checks.commit``,
-``checks.ci``, ``pathCheck``, ``pathCheckTimeoutMs``, ``testGlobs``, ``agentMerge`` and
-``ciHost``. Init writes only ``checks``, ``pathCheck`` and ``ciHost``, and only where they are
-absent. ``ciHost`` is passed through as given; agent rails validates its value.
+``checks.ci``, ``checks.format``, ``checks.profile``, ``pathCheck``, ``pathCheckTimeoutMs``,
+``testGlobs``, ``agentMerge`` and ``ci`` (``requiredContext``: the status context or check run
+that must be green on the exact head; ``runner``: a role the machine's runner config resolves).
+Init writes only ``checks.commit``, ``checks.ci``, ``checks.profile``, ``pathCheck`` and ``ci``,
+and only where they are absent. A gate that still declares the retired ``ciHost`` is refused.
 
 Adopt mode keeps a repo's own commit and CI checks and runs the reference checks after them in
 one argv, so both results show on every run (shadow comparison)::
@@ -22,12 +24,14 @@ import json
 import shlex
 from pathlib import Path
 
+from omp_guardrails.catalogue.gate_runner import RETIRED_CI_HOST
 from omp_guardrails.findings import Finding
 
 GATE_PATH = ".omp/gate.json"
 SCHEMA_VERSION = 2
 SHADOW_NAME = "omp-guardrails-shadow"
 RULE = "GATE.local-ci-parity"
+DEFAULT_CONTEXT = "gate"
 
 
 class GateError(Exception):
@@ -44,6 +48,8 @@ def load_gate(repo: Path) -> dict | None:
         raise GateError(f"{GATE_PATH} cannot be read: {error}") from error
     if not isinstance(gate, dict) or gate.get("schemaVersion") != SCHEMA_VERSION:
         raise GateError(f"{GATE_PATH} must use schemaVersion {SCHEMA_VERSION}")
+    if "ciHost" in gate:
+        raise GateError(f"{GATE_PATH}: {RETIRED_CI_HOST}")
     return gate
 
 
@@ -112,7 +118,7 @@ def planned_gate(
     adopt: bool,
     reference: list[str],
     checks: list[str],
-    ci_host: str | None,
+    ci: dict | None,
 ) -> dict:
     """The gate after init: absent fields filled, adopt checks composed, nothing removed."""
     planned = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
@@ -124,10 +130,11 @@ def planned_gate(
             current[event] = reference_argv(reference, checks)
         elif adopt and isinstance(argv, list):
             current[event] = adopted_argv(argv, reference, checks)
+    current.setdefault("profile", [*reference, "profile-check"])
     planned["checks"] = current
     planned.setdefault("pathCheck", [*reference, "path-check"])
-    if ci_host:
-        planned.setdefault("ciHost", ci_host)
+    if ci:
+        planned.setdefault("ci", ci)
     return planned
 
 
@@ -135,10 +142,17 @@ def render(gate: dict) -> str:
     return json.dumps(gate, indent=2) + "\n"
 
 
-def ci_host_note(gate: dict | None, ci_host: str | None) -> str | None:
-    recorded = gate.get("ciHost") if gate else None
-    if ci_host and recorded is not None and recorded != ci_host:
-        return f"{GATE_PATH} keeps ciHost {recorded!r}; --ci-host {ci_host!r} was not applied"
+def requested_ci(runner: str | None, required_context: str) -> dict | None:
+    """The ``ci`` object the flags ask for; none without a runner role."""
+    if not runner:
+        return None
+    return {"requiredContext": required_context, "runner": runner}
+
+
+def ci_note(gate: dict | None, ci: dict | None) -> str | None:
+    recorded = gate.get("ci") if gate else None
+    if ci and recorded is not None and recorded != ci:
+        return f"{GATE_PATH} keeps ci {json.dumps(recorded)}; {json.dumps(ci)} was not applied"
     return None
 
 

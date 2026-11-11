@@ -18,7 +18,8 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    a dev dependency at a commit of the skill repository, with
    `#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference`;
    it writes `.omp/gate.json`, the pre-commit hook, the CI wiring (pass
-   `--ci-setup` with the install command when `ciHost` is `github`) and
+   `--ci-setup` with the install command when `--runner` is `github-actions`;
+   `--runner` and `--required-context` write the gate's `ci` object) and
    native-tool configs generated from the reference's data, and proves
    language-server readiness with a canary `references` query. It never
    creates empty folders. Then write every per-repo value in the front matter
@@ -73,13 +74,14 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    Ownership areas.
 5. Draft a check-only full runner for `GATE.local-ci-parity` with tier
    selectors, and CI wiring that runs `checks.ci` (full T1 and T2) on every
-   push and pull request, either as one job named `gate` or as parallel jobs
-   that call the same runner with tier selectors whose union equals
-   `checks.ci`. Parallel CI must include an aggregate job and status named
-   `gate`, depending on every tier job. It must run even after dependency
+   push and pull request, either as one job named by the gate's
+   `ci.requiredContext` (default `gate`) or as parallel jobs that call the same
+   runner with tier selectors whose union equals `checks.ci`. Parallel CI must
+   include an aggregate job and status named by `ci.requiredContext`, depending
+   on every tier job. It must run even after dependency
    failure (for GitHub Actions, `if: ${{ always() }}`) and succeed only if
    every tier's result is `success`; failed, cancelled, or skipped tiers must
-   make `gate` fail. Prepare one hook entry: pre-commit runs `checks.commit`
+   make the required context fail. Prepare one hook entry: pre-commit runs `checks.commit`
    (static checks, every T1, affected T2 boundary tests: seams and journeys) for
    `GATE.pre-commit`. Do not add a pre-push hook; remove an existing one by the
    approved decision. Add the entry to the repo's tracked hook manager when it

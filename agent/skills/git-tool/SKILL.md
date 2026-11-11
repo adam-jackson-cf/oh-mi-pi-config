@@ -13,7 +13,7 @@ disable-model-invocation: true
 The orchestrating (main) agent owns each change from branch to merge; the owner reviews merged PRs afterwards when he chooses.
 Implementation tasks commit, push, write the description, open the PR and wait for exact-head green CI before handing off.
 Proof tasks leave files uncommitted and never stage, commit, push or open PRs.
-Main runs `prove()` (or `exempt_docs_only()`), posts the verification comment, labels and merges; main never commits or writes the PR body.
+Main runs `prove()` (or `exempt_docs_only()`), posts the verification comment, ensures the SHA-bound `agent-verified` status and merges; main never commits or writes the PR body.
 Read before any Git action. Where this is silent: keep existing content, make no irreversible write,
 ask the user once when the choice changes the outcome, state the choice in the result.
 
@@ -35,7 +35,7 @@ ask the user once when the choice changes the outcome, state the choice in the r
   CI exceptions and incident handling belong to [merge-and-recover](references/merge-and-recover.md#ci-waits-errors-and-fallbacks);
   missing protection alone never waives existing CI.
 - Remote/default resolution belongs to [branch-and-integrate](references/branch-and-integrate.md).
-  Rebase conditions, force-with-lease and the nuc-config merge-commit exception belong to
+  Rebase conditions, force-with-lease and any project-documented merge-method exception belong to
   [merge-and-recover](references/merge-and-recover.md).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit directly to the default branch.

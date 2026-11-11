@@ -334,6 +334,14 @@ class CoverageGateTests(unittest.TestCase):
                 assert isinstance(row["contract"], dict) and row["contract"]
                 assert isinstance(row["summary"], str) and row["summary"]
 
+    def test_ci_parity_contract_names_the_host_neutral_ci_fields(self) -> None:
+        catalog_path = VALIDATOR.parent.parent / "assets/guardrail-rules.json"
+        rows = {row["id"]: row for row in json.loads(catalog_path.read_text())["rules"]}
+        contract = rows["GATE.local-ci-parity"]["contract"]
+        assert contract["required_context_field"] == "ci.requiredContext"
+        assert contract["runner_field"] == "ci.runner"
+        assert "ciHost" not in json.dumps(contract)
+
     def test_agentic_rules_use_their_catalog_evidence_protocol(self) -> None:
         catalog_path = VALIDATOR.parent.parent / "assets/guardrail-rules.json"
         catalog = json.loads(catalog_path.read_text())

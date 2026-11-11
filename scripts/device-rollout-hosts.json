@@ -13,6 +13,18 @@
     "query": "check that referenced file paths exist",
     "path": "~/.agents/scripts"
   },
+  "ciRunners": {
+    "remoteBase": "~/.omp",
+    "roles": {
+      "ci-gate": {
+        "kind": "ci-gate",
+        "host": "codex-omarchy-nuc"
+      },
+      "github-actions": {
+        "kind": "github-actions"
+      }
+    }
+  },
   "mac-cf2": {
     "agents": "~/.agents"
   },

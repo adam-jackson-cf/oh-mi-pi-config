@@ -28,6 +28,8 @@ scripts/*
 !scripts/check-paths.py
 !scripts/ci-gate.py
 !scripts/ci-gate-repos.json
+!scripts/ci-runner.py
+# ci-runners.json is machine config written by device-rollout.py; it stays untracked.
 !scripts/device-rollout.py
 !scripts/device-rollout-hosts.json
 
@@ -97,6 +99,7 @@ tests/*
 !tests/agent-rails.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
+!tests/test_ci_runner.py
 !tests/test_reference_*.py
 !tests/fixtures/
 tests/fixtures/*
@@ -110,6 +113,7 @@ tests/fixtures/*
 .omp/*
 !.omp/lsp.json
 !.omp/gate.json
+!.omp/AGENTS.md
 
 !.devcontainer/
 .devcontainer/*

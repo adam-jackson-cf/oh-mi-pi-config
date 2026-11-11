@@ -5,8 +5,9 @@ in the repository root, streaming its output. Any non-zero or signal exit is a
 ``TEST.failure-propagation`` finding, so a failed prerequisite never reports a passing gate.
 An unreadable gate file or a non-argv check is a ``GATE.local-ci-parity`` finding.
 
-``omp-guardrails gate wiring`` checks that the hook and CI entry points still call the gate.
-It reads ``guardrails.gate`` from the profile:
+``omp-guardrails gate wiring`` checks that the hook and CI entry points still call the gate,
+and that a declared ``ci`` names a non-empty ``requiredContext`` and ``runner`` (the retired
+``ciHost`` is a finding). It reads ``guardrails.gate`` from the profile:
 
 - ``checks``: ``{"<name>": [argv ...]}`` exact argv each declared check must keep (optional);
 - ``require_path_check``: when true, ``pathCheck`` must be a non-empty argv;
@@ -32,6 +33,7 @@ GATE_PATH = ".omp/gate.json"
 SCHEMA_VERSION = 2
 PARITY = "GATE.local-ci-parity"
 PROPAGATION = "TEST.failure-propagation"
+RETIRED_CI_HOST = "ciHost is retired; declare ci.requiredContext and ci.runner"
 
 
 class GateConfigError(Exception):
@@ -119,7 +121,7 @@ def wiring_findings(repo: Path, profile: dict) -> list[Finding]:
     except GateConfigError as error:
         return [config_finding(str(error))]
     options = settings(profile, "gate")
-    findings = expected_check_findings(gate, options.get("checks"))
+    findings = ci_findings(gate) + expected_check_findings(gate, options.get("checks"))
     if options.get("require_path_check") and not is_argv(gate.get("pathCheck")):
         findings.append(
             Finding(
@@ -133,6 +135,20 @@ def wiring_findings(repo: Path, profile: dict) -> list[Finding]:
     for entry in entries if isinstance(entries, list) else []:
         findings.extend(file_line_findings(repo, entry))
     return findings
+
+
+def ci_findings(gate: dict) -> list[Finding]:
+    if "ciHost" in gate:
+        return [config_finding(RETIRED_CI_HOST)]
+    if "ci" not in gate:
+        return []
+    ci = gate["ci"]
+    names = ("requiredContext", "runner")
+    if isinstance(ci, dict) and all(
+        isinstance(ci.get(name), str) and ci[name].strip() for name in names
+    ):
+        return []
+    return [config_finding("ci must declare non-empty requiredContext and runner strings")]
 
 
 def expected_check_findings(gate: dict, expected: object) -> list[Finding]:

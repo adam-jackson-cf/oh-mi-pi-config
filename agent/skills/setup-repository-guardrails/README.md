@@ -32,12 +32,15 @@ A rule is enforced only after its implementation and proof pass.
 Approved setup writes `.omp/gate.json` schema version 2: `checks.commit` for
 the pre-commit hook (static checks, every T1, affected T2 boundary tests: seams and journeys),
 `checks.ci` for CI on every push and pull request (the full T1
-and T2 suite), an actionable changed-path `pathCheck`, and `ciHost`. Setup also
-installs the pre-commit hook; there is no pre-push hook. CI exposes a
-status named `gate`: either the full runner job or an always-running aggregate
+and T2 suite), `checks.profile` for profile completeness, an actionable
+changed-path `pathCheck`, and `ci` (`requiredContext`, normally `gate`: the
+status or check run that must be green on the exact head; `runner`: a role each
+machine's runner config resolves to commands). Setup also installs the
+pre-commit hook; there is no pre-push hook. CI exposes the required context:
+either the full runner job or an always-running aggregate
 depending on every parallel tier job of that runner. The aggregate passes only
 when every tier succeeded; failure, cancellation, or skipping any tier must fail
-`gate`. New rules enforce dependency direction, folder ownership, naming, test
+the required context. New rules enforce dependency direction, folder ownership, naming, test
 placement, fast-tier and per-test budgets, justified test growth, duplicate
 call-path/assertion detection, and required host checks. Test-guidance v2 rules add
 profile completeness, test-file names, tier selectors, no self-mocking, no test hooks, no
@@ -59,7 +62,7 @@ Repositories configure and pin it; they never copy or edit it.
 
 - `omp-guardrails init --greenfield|--adopt|--extend` writes `.omp/gate.json`,
   the pre-commit hook, the CI wiring (a GitHub workflow running `checks.ci`
-  when `ciHost` is `github`), native-tool configs (Ruff, mypy, import-linter)
+  when `--runner` is `github-actions`), native-tool configs (Ruff, mypy, import-linter)
   generated from the reference's data and the repository, and the pinned
   reference dependency in `pyproject.toml`. It proves language-server readiness
   with a canary `references` query. It never replaces an existing config.
