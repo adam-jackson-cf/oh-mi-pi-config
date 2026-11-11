@@ -877,6 +877,11 @@ const withProfile = (change: (value: ProfileFixture) => void) => {
 	change(value);
 	return { ...baseFiles, ".omp/test-profile.md": profile(value) };
 };
+// The profile's guardrails.rule_evidence.ledger moves the ledger; the old default file is left behind.
+const withLedger = (path: string, rows: object[]) => {
+	const value = { ...structuredClone(baseProfile), guardrails: { ...structuredClone(baseProfile.guardrails), rule_evidence: { ledger: path } } };
+	return { ...baseFiles, ".omp/test-profile.md": `---\n${JSON.stringify(value, null, 2)}\n---\n`, [path]: ledger(rows) };
+};
 for (const scenario of [
 	{ name: "added approved skip", head: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: ".omp/test-profile.md guardrails.test_evidence.approved_skips[]" },
 	{ name: "widened approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips[0].id = "tests/**"; }), field: "approved_skips[]" },
@@ -887,6 +892,11 @@ for (const scenario of [
 	{ name: "added ledger user_approval row", head: { ...baseFiles, ".omp/rule-coverage.json": ledger([ledgerRow, approvedRow]) }, field: ".omp/rule-coverage.json rules[]" },
 	{ name: "approval field in gate.json", head: { ...baseFiles, ".omp/gate.json": JSON.stringify({ schemaVersion: 2, ci: ciGate, approved_contexts: ["lint"] }) }, field: ".omp/gate.json approved_contexts[]" },
 	{ name: "new profile with an approval", base: {}, head: baseFiles, field: "approved_skips[]" },
+	{ name: "ledger moved to a file with an approved row", head: withLedger("docs/ledger.json", [ledgerRow, approvedRow]), field: "docs/ledger.json (ledger moved from .omp/rule-coverage.json) rules[]" },
+	{ name: "ledger moved onto an existing file with an approved row", base: { ...baseFiles, "docs/ledger.json": ledger([ledgerRow, approvedRow]) },
+		head: { ...withLedger("docs/ledger.json", [ledgerRow, approvedRow]), "docs/ledger.json": ledger([ledgerRow, approvedRow]) }, field: "docs/ledger.json (ledger moved from .omp/rule-coverage.json) rules[]" },
+	{ name: "approved row added at a configured ledger", base: withLedger("docs/ledger.json", [ledgerRow]), head: withLedger("docs/ledger.json", [ledgerRow, approvedRow]), field: "docs/ledger.json rules[]" },
+	{ name: "ledger moved without approved rows", head: withLedger("docs/ledger.json", [ledgerRow]) },
 	{ name: "unreadable head profile", head: { ...baseFiles, ".omp/test-profile.md": "# no front matter\n" }, field: ".omp/test-profile.md (unreadable at head" },
 	{ name: "removed approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips = []; }) },
 	{ name: "non-approval profile change", head: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
@@ -958,7 +968,7 @@ test("merge approval guard fails closed when gh cannot read a guardrail file", a
 			? { code: 1, killed: false, stdout: "", stderr: "HTTP 502" } : exec(command, args, options);
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 		assert.equal(result?.block, true);
-		assert.ok(result?.reason?.includes("cannot read .omp/gate.json"), result?.reason);
+		assert.ok(result?.reason?.includes("cannot read .omp/test-profile.md"), result?.reason);
 	} finally { h.cleanup(); }
 });
 

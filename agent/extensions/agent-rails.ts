@@ -83,13 +83,17 @@ const prCiSchema = z.object({
 
 // Owner-approval fields: the one list the merge guard uses. The owner's own merge is the approval
 // act, so rails refuse an agent merge whose PR adds or changes any of them; removals stay the
-// agent's. `files` are the repo-relative guardrail files the setup-repository-guardrails reference
-// defines (gate, test-profile front matter, rule-coverage ledger). An object holding a `record` key
+// agent's. `files` are the fixed repo-relative guardrail files the setup-repository-guardrails
+// reference defines (gate, test-profile front matter). `ledger` is the rule-coverage ledger: the
+// profile's guardrails.rule_evidence.ledger moves it (catalogue/rule_evidence.py), so the guard reads
+// it from that setting at each ref, falling back to `ledger.path`. An object holding a `record` key
 // is one approval record: the approval and everything it approves (exemptions, fast_tier_budget
 // machines, ledger user_approval rows). A `holder` key's value is a set of approval records
 // (approved_skips, coverage_ratchet approvals, ADR-backed house_style exceptions).
 const approvalFields = {
-	files: [".omp/gate.json", ".omp/test-profile.md", ".omp/rule-coverage.json"],
+	files: [".omp/gate.json", ".omp/test-profile.md"],
+	profile: ".omp/test-profile.md",
+	ledger: { path: ".omp/rule-coverage.json", setting: ["guardrails", "rule_evidence", "ledger"] },
 	record: /^(?:\w+_)?approval$/,
 	holder: /^(?:approved_\w+|approvals|exceptions)$/,
 };
@@ -131,6 +135,14 @@ function approvalRecords(node: JsonNode, path = "", found = new Set<string>()): 
 		approvalRecords(item, at, found);
 	}
 	return found;
+}
+// The string at `keys` in a parsed guardrail file, or undefined when any step is missing or not a string.
+function settingText(node: JsonNode, keys: readonly string[]): string | undefined {
+	let at: JsonNode | undefined = node;
+	for (const key of keys) at = at?.kind === "map" ? at.entries.find(([name]) => name === key)?.[1] : undefined;
+	if (at?.kind !== "leaf") return;
+	const text = z.string().safeParse(JSON.parse(at.text));
+	return text.success ? text.data : undefined;
 }
 // JSON files parse whole; the test profile parses its `---` JSON front matter (config/profile.py).
 function guardrailJson(path: string, text: string): JsonNode {
@@ -826,20 +838,33 @@ export default function agentRails(
 			if (!result.killed && /HTTP 404/.test(result.stderr)) return;
 			throw new Error(`cannot read ${path} at ${ref} via gh: ${result.stderr.trim()}`);
 		};
+		// The ledger each ref's profile names (guardrails.rule_evidence.ledger), else the default path.
+		// Base and head are compared at their own ledger paths, so moving the ledger to a file with
+		// new approved rows counts those rows as added.
+		const ledgerPath = async (ref: string): Promise<string> => {
+			const text = await content(approvalFields.profile, ref);
+			try { return (text === undefined ? undefined : settingText(guardrailJson(approvalFields.profile, text), approvalFields.ledger.setting)) ?? approvalFields.ledger.path; }
+			catch { return approvalFields.ledger.path; /* An unreadable profile is reported by the profile comparison. */ }
+		};
+		const [baseLedger, headLedger] = [await ledgerPath(base), await ledgerPath(head)];
+		const pairs = [
+			...approvalFields.files.map(path => ({ label: path, basePath: path, headPath: path })),
+			{ label: baseLedger === headLedger ? headLedger : `${headLedger} (ledger moved from ${baseLedger})`, basePath: baseLedger, headPath: headLedger },
+		];
 		const changed: string[] = [];
-		for (const path of approvalFields.files) {
-			const before = await content(path, base);
-			const after = await content(path, head);
+		for (const { label, basePath, headPath } of pairs) {
+			const before = await content(basePath, base);
+			const after = await content(headPath, head);
 			if (after === undefined || after === before) continue;
 			let headRecords: Set<string>;
-			try { headRecords = approvalRecords(guardrailJson(path, after)); }
-			catch (error) { changed.push(`${path} (unreadable at head: ${String(error)})`); continue; }
+			try { headRecords = approvalRecords(guardrailJson(headPath, after)); }
+			catch (error) { changed.push(`${label} (unreadable at head: ${String(error)})`); continue; }
 			let baseRecords = new Set<string>();
-			try { if (before !== undefined) baseRecords = approvalRecords(guardrailJson(path, before)); }
+			try { if (before !== undefined) baseRecords = approvalRecords(guardrailJson(basePath, before)); }
 			catch { /* An unreadable base approves nothing, so every head record counts as added. */ }
 			const fields = [...new Set([...headRecords].filter(record => !baseRecords.has(record))
 				.map(record => record.slice(0, record.indexOf("="))))];
-			if (fields.length) changed.push(`${path} ${fields.join(", ")}`);
+			if (fields.length) changed.push(`${label} ${fields.join(", ")}`);
 		}
 		if (!changed.length) return;
 		return `Agent rails: this PR adds or changes owner-approval fields (${changed.join("; ")}) in ${repository} at ${head}. ` +
