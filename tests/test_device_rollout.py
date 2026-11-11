@@ -332,13 +332,17 @@ class DeviceRolloutTests(unittest.TestCase):
         self.assertEqual(elsewhere["ci-gate"]["logs"][-1],
                          'bash -lc "python3 ~/.omp/scripts/ci-gate.py logs {repo} {sha} --tail {tail}"')
         for runners in (on_host, elsewhere):
+            for role, spec in definition["roles"].items():
+                self.assertEqual(runners[role]["timeout"], spec["timeout"])
             actions = runners["github-actions"]
             self.assertEqual([actions[name] for name in ("submit", "wait", "status")], [None] * 3)
             self.assertIn("--log-failed", actions["logs"][2])
             self.assertEqual(actions["logs"][-3:], ["{repo}", "{sha}", "{tail}"])
         for bad in ({**definition, "remoteBase": "/abs; rm"},
                     {**definition, "roles": {"x": {"kind": "ci-gate", "host": "a b"}}},
-                    {**definition, "roles": {"x": {"kind": "other"}}}):
+                    {**definition, "roles": {"x": {"kind": "other"}}},
+                    {**definition, "roles": {"x": {"kind": "github-actions"}}},
+                    {**definition, "roles": {"x": {"kind": "github-actions", "timeout": 0}}}):
             with self.assertRaises(ValueError):
                 rollout.runner_document(bad, "mac-cf3", "/base")
 

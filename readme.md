@@ -172,16 +172,17 @@ commands. Push an `agent/<slug>` branch, then submit and wait:
 
 ```sh
 python3 ~/.omp/scripts/ci-runner.py submit ci-gate OWNER/REPO SHA
-python3 ~/.omp/scripts/ci-runner.py wait ci-gate OWNER/REPO SHA --timeout 1200
+python3 ~/.omp/scripts/ci-runner.py wait ci-gate OWNER/REPO SHA
 ```
 
 Replace `SHA` with the pushed 40-character lowercase commit SHA. `status` prints
-the result; `logs` prints output (`--tail N` limits it). A role without
-configured `wait`/`status` commands uses a built-in GitHub poller for the
-`--context` (default `gate`); its timeout exits 124. The `github-actions` role
-starts on push, so `submit` only reports that. A missing role exits 2 and names
-the device-rollout command to run. This repository's runner specifics and
-fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
+the result; `logs` prints output (`--tail N` limits it). `wait` defaults to the
+role's `timeout` from the tracked role config; `--timeout` overrides it. A role
+without configured `wait`/`status` commands uses a built-in GitHub poller and
+needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
+The `github-actions` role starts on push, so `submit` only reports that. A
+missing role exits 2 and names the device-rollout command to run. This
+repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
 
 ### ci-gate service
 

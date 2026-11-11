@@ -52,8 +52,11 @@ class Fixture(unittest.TestCase):
     def tearDown(self):
         self.folder.cleanup()
 
-    def write_config(self, runners):
-        self.config.write_text(json.dumps({"schemaVersion": 1, "runners": runners}))
+    def write_config(self, runners, timeout=60):
+        """Write runners; each role gets `timeout` unless it sets one (None leaves it out)."""
+        roles = {name: spec if "timeout" in spec or timeout is None else {**spec, "timeout": timeout}
+                 for name, spec in runners.items()}
+        self.config.write_text(json.dumps({"schemaVersion": 1, "runners": roles}))
 
     def responses(self, *pairs):
         (self.root / "responses.json").write_text(json.dumps(pairs))
@@ -78,6 +81,25 @@ class CiRunnerTests(Fixture):
         self.assertEqual(result.returncode, 7)
         self.assertEqual(json.loads(record.read_text()),
                          [REPO, "sha=" + SHA, "--timeout", "90", "--tail", "15", "{other}"])
+
+    def test_role_timeout_is_the_default_wait_limit(self):
+        argv, record = self.recorder()
+        self.write_config({"fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}},
+                          timeout=75)
+        self.assertEqual(self.cli("wait", "fake", REPO, SHA).returncode, 0)
+        self.assertEqual(json.loads(record.read_text())[2:4], ["--timeout", "75"])
+
+    def test_role_without_positive_timeout_is_a_config_error(self):
+        argv, record = self.recorder()
+        for timeout in (None, 0, "60", True):
+            spec = {"submit": argv, "wait": argv, "status": argv, "logs": argv}
+            if timeout is not None:
+                spec["timeout"] = timeout
+            self.write_config({"fake": spec}, timeout=None)
+            result = self.cli("wait", "fake", REPO, SHA, "--timeout", "5")
+            self.assertEqual(result.returncode, 2, timeout)
+            self.assertIn("no positive timeout", result.stderr)
+        self.assertFalse(record.exists())
 
     def test_missing_config_and_role_exit_2_with_rollout_hint(self):
         result = self.cli("submit", "ci-gate", REPO, SHA)
@@ -119,7 +141,15 @@ class BuiltInPollerTests(Fixture):
                                               "logs": None}})
 
     def wait(self, *extra):
-        return self.cli("wait", "github-actions", REPO, SHA, "--interval", "0.05", *extra)
+        context = () if "--context" in extra else ("--context", "gate")
+        return self.cli("wait", "github-actions", REPO, SHA, "--interval", "0.05", *context, *extra)
+
+    def test_built_in_poller_requires_the_declared_context(self):
+        for operation in ("wait", "status"):
+            result = self.cli(operation, "github-actions", REPO, SHA)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("pass --context", result.stderr)
+        self.assertFalse((self.root / "calls").exists())
 
     def test_status_context_success_after_pending(self):
         self.responses((status("gate", "pending"), []), (status("gate", "success"), []))
@@ -157,11 +187,11 @@ class BuiltInPollerTests(Fixture):
 
     def test_status_reports_once(self):
         self.responses((status("gate", "pending"), []))
-        result = self.cli("status", "github-actions", REPO, SHA)
+        result = self.cli("status", "github-actions", REPO, SHA, "--context", "gate")
         self.assertEqual(result.returncode, 3)
         self.assertEqual(json.loads(result.stdout)["state"], "pending")
         self.responses((status("gate", "success"), []))
-        self.assertEqual(self.cli("status", "github-actions", REPO, SHA).returncode, 0)
+        self.assertEqual(self.cli("status", "github-actions", REPO, SHA, "--context", "gate").returncode, 0)
 
     def test_gh_failure_is_error_without_echoing_output(self):
         (self.root / "exit").write_text("4")

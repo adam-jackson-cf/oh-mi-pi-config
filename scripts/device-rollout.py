@@ -39,7 +39,7 @@ RUNNERS_WRITER = (
     "mode, path, document = sys.argv[1], os.path.expanduser(sys.argv[2]), json.loads(sys.argv[3])\n"
     "for role in document['runners'].values():\n"
     "    for name, argv in role.items():\n"
-    "        if argv:\n"
+    "        if isinstance(argv, list):\n"
     "            role[name] = [os.path.expanduser(a) if a.startswith('~/') else a for a in argv]\n"
     "text = json.dumps(document, indent=2, sort_keys=True) + '\\n'\n"
     "try:\n"
@@ -95,7 +95,10 @@ def runner_document(definition, device, base):
                         "logs": ["sh", "-c", GITHUB_LOGS, "sh", "{repo}", "{sha}", "{tail}"]}
         else:
             raise ValueError("unknown ciRunners kind " + repr(spec["kind"]))
-        runners[role] = commands
+        timeout = spec.get("timeout")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise ValueError("ciRunners role " + repr(role) + " needs a positive timeout in seconds")
+        runners[role] = {**commands, "timeout": timeout}
     return {"schemaVersion": 1, "runners": runners}
 
 

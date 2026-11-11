@@ -1098,6 +1098,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("docs/guide.md:3: names removed symbol `oldThing`", brief)
         self.assertNotIn("Audit undeclared harness/config tampering, wrong/stale docs", brief)
 
+    def test_drift_precheck_reports_docs_the_same_change_also_edits(self):
+        self.write("old.py", "def removed_export():\n    pass\n")
+        self.write("guide.md", "See old.py and removed_export.\n")
+        self.rebase_parent()
+        git(self.repo, "rm", "-q", "old.py")
+        self.write("guide.md", "See old.py and removed_export.\nNew paragraph.\n")
+        self.change()
+        joined = "\n".join(self.prove()["drift"])
+        self.assertIn("guide.md:1: names deleted or renamed path `old.py`", joined)
+        self.assertIn("guide.md:1: names removed symbol `removed_export`", joined)
+
     def test_drift_precheck_is_empty_without_removals(self):
         self.change()
         self.assertEqual(self.prove()["drift"], [])

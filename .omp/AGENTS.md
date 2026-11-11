@@ -13,7 +13,7 @@ local or ssh-wrapped commands. Use the repository and exact 40-hex SHA:
 
 ```sh
 python3 ~/.omp/scripts/ci-runner.py submit ci-gate adam-jackson-cf/oh-mi-pi-config SHA
-python3 ~/.omp/scripts/ci-runner.py wait ci-gate adam-jackson-cf/oh-mi-pi-config SHA --timeout 900
+python3 ~/.omp/scripts/ci-runner.py wait ci-gate adam-jackson-cf/oh-mi-pi-config SHA
 python3 ~/.omp/scripts/ci-runner.py status ci-gate adam-jackson-cf/oh-mi-pi-config SHA
 python3 ~/.omp/scripts/ci-runner.py logs ci-gate adam-jackson-cf/oh-mi-pi-config SHA --tail 100
 ```

@@ -768,14 +768,13 @@ COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|<!--)")
 
 
 def _drift_terms(repo, parent, head):
-    """Deleted/renamed old paths, removed module-level public symbols, and every changed path."""
+    """Deleted/renamed old paths and removed module-level public symbols."""
     tokens = _git(repo, "diff", "--name-status", "-M", "-z", parent, head).split("\0")
-    paths, changed, index = set(), set(), 0
+    paths, index = set(), 0
     while index < len(tokens) and tokens[index]:
         status = tokens[index]
         names = tokens[index + 1:index + (3 if status[0] in "RC" else 2)]
         index += 1 + len(names)
-        changed.update(names)
         if status[0] in "DR":
             paths.add(names[0])
     declared = {"-": set(), "+": set()}
@@ -795,12 +794,12 @@ def _drift_terms(repo, parent, head):
         match = pattern.match(line) if pattern else None
         if match and not match[2].startswith("_"):
             declared[match[1]].add(match[2])
-    return sorted(paths), sorted(declared["-"] - declared["+"]), changed
+    return sorted(paths), sorted(declared["-"] - declared["+"])
 
 
 def _drift_checks(repo, parent, head):
     """git grep docs and code comments at head for paths/symbols this PR removed; hits brief the verifier."""
-    paths, symbols, changed = _drift_terms(repo, parent, head)
+    paths, symbols = _drift_terms(repo, parent, head)
     hits, total = [], 0
     for term, kind, word in [(p, "deleted or renamed path", False) for p in paths] + [(s, "removed symbol", True) for s in symbols]:
         process = subprocess.run(["git", "-C", str(repo), "grep", "-n", "-I", "-z", "-F", *(["-w"] if word else []), "-e", term, head, "--"],
@@ -810,7 +809,7 @@ def _drift_checks(repo, parent, head):
         for line in process.stdout.splitlines():
             location, number, text = (line.split("\0", 2) + ["", ""])[:3]
             name = location.removeprefix(f"{head}:")
-            if name in changed or any(RECORD_DIR.fullmatch(part) for part in name.split("/")[:-1]):
+            if any(RECORD_DIR.fullmatch(part) for part in name.split("/")[:-1]):
                 continue
             prefix = text[:text.find(term)] if term in text else text
             if not name.endswith(DOC_SUFFIXES) and not (name.endswith(CODE_SUFFIXES) and COMMENT_START.search(prefix)):

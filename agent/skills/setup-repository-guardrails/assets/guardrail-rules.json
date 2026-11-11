@@ -217,12 +217,13 @@
       "evidence_kind": "host_query",
       "contract": {
         "protected_branch": "resolved_default_branch",
-        "required_status_check": "gate",
+        "required_context_field": "ci.requiredContext",
+        "required_context_from_any_source": true,
         "merge_blocked_until_required_checks_pass": true,
         "auto_merge_enabled_where_supported": true,
         "rebase_merge_enabled_where_supported": true
       },
-      "summary": "Require the gate status check before merging into the protected branch."
+      "summary": "Require the declared ci.requiredContext check before merging into the protected branch."
     },
     {
       "id": "FANOUT.general",
