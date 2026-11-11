@@ -150,7 +150,8 @@ provisioning, or husk deletion. The table exits nonzero for stale, failed,
 unreachable, dirty-blocked, or behind-`main` deployments, for `husks-present`
 agents checkouts, and for `find-blocked` devices whose canary coverage is not
 `complete` (including `key-failed` when key provisioning fails).
-Hosts, paths, the `judgeKey` source and the `findCanary` query live in
+Hosts, paths, the `infisical` project and environment (shared by the judge key
+and the `ci-gate` runner commands), the `judgeKey` secret and the `findCanary` query live in
 `scripts/device-rollout-hosts.json`.
 Local rows use the registry's `local` mapping for the lowercase short hostname
 (or that hostname itself when unknown), and the local device is skipped as a remote target.
@@ -193,7 +194,10 @@ repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENT
 The `ci-gate` role is `scripts/ci-gate.py` on the owner's Linux NUC, running
 exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `scripts/ci-gate-repos.json` can run, and any of them may declare runner
-`ci-gate`. It posts GitHub commit status context `gate`.
+`ci-gate`. It posts the GitHub commit status context named by the checkout's
+`.omp/gate.json` `ci.requiredContext`, recorded in the job's `job.json`. A checkout
+without a valid `ci.requiredContext` gets an `error` result with a
+`publicationError` and no status, so rails never sees a guessed context.
 
 Resubmitting a running SHA does not launch another job. Successful and failed
 gate results stay cached; an infrastructure `error` is retried on resubmission.
@@ -201,8 +205,7 @@ gate results stay cached; an infrastructure `error` is retried on resubmission.
 for success, 1 for gate failure/error or status-publication failure, and 2 when its
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
-The runner executes `checks.ci` (schema version 1: `gate`) after the
-devcontainer's `postCreateCommand`.
+The runner executes `checks.ci` after the devcontainer's `postCreateCommand`.
 
 Logs and atomic `result.json` files remain under
 `${XDG_STATE_HOME:-~/.local/state}/ci-gate/jobs/<owner>/<repo>/<sha>/`;
@@ -217,7 +220,8 @@ and the status publisher, never the container. It names that owner's secret:
 `NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF` or `NUC_GATE_GITHUB_TOKEN_ADAM_VERSED`.
 Allowlisted public and private repositories are supported, including submissions
 from SSH shells without a token. Grant the NUC identity access to each secret in
-project `052b4c81-b9cc-4694-9019-d131ec3817cc`, environment `dev`. Each fine-grained
+the Infisical project and environment named by the `infisical` setting of
+`scripts/device-rollout-hosts.json`. Each fine-grained
 GitHub token needs access to that owner's opted-in repositories (or **All
 repositories**) with **Contents: read** and **Commit statuses: write** permissions. Missing credentials
 leave local results intact but make publication exit nonzero. Public fetches
@@ -225,7 +229,11 @@ need no token; authenticated fetches use GitHub Basic authentication through
 process-local Git configuration environment variables, never command-line
 arguments or saved mirror configuration.
 
-`CI_GATE_INFISICAL_PROJECT`, `CI_GATE_INFISICAL_ENV`, `CI_GATE_REPOS`,
+`CI_GATE_INFISICAL_PROJECT` and `CI_GATE_INFISICAL_ENV` are required, and `submit`
+fails before creating job state when either is unset. `scripts/device-rollout.py`
+writes both into each device's `ci-gate` runner commands from the registry's
+`infisical` setting, which the judge key also uses; rerun it after changing the
+setting. `CI_GATE_REPOS`,
 `CI_GATE_GITHUB_API`, and executable overrides `CI_GATE_GIT`,
 `CI_GATE_PODMAN`, `CI_GATE_SYSTEMD_RUN`, `CI_GATE_INFISICAL` support
 deployment and isolated tests. Runtime flags are JSON arrays:
@@ -238,9 +246,11 @@ gates under runsc with GitHub pending/success statuses. Builds run only the
 repository's own Containerfile from the owner's allowlisted repositories;
 gate execution stays inside gVisor. Images are cached by Dockerfile-content hash.
 
-GitHub quality gates are a weekly Monday 04:23 UTC fallback plus manual
-`workflow_dispatch`, not push/PR CI. Dispatch manually from Actions → CI quality
-gates → Run workflow, or:
+`.github/workflows/ci-quality-gates.yml` is the documented GitHub Actions fallback:
+a weekly Monday 04:23 UTC run plus manual `workflow_dispatch`, not push/PR CI and
+not a required context. The runner parity check in `run-ci-quality-gates.sh` reads
+only `.omp/gate.json`, so the workflow can change or go without breaking the gate.
+Dispatch manually from Actions → CI quality gates → Run workflow, or:
 
 ```sh
 gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main

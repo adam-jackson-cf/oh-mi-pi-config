@@ -3,9 +3,11 @@
     "cdhvc2hw3l": "mac-cf3",
     "adams-macbook-pro": "mac-cf2"
   },
+  "infisical": {
+    "project": "052b4c81-b9cc-4694-9019-d131ec3817cc",
+    "environment": "dev"
+  },
   "judgeKey": {
-    "infisicalProject": "052b4c81-b9cc-4694-9019-d131ec3817cc",
-    "environment": "dev",
     "secret": "OPENROUTER_API_KEY",
     "provider": "openrouter"
   },
