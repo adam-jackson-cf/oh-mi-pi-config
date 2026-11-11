@@ -80,9 +80,11 @@ and `checks.ci` (the full T1 and T2 suite). The Git pre-commit hook runs
 `checks.commit`; the CI runner named by `ci.runner` runs `checks.ci` for every
 push and merge. Optional `checks.format` is the formatter `freeze()` runs before
 hashing, and optional `checks.profile` is the profile completeness command
-`prove()` runs first. Optional `dynaflowsContract` records the dynaflows contract
+`prove()` runs before any proof, after it refuses a head whose declared `ci.requiredContext`
+is not success. Optional `dynaflowsContract` records the dynaflows contract
 version the repo was set up against (current: `agent/agent-rails.yml`); with dynaflows
-on, a missing or lower value gets a rails session note and blocks `freeze()`/`prove()`;
+on, a missing or lower value gets a rails session note and blocks `freeze()`/`prove()`.
+In a repo with controls, the remedy is a mechanical `omp-guardrails init --extend` commit;
 the project-setup playbook's `freeze(..., project_setup=True)` tolerates it until init records it.
 For `git commit`, rails blocks explicit hook bypass flags/settings and requires an
 executable pre-commit hook when `checks.commit` is declared. Supported merge/rebase

@@ -20,7 +20,7 @@ Resolve only remaining questions on the real feature surface.
 Use `new-surface` for absent APIs and `preserve` for existing behaviour;
 use `defect` with asserted `expectRed` for regressions. Lever journeys are only
 `defect` or `preserve`, never `new-surface`; reject doctor/environment failures.
-Proof tasks run journeys several times, then freeze runner-invoked journey files
+Proof tasks freeze runner-invoked journey files
 and required lever changes together. Implementation changes product code and map docs only.
 
 ## 4. Implement

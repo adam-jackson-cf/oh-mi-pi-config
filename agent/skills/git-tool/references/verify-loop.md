@@ -1,8 +1,8 @@
 # Verify loop
 
 The implementation task returns a ready PR: no pending writer edits, complete writer-authored description,
-and required CI green for its exact head. Main independently confirms that SHA's existing/cached CI before
-verification, owns the verification comment and the `agent-verified` commit status, and merges. Main never patches or commits; proof tasks do not publish PRs.
+and required CI green for its exact head. Main owns the judgement comment and the `agent-verified` commit status,
+and merges. Main never patches or commits; proof tasks do not publish PRs.
 
 ## Canonical contracts
 
@@ -14,7 +14,8 @@ verification, owns the verification comment and the `agent-verified` commit stat
   [merge-and-recover](merge-and-recover.md#ci-waits-errors-and-fallbacks).
 
 Do not copy the blocker text, eligibility allowlist or marker schema here. Infrastructure failures fail closed;
-they are not red proof assertions. Main separately confirms hook/required-CI eligibility; `prove()` runs no repository suites.
+they are not red proof assertions. `prove()` runs no repository suites. It reads the gate's declared required CI context
+first and refuses unless it is success on the exact head; rails enforce exact-head CI again at the status write and merge.
 
 ## Verify the actual PR range
 
@@ -24,8 +25,7 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
    documents a target exception. Confirm that GitHub's PR target matches; helper range consistency cannot authenticate that metadata.
 2. Set `parent` to `git merge-base <target_ref> <head>`, never `HEAD~1`. It must be a strict ancestor of head.
    This is the whole-PR range, distinct from each proof's pinned baseline parent.
-3. Independently confirm required CI success for the exact head using existing status, not gratuitous resubmission.
-   Record objective, acceptance criteria, frozen manifest/path and SHA-256, source worktree/branch and recorded authors.
+3. Record objective, acceptance criteria, frozen manifest/path and SHA-256, source worktree/branch and recorded authors.
    Missing access or unknown evidence blocks the operation.
 4. Choose the helper under the [patterns risk-tier contract](skill://omp-dyna-workflows/references/patterns.md).
    Eligible non-runtime docs: main calls `exempt_docs_only(repo, parent, head, target_ref=target_ref)`.
@@ -37,8 +37,9 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
 5. `prove()` assembles the brief and dispatches the sole `agent='verifier'` session. Do not manually author a second
    brief or spawn another verifier. It reads persisted author provenance; rails decides family independence.
    For supported verifier-model override and failure handling, follow patterns; do not substitute a task for verifier.
-   Deterministic evidence includes the complete head/baseline/earlier-commit checks, mutation detection and verifier
-   criteria validation (including unknown IDs) defined in workflows.py, not a partial checklist maintained here.
+   Deterministic evidence includes the complete head/baseline/earlier-commit checks, journey stability, mutation detection
+   and verifier criteria validation (unknown IDs) defined in workflows.py, not a partial checklist maintained here.
+   The verifier takes those proof records as settled evidence and does not re-run them.
 6. Inspect the full result. Failures return to the assigned writer with commands, output and expected outcomes.
    No available approved independent verifier or an infrastructure failure blocks passing, with the actual reason preserved.
    Source-checkout changes require another run; the source check is not a sandbox or attribution of who changed it.
@@ -47,7 +48,7 @@ they are not red proof assertions. Main separately confirms hook/required-CI eli
 
 Every new SHA invalidates previous evidence, including after amend, fix or rebase. `agent-verified` is a commit status
 bound to the SHA it was posted on, so a new head has none until it is verified again. The writer commits through the hook, pushes, updates the description and submits/waits for exact-head CI.
-Main then reconfirms CI and repeats the full risk tier: full `prove()` or a fresh eligible docs exemption.
+Main then repeats the full risk tier: full `prove()` or a fresh eligible docs exemption.
 A wording-only change is not a no-verification exception. Old-head evidence never approves a new SHA.
 
 A fix round is one writer repair cycle returning a new SHA after a blocker/red check following the first `prove()` result.
@@ -58,11 +59,12 @@ After round three, unresolved blockers stop integration: escalate with PR/head, 
 
 ## Verification comment and agent-verified status
 
-Main posts a separate PR comment, outside the description's 400–650-word budget, containing the complete manifest,
-its SHA-256, full `prove()` result (deterministic evidence, verifier criteria/evidence, blockers and follow-ups), recorded
-family/model/agent authors, selected verifier model/family and exact head SHA. Include objective, parent/target_ref and CI evidence.
-For the docs tier, post the exemption result, exact range/head and gate/CI evidence instead, explicitly recording that no verifier was required.
-Do not truncate required evidence to fit the body budget; attach/link the full machine-readable result if necessary.
+`prove()` writes its JSON result to `<git-common-dir>/omp-prove/<head>.result.json`, beside the pass marker, and posts it
+as a PR comment on the PR at that head. The result carries the manifest and its SHA-256, deterministic evidence, verifier
+criteria, blockers, follow-ups, authors, verifier model and head; main never copies it by hand. A result that cannot be
+written or posted turns a pass into a fail. Main then posts its own short comment, outside the description's
+400–650-word budget, with only the objective and its judgement of the result.
+For the docs tier, main posts the exemption result and exact range/head instead, explicitly recording that no verifier was required.
 If `gateChanges` discovers omitted paths, have the writer update the body's optional **Gate changes** section with paths/effects;
 a changed/listed path alone is not a blocker. The canonical `BLOCKING_RULE` governs unauthorized weakening and wrong/stale docs.
 

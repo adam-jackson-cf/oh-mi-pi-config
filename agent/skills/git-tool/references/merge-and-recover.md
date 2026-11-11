@@ -12,13 +12,13 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
    Do not use a default-branch check from the beginning of a long review. The verified recovery revert is the
    exception to the red-target stop, never permission for unrelated integrations.
 2. Confirm the actual PR target, current exact head, no unresolved blockers, hook eligibility, required CI success,
-   passing current-head risk-tier verification, complete verification comment and a successful `agent-verified`
+   passing current-head risk-tier verification, the posted `prove()` result or docs exemption and a successful `agent-verified`
    commit status on the exact head. [Verify-loop](verify-loop.md) owns evidence, the `agent-verified` status and every-new-SHA invalidation; [patterns](skill://omp-dyna-workflows/references/patterns.md)
    owns docs eligibility and pass markers. With dynaflows on, merge requires the valid exact-head marker and
    `--match-head-commit <40-hex>`. With `ci` declared in `.omp/gate.json` or dynaflows on, rails require
    `--match-head-commit` plus the declared required context and `agent-verified` successful on that SHA. With `ci` declared,
    only that context decides; other reported checks never block. Without it, every reported check must be green.
-   Never manufacture markers. Main independently rechecks exact-head CI immediately before merge.
+   Never manufacture markers.
    If the PR adds or changes an owner-approval field, hand it to the owner to merge (see **Owner-approval changes** below).
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Ordinary PRs rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. Otherwise merge the verified head without rewriting the branch.
@@ -39,7 +39,8 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
 
 ## CI waits, errors and fallbacks
 
-The writer submits/waits for PR-head CI; main independently confirms existing exact-head status before verification and merge.
+The writer submits/waits for PR-head CI. `prove()` refuses unless the declared required context is success on the exact head,
+and rails enforce exact-head CI at the `agent-verified` status write and at merge; main does not recheck it separately.
 Main owns latest-target CI immediately before integration and post-merge recording/submission. Every dispatch, status and log refers to
 an exact SHA. If a branch moves, its run cannot approve the new SHA. With `ci` declared, the required context decides; otherwise inspect all
 reported/required GitHub checks. Inspect protection settings too;
