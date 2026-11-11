@@ -34,6 +34,7 @@ CONTRACT_SUBCOMMANDS = {
     "python-test-hygiene",
     "canaries",
     "rule-evidence",
+    "rule-coverage",
     "hook-check",
     "toolchain-parity",
     "gate",

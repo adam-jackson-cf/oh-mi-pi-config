@@ -1,1 +1,1 @@
-"""Catalogue process checkers: gate runner, hook installation, rule evidence, canaries, parity."""
+"""Catalogue process checkers: gate, hook, rule evidence and coverage, canaries, parity."""

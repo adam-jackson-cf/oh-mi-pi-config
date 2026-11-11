@@ -34,7 +34,7 @@ Modes:
 
 - ``omp-guardrails canaries FIXTURE [...]`` reports each check's findings unchanged, so a
   compliant fixture exits 0 and a violating one exits 1 with the rule ID in the output. This is
-  the ``canary.command`` form the skill's ``validate_rule_coverage.py`` executes.
+  the ``canary.command`` form ``omp-guardrails rule-coverage`` executes for a repo checker.
 - ``omp-guardrails canaries`` with no fixtures runs every fixture matched by
   ``guardrails.canaries.fixtures`` (repo globs) and compares each result with its ``expect``
   (``fail`` or ``pass``), reporting only mismatches.

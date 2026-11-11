@@ -1,7 +1,8 @@
-"""ci-runner.py against fake runner commands and a fake gh on PATH."""
+"""ci-runner.py against fake runner commands and a fake gh on PATH, plus the runner parity check."""
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -201,6 +202,61 @@ class BuiltInPollerTests(Fixture):
 
     def test_null_logs_is_config_error(self):
         self.assertEqual(self.cli("logs", "github-actions", REPO, SHA).returncode, 2)
+
+
+GATES_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/run-ci-quality-gates.sh"
+# Stops the run right after the parity check, before any lint, type or test tool starts.
+STOP = "#!/bin/sh\nexit 42\n"
+
+
+class RunnerParityTests(unittest.TestCase):
+    """run-ci-quality-gates.sh parity: .omp/gate.json is the only CI contract."""
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory(prefix="ci-parity-test-")
+        self.addCleanup(scratch.cleanup)
+        self.repo = Path(scratch.name) / "repo"
+        (self.repo / "scripts").mkdir(parents=True)
+        (self.repo / ".omp").mkdir()
+        shutil.copy(GATES_SCRIPT, self.repo / "scripts")
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        # macOS bash 3.2 treats an empty array as unbound under `set -u`: track one Markdown file.
+        (self.repo / "readme.md").write_text("# fixture\n")
+        subprocess.run(["git", "-C", str(self.repo), "add", "readme.md"], check=True)
+        binary = Path(scratch.name) / "bin"
+        binary.mkdir()
+        for name in ("bunx", "bun"):
+            (binary / name).write_text(STOP)
+            (binary / name).chmod(0o755)
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env["PATH"] = str(binary) + os.pathsep + self.env["PATH"]
+
+    def gate(self, checks):
+        (self.repo / ".omp/gate.json").write_text(json.dumps({"schemaVersion": 2, "checks": checks}))
+
+    def run_script(self):
+        return subprocess.run(["bash", str(self.repo / "scripts/run-ci-quality-gates.sh")],
+                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+
+    def test_gate_json_alone_satisfies_parity_without_a_workflow(self):
+        self.gate({"ci": ["bash", "scripts/run-ci-quality-gates.sh"]})
+        result = self.run_script()
+        self.assertIn("Runner parity check passed.", result.stdout)
+        self.assertEqual(result.returncode, 42, "the run must continue to the quality tools")
+        self.assertFalse((self.repo / ".github").exists())
+
+    def test_gate_json_without_runner_fails_even_when_workflow_references_it(self):
+        self.gate({"ci": ["make", "check"]})
+        workflow = self.repo / ".github/workflows/ci-quality-gates.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("steps:\n  - run: bash scripts/run-ci-quality-gates.sh\n")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Runner parity check failed: .omp/gate.json must reference", result.stderr)
+
+    def test_missing_gate_json_fails(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(".omp/gate.json", result.stderr)
 
 
 if __name__ == "__main__":

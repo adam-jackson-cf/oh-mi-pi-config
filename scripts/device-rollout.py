@@ -5,6 +5,8 @@ Apply mode also provisions the judge key into each device's omp credential store
 (Infisical -> builder -> `omp auth import -`, streamed over stdin only), runs a
 `omp find` canary per device, deletes retired `~/.agents/by-request` husks, and writes
 each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles.
+The registry's `infisical` project and environment serve both the judge key and the
+`ci-gate` runner commands, which pass them to ci-gate.py as CI_GATE_INFISICAL_* settings.
 """
 import argparse
 import json
@@ -17,7 +19,7 @@ import sys
 
 
 # Configuration keys in the registry that are not hosts.
-SETTINGS = ("local", "judgeKey", "findCanary", "ciRunners")
+SETTINGS = ("local", "infisical", "judgeKey", "findCanary", "ciRunners")
 # Retired skill names whose untracked by-request folders shadow skill:// resolution.
 HUSKS = ("coding-guidance", "test-guidance", "setup-repository-guardrails")
 # Reads the secret named by argv[1] from the environment and prints an
@@ -71,7 +73,15 @@ GITHUB_LOGS = ("gh run list --repo \"$1\" --commit \"$2\" --json databaseId --jq
                "| tail -n \"$3\"")
 
 
-def runner_document(definition, device, base):
+def infisical_settings(infisical):
+    """Return ci-gate.py's CI_GATE_INFISICAL_* assignments from the registry's `infisical` setting."""
+    values = (infisical or {}).get("project"), (infisical or {}).get("environment")
+    if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", value) for value in values):
+        raise ValueError("ci-gate runners need the registry's infisical project and environment")
+    return ["CI_GATE_INFISICAL_PROJECT=" + values[0], "CI_GATE_INFISICAL_ENV=" + values[1]]
+
+
+def runner_document(definition, device, base, infisical=None):
     """Return the ci-runners.json document for `device`, whose omp base directory is `base`."""
     remote_base = definition["remoteBase"]
     if not re.fullmatch(r"~/[A-Za-z0-9_./-]+", remote_base):
@@ -82,13 +92,15 @@ def runner_document(definition, device, base):
             host = spec["host"]
             if not re.fullmatch(r"[A-Za-z0-9_.-]+", host):
                 raise ValueError("ciRunners ci-gate host must be an ssh alias")
+            settings = infisical_settings(infisical)
             if device == host:
-                commands = {name: ["python3", base + "/scripts/ci-gate.py", *args]
+                commands = {name: ["env", *settings, "python3", base + "/scripts/ci-gate.py", *args]
                             for name, args in CI_GATE_ARGS.items()}
             else:
                 script = remote_base + "/scripts/ci-gate.py"
                 commands = {name: ["ssh", "-o", "BatchMode=yes", host,
-                                   'bash -lc "python3 ' + script + " " + " ".join(args) + '"']
+                                   'bash -lc "' + " ".join(settings) + " python3 " + script + " "
+                                   + " ".join(args) + '"']
                             for name, args in CI_GATE_ARGS.items()}
         elif spec["kind"] == "github-actions":
             commands = {"submit": None, "wait": None, "status": None,
@@ -138,6 +150,7 @@ class Rollout:
         self.local = hosts.get("local", {}).get(hostname, hostname)
         self.hosts = {host: config for host, config in hosts.items()
                       if host not in (*SETTINGS, self.local, hostname)}
+        self.infisical = hosts.get("infisical")
         self.judge_key = hosts.get("judgeKey")
         self.canary = hosts.get("findCanary")
         self.ci_runners = hosts.get("ciRunners")
@@ -217,10 +230,13 @@ class Rollout:
 
     def provision(self, host=None):
         """Stream the judge key from Infisical into `omp auth import -`; True on success."""
-        key = self.judge_key
-        producer = ["infisical", "run", "--silent", "--projectId", key["infisicalProject"],
-                    "--env", key["environment"], "--", sys.executable, "-c",
-                    CREDENTIAL_BUILDER, key["secret"], key["provider"]]
+        key, source = self.judge_key, self.infisical
+        try:
+            producer = ["infisical", "run", "--silent", "--projectId", source["project"],
+                        "--env", source["environment"], "--", sys.executable, "-c",
+                        CREDENTIAL_BUILDER, key["secret"], key["provider"]]
+        except (TypeError, KeyError):
+            return False
         consumer = ["omp", "auth", "import", "-"]
         if host:
             consumer = self.remote(consumer, host)
@@ -289,7 +305,8 @@ class Rollout:
                 base = str(self.base)
                 python = sys.executable
             try:
-                document = json.dumps(runner_document(self.ci_runners, device, base), sort_keys=True)
+                document = json.dumps(runner_document(self.ci_runners, device, base,
+                                                           self.infisical), sort_keys=True)
                 result = self.command([python, "-c", RUNNERS_WRITER, "check" if self.check else "apply",
                                        base + "/ci-runners.json", document], host)
                 state = result.stdout.strip()

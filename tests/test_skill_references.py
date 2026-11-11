@@ -92,7 +92,7 @@ class SkillReferenceTests(unittest.TestCase):
 
 
     def test_test_guidance_pointers_name_catalogue_rules_and_their_subcommands(self):
-        catalogue = json.loads((GUARDRAILS / "guardrail-rules.json").read_text(encoding="utf-8"))
+        catalogue = json.loads((GUARDRAILS / "python-reference/omp_guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
         subcommands = {
             row["id"]: {item["subcommand"] for item in row.get("reference", [])}
             for row in catalogue["rules"]

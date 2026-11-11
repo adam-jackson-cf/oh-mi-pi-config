@@ -27,7 +27,9 @@ The proof task writes the production lever and runner-invoked journey files and 
  together with `freeze(..., project_setup=True)`; implementation owns the feature map, profile and
 guardrails, not lever bytes. Project setup freezes before stage 4 records `dynaflowsContract`, so
 this flag tolerates a missing gate or an absent or lower recorded contract; a higher one still refuses.
-Run journey proofs several times before freezing. Complete guardrails Step 5 owner approval.
+A stale contract alone in a repo that already has controls is not a project-setup trigger: it
+takes the mechanical `omp-guardrails init --extend` commit in [SKILL](../../SKILL.md#4-implement).
+Complete guardrails Step 5 owner approval.
 Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
 `STRUCT.folder-placement`, `NAME.conventions`, ownership areas and affected-T2 selection.
 Keep the Step 5 STOP; existing controls are not permission to skip approval.

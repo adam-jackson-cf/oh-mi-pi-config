@@ -71,10 +71,15 @@ never apply before approval. Bootstrap installs the hook before its first commit
 The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
 current one, and each repo records the version it was set up against in tracked `.omp/gate.json`
 `dynaflowsContract` (`omp-guardrails init` writes it). With dynaflows on, a missing or lower
-recorded version makes rails emit a session note and `freeze()`/`prove()` refuse; run the
-project-setup playbook, whose stage-3 `freeze(..., project_setup=True)` tolerates it and whose
-stage-4 `omp-guardrails init` records the current version before `prove()` checks head. A higher
-one means omp needs updating, and refuses even under `project_setup=True`.
+recorded version makes rails emit a session note and `freeze()`/`prove()` refuse. Missing
+controls go through project setup, whose stage-3 `freeze(..., project_setup=True)` tolerates
+the version gap. In a repo that already has controls, a missing or lower version is a contract
+bump: the writer runs `omp-guardrails init --extend` and commits its change as a mechanical
+commit, with no proposal and no project-setup playbook. Ask the owner only when that change
+adds a gate or profile field the repo lacks. The manifest records the contract it was frozen
+under, but `prove()` checks the head's `.omp/gate.json`, so a bump during a PR needs no
+re-freeze. A higher version means omp needs updating, and refuses even under
+`project_setup=True`.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
@@ -109,7 +114,8 @@ The writer lists gate paths/effects in **Gate changes** per
 
 ### 5. Verify
 
-Main independently confirms exact-head green CI and no pending writer edits.
+Main confirms the writer has no pending edits. `prove()` reads the gate's declared required CI
+context first and refuses before verifier spend unless it is success on the exact head.
 Follow `skill://git-tool/references/verify-loop.md` for risk tiers, durable fix
 rounds, changed-head invalidation and evidence/status mechanics. Eligible docs-only
 work uses a fresh `exempt_docs_only(..., target_ref=...)` plus green CI, without a
@@ -120,7 +126,9 @@ with objective and fetched PR `target_ref`. It assembles the brief and dispatche
 the sole cross-family `verifier`; never spawn a second verifier or substitute a
 `task`. Helper details live in [patterns](references/patterns.md#prove), and the
 exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
-Main posts verification evidence. On a pass, `prove()` posts the SHA-bound
+The verifier takes `prove()`'s proof runs as settled evidence and does not re-run them.
+`prove()` writes its JSON result beside the pass marker and posts it on the PR; main's own
+comment adds only the objective and its judgement. On a pass, `prove()` posts the SHA-bound
 `agent-verified` commit status on that head; it is never a label. Rails allow an
 `agent-verified` status write only when exact-head CI passes, and block label
 writes. The checkout's `.omp/gate.json` is the policy authority: when it declares

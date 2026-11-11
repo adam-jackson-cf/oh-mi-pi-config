@@ -58,7 +58,8 @@ disable-model-invocation: true
 ## Step 7: Prove every applicable rule
 
 - Purpose: Reject missing, uninvoked, or ineffective guardrails before completion.
-- Action: Run the bundled coverage validator, rule canaries, focused tests, and the target gate.
+- Action: Run `omp-guardrails rule-coverage` (or the stack's own proof) for repository checkers,
+  then focused tests and the target gate.
 - Workflow: [Rule coverage verification](references/step-7-verify-workflow.md).
 
 ## Output

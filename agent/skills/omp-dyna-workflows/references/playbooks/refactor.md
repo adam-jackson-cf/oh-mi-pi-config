@@ -21,7 +21,7 @@ Use `preserve` for unchanged behaviour and `new-surface` for new APIs/design sur
 A red preserve baseline returns to Plan to repair proof/objective, never to weaken it.
 Lever journeys use only `preserve` or `defect` with asserted `expectRed`, never
 `new-surface`; environment/doctor failures are not red assertions.
-Run journey proofs several times before freeze. Freeze runner-invoked journey files
+Freeze runner-invoked journey files
 and needed lever changes together; implementation changes product code and map docs only.
 
 ## 4. Implement

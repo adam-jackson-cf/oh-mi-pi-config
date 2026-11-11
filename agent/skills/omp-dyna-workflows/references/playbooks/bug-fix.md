@@ -23,7 +23,7 @@ only in a small dedicated file; otherwise add a dedicated proof file and list ev
 needed shared fixture. Whole files are frozen.
 Use outcome tests or lever journeys; journeys are `defect` or `preserve`, never
 `new-surface`. A doctor/environment marker cannot be `expectRed`.
-Run journey proofs several times before freeze. Freeze runner-invoked journey files
+Freeze runner-invoked journey files
 with needed lever changes; implementation changes product code and feature-map docs only.
 
 ## 4. Implement
