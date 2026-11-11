@@ -352,6 +352,31 @@ class AdoptTests(InitCase):
             self.assertIn("omp-guardrails profile-check", argv[2])
             self.assertIn("omp-guardrails python-quality", argv[2])
 
+    def test_adopt_moves_ci_only_and_local_only_checks_to_their_event(self) -> None:
+        self.existing["checks"] = {
+            "commit": ["omp-guardrails", "rule-coverage"],
+            "ci": ["omp-guardrails", "budget-check"],
+        }
+        self.write(".omp/gate.json", json.dumps(self.existing))
+        checks = ("--check", "profile-check", "--check", "rule-coverage")
+        code, output = self.adopt(*checks)
+        self.assertEqual(code, 0, output)
+        gate = self.gate()["checks"]
+        self.assertEqual(gate["commit"], ["omp-guardrails", "profile-check"])
+        self.assertNotIn("budget-check", gate["ci"][2])
+        self.assertIn("omp-guardrails rule-coverage", gate["ci"][2])
+        self.assertIn("omp-guardrails profile-check", gate["ci"][2])
+
+    def test_adopt_drops_rule_coverage_from_a_shadow_commit_gate(self) -> None:
+        reference = ["omp-guardrails"]
+        argv = gate_config.shadow_argv(["make", "gate-commit"], reference, ["rule-coverage"])
+        adopted = gate_config.adopted_argv(
+            argv, reference, ["profile-check"], gate_config.CI_ONLY_CHECKS
+        )
+        self.assertEqual(adopted[3:], [gate_config.SHADOW_NAME, "make", "gate-commit"])
+        self.assertNotIn("rule-coverage", adopted[2])
+        self.assertIn("omp-guardrails profile-check", adopted[2])
+
     def test_adopt_keeps_a_gate_that_already_runs_every_requested_check(self) -> None:
         argv = ["omp-guardrails", "profile-check"]
         self.assertIs(gate_config.adopted_argv(argv, ["omp-guardrails"], ["profile-check"]), argv)
