@@ -247,8 +247,10 @@ class Rollout:
             return "failed"
         return coverage if coverage in ("complete", "partial", "unavailable") else "failed"
 
-    def finish_device(self, device, start, host=None, agents=None, agents_state=None):
-        """Apply husk, key and find results to the device's rows from index `start`."""
+    def finish_device(self, device, start, host=None, agents=None, agents_state=None, omp=True):
+        """Apply husk, key and find results to the device's rows from index `start`.
+
+        Key provisioning and the find canary run only on devices that run omp."""
         rows = self.rows[start:]
         husk_state = self.husks(device, agents, host) if agents_state not in (
             None, "unreachable") else None
@@ -258,6 +260,8 @@ class Rollout:
                     row[5] = husk_state
         if any(row[5] == "unreachable" for row in rows):
             coverage = "unreachable"
+        elif not omp:
+            coverage = None
         else:
             coverage = None
             if self.judge_key and not self.check and not self.provision(host):
@@ -350,7 +354,7 @@ class Rollout:
             state = self.checkout(host, "agents", config["agents"], host)
             if "omp" in config:
                 self.deployment(host, config["omp"], local_omp in ("current", "stale"))
-            self.finish_device(host, start, host, config["agents"], state)
+            self.finish_device(host, start, host, config["agents"], state, omp="omp" in config)
             self.runners(host, start, host)
         return int(any(row[5] != "current" for row in self.rows))
 

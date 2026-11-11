@@ -112,7 +112,7 @@ class DeviceRolloutTests(unittest.TestCase):
         runner = Runner()
         deployment, code = self.execute(runner)
         self.assertEqual(code, 0)
-        self.assertEqual({row[4] for row in checkouts(deployment)}, {"complete"})
+        self.assertEqual({row[4] for row in checkouts(deployment, skip=("mac-cf2",))}, {"complete"})
         self.assertEqual(len(deployment.rows), 8)
         self.assertEqual({row[5] for row in deployment.rows}, {"current"})
         self.assertFalse(any("pull" in " ".join(cmd) or "systemctl" in " ".join(cmd)
@@ -221,7 +221,7 @@ class DeviceRolloutTests(unittest.TestCase):
         pipeline = Pipeline()
         deployment, code = self.execute(Runner(), check=False, pipeline=pipeline)
         self.assertEqual(code, 0)
-        self.assertEqual(len(pipeline.calls), 3)
+        self.assertEqual(len(pipeline.calls), 2)
         key = HOSTS["judgeKey"]
         for producer, consumer in pipeline.calls:
             self.assertEqual(producer[:7], ["infisical", "run", "--silent", "--projectId",
@@ -229,15 +229,22 @@ class DeviceRolloutTests(unittest.TestCase):
             self.assertEqual(producer[-2:], [key["secret"], key["provider"]])
             self.assertTrue(consumer == ["omp", "auth", "import", "-"]
                             or (consumer[0] == "ssh" and "omp auth import -" in consumer[-1]))
-        self.assertEqual([call[1][5] for call in pipeline.calls[1:]],
-                         ["mac-cf2", "codex-omarchy-nuc"])
-        self.assertTrue(pipeline.calls[2][1][6].startswith("bash -lc "))
+        self.assertEqual([call[1][5] for call in pipeline.calls[1:]], ["codex-omarchy-nuc"])
+        self.assertTrue(pipeline.calls[1][1][6].startswith("bash -lc "))
+
+    def test_devices_without_omp_skip_key_and_find(self):
+        runner, pipeline = Runner(), Pipeline((3, 1))
+        deployment, _ = self.execute(runner, check=False, pipeline=pipeline)
+        self.assertNotIn("mac-cf2", [call[1][5] for call in pipeline.calls if call[1][0] == "ssh"])
+        self.assertFalse(any("omp find" in " ".join(cmd) and "mac-cf2" in cmd for cmd in runner.commands))
+        self.assertEqual(row(deployment, "mac-cf2", "agents")[4:], ["-", "current"])
+        self.assertNotIn("mac-cf2: judge key", deployment.report())
 
     def test_key_failure_keeps_rows_non_current(self):
         deployment, code = self.execute(Runner(), check=False, pipeline=Pipeline((3, 1)))
         self.assertEqual(code, 1)
-        self.assertEqual({row[4] for row in checkouts(deployment)}, {"key-failed"})
-        self.assertEqual({row[5] for row in checkouts(deployment)}, {"find-blocked"})
+        self.assertEqual({row[4] for row in checkouts(deployment, skip=("mac-cf2",))}, {"key-failed"})
+        self.assertEqual({row[5] for row in checkouts(deployment, skip=("mac-cf2",))}, {"find-blocked"})
         self.assertIn("judge key provisioning failed", deployment.report())
 
     def test_non_complete_find_keeps_rows_non_current(self):
@@ -245,14 +252,14 @@ class DeviceRolloutTests(unittest.TestCase):
                                  ("failed", json.dumps({"coverage": "odd"}))):
             deployment, code = self.execute(Runner(coverage=coverage, find_output=output))
             self.assertEqual(code, 1)
-            self.assertEqual({row[4] for row in checkouts(deployment)}, {coverage})
-            self.assertEqual({row[5] for row in checkouts(deployment)}, {"find-blocked"})
+            self.assertEqual({row[4] for row in checkouts(deployment, skip=("mac-cf2",))}, {coverage})
+            self.assertEqual({row[5] for row in checkouts(deployment, skip=("mac-cf2",))}, {"find-blocked"})
 
     def test_find_canary_runs_on_configured_path(self):
         runner = Runner()
         self.execute(runner)
         finds = [" ".join(cmd) for cmd in runner.commands if "omp find" in " ".join(cmd)]
-        self.assertEqual(len(finds), 3)
+        self.assertEqual(len(finds), 2)
         self.assertIn("/local/.agents/scripts --json -q", finds[0])
         self.assertTrue(all("--json -q" in text for text in finds[1:]))
 
