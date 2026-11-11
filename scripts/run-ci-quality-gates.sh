@@ -48,15 +48,15 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# .omp/gate.json checks.commit (run by .githooks/pre-commit) and the CI workflow must both use
-# this runner.
+# .omp/gate.json is the only CI contract: checks.commit (run by .githooks/pre-commit) and
+# checks.ci (run by the configured ci.runner) must use this runner. The GitHub Actions
+# workflow is an optional manual fallback and is not part of the parity check.
 runner_base='scripts/run-ci-quality-gates'
-for config in .omp/gate.json .github/workflows/ci-quality-gates.yml; do
-  if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
-    printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
-    exit 1
-  fi
-done
+config=.omp/gate.json
+if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
+  printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
+  exit 1
+fi
 printf 'Runner parity check passed.\n'
 
 code_files=(oxlint.config.ts)
