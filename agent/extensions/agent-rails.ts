@@ -531,7 +531,7 @@ function contractMismatch(recorded: number | undefined, current: number): string
 	const stated = `Dynaflows contract v${recorded ?? "none"} recorded; current is v${current}.`;
 	return recorded !== undefined && recorded > current
 		? `${stated} The repo expects a newer dynaflows contract; update omp.`
-		: `${stated} Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract.`;
+		: `${stated} Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract.`;
 }
 const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
 const ledgerSchema = z.object({

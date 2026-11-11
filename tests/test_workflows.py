@@ -939,7 +939,7 @@ class RepositoryTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def test_stale_absent_or_newer_contract_blocks_freeze_and_prove(self):
-        stale = "Re-run project setup (omp-guardrails init --extend) and record dynaflowsContract."
+        stale = "Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract."
         newer = "The repo expects a newer dynaflows contract; update omp."
         cases = ((None, f"Dynaflows contract vnone recorded; current is v5. {stale}"),
                  (4, f"Dynaflows contract v4 recorded; current is v5. {stale}"),
@@ -968,6 +968,35 @@ class RepositoryTests(unittest.TestCase):
         self.rebase_parent("no gate")
         with self.assertRaisesRegex(workflow.WorkflowError, re.escape(f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
             self.freeze([self.proof()])
+
+    def test_project_setup_freeze_tolerates_absent_or_lower_contract_only(self):
+        newer = "Dynaflows contract v6 recorded; current is v5. The repo expects a newer dynaflows contract; update omp."
+        with patch.object(workflow, "dynaflows_contract", return_value=5):
+            for recorded in (None, "no gate", 4, 6):
+                with self.subTest(recorded=recorded):
+                    self.manifest_path.unlink(missing_ok=True)
+                    gate_path = self.repo / ".omp/gate.json"
+                    if recorded == "no gate":
+                        gate_path.unlink(missing_ok=True)
+                    else:
+                        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
+                        if recorded is not None:
+                            gate["dynaflowsContract"] = recorded
+                        self.write(".omp/gate.json", json.dumps(gate))
+                    self.rebase_parent(f"setup contract {recorded}")
+                    if recorded == 6:
+                        with self.assertRaises(workflow.WorkflowError) as raised:
+                            self.freeze([self.proof()], project_setup=True)
+                        self.assertEqual(str(raised.exception), newer)
+                        self.assertFalse(self.manifest_path.exists())
+                    else:
+                        self.freeze([self.proof()], project_setup=True)
+                        self.assertTrue(self.manifest_path.exists())
+                        if recorded == 4:
+                            self.change()
+                            self.assert_block(self.prove(), "Dynaflows contract v4 recorded; current is v5.")
+            with self.assertRaisesRegex(workflow.WorkflowError, "project_setup must be a bool"):
+                self.freeze([self.proof()], project_setup="yes")
 
     def test_freeze_formats_before_hashing_and_reports_changed_files(self):
         self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
