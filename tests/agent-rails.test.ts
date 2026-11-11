@@ -167,6 +167,19 @@ function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: st
 	};
 }
 
+// Answers every `gh pr view` with an approval-free PR and every guardrail contents read with HTTP 404, from any cwd,
+// so publishing-policy tests reach the merge rails without a real GitHub remote.
+function stubPlainMerge(h: PrCiHarness) {
+	const exec = h.api.exec.bind(h.api);
+	h.api.exec = async (command, args, options) => {
+		if (command !== "gh") return exec(command, args, options);
+		if (args[0] === "api" && args.at(-1)?.includes("/contents/")) return { code: 1, killed: false, stdout: "", stderr: "gh: Not Found (HTTP 404)" };
+		if (args[0] === "pr" && args[1] === "view") return { code: 0, killed: false, stderr: "",
+			stdout: JSON.stringify({ baseRefOid: ciBase, headRefOid: ciHead, statusCheckRollup: [], url: "https://github.com/owner/repo/pull/7" }) };
+		return exec(command, args, options);
+	};
+}
+
 const verified = { __typename: "StatusContext", context: "agent-verified", state: "SUCCESS" };
 const ciGate = { requiredContext: "gate", runner: "ci-gate" };
 const ciRunner = resolve(import.meta.dir, "../scripts/ci-runner.py");
@@ -332,6 +345,7 @@ describe("agent rails", () => {
 		const other = harness();
 		try {
 			await h.read("skill://git-tool");
+			stubPlainMerge(h);
 			const commands = ["git push", "gh pr create", "gh pr merge 7", ...wrappedPublishing];
 			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
 			h.gate({ schemaVersion: 2 });
@@ -726,6 +740,7 @@ test("dynaflows merge requires an exact-head valid proof marker in the Git commo
 		await h.read("skill://git-tool");
 		const head = "a".repeat(40);
 		const command = `env gh pr merge 3 --match-head-commit=${head}`;
+		mockPrCi(h, [...greenCi, verified], head, "3");
 		assert.equal(await h.call("bash", { command }), undefined, "off retains existing behaviour");
 		h.dynaflows(true);
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("--match-head-commit"));
@@ -736,7 +751,6 @@ test("dynaflows merge requires an exact-head valid proof marker in the Git commo
 			writeFileSync(marker, content);
 			assert.equal((await h.call("bash", { command }))?.block, true);
 		}
-		mockPrCi(h, [...greenCi, verified], head, "3");
 		for (const kind of ["prove", "docs-only"]) {
 			writeFileSync(marker, JSON.stringify({ schemaVersion: 1, head, kind, status: "pass" }));
 			assert.equal(await h.call("bash", { command }), undefined);
@@ -897,6 +911,41 @@ for (const scenario of [
 		} finally { h.cleanup(); }
 	});
 }
+
+// The guard is not tied to a ci block or dynaflows: a guardrail repo with neither still leaves approvals to the owner.
+for (const scenario of [
+	{ name: "added approved skip", head: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: "approved_skips[]" },
+	{ name: "non-approval profile change", head: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
+] as const) {
+	test(`merge approval guard without a ci block or dynaflows: ${scenario.name}`, async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.dynaflows(false);
+			h.gate({ schemaVersion: 2 });
+			mockPrCi(h, [], ciHead, "3", undefined, undefined, undefined, { [ciBase]: { ...baseFiles }, [ciHead]: { ...scenario.head } });
+			const result = await h.call("bash", { command: "gh pr merge 3 --rebase" });
+			if ("field" in scenario) {
+				assert.equal(result?.block, true, "an approval change is the owner's merge");
+				assert.ok(result?.reason?.includes(scenario.field), result?.reason);
+				assert.ok(result?.reason?.includes("hand the PR to the owner"), result?.reason);
+			} else assert.equal(result, undefined);
+		} finally { h.cleanup(); }
+	});
+}
+
+test("merge approval guard without a ci block fails closed when gh cannot read the PR", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(false);
+		h.gate({ schemaVersion: 2 });
+		mockPrCi(h, [], ciHead, "3", "HTTP 502");
+		const result = await h.call("bash", { command: "gh pr merge 3" });
+		assert.equal(result?.block, true);
+		assert.ok(result?.reason?.includes("cannot read PR head/CI via gh: HTTP 502"), result?.reason);
+	} finally { h.cleanup(); }
+});
 
 test("merge approval guard fails closed when gh cannot read a guardrail file", async () => {
 	const h = harness();
