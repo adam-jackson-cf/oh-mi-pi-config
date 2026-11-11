@@ -1,7 +1,8 @@
-"""Catalogue checkers of the guardrails reference: gate, hook, evidence, canaries, parity."""
+"""Catalogue checkers of the guardrails reference: gate, hook, rule coverage, canaries, parity."""
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import json
@@ -26,12 +27,15 @@ from omp_guardrails.catalogue import (  # noqa: E402
     canaries,
     gate_runner,
     hook_installation,
+    rule_coverage,
     rule_evidence,
     toolchain_parity,
     versions,
 )
 
 EMPTY_PROFILE = "---\n{}\n---\n"
+# Tool rules whose values tests/test_reference_init.py NativeConfigTests checks.
+NATIVE_PREFIXES = ("RUFF.", "MYPY.")
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -263,83 +267,319 @@ class HookInstallationTests(RepoCase):
         self.assertFalse((self.repo / ".omp/gate.json").exists())
 
 
-class RuleEvidenceTests(RepoCase):
+SYNTHETIC_CATALOGUE = {
+    "schema_version": 1,
+    "rules": [
+        {"id": "REPO.always", "kind": "process", "applicability": "always"},
+        {
+            "id": "REPO.hook",
+            "kind": "bespoke",
+            "applicability": "always",
+            "evidence_kind": "git_hook",
+        },
+        {"id": "REPO.optional", "kind": "process", "applicability": "conditional"},
+        {"id": "TOOL.setting", "kind": "tool", "applicability": "always"},
+        {
+            "id": "PKG.checked",
+            "kind": "bespoke",
+            "applicability": "always",
+            "reference": [{"subcommand": "naming", "module": "omp_guardrails.structure.naming"}],
+        },
+    ],
+}
+CHECKER = (
+    "import pathlib, sys\n"
+    "rule, fixture = sys.argv[1:]\n"
+    "if pathlib.Path(fixture).name.startswith('bad'):\n"
+    "    print(rule)\n"
+    "    raise SystemExit(1)\n"
+)
+
+
+class RuleEvidenceCase(RepoCase):
+    """A repo with one working checker script and a ledger over a synthetic catalogue."""
+
     def setUp(self) -> None:
         super().setUp()
-        self.catalogue = FIXTURES / "catalogue.json"
-        self.ledger = json.loads((FIXTURES / "ledger-complete.json").read_text())
+        patcher = mock.patch.object(
+            rule_evidence, "packaged_catalogue", return_value=SYNTHETIC_CATALOGUE
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.write("check.py", CHECKER)
+        self.write("runner.sh", "python check.py\n")
+        self.write("ci.yml", "runner.sh\n")
+        self.write("good.txt", "good\n")
+        self.write("bad.txt", "bad\n")
+        self.rows = [self.row("REPO.always"), self.hook_row("REPO.hook")]
 
-    def track(self, ledger: dict | None = None, snapshot: bytes | None = None) -> None:
-        target = self.repo / ".omp/guardrail-rules.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(self.catalogue.read_bytes() if snapshot is None else snapshot)
-        self.write(".omp/rule-coverage.json", json.dumps(ledger or self.ledger))
+    @staticmethod
+    def row(rule_id: str, **extra: object) -> dict:
+        return {
+            "id": rule_id,
+            "implementation_paths": ["check.py"],
+            "local_runner": "runner.sh",
+            "local_marker": "check.py",
+            "ci_runner": "ci.yml",
+            "ci_marker": "runner.sh",
+            "canary": {
+                "command": [sys.executable, "check.py", rule_id, "{fixture}"],
+                "passing": "good.txt",
+                "violating": "bad.txt",
+                "diagnostic": rule_id,
+                "timeout_seconds": 10,
+            },
+            **extra,
+        }
 
-    def evidence(self) -> list:
-        return rule_evidence.run(self.repo, {}, ["--reference", str(self.catalogue)])
+    def hook_row(self, rule_id: str, code: str | None = None) -> dict:
+        row = self.row(rule_id, evidence_kind="git_hook")
+        del row["ci_runner"], row["ci_marker"]
+        script = code or f"print('{rule_id}: installed')"
+        row["hook_install_check"] = {
+            "command": [sys.executable, "-c", script],
+            "diagnostic": f"{rule_id}: installed",
+        }
+        return row
 
-    def test_complete_ledger_matching_the_reference_passes(self) -> None:
-        self.track()
+    def ledger(self, rows: list | None = None) -> None:
+        rules = self.rows if rows is None else rows
+        self.write(".omp/rule-coverage.json", json.dumps({"schema_version": 2, "rules": rules}))
+
+    def evidence(self, profile: dict | None = None) -> list:
+        return rule_evidence.run(self.repo, profile or {}, [])
+
+    def coverage(self) -> list:
+        return rule_coverage.run(self.repo, {}, [])
+
+
+class RuleEvidenceTests(RuleEvidenceCase):
+    def test_complete_ledger_of_repo_checkers_passes(self) -> None:
+        self.ledger()
         self.assertEqual(self.evidence(), [])
 
-    def test_missing_or_drifted_snapshot_is_a_finding(self) -> None:
-        self.assertEqual(rules_of(self.evidence()), ["RULES.catalogue-snapshot"])
-        self.track(snapshot=self.catalogue.read_bytes() + b"\n")
+    def test_repo_without_repo_checkers_needs_no_ledger(self) -> None:
+        catalogue = {"schema_version": 1, "rules": SYNTHETIC_CATALOGUE["rules"][2:]}
+        with mock.patch.object(rule_evidence, "packaged_catalogue", return_value=catalogue):
+            self.assertEqual(self.evidence(), [])
+            self.assertEqual(self.coverage(), [])
+
+    def test_absent_ledger_reports_each_always_applicable_repo_checker(self) -> None:
+        self.assertEqual(sorted(rules_of(self.evidence())), ["REPO.always", "REPO.hook"])
+
+    def test_rules_the_package_proves_take_no_ledger_row(self) -> None:
+        for rule_id in ("TOOL.setting", "PKG.checked"):
+            with self.subTest(rule_id):
+                self.ledger([*self.rows, self.row(rule_id)])
+                findings = self.evidence()
+                self.assertEqual(rules_of(findings), [rule_id])
+                self.assertIn("proven by the pinned omp-guardrails package", findings[0].message)
+
+    def test_conditional_repo_checker_without_row_is_not_adopted(self) -> None:
+        self.ledger()
+        self.assertNotIn("REPO.optional", rules_of(self.evidence()))
+        self.ledger([*self.rows, self.row("REPO.optional")])
+        self.assertEqual(self.evidence(), [])
+
+    def test_local_rules_must_be_marked(self) -> None:
+        self.ledger([*self.rows, self.row("LOCAL.seam")])
         findings = self.evidence()
-        self.assertEqual(rules_of(findings), ["RULES.catalogue-snapshot"])
-        self.assertIn("differs", findings[0].message)
+        self.assertEqual(rules_of(findings), ["LOCAL.seam"])
+        self.assertIn('"local": true', findings[0].message)
+        self.ledger([*self.rows, self.row("LOCAL.seam", local=True)])
+        self.assertEqual(self.evidence(), [])
 
-    def test_snapshot_alone_is_compared_when_no_reference_is_available(self) -> None:
-        self.assertEqual(rule_evidence.compare_catalogue(b"{}", None, "s.json"), [])
-        self.assertEqual(len(rule_evidence.compare_catalogue(None, None, "s.json")), 1)
-
-    def test_ledger_defects_are_reported_under_the_rule_they_concern(self) -> None:
-        rows = self.ledger["rules"]
+    def test_row_defects_are_reported_under_the_rule_they_concern(self) -> None:
+        always, hook = self.rows
+        no_canary = {key: value for key, value in always.items() if key != "canary"}
         cases = {
-            "missing row": ([rows[1], rows[2]], "GATE.local-ci-parity", "no ledger row"),
-            "duplicate row": ([rows[0], *rows], "GATE.local-ci-parity", "duplicate"),
-            "unknown row": ([*rows, {"id": "X.extra"}], "X.extra", "not a catalogue rule"),
-            "wrong kind": (
-                [{**rows[0], "evidence_kind": "git_hook"}, rows[1], rows[2]],
-                "GATE.local-ci-parity",
-                "evidence kind",
+            "duplicate row": ([always, always, hook], "duplicate"),
+            "wrong kind": ([{**always, "evidence_kind": "git_hook"}, hook], "evidence kind"),
+            "missing implementation": (
+                [{**always, "implementation_paths": ["absent.py"]}, hook],
+                "missing or outside",
             ),
-            "blocked": (
-                [{**rows[0], "status": "blocked"}, rows[1], rows[2]],
-                "GATE.local-ci-parity",
-                "not implemented",
+            "absolute path": (
+                [{**always, "local_runner": str(self.repo / "runner.sh")}, hook],
+                "repo-relative",
             ),
-            "always rule excluded": (
-                [{**rows[2], "id": "GATE.local-ci-parity"}, rows[1], rows[2]],
-                "GATE.local-ci-parity",
-                "unapproved",
+            "runner lacks marker": ([{**always, "ci_marker": "other"}, hook], "ci_marker"),
+            "no canary": ([no_canary, hook], "canary is missing"),
+            "canary without fixture": (
+                [{**always, "canary": {**always["canary"], "command": ["true"]}}, hook],
+                "{fixture}",
             ),
-            "unapproved exclusion": (
-                [rows[0], rows[1], {**rows[2], "user_approval": "pending"}],
-                "PRETTIER.version",
-                "unapproved",
-            ),
-            "exclusion without marker": (
-                [rows[0], rows[1], {**rows[2], "evidence_marker": ""}],
-                "PRETTIER.version",
-                "unapproved",
+            "canary timeout": (
+                [{**always, "canary": {**always["canary"], "timeout_seconds": 600}}, hook],
+                "timeout_seconds",
             ),
         }
-        for name, (ledger_rows, rule, text) in cases.items():
+        for name, (rows, text) in cases.items():
             with self.subTest(name):
-                self.track({"schema_version": 1, "rules": ledger_rows})
+                self.ledger(rows)
                 findings = self.evidence()
-                self.assertEqual(rules_of(findings), [rule])
+                self.assertEqual(rules_of(findings), ["REPO.always"])
                 self.assertIn(text, findings[0].message)
 
-    def test_unreadable_ledger_and_custom_paths(self) -> None:
-        self.track()
-        self.write(".omp/rule-coverage.json", "{")
-        self.assertEqual(rules_of(self.evidence()), ["RULES.catalogue-snapshot"])
-        self.write("policy/ledger.json", json.dumps(self.ledger))
-        profile = {"guardrails": {"rule_evidence": {"ledger": "policy/ledger.json"}}}
-        args = ["--reference", str(self.catalogue)]
-        self.assertEqual(rule_evidence.run(self.repo, profile, args), [])
+    def test_hook_rows_need_an_installation_check_not_a_ci_runner(self) -> None:
+        always, hook = self.rows
+        del hook["hook_install_check"]
+        self.ledger([always, hook])
+        findings = self.evidence()
+        self.assertEqual(rules_of(findings), ["REPO.hook"])
+        self.assertIn("hook_install_check", findings[0].message)
+
+    def test_old_or_unreadable_ledgers_are_findings(self) -> None:
+        for name, text in (
+            ("schema 1", json.dumps({"schema_version": 1, "rules": []})),
+            ("not json", "{"),
+            ("row without id", json.dumps({"schema_version": 2, "rules": [{}]})),
+        ):
+            with self.subTest(name):
+                self.write(".omp/rule-coverage.json", text)
+                self.assertEqual(rules_of(self.evidence()), [rule_evidence.LEDGER_RULE])
+
+    def test_ledger_path_is_a_setting(self) -> None:
+        self.write("policy/ledger.json", json.dumps({"schema_version": 2, "rules": self.rows}))
+        profile = {"guardrails": {"rule_coverage": {"ledger": "policy/ledger.json"}}}
+        self.assertEqual(self.evidence(profile), [])
+
+    def test_rule_evidence_runs_no_canary(self) -> None:
+        self.write("check.py", "raise SystemExit(0)\n")
+        self.ledger()
+        self.assertEqual(self.evidence(), [])
+
+
+class RuleCoverageTests(RuleEvidenceCase):
+    def test_live_canaries_and_hook_checks_pass(self) -> None:
+        self.ledger()
+        self.assertEqual(self.coverage(), [])
+        self.write(".omp/test-profile.md", EMPTY_PROFILE)
+        status, output = self.run_cli("rule-coverage")
+        self.assertEqual(status, 0, output)
+
+    def test_coverage_reports_ledger_defects_too(self) -> None:
+        self.ledger([self.rows[0]])
+        self.assertEqual(rules_of(self.coverage()), ["REPO.hook"])
+
+    def test_violating_canary_must_fail_with_its_diagnostic(self) -> None:
+        for name, code, text in (
+            ("passes everything", "raise SystemExit(0)\n", "violating canary passed"),
+            ("silent failure", "raise SystemExit(1)\n", "compliant canary failed"),
+            (
+                "wrong diagnostic",
+                CHECKER.replace("print(rule)", "print('other')"),
+                "did not print its diagnostic",
+            ),
+        ):
+            with self.subTest(name):
+                self.write("check.py", code)
+                self.ledger()
+                findings = self.coverage()
+                self.assertEqual(sorted(set(rules_of(findings))), ["REPO.always", "REPO.hook"])
+                self.assertIn(text, findings[0].message)
+
+    def test_hook_installation_must_succeed_and_report_its_proof(self) -> None:
+        for code, text in (
+            ("raise SystemExit(1)", "hook installation check failed"),
+            ("print('unrelated')", "did not print its diagnostic"),
+        ):
+            with self.subTest(code=code):
+                self.ledger([self.rows[0], self.hook_row("REPO.hook", code)])
+                findings = self.coverage()
+                self.assertEqual(rules_of(findings), ["REPO.hook"])
+                self.assertIn(text, findings[0].message)
+
+    def test_canary_timeout_is_a_finding(self) -> None:
+        row = self.row("REPO.always")
+        row["canary"]["command"] = [sys.executable, "-c", "import time; time.sleep(5)", "{fixture}"]
+        row["canary"]["timeout_seconds"] = 1
+        self.ledger([row, self.rows[1]])
+        findings = self.coverage()
+        self.assertEqual(rules_of(findings), ["REPO.always"])
+        self.assertIn("could not complete", findings[0].message)
+
+
+class PackagedCatalogueTests(unittest.TestCase):
+    """The catalogue ships in the package; its reference rules resolve to emitting modules."""
+
+    def setUp(self) -> None:
+        self.catalogue = rule_evidence.packaged_catalogue()
+
+    def test_catalogue_ships_as_package_data(self) -> None:
+        self.assertEqual(self.catalogue["schema_version"], 1)
+        ids = [rule["id"] for rule in self.catalogue["rules"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        for rule in self.catalogue["rules"]:
+            with self.subTest(rule=rule["id"]):
+                self.assertIn(rule["kind"], {"bespoke", "process", "tool"})
+                self.assertIn(rule["applicability"], {"always", "conditional"})
+                self.assertTrue(isinstance(rule["summary"], str) and rule["summary"])
+
+    def test_references_name_subcommands_whose_modules_emit_the_rule(self) -> None:
+        for rule in self.catalogue["rules"]:
+            for item in rule.get("reference", []):
+                subcommand, module = item["subcommand"], item["module"]
+                with self.subTest(rule=rule["id"], module=module):
+                    self.assertEqual(set(item), {"subcommand", "module"})
+                    self.assertIn(subcommand, cli.SUBCOMMANDS)
+                    if subcommand == "adapter":
+                        self.assertTrue(module.startswith(cli.ADAPTER_PACKAGE + "."))
+                    else:
+                        self.assertIn(module, cli.SUBCOMMANDS[subcommand].modules)
+                    sources = module_sources(module)
+                    self.assertTrue(sources, f"missing module {module}")
+                    sources += [
+                        source
+                        for imported in reference_imports(sources)
+                        for source in module_sources(imported)
+                    ]
+                    self.assertTrue(
+                        any(rule["id"] in source.read_text(encoding="utf-8") for source in sources),
+                        f"{module} never names {rule['id']}",
+                    )
+
+    def test_every_package_proven_rule_is_exercised_by_the_skill_tests(self) -> None:
+        """Rules repos no longer canary are proven here, once: each is named by a test."""
+        tests = ROOT / "tests"
+        sources = [*tests.glob("test_reference_*.py"), *(tests / "fixtures/reference").rglob("*")]
+        texts = "".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(sources)
+            if path.is_file() and path.suffix in {".py", ".json", ".md", ".xml"}
+        )
+        conformance = REFERENCE / "omp_guardrails/adapters/pytest/conformance"
+        texts += "".join(path.read_text(encoding="utf-8") for path in conformance.glob("*.json"))
+        for rule in self.catalogue["rules"]:
+            if not rule_evidence.proven_by_package(rule):
+                continue
+            with self.subTest(rule=rule["id"]):
+                # RUFF.* and MYPY.* tool rules: init writes the native config the tool
+                # enforces, and NativeConfigTests checks it against every such catalogue row.
+                native = rule["kind"] == "tool" and rule["id"].startswith(NATIVE_PREFIXES)
+                self.assertTrue(native or rule["id"] in texts, f"no skill test names {rule['id']}")
+
+
+def module_sources(module: str) -> list[Path]:
+    """Source files of a reference module: one ``.py`` file, or a package's code and rules."""
+    path = REFERENCE.joinpath(*module.split("."))
+    if path.is_dir():
+        return sorted(p for p in path.rglob("*") if p.suffix in {".py", ".yml", ".json"})
+    return [path.with_suffix(".py")] if path.with_suffix(".py").is_file() else []
+
+
+def reference_imports(sources: list[Path]) -> set[str]:
+    """``omp_guardrails`` modules imported by the given Python sources."""
+    imported: set[str] = set()
+    for source in sources:
+        if source.suffix != ".py":
+            continue
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "omp_guardrails."
+            ):
+                imported.add(node.module)
+    return imported
 
 
 class CanaryTests(RepoCase):
@@ -573,7 +813,7 @@ class ToolchainParityTests(RepoCase):
         options = {"python_pins": [".python-version", "app/.python-version"]}
         self.assertEqual(self.parity(options), [])
         self.write("app/.python-version", "3.0.0\n")
-        self.assertEqual(rules_of(self.parity(options)), ["RUNNER.local-ci-parity"] * 2)
+        self.assertEqual(rules_of(self.parity(options)), ["GATE.local-ci-parity"] * 2)
         (self.repo / "app/.python-version").unlink()
         self.assertIn("missing", self.parity(options)[0].message)
 
@@ -591,13 +831,14 @@ class ToolchainParityTests(RepoCase):
         self.assertEqual(self.parity(options), [])
         self.write("Makefile", "fmt:\n\tnpx prettier --write .\n")
         self.assertEqual([f.path for f in self.parity(options)], ["Makefile"])
+        self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
         options["prettier"]["version"] = "3.7.0"
         self.assertIn("package.json", [f.path for f in self.parity(options)])
 
     def test_unconfigured_sections_never_pass_silently(self) -> None:
-        self.assertEqual(rules_of(self.parity({})), ["RUNNER.local-ci-parity"])
+        self.assertEqual(rules_of(self.parity({})), ["GATE.local-ci-parity"])
         audit = self.parity({"uv": self.uv}, "audit")
-        self.assertEqual(rules_of(audit), ["RUNNER.local-ci-parity"])
+        self.assertEqual(rules_of(audit), ["GATE.local-ci-parity"])
 
     def test_unreadable_inputs_are_findings(self) -> None:
         (self.repo / "uv.lock").unlink()

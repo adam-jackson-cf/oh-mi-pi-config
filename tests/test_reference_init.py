@@ -34,7 +34,7 @@ PIN_LINE = (
     f"omp-guardrails @ git+{PIN_URL}@{COMMIT}"
     "#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference"
 )
-CATALOGUE = ROOT / "agent/skills/setup-repository-guardrails/assets/guardrail-rules.json"
+CATALOGUE = REFERENCE / "omp_guardrails/data/guardrail-rules.json"
 CI_SETUP = ["--ci-setup", "make dev-install"]
 GITHUB = ["--runner", "github-actions"]
 # The version this omp config declares, read from agent/agent-rails.yml as init reads it.
@@ -262,6 +262,21 @@ class GreenfieldTests(InitCase):
         self.assertIn("runs only on the local commit gate", output)
         self.assertFalse((self.repo / ".omp").exists())
 
+    def test_rule_coverage_and_canaries_run_in_ci_and_never_on_commit(self) -> None:
+        checks = ("profile-check", "rule-coverage", "canaries")
+        code, output = self.init(*(f"--check={name}" for name in checks), *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        gate = self.gate()["checks"]
+        self.assertEqual(gate["commit"], ["omp-guardrails", "profile-check"])
+        for name in checks:
+            self.assertIn(f"omp-guardrails {name}", gate["ci"][2])
+
+    def test_rejects_a_gate_whose_only_checks_are_ci_only(self) -> None:
+        code, output = self.init("--check", "rule-coverage", "--check", "canaries", *PIN_ARGS)
+        self.assertEqual(code, 1)
+        self.assertIn("runs only in CI", output)
+        self.assertFalse((self.repo / ".omp").exists())
+
 
 class AdoptTests(InitCase):
     def setUp(self) -> None:
@@ -336,6 +351,31 @@ class AdoptTests(InitCase):
             self.assertIn('"$@" || status=$?', argv[2])
             self.assertIn("omp-guardrails profile-check", argv[2])
             self.assertIn("omp-guardrails python-quality", argv[2])
+
+    def test_adopt_moves_ci_only_and_local_only_checks_to_their_event(self) -> None:
+        self.existing["checks"] = {
+            "commit": ["omp-guardrails", "rule-coverage"],
+            "ci": ["omp-guardrails", "budget-check"],
+        }
+        self.write(".omp/gate.json", json.dumps(self.existing))
+        checks = ("--check", "profile-check", "--check", "rule-coverage")
+        code, output = self.adopt(*checks)
+        self.assertEqual(code, 0, output)
+        gate = self.gate()["checks"]
+        self.assertEqual(gate["commit"], ["omp-guardrails", "profile-check"])
+        self.assertNotIn("budget-check", gate["ci"][2])
+        self.assertIn("omp-guardrails rule-coverage", gate["ci"][2])
+        self.assertIn("omp-guardrails profile-check", gate["ci"][2])
+
+    def test_adopt_drops_rule_coverage_from_a_shadow_commit_gate(self) -> None:
+        reference = ["omp-guardrails"]
+        argv = gate_config.shadow_argv(["make", "gate-commit"], reference, ["rule-coverage"])
+        adopted = gate_config.adopted_argv(
+            argv, reference, ["profile-check"], gate_config.CI_ONLY_CHECKS
+        )
+        self.assertEqual(adopted[3:], [gate_config.SHADOW_NAME, "make", "gate-commit"])
+        self.assertNotIn("rule-coverage", adopted[2])
+        self.assertIn("omp-guardrails profile-check", adopted[2])
 
     def test_adopt_keeps_a_gate_that_already_runs_every_requested_check(self) -> None:
         argv = ["omp-guardrails", "profile-check"]
@@ -644,7 +684,8 @@ class NativeConfigTests(InitCase):
     def test_data_mirrors_the_catalogue_contracts(self) -> None:
         data = native_config.load_data()
         ruff, contracts = data["ruff"], catalogue_values()
-        selected = {key.split(".", 2)[2] for key in contracts if key.startswith("RUFF.SELECT.")}
+        # A rule may carry a selector, a value or both (a limit and the rule code enforcing it).
+        selected = {item["selector"] for item in contracts.values() if "selector" in item}
         self.assertEqual(set(ruff["lint"]["select"]), selected)
         self.assertEqual(ruff["lint"]["ignore"], contracts["RUFF.IGNORES"]["ignore"])
         self.assertEqual(ruff["lint.per-file-ignores"], contracts["RUFF.IGNORES"]["per_file"])

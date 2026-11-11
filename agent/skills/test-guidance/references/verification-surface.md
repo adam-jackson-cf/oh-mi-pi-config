@@ -36,8 +36,10 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
   a preserve proof must pass before and after. New-surface tolerates an absent baseline API.
   Lever journeys use defect with an asserted unmet outcome (including a newly requested outcome),
   or preserve for existing outcomes, never new-surface. Freeze means pin whole proof-file bytes before implementation.
-  Run each journey proof at least three times before freeze; count only clean runs, rejecting doctor failures,
-  hangs and contaminated state. Outside DynaFlows, retain these test/proof principles without imposing task actors.
+  Under DynaFlows, `prove()` checks journey stability: a `journey: true` proof must pass every clean run on the
+  head being merged, so do not rerun journeys by hand before freeze.
+  Outside DynaFlows, retain these test/proof principles without imposing task actors, and run each journey proof
+  at least three times; count only clean runs, rejecting doctor failures, hangs and contaminated state.
 - Proof commands run journey files through the test runner. The proof task writes any lever changes the proof needs
   and freezes them with the journey files. For the journey's greening change, implementation edits product code
   and feature-map docs only, never frozen lever/journey bytes.

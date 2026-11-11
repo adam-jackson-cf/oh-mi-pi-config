@@ -105,7 +105,6 @@ tests/*
 tests/fixtures/*
 !tests/fixtures/reference/
 !tests/fixtures/reference/**
-!tests/test_validate_rule_coverage.py
 !tests/test_device_rollout.py
 !tests/test_skill_references.py
 

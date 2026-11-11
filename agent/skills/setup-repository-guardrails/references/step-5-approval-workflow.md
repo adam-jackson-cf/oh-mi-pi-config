@@ -14,9 +14,10 @@ Make the user's scope and ownership decisions the boundary before target writes.
 3. For existing repositories, request an explicit operation for each conflicting practice. For a
    greenfield repository, propose a minimal central runner and only the stack-relevant rules; do
    not invent a CI provider.
-4. Show the complete applicable rule-coverage result from `scripts/validate_rule_coverage.py`. A
-   rule still blocked by missing implementation or proof stays blocked; do not offer a passing
-   approval path by relabeling it.
+4. Show the complete applicable rule mapping from Step 2 and, for each candidate repository
+   checker, its `omp-guardrails rule-coverage` result (or the stack's own proof without a
+   reference). A rule still blocked by missing implementation or proof stays blocked; do not
+   offer a passing approval path by relabeling it.
 5. Offer two tiers. `Minimal`: least change that gives `.omp/gate.json` (schema version 2) a
    `checks.commit` and a `pathCheck`, plus an installed pre-commit hook running `checks.commit`;
    state which applicable rules it leaves unenforced (narrower scope, not a relabel). `Full`:

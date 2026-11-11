@@ -222,10 +222,10 @@ class DeviceRolloutTests(unittest.TestCase):
         deployment, code = self.execute(Runner(), check=False, pipeline=pipeline)
         self.assertEqual(code, 0)
         self.assertEqual(len(pipeline.calls), 2)
-        key = HOSTS["judgeKey"]
+        key, source = HOSTS["judgeKey"], HOSTS["infisical"]
         for producer, consumer in pipeline.calls:
             self.assertEqual(producer[:7], ["infisical", "run", "--silent", "--projectId",
-                                            key["infisicalProject"], "--env", key["environment"]])
+                                            source["project"], "--env", source["environment"]])
             self.assertEqual(producer[-2:], [key["secret"], key["provider"]])
             self.assertTrue(consumer == ["omp", "auth", "import", "-"]
                             or (consumer[0] == "ssh" and "omp auth import -" in consumer[-1]))
@@ -328,16 +328,17 @@ class DeviceRolloutTests(unittest.TestCase):
     def test_runner_document_local_on_ci_gate_host_and_ssh_elsewhere(self):
         definition = HOSTS["ciRunners"]
         host = definition["roles"]["ci-gate"]["host"]
-        on_host = rollout.runner_document(definition, host, "~/.omp")["runners"]
+        infisical = {"project": "test-project", "environment": "test-env"}
+        settings = ["CI_GATE_INFISICAL_PROJECT=test-project", "CI_GATE_INFISICAL_ENV=test-env"]
+        on_host = rollout.runner_document(definition, host, "~/.omp", infisical)["runners"]
         self.assertEqual(on_host["ci-gate"]["wait"],
-                         ["python3", "~/.omp/scripts/ci-gate.py", "wait", "{repo}", "{sha}",
-                          "--timeout", "{timeout}"])
-        elsewhere = rollout.runner_document(definition, "mac-cf3", "/base")["runners"]
+                         ["env", *settings, "python3", "~/.omp/scripts/ci-gate.py", "wait", "{repo}",
+                          "{sha}", "--timeout", "{timeout}"])
+        elsewhere = rollout.runner_document(definition, "mac-cf3", "/base", infisical)["runners"]
+        prefix = 'bash -lc "' + " ".join(settings) + " python3 ~/.omp/scripts/ci-gate.py "
         self.assertEqual(elsewhere["ci-gate"]["submit"],
-                         ["ssh", "-o", "BatchMode=yes", host,
-                          'bash -lc "python3 ~/.omp/scripts/ci-gate.py submit {repo} {sha}"'])
-        self.assertEqual(elsewhere["ci-gate"]["logs"][-1],
-                         'bash -lc "python3 ~/.omp/scripts/ci-gate.py logs {repo} {sha} --tail {tail}"')
+                         ["ssh", "-o", "BatchMode=yes", host, prefix + 'submit {repo} {sha}"'])
+        self.assertEqual(elsewhere["ci-gate"]["logs"][-1], prefix + 'logs {repo} {sha} --tail {tail}"')
         for runners in (on_host, elsewhere):
             for role, spec in definition["roles"].items():
                 self.assertEqual(runners[role]["timeout"], spec["timeout"])
@@ -351,11 +352,38 @@ class DeviceRolloutTests(unittest.TestCase):
                     {**definition, "roles": {"x": {"kind": "github-actions"}}},
                     {**definition, "roles": {"x": {"kind": "github-actions", "timeout": 0}}}):
             with self.assertRaises(ValueError):
-                rollout.runner_document(bad, "mac-cf3", "/base")
+                rollout.runner_document(bad, "mac-cf3", "/base", infisical)
+        for bad in (None, {}, {"project": "p"}, {"project": "p; rm", "environment": "e"},
+                    {"project": "p", "environment": ""}):
+            with self.subTest(infisical=bad), self.assertRaisesRegex(ValueError, "infisical"):
+                rollout.runner_document(definition, "mac-cf3", "/base", bad)
+
+    def test_registry_holds_infisical_project_once_for_key_and_runners(self):
+        text = MODULE.with_name("device-rollout-hosts.json").read_text()
+        self.assertEqual(text.count(HOSTS["infisical"]["project"]), 1)
+        self.assertNotIn("infisicalProject", HOSTS["judgeKey"])
+        runners = rollout.runner_document(HOSTS["ciRunners"], "mac-cf3", "/base", HOSTS["infisical"])
+        self.assertIn("CI_GATE_INFISICAL_PROJECT=" + HOSTS["infisical"]["project"],
+                      runners["runners"]["ci-gate"]["submit"][-1])
+        self.assertNotIn(HOSTS["infisical"]["project"], MODULE.read_text())
+        self.assertNotIn(HOSTS["infisical"]["project"],
+                         MODULE.with_name("ci-gate.py").read_text())
+
+    def test_missing_infisical_setting_fails_key_and_runner_rows(self):
+        hosts = {key: value for key, value in HOSTS.items() if key != "infisical"}
+        pipeline = Pipeline()
+        deployment = rollout.Rollout(hosts, check=False, runner=Runner(runners="written"),
+                                     home="/local", hostname="cdhvc2hw3l", pipeline=pipeline,
+                                     base="/base")
+        self.assertEqual(deployment.execute(), 1)
+        self.assertEqual(pipeline.calls, [])
+        self.assertIn("judge key provisioning failed", deployment.report())
+        self.assertEqual({item[5] for item in deployment.rows if item[1] == "ci-runners"}, {"failed"})
 
     def test_runners_writer_is_idempotent_and_feeds_ci_runner(self):
         with tempfile.TemporaryDirectory() as base:
-            deployment = rollout.Rollout({"ciRunners": HOSTS["ciRunners"]}, check=True,
+            deployment = rollout.Rollout({"ciRunners": HOSTS["ciRunners"],
+                                          "infisical": HOSTS["infisical"]}, check=True,
                                          runner=rollout.run_command, home=base, hostname="dev",
                                          base=base)
             target = Path(base) / "ci-runners.json"
@@ -393,13 +421,13 @@ class DeviceRolloutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             Path(home, ".omp").mkdir()
             document = json.dumps(rollout.runner_document(HOSTS["ciRunners"], "codex-omarchy-nuc",
-                                                          "~/.omp"))
+                                                          "~/.omp", HOSTS["infisical"]))
             result = subprocess.run([sys.executable, "-c", rollout.RUNNERS_WRITER, "apply",
                                      "~/.omp/ci-runners.json", document], capture_output=True,
                                     text=True, check=False, env={"PATH": "/usr/bin:/bin", "HOME": home})
             self.assertEqual(result.stdout.strip(), "written")
             written = json.loads(Path(home, ".omp/ci-runners.json").read_text())
-            self.assertEqual(written["runners"]["ci-gate"]["submit"][1],
+            self.assertEqual(written["runners"]["ci-gate"]["submit"][4],
                              home + "/.omp/scripts/ci-gate.py")
 
     def test_credential_builder_emits_auth_import_document(self):

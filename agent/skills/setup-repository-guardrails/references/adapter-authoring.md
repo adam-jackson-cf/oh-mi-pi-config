@@ -20,7 +20,9 @@ An adapter does only these six things. No framework is assumed.
 2. **Tier listing.** List the collected test IDs per tier, without running
    them, using the selectors in the profile's `tiers`. Also collect test cases
    statically from source (`cases.collect(path, text)`): each case's test ID
-   with a fingerprint of its normalised calls and assertions. The shared
+   with a fingerprint of its normalised calls and assertions, and each test
+   function's inline `behaviour:` comment text in the language's comment
+   syntax (absent when missing). The shared
    `omp-guardrails diff-check` compares base and head with it for
    `TEST.growth.justified` and `TEST.duplicate-path`.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and

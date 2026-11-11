@@ -17,6 +17,8 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/ci-gate.py'
 REPO = 'adam-jackson-cf/oh-mi-pi-config'
 TOKEN_ENV = 'NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'
+# A context other than 'gate' proves the status context comes from the checkout's gate.json.
+CONTEXT = 'exact-head-gate'
 
 FAKE = r'''#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, time
@@ -75,7 +77,8 @@ class CiGateTests(unittest.TestCase):
         (self.source / '.omp').mkdir()
         (self.source / '.devcontainer').mkdir()
         (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 2, 'checks': {
-            'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]}}))
+            'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]},
+            'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}}))
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
             'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': ['echo', 'setup words']}))
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
@@ -120,6 +123,7 @@ class CiGateTests(unittest.TestCase):
                     'XDG_DATA_HOME': str(self.root / 'data'), 'FAKE_ROOT': str(self.root),
                     'FAKE_REPO': str(self.source), 'REAL_GIT': shutil.which('git'),
                     'CI_GATE_GITHUB_API': f'http://127.0.0.1:{server.server_port}',
+                    'CI_GATE_INFISICAL_PROJECT': 'test-project', 'CI_GATE_INFISICAL_ENV': 'test-env',
                     TOKEN_ENV: 'test-super-secret-token'}
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
             self.env['CI_GATE_' + name.upper().replace('-', '_')] = str(binary / name)
@@ -172,10 +176,12 @@ class CiGateTests(unittest.TestCase):
         self.assertEqual(result['state'], 'success')
         self.assertEqual(result['sha'], self.sha)
         self.assertEqual(result['exitCode'], 0)
+        self.assertEqual(result['context'], CONTEXT)
+        self.assertEqual(json.loads((self.job() / 'job.json').read_text())['context'], CONTEXT)
         self.assertFalse((self.job() / 'src').exists())
         self.assertEqual([r['body']['state'] for r in self.requests], ['pending', 'success'])
         for request in self.requests:
-            self.assertEqual(request['body']['context'], 'gate')
+            self.assertEqual(request['body']['context'], CONTEXT)
             self.assertLessEqual(len(request['body']['description']), 140)
             self.assertEqual(request['headers']['Authorization'], 'Bearer ' + self.env[TOKEN_ENV])
             self.assertEqual({k.lower(): v for k, v in request['headers'].items()}['x-github-api-version'], '2022-11-28')
@@ -229,6 +235,8 @@ class CiGateTests(unittest.TestCase):
                         'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader',
                         'GIT_CONFIG_VALUE_0': header})
                 if mode != 'shell-private':
+                    self.assertTrue(all(call[:5] == ['run', '--projectId', 'test-project', '--env', 'test-env']
+                                        for call in self.calls('infisical')))
                     self.assertTrue(any(call[call.index('--') + 1:] ==
                                         [sys.executable, str(SCRIPT), 'fetch', str(self.job(sha))]
                                         for call in self.calls('infisical')))
@@ -286,12 +294,11 @@ class CiGateTests(unittest.TestCase):
                          ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
-        for failure in ('missing-gate', 'missing-ci', 'unknown-schema', 'schema-v1', 'build', 'podman'):
+        ci = {'requiredContext': CONTEXT, 'runner': 'ci-gate'}
+        for failure in ('missing-ci', 'build', 'podman'):
             with self.subTest(failure=failure):
-                gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}},
-                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
-                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']}}.get(
-                    failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}})
+                gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}, 'ci': ci}}.get(
+                    failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}, 'ci': ci})
                 if failure == 'missing-gate':
                     (self.source / '.omp/gate.json').unlink()
                 else:
@@ -307,6 +314,40 @@ class CiGateTests(unittest.TestCase):
                 result = json.loads(self.cli('wait', REPO, sha, expected=1).stdout)
                 self.assertEqual(result['state'], 'error')
                 self.assertEqual(self.requests[-1]['body']['state'], 'error')
+                self.assertEqual(self.requests[-1]['body']['context'], CONTEXT)
+
+    def test_gate_without_required_context_is_an_unpublished_error(self):
+        for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'schema-v1'):
+            with self.subTest(failure=failure):
+                gate = {'missing-context': {'schemaVersion': 2, 'checks': {'ci': ['true']}},
+                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
+                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']}}.get(failure)
+                if failure == 'missing-gate':
+                    (self.source / '.omp/gate.json').unlink(missing_ok=True)
+                else:
+                    (self.source / '.omp/gate.json').write_text(json.dumps(gate))
+                sha = self.commit()
+                before = len(self.requests)
+                self.submit(sha)
+                self.assertNotIn('context', json.loads((self.job(sha) / 'job.json').read_text()))
+                self.cli('run', self.job(sha), expected=1)
+                waited = self.cli('wait', REPO, sha, expected=1)
+                result = json.loads(waited.stdout)
+                self.assertEqual(result['state'], 'error')
+                self.assertIn('ci.requiredContext', result['publicationError'])
+                self.assertIn('ci.requiredContext', waited.stderr)
+                self.assertEqual(len(self.requests), before, 'no status may go to a guessed context')
+
+    def test_submit_fails_before_job_state_without_infisical_settings(self):
+        for name in ('CI_GATE_INFISICAL_PROJECT', 'CI_GATE_INFISICAL_ENV'):
+            with self.subTest(missing=name):
+                environment = {key: value for key, value in self.env.items() if key != name}
+                result = self.cli('submit', REPO, self.sha, expected=1, env=environment)
+                self.assertIn(name + ' not set', result.stderr)
+                self.assertIn('device-rollout.py', result.stderr)
+                self.assertFalse(self.job().exists())
+                self.assertEqual(self.calls('git'), [])
+                self.assertEqual(self.requests, [])
 
     def test_publication_failure_preserves_gate_result_but_wait_fails(self):
         for failure in ('missing-token', 'http-error'):

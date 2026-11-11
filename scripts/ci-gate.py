@@ -20,7 +20,6 @@ import time
 import urllib.request
 
 SELF = Path(__file__).resolve()
-PROJECT = '052b4c81-b9cc-4694-9019-d131ec3817cc'
 
 
 def executable(name):
@@ -71,6 +70,15 @@ def ci_argv(policy):
     return argv
 
 
+def required_context(policy):
+    """Return the commit status context from .omp/gate.json schema version 2: ci.requiredContext."""
+    ci = policy.get('ci') if isinstance(policy, dict) and policy.get('schemaVersion') == 2 else None
+    context = ci.get('requiredContext') if isinstance(ci, dict) else None
+    if not isinstance(context, str) or not context.strip():
+        raise RuntimeError('Invalid gate.json ci.requiredContext')
+    return context
+
+
 @contextmanager
 def lock(path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,8 +116,15 @@ def repo_lock(repo):
 
 
 def infisical():
-    return [executable('infisical'), 'run', '--projectId', os.environ.get('CI_GATE_INFISICAL_PROJECT', PROJECT),
-            '--env', os.environ.get('CI_GATE_INFISICAL_ENV', 'dev'), '--']
+    """Return the Infisical prefix; device-rollout writes both settings into ci-runners.json."""
+    settings = {name: os.environ.get(name, '').strip()
+                for name in ('CI_GATE_INFISICAL_PROJECT', 'CI_GATE_INFISICAL_ENV')}
+    missing = [name for name, value in settings.items() if not value]
+    if missing:
+        raise RuntimeError(' and '.join(missing) + ' not set; run scripts/device-rollout.py to write '
+                           'ci-runners.json from the device-rollout-hosts.json infisical setting')
+    return [executable('infisical'), 'run', '--projectId', settings['CI_GATE_INFISICAL_PROJECT'],
+            '--env', settings['CI_GATE_INFISICAL_ENV'], '--']
 
 
 def publish(job, state, description):
@@ -118,7 +133,9 @@ def publish(job, state, description):
     token = os.environ.get(name)
     if not token:
         raise RuntimeError(f'Missing GitHub token environment variable: {name}')
-    body = json.dumps({'context': 'gate', 'state': state, 'description': description[:140]}).encode()
+    if not metadata.get('context'):
+        raise RuntimeError('No ci.requiredContext recorded for this job; check .omp/gate.json')
+    body = json.dumps({'context': metadata['context'], 'state': state, 'description': description[:140]}).encode()
     url = os.environ.get('CI_GATE_GITHUB_API', 'https://api.github.com').rstrip('/')
     url += f"/repos/{metadata['repo']}/statuses/{metadata['sha']}"
     request = urllib.request.Request(url, data=body, method='POST', headers={
@@ -130,6 +147,9 @@ def publish(job, state, description):
 
 def pending(job, log):
     metadata = load(job / 'job.json')
+    if not metadata.get('context'):
+        log.write('No ci.requiredContext recorded; pending status not published.\n')
+        return
     if os.environ.get(repositories()[metadata['repo']]['tokenEnv']):
         publish(job, 'pending', 'Queued on NUC (0s)')
     else:
@@ -165,6 +185,8 @@ def fetch(job):
 
 def submit(repo, sha):
     job = job_path(repo, sha)
+    # Every submission launches its unit through Infisical: fail before any job state exists.
+    infisical()
     job.mkdir(parents=True, exist_ok=True)
     with lock(job / 'submit.lock'):
         retry = False
@@ -213,6 +235,12 @@ def submit(repo, sha):
                                check=True, stdout=log, stderr=log)
                 subprocess.run(git + ['-C', str(job / 'src'), 'checkout', '--detach', sha],
                                check=True, stdout=log, stderr=log)
+                try:
+                    context = required_context(load(checkout_file(job / 'src', '.omp/gate.json')))
+                    save(job / 'job.json', {'repo': repo, 'sha': sha, 'context': context})
+                except (OSError, ValueError, RuntimeError) as error:
+                    # run() records the same failure as an error result.
+                    log.write((str(error) if isinstance(error, RuntimeError) else 'Unreadable .omp/gate.json') + '\n')
             with (job / 'log').open('a') as log:
                 try:
                     pending(job, log)
@@ -312,7 +340,10 @@ def execute(job, metadata):
         with (job / 'log').open('a', buffering=1) as log:
             try:
                 with slot(), container_lifetime(podman, container, log):
-                    gate = ci_argv(load(checkout_file(src, '.omp/gate.json')))
+                    policy = load(checkout_file(src, '.omp/gate.json'))
+                    metadata = {**metadata, 'context': required_context(policy)}
+                    save(job / 'job.json', metadata)
+                    gate = ci_argv(policy)
                     config = load(checkout_file(src, '.devcontainer/devcontainer.json'))
                     post = config.get('postCreateCommand', '')
                     if isinstance(post, list) and all(isinstance(arg, str) for arg in post):

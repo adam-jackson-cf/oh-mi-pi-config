@@ -6,6 +6,9 @@ package ``shop``, a ``tests/`` folder and a ``pytest.ini``), places its fixture,
 case's evidence through the adapter and compares the result with the case's ``expect``:
 
 - ``source``: ``lint`` over the placed file; ``finding`` means the case's rule is reported.
+- ``static-cases``: the static case collector (``cases.collect``) over the placed file, checked
+  by the shared ``diffs.growth`` rule as if every test function were new; ``finding`` means
+  ``TEST.growth.justified`` is reported.
 - ``run-report``: a guarded pytest run of the case's tier, parsed by the shared
   ``test_evidence.junit`` parser with this adapter's dialect; ``finding`` means a failed or
   errored case names the rule; ``clean`` means every case passed and the report's ``omp.guards``
@@ -95,6 +98,18 @@ def check_source(project: Path, profile: dict, placed: str, case: dict) -> tuple
     rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
     reported = case["rule"] in rules
     return reported == (case["expect"] == "finding"), f"rules reported: {rules or 'none'}"
+
+
+def check_static_cases(project: Path, placed: str, case: dict) -> tuple[bool, str]:
+    from omp_guardrails.adapters.pytest.cases import collect
+    from omp_guardrails.diffs.growth import Snapshot, growth_findings
+
+    collected = collect(placed, (project / placed).read_text(encoding="utf-8"))
+    head = Snapshot({}, dict(collected.behaviours), {})
+    findings = growth_findings(Snapshot({}, {}, {}), head)
+    reported = any(finding.rule_id == case["rule"] for finding in findings)
+    detail = f"behaviours: {dict(collected.behaviours)}"
+    return reported == (case["expect"] == "finding"), detail
 
 
 def run_tier(root: Path, tier: str):
@@ -187,6 +202,8 @@ def run_case(case: dict, binding: dict) -> CaseResult:
         profile = case_profile(binding)
         if case["evidence"] == "source":
             passed, detail = check_source(project, profile, placed, case)
+        elif case["evidence"] == "static-cases":
+            passed, detail = check_static_cases(project, placed, case)
         elif case["evidence"] == "run-report":
             passed, detail = check_run(root, binding, case)
         elif case["evidence"] == "collection":

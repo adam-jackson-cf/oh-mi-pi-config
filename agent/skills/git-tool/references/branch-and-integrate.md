@@ -38,7 +38,8 @@ Proof tasks stop uncommitted; only the assigned implementation task performs the
 2. Push the branch to the resolved GitHub primary remote, adding upstream tracking when needed.
    No routine rebase is needed; [merge-and-recover](merge-and-recover.md) owns rebase conditions and history permissions.
 3. Read [PR description](pr-description.md) and write the complete body. Use existing reported evidence only;
-   unavailable comparable measurements are `baseline unavailable`. Main's later verification comment is separate.
+   unavailable comparable measurements are `baseline unavailable`. `prove()` later posts the verification record and
+   main a short judgement comment, both separate from the body.
 4. Open the actual PR with the prepared body, concise title, resolved base and agent branch head.
    Use GitHub `pr_create` when available, otherwise authenticated `gh pr create`; never use `fill` instead of the body.
 5. Submit and wait for exact-head CI under [the CI contract](merge-and-recover.md#ci-waits-errors-and-fallbacks).

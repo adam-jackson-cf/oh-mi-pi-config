@@ -54,11 +54,12 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    test is slow.
 4. Prepare diff-aware checks for `TEST.growth.justified` and
    `TEST.duplicate-path`. With the reference, `omp-guardrails diff-check`
-   implements both; configure the behaviour map path if the default
-   `.omp/test-behavior-map.json` does not suit. Without one, compare against
-   the recorded base ref; detect added files and cases, including parameter
-   rows. Require a machine-readable mapping to changed source and behavior;
-   reject absent/unresolved mappings, naming the test and map-or-remove fix.
+   implements both. Without one, compare against the recorded base ref and
+   detect added test functions. Require one inline `behaviour:` comment per
+   new function in the language's comment syntax (Python `# behaviour:`,
+   JS/TS `// behaviour:`); parameter rows share it. Check presence and
+   non-placeholder text only; reject a missing or placeholder comment, naming
+   the test and comment-or-remove fix.
    Parse call paths and assertions into normalized fingerprints; reject
    duplicates against existing/other new cases, naming both cases and the
    merge-or-remove fix. Do not rely on filename similarity alone.
@@ -94,32 +95,30 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
    existing hooks by the approved decision; keep explicit fix mode separate.
    With the reference, `init` drafts this wiring and `omp-guardrails
    hook-check` proves the installation.
-   Draft host settings for `GIT.required-checks`: require the declared
-   `ci.requiredContext`, auto-merge, and rebase-merge where supported; prepare
-   an offline settings fixture and a live readback plan.
-6. For every applicable rule, including all IDs above, prepare
-   compliant/violating fixtures. The intended checker must accept the positive
-   and reject the negative with its ID. Use valid/forbidden edges, correct/wrong
-   destinations and names, below/over budget reports, mapped/unmapped growth,
-   distinct/duplicate fingerprints, matched/divergent command arrays,
-   working/bypassed hook failures, present/missing path commands, and
-   protected/unprotected host settings. Never exercise a canary by weakening the
-   real repository's protection. With the reference, `omp-guardrails
-   canaries` runs the planted violations.
-7. Build the ledger from `assets/coverage-ledger.example.json`, populating every
-   catalog ID. Use the catalog's evidence kind and the
+6. For every applicable rule the repository proves with its own checker,
+   prepare compliant/violating fixtures. The checker must accept the positive
+   and reject the negative with its ID. Use, as the rule needs, valid/forbidden
+   edges, correct/wrong destinations and names, below/over budget reports,
+   commented/uncommented growth, distinct/duplicate fingerprints, matched/divergent
+   command arrays, working/bypassed hook failures and present/missing path
+   commands. Never exercise a canary by weakening the real repository's
+   protection. With a skill reference, tool rules and rules with a `reference`
+   field need no target fixtures: the skill's own tests prove them for every
+   repository.
+7. Build the ledger from `assets/coverage-ledger.example.json` with one row per
+   repository checker only, and only when one exists. Use the catalogue's
+   evidence kind and the
    [evidence field contract](../README.md#coverage-evidence-kinds): local/CI
-   rules record both invocations and canaries; hook rules record local
-   invocation, an executable hook-install check, and behavioral canaries in an
-   isolated checkout; host rules record the live host-query command, exit
-   status, output, and setting assertions, or an evidence-backed conditional
-   exclusion with reason and owner approval. Do not invent CI execution or
-   fixture invocation for host settings. Draft contributor commands separately
+   rows record both invocations and a canary; hook rows record the local
+   invocation, an executable hook-install check and a behavioural canary in an
+   isolated checkout. A repository with no repository checker gets no ledger
+   file. Never copy the catalogue, a validator or a catalogue hash into the
+   target: the pinned reference carries them. Draft contributor commands separately
    from application-user guidance. Keep all candidates outside the target until
    Step 5 approval; identify the superseded checks/config to remove.
 
 ## Done when
 
-- Every applicable ID has a runnable candidate and positive/negative proof
-  inputs.
+- Every applicable ID has a runnable candidate, and every repository checker
+  has positive/negative proof inputs.
 - No target file has been written, staged, or replaced.

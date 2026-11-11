@@ -6,8 +6,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
 
 ## Guidance
 
-1. Read every entry in `assets/guardrail-rules.json`, including the
-   language-neutral additions. The bundled guardrail rules are the authoritative
+1. Read every entry in the rule catalogue,
+   `assets/python-reference/omp_guardrails/data/guardrail-rules.json`, including
+   the language-neutral additions. The bundled guardrail rules are the authoritative
    contract. Treat each ID, semantic, threshold, and target-derived requirement
    as the baseline, not a generic category.
 2. Map every ID to its target construct, checker/configuration, exact setting,
@@ -29,8 +30,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    require owner approval at Step 5; unknown machines report timing only and prompt to record
    a baseline.
    Map `TEST.growth.justified` to a
-   base-ref diff plus a changed-behavior mapping for each new test file/case; a
-   missing mapping fails with the test name and map-or-remove fix. Map
+   base-ref diff that requires one inline `behaviour:` comment per new test
+   function; a missing or placeholder comment fails with the test name and
+   comment-or-remove fix. Map
    `TEST.duplicate-path` to normalized call-path/assertion fingerprints,
    compared against existing and other new cases; duplicates fail naming both
    tests and the merge-or-remove fix.
@@ -40,16 +42,15 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    (through the repo's existing hook manager, such as lefthook, husky or
    pre-commit, when one is tracked), and failure propagation. Record any
    existing pre-push hook as a practice to replace.
-   Map `GIT.required-checks` to host protection requiring the gate's
-   `ci.requiredContext` (default `gate`) from any source on the resolved
-   default branch; record support for auto-merge and
-   rebase-merge or the evidence-backed host limitation using the catalog's
-   `host_query` evidence kind.
-6. For tool rules, record selector, threshold, exceptions, pinned version, and
-   canaries. For bespoke rules, require executable parsers/checkers and
-   positive/negative fixtures. A row with a `reference` field is implemented by
-   the named `omp-guardrails` subcommand: map it to profile settings, never to
-   copied or edited reference code. Elsewhere, read source-specific roots and
+6. For tool rules, record selector, limit, exceptions and pinned version; one
+   tool rule may carry both a `selector` and its limit `value`. A row with a
+   `reference` field is implemented by the named `omp-guardrails` subcommand:
+   map it to profile settings, never to copied or edited reference code. With
+   a skill reference, tool rules and `reference` rules are proven by the
+   skill's own tests, so the target adds no ledger row or canary for them. For
+   every other bespoke or process rule, require an executable repository
+   checker and positive/negative fixtures. A retired ID listed in a row's
+   `aliases` maps to that row. Elsewhere, read source-specific roots and
    allowlists from target data rather than hard-coding them.
 7. Where no tool covers an applicable rule, prepare a bespoke implementation;
    keep it blocked until its checker and canaries exist. Record deviations as
