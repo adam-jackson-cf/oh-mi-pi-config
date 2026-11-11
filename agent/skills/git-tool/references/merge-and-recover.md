@@ -11,7 +11,7 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
    At this merge boundary, require the latest target branch's exact-SHA CI green under the table below.
    Do not use a default-branch check from the beginning of a long review. The verified recovery revert is the
    exception to the red-target stop, never permission for unrelated integrations.
-2. Confirm the actual PR target, current exact head, no unresolved blockers, hook eligibility, required CI success,
+2. Confirm the actual PR target, current exact head, no unresolved blockers, hook eligibility,
    passing current-head risk-tier verification, the posted `prove()` result or docs exemption and a successful `agent-verified`
    commit status on the exact head. [Verify-loop](verify-loop.md) owns evidence, the `agent-verified` status and every-new-SHA invalidation; [patterns](skill://omp-dyna-workflows/references/patterns.md)
    owns docs eligibility and pass markers. With dynaflows on, merge requires the valid exact-head marker and
