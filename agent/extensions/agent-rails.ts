@@ -604,7 +604,8 @@ function contractMismatch(recorded: number | undefined, current: number): string
 	const stated = `Dynaflows contract v${recorded ?? "none"} recorded; current is v${current}.`;
 	return recorded !== undefined && recorded > current
 		? `${stated} The repo expects a newer dynaflows contract; update omp.`
-		: `${stated} Run the project-setup playbook (freeze with project_setup=True); its omp-guardrails init records dynaflowsContract.`;
+		: `${stated} Run omp-guardrails init --extend and commit its change as a mechanical commit (no proposal); ` +
+			"ask the owner only when it adds a gate or profile field the repo lacks.";
 }
 const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
 const ledgerSchema = z.object({
