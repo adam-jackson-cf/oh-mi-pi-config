@@ -50,8 +50,8 @@ not frozen lever bytes. Verifiers use the profile lever with temporary data and 
 <p>T1 has no processes or network; T2 owns seams and boundary-crossing journeys;
 T3 owns agent exploration and live paid calls. Commit runs static checks, T1 and affected
 T2; CI runs T1 + T2; nightly adds T3 on scheduler-enumerated active branches.
-Approved per-machine timing limits block locally only; CI timing is report-only,
-but missing, invalid or stale reports fail everywhere. First limits and raises need approval.</p>
+Approved per-machine timing limits run on the local commit gate only; CI never measures
+or reports test timing. First limits and raises need approval.</p>
 </section>
 <section aria-labelledby="loop"><h2 id="loop">Ready PR → evidence → merge</h2>
 <div class="loop">
