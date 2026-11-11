@@ -69,10 +69,6 @@ def edited(name: str, old: str, new: str, dialect: junit.Dialect = PYTEST_LIKE) 
     return junit.parse_text(text.replace(old, new), dialect, name)
 
 
-def options(mode: str = "local") -> junit.ReportOptions:
-    return junit.ReportOptions(None, None, mode, None, None, None)
-
-
 def rules(findings: list) -> list[str]:
     return sorted(finding.rule_id for finding in findings)
 
@@ -158,9 +154,9 @@ class JunitNormalisationTests(unittest.TestCase):
 
     def test_report_options_reject_bad_arguments(self) -> None:
         repo = Path("/repo")
-        parsed = junit.report_options(repo, ["--junit", "r.xml", "--mode=ci", "--exit-code", "5", "--tier", "t1=x"])
-        self.assertEqual((parsed.junit, parsed.mode, parsed.exit_code), (repo / "r.xml", "ci", 5))
-        for argv in (["--mode", "nightly"], ["--exit-code", "five"], ["--junit"]):
+        parsed = junit.report_options(repo, ["--junit", "r.xml", "--exit-code=5", "--tier", "t1=x"])
+        self.assertEqual((parsed.junit, parsed.exit_code, parsed.tier), (repo / "r.xml", 5, "t1=x"))
+        for argv in (["--exit-code", "five"], ["--junit"]):
             with self.assertRaises(junit.UsageError):
                 junit.report_options(repo, argv)
 
@@ -181,8 +177,8 @@ class MachineProbeTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
-    def evaluate(self, report: junit.Report, mode: str = "local", machine: budgets.Machine = MACHINE, **evidence: object) -> budgets.BudgetResult:
-        return budgets.evaluate(report, profile(**evidence), options(mode), REVISION, machine)
+    def evaluate(self, report: junit.Report, machine: budgets.Machine = MACHINE, **evidence: object) -> budgets.BudgetResult:
+        return budgets.evaluate(report, profile(**evidence), REVISION, machine)
 
     def test_an_approved_machine_within_limits_passes(self) -> None:
         result = self.evaluate(fixture("pytest-clean.xml"))
@@ -200,12 +196,6 @@ class BudgetTests(unittest.TestCase):
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="2.500"')
         self.assertEqual(rules(self.evaluate(report).findings), [budgets.FAST_TIER])
 
-    def test_ci_timing_is_report_only(self) -> None:
-        report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        result = self.evaluate(report, mode="ci")
-        self.assertEqual(result.findings, [])
-        self.assertTrue(any(note.startswith("report-only:") and "9.000s" in note for note in result.notes))
-
     def test_an_unknown_machine_is_report_only_and_prompts_for_a_baseline(self) -> None:
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
         stranger = budgets.Machine("m-unknown00001", "Darwin arm64", "python 3.12.4")
@@ -218,11 +208,11 @@ class BudgetTests(unittest.TestCase):
         unapproved = profile()
         unapproved["fast_tier_budget"]["machines"][0]["approval"] = ""
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        result = budgets.evaluate(report, unapproved, options(), REVISION, MACHINE)
+        result = budgets.evaluate(report, unapproved, REVISION, MACHINE)
         self.assertEqual(result.findings, [])
         self.assertIn("no approved budget", result.notes[0])
 
-    def test_invalid_or_stale_reports_are_fatal_in_every_mode(self) -> None:
+    def test_invalid_or_stale_reports_are_fatal(self) -> None:
         cases = {
             "stale": ("pytest-clean.xml", REVISION, "f" * 40, "stale"),
             "no revision": ("pytest-clean.xml", 'name="omp.revision"', 'name="other"', "omp.revision"),
@@ -233,15 +223,14 @@ class BudgetTests(unittest.TestCase):
         }
         for name, (source, old, new, expected) in cases.items():
             report = edited(source, old, new, GENERIC)
-            for mode in ("local", "ci"):
-                with self.subTest(name=name, mode=mode):
-                    findings = self.evaluate(report, mode=mode).findings
-                    self.assertTrue(findings, name)
-                    self.assertEqual(set(rules(findings)), {budgets.FAST_TIER})
-                    self.assertTrue(any(expected in item.message for item in findings), findings)
+            with self.subTest(name=name):
+                findings = self.evaluate(report).findings
+                self.assertTrue(findings, name)
+                self.assertEqual(set(rules(findings)), {budgets.FAST_TIER})
+                self.assertTrue(any(expected in item.message for item in findings), findings)
 
     def test_an_undeterminable_revision_is_fatal(self) -> None:
-        result = budgets.evaluate(fixture("pytest-clean.xml"), profile(), options(), None, MACHINE)
+        result = budgets.evaluate(fixture("pytest-clean.xml"), profile(), None, MACHINE)
         self.assertIn("cannot be determined", result.findings[0].message)
 
     def test_skipped_cases_need_no_time(self) -> None:
@@ -280,19 +269,20 @@ class RepoTestCase(unittest.TestCase):
 
 
 class BudgetCommandTests(RepoTestCase):
-    def test_report_check_reads_the_run_report_and_passes_a_clean_ci_run(self) -> None:
+    def test_report_check_never_reads_test_timing(self) -> None:
         self.write_profile(profile(dialect={"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]}))
         report = self.copy_fixture("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        code, out, err = self.cli("report-check", "--junit", report, "--revision", REVISION, "--mode", "ci")
-        self.assertEqual((code, out.strip()), (0, "report-check: ok"))
-        self.assertIn("report-only:", err)
+        code, out, err = self.cli("report-check", "--junit", report, "--revision", "stale")
+        self.assertEqual((code, out.strip(), err), (0, "report-check: ok", ""))
 
-    def test_report_check_blocks_a_missing_report(self) -> None:
+    def test_each_check_blocks_a_missing_report_with_its_own_rule(self) -> None:
         self.write_profile(profile())
-        code, out, _ = self.cli("report-check", "--junit", "reports/absent.xml", "--mode", "ci")
-        self.assertEqual(code, 1)
-        self.assertIn("TEST.budget.fast-tier-time", out)
-        self.assertIn("TEST.failure-propagation", out)
+        for subcommand, rule in (("report-check", "TEST.failure-propagation"), ("budget-check", "TEST.budget.fast-tier-time")):
+            with self.subTest(subcommand=subcommand):
+                code, out, _ = self.cli(subcommand, "--junit", "reports/absent.xml")
+                self.assertEqual(code, 1)
+                self.assertIn(rule, out)
+                self.assertNotIn("TEST.failure-propagation" if rule != "TEST.failure-propagation" else "TEST.budget", out)
 
     def test_budgets_skip_reports_of_slower_tiers(self) -> None:
         report = self.copy_fixture("pytest-clean.xml", 'value="t1"', 'value="t2"')
@@ -301,7 +291,7 @@ class BudgetCommandTests(RepoTestCase):
 
     def test_without_git_or_revision_the_report_cannot_be_fresh(self) -> None:
         report = self.copy_fixture("pytest-clean.xml")
-        findings = budgets.run(self.repo, profile(), ["--junit", report, "--mode", "ci"])
+        findings = budgets.run(self.repo, profile(), ["--junit", report])
         self.assertIn("cannot be determined", findings[0].message)
 
     def test_the_revision_defaults_to_the_repository_head(self) -> None:
@@ -315,8 +305,8 @@ class BudgetCommandTests(RepoTestCase):
         head = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True, timeout=30).stdout.strip()
         report = self.copy_fixture("pytest-clean.xml", REVISION, head)
         with contextlib.redirect_stderr(io.StringIO()) as err:
-            self.assertEqual(budgets.run(self.repo, profile(), ["--junit", report, "--mode", "ci"]), [])
-        self.assertIn("timing is report-only", err.getvalue())
+            self.assertEqual(budgets.run(self.repo, profile(), ["--junit", report]), [])
+        self.assertIn("no approved budget", err.getvalue())
 
 
 class PropagationTests(unittest.TestCase):
@@ -373,7 +363,7 @@ class PropagationTests(unittest.TestCase):
         missing = propagation.run(Path("/nonexistent"), profile(), ["--junit", "r.xml"])
         self.assertEqual(missing[0].message, "run report does not exist")
         self.assertIn("--junit", propagation.run(Path("/nonexistent"), profile(), [])[0].message)
-        self.assertIn("usage", propagation.run(Path("/nonexistent"), profile(), ["--mode", "x"])[0].message)
+        self.assertIn("usage", propagation.run(Path("/nonexistent"), profile(), ["--exit-code", "x"])[0].message)
 
 
 class CollectionTests(RepoTestCase):

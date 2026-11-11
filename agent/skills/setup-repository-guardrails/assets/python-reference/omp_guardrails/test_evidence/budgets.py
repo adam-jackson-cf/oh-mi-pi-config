@@ -5,13 +5,13 @@ Policy (test-guidance ``suite-budget.md``):
 - Limits are per machine and owner-approved: the profile's ``fast_tier_budget.machines``
   records ``id``, ``platform``, ``runtime``, ``wall_limit_s``, ``per_test_limit_s`` and
   ``approval`` for each measuring machine.
-- ``--mode local`` (the commit command): a known, approved machine blocks on any breach.
-- ``--mode ci``: timing is report-only on every CI host; breaches print, never fail. CI
-  compares against the strictest approved limits recorded for the report's runtime (or all
-  machines when none share it), since a CI runner is not a measuring machine.
-- An unknown or unapproved machine is report-only too, and the checker prints the owner
-  question that records its baseline.
-- A missing, invalid or stale report is fatal in every mode, including report-only timing.
+- Budgets run only on the local commit gate (``omp-guardrails budget-check``). CI is an
+  offline process: it never measures or reports test timing and never runs this checker; the
+  CI gate runs ``report-check`` (TEST.failure-propagation) only.
+- A known, approved machine blocks on any breach.
+- An unknown or unapproved machine is report-only, and the checker prints the owner question
+  that records its baseline.
+- A missing, invalid or stale report is fatal, including on a report-only machine.
 
 Validity and freshness rules (what Command notes should cite):
 
@@ -60,7 +60,7 @@ FAST_TIER = "TEST.budget.fast-tier-time"
 PROBE_TIMEOUT_S = 10
 INVALID_FIX = (
     "rerun the profile's duration-report command on this commit and check that its report "
-    "is complete; a missing, invalid or stale report fails in every mode"
+    "is complete; a missing, invalid or stale report always fails"
 )
 PER_TEST_FIX = (
     "speed the test up: remove real-clock waits, bound the actual waiting object, isolate "
@@ -242,20 +242,13 @@ def baseline_prompt(report: Report, machine: Machine) -> str:
 def evaluate(
     report: Report,
     profile: dict,
-    options: ReportOptions,
     expected_revision: str | None,
     machine: Machine | None = None,
 ) -> BudgetResult:
-    """Validity is always fatal; timing blocks only locally on an approved machine."""
+    """Validity is always fatal; timing blocks only on an approved machine."""
     result = BudgetResult(validity_findings(report, expected_revision))
     runtime = report.properties.get("omp.runtime", "").strip()
     if result.findings or not runtime:
-        return result
-    breaches = []
-    if options.mode == "ci":
-        result.notes.append("CI run: timing is report-only")
-        breaches = breach_findings(report, *limits_for_report(profile, report, runtime))
-        result.notes.extend(f"report-only: {item.render()}" for item in breaches)
         return result
     machine = machine or probe_machine(runtime)
     limits = approved_limits(profile, machine)
@@ -268,46 +261,25 @@ def evaluate(
     return result
 
 
-def limits_for_report(profile: dict, report: Report, runtime: str) -> tuple[float, float]:
-    """CI compares against the strictest approved limits recorded for the same runtime."""
-    budget = profile.get("fast_tier_budget")
-    machines = budget.get("machines") if isinstance(budget, dict) else None
-    records = [
-        record
-        for record in (machines if isinstance(machines, list) else [])
-        if isinstance(record, dict)
-        and isinstance(record.get("wall_limit_s"), (int, float))
-        and isinstance(record.get("per_test_limit_s"), (int, float))
-    ]
-    matching = [r for r in records if " ".join(str(r.get("runtime", "")).split()) == runtime]
-    chosen = matching or records
-    if not chosen:
-        return float("inf"), float("inf")
-    return (
-        min(float(r["wall_limit_s"]) for r in chosen),
-        min(float(r["per_test_limit_s"]) for r in chosen),
-    )
-
-
 def report_tier(report: Report, options: ReportOptions) -> str:
     return options.tier or report.properties.get("omp.tier", "").strip() or "t1"
 
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
-    """``omp-guardrails report-check --junit PATH [--mode local|ci] [--revision SHA]``."""
+    """``omp-guardrails budget-check --junit PATH [--tier T] [--revision SHA]``."""
     try:
         options = report_options(repo, argv)
         report = load_run_report(repo, profile, options)
     except UsageError as error:
-        return [Finding(FAST_TIER, "report-check", f"usage: {error}", "fix the arguments")]
+        return [Finding(FAST_TIER, "budget-check", f"usage: {error}", "fix the arguments")]
     except ReportError as error:
-        path = display_path(repo, options.junit)
+        path = display_path(repo, options.junit, "budget-check")
         return [invalid(path, str(error))]
     fast_tier = evidence_settings(profile).get("fast_tier", "t1")
     if report_tier(report, options) != fast_tier:
         return []
     revision = options.revision or current_revision(repo)
-    result = evaluate(report, profile, options, revision)
+    result = evaluate(report, profile, revision)
     for note in result.notes:
         print(f"{FAST_TIER}: {note}", file=sys.stderr)
     return result.findings
