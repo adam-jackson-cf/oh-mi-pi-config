@@ -27,12 +27,12 @@
     },
     {
       "id": "TEST.budget.fast-tier-time",
-      "evidence_kind": "local_ci",
+      "evidence_kind": "git_hook",
       "status": "blocked"
     },
     {
       "id": "TEST.budget.per-test-time",
-      "evidence_kind": "local_ci",
+      "evidence_kind": "git_hook",
       "status": "blocked"
     },
     {

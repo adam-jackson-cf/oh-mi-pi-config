@@ -248,6 +248,20 @@ class GreenfieldTests(InitCase):
             self.assertIn("--check names no gate subcommand", output)
         self.assertFalse((self.repo / ".omp").exists())
 
+    def test_budget_check_runs_on_commit_and_never_in_ci(self) -> None:
+        code, output = self.init("--check", "report-check", "--check", "budget-check", *PIN_ARGS)
+        self.assertEqual(code, 0, output)
+        checks = self.gate()["checks"]
+        self.assertIn("omp-guardrails report-check", checks["commit"][2])
+        self.assertIn("omp-guardrails budget-check", checks["commit"][2])
+        self.assertEqual(checks["ci"], ["omp-guardrails", "report-check"])
+
+    def test_rejects_a_gate_whose_only_check_is_local(self) -> None:
+        code, output = self.init("--check", "budget-check", *PIN_ARGS)
+        self.assertEqual(code, 1)
+        self.assertIn("runs only on the local commit gate", output)
+        self.assertFalse((self.repo / ".omp").exists())
+
 
 class AdoptTests(InitCase):
     def setUp(self) -> None:

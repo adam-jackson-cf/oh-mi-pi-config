@@ -8,6 +8,12 @@ and ``dynaflowsContract``. Init writes only ``checks.commit``, ``checks.ci``, ``
 ``pathCheck`` and ``ci``, and only where they are absent; ``contract`` writes
 ``dynaflowsContract``. A gate that still declares the retired ``ciHost`` is refused.
 
+``checks.commit`` runs every requested reference check. ``checks.ci`` runs the same checks
+except the local-only ones (``LOCAL_ONLY_CHECKS``): ``budget-check`` measures test time on the
+committer's machine, and CI is an offline process that never measures or reports test timing.
+So a gate asked for ``report-check`` and ``budget-check`` runs both on commit and only
+``report-check`` in CI.
+
 Adopt mode keeps a repo's own commit and CI checks and runs the reference checks after them in
 one argv, so both results show on every run (shadow comparison)::
 
@@ -33,6 +39,7 @@ SCHEMA_VERSION = 2
 SHADOW_NAME = "omp-guardrails-shadow"
 RULE = "GATE.local-ci-parity"
 DEFAULT_CONTEXT = "gate"
+LOCAL_ONLY_CHECKS = frozenset({"budget-check"})
 
 
 class GateError(Exception):
@@ -121,16 +128,20 @@ def planned_gate(
     checks: list[str],
     ci: dict | None,
 ) -> dict:
-    """The gate after init: absent fields filled, adopt checks composed, nothing removed."""
+    """The gate after init: absent fields filled, adopt checks composed, nothing removed.
+
+    ``checks.ci`` leaves out ``LOCAL_ONLY_CHECKS``; ``checks`` must hold at least one other.
+    """
     planned = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
     declared = planned.get("checks")
     current = dict(declared) if isinstance(declared, dict) else {}
-    for event in ("commit", "ci"):
+    ci_checks = [check for check in checks if check not in LOCAL_ONLY_CHECKS]
+    for event, wanted in (("commit", checks), ("ci", ci_checks)):
         argv = current.get(event)
         if argv is None:
-            current[event] = reference_argv(reference, checks)
+            current[event] = reference_argv(reference, wanted)
         elif adopt and isinstance(argv, list):
-            current[event] = adopted_argv(argv, reference, checks)
+            current[event] = adopted_argv(argv, reference, wanted)
     current.setdefault("profile", [*reference, "profile-check"])
     planned["checks"] = current
     planned.setdefault("pathCheck", [*reference, "path-check"])

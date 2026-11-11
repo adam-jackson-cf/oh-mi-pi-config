@@ -36,7 +36,8 @@ Keep test growth justified, assertions singly owned and verification within appr
 
 ### TEST.budget.per-test-time
 
-- Enforced by TEST.budget.per-test-time (omp-guardrails report-check).
+- Enforced by TEST.budget.per-test-time (omp-guardrails budget-check).
+  Budgets apply to the local commit gate only; CI never measures or reports test timing.
 - When the checker reports an unknown machine, ask the owner once to record a baseline;
   approval permits recording the measured limit and reference; rejection leaves timing report-only.
   The first limit and every raise require owner approval; record its reference per machine.
@@ -46,7 +47,7 @@ Keep test growth justified, assertions singly owned and verification within appr
 
 ### TEST.budget.fast-tier-time
 
-- Enforced by TEST.budget.fast-tier-time (omp-guardrails report-check).
+- Enforced by TEST.budget.fast-tier-time (omp-guardrails budget-check).
   Compare baseline and head under comparable command, cache, runner and environment conditions.
   The owner-approval rules above apply to the wall limit.
 - Remove redundant coverage, unnecessary work and wrong-tier execution before adding cost.

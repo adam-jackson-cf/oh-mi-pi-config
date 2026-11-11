@@ -109,8 +109,9 @@ Install only approved guardrails while keeping unrelated target work intact.
    `.githooks/pre-commit` and set `git config core.hooksPath .githooks`.
    Installing the hook is part of setup in every clone that commits, including
    agent machines; document the install command. Include path, growth and duplicate checks.
-   Budget timing blocks locally in `checks.commit` using the profile's approved machine limit;
-   CI runs the same checker report-only for timing. Missing, invalid or stale reports fail everywhere.
+   Budget timing blocks in `checks.commit` using the profile's approved machine limit;
+   `checks.ci` never runs the budget checker, since CI never measures or reports test timing.
+   Missing, invalid or stale reports fail.
    First limits and raises need owner approval; unapproved machines report only and prompt for a baseline.
    Keep auto-fix explicit and outside check-only CI.
 6. Configure approved protection on the resolved default branch to require the

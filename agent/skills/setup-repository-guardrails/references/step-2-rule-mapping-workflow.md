@@ -22,9 +22,10 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    Diagnostics name the file and corrective edge, name, or destination.
 4. Map `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time` to a checker
    consuming the normalised JUnit run report. Select limits by a deterministic local machine
-   probe from the repo test profile; block timing locally in `checks.commit`, run the same
-   checker report-only for CI timing. Missing, invalid or stale reports remain fatal
-   everywhere. Derive limits from at least five baseline runs. First limits and raises
+   probe from the repo test profile; block timing in `checks.commit` only. CI never
+   measures or reports test timing, so `checks.ci` never runs the budget checker. Missing,
+   invalid or stale reports are fatal. The catalogue marks both rules `git_hook` evidence.
+   Derive limits from at least five baseline runs. First limits and raises
    require owner approval at Step 5; unknown machines report timing only and prompt to record
    a baseline.
    Map `TEST.growth.justified` to a

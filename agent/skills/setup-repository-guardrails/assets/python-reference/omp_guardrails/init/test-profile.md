@@ -110,6 +110,8 @@ reads as ordinary front matter. Checkers, `prove()` and `omp-guardrails profile-
 
 - Commit command: `<command>`.
 - CI command: `<command>`.
+- The commit gate runs `omp-guardrails report-check` and `omp-guardrails budget-check` on the
+  fast-tier report; the CI gate runs `report-check` only and never measures test timing.
 - Nightly scheduler: `<scheduler or none: owner-approved reason>`.
 - Nightly branches: `<branches or branch selection rule>`.
 
@@ -119,6 +121,8 @@ reads as ordinary front matter. Checkers, `prove()` and `omp-guardrails profile-
 - Per machine limits: wall `<wall limit>`, per-test `<per-test limit>`.
 - Per machine owner approval reference: `<approval reference>`.
 - Duration-report command: `<command>`.
+- Budgets apply to the local commit gate only (`omp-guardrails budget-check`); CI never
+  measures or reports test timing.
 
 ## Coverage
 
