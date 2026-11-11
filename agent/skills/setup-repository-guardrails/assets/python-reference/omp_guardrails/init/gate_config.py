@@ -25,7 +25,8 @@ one argv, so both results show on every run (shadow comparison)::
 
 The ``omp-guardrails-shadow`` script name marks a composed argv. A later adopt run reads which
 reference checks an argv already runs and adds only the requested checks it is missing, so a
-second run with the same checks leaves the gate alone.
+second run with the same checks leaves the gate alone. Adopt also drops a reference check the
+event must not run, so a ``checks.commit`` that already runs ``rule-coverage`` loses it.
 """
 
 from __future__ import annotations
@@ -112,11 +113,18 @@ def reference_parts(argv: list, reference: list[str]) -> tuple[list[str], list]:
     return [], list(argv)
 
 
-def adopted_argv(argv: list, reference: list[str], checks: list[str]) -> list:
-    """``argv`` running every requested check: missing checks are added, nothing is removed."""
-    present, existing = reference_parts(argv, reference)
+def adopted_argv(
+    argv: list, reference: list[str], checks: list[str], excluded: frozenset[str] = frozenset()
+) -> list:
+    """``argv`` running every requested check and no ``excluded`` reference check.
+
+    Missing checks are added and reference checks the event must not run are dropped; the
+    repo's own command and every other reference check are kept.
+    """
+    found, existing = reference_parts(argv, reference)
+    present = [check for check in found if check not in excluded]
     missing = [check for check in checks if check not in present]
-    if not missing:
+    if not missing and present == found:
         return argv
     wanted = [*present, *missing]
     if existing:
@@ -132,22 +140,26 @@ def planned_gate(
     checks: list[str],
     ci: dict | None,
 ) -> dict:
-    """The gate after init: absent fields filled, adopt checks composed, nothing removed.
+    """The gate after init: absent fields filled, adopt checks composed.
 
     ``checks.commit`` leaves out ``CI_ONLY_CHECKS`` and ``checks.ci`` leaves out
-    ``LOCAL_ONLY_CHECKS``; each must keep at least one check (``command.gate_checks``).
+    ``LOCAL_ONLY_CHECKS``; adopt also drops them from an existing argv. Each event must keep
+    at least one check (``command.gate_checks``).
     """
     planned = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
     declared = planned.get("checks")
     current = dict(declared) if isinstance(declared, dict) else {}
     commit_checks = [check for check in checks if check not in CI_ONLY_CHECKS]
     ci_checks = [check for check in checks if check not in LOCAL_ONLY_CHECKS]
-    for event, wanted in (("commit", commit_checks), ("ci", ci_checks)):
+    for event, wanted, excluded in (
+        ("commit", commit_checks, CI_ONLY_CHECKS),
+        ("ci", ci_checks, LOCAL_ONLY_CHECKS),
+    ):
         argv = current.get(event)
         if argv is None:
             current[event] = reference_argv(reference, wanted)
         elif adopt and isinstance(argv, list):
-            current[event] = adopted_argv(argv, reference, wanted)
+            current[event] = adopted_argv(argv, reference, wanted, excluded)
     current.setdefault("profile", [*reference, "profile-check"])
     planned["checks"] = current
     planned.setdefault("pathCheck", [*reference, "path-check"])
