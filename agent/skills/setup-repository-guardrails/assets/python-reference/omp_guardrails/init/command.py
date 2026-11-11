@@ -12,7 +12,8 @@ Modes:
   ``--settings FILE`` adds per-checker settings under the profile's ``guardrails``. Existing
   checks, hooks and values are never removed or replaced.
 - ``--extend`` (surface only): add the profile sections and keys the repo's profile lacks, such
-  as ``verification_surface``. It touches nothing else.
+  as ``verification_surface``, and record or raise the gate's ``dynaflowsContract`` (below). It
+  touches nothing else.
 
 Every mode records the dynaflows contract version in ``.omp/gate.json`` ``dynaflowsContract``
 (``contract``): the current version comes from the omp config's ``agent/agent-rails.yml`` when
