@@ -49,9 +49,10 @@ evasion, fast-tier isolation, the user-data guard, the coverage ratchet, golden 
 records, identity artefacts, property seeds, mutation sensitivity and the verification
 surface. Budget limits are per machine, selected by a deterministic local machine probe and
 based on at least five baseline runs. The first limit and raises need owner approval.
-`checks.commit` blocks locally against the approved machine
-limit; CI runs the same checker report-only for timing. Missing, invalid or stale reports
-are fatal everywhere; an unapproved machine reports only and prompts to record a baseline.
+`checks.commit` blocks against the approved machine
+limit. Budgets apply to the local commit gate only: CI never measures or reports test
+timing. Missing, invalid or stale reports are fatal; an unapproved machine reports only
+and prompts to record a baseline.
 Supported hosts enable auto-merge and rebase-merge. Existing Step 5 approval
 remains the boundary before any repository mutation.
 

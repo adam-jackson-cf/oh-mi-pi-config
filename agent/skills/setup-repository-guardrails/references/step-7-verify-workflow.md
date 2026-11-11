@@ -30,9 +30,10 @@ execution.
    copied checker.
 3. For `TEST.budget.fast-tier-time` and `TEST.budget.per-test-time`, feed valid
    below-limit, exactly-at-limit and over-limit reports to the real checker. Prove machine
-   selection and local `checks.commit` blocking against approved limits; CI timing is report-only.
-   Prove first limits and raises need owner approval; unapproved machines prompt for a baseline
-   and report timing only. Missing, invalid or stale reports and missing measurements fail everywhere.
+   selection and `checks.commit` blocking against approved limits, and that `checks.ci` never
+   runs the budget checker. Prove first limits and raises need owner approval; unapproved
+   machines prompt for a baseline and report timing only. Missing, invalid or stale reports and
+   missing measurements fail.
    For `TEST.growth.justified`, accept a new file/case
    mapped to changed source and behavior; reject unmapped or unresolved mappings
    with the test name and map-or-remove fix. For `TEST.duplicate-path`, accept
