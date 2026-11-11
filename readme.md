@@ -253,7 +253,8 @@ copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
 **merge commit** under the nuc-config sync exception in
 [`.omp/AGENTS.md`](.omp/AGENTS.md), then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
-only its `~/.agents` checkout is a rollout target.
+only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
+the find canary run only on devices that run omp.
 
 ## CI runners
 
