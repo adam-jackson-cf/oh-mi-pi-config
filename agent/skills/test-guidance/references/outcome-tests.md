@@ -12,7 +12,8 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
   behaviour must make it fail. Rewrite or delete a test that fails either imagined check.
 - Assert caller-visible returns, records, errors callers branch on, exit codes, messages or files.
   Never assert private state or call counts merely to prove wiring.
-- Enforced by TEST.no-self-mocking (omp-guardrails adapter).
+- Do not runtime-patch modules, subprocesses or clients.
+  Mocking, stubbing or faking the repo's own code is enforced by TEST.no-self-mocking (omp-guardrails adapter).
 - Clock, randomness, ID generation, process runner and external-service client must be production inputs/adapters
   justified by production use. Supply deterministic values through those same inputs.
   Adding an input is a production design change, justified in the PR.
