@@ -1180,8 +1180,10 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						const dynaflows = /^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd);
-						if (/^gh pr merge\b/.test(action.command) && (gate?.requiredCi || dynaflows)) {
+						const merge = /^gh pr merge\b/.test(action.command);
+						const dynaflows = merge && await dynaflowsOn(ctx, action.cwd);
+						let pr: PrCi | undefined;
+						if (merge && (gate?.requiredCi || dynaflows)) {
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
@@ -1194,13 +1196,20 @@ export default function agentRails(
 								const reason = await passMarkerReason(action.cwd, head);
 								if (reason) return { block: true, reason };
 							}
-							const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
+							pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
 							if (pr.head && pr.head !== head) return {
 								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; re-verify the current head`,
 							};
 							if (pr.reason) return { block: true, reason: pr.reason };
 							if (pr.agentVerified !== "SUCCESS") return {
 								block: true, reason: `Agent rails: agent-verified status is ${pr.agentVerified ?? "missing"} for ${head}${pr.repository ? ` in ${pr.repository}` : ""}; verify this exact head first (prove() posts it; non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified).`,
+							};
+						}
+						// Every agent merge, with or without a ci block or dynaflows, leaves owner-approval changes to the owner.
+						if (merge) {
+							pr ??= await prCi(action.cwd, prSelector(action.args), state, ctx);
+							if (!pr.base || !pr.head || !pr.repository) return {
+								block: true, reason: pr.reason ?? "Agent rails: cannot resolve the PR base, head and repository for the owner-approval check; retry once gh can read the PR.",
 							};
 							const approval = await approvalChangeReason(action.cwd, pr);
 							if (approval) return { block: true, reason: approval };
