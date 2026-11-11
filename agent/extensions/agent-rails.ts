@@ -9,6 +9,9 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 
+// Hang guard for the rails' own short git/gh reads. CI waits never use it: their timeouts come
+// from the runner config. gate.json `pathCheckTimeoutMs` overrides it for the path check.
+const SUBPROCESS_TIMEOUT_MS = 20_000;
 const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { new RegExp(value); return true; } catch { return false; }
@@ -553,14 +556,14 @@ export default function agentRails(
 		return state;
 	};
 	async function gitValue(cwd: string, args: string[]): Promise<string> {
-		const result = await pi.exec("git", args, { cwd, timeout: 20000 });
+		const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
 		return result.stdout.trim();
 	}
 	async function scopeAt(cwd: string) {
 		const worktree = await realpath(await gitValue(cwd, ["rev-parse", "--show-toplevel"]));
 		const common = await realpath(resolve(worktree, await gitValue(worktree, ["rev-parse", "--git-common-dir"])));
-		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: 20000 });
+		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		const branch = branchResult.code === 0 ? branchResult.stdout.trim() : `detached:${await gitValue(worktree, ["rev-parse", "HEAD"])}`;
 		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
 		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
@@ -577,7 +580,7 @@ export default function agentRails(
 	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
 		const repository = await primaryGithubRepository(scope.worktree);
 		async function github(args: string[]): Promise<string> {
-			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: 20000 });
+			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 			if (result.code !== 0 || result.killed) throw new Error(`gh failed: ${result.stderr}`);
 			return result.stdout;
 		}
@@ -595,9 +598,9 @@ export default function agentRails(
 				JSON.parse(await github(["pr", "view", pr.headRefName, "--json", "baseRefOid"])));
 			parent = await gitValue(scope.worktree, ["merge-base", base.baseRefOid, head]);
 		}
-		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: 20000 });
+		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (ancestry.code !== 0 || ancestry.killed) throw new Error("external bot parent is not an ancestor of head");
-		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: 20000 });
+		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (range.code !== 0 || range.killed) throw new Error(`cannot resolve external bot commit range: ${range.stderr}`);
 		if (!range.stdout.trim()) throw new Error("empty external bot commit range");
 		const commits = range.stdout.trim().split("\n");
@@ -662,7 +665,7 @@ export default function agentRails(
 		}
 	}
 	async function passMarkerReason(cwd: string, head: string): Promise<string | undefined> {
-		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: 20000 });
+		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for pass marker");
 		const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.json`);
 		const marker = z.object({
@@ -681,7 +684,7 @@ export default function agentRails(
 		const root = await repoRoot(cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
 		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup,url"],
-			{ cwd, timeout: 20000 });
+			{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
 		};
@@ -729,7 +732,7 @@ export default function agentRails(
 	}
 	// The open PR whose head is exactly `sha`; status posts are judged by that PR's checks.
 	async function prAtHead(cwd: string, sha: string): Promise<{ selector?: string; reason?: string }> {
-		const result = await pi.exec("gh", ["pr", "list", "--search", sha, "--state", "open", "--json", "number,headRefOid"], { cwd, timeout: 20000 });
+		const result = await pi.exec("gh", ["pr", "list", "--search", sha, "--state", "open", "--json", "number,headRefOid"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot find the PR for ${sha} via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
 		};
@@ -834,7 +837,7 @@ export default function agentRails(
 	}
 	// The pre-commit hook Git would run: respects core.hooksPath; must be an executable file.
 	async function commitHookInstalled(cwd: string): Promise<boolean> {
-		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: 20000 });
+		const result = await pi.exec("git", ["rev-parse", "--git-path", "hooks/pre-commit"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) throw new Error(`cannot resolve the pre-commit hook: ${result.stderr}`);
 		const info = await stat(resolve(cwd, result.stdout.trim())).catch(() => null);
 		return Boolean(info?.isFile() && info.mode & 0o111);
@@ -858,7 +861,7 @@ export default function agentRails(
 				}
 			}
 			changed = [...new Set(candidates)];
-			const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: 20000 });
+			const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: SUBPROCESS_TIMEOUT_MS });
 			if (status.code !== 0 || status.killed) {
 				throw new Error(`git status failed${status.killed ? " (killed)" : ` (exit ${status.code})`}: ${status.stderr || status.stdout}`.trim());
 			}
@@ -874,7 +877,7 @@ export default function agentRails(
 			changed = changed.filter(path => changedPaths.has(relative(canonicalRoot, path)));
 			if (!changed.length) { state.pathFailures.delete(root); return; }
 			const result = await pi.exec(gate.pathCheck[0], [...gate.pathCheck.slice(1), ...changed], {
-				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? 20000,
+				cwd: canonicalRoot, timeout: gate.pathCheckTimeoutMs ?? SUBPROCESS_TIMEOUT_MS,
 			});
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);

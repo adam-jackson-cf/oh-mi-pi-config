@@ -1098,6 +1098,22 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("docs/guide.md:3: names removed symbol `oldThing`", brief)
         self.assertNotIn("Audit undeclared harness/config tampering, wrong/stale docs", brief)
 
+    def test_drift_precheck_reports_symbols_removed_from_export_lists(self):
+        self.write("web/one.ts", "function oldThing() { return 1; }\nexport { oldThing };\n")
+        self.write("web/many.ts", "const a = 1, b = 2;\nexport {\n  a as oldAlias,\n  type b,\n};\n")
+        self.write("web/kept.ts", "const k = 1;\nexport { k as keptName };\n")
+        self.write("guide.md", "Import oldThing.\nUse oldAlias and b.\nUse keptName.\n")
+        self.rebase_parent()
+        self.write("web/one.ts", "export const other = 1;\n")
+        self.write("web/many.ts", "export const c = 1;\n")
+        self.write("web/kept.ts", "const k = 2;\nexport { k as keptName };\n")
+        self.change()
+        joined = "\n".join(self.prove()["drift"])
+        for fragment in ("guide.md:1: names removed symbol `oldThing`", "guide.md:2: names removed symbol `oldAlias`",
+                         "guide.md:2: names removed symbol `b`"):
+            self.assertIn(fragment, joined)
+        self.assertNotIn("keptName", joined)
+
     def test_drift_precheck_reports_docs_the_same_change_also_edits(self):
         self.write("old.py", "def removed_export():\n    pass\n")
         self.write("guide.md", "See old.py and removed_export.\n")

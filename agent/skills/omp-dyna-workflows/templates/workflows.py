@@ -762,9 +762,18 @@ CODE_SUFFIXES = (".py", ".pyi", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".
 PY_DECLARATION = re.compile(r"^([-+])(?:async\s+)?(?:def|class)\s+([A-Za-z][A-Za-z0-9_]*)")
 JS_DECLARATION = re.compile(r"^([-+])export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
                             r"(?:function\*?|class|const|let|var|interface|type|enum|namespace)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+JS_EXPORT_LIST = re.compile(r"^([-+])\s*export\s+(?:type\s+)?\{([^}]*)(\}?)")
 JS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 RECORD_DIR = re.compile(r"adrs?|change[-_]?records?", re.IGNORECASE)
 COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|<!--)")
+
+
+def _add_export_names(names, entries):
+    """Public names from an export list body such as `a, b as c, type D`."""
+    for entry in entries.split(","):
+        public = re.sub(r"^type\s+", "", entry.strip()).split(" as ")[-1].strip()
+        if re.fullmatch(r"[A-Za-z$][A-Za-z0-9_$]*", public) and public != "default":  # `_`-prefixed names stay private
+            names.add(public)
 
 
 def _drift_terms(repo, parent, head):
@@ -778,10 +787,10 @@ def _drift_terms(repo, parent, head):
         if status[0] in "DR":
             paths.add(names[0])
     declared = {"-": set(), "+": set()}
-    current, header = None, False
+    current, header, export_list = None, False, None
     for line in _git(repo, "diff", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", parent, head).splitlines():
         if line.startswith("diff --git "):
-            current, header = None, True
+            current, header, export_list = None, True, None
             continue
         if header:
             if line.startswith(("--- a/", "+++ b/")):
@@ -789,6 +798,23 @@ def _drift_terms(repo, parent, head):
             header = not line.startswith("@@")
             continue
         if current is None:
+            continue
+        if export_list:
+            sign, entries = export_list
+            if line[:1] == sign:
+                body, closed, _ = line[1:].partition("}")
+                entries.append(body)
+                if closed:
+                    _add_export_names(declared[sign], ",".join(entries))
+                    export_list = None
+                continue
+            export_list = None
+        listed = JS_EXPORT_LIST.match(line) if current.endswith(JS_SUFFIXES) else None
+        if listed:
+            if listed[3]:
+                _add_export_names(declared[listed[1]], listed[2])
+            else:
+                export_list = (listed[1], [listed[2]])
             continue
         pattern = PY_DECLARATION if current.endswith((".py", ".pyi")) else JS_DECLARATION if current.endswith(JS_SUFFIXES) else None
         match = pattern.match(line) if pattern else None
