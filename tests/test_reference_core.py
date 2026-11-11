@@ -38,6 +38,7 @@ CONTRACT_SUBCOMMANDS = {
     "toolchain-parity",
     "gate",
     "report-check",
+    "budget-check",
     "collection-check",
     "diff-check",
     "affected",

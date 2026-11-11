@@ -42,12 +42,14 @@ Prepare complete, runnable target-stack guardrails outside the target checkout.
 3. Prepare the test-evidence checks over normalised evidence (the adapter's
    JUnit run report and per-tier collect-only test IDs), not console text.
    With the reference, configure `omp-guardrails report-check` and
-   `collection-check`. Without one, follow the catalogue contracts of
-   `TEST.budget.*`, `TEST.failure-propagation` and `TEST.tier-selectors`:
-   select approved per-machine limits from the profile by a deterministic local
-   machine probe, block overruns locally in `checks.commit`, report CI timing
-   only, treat an unknown machine as report-only with a prompt to record a
-   baseline, and fail missing, invalid or stale reports everywhere. Name
+   `collection-check` in `checks.commit` and `checks.ci`, and
+   `omp-guardrails budget-check` in `checks.commit` only. Without one, follow
+   the catalogue contracts of `TEST.budget.*`, `TEST.failure-propagation` and
+   `TEST.tier-selectors`. Budgets run only on the local commit gate: select
+   approved per-machine limits from the profile by a deterministic local
+   machine probe, block overruns in `checks.commit`, treat an unknown machine
+   as report-only with a prompt to record a baseline, and fail a missing,
+   invalid or stale report. CI never measures or reports test timing. Name
    overrunning tests with a speed-up fix; never propose a tier move because a
    test is slow.
 4. Prepare diff-aware checks for `TEST.growth.justified` and

@@ -53,3 +53,8 @@ omp-guardrails --help
 
 Each finding prints as `path: RULE: message; fix`. The exit code is `0` with
 no findings, `1` with findings and `2` for a usage error.
+
+The commit gate runs `report-check` (TEST.failure-propagation and run-report
+hygiene) and `budget-check` (TEST.budget.* test-time budgets). The CI gate runs
+`report-check` only: budgets apply to the local commit gate, and CI never
+measures or reports test timing.

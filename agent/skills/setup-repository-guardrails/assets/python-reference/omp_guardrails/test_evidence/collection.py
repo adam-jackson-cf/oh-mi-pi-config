@@ -1,6 +1,6 @@
 """Collection evidence: run-report hygiene and TEST.tier-selectors over per-tier test lists.
 
-Run report (called by ``propagation`` under ``report-check``):
+Run report (called by ``propagation`` under ``report-check``, on the commit and CI gates):
 
 - An empty report (no test cases) never passes: ``TEST.failure-propagation``.
 - A test ID reported more than once makes the evidence ambiguous: ``TEST.failure-propagation``.

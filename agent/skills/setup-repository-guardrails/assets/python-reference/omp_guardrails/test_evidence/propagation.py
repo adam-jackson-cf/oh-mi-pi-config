@@ -11,7 +11,8 @@
 5. the exit code is zero while a case failed: the runner masked a failure.
 
 It also applies the run-report hygiene in ``collection.report_findings``: empty reports,
-duplicate IDs, unapproved skips or xfails, and retries to green.
+duplicate IDs, unapproved skips or xfails, and retries to green. It never reads test timing:
+the commit and CI gates both run it, and only the commit gate runs ``budget-check``.
 """
 
 from __future__ import annotations
@@ -116,6 +117,6 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     except UsageError as error:
         return [Finding(RULE, "report-check", f"usage: {error}", "fix the arguments")]
     except ReportError as error:
-        path = display_path(repo, options.junit)
+        path = display_path(repo, options.junit, "report-check")
         return [Finding(RULE, path, str(error), FAIL_FIX)]
     return evaluate(report, profile, options.exit_code)

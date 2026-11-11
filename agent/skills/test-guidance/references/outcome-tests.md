@@ -25,7 +25,7 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
   Enforced by TEST.subprocess-timeouts (omp-guardrails python-test-hygiene).
 - Isolate in-process storage in a unique temporary directory.
   Enforced by TEST.user-data-guard (omp-guardrails guard-run).
-- Use only the steps the assertion needs. Enforced by TEST.budget.per-test-time (omp-guardrails report-check).
+- Use only the steps the assertion needs. Enforced by TEST.budget.per-test-time (omp-guardrails budget-check).
   Without a per-test limit, over 100 ms is an investigation hint for I/O or excess steps, not an invented blocking cap.
 
 ## Coverage
