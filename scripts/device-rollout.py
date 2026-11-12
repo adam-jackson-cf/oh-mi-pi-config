@@ -86,13 +86,25 @@ RECORDS_LISTER = (
     "        found[os.path.relpath(path, root).replace(os.sep, '/')] = [os.stat(path).st_mtime_ns, digest]\n"
     "json.dump(found, sys.stdout)\n"
 )
-# Runs on the target device: argv[1] omp base; stdin {relative path: [mtime_ns, base64 bytes]}.
-# Writes each file atomically under <base>/repos and keeps the source mtime, so a later edit on
-# the target reads as newer.
+# Runs on the target device: argv[1] omp base; argv[2] {relative path: [mtime_ns, sha256] or null},
+# the target state the plan saw; stdin {relative path: [mtime_ns, base64 bytes]}. Immediately
+# before replacing each file it re-reads the target and refuses that file when the target no longer
+# matches the plan (edited, created or deleted since inventory), naming it on stderr and exiting 5
+# after the others. Writes atomically (temp file, then rename) and keeps the source mtime, so a
+# later edit on the target reads as newer.
 RECORDS_WRITER = (
     "# omp-records-write\n"
-    "import base64, json, os, sys, tempfile\n"
+    "import base64, hashlib, json, os, sys, tempfile\n"
     "root = os.path.join(os.path.expanduser(sys.argv[1]), 'repos')\n"
+    "planned = json.loads(sys.argv[2])\n"
+    "def current(path):\n"
+    "    try:\n"
+    "        with open(path, 'rb') as stream:\n"
+    "            digest = hashlib.sha256(stream.read()).hexdigest()\n"
+    "        return [os.stat(path).st_mtime_ns, digest]\n"
+    "    except FileNotFoundError:\n"
+    "        return None\n"
+    "refused = []\n"
     "for relative, (mtime, data) in json.load(sys.stdin).items():\n"
     "    parts = relative.split('/')\n"
     "    if not relative or relative.startswith('/') or any(part in ('', '.', '..') for part in parts):\n"
@@ -104,7 +116,13 @@ RECORDS_WRITER = (
     "        stream.write(base64.b64decode(data))\n"
     "    os.chmod(temporary, 0o600)\n"
     "    os.utime(temporary, ns=(mtime, mtime))\n"
+    "    if os.path.islink(path) or current(path) != planned.get(relative):\n"
+    "        os.unlink(temporary)\n"
+    "        refused.append(relative)\n"
+    "        print('changed since inventory: ' + relative, file=sys.stderr)\n"
+    "        continue\n"
     "    os.replace(temporary, path)\n"
+    "sys.exit(5 if refused else 0)\n"
 )
 # Runs locally: argv[1] records root, argv[2:] relative paths. Prints the writer's stdin document.
 RECORDS_BUNDLER = (
@@ -426,12 +444,25 @@ class Rollout:
                     self.notes.append(f"{host}: {len(copy)} record file(s) to copy; "
                                       "run device-rollout.py without --check")
                 else:
+                    changed = []
                     if copy:
                         producer = [sys.executable, "-c", RECORDS_BUNDLER, str(source_root), *copy]
-                        consumer = self.remote(["python3", "-c", RECORDS_WRITER, base], host)
-                        if tuple(self.pipeline(producer, consumer)) != (0, 0):
+                        planned = json.dumps({relative: list(target[relative]) if relative in target else None
+                                              for relative in copy}, sort_keys=True)
+                        consumer = self.remote(["python3", "-c", RECORDS_WRITER, base, planned], host)
+                        codes = tuple(self.pipeline(producer, consumer))
+                        if codes == (0, 5):
+                            # The writer refused files the target changed after inventory; name them.
+                            relisted = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
+                            changed = [relative for relative in copy
+                                       if (relisted.get(relative) or [None, None])[1] != source[relative][1]]
+                            for relative in changed:
+                                self.notes.append(f"{host}: record file {relative} changed on the target after "
+                                                  "inventory; not overwritten (merge it into the rollout source "
+                                                  "by hand, then re-run)")
+                        elif codes != (0, 0):
                             raise CommandError("failed")
-                    state = "current"
+                    state = "record-newer" if changed else "current"
                 if newer:
                     state = "record-newer"
             except CommandError as error:

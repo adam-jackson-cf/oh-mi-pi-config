@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -518,7 +519,9 @@ class RecordRolloutTests(unittest.TestCase):
         self.assertEqual(consumer[:5], ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"])
         self.assertEqual(consumer[5], "codex-omarchy-nuc")
         self.assertIn("omp-records-write", consumer[6])
-        self.assertTrue(consumer[6].rstrip("'\"").endswith("~/.omp"), consumer[6])
+        self.assertEqual(shlex.split(shlex.split(consumer[6])[-1])[-2:],
+                         ["~/.omp", json.dumps({"example-owner/example-repo/gate.json": older})],
+                         "the writer receives the base and the target state the plan saw")
 
     def test_newer_target_record_is_refused_and_reported(self):
         pipeline = Pipeline()
@@ -559,7 +562,8 @@ class RecordRolloutTests(unittest.TestCase):
         files = sorted(self.source)
         producer = [sys.executable, "-c", rollout.RECORDS_BUNDLER, str(self.base / "repos"), *files]
         bundle = subprocess.run(producer, capture_output=True, check=True)
-        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp"], input=bundle.stdout,
+        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp",
+                                  json.dumps(dict.fromkeys(files))], input=bundle.stdout,
                                  capture_output=True, env=env, check=False)
         self.assertEqual(written.returncode, 0, written.stderr)
         for relative in files:
@@ -575,13 +579,45 @@ class RecordRolloutTests(unittest.TestCase):
         listing = rollout.record_files(home / ".omp/repos")
         self.assertEqual(rollout.record_plan(self.source, listing), ([], ["example-owner/example-repo"]))
 
+    def test_writer_refuses_a_target_file_edited_after_inventory(self):
+        home = self.scratch / "home"
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+        gate, profile = "example-owner/example-repo/gate.json", "example-owner/example-repo/profile.md"
+        self.write(home / ".omp", gate, '{"old": 1}\n', 500)
+        self.write(home / ".omp", profile, "old profile\n", 500)
+        target = rollout.record_files(home / ".omp/repos")
+        copy, newer = rollout.record_plan(self.source, target)
+        self.assertEqual((copy, newer), ([gate, profile], []), "the plan copies both older target files")
+        planned = json.dumps({relative: list(target[relative]) for relative in copy})
+        edited = self.write(home / ".omp", gate, '{"edited": "after inventory"}\n', 500)
+        bundle = subprocess.run([sys.executable, "-c", rollout.RECORDS_BUNDLER, str(self.base / "repos"), *copy],
+                                capture_output=True, check=True)
+        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", planned],
+                                 input=bundle.stdout, capture_output=True, text=False, env=env, check=False)
+        self.assertEqual(written.returncode, 5, written.stderr)
+        self.assertIn(b"changed since inventory: " + gate.encode(), written.stderr)
+        self.assertEqual(edited.read_text(), '{"edited": "after inventory"}\n', "the edited target stays untouched")
+        self.assertEqual((home / ".omp/repos" / profile).read_bytes(), (self.base / "repos" / profile).read_bytes(),
+                         "unchanged target files are still replaced")
+        self.assertEqual(sorted(path.name for path in edited.parent.iterdir()), ["gate.json", "profile.md"],
+                         "no temporary file is left behind")
+
+    def test_apply_reports_files_the_writer_refused(self):
+        older = [1, "0" * 64]
+        runner = Runner(records=self.target(**{"example-owner/example-repo/gate.json": older}))
+        deployment, code = self.execute(runner, check=False, pipeline=Pipeline(codes=(0, 5)))
+        self.assertEqual(code, 1)
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "record-newer")
+        self.assertIn("codex-omarchy-nuc: record file example-owner/example-repo/gate.json changed on the target "
+                      "after inventory; not overwritten", deployment.report())
+
     def test_writer_refuses_paths_that_leave_the_records_root(self):
         home = self.scratch / "home"
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
         for relative in ("../escape", "/abs", "o/./n", ""):
             with self.subTest(relative=relative):
                 document = json.dumps({relative: [1, "eA=="]}).encode()
-                result = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp"],
+                result = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", "{}"],
                                         input=document, capture_output=True, env=env, check=False)
                 self.assertEqual(result.returncode, 4)
         self.assertFalse((self.scratch / "escape").exists())
