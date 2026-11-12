@@ -1,4 +1,4 @@
-"""Profile loading, PROFILE.complete, findings and CLI dispatch of the guardrails reference."""
+"""Record profile loading, PROFILE.complete, findings and CLI dispatch of the guardrails reference."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from omp_guardrails.config import profile as profile_module  # noqa: E402
 from omp_guardrails.findings import Finding, exit_code, format_findings  # noqa: E402
 
 CONTRACT_SUBCOMMANDS = {
+    "check",
     "profile-check",
     "init",
     "path-check",
@@ -32,12 +33,7 @@ CONTRACT_SUBCOMMANDS = {
     "python-fanout",
     "python-scalability",
     "python-test-hygiene",
-    "canaries",
-    "rule-evidence",
-    "rule-coverage",
-    "hook-check",
     "toolchain-parity",
-    "gate",
     "report-check",
     "budget-check",
     "collection-check",
@@ -63,16 +59,14 @@ class ProfileLoadingTests(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-core-")
         self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name)
+        self.record = Path(scratch.name)
 
     def write_profile(self, text: str) -> None:
-        path = self.repo / ".omp/test-profile.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        (self.record / "profile.md").write_text(text)
 
     def test_front_matter_json_is_returned_as_a_dict(self) -> None:
         self.write_profile((FIXTURES / "complete-profile.md").read_text())
-        self.assertEqual(profile_module.load_profile(self.repo)["adapter"], "pytest")
+        self.assertEqual(profile_module.load_profile(self.record)["adapter"], "pytest")
 
     def test_unreadable_profiles_raise_profile_errors(self) -> None:
         cases = {
@@ -87,7 +81,7 @@ class ProfileLoadingTests(unittest.TestCase):
                 if text is not None:
                     self.write_profile(text)
                 with self.assertRaises(profile_module.ProfileError):
-                    profile_module.load_profile(self.repo)
+                    profile_module.load_profile(self.record)
 
 
 class ProfileCompleteTests(unittest.TestCase):
@@ -252,7 +246,10 @@ class CliTests(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-cli-")
         self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name)
+        self.repo = Path(scratch.name).resolve() / "repo"
+        self.record = Path(scratch.name).resolve() / "record"
+        self.repo.mkdir()
+        self.record.mkdir()
 
     def run_cli(self, *args: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -261,9 +258,11 @@ class CliTests(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     def write_profile(self, profile: dict) -> None:
-        path = self.repo / ".omp/test-profile.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path = self.record / "profile.md"
         path.write_text(f"---\n{json.dumps(profile, indent=2)}\n---\n\n# Repo test profile\n")
+
+    def located(self, *args: str) -> tuple[str, ...]:
+        return (*args[:1], "--repo", str(self.repo), "--record", str(self.record), *args[1:])
 
     def test_every_contract_subcommand_is_listed(self) -> None:
         self.assertEqual(set(cli.SUBCOMMANDS), CONTRACT_SUBCOMMANDS)
@@ -281,7 +280,7 @@ class CliTests(unittest.TestCase):
         for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter"}):
             with self.subTest(subcommand=name):
                 result = subprocess.run(
-                    [sys.executable, "-c", entry, name, "--repo", str(self.repo), "--help"],
+                    [sys.executable, "-c", entry, *self.located(name, "--help")],
                     cwd=REFERENCE,
                     capture_output=True,
                     text=True,
@@ -304,26 +303,40 @@ class CliTests(unittest.TestCase):
     def test_profile_check_exit_codes_follow_findings(self) -> None:
         self.write_profile(complete_profile())
         self.assertEqual(
-            self.run_cli("profile-check", "--repo", str(self.repo))[:2], (0, "profile-check: ok\n")
+            self.run_cli(*self.located("profile-check"))[:2], (0, "profile-check: ok\n")
         )
         broken = complete_profile()
         broken["adapter"] = "TBD"
         self.write_profile(broken)
-        code, out, _ = self.run_cli("profile-check", f"--repo={self.repo}")
+        code, out, _ = self.run_cli(
+            "profile-check", f"--record={self.record}", f"--repo={self.repo}"
+        )
         self.assertEqual(code, 1)
-        self.assertIn(".omp/test-profile.md: PROFILE.complete: adapter is missing", out)
+        self.assertIn("record:profile.md: PROFILE.complete: adapter is missing", out)
 
     def test_missing_profile_is_a_profile_finding(self) -> None:
-        code, out, _ = self.run_cli("naming", "--repo", str(self.repo))
+        code, out, _ = self.run_cli(*self.located("naming"))
         self.assertEqual(code, 1)
-        self.assertIn("PROFILE.complete: .omp/test-profile.md does not exist", out)
+        self.assertIn("PROFILE.complete: record:profile.md does not exist", out)
+
+    def test_every_checker_needs_a_record_outside_the_repository(self) -> None:
+        self.write_profile(complete_profile())
+        code, _, err = self.run_cli("naming", "--repo", str(self.repo))
+        self.assertEqual(code, 2)
+        self.assertIn("pass --record DIR", err)
+        inside = self.repo / "record"
+        inside.mkdir()
+        code, _, err = self.run_cli("naming", "--repo", str(self.repo), "--record", str(inside))
+        self.assertEqual(code, 2)
+        self.assertIn("inside the repository", err)
+        self.assertEqual(self.run_cli("naming", "--repo", str(self.repo), "--record")[0], 2)
 
     def test_unknown_subcommand_and_missing_adapter_are_usage_errors(self) -> None:
         self.assertEqual(self.run_cli("lint-everything")[0], 2)
         profile = copy.deepcopy(complete_profile())
         profile["adapter"] = "framework_without_adapter"
         self.write_profile(profile)
-        code, _, err = self.run_cli("adapter", "--repo", str(self.repo))
+        code, _, err = self.run_cli(*self.located("adapter"))
         self.assertEqual(code, 2)
         self.assertIn("cannot import omp_guardrails.adapters", err)
 

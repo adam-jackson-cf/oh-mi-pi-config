@@ -22,6 +22,8 @@
 - ``conformance [--case ID ...]``: runs the framework-agnostic conformance cases.
 
 ``lint``, ``tiers`` and ``conformance`` need the ``pytest`` extra; the others are stdlib-only.
+omp-guardrails never writes into the repository tree, so every ``--out`` path (the tier listing,
+the JUnit report, the mutation report) must lie outside the checkout.
 """
 
 from __future__ import annotations
@@ -39,6 +41,25 @@ PLUGIN = "omp_guardrails.adapters.pytest.plugin"
 TIER_GUARDS = {"t1": ("fast-tier", "user-data"), "t2": ("user-data",), "t3": ("user-data",)}
 GUARD_RULES = {"fast-tier": "TEST.fast-tier-isolation", "user-data": "TEST.user-data-guard"}
 PROPAGATION = "TEST.failure-propagation"
+OUTPUT_RULE = "GUARDRAILS.output-outside-repo"
+WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
+
+
+def output_finding(repo: Path, out: object) -> Finding | None:
+    """A finding when ``out`` would put an output file inside the repository.
+
+    A relative path counts as repository-relative, so outputs always name an absolute path.
+    """
+    target = Path(str(out)).expanduser()
+    target = (target if target.is_absolute() else repo / target).resolve()
+    if target != repo.resolve() and not target.is_relative_to(repo.resolve()):
+        return None
+    return Finding(
+        OUTPUT_RULE,
+        str(out),
+        "output path is inside the repository; omp-guardrails never writes into the repo tree",
+        "pass an --out path outside the checkout, e.g. under the system temporary directory",
+    )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -138,6 +159,10 @@ def guard_evidence(report: Path, tier: str) -> list[Finding]:
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     options = parser().parse_args(argv or ["lint"])
     action = options.action
+    if action in WRITING_ACTIONS:
+        problem = output_finding(repo, options.out)
+        if problem:
+            return [problem]
     if action == "lint":
         from omp_guardrails.adapters.pytest.lint import lint
 

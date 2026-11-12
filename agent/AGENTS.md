@@ -122,7 +122,7 @@ your response:
   other sections.
         <!-- OMP_GLOBAL_RULES_END -->
 
-Git: agents own branch → PR → review → merge without asking, unless `.omp/gate.json` sets
+Git: agents own branch → PR → review → merge without asking, unless the repo's record `gate.json` sets
 `"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
 
 Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,

@@ -44,10 +44,10 @@ repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
 The entire draft and top-level inputs are validated before hashing or execution.
 Freeze records the installed `dynaflowsContract` in the manifest. Prove ignores
-that value and checks the head's `.omp/gate.json` against the current contract, so
-a contract bump during a PR needs only an `omp-guardrails init --extend` commit,
-not a re-freeze.
-When `.omp/gate.json` declares `checks.format`, freeze runs that formatter in the
+that value and checks the repo's record `gate.json` against the current contract,
+so a contract bump during a PR needs only a re-run of `omp-guardrails init`
+against the record, not a re-freeze or a repo commit.
+When the record's `gate.json` declares `checks.format`, freeze runs that formatter in the
 worktree before hashing. A nonzero exit fails freeze. The result lists files the
 formatter changed (from `git status`) so the writer commits them; hashes cover the
 formatted bytes.
@@ -59,7 +59,7 @@ Generated frozen output (not a draft input):
   "schemaVersion": 1,
   "slug": "fix-login-redirect",
   "base": "<40-hex resolved baseline>",
-  "dynaflowsContract": 2,
+  "dynaflowsContract": 3,
   "proofs": [
     {
       "id": "P1",
@@ -111,7 +111,7 @@ Generated frozen output (not a draft input):
   on the head being merged instead of twice, and blocks unless every clean run
   passes (`journey proof passed <n> of 3 clean head runs`). Freeze does not run a
   stability loop, so proof tasks do not rerun journeys by hand.
-- When `.omp/test-profile.md` front-matter declares
+- When the record's `profile.md` front-matter declares
   `verification_surface.doctor_marker`, freeze refuses an `expectRed` proof whose
   red output contains that marker: the red came from the environment doctor, not
   the behaviour. An absent profile or key skips this check.
@@ -150,7 +150,7 @@ branch at `head`, even when main's session is in the primary checkout. Resolve t
 actual fetched PR target and require `parent == git merge-base(target_ref, head)`
 with strict ancestry, not `HEAD~1`. The helper checks consistency; git-tool owns
 confirming actual GitHub target metadata. Repository-specific target exceptions
-live in that repository's project context (`.omp/AGENTS.md`).
+live in that repository's project instructions.
 
 Completed attempts append atomically to
 `<git-common-dir>/omp-prove/attempts/<head>.json` as
@@ -161,14 +161,14 @@ result as `objectiveRevision: {previous, reason}` and in the verifier brief.
 Never put waivers such as "not a finding" in an objective; sequence dependencies
 so their decisions land before proving dependent work.
 
-Head gate schema is validated before scratch trees/setup. Missing prerequisites
-route to SKILL's owner-approved project setup; an invalid parent gate is a visible
-`gateDiagnostics` entry and does not prevent a valid head repair. When the gate
+The record's gate schema is validated before scratch trees/setup. The record is
+not part of the repo's history, so parent and head share it. Missing prerequisites
+route to SKILL's owner-approved project setup. When the gate
 declares `ci`, prove reads `ci.requiredContext` on the exact head (a commit status
 or check run, whoever posts it) before any proof runs, and refuses unless it is
 success, so a red or pending head spends no verifier time. When the gate declares
 `checks.profile`, prove runs it next and blocks on a nonzero exit. Prove runs no
-other repository suites; the hook and CI own them.
+other repository suites; rails' commit checks and CI own them.
 
 Drift precheck: prove collects paths deleted or renamed in
 `git diff --name-status -M parent..head` and public module-level symbols a file's
@@ -193,8 +193,8 @@ prevents verifier dispatch. Cleanup failure prevents pass.
 
 ### Gate changes
 
-`gateChanges` unions parent/head references: `.omp/gate.json`, workflows, hooks,
-lefthook/pre-commit roots and gate argv file tokens. For each directly referenced
+`gateChanges` unions parent/head references: workflows, hooks, lefthook/pre-commit
+roots and the record's gate argv file tokens. For each directly referenced
 regular text file, one generic `re.findall(r"[\w./-]+", text)` scan discovers
 existing canonical in-root regular file tokens. It does not recurse or parse a
 language; computed/quoted paths or paths containing spaces inside text are not a

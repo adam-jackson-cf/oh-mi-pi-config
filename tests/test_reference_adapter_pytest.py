@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -76,16 +77,30 @@ def containerfile_lock() -> dict[str, frozenset[str]]:
     return requirement_entries("\n".join(quoted))
 
 
-def write_profile(repo: Path, profile: dict) -> None:
-    (repo / ".omp").mkdir(parents=True, exist_ok=True)
+# Each repository's record: a directory outside it, removed when the module's tests finish.
+RECORDS: dict[str, Path] = {}
+
+
+def write_profile(repo: Path, profile: dict) -> Path:
+    key = str(repo.resolve())
+    if key not in RECORDS:
+        RECORDS[key] = Path(tempfile.mkdtemp(prefix="omp-record-"))
+        unittest.addModuleCleanup(shutil.rmtree, RECORDS[key], ignore_errors=True)
     text = f"---\n{json.dumps(profile, indent=2)}\n---\n\n# Repo test profile\n"
-    (repo / ".omp/test-profile.md").write_text(text, encoding="utf-8")
+    (RECORDS[key] / "profile.md").write_text(text, encoding="utf-8")
+    return RECORDS[key]
 
 
 def run_cli(*argv: str) -> tuple[int, str]:
+    """Run the CLI; a ``--repo`` whose profile ``write_profile`` wrote also gets its record."""
+    args = list(argv)
+    if "--repo" in args:
+        record = RECORDS.get(str(Path(args[args.index("--repo") + 1]).resolve()))
+        if record is not None:
+            args[args.index("--repo") + 2 : args.index("--repo") + 2] = ["--record", str(record)]
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-        code = cli.main(list(argv))
+        code = cli.main(args)
     return code, out.getvalue()
 
 
@@ -102,7 +117,8 @@ def git(repo: Path, *args: str) -> None:
 class PinnedExtraTests(unittest.TestCase):
     def test_lock_pins_the_pyproject_extra_with_hashes(self):
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
-        pins = set(pyproject["project"]["optional-dependencies"]["pytest"])
+        project = pyproject["project"]
+        pins = {*project["optional-dependencies"]["pytest"], *project["dependencies"]}
         entries = requirement_entries(LOCK.read_text())
         specs = {spec.split(";")[0].strip() for spec in entries}
         self.assertLessEqual(pins, specs)
@@ -200,12 +216,18 @@ class StandardLibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             write_profile(repo, {"adapter": "pytest"})
+            report = Path(scratch).parent / "reports/t1.xml"
             code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
-                                "--out", "reports/t1.xml")
+                                "--out", str(report))
             self.assertEqual(code, 0)
             self.assertIn("--omp-guard=fast-tier,user-data", out)
             self.assertIn("--omp-tier=t1", out)
-            self.assertIn("--junitxml=reports/t1.xml", out)
+            self.assertIn(f"--junitxml={report}", out)
+            for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
+                code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
+                                    "--out", inside)
+                self.assertEqual(code, 1)
+                self.assertIn("GUARDRAILS.output-outside-repo", out)
             code, out = run_cli("adapter", "--repo", str(repo), "mutation-tool")
             self.assertEqual(code, 0)
             self.assertTrue(out.startswith("mutmut "))
@@ -225,7 +247,11 @@ class MutationTests(unittest.TestCase):
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name)
+        self.repo = Path(scratch.name).resolve() / "repo"
+        self.out = Path(scratch.name).resolve() / "out"
+        self.repo.mkdir()
+        self.out.mkdir()
+        self.report = str(self.out / "m.json")
         write_profile(self.repo, {"adapter": "pytest"})
         source = FIXTURES / "mutmut-run"
         self.core = self.repo / "src/ledger/core.py"
@@ -250,9 +276,9 @@ class MutationTests(unittest.TestCase):
 
     def test_mutmut_results_normalise_to_function_spans(self):
         code, out = run_cli("adapter", "--repo", str(self.repo), "mutation-report",
-                            "--out", "reports/mutation.json")
+                            "--out", self.report)
         self.assertEqual(code, 0, out)
-        report = json.loads((self.repo / "reports/mutation.json").read_text())
+        report = json.loads(Path(self.report).read_text())
         spans = {(m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
                  for m in report["mutants"]}
         self.assertEqual(spans, {
@@ -264,8 +290,8 @@ class MutationTests(unittest.TestCase):
         self.assertEqual({m["path"] for m in report["mutants"]}, {"src/ledger/core.py"})
 
     def test_surviving_mutant_in_changed_code_fails_the_check(self):
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json")
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", "m.json",
+        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
+        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
                             "--base", "HEAD~1")
         self.assertEqual(code, 1)
         self.assertEqual(out.count("TEST.mutation-sensitivity"), 2)
@@ -277,15 +303,15 @@ class MutationTests(unittest.TestCase):
         data = json.loads(meta.read_text())
         data["exit_code_by_key"] = {key: 1 for key in data["exit_code_by_key"]}
         meta.write_text(json.dumps(data))
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json")
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", "m.json",
+        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
+        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
                             "--base", "HEAD~1")
         self.assertEqual((code, out.strip()), (0, "mutation-check: ok"))
 
     def test_missing_mutmut_results_are_a_finding(self):
         (self.repo / "mutants/src/ledger/core.py.meta").unlink()
         code, out = run_cli(
-            "adapter", "--repo", str(self.repo), "mutation-report", "--out", "m.json"
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
         )
         self.assertEqual(code, 1)
         self.assertIn("no mutmut results", out)

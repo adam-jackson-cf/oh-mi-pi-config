@@ -3,6 +3,7 @@
 """Proof-first verification and blind labels; load in the OMP Python eval kernel."""
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,7 +26,6 @@ BLOCKING_RULE = (
     "path alone is not a blocker. Infrastructure failures prevent pass, but are not red/green evidence. "
     "Everything else is a parked follow-up, including uncovered naming/structure on added/renamed paths.")
 AGENT_VERIFIED = "agent-verified"
-PROFILE_PATH = ".omp/test-profile.md"
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 DRIFT_HIT_LIMIT = 100
@@ -41,8 +41,12 @@ class ProveBlocked(WorkflowError):
 
 CONTRACT_LINE = re.compile(r"^dynaflowsContract:[ \t]*(\d+)[ \t]*(?:#.*)?\r?$", re.MULTILINE)
 MAX_SAFE_INTEGER = 9007199254740991
-CONTRACT_REMEDY = ("Run omp-guardrails init --extend and commit its change as a mechanical commit (no proposal); "
-                   "ask the owner only when it adds a gate or profile field the repo lacks.")
+CONTRACT_REMEDY = ("Run omp-guardrails init --extend to bring the per-repo record to the current contract "
+                   "(it edits the local record, never the repo); ask the owner only when it adds a gate or "
+                   "profile field the record lacks.")
+# Harness variables the omp runtime exports to its tools. Repo commands must behave as they do
+# without the harness, so run_check removes them at the exec boundary.
+HARNESS_ENV = ("AGENT",)
 # Captured at load: the eval kernel's %load sets __file__ in the shared namespace, and a later
 # %load of another script would overwrite it.
 _LOADED_FROM = globals().get("__file__")
@@ -65,13 +69,65 @@ def dynaflows_contract(path=None):
 
 
 def contract_mismatch(recorded, current):
-    """Rails' contract note for a dynaflows-on repo, or None when gate.json records the current contract."""
+    """Rails' contract note for a dynaflows-on repo, or None when its record states the current contract."""
     if recorded == current:
         return None
     stated = f"Dynaflows contract v{'none' if recorded is None else recorded} recorded; current is v{current}."
     if recorded is not None and recorded > current:
-        return f"{stated} The repo expects a newer dynaflows contract; update omp."
+        return f"{stated} The record expects a newer dynaflows contract; update omp."
     return f"{stated} {CONTRACT_REMEDY}"
+
+
+def _harness_root():
+    """The oh-mi-pi-config checkout this file belongs to (<root>/agent/skills/omp-dyna-workflows/templates/)."""
+    if not _LOADED_FROM:
+        raise WorkflowError("cannot locate the harness: workflows.py was loaded without __file__")
+    return Path(_LOADED_FROM).resolve().parents[4]
+
+
+def _records_root():
+    """Root that holds repos/<owner>/<name>/ records: the harness checkout itself."""
+    return _harness_root()
+
+
+_RESOLVER = []
+
+
+def _resolver():
+    """The harness's repo_record module (agent/lib/repo_record.py), loaded once by path."""
+    if not _RESOLVER:
+        path = _harness_root() / "agent/lib/repo_record.py"
+        spec = importlib.util.spec_from_file_location("omp_repo_record", path)
+        if spec is None or spec.loader is None:
+            raise WorkflowError(f"cannot load the record resolver: {path}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, SyntaxError, ImportError) as exc:
+            raise WorkflowError(f"cannot load the record resolver: {exc}") from exc
+        _RESOLVER.append(module)
+    return _RESOLVER[0]
+
+
+def read_record(repo):
+    """(record directory, gate.json object) for the clone at `repo`, or (None, None) without a record.
+
+    The record is the personal, gitignored `repos/<owner>/<name>/` directory under the harness,
+    named by the clone's origin remote; worktrees resolve to their main checkout's record. A record
+    that exists but is unreadable or that rails would reject raises.
+    """
+    resolver = _resolver()
+    record = resolver.find_record(repo, _records_root())
+    if record is None:
+        return None, None
+    try:
+        gate = resolver.load_gate(record)
+    except resolver.RecordError as exc:
+        raise WorkflowError(f"record {exc}") from exc
+    reason = gate_reason(gate)
+    if reason is not None:
+        raise WorkflowError(f"record {record / resolver.GATE_FILE}: {reason}")
+    return record, gate
 
 
 def _is_argv(value):
@@ -80,11 +136,12 @@ def _is_argv(value):
 
 
 def run_check(cmd, cwd):
-    """Run an argv proof, retaining complete, replacement-decoded diagnostics."""
+    """Run an argv proof or repo command without harness variables, retaining complete, replacement-decoded diagnostics."""
     if not _is_argv(cmd):
         raise WorkflowError("cmd must be argv")
+    env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
                            errors="replace", timeout=CHECK_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         def decode(value):
@@ -471,38 +528,30 @@ class FreezeResult(tuple):
         return result
 
 
-def _read_gate(root):
-    """Working-tree gate policy, or None when the repo declares no gate."""
-    path = Path(root) / ".omp/gate.json"
-    if not path.is_file():
+def _profile_path(record):
+    return Path(record) / _resolver().PROFILE_FILE
+
+
+def _doctor_marker(record):
+    """verification_surface.doctor_marker from the record profile's front matter; absent record, profile or value skips."""
+    if record is None:
         return None
+    path = _profile_path(record)
     try:
-        gate = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise WorkflowError(f".omp/gate.json: {exc}") from exc
-    reason = gate_reason(gate)
-    if reason is not None:
-        raise WorkflowError(f".omp/gate.json: {reason}")
-    return gate_policy(gate)
-
-
-def _doctor_marker(root):
-    """verification_surface.doctor_marker from the profile front matter; absent profile or value skips."""
-    try:
-        lines = (Path(root) / PROFILE_PATH).read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         return None
     except (OSError, UnicodeError) as exc:
-        raise WorkflowError(f"{PROFILE_PATH} unreadable: {exc}") from exc
+        raise WorkflowError(f"{path} unreadable: {exc}") from exc
     if not lines or lines[0].strip() != "---":
         return None
     end = next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
     if end is None:
-        raise WorkflowError(f"{PROFILE_PATH} front matter has no closing '---' line")
+        raise WorkflowError(f"{path} front matter has no closing '---' line")
     try:
         values = json.loads("\n".join(lines[1:end]))
     except ValueError as exc:
-        raise WorkflowError(f"{PROFILE_PATH} front matter is not valid JSON: {exc}") from exc
+        raise WorkflowError(f"{path} front matter is not valid JSON: {exc}") from exc
     surface = values.get("verification_surface") if isinstance(values, dict) else None
     marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
     if not isinstance(marker, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL):
@@ -532,11 +581,12 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
            previous=None, revise=None, max_checks=MAX_PROOFS, project_setup=False):
     """Freeze working-tree proofs against pinned, setup-preserving isolated baselines.
 
-    Project setup freezes before its `omp-guardrails init` records dynaflowsContract, so
-    `project_setup=True` tolerates an absent or lower recorded contract; prove() still requires
-    the current one at head. A higher recorded contract always refuses. The manifest records the
-    installed contract it was frozen under; prove() ignores it and checks the head's gate.json, so
-    a contract bump during a PR needs only an `omp-guardrails init --extend` commit, not a re-freeze.
+    Policy comes from the clone's per-repo record (read_record), never from the repo tree.
+    Project setup may freeze before the owner confirms the drafted record, so
+    `project_setup=True` tolerates an absent record or a lower recorded contract; prove() still
+    requires the current one. A higher recorded contract always refuses. The manifest records the
+    installed contract it was frozen under; prove() ignores it and checks the record, so a
+    contract bump during a PR needs only an `omp-guardrails init --extend` of the record, not a re-freeze.
     Journey stability is a prove() check on the head being merged, not a freeze() check.
     """
     if not isinstance(project_setup, bool):
@@ -569,11 +619,12 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     head = _commit(root, "HEAD")
     if not _ancestor(root, resolved_base, head):
         raise WorkflowError("base is not an ancestor of HEAD")
-    marker = _doctor_marker(root)
+    record, gate = read_record(root)
+    marker = _doctor_marker(record)
     for proof in proofs:
         if marker and isinstance(proof.get("expectRed"), str) and marker in proof["expectRed"]:
             raise WorkflowError(f"{proof['id']}: expectRed matches the doctor marker; red came from the environment doctor, not the behaviour")
-    policy = _read_gate(root)
+    policy = gate_policy(gate) if gate is not None else None
     recorded, contract = (policy["dynaflowsContract"] if policy else None), dynaflows_contract()
     mismatch = contract_mismatch(recorded, contract)
     if mismatch and not (project_setup and (recorded is None or recorded < contract)):
@@ -742,6 +793,9 @@ def gate_reason(gate):
         return "dynaflowsContract must be a positive safe integer"
     if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
         return "testGlobs must be a string list"
+    dynaflows = gate.get("dynaflows")
+    if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
+        return 'dynaflows must be {"enabled": true|false}'
     return None
 
 
@@ -781,23 +835,16 @@ def gate_changes(paths, root, gate, diagnostics=None):
             found = candidate(token)
             if found:
                 named.add(found)
-    return [path for path in paths if path in named or path in (".omp/gate.json", "lefthook.yml", ".pre-commit-config.yaml") or path.startswith((".github/workflows/", ".githooks/"))]
+    return [path for path in paths if path in named or path in ("lefthook.yml", ".pre-commit-config.yaml") or path.startswith((".github/workflows/", ".githooks/"))]
 
 
 def deterministic_checks(parent_tree, head_tree, manifest, gate, paths, proof_parents=None, source_root=None, baselines=None):
     """Run proof executions only; repository gates belong to hook/CI. Journey proofs must pass every one of
-    JOURNEY_RUNS clean runs on the head being merged; other proofs run HEAD_RUNS times."""
+    JOURNEY_RUNS clean runs on the head being merged; other proofs run HEAD_RUNS times. `gate` is the
+    record's gate.json; its commands name repo files in both the parent and head trees."""
     result = {"proofs": {}, "blocking": [], "gateChanges": [], "gateDiagnostics": []}
     diagnostics = result["gateDiagnostics"]
-    try:
-        parent_gate = json.loads((parent_tree / ".omp/gate.json").read_text())
-        reason = gate_reason(parent_gate)
-        if reason is not None:
-            raise WorkflowError(f"invalid parent gate schema: {reason}")
-    except (OSError, ValueError, WorkflowError) as exc:
-        diagnostics.append(f"parent .omp/gate.json: {exc}")
-        parent_gate = {}
-    result["gateChanges"] = sorted(set(gate_changes(paths, head_tree, gate, diagnostics)) | set(gate_changes(paths, parent_tree, parent_gate, diagnostics)))
+    result["gateChanges"] = sorted(set(gate_changes(paths, head_tree, gate, diagnostics)) | set(gate_changes(paths, parent_tree, gate, diagnostics)))
     failures = result["blocking"]
     failures.extend(_hash_failures(head_tree, manifest))
     if failures:
@@ -1135,18 +1182,11 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             raise WorkflowError("base must be an ancestor of parent")
         branch, result["authors"] = _authors(repo, parent, head)
         result.update(worktree=str(repo), branch=branch)
-        try:
-            gate_process = subprocess.run(["git", "-C", str(repo), "show", f"{head}:.omp/gate.json"], capture_output=True)
-            if gate_process.returncode:
-                raise WorkflowError(gate_process.stderr.decode(errors="replace"))
-            gate = json.loads(gate_process.stdout.decode("utf-8"))
-        except WorkflowError as exc:
-            raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; head gate unreadable: {exc}") from exc
-        except (ValueError, UnicodeError) as exc:
-            raise WorkflowError(f"head .omp/gate.json invalid JSON/encoding: {exc}") from exc
+        record, gate = read_record(repo)
+        if record is None:
+            raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; this clone has no per-repo record "
+                                "(repos/<owner>/<name>/gate.json under the harness, named by the origin remote)")
         policy = gate_policy(gate)
-        if policy is None:
-            raise WorkflowError(f".omp/gate.json has an unsupported schemaVersion or invalid fields: {gate_reason(gate)}")
         mismatch = contract_mismatch(policy["dynaflowsContract"], dynaflows_contract())
         if mismatch:
             raise ProveBlocked(mismatch)
@@ -1162,7 +1202,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             before = _git(repo, "status", "--porcelain=v2")
             ok, out = run_check(policy["profile"], repo)
             if not ok:
-                raise ProveBlocked(f"checks.profile failed; complete {PROFILE_PATH} before prove:\n{_scrub(out, repo)}")
+                raise ProveBlocked(f"checks.profile failed; complete {_profile_path(record)} before prove:\n{_scrub(out, repo)}")
             if _git(repo, "status", "--porcelain=v2") != before:
                 raise WorkflowError("checks.profile changed the source checkout")
         result["drift"] = _drift_checks(repo, parent, head)

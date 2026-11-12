@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,8 @@ workflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workflow)
 RAILS = Path(__file__).resolve().parents[1] / "agent/agent-rails.yml"
 CONTRACT = workflow.dynaflows_contract()
+SWITCH = {"dynaflows": {"enabled": True}}
+ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
 
 
 def git(repo, *args):
@@ -44,7 +47,14 @@ class RepositoryTests(unittest.TestCase):
         git(self.repo, "init", "-q")
         git(self.repo, "config", "user.email", "proof@example.test")
         git(self.repo, "config", "user.name", "Proof Test")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
+        git(self.repo, "remote", "add", "origin", ORIGIN)
+        # Records live under the harness, never in the repo: point the resolver at a temp harness root.
+        self.config = self.tmp / "config"
+        self.record = self.config / "repos/example-owner/example-repo"
+        root_patch = patch.object(workflow, "_records_root", return_value=self.config)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
         self.write("value", "old")
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
@@ -69,6 +79,21 @@ class RepositoryTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         return path
+
+    def write_gate(self, text):
+        """Write the record's gate.json; a JSON object without a dynaflows switch gets it turned on."""
+        try:
+            gate = json.loads(text)
+        except ValueError:
+            gate = None
+        if isinstance(gate, dict) and "dynaflows" not in gate:
+            text = json.dumps({**gate, **SWITCH})
+        self.record.mkdir(parents=True, exist_ok=True)
+        (self.record / "gate.json").write_text(text)
+
+    def write_profile(self, text):
+        self.record.mkdir(parents=True, exist_ok=True)
+        (self.record / "profile.md").write_text(text)
 
     def commit(self, message):
         git(self.repo, "add", ".")
@@ -498,7 +523,7 @@ class RepositoryTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def bot_github(self, *, author="app/dependabot", branch="dependabot/bun/js-minor-8e002485ce", verified=True, commit_author="dependabot[bot]", bad_commit=None):
-        git(self.repo, "remote", "add", "origin", "git@github.com:example-owner/example-repo.git")
+        git(self.repo, "remote", "set-url", "origin", "git@github.com:example-owner/example-repo.git")
         def response(repo, *args):
             self.assertEqual(repo, self.repo.resolve())
             if args[:2] == ("pr", "list"):
@@ -534,7 +559,6 @@ class RepositoryTests(unittest.TestCase):
                 response = self.bot_github(**values, bad_commit=first)
                 with patch.object(workflow, "_github", side_effect=response):
                     self.assert_block(self.prove(), reason)
-                git(self.repo, "remote", "remove", "origin")
         self.verifier.assert_not_called()
 
     def test_dependabot_gh_failure_fails_closed(self):
@@ -637,27 +661,26 @@ class RepositoryTests(unittest.TestCase):
 
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
         for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "pathCheck": ["true"]}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["true"]}})):
-            self.write(".omp/gate.json", text)
+            self.write_gate(text)
             self.change()
             with patch.object(workflow, "_setup", side_effect=AssertionError("setup must not run")):
                 self.assertEqual(self.prove()["status"], "fail")
         self.verifier.assert_not_called()
 
-    def test_invalid_parent_gate_repair_and_literal_discovery(self):
-        self.write(".omp/gate.json", "invalid json")
+    def test_record_gate_literal_discovery(self):
         self.write("runner", "ruff.toml pytest.ini ../outside /etc/hosts link\n")
         self.write("ruff.toml", "old")
         self.write("pytest.ini", "old")
-        self.commit("broken parent")
+        self.commit("parent")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner", "apostrophe' with spaces"]}, "pathCheck": ["true"]}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner", "apostrophe' with spaces"]}, "pathCheck": ["true"]}))
         self.write("ruff.toml", "changed")
         self.write("pytest.ini", "changed")
         self.change()
         result = self.prove()
         self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["deterministic"]["gateChanges"], [".omp/gate.json", "pytest.ini", "ruff.toml"])
-        self.assertTrue(result["deterministic"]["gateDiagnostics"])
+        self.assertEqual(result["deterministic"]["gateChanges"], ["pytest.ini", "ruff.toml"])
+        self.assertEqual(result["deterministic"]["gateDiagnostics"], [])
 
     def test_cleanup_failure_keeps_evidence_attempts_every_tree(self):
         self.change()
@@ -852,15 +875,15 @@ class RepositoryTests(unittest.TestCase):
     def test_parent_only_gate_reference_and_outside_files(self):
         self.write("runner", "pytest.ini ../outside /etc/hosts escaped\n")
         self.write("pytest.ini", "configuration")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner"]}, "pathCheck": ["true"]}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner"]}, "pathCheck": ["true"]}))
         self.commit("parent runner")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}))
+        (self.repo / "runner").unlink()
         (self.repo / "pytest.ini").unlink()
         self.change()
         result = self.prove()
         self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["deterministic"]["gateChanges"], [".omp/gate.json", "pytest.ini"])
+        self.assertEqual(result["deterministic"]["gateChanges"], ["pytest.ini", "runner"])
         external = self.tmp / "outside"
         external.write_text("never read")
         (self.repo / "escaped").symlink_to(external)
@@ -928,14 +951,62 @@ class RepositoryTests(unittest.TestCase):
     def gate(self, **checks):
         gate = {"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
                 "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
-        self.write(".omp/gate.json", json.dumps(gate))
+        self.write_gate(json.dumps(gate))
 
     def rebase_parent(self, message="parent fixtures"):
         self.parent = self.commit(message)
 
+    def test_prove_without_a_record_is_the_guardrail_prerequisite(self):
+        shutil.rmtree(self.record)
+        self.change()
+        with patch.object(workflow, "_setup", side_effect=AssertionError("trees must not be built")):
+            result = self.prove()
+        self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
+        self.assert_block(result, "this clone has no per-repo record")
+        self.verifier.assert_not_called()
+
+    def test_prove_without_origin_finds_no_record(self):
+        git(self.repo, "remote", "remove", "origin")
+        self.change()
+        self.assert_block(self.prove(), "this clone has no per-repo record")
+
+    def test_repo_tracked_omp_files_are_never_read(self):
+        # A leftover repo .omp/ directory must not change policy: only the record counts.
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "ciHost": "github"}))
+        self.write(".omp/test-profile.md", "---\n{not json\n---\n")
+        self.rebase_parent("leftover repo omp files")
+        self.freeze([self.proof()])
+        self.change()
+        self.assertEqual(self.prove()["status"], "pass")
+
+    def test_linked_worktree_resolves_to_the_main_checkout_record(self):
+        linked = self.tmp / "linked"
+        git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
+        try:
+            record, gate = workflow.read_record(linked)
+            self.assertEqual(record, self.record)
+            self.assertEqual(gate["dynaflowsContract"], CONTRACT)
+        finally:
+            git(self.repo, "worktree", "remove", "--force", str(linked))
+
+    def test_unreadable_or_rejected_record_raises(self):
+        for text, fragment in (("{", "record "), (json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": "yes"}}), 'dynaflows must be {"enabled": true|false}')):
+            with self.subTest(text=text):
+                (self.record / "gate.json").write_text(text)
+                with self.assertRaisesRegex(workflow.WorkflowError, re.escape(fragment)):
+                    workflow.read_record(self.repo)
+
+    def test_run_check_strips_harness_variables_from_repo_commands(self):
+        probe = [sys.executable, "-c", "import os; print(repr(os.environ.get('AGENT')), os.environ.get('KEEP'))"]
+        with patch.dict(os.environ, {"AGENT": "1", "KEEP": "kept"}):
+            ok, out = workflow.run_check(probe, self.repo)
+            self.assertEqual(os.environ["AGENT"], "1", "the harness's own environment is unchanged")
+        self.assertTrue(ok)
+        self.assertEqual(out.strip(), "None kept")
+
     def test_retired_ci_host_blocks_freeze_and_prove(self):
         retired = "ciHost is retired; declare ci.requiredContext and ci.runner"
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
         self.rebase_parent("retired gate")
         with self.assertRaisesRegex(workflow.WorkflowError, re.escape(retired)):
             self.freeze([self.proof()])
@@ -948,7 +1019,7 @@ class RepositoryTests(unittest.TestCase):
         stale = workflow.CONTRACT_REMEDY
         self.assertIn("omp-guardrails init --extend", stale)
         self.assertNotIn("project-setup", stale)
-        newer = "The repo expects a newer dynaflows contract; update omp."
+        newer = "The record expects a newer dynaflows contract; update omp."
         cases = ((None, f"Dynaflows contract vnone recorded; current is v5. {stale}"),
                  (4, f"Dynaflows contract v4 recorded; current is v5. {stale}"),
                  (6, f"Dynaflows contract v6 recorded; current is v5. {newer}"))
@@ -959,7 +1030,7 @@ class RepositoryTests(unittest.TestCase):
                     gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
                     if recorded is not None:
                         gate["dynaflowsContract"] = recorded
-                    self.write(".omp/gate.json", json.dumps(gate))
+                    self.write_gate(json.dumps(gate))
                     self.rebase_parent(f"contract {recorded}")
                     with self.assertRaises(workflow.WorkflowError) as raised:
                         self.freeze([self.proof()])
@@ -972,25 +1043,25 @@ class RepositoryTests(unittest.TestCase):
             self.verifier.assert_not_called()
 
     def test_freeze_without_gate_reports_missing_contract(self):
-        (self.repo / ".omp/gate.json").unlink()
+        (self.record / "gate.json").unlink()
         self.rebase_parent("no gate")
         with self.assertRaisesRegex(workflow.WorkflowError, re.escape(f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
             self.freeze([self.proof()])
 
     def test_project_setup_freeze_tolerates_absent_or_lower_contract_only(self):
-        newer = "Dynaflows contract v6 recorded; current is v5. The repo expects a newer dynaflows contract; update omp."
+        newer = "Dynaflows contract v6 recorded; current is v5. The record expects a newer dynaflows contract; update omp."
         with patch.object(workflow, "dynaflows_contract", return_value=5):
             for recorded in (None, "no gate", 4, 6):
                 with self.subTest(recorded=recorded):
                     self.manifest_path.unlink(missing_ok=True)
-                    gate_path = self.repo / ".omp/gate.json"
+                    gate_path = self.record / "gate.json"
                     if recorded == "no gate":
                         gate_path.unlink(missing_ok=True)
                     else:
                         gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
                         if recorded is not None:
                             gate["dynaflowsContract"] = recorded
-                        self.write(".omp/gate.json", json.dumps(gate))
+                        self.write_gate(json.dumps(gate))
                     self.rebase_parent(f"setup contract {recorded}")
                     if recorded == 6:
                         with self.assertRaises(workflow.WorkflowError) as raised:
@@ -1040,7 +1111,7 @@ class RepositoryTests(unittest.TestCase):
 
     def profile(self, marker):
         front = json.dumps({"verification_surface": {"lever_command": "lever", "doctor_marker": marker}})
-        self.write(".omp/test-profile.md", f"---\n{front}\n---\n\n# Repo test profile\n")
+        self.write_profile(f"---\n{front}\n---\n\n# Repo test profile\n")
 
     def test_freeze_refuses_red_from_environment_doctor(self):
         self.profile("DOCTOR:")
@@ -1063,12 +1134,12 @@ class RepositoryTests(unittest.TestCase):
                 if text is None:
                     self.profile("<doctor failure marker>")
                 else:
-                    self.write(".omp/test-profile.md", text)
+                    self.write_profile(text)
                 self.rebase_parent(f"profile {text}")
                 path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
                 self.assertTrue(path.exists())
                 path.unlink()
-        self.write(".omp/test-profile.md", "---\n{not json\n---\n")
+        self.write_profile("---\n{not json\n---\n")
         self.rebase_parent("broken profile")
         with self.assertRaisesRegex(workflow.WorkflowError, "front matter is not valid JSON"):
             self.freeze([self.proof()], base=self.parent)
@@ -1119,7 +1190,7 @@ class RepositoryTests(unittest.TestCase):
         self.change()
         with patch.object(workflow, "_setup", side_effect=AssertionError("trees must not be built")):
             result = self.prove()
-        self.assert_block(result, "checks.profile failed; complete .omp/test-profile.md before prove:\nPROFILE.complete: coverage missing")
+        self.assert_block(result, f"checks.profile failed; complete {self.record / 'profile.md'} before prove:\nPROFILE.complete: coverage missing")
         self.assertFalse(any(item.startswith("infrastructure") for item in result["blocking"]), result)
         self.verifier.assert_not_called()
         self.post.assert_not_called()
@@ -1150,7 +1221,7 @@ class RepositoryTests(unittest.TestCase):
     def test_post_agent_verified_targets_origin_statuses_for_head(self):
         self.post_patch.stop()
         self.addCleanup(self.post_patch.start)
-        git(self.repo, "remote", "add", "origin", "https://github.com/example-owner/example-repo.git")
+        git(self.repo, "remote", "set-url", "origin", "https://github.com/example-owner/example-repo.git")
         with patch.object(workflow, "_github", return_value={"state": "success"}) as github:
             workflow._post_agent_verified(self.repo, "a" * 40)
         github.assert_called_once_with(self.repo, "api", "--method", "POST", f"repos/example-owner/example-repo/statuses/{'a' * 40}",
@@ -1263,7 +1334,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_prove_accepts_head_whose_freeze_predates_contract_bump(self):
         gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
-        self.write(".omp/gate.json", json.dumps(dict(gate, dynaflowsContract=4)))
+        self.write_gate(json.dumps(dict(gate, dynaflowsContract=4)))
         self.rebase_parent("contract 4")
         with patch.object(workflow, "dynaflows_contract", return_value=4):
             path, _ = self.freeze([self.proof()])
@@ -1273,8 +1344,7 @@ class RepositoryTests(unittest.TestCase):
         self.ledger()
         with patch.object(workflow, "dynaflows_contract", return_value=5):
             self.assert_block(self.prove(), f"Dynaflows contract v4 recorded; current is v5. {workflow.CONTRACT_REMEDY}")
-            self.write(".omp/gate.json", json.dumps(dict(gate, dynaflowsContract=5)))
-            self.head = self.commit("chore: omp-guardrails init --extend")
+            self.write_gate(json.dumps(dict(gate, dynaflowsContract=5)))
             result = self.prove()
         self.assertEqual(result["status"], "pass", result)
         self.assertEqual(result["manifest"]["dynaflowsContract"], 4)
@@ -1304,7 +1374,7 @@ class RepositoryTests(unittest.TestCase):
     def test_required_context_state_reads_statuses_and_check_runs_on_exact_head(self):
         self.ci_patch.stop()
         self.addCleanup(self.ci_patch.start)
-        git(self.repo, "remote", "add", "origin", "https://github.com/example-owner/example-repo.git")
+        git(self.repo, "remote", "set-url", "origin", "https://github.com/example-owner/example-repo.git")
         head = "a" * 40
         def respond(statuses, runs):
             def github(repo, *args):
@@ -1438,9 +1508,9 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(self.load(self.data), self.data)
 
     def test_gate_schema_optional_fields(self):
-        valid = [{"schemaVersion": 2}, {"schemaVersion": 2, "pathCheckTimeoutMs": 1, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}},
+        valid = [{"schemaVersion": 2, **SWITCH}, {"schemaVersion": 2, "pathCheckTimeoutMs": 1, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}, **SWITCH},
                  {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-                  "checks": {"format": ["ruff", "format"], "profile": ["omp-guardrails", "profile-check"]}}]
+                  "checks": {"format": ["ruff", "format"], "profile": ["omp-guardrails", "profile-check"]}, "dynaflows": {"enabled": False}}]
         invalid = [{"schemaVersion": True}, {"schemaVersion": 3}, *({"schemaVersion": 2, "pathCheckTimeoutMs": x} for x in (0, True, 1.5, None, 9007199254740992)),
                    {"schemaVersion": 2, "checks": {"ci": None}}, {"schemaVersion": 2, "pathCheck": None}, {"schemaVersion": 2, "testGlobs": [2]},
                    {"schemaVersion": 2, "agentMerge": False}, {"schemaVersion": 2, "checks": {"format": "ruff format"}},
@@ -1456,13 +1526,17 @@ class SchemaTests(unittest.TestCase):
         self.assertIsNone(workflow.gate_reason(valid[2]))
         self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "ci": {"requiredContext": "gate"}}),
                          "ci must declare nonblank requiredContext and runner")
+        for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True):
+            with self.subTest(dynaflows=switch):
+                gate = {"schemaVersion": 2} if switch is None else {"schemaVersion": 2, "dynaflows": switch}
+                self.assertEqual(workflow.gate_reason(gate), 'dynaflows must be {"enabled": true|false}')
         policy = workflow.gate_policy(valid[2])
         self.assertEqual((policy["format"], policy["profile"], policy["ci"]),
                          (["ruff", "format"], ["omp-guardrails", "profile-check"], {"requiredContext": "gate", "runner": "ci-gate"}))
 
     def test_gate_contract_must_be_positive_safe_integer(self):
-        self.assertEqual(workflow.gate_policy({"schemaVersion": 2, "dynaflowsContract": 3})["dynaflowsContract"], 3)
-        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2})["dynaflowsContract"])
+        self.assertEqual(workflow.gate_policy({"schemaVersion": 2, "dynaflowsContract": 3, **SWITCH})["dynaflowsContract"], 3)
+        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2, **SWITCH})["dynaflowsContract"])
         for value in (0, -1, True, 2.0, "2", None, 9007199254740992):
             with self.subTest(value=value):
                 self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "dynaflowsContract": value}),

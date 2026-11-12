@@ -43,8 +43,8 @@ An adapter does only these six things. No framework is assumed.
    report schema. Dialects differ, so normalisation lives in the adapter, never
    in a shared checker.
 
-The repo test profile names the adapter in `adapter` and each tier's selector
-in `tiers`. Per-repo values go in the profile, never in adapter code.
+The record's `profile.md` names the adapter in `adapter` and each tier's
+selector in `tiers`. Per-repo values go in the record, never in adapter code.
 
 ## Conformance spec
 
@@ -62,7 +62,8 @@ It includes, for example:
 - a property test without a set or reported seed → `TEST.property-seed`.
 
 1. Write every case as a fixture test in the target framework, with its
-   expected verdict.
+   expected verdict. The fixtures are harness tests beside the adapter, never
+   files in the target repository.
 2. Freeze the fixtures before writing the adapter, as DynaFlows freezes proofs:
    the adapter changes, the fixtures do not.
 3. Run the shared checkers over the adapter's evidence for each fixture. The
@@ -75,12 +76,17 @@ depend on any framework.
 
 ## Where the adapter lives
 
-- **First repo:** the adapter is repo-local, beside the repo's other test
-  support, and the repo's coverage ledger proves its rules like any checker.
-- **Promotion (rule of two):** when a second repo uses the same framework, the
-  adapter moves into the stack's skill reference under `adapters/<framework>/`,
-  only once it passes every conformance case. The first repo then pins the
-  reference and deletes its local copy in the same change.
+- The adapter lives in the harness from its first repo: under the stack's
+  skill reference at `adapters/<framework>/` in oh-mi-pi-config, with its
+  conformance fixtures as that reference's own tests. A target repository
+  never holds adapter code, a pin or a ledger, because it has no awareness of
+  the harness.
+- The harness runs the adapter against the target from outside its tree; JUnit
+  and other evidence go to a temporary directory outside the worktree.
+- **Generalisation (rule of two):** keep framework-specific choices that only
+  the first repo needs in that repo's record settings. Generalise the adapter's
+  code only when a second repo uses the same framework, and only once it still
+  passes every conformance case.
 
 ## Ladder
 
@@ -90,5 +96,5 @@ deterministic: the conformance run passes or fails.
 ## Done when
 
 - The adapter implements all six interface items and reads per-repo values from
-  the profile.
+  the record's `profile.md`.
 - Every conformance case is a frozen fixture, and the conformance run passes.

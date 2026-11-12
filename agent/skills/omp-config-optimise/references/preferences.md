@@ -73,5 +73,5 @@ recommendation, not a silent edit.
 - Test claims about model behaviour with a frozen experiment before routing on
   them (see `experiments.md`).
 - Agents may create `agent/*` branches, commit, push, open PRs and rebase-merge them per
-  `skill://git-tool` unless `.omp/gate.json` sets `agentMerge: disabled`; never commit to main
+  `skill://git-tool` unless the record `gate.json` sets `agentMerge: disabled`; never commit to main
   (owner decision 2026-11-03).

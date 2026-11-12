@@ -22,6 +22,7 @@ import importlib.util
 import subprocess
 from pathlib import Path, PurePosixPath
 
+from omp_guardrails.child_env import repo_environment
 from omp_guardrails.config.house_style import apply_exceptions
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure import layout, naming
@@ -232,6 +233,7 @@ def native_findings(repo: Path, sources: list[str], profile: dict) -> list[Findi
             result = subprocess.run(
                 command,
                 cwd=repo / native.get("cwd", "."),
+                env=repo_environment(),
                 capture_output=True,
                 text=True,
                 check=False,

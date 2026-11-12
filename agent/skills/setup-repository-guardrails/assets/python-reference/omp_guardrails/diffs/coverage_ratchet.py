@@ -8,13 +8,14 @@ Over ``git diff <base> <head>`` the checker reports:
    ``lines``, ``branches``, ``statements``, ``functions``), including every floor of a config
    file the diff deletes or renames to a non-config name;
 3. an added line inside a coverage exclusion setting (``omit``, ``exclude_lines``,
-   ``exclude_also``, ``coveragePathIgnorePatterns``, a vitest/c8 ``exclude`` list ...);
-4. a lowered ``coverage.line_floor`` or ``coverage.branch_floor`` in the test profile.
+   ``exclude_also``, ``coveragePathIgnorePatterns``, a vitest/c8 ``exclude`` list ...).
 
-A finding is cleared only by an approval the same diff adds to the head profile:
+A finding is cleared only by an owner approval in the record's profile:
 ``guardrails.coverage_ratchet.approvals: [{"path": "<path or glob>", "approval": "<ref>"}]``.
-Approvals already present at the base do not count, so one standing approval cannot disable
-the ratchet.
+The record is not part of the repository diff, so the approval is the owner's hand edit of the
+record (the agent rails refuse an agent write that adds or changes one). The owner removes an
+approval once its change has merged, so no standing approval disables the ratchet. The record's
+own ``coverage`` floors are owner config outside the diff and are not compared here.
 
 Profile ``guardrails.coverage_ratchet`` settings (all optional):
 
@@ -30,7 +31,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from omp_guardrails.config.profile import PROFILE_PATH, is_missing_text
+from omp_guardrails.config.profile import is_missing_text
 from omp_guardrails.diffs.changes import (
     Change,
     DiffError,
@@ -39,7 +40,6 @@ from omp_guardrails.diffs.changes import (
     file_at,
     line_changes,
     parse_range,
-    profile_at,
     range_finding,
 )
 from omp_guardrails.findings import Finding
@@ -48,8 +48,8 @@ from omp_guardrails.structure.inventory import as_list, matches, name_matches, s
 RULE = "TEST.coverage-ratchet"
 CHECKER = "coverage_ratchet"
 FIX = (
-    "keep coverage at or above its floor with outcome or property cases, or add an owner "
-    "approval for this path to guardrails.coverage_ratchet.approvals in this change"
+    "keep coverage at or above its floor with outcome or property cases, or ask the owner to "
+    "approve this path in the record's guardrails.coverage_ratchet.approvals"
 )
 DEFAULT_CONFIG_FILES = [
     ".coveragerc",
@@ -206,26 +206,6 @@ def pragma_findings(
     ]
 
 
-def profile_floor_findings(base: dict, head: dict) -> list[Finding]:
-    found = []
-    for key in ("line_floor", "branch_floor"):
-        old = section_number(base, key)
-        new = section_number(head, key)
-        if old is not None and new is not None and new < old:
-            found.append(
-                Finding(RULE, PROFILE_PATH, f"coverage.{key} lowered from {old:g} to {new:g}", FIX)
-            )
-    return found
-
-
-def section_number(profile: dict, key: str) -> float | None:
-    coverage = profile.get("coverage")
-    value = coverage.get(key) if isinstance(coverage, dict) else None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
-
-
 def approvals(profile: dict) -> set[tuple[str, str]]:
     entries = settings(profile, CHECKER).get("approvals")
     found = set()
@@ -248,11 +228,10 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
         changes = changed_files(repo, diff)
-        base_profile, head_profile = profile_at(repo, diff.base), profile_at(repo, diff.head)
         pragma = re.compile(str(config.get("pragma_pattern") or DEFAULT_PRAGMA), re.IGNORECASE)
         config_files = as_list(config.get("config_files")) or DEFAULT_CONFIG_FILES
         skip = as_list(config.get("pragma_skip")) or DEFAULT_PRAGMA_SKIP
-        found = profile_floor_findings(base_profile, head_profile)
+        found: list[Finding] = []
         for change in changes:
             path = change.path
             found.extend(change_config_findings(repo, diff, change, config_files, config))
@@ -262,9 +241,9 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
                 found.extend(pragma_findings(repo, diff, path, pragma))
     except DiffError as error:
         return [range_finding(RULE, error)]
-    new_approvals = approvals(head_profile) - approvals(base_profile)
+    approved = approvals(profile)
     return [
         finding
         for finding in found
-        if not any(matches(finding.path, pattern) for pattern, _ in new_approvals)
+        if not any(matches(finding.path, pattern) for pattern, _ in approved)
     ]

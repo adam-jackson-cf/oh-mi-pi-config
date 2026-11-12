@@ -1,0 +1,36 @@
+# Example per-repo record
+
+A per-repo record is the harness's personal config for one repository. It lives at
+`<oh-mi-pi-config root>/repos/<owner>/<name>/`, lowercase, where `<owner>/<name>` comes from the
+clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
+`git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)`). Worktrees
+resolve to the same record as their main checkout. `agent/lib/repo_record.py` and
+`agent/lib/repo-record.ts` implement that resolution.
+
+`/repos/` is gitignored in oh-mi-pi-config. Records are never committed, because they mean
+nothing to anyone else who takes the config. The device rollout copies them to every device.
+The target repository holds nothing about the harness.
+
+The record holds two files:
+
+- `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`, `pathCheck`), test globs,
+  the required CI context and runner role, `dynaflowsContract` and `dynaflows.enabled`.
+- `profile.md`: the repo test profile, JSON front matter between `---` lines, then prose. Start
+  it from `skill://test-guidance/assets/templates/test-profile.md`.
+
+`gate.json` here is a generic example; setup drafts the real one from the repo's make targets,
+hook config and CI jobs for the owner to confirm. Rules for the record:
+
+- `dynaflowsContract` must be at least the `dynaflowsContract` line in `agent/agent-rails.yml`;
+  workflows and rails refuse a lower one.
+- `dynaflows.enabled` is the on/off switch. No origin remote or no record means dynaflows is off.
+- Paths in a record setting are repo-relative when they name repo files and record-relative when
+  they name record files. No setting names a harness directory inside the repo.
+- Approval and exception fields are the owner's: the owner edits them by hand, and rails refuse
+  an agent write that adds or changes one.
+
+`omp-guardrails init --repo <clone> --record <record dir>` drafts both files for owner
+confirmation and writes nothing into the repo. At the agent's commit the rails run
+`checks.commit`, then `omp-guardrails check --repo <worktree> --record <record dir>` over the
+whole repo. The profile's `guardrails.check.run` picks the check steps and
+`guardrails.check.exclude` lists the generated, vendored and fixture paths left out.

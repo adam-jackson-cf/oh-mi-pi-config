@@ -43,7 +43,10 @@ class FixtureRepo:
     def __init__(self, test: unittest.TestCase) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-diffs-")
         test.addCleanup(scratch.cleanup)
-        self.path = Path(scratch.name)
+        self.path = Path(scratch.name).resolve() / "repo"
+        self.record = Path(scratch.name).resolve() / "record"
+        self.path.mkdir()
+        self.record.mkdir()
         self.git("init", "-q", "-b", "main")
 
     def git(self, *args: str) -> str:
@@ -58,8 +61,9 @@ class FixtureRepo:
         ).stdout.strip()
 
     def commit(self, files: dict[str, str | None], profile: dict | None = None) -> str:
+        """Commit ``files``; ``profile`` goes to the record, which is never in the repo."""
         if profile is not None:
-            files = {**files, ".omp/test-profile.md": profile_text(profile)}
+            (self.record / "profile.md").write_text(profile_text(profile), encoding="utf-8")
         for name, text in files.items():
             target = self.path / name
             if text is None:
@@ -190,15 +194,13 @@ class CoverageRatchetTests(unittest.TestCase):
         )
         self.assertTrue(all("exclusion" in finding.message for finding in findings))
 
-    def test_lowered_profile_floor_is_reported(self) -> None:
+    def test_record_floors_are_owner_config_outside_the_diff(self) -> None:
         lowered = json.loads(json.dumps(BASE_PROFILE))
         lowered["coverage"]["branch_floor"] = 60
         self.repo.commit({}, lowered)
-        findings = self.check(lowered)
-        self.assertEqual(rules(findings), [("TEST.coverage-ratchet", ".omp/test-profile.md")])
-        self.assertIn("branch_floor lowered from 80 to 60", findings[0].message)
+        self.assertEqual(self.check(lowered), [])
 
-    def test_approval_added_in_the_same_diff_clears_the_finding(self) -> None:
+    def test_record_approval_clears_the_finding(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
         approved["guardrails"]["coverage_ratchet"] = {
             "approvals": [{"path": "src/app.py", "approval": "ADR-12"}]
@@ -206,14 +208,13 @@ class CoverageRatchetTests(unittest.TestCase):
         self.repo.commit({"src/app.py": "def run():  # pragma: no cover\n    return 1\n"}, approved)
         self.assertEqual(self.check(approved), [])
 
-    def test_standing_approval_from_the_base_does_not_count(self) -> None:
+    def test_approval_for_another_path_does_not_count(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
         approved["guardrails"]["coverage_ratchet"] = {
-            "approvals": [{"path": "src/*", "approval": "ADR-12"}]
+            "approvals": [{"path": "lib/*", "approval": "ADR-12"}]
         }
-        base = self.repo.commit({}, approved)
         self.repo.commit({"src/app.py": "def run():  # pragma: no cover\n    return 1\n"})
-        findings = coverage_ratchet.run(self.repo.path, approved, ["--base", base])
+        findings = self.check(approved)
         self.assertEqual(rules(findings), [("TEST.coverage-ratchet", "src/app.py")])
 
     def test_placeholder_approval_does_not_count(self) -> None:
@@ -286,7 +287,7 @@ class GoldenRecordTests(unittest.TestCase):
     def test_globs_without_change_record_is_a_profile_finding(self) -> None:
         profile = {"guardrails": {"golden_record": {"globs": ["tests/fixtures/golden/*"]}}}
         findings = golden_record.run(self.repo.path, profile, ["--base", self.base])
-        self.assertEqual(rules(findings), [("TEST.golden-change-record", ".omp/test-profile.md")])
+        self.assertEqual(rules(findings), [("TEST.golden-change-record", "record:profile.md")])
 
 
 class IdentityArtefactTests(unittest.TestCase):
@@ -480,10 +481,11 @@ class AffectedSelectionTests(unittest.TestCase):
 
     def test_cli_and_adapter_print_the_selection(self) -> None:
         self.repo.commit({"src/shop/cart.py": "x = 2\n"})
-        args = ["--repo", str(self.repo.path), "affected", "--base", self.base]
+        location = ["--repo", str(self.repo.path), "--record", str(self.repo.record)]
+        args = [*location, "affected", "--base", self.base]
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            code = cli.main(["affected", *args[:2], "--base", self.base])
+            code = cli.main(["affected", *location, "--base", self.base])
             adapter_code = cli.main(["adapter", *args])
         self.assertEqual((code, adapter_code), (0, 0))
         lines = out.getvalue().splitlines()
@@ -623,7 +625,7 @@ class TestGrowthTests(unittest.TestCase):
     def test_changed_tests_without_a_collector_adapter_are_reported(self) -> None:
         self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
         findings = self.check({**BASE_PROFILE, "adapter": "vitest"})
-        self.assertEqual(rules(findings), [("TEST.growth.justified", ".omp/test-profile.md")])
+        self.assertEqual(rules(findings), [("TEST.growth.justified", "record:profile.md")])
 
 
 class DiffCheckCliTests(unittest.TestCase):
@@ -634,7 +636,8 @@ class DiffCheckCliTests(unittest.TestCase):
             {"tests/fixtures/golden/report.txt": "b\n", "src/app.py": "x = 1  # pragma: no cover\n"}
         )
         with unittest.mock.patch("sys.stdout") as stdout:
-            code = cli.main(["diff-check", "--repo", str(repo.path), "--base", base])
+            location = ["--repo", str(repo.path), "--record", str(repo.record)]
+            code = cli.main(["diff-check", *location, "--base", base])
         printed = "".join(call.args[0] for call in stdout.write.call_args_list)
         self.assertEqual(code, 1)
         self.assertIn("TEST.golden-change-record", printed)

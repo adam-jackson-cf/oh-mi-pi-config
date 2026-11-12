@@ -11,17 +11,21 @@ disable-model-invocation: true
 
 ## Start here
 
-This skill applies only with dynaflows on. Use a standalone prompt line exactly
-`$dynaflows`, `$dynaflows on` or `$dynaflows off` (case-insensitive); quoted mentions
-and prose are not commands. Contradictory directive lines fail without writing.
-The primary checkout's `.omp/dynaflows.json`, resolved through the Git common
-directory, overrides `~/.omp/dynaflows.json`; linked worktrees inherit it. Neither
-set means off. Outside a Git project, edit the machine default separately.
+This skill applies only with dynaflows on. Each repo's settings live in its **record**:
+`repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's `origin`
+remote (lowercase; worktrees resolve like their main checkout), gitignored and never
+committed. It holds `gate.json` and `profile.md`; see
+`skill://setup-repository-guardrails/assets/example-record/README.md`. The repo itself
+holds nothing about omp or dynaflows. The record's `dynaflows.enabled` is the switch;
+no `origin` remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
+`{"enabled": false}` turns it off for every repo on that machine. Use a standalone prompt line exactly
+`$dynaflows`, `$dynaflows on` or `$dynaflows off` (case-insensitive) to set it; quoted
+mentions and prose are not commands. Contradictory directive lines fail without writing.
 
 Choose exactly one active playbook:
 
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
-- Missing controls, or user-visible work without a Verification surface in `.omp/test-profile.md`:
+- Missing controls, or user-visible work without a Verification surface in the record's `profile.md`:
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
   An owner-approved no-runnable-app surface exemption does not trigger setup.
 - Multiple PRs or flagged delivery: [Multi-phase](references/playbooks/multi-phase.md).
@@ -56,30 +60,32 @@ ends here with its report; other playbooks continue in order.
 Keep the plan draft until spike answers land. Map every criterion to a named proof
 in a draft manifest using [proof contracts](references/patterns.md#proof-manifest).
 Read `skill://test-guidance/references/tiers.md`, `case-selection.md` and `suite-budget.md`
-under that reference prefix, plus `.omp/test-profile.md`. Missing surfaces follow Start here.
+under that reference prefix, plus the record's `profile.md`. Missing surfaces follow Start here.
 Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main requires schema-v2 `.omp/gate.json` with `checks.commit`, `pathCheck` and an executable
-pre-commit hook. `agent/extensions/agent-rails.ts` owns accepted schema fields/types;
-`prove()` mirrors validation, and rails checks the hook at commit.
-Missing controls or the lazy surface trigger above require the owner-approved project-setup PR.
-Read `skill://setup-repository-guardrails` for proposal, Minimal/Full approval and application;
-never apply before approval. Bootstrap installs the hook before its first commit.
+Main requires a record whose schema-v2 `gate.json` has `checks.commit` and `pathCheck`.
+`agent/extensions/agent-rails.ts` owns accepted schema fields/types; `prove()` mirrors
+validation. At each agent commit, rails run the record's `checks.commit` (the repo's own
+command) and then the harness checks (`omp-guardrails`, run from the harness with the record
+as config) over the whole repo; any finding blocks the commit, with no baseline or diff scope.
+Missing controls or the lazy surface trigger above require owner-approved project setup.
+Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
+application; never apply before approval.
 
 The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
-current one, and each repo records the version it was set up against in tracked `.omp/gate.json`
-`dynaflowsContract` (`omp-guardrails init` writes it). With dynaflows on, a missing or lower
-recorded version makes rails emit a session note and `freeze()`/`prove()` refuse. Missing
-controls go through project setup, whose stage-3 `freeze(..., project_setup=True)` tolerates
-the version gap. In a repo that already has controls, a missing or lower version is a contract
-bump: the writer runs `omp-guardrails init --extend` and commits its change as a mechanical
-commit, with no proposal and no project-setup playbook. Ask the owner only when that change
-adds a gate or profile field the repo lacks. The manifest records the contract it was frozen
-under, but `prove()` checks the head's `.omp/gate.json`, so a bump during a PR needs no
-re-freeze. A higher version means omp needs updating, and refuses even under
-`project_setup=True`.
+current one, and the record's `gate.json` `dynaflowsContract` states the version it was set up
+against (`omp-guardrails init` writes it). With dynaflows on, a missing or lower version makes
+rails emit a session note and `freeze()`/`prove()` refuse. Missing controls go through project
+setup, whose stage-3 `freeze(..., project_setup=True)` tolerates the version gap. With controls
+in place, a missing or lower version is a contract bump: re-run `omp-guardrails init` against
+the record, which raises it. It changes no repo file, so it needs no commit, proposal or
+project-setup playbook. Ask the owner only when that change adds a gate or profile field the
+record lacks.
+The manifest records the contract it was frozen under, but `prove()` checks the record, so a
+bump during a PR needs no re-freeze. A higher version means omp needs updating, and refuses
+even under `project_setup=True`.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
@@ -91,11 +97,11 @@ symlink escapes, not another worktree. Outside-repo scratch and internal URIs re
 2. Main calls `freeze()` on those bytes.
 3. Separate implementation `task` makes the greening change and commits proofs
    with it, normally atomically. No proof may enter history red before its fix;
-   split only if every earlier commit passes the hook with all proofs present.
+   split only if every earlier commit passes the commit checks with all proofs present.
    Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
-Each brief requires reads before editing. Proof briefs supply `.omp/test-profile.md` and
+Each brief requires reads before editing. Proof briefs supply the record's `profile.md` path and
 `skill://test-guidance/references/case-selection.md`, `naming-and-layout.md`, `outcome-tests.md`
 and `tiers.md` under that reference prefix; add `property-tests.md`, `determinism.md`,
 `behaviour-and-statistics.md` and `verification-surface.md` when applicable.
@@ -131,7 +137,7 @@ The verifier takes `prove()`'s proof runs as settled evidence and does not re-ru
 comment adds only the objective and its judgement. On a pass, `prove()` posts the SHA-bound
 `agent-verified` commit status on that head; it is never a label. Rails allow an
 `agent-verified` status write only when exact-head CI passes, and block label
-writes. The checkout's `.omp/gate.json` is the policy authority: when it declares
+writes. The repo's record `gate.json` is the policy authority: when it declares
 `ci`, the declared required context must be green on the exact head, whoever posts
 it. Submit and wait with `python3 ~/.omp/scripts/ci-runner.py` and the gate's `ci.runner` role.
 URL selectors must match the checkout's primary GitHub repository. Merge requires

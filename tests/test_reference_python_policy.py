@@ -89,7 +89,7 @@ class FailClosedDefaultTests(unittest.TestCase):
         expected = {path for path in FIXTURE["files"] if path.endswith(".py")}
         self.assertEqual(expected, unmapped)
         self.assertEqual(
-            [("FANOUT.general", ".omp/test-profile.md")], sorted(rules_at(repo.run("fanout")))
+            [("FANOUT.general", "record:profile.md")], sorted(rules_at(repo.run("fanout")))
         )
 
     def test_empty_script_allowlist_rejects_every_command(self) -> None:
@@ -186,18 +186,22 @@ class SettingsTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
-    def write_profile(self, repo: ShopRepo) -> None:
-        profile = repo.path / ".omp/test-profile.md"
-        profile.parent.mkdir(parents=True, exist_ok=True)
+    def write_profile(self, repo: ShopRepo) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        record = Path(directory.name)
+        profile = record / "profile.md"
         profile.write_text(f"---\n{json.dumps(repo.profile)}\n---\n# Test profile\n")
+        return record
 
     def test_cli_dispatches_each_python_subcommand(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        self.write_profile(repo)
+        record = self.write_profile(repo)
         expected = {"python-quality": 1, "python-scalability": 0, "python-fanout": 0}
         for name, code in expected.items():
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()) as out:
-                self.assertEqual(code, cli.main([name, "--repo", str(repo.path)]))
+                argv = [name, "--repo", str(repo.path), "--record", str(record)]
+                self.assertEqual(code, cli.main(argv))
             if code:
                 self.assertIn("src/shop/utils.py: PYQ104:", out.getvalue())
 
@@ -267,11 +271,13 @@ class SubprocessTimeoutTests(unittest.TestCase):
 
     def test_cli_runs_python_test_hygiene(self) -> None:
         path = self.repo({"tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"})
-        profile = path / ".omp/test-profile.md"
-        profile.parent.mkdir(parents=True, exist_ok=True)
-        profile.write_text(f"---\n{json.dumps(HYGIENE_PROFILE)}\n---\n")
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        record = Path(directory.name)
+        (record / "profile.md").write_text(f"---\n{json.dumps(HYGIENE_PROFILE)}\n---\n")
+        argv = ["python-test-hygiene", "--repo", str(path), "--record", str(record)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(1, cli.main(["python-test-hygiene", "--repo", str(path)]))
+            self.assertEqual(1, cli.main(argv))
         self.assertIn("tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:", out.getvalue())
 
 

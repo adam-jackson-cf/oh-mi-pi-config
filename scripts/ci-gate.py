@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Run allowlisted exact-revision CI gates in rootless Podman on the NUC."""
+"""Run allowlisted exact-revision CI gates in rootless Podman on the NUC.
+
+The gate policy (checks.ci and ci.requiredContext) comes from the repo's personal per-repo record,
+<harness root>/repos/<owner>/<name>/gate.json beside this checkout, never from the repo tree.
+The device rollout copies records to every device.
+"""
 import argparse
 import base64
 from collections import deque
@@ -20,6 +25,8 @@ import time
 import urllib.request
 
 SELF = Path(__file__).resolve()
+sys.path.insert(0, str(SELF.parents[1] / 'agent' / 'lib'))
+import repo_record  # noqa: E402  (the harness's record resolver, located from this file)
 
 
 def executable(name):
@@ -61,8 +68,20 @@ def load(path):
     return json.loads(path.read_text())
 
 
+def record_gate(repo):
+    """Return the gate.json object of the allowlisted repo's per-repo record."""
+    record = repo_record.record_dir(repo, SELF.parents[1])
+    if not (record / repo_record.GATE_FILE).is_file():
+        raise RuntimeError(f'No per-repo record for {repo}; run scripts/device-rollout.py to copy records '
+                           'to this device (no ci.requiredContext)')
+    try:
+        return repo_record.load_gate(record)
+    except repo_record.RecordError:
+        raise RuntimeError(f'Unreadable record gate.json for {repo} (no ci.requiredContext)') from None
+
+
 def ci_argv(policy):
-    """Return the CI argv from .omp/gate.json schema version 2: checks.ci."""
+    """Return the CI argv from record gate.json schema version 2: checks.ci."""
     checks = policy.get('checks') if isinstance(policy, dict) and policy.get('schemaVersion') == 2 else None
     argv = checks.get('ci') if isinstance(checks, dict) else None
     if not isinstance(argv, list) or not argv or any(not isinstance(arg, str) or not arg.strip() for arg in argv):
@@ -71,7 +90,7 @@ def ci_argv(policy):
 
 
 def required_context(policy):
-    """Return the commit status context from .omp/gate.json schema version 2: ci.requiredContext."""
+    """Return the commit status context from record gate.json schema version 2: ci.requiredContext."""
     ci = policy.get('ci') if isinstance(policy, dict) and policy.get('schemaVersion') == 2 else None
     context = ci.get('requiredContext') if isinstance(ci, dict) else None
     if not isinstance(context, str) or not context.strip():
@@ -134,7 +153,7 @@ def publish(job, state, description):
     if not token:
         raise RuntimeError(f'Missing GitHub token environment variable: {name}')
     if not metadata.get('context'):
-        raise RuntimeError('No ci.requiredContext recorded for this job; check .omp/gate.json')
+        raise RuntimeError("No ci.requiredContext recorded for this job; check the repo's record gate.json")
     body = json.dumps({'context': metadata['context'], 'state': state, 'description': description[:140]}).encode()
     url = os.environ.get('CI_GATE_GITHUB_API', 'https://api.github.com').rstrip('/')
     url += f"/repos/{metadata['repo']}/statuses/{metadata['sha']}"
@@ -236,11 +255,11 @@ def submit(repo, sha):
                 subprocess.run(git + ['-C', str(job / 'src'), 'checkout', '--detach', sha],
                                check=True, stdout=log, stderr=log)
                 try:
-                    context = required_context(load(checkout_file(job / 'src', '.omp/gate.json')))
+                    context = required_context(record_gate(repo))
                     save(job / 'job.json', {'repo': repo, 'sha': sha, 'context': context})
-                except (OSError, ValueError, RuntimeError) as error:
+                except (OSError, RuntimeError) as error:
                     # run() records the same failure as an error result.
-                    log.write((str(error) if isinstance(error, RuntimeError) else 'Unreadable .omp/gate.json') + '\n')
+                    log.write((str(error) if isinstance(error, RuntimeError) else 'Unreadable record gate.json') + '\n')
             with (job / 'log').open('a') as log:
                 try:
                     pending(job, log)
@@ -340,7 +359,7 @@ def execute(job, metadata):
         with (job / 'log').open('a', buffering=1) as log:
             try:
                 with slot(), container_lifetime(podman, container, log):
-                    policy = load(checkout_file(src, '.omp/gate.json'))
+                    policy = record_gate(metadata['repo'])
                     metadata = {**metadata, 'context': required_context(policy)}
                     save(job / 'job.json', metadata)
                     gate = ci_argv(policy)

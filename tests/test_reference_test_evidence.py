@@ -246,7 +246,10 @@ class RepoTestCase(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-evidence-")
         self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name)
+        self.repo = Path(scratch.name).resolve() / "repo"
+        self.record = Path(scratch.name).resolve() / "record"
+        self.repo.mkdir()
+        self.record.mkdir()
 
     def write(self, relative: str, text: str) -> Path:
         path = self.repo / relative
@@ -255,7 +258,8 @@ class RepoTestCase(unittest.TestCase):
         return path
 
     def write_profile(self, values: dict) -> None:
-        self.write(".omp/test-profile.md", f"---\n{json.dumps(values)}\n---\n# Repo test profile\n")
+        text = f"---\n{json.dumps(values)}\n---\n# Repo test profile\n"
+        (self.record / "profile.md").write_text(text)
 
     def copy_fixture(self, name: str, old: str = "", new: str = "") -> str:
         self.write(f"reports/{name}", (FIXTURES / name).read_text().replace(old, new) if old else (FIXTURES / name).read_text())
@@ -264,7 +268,8 @@ class RepoTestCase(unittest.TestCase):
     def cli(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = cli.main([argv[0], "--repo", str(self.repo), *argv[1:]])
+            location = ["--repo", str(self.repo), "--record", str(self.record)]
+            code = cli.main([argv[0], *location, *argv[1:]])
         return code, out.getvalue(), err.getvalue()
 
 
