@@ -1,4 +1,4 @@
-"""Consumer boundaries for frozen proofs, isolated executions and verifier ownership."""
+"""Consumer boundaries for frozen proofs (red at base, green at head), isolated executions and the prove() result."""
 import copy
 import hashlib
 import importlib.util
@@ -11,25 +11,19 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 MODULE = Path(__file__).resolve().parents[1] / "agent/skills/omp-dyna-workflows/templates/workflows.py"
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
 workflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workflow)
-RAILS = Path(__file__).resolve().parents[1] / "agent/agent-rails.yml"
-CONTRACT = workflow.dynaflows_contract()
 SWITCH = {"dynaflows": {"enabled": True}}
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
+RED_AT_BASE = "from pathlib import Path\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n"
 
 
 def git(repo, *args):
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
-
-
-def verdict(ids=("P1",)):
-    return {"status": "pass", "blocking": [], "followUps": [], "criteria": [
-        {"proofId": ident, "command": "python proof.py", "observed": "green", "verdict": "pass"} for ident in ids]}
 
 
 class RepositoryTests(unittest.TestCase):
@@ -54,25 +48,15 @@ class RepositoryTests(unittest.TestCase):
         root_patch = patch.object(workflow, "_records_root", return_value=self.config)
         root_patch.start()
         self.addCleanup(root_patch.stop)
-        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
         self.write("value", "old")
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
         self.manifest_path = workflow._common(self.repo) / "omp-manifests" / "example.json"
         self.manifest_path.parent.mkdir(parents=True)
-        self.verifier_patch = patch.object(workflow, "_run_verifier", return_value=verdict())
-        self.verifier = self.verifier_patch.start()
-        self.addCleanup(self.verifier_patch.stop)
-        self.post_patch = patch.object(workflow, "_post_agent_verified")
-        self.post = self.post_patch.start()
-        self.addCleanup(self.post_patch.stop)
         self.ci_patch = patch.object(workflow, "_required_context_state", return_value="success")
         self.ci = self.ci_patch.start()
         self.addCleanup(self.ci_patch.stop)
-        # The harness checks pass by default; the harness-check tests swap in their own command.
-        self.guardrails_patch = patch.object(workflow, "_guardrails_command", return_value=[sys.executable, "-c", "pass"])
-        self.guardrails = self.guardrails_patch.start()
-        self.addCleanup(self.guardrails_patch.stop)
         self.comment_patch = patch.object(workflow, "_post_result_comment", return_value="https://github.com/example-owner/example-repo/pull/1#issuecomment-1")
         self.comment = self.comment_patch.start()
         self.addCleanup(self.comment_patch.stop)
@@ -107,30 +91,18 @@ class RepositoryTests(unittest.TestCase):
     def assert_cleaned(self):
         self.assertEqual(git(self.repo, "worktree", "list", "--porcelain").count("worktree "), 1)
 
-    def proof(self, kind="defect", filename="proof.py", code=None, ident="P1"):
-        self.write(filename, code if code is not None else "from pathlib import Path\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n")
-        return {"id": ident, "criterion": "value is fixed", "kind": kind, "cmd": [sys.executable, filename], "files": [filename],
-                "expectRed": "expected fixed" if kind == "defect" else None}
+    def proof(self, filename="proof.py", code=None, ident="P1"):
+        """A proof that is red at base (value is 'old') unless `code` says otherwise."""
+        self.write(filename, code if code is not None else RED_AT_BASE)
+        return {"id": ident, "criterion": "value is fixed", "cmd": [sys.executable, filename], "files": [filename]}
 
-    def ledger(self):
-        common = workflow._common(self.repo)
-        branch = git(self.repo, "symbolic-ref", "HEAD")
-        root = str(self.repo.resolve())
-        key = hashlib.sha256((root + "\0" + branch).encode()).hexdigest()
-        path = common / "omp-authors" / f"{key}.json"
-        workflow._atomic_json(path, {"schemaVersion": 1, "worktree": root, "branch": branch,
-                                   "authors": [{"family": "openai", "model": "recorded-model", "agent": "writer"}]})
-        return path
-
-    def change(self, kind="defect", code=None, proofs=None):
-        proofs = proofs or [self.proof(kind, code=code)]
+    def change(self, code=None, proofs=None):
+        proofs = [self.proof(code=code)] if proofs is None else proofs
         self.write("value", "fixed")
         self.head = self.commit("change")
         data = {"schemaVersion": 1, "slug": "example", "base": self.parent, "proofs": [
             dict(p, parent=p.get("parent", self.parent), sha256={name: workflow._sha(self.repo / name) for name in p["files"]}) for p in proofs]}
         self.save(data)
-        self.ledger()
-        self.verifier.return_value = verdict([p["id"] for p in proofs])
         return data
 
     def save(self, data):
@@ -149,10 +121,14 @@ class RepositoryTests(unittest.TestCase):
         finally:
             self.assert_cleaned()
 
+    def stored_status(self, head=None):
+        path = workflow.result_path(self.repo, head or self.head)
+        return json.loads(path.read_text())["status"] if path.exists() else None
+
     def assert_block(self, result, fragment):
         self.assertEqual(result["status"], "fail", result)
         self.assertIn(fragment, "\n".join(result["blocking"]))
-        self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{self.head}.json").exists())
+        self.assertNotEqual(self.stored_status(), "pass", "a failed prove never leaves a pass result for the head")
 
     def test_freeze_requires_durable_manifest_but_reads_temporary_previous(self):
         proof = self.proof()
@@ -172,95 +148,54 @@ class RepositoryTests(unittest.TestCase):
             previous.write_bytes(path.read_bytes())
             self.assertEqual(self.freeze([proof], previous=(previous, digest)), (path, digest))
 
-    def test_changed_objective_after_failed_prove_requires_revision(self):
-        self.change()
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
-        self.assert_block(self.prove(), "value still wrong")
-        self.verifier.return_value = verdict()
-        self.verifier.reset_mock()
-        result = self.prove(objective="fix only the documented value")
-        self.assert_block(result, f"objective changed after a failed prove of {self.head}; pass objective_revision=<reason>")
-        self.verifier.assert_not_called()
-
-    def test_objective_revision_is_recorded_and_briefed_after_failure(self):
-        self.change()
-        digest = workflow._sha(self.manifest_path)
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["scope ambiguous"])
-        self.assert_block(self.prove(), "scope ambiguous")
-        self.verifier.return_value = verdict()
-        reason = "owner clarified the required value"
-        objective = "fix the documented value"
-        result = self.prove(objective=objective, objective_revision=reason)
+    def test_one_rule_red_at_base_then_green_at_head(self):
+        proof = self.proof()
+        path, digest = self.freeze([proof])
+        self.assertNotIn("kind", json.loads(path.read_text())["proofs"][0])
+        self.write("value", "fixed")
+        self.head = self.commit("implementation")
+        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "fix value", target_ref=self.parent)
         self.assertEqual(result["status"], "pass", result)
-        self.assertEqual(result["objectiveRevision"], {"previous": "fix value", "reason": reason})
-        brief = self.verifier.call_args.args[0]
-        self.assertIn("fix value", brief)
-        self.assertIn(reason, brief)
-        attempts = workflow._common(self.repo) / "omp-prove" / "attempts" / f"{self.head}.json"
-        self.assertEqual(json.loads(attempts.read_text()), [
-            {"objective": "fix value", "manifestSha256": digest, "status": "fail"},
-            {"objective": objective, "manifestSha256": digest, "status": "pass"},
-        ])
+        self.assertEqual([run["location"] for run in result["deterministic"]["proofs"]["P1"]], ["head", "head"],
+                         "prove() runs proofs at head only; red at base was shown at freeze")
+        self.assertEqual(self.stored_status(), "pass")
 
-    def test_same_objective_after_failure_needs_no_revision(self):
-        self.change()
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
-        self.assert_block(self.prove(), "value still wrong")
-        self.verifier.return_value = verdict()
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertNotIn("objectiveRevision", result)
-        attempts = workflow._common(self.repo) / "omp-prove" / "attempts" / f"{self.head}.json"
-        self.assertTrue(attempts.is_file(), "completed prove attempts must be recorded per head")
-        self.assertEqual([item["status"] for item in json.loads(attempts.read_text())], ["fail", "pass"])
+    def test_freeze_refuses_any_proof_green_at_base(self):
+        for code in ("assert True\n", "print('no assertion')\n"):
+            with self.subTest(code=code), self.assertRaisesRegex(workflow.WorkflowError, "P1: passes at baseline; a proof must fail at base"):
+                self.freeze([self.proof(code=code)])
+            self.assertFalse(self.manifest_path.exists())
 
-    def test_objective_revision_without_failed_differing_objective_is_rejected(self):
-        self.change()
-        for prior in ("none", "pass", "fail"):
-            with self.subTest(prior=prior):
-                if prior != "none":
-                    self.verifier.return_value = verdict() if prior == "pass" else dict(
-                        verdict(), status="fail", blocking=["value still wrong"])
-                    objective = "previous successful objective" if prior == "pass" else "fix value"
-                    self.assertEqual(self.prove(objective=objective)["status"], prior)
-                self.verifier.reset_mock()
-                result = self.prove(objective_revision="unsolicited scope change")
-                self.assertEqual(result["status"], "fail", result)
-                self.assertTrue(result["blocking"], result)
-                self.assertIn("objective_revision", "\n".join(result["blocking"]))
-                self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{self.head}.json").exists())
-                self.verifier.assert_not_called()
+    def test_any_failing_run_at_base_is_red(self):
+        for code in (RED_AT_BASE, "import sys\nsys.exit(3)\n", "raise SystemExit('some other reason')\n"):
+            with self.subTest(code=code):
+                self.manifest_path.unlink(missing_ok=True)
+                self.freeze([self.proof(code=code)])
+                self.assertTrue(self.manifest_path.exists())
 
-    def test_objective_attempt_history_is_per_head(self):
-        self.change()
-        failed_head = self.head
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["value still wrong"])
-        self.assert_block(self.prove(), "value still wrong")
-        self.head = self.commit("new implementation head")
-        self.verifier.return_value = verdict()
-        result = self.prove(objective="fix the clarified value")
-        self.assertEqual(result["status"], "pass", result)
-        self.assertNotIn("objectiveRevision", result)
-        attempts = workflow._common(self.repo) / "omp-prove" / "attempts"
-        self.assertTrue((attempts / f"{failed_head}.json").is_file(), "failed head attempt history must survive a new head")
-        self.assertEqual(json.loads((attempts / f"{failed_head}.json").read_text()), [
-            {"objective": "fix value", "manifestSha256": workflow._sha(self.manifest_path), "status": "fail"}])
-        self.assertEqual(json.loads((attempts / f"{self.head}.json").read_text()), [
-            {"objective": "fix the clarified value", "manifestSha256": workflow._sha(self.manifest_path), "status": "pass"}])
+    def test_prove_blocks_proof_red_at_head(self):
+        data = self.change()
+        self.write("value", "regressed")
+        self.head = self.commit("regression")
+        self.save(data)
+        self.assert_block(self.prove(), "P1: head run 1 failed")
 
-    def test_valid_kinds(self):
-        for kind, code in (("defect", None), ("new-surface", None), ("preserve", "assert True\n")):
-            with self.subTest(kind=kind):
-                self.change(kind, code)
-                self.assertEqual(self.prove()["status"], "pass")
-
-    def test_baseline_failures(self):
-        for kind, code, reason in (("defect", "assert True\n", "tautology"), ("new-surface", "assert True\n", "tautology"),
-                                  ("defect", "from pathlib import Path\nassert Path('value').read_text() == 'fixed', 'other reason'", "wrong-reason red"),
-                                  ("preserve", None, "preserve proof fails")):
-            with self.subTest(kind=kind, reason=reason):
-                self.change(kind, code)
-                self.assert_block(self.prove(), reason)
+    def test_zero_proofs_freeze_and_prove_check_ci_green_only(self):
+        self.write("docs.md", "docs\n")
+        self.commit("docs")
+        path, digest = self.freeze([], base=self.parent)
+        self.assertEqual(json.loads(path.read_text())["proofs"], [])
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.write_gate(json.dumps({"schemaVersion": 2, "pathCheck": ["true"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}}))
+        with patch.object(workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")):
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+            self.assertEqual(result["status"], "pass", result)
+            self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
+            self.assertEqual(self.stored_status(), "pass")
+            self.ci.return_value = "pending"
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+        self.assert_block(result, 'required CI context "gate" is pending')
+        self.assertEqual(self.stored_status(), "fail")
 
     def test_setup_runs_once_per_tree_in_freeze_and_prove(self):
         self.write(".gitignore", "setup/\n")
@@ -280,68 +215,14 @@ class RepositoryTests(unittest.TestCase):
                 "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
         proofs = [self.proof(filename=f"proof{n}.py", ident=f"P{n}", code=code) for n in (1, 2, 3)]
         self.freeze(proofs, setup=setup)
-        frozen_trees = counter.read_text().splitlines()
-        self.assertEqual(len(frozen_trees), 1)  # Baseline and negative control share setup.
+        self.assertEqual(len(counter.read_text().splitlines()), 1)  # One baseline tree for all proofs.
         data = self.change(proofs=proofs)
         data["setup"] = setup
         self.save(data)
         self.assertEqual(self.prove()["status"], "pass")
         trees = counter.read_text().splitlines()
-        self.assertEqual(len(trees), 3)  # Two head runs and two parent runs use two trees.
-        self.assertEqual(len(set(trees)), 3)
-
-    def test_earlier_proofs_share_setup_and_remain_isolated(self):
-        counter = self.tmp / "setup-count"
-        setup = [sys.executable, "-c",
-                 "from pathlib import Path\nimport subprocess\n"
-                 "commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
-                 f"with Path({str(counter)!r}).open('a') as out: out.write(commit + '\\n')\n"]
-        code = ("from pathlib import Path\n"
-                "assert not Path('residue').exists()\n"
-                "Path('residue').write_text('run')\n")
-        proofs = [self.proof("preserve", filename=f"proof{n}.py", ident=f"P{n}", code=code) for n in (1, 2)]
-        earlier = self.commit("introduce both proofs")
-        data = self.change(proofs=proofs)
-        data["setup"] = setup
-        self.save(data)
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertCountEqual(counter.read_text().splitlines(), [self.parent, self.head, earlier])
-        for proof in proofs:
-            self.assertEqual(result["deterministic"]["proofs"][proof["id"]][-1]["location"],
-                             f"earlier commit {earlier}")
-        brief = self.verifier.call_args.args[0]
-        labels = json.loads(re.search(r"Read-only scratch trees: (.*); your TMPDIR", brief).group(1))
-        earlier_labels = [label for label in labels if label["sha"] == earlier]
-        self.assertEqual({label["label"] for label in earlier_labels},
-                         {"earlier commit", "earlier P1", "earlier P2"})
-        self.assertEqual(len({label["path"] for label in earlier_labels}), 1)
-
-    def test_earlier_commit_reuses_existing_parent_and_baseline_setup(self):
-        counter = self.tmp / "setup-count"
-        setup = [sys.executable, "-c",
-                 "from pathlib import Path\nimport subprocess\n"
-                 "commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
-                 f"with Path({str(counter)!r}).open('a') as out: out.write(commit + '\\n')\n"]
-        proofs = [self.proof("preserve", filename=f"proof{n}.py", ident=f"P{n}", code="assert True\n")
-                  for n in (1, 2)]
-        baseline = self.commit("introduce proofs")
-        proofs.append(self.proof("preserve", filename="proof3.py", ident="P3", code="assert True\n"))
-        proofs[-1]["parent"] = baseline
-        proofs[0]["parent"] = git(self.repo, "rev-parse", f"{baseline}^")
-        self.write("proof1.py", "assert 1 == 1\n")
-        self.parent = self.commit("update first proof at PR parent")
-        data = self.change(proofs=proofs)
-        data["base"] = proofs[0]["parent"]
-        data["setup"] = setup
-        self.save(data)
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertCountEqual(counter.read_text().splitlines(),
-                              [proofs[0]["parent"], baseline, self.parent, self.head])
-        locations = [run["location"] for run in result["deterministic"]["proofs"]["P1"]]
-        self.assertIn(f"earlier commit {baseline}", locations)
-        self.assertIn(f"earlier commit {self.parent}", locations)
+        self.assertEqual(len(trees), 2)  # Every head run shares the one head tree's setup.
+        self.assertEqual(len(set(trees)), 2)
 
     def test_setup_outputs_survive_and_proof_artifacts_are_removed(self):
         self.write(".gitignore", "ignored-ready/\nignored-run*\n")
@@ -362,7 +243,7 @@ class RepositoryTests(unittest.TestCase):
             "print(Path('ignored-ready/cache').exists())\n"
             "Path('ignored-ready/cache').write_text('intentionally retained')\n"
         )
-        data = self.change("preserve", code)
+        data = self.change(code)
         data["setup"] = [sys.executable, "-c",
                          "from pathlib import Path\n"
                          "for name in ('ready', 'ignored-ready'):\n"
@@ -371,8 +252,7 @@ class RepositoryTests(unittest.TestCase):
         self.save(data)
         result = self.prove()
         self.assertEqual(result["status"], "pass")
-        self.assertEqual([run["output"].strip() for run in result["deterministic"]["proofs"]["P1"]],
-                         ["False", "True", "False"])
+        self.assertEqual([run["output"].strip() for run in result["deterministic"]["proofs"]["P1"]], ["False", "True"])
 
     def test_reset_restores_tracked_files_and_removes_overlays(self):
         tree = self.tmp / "scratch"
@@ -418,10 +298,9 @@ class RepositoryTests(unittest.TestCase):
             result = self.prove()
         self.assert_block(result, "P1: head run 1: infrastructure: baseline listing failed")
         self.assertEqual(counter.read_text(), "x")
-        self.verifier.assert_not_called()
 
     def test_execution_cleanup_failure_prevents_pass(self):
-        self.change("preserve", "assert True\n")
+        self.change()
         entries = workflow._entries
         calls = 0
         def fail_cleanup(tree):
@@ -434,7 +313,6 @@ class RepositoryTests(unittest.TestCase):
             result = self.prove()
         self.assert_block(result, "cleanup infrastructure: artifact cleanup failed")
         self.assertIsNone(result["deterministic"]["proofs"]["P1"][0]["ok"])
-        self.verifier.assert_not_called()
 
     def test_setup_mutation_is_infrastructure(self):
         data = self.change()
@@ -443,7 +321,6 @@ class RepositoryTests(unittest.TestCase):
         result = self.prove()
         self.assert_block(result, "setup changed tracked files")
         self.assertIsNone(result["deterministic"]["proofs"]["P1"][0]["ok"])
-        self.verifier.assert_not_called()
 
     def test_launch_and_timeout_are_not_red_evidence(self):
         data = self.change()
@@ -458,10 +335,12 @@ class RepositoryTests(unittest.TestCase):
                 record = result["deterministic"]["proofs"]["P1"][0]
                 self.assertIsNone(record["ok"])
                 self.assertIn("P1: head run 1", record["error"])
-        self.verifier.assert_not_called()
+        proof = self.proof(code="import time; time.sleep(2)\n")
+        with patch.object(workflow, "CHECK_TIMEOUT", 0.01), self.assertRaisesRegex(workflow.WorkflowError, "infrastructure: timeout"):
+            self.freeze([proof])
 
     def test_replacement_decode_and_resolved_cwd_scrubbing(self):
-        self.change("preserve", "import os\nfrom pathlib import Path\nos.write(1,b'\\xff')\nprint(Path.cwd().resolve())\n")
+        self.change("import os\nfrom pathlib import Path\nos.write(1,b'\\xff')\nprint(Path.cwd().resolve())\n")
         result = self.prove()
         self.assertEqual(result["status"], "pass")
         output = result["deterministic"]["proofs"]["P1"][0]["output"]
@@ -469,18 +348,12 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("<tree>", output)
         self.assertNotIn("omp-prove-", output)
 
-    def test_overlay_does_not_leak_to_preserve(self):
-        p1 = self.proof("new-surface", ident="P1")
-        p2 = self.proof("preserve", "second.py", "from pathlib import Path\nassert not Path('proof.py').exists() or Path('value').read_text() == 'fixed'\n", "P2")
-        self.change(proofs=[p1, p2])
-        self.assertEqual(self.prove()["status"], "pass")
-
     def test_head_tracked_mutation_blocks(self):
-        self.change("preserve", "from pathlib import Path\nPath('value').write_text('mutated')\n")
+        self.change("from pathlib import Path\nPath('value').write_text('mutated')\n")
         self.assert_block(self.prove(), "modified tracked files")
 
     def test_hash_and_missing_file_blocks(self):
-        data = self.change()
+        self.change()
         for change in ("mutate", "delete"):
             with self.subTest(change=change):
                 if change == "mutate":
@@ -499,11 +372,11 @@ class RepositoryTests(unittest.TestCase):
     def test_head_first_revocation_on_invalid_inputs(self):
         self.change()
         for kwargs in ({"parent": "missing"}, {"target_ref": "missing"}, {"digest": "0" * 64}):
-            workflow._write_pass_marker(self.repo, self.head, "prove")
+            workflow._atomic_json(workflow.result_path(self.repo, self.head), {"head": self.head, "status": "pass"})
             result = workflow.prove(self.repo, kwargs.get("parent", self.parent), self.head, self.manifest_path,
                                     kwargs.get("digest", workflow._sha(self.manifest_path)), "fix", target_ref=kwargs.get("target_ref", self.parent))
             self.assertEqual(result["status"], "fail")
-            self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{self.head}.json").exists())
+            self.assertEqual(self.stored_status(), "fail")
 
     def test_strict_range_and_proof_ancestry(self):
         data = self.change()
@@ -520,192 +393,30 @@ class RepositoryTests(unittest.TestCase):
         self.save(dict(data, base=self.head))
         self.assert_block(self.prove(), "base must be")
 
-    def test_no_ledger_is_not_independence(self):
-        self.change()
-        self.ledger().unlink()
-        self.assert_block(self.prove(), "authorship unknown")
-        self.verifier.assert_not_called()
-
-    def bot_github(self, *, author="app/dependabot", branch="dependabot/bun/js-minor-8e002485ce", verified=True, commit_author="dependabot[bot]", bad_commit=None):
-        git(self.repo, "remote", "set-url", "origin", "git@github.com:example-owner/example-repo.git")
-        def response(repo, *args):
-            self.assertEqual(repo, self.repo.resolve())
-            if args[:2] == ("pr", "list"):
-                return [{"author": {"is_bot": True, "login": author}, "headRefName": branch, "headRefOid": self.head}]
-            self.assertEqual(args[0], "api")
-            self.assertTrue(args[1].startswith("repos/example-owner/example-repo/commits/"))
-            trusted = bad_commit is not None and not args[1].endswith("/" + bad_commit)
-            return {"author": {"login": "dependabot[bot]" if trusted else commit_author},
-                    "commit": {"verification": {"verified": True if trusted else verified}}}
-        return response
-
-    def test_dependabot_missing_ledger_all_commits_external(self):
-        self.change()
-        self.ledger().unlink()
-        first = self.head
-        self.head = self.commit("second bot commit")
-        with patch.object(workflow, "_github", side_effect=self.bot_github()) as github:
-            result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertEqual(result["authors"], [{"family": "external", "model": "dependabot[bot]", "agent": "dependabot[bot]"}])
-        self.assertEqual({call.args[2].rsplit("/", 1)[-1] for call in github.call_args_list if call.args[1] == "api"}, {first, self.head})
-        self.verifier.assert_called_once()
-
-    def test_dependabot_missing_ledger_rejects_untrusted_metadata(self):
-        self.change()
-        self.ledger().unlink()
-        first = self.head
-        self.head = self.commit("second verified bot commit")
-        cases = [({"verified": False}, "not verified"), ({"commit_author": "human"}, "author is not dependabot"),
-                 ({"author": "human"}, "PR author is not Dependabot"), ({"branch": "agent/bump"}, "not dependabot/")]
-        for values, reason in cases:
-            with self.subTest(values=values):
-                response = self.bot_github(**values, bad_commit=first)
-                with patch.object(workflow, "_github", side_effect=response):
-                    self.assert_block(self.prove(), reason)
-        self.verifier.assert_not_called()
-
-    def test_dependabot_gh_failure_fails_closed(self):
-        self.change()
-        self.ledger().unlink()
-        self.bot_github()
-        with patch.object(workflow, "_github", side_effect=workflow.WorkflowError("gh failed: unavailable")):
-            self.assert_block(self.prove(), "authorship unknown: gh failed: unavailable")
-        self.verifier.assert_not_called()
-
-    def test_existing_ledger_never_queries_dependabot(self):
-        self.change()
-        with patch.object(workflow, "_github", side_effect=AssertionError("must not query gh")):
-            self.assertEqual(self.prove()["authors"][0]["family"], "openai")
-
-    def test_context_authors_model_and_cleanup(self):
-        self.change()
-        context = workflow._common(self.repo) / "omp-prove/verifier-context.json"
-        def inspect(brief, proof_ids, **kwargs):
-            payload = json.loads(context.read_text())
-            self.assertEqual(set(payload), {"schemaVersion", "worktree", "branch", "head", "parent"})
-            self.assertEqual(payload["parent"], self.parent)
-            self.assertEqual(payload["head"], self.head)
-            self.assertEqual(payload["worktree"], str(self.repo.resolve()))
-            self.assertEqual(kwargs, {"model": "provider/example-verifier"})
-            self.assertEqual(proof_ids, ["P1"])
-            for fragment in ("Source repo", "PR target/ref", self.parent + ".." + self.head, "baseline P1", "Objective: fix value", "recorded-model", "skill://git-tool", workflow.BLOCKING_RULE):
-                self.assertIn(fragment, brief)
-            return verdict()
-        self.verifier.side_effect = inspect
-        result = self.prove(verifier_model="provider/example-verifier")
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["authors"][0]["family"], "openai")
-        self.assertFalse(context.exists())
-
-    def test_verifier_brief_names_manifest_proof_ids(self):
-        self.change(proofs=[self.proof(ident="P2", filename="second.py"), self.proof()])
-        self.assertEqual(self.prove()["status"], "pass")
-        brief, proof_ids = self.verifier.call_args.args
-        self.assertEqual(proof_ids, ["P1", "P2"])
-        self.assertIn("Each criteria entry's proofId must be one of: P1, P2; "
-                      "put any other observation in blocking or followUps.", brief)
-
-    def test_source_change_is_not_attributed_to_verifier(self):
-        self.change()
-        def external_change(brief, proof_ids):
-            self.write("external", "changed")
-            return verdict()
-        self.verifier.side_effect = external_change
-        self.assert_block(self.prove(), "source checkout changed during verification")
-
-    def test_verifier_evidence_validation_and_json_safety(self):
-        self.change()
-        invalid = [None, "rail reason", LookupError("unavailable model"), {"status": "pass"}]
-        for key in ("blocking", "followUps"):
-            value = verdict()
-            value[key] = [object()]
-            invalid.append(value)
-        for key, value in (("proofId", " "), ("command", 2), ("observed", ""), ("verdict", "PASS")):
-            v = verdict()
-            v["criteria"][0][key] = value
-            invalid.append(v)
-        v = verdict()
-        v["extra"] = True
-        invalid.append(v)
-        for value in invalid:
-            with self.subTest(value=repr(value)):
-                self.verifier.return_value = value
-                self.assert_block(self.prove(), "invalid or failed result")
-        self.verifier.return_value = verdict(("unknown",))
-        self.assert_block(self.prove(), "unknown proof ID")
-        self.verifier.return_value = verdict(("P1", "unknown"))
-        self.assert_block(self.prove(), "unknown proof ID")
-        self.verifier.return_value = dict(verdict(), status="fail")
-        self.assert_block(self.prove(), "without reason")
-        self.verifier.return_value = dict(verdict(), blocking=["real reason"])
-        self.assert_block(self.prove(), "real reason")
-
-    def test_duplicate_known_criteria_and_followups(self):
-        self.change()
-        value = verdict()
-        value["criteria"] *= 2
-        value["followUps"] = ["parked"]
-        self.verifier.return_value = value
-        result = self.prove()
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["followUps"], ["parked"])
-        value["criteria"][1] = dict(value["criteria"][1], verdict="fail")
-        self.assert_block(self.prove(), "criterion failed")
-
-    def test_long_output_has_live_full_evidence(self):
-        self.change("preserve", "print('x'*6000)\n")
-        def inspect(brief, proof_ids):
-            self.assertIn("[TRUNCATED; full evidence:", brief)
-            path = re.search(r"Full deterministic evidence: (.+)", brief).group(1)
-            self.assertIn("x" * 6000, Path(path).read_text())
-            return verdict()
-        self.verifier.side_effect = inspect
-        self.assertEqual(self.prove()["status"], "pass")
-
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
-        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "pathCheck": ["true"]}), json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["true"]}})):
+        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}),
+                     json.dumps({"schemaVersion": 2, "pathCheck": ["true"], "dynaflows": {"enabled": "yes"}})):
             self.write_gate(text)
             self.change()
             with patch.object(workflow, "_setup", side_effect=AssertionError("setup must not run")):
                 self.assertEqual(self.prove()["status"], "fail")
-        self.verifier.assert_not_called()
 
-    def test_record_gate_literal_discovery(self):
-        self.write("runner", "ruff.toml pytest.ini ../outside /etc/hosts link\n")
-        self.write("ruff.toml", "old")
-        self.write("pytest.ini", "old")
-        self.commit("parent")
-        self.parent = git(self.repo, "rev-parse", "HEAD")
-        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner", "apostrophe' with spaces"]}, "pathCheck": ["true"]}))
-        self.write("ruff.toml", "changed")
-        self.write("pytest.ini", "changed")
-        self.change()
-        result = self.prove()
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["deterministic"]["gateChanges"], ["pytest.ini", "ruff.toml"])
-        self.assertEqual(result["deterministic"]["gateDiagnostics"], [])
-
-    def test_cleanup_failure_keeps_evidence_attempts_every_tree(self):
+    def test_cleanup_failure_blocks_and_keeps_evidence(self):
         self.change()
         original = workflow._git
         removed = []
         def fail_remove(repo, *args):
             if args[:2] == ("worktree", "remove"):
                 removed.append(args[-1])
-                if len(removed) == 1:
-                    raise WorkflowErrorForTest("injected removal failure")
+                raise WorkflowErrorForTest("injected removal failure")
             return original(repo, *args)
         with patch.object(workflow, "_git", side_effect=fail_remove):
-            result = self.prove_without_cleanup_assert()
+            result = workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix", target_ref=self.parent)
         # TemporaryDirectory has removed test-owned scratch bytes; prune repairs its metadata.
         git(self.repo, "worktree", "prune")
-        self.assertGreaterEqual(len(removed), 2)
+        self.assertEqual(len(removed), 1)
         self.assertTrue(result["deterministic"]["proofs"])
         self.assert_block(result, "cleanup infrastructure")
-
-    def prove_without_cleanup_assert(self):
-        return workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix", target_ref=self.parent)
 
     def test_freeze_retention_lineage_and_revisions(self):
         proof = self.proof()
@@ -727,11 +438,11 @@ class RepositoryTests(unittest.TestCase):
         expected = hashlib.sha256(json.dumps(old["proofs"][0], sort_keys=True).encode()).hexdigest()
         self.assertEqual(revision["oldSha256"], expected)
 
-    def test_freeze_review_added_parent_and_metadata_validation(self):
+    def test_freeze_later_parent_and_metadata_validation(self):
         proof = self.proof()
         self.write("value", "fixed")
         self.commit("defective implementation")
-        with self.assertRaisesRegex(workflow.WorkflowError, "defective implementation commit"):
+        with self.assertRaisesRegex(workflow.WorkflowError, "defective implementation commit as parent"):
             self.freeze([proof])
         for revise in ({"P1": " "}, {"unknown": "reason"}, []):
             with self.assertRaises(workflow.WorkflowError):
@@ -774,58 +485,23 @@ class RepositoryTests(unittest.TestCase):
                 self.freeze([proof])
 
     def test_caps_are_proof_specific(self):
-        proofs = [self.proof("preserve", f"proof{i}.py", "assert True\n", f"P{i}") for i in range(17)]
+        proofs = [self.proof(f"proof{i}.py", ident=f"P{i}") for i in range(17)]
         self.freeze(proofs, max_checks=17)
         with self.assertRaises(workflow.WorkflowError):
             self.freeze(proofs)
         self.change(proofs=proofs)
         self.assertEqual(self.prove(max_checks=17)["status"], "pass")
-        self.assert_block(self.prove(), "proof count")
-        self.assert_block(self.prove(max_checks=1), "proof count")
+        self.assert_block(self.prove(), "within max_checks")
+        self.assert_block(self.prove(max_checks=1), "within max_checks")
         for cap in (0, -1, True, 1.5, "2"):
             with self.assertRaises(workflow.WorkflowError):
                 self.freeze(proofs, max_checks=cap)
             self.assert_block(self.prove(max_checks=cap), "positive integer")
 
-    def test_earlier_commit_uses_own_proof_bytes_and_detects_mutation(self):
-        proof = self.proof("preserve", code="from pathlib import Path\nPath('value').write_text('mutated')\n")
-        self.commit("early mutating proof")
-        self.change("preserve", "assert True\n")
-        self.assert_block(self.prove(), "earlier commit")
-
-    def test_docs_allowlist_and_whole_range(self):
-        self.write("README.MD", "docs")
-        head = self.commit("documentation")
-        marker = workflow.exempt_docs_only(self.repo, self.parent, head, target_ref=self.parent)
-        self.assertTrue(marker.exists())
-        self.write("runtime.py", "x=1")
-        runtime = self.commit("runtime")
-        self.write("docs/guide.md", "docs")
-        head = self.commit("docs last")
-        for parent in (runtime, self.parent):
-            with self.assertRaises(workflow.WorkflowError):
-                workflow.exempt_docs_only(self.repo, parent, head, target_ref=self.parent)
-            self.assertFalse((workflow._common(self.repo) / "omp-prove" / f"{head}.json").exists())
-
-    def test_docs_paths_casefold_and_rename_sides(self):
-        for name in ("requirements.txt", "app.png", "docs/Skills/example.md", "docs/CODEX.md", "docs/GEMINI.md", "docs/AGENTS.override.md", "docs/custominstructions.md", "docs/.github/guide.md"):
-            self.write(name, "text")
-            head = self.commit("ineligible")
-            parent = git(self.repo, "rev-parse", "HEAD~1")
-            with self.subTest(name=name), self.assertRaises(workflow.WorkflowError):
-                workflow.exempt_docs_only(self.repo, parent, head, target_ref=parent)
-        self.write("docs/picture.PNG", "image")
-        parent = git(self.repo, "rev-parse", "HEAD")
-        head = self.commit("image docs")
-        self.assertTrue(workflow.exempt_docs_only(self.repo, parent, head, target_ref=parent).exists())
-        (self.repo / "docs/picture.PNG").rename(self.repo / "application.png")
-        head2 = self.commit("rename out")
-        with self.assertRaises(workflow.WorkflowError):
-            workflow.exempt_docs_only(self.repo, head, head2, target_ref=head)
-
     def test_draft_validation_precedes_hashing_and_commands(self):
         proof = self.proof()
-        for invalid in ([dict(proof, files=[["not a path"]])], [dict(proof, cmd="shell")], [proof, dict(proof)]):
+        for invalid in ([dict(proof, files=[["not a path"]])], [dict(proof, cmd="shell")], [proof, dict(proof)],
+                        [dict(proof, kind="defect")], [dict(proof, expectRed="expected fixed")]):
             with patch.object(workflow, "_git", side_effect=AssertionError("Git ran before draft validation")):
                 with self.assertRaises(workflow.WorkflowError):
                     self.freeze(invalid)
@@ -841,28 +517,26 @@ class RepositoryTests(unittest.TestCase):
         data["proofs"][0]["cmd"] = [sys.executable, "--config=runner"]
         self.save(data)
         self.assert_block(self.prove(), "unchanged runners")
-        self.verifier.assert_not_called()
 
     def test_removed_proof_requires_revision_and_retains_entire_old_digest(self):
-        first = self.proof("preserve", code="assert True\n")
-        second = self.proof("preserve", "second.py", "assert True\n", "P2")
+        first = self.proof()
+        second = self.proof("second.py", ident="P2")
         previous = self.freeze([first, second])
         old_second = json.loads(previous[0].read_text())["proofs"][1]
-        self.commit("green preserved proofs")
+        self.commit("frozen proofs")
         with self.assertRaisesRegex(workflow.WorkflowError, "silent proof change"):
             self.freeze([first], previous=previous)
         self.freeze([first], previous=previous, revise={"P2": "remove duplicate criterion"})
         revision = json.loads(self.manifest_path.read_text())["revisions"][-1]
         self.assertEqual(revision["oldSha256"], hashlib.sha256(json.dumps(old_second, sort_keys=True).encode()).hexdigest())
 
-    def test_review_added_regression_uses_explicit_defective_parent(self):
-        initial = self.proof("preserve", code="assert True\n")
+    def test_later_proof_uses_explicit_parent_where_it_is_red(self):
+        initial = self.proof()
         previous = self.freeze([initial])
-        defective = self.commit("implementation missing review behavior")
-        review = self.proof("defect", "review.py", "from pathlib import Path\nassert Path('value').read_text() == 'reviewed', 'review regression'\n", "P2")
-        review["expectRed"] = "review regression"
-        review["parent"] = defective
-        self.freeze([initial, review], previous=previous)
+        defective = self.commit("implementation missing a later-found behaviour")
+        later = self.proof("later.py", "from pathlib import Path\nassert Path('value').read_text() == 'reviewed', 'later regression'\n", "P2")
+        later["parent"] = defective
+        self.freeze([initial, later], previous=previous)
         frozen = json.loads(self.manifest_path.read_text())
         self.assertEqual(frozen["proofs"][1]["parent"], defective)
         self.assertEqual(frozen["base"], self.parent)
@@ -876,84 +550,30 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(workflow.WorkflowError, "at or after base"):
             self.freeze([dict(proof, parent=self.parent)], base="HEAD")
 
-    def test_parent_only_gate_reference_and_outside_files(self):
-        self.write("runner", "pytest.ini ../outside /etc/hosts escaped\n")
-        self.write("pytest.ini", "configuration")
-        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["runner"]}, "pathCheck": ["true"]}))
-        self.commit("parent runner")
-        self.parent = git(self.repo, "rev-parse", "HEAD")
-        (self.repo / "runner").unlink()
-        (self.repo / "pytest.ini").unlink()
+    def test_result_file_is_the_one_merge_signal_in_the_common_git_directory(self):
         self.change()
-        result = self.prove()
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["deterministic"]["gateChanges"], ["pytest.ini", "runner"])
-        external = self.tmp / "outside"
-        external.write_text("never read")
-        (self.repo / "escaped").symlink_to(external)
-        named = workflow.gate_changes(["escaped", "../outside", "/etc/hosts"], self.repo,
-                                      {"cmd": ["escaped", "../outside", "/etc/hosts"]})
-        self.assertEqual(named, [])
-
-    def test_early_red_proof_uses_own_bytes_not_head_overlay(self):
-        self.proof("preserve", code="assert False, 'early red'\n")
-        self.commit("early red proof")
-        self.change("preserve", "assert True\n")
-        result = self.prove()
-        self.assert_block(result, "proof red at earlier commit")
-        self.assertIn("early red", result["deterministic"]["proofs"]["P1"][-1]["output"])
-
-    def test_verifier_spawn_error_and_context_cleanup_failure_block(self):
-        self.change()
-        self.verifier.side_effect = RuntimeError("matching family unavailable")
-        self.assert_block(self.prove(), "matching family unavailable")
-        context = workflow._common(self.repo) / "omp-prove/verifier-context.json"
-        self.assertFalse(context.exists())
-        self.verifier.side_effect = None
-        self.verifier.return_value = verdict()
-        original = Path.unlink
-        def fail_context(path, *args, **kwargs):
-            if path == context:
-                raise OSError("context removal failed")
-            return original(path, *args, **kwargs)
-        with patch.object(Path, "unlink", fail_context):
-            self.assert_block(self.prove(), "context removal failed")
-        context.unlink()
-
-    def test_source_comparison_failure_is_concrete(self):
-        self.change()
-        original = workflow._git
-        seen = 0
-        def fail_second_status(repo, *args):
-            nonlocal seen
-            if args == ("status", "--porcelain=v2"):
-                seen += 1
-                if seen == 2:
-                    raise OSError("source comparison failed")
-            return original(repo, *args)
-        with patch.object(workflow, "_git", side_effect=fail_second_status):
-            self.assert_block(self.prove(), "source comparison failed")
-
-    def test_atomic_marker_replacement_in_common_git_directory(self):
         linked = self.tmp / "linked"
-        git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
+        git(self.repo, "worktree", "add", "-qb", "linked", str(linked), self.head)
         try:
-            head = git(linked, "rev-parse", "HEAD")
             original = os.replace
             observed = []
             def inspect(source, destination):
-                observed.append(json.loads(Path(source).read_text()))
-                self.assertFalse(Path(destination).exists())
+                observed.append((json.loads(Path(source).read_text()), Path(destination)))
                 return original(source, destination)
             with patch.object(workflow.os, "replace", side_effect=inspect):
-                marker = workflow._write_pass_marker(linked, head, "prove")
-            self.assertEqual(marker.parent, workflow._common(self.repo) / "omp-prove")
-            self.assertEqual(observed, [{"schemaVersion": 1, "head": head, "kind": "prove", "status": "pass"}])
+                result = workflow.prove(linked, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix value", target_ref=self.parent)
+            self.assertEqual(result["status"], "pass", result)
+            path = workflow.result_path(linked, self.head)
+            self.assertEqual(path, workflow._common(self.repo) / "omp-prove" / f"{self.head}.result.json")
+            self.assertEqual({destination for _, destination in observed}, {path}, "the result file is the only file prove() writes")
+            stored = json.loads(path.read_text())
+            self.assertEqual((stored["head"], stored["status"]), (self.head, "pass"))
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), [path.name], "no separate pass marker")
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def gate(self, **checks):
-        gate = {"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
+        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
                 "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
         self.write_gate(json.dumps(gate))
 
@@ -967,7 +587,13 @@ class RepositoryTests(unittest.TestCase):
             result = self.prove()
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
         self.assert_block(result, f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}")
-        self.verifier.assert_not_called()
+
+    def test_prove_requires_path_check_but_not_commit_check(self):
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}))
+        self.change()
+        self.assert_block(self.prove(), workflow.GUARDRAIL_PREREQUISITE)
+        self.write_gate(json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}))
+        self.assertEqual(self.prove()["status"], "pass")
 
     def test_prove_without_origin_finds_no_record(self):
         git(self.repo, "remote", "remove", "origin")
@@ -989,7 +615,7 @@ class RepositoryTests(unittest.TestCase):
         try:
             record, gate = workflow.read_record(linked)
             self.assertEqual(record, self.record)
-            self.assertEqual(gate["dynaflowsContract"], CONTRACT)
+            self.assertEqual(gate["pathCheck"], ["true"])
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
@@ -999,6 +625,34 @@ class RepositoryTests(unittest.TestCase):
                 (self.record / "gate.json").write_text(text)
                 with self.assertRaisesRegex(workflow.WorkflowError, re.escape(fragment)):
                     workflow.read_record(self.repo)
+
+    def test_record_with_legacy_contract_fields_still_loads_freezes_and_proves(self):
+        for legacy in ({"dynaflowsContract": 1}, {"dynaflowsContract": 99}, {"dynaflowsContract": "old"},
+                       {"pathCheckTimeoutMs": 5000, "dynaflowsContract": 3}):
+            with self.subTest(legacy=legacy):
+                self.manifest_path.unlink(missing_ok=True)
+                self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], **legacy}))
+                record, gate = workflow.read_record(self.repo)
+                self.assertEqual(record, self.record)
+                self.assertEqual({k: gate[k] for k in legacy}, legacy)
+                self.write("value", "old")
+                self.parent = self.commit(f"legacy record {legacy}")
+                self.freeze([self.proof()])
+                self.assertNotIn("dynaflowsContract", json.loads(self.manifest_path.read_text()))
+                self.change()
+                self.assertEqual(self.prove()["status"], "pass")
+
+    def test_freeze_without_record_refuses_unless_project_setup(self):
+        (self.record / "gate.json").unlink()
+        no_record = f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}"
+        with self.assertRaises(workflow.WorkflowError) as raised:
+            self.freeze([self.proof()])
+        self.assertEqual(str(raised.exception), no_record)
+        self.assertFalse(self.manifest_path.exists())
+        self.freeze([self.proof()], project_setup=True)
+        self.assertTrue(self.manifest_path.exists())
+        with self.assertRaisesRegex(workflow.WorkflowError, "project_setup must be a bool"):
+            self.freeze([self.proof()], project_setup="yes")
 
     def test_run_check_strips_harness_variables_from_repo_commands(self):
         probe = [sys.executable, "-c", "import os; print(repr(os.environ.get('AGENT')), os.environ.get('KEEP'))"]
@@ -1010,78 +664,13 @@ class RepositoryTests(unittest.TestCase):
 
     def test_retired_ci_host_blocks_freeze_and_prove(self):
         retired = "ciHost is retired; declare ci.requiredContext and ci.runner"
-        self.write_gate(json.dumps({"schemaVersion": 2, "dynaflowsContract": CONTRACT, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
         self.rebase_parent("retired gate")
         with self.assertRaisesRegex(workflow.WorkflowError, re.escape(retired)):
             self.freeze([self.proof()])
         self.assertFalse(self.manifest_path.exists())
         self.change()
         self.assert_block(self.prove(), retired)
-        self.verifier.assert_not_called()
-
-    def test_stale_absent_or_newer_contract_blocks_freeze_and_prove(self):
-        stale = workflow.CONTRACT_REMEDY
-        self.assertIn("omp-guardrails init --extend", stale)
-        self.assertNotIn("project-setup", stale)
-        newer = "The record expects a newer dynaflows contract; update omp."
-        cases = ((None, f"Dynaflows contract vnone recorded; current is v5. {stale}"),
-                 (4, f"Dynaflows contract v4 recorded; current is v5. {stale}"),
-                 (6, f"Dynaflows contract v6 recorded; current is v5. {newer}"))
-        with patch.object(workflow, "dynaflows_contract", return_value=5):
-            for recorded, text in cases:
-                with self.subTest(recorded=recorded):
-                    self.manifest_path.unlink(missing_ok=True)
-                    gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
-                    if recorded is not None:
-                        gate["dynaflowsContract"] = recorded
-                    self.write_gate(json.dumps(gate))
-                    self.rebase_parent(f"contract {recorded}")
-                    with self.assertRaises(workflow.WorkflowError) as raised:
-                        self.freeze([self.proof()])
-                    self.assertEqual(str(raised.exception), text)
-                    self.assertFalse(self.manifest_path.exists())
-                    self.change()
-                    result = self.prove()
-                    self.assert_block(result, text)
-                    self.assertIn(text, result["blocking"])
-            self.verifier.assert_not_called()
-
-    def test_freeze_without_gate_reports_missing_contract(self):
-        (self.record / "gate.json").unlink()
-        self.rebase_parent("no gate")
-        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(
-                f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}; "
-                f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
-            self.freeze([self.proof()])
-
-    def test_project_setup_freeze_tolerates_absent_or_lower_contract_only(self):
-        newer = "Dynaflows contract v6 recorded; current is v5. The record expects a newer dynaflows contract; update omp."
-        with patch.object(workflow, "dynaflows_contract", return_value=5):
-            for recorded in (None, "no gate", 4, 6):
-                with self.subTest(recorded=recorded):
-                    self.manifest_path.unlink(missing_ok=True)
-                    gate_path = self.record / "gate.json"
-                    if recorded == "no gate":
-                        gate_path.unlink(missing_ok=True)
-                    else:
-                        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
-                        if recorded is not None:
-                            gate["dynaflowsContract"] = recorded
-                        self.write_gate(json.dumps(gate))
-                    self.rebase_parent(f"setup contract {recorded}")
-                    if recorded == 6:
-                        with self.assertRaises(workflow.WorkflowError) as raised:
-                            self.freeze([self.proof()], project_setup=True)
-                        self.assertEqual(str(raised.exception), newer)
-                        self.assertFalse(self.manifest_path.exists())
-                    else:
-                        self.freeze([self.proof()], project_setup=True)
-                        self.assertTrue(self.manifest_path.exists())
-                        if recorded == 4:
-                            self.change()
-                            self.assert_block(self.prove(), "Dynaflows contract v4 recorded; current is v5.")
-            with self.assertRaisesRegex(workflow.WorkflowError, "project_setup must be a bool"):
-                self.freeze([self.proof()], project_setup="yes")
 
     def test_freeze_formats_before_hashing_and_reports_changed_files(self):
         self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
@@ -1122,19 +711,15 @@ class RepositoryTests(unittest.TestCase):
     def test_freeze_refuses_red_from_environment_doctor(self):
         self.profile("DOCTOR:")
         self.rebase_parent()
-        doctor = self.proof(code="from pathlib import Path\nprint('DOCTOR: database not reachable')\n"
-                                 "assert Path('value').read_text() == 'fixed', 'expected fixed'\n")
+        doctor = self.proof(code="from pathlib import Path\nprint('DOCTOR: database not reachable')\n" + RED_AT_BASE)
         with self.assertRaisesRegex(workflow.WorkflowError, "P1: red came from the environment doctor, not the behaviour"):
             self.freeze([doctor])
         self.assertFalse(self.manifest_path.exists())
-        static = dict(self.proof(), expectRed="DOCTOR: database not reachable")
-        with self.assertRaisesRegex(workflow.WorkflowError, "expectRed matches the doctor marker"):
-            self.freeze([static])
         path, _ = self.freeze([self.proof()])
         self.assertTrue(path.exists())
 
     def test_freeze_skips_doctor_check_for_placeholder_or_unparsed_profile(self):
-        doctor = "from pathlib import Path\nprint('<doctor failure marker>')\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n"
+        doctor = "from pathlib import Path\nprint('<doctor failure marker>')\n" + RED_AT_BASE
         for text in (None, "# prose-only profile\n"):
             with self.subTest(text=text):
                 if text is None:
@@ -1150,33 +735,32 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(workflow.WorkflowError, "front matter is not valid JSON"):
             self.freeze([self.proof()], base=self.parent)
 
-    def journey(self, counter, flaky):
-        condition = "n == 3" if flaky else "Path('value').read_text() == 'fixed'"
+    def journey(self, counter):
         code = ("import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
                 "n = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\n"
-                f"assert {condition}, 'journey not reached'\n")
+                "assert Path('value').read_text() == 'fixed', 'journey not reached'\n")
         self.write("journey.py", code)
-        return {"id": "J1", "criterion": "journey completes", "kind": "new-surface", "cmd": [sys.executable, "journey.py", str(counter)],
-                "files": ["journey.py"], "expectRed": None, "journey": True}
+        return {"id": "J1", "criterion": "journey completes", "cmd": [sys.executable, "journey.py", str(counter)],
+                "files": ["journey.py"], "journey": True}
 
     def test_freeze_runs_journey_once_at_baseline(self):
         counter = self.tmp / "journey-count"
-        path, _ = self.freeze([self.journey(counter, flaky=False)])
+        path, _ = self.freeze([self.journey(counter)])
         self.assertEqual(counter.read_text(), "1", "freeze runs only the baseline; stability is a prove() check at head")
         self.assertTrue(json.loads(path.read_text())["proofs"][0]["journey"])
 
     def test_prove_runs_journey_three_times_at_head(self):
         counter = self.tmp / "journey-count"
-        self.change(proofs=[self.journey(counter, flaky=False)])
+        self.change(proofs=[self.journey(counter)])
         result = self.prove()
         self.assertEqual(result["status"], "pass", result)
         locations = [(run["location"], run.get("run")) for run in result["deterministic"]["proofs"]["J1"]]
-        self.assertEqual(locations, [("head", 1), ("head", 2), ("head", 3), ("parent", None)])
-        self.assertEqual(counter.read_text(), "4", "three head journey runs plus one parent run")
+        self.assertEqual(locations, [("head", 1), ("head", 2), ("head", 3)])
+        self.assertEqual(counter.read_text(), "3")
 
     def test_prove_blocks_journey_that_fails_any_head_run(self):
         counter = self.tmp / "journey-count"
-        proof = self.journey(counter, flaky=False)
+        proof = self.journey(counter)
         self.write("journey.py", "import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
                    "n = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\n"
                    "assert n != 2, 'journey flaked'\n")
@@ -1184,176 +768,16 @@ class RepositoryTests(unittest.TestCase):
         result = self.prove()
         self.assert_block(result, "J1: head run 2 failed")
         self.assertIn("J1: journey proof passed 2 of 3 clean head runs; journeys must pass every run", result["blocking"])
-        self.verifier.assert_not_called()
 
     def test_non_journey_proofs_keep_two_head_runs(self):
         self.change()
         runs = [run.get("run") for run in self.prove()["deterministic"]["proofs"]["P1"] if run["location"] == "head"]
         self.assertEqual(runs, [1, 2])
 
-    def test_prove_runs_profile_check_first_and_blocks(self):
-        self.gate(profile=[sys.executable, "-c", "import sys; print('PROFILE.complete: coverage missing'); sys.exit(1)"])
+    def test_prove_never_runs_the_profile_check(self):
+        self.gate(profile=[sys.executable, "-c", "import sys; sys.exit(1)"])
         self.change()
-        with patch.object(workflow, "_setup", side_effect=AssertionError("trees must not be built")):
-            result = self.prove()
-        self.assert_block(result, f"checks.profile failed; complete {self.record / 'profile.md'} before prove:\nPROFILE.complete: coverage missing")
-        self.assertFalse(any(item.startswith("infrastructure") for item in result["blocking"]), result)
-        self.verifier.assert_not_called()
-        self.post.assert_not_called()
-
-    def test_prove_passes_after_profile_check_passes(self):
-        self.gate(profile=[sys.executable, "-c", "print('profile ok')"])
-        self.change()
-        self.assertEqual(self.prove()["status"], "pass")
-
-    def test_prove_posts_agent_verified_status_after_marker(self):
-        self.change()
-        marker = workflow._common(self.repo) / "omp-prove" / f"{self.head}.json"
-        self.post.side_effect = lambda repo, head: self.assertTrue(marker.is_file())
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.post.assert_called_once_with(self.repo.resolve(), self.head)
-        self.post.reset_mock()
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["wrong"])
-        self.assert_block(self.prove(), "wrong")
-        self.post.assert_not_called()
-
-    def test_prove_status_post_failure_fails_and_removes_marker(self):
-        self.change()
-        self.post.side_effect = workflow.WorkflowError("gh failed: HTTP 403")
-        result = self.prove()
-        self.assert_block(result, "infrastructure: posting agent-verified status: gh failed: HTTP 403")
-
-    def test_post_agent_verified_targets_origin_statuses_for_head(self):
-        self.post_patch.stop()
-        self.addCleanup(self.post_patch.start)
-        git(self.repo, "remote", "set-url", "origin", "https://github.com/example-owner/example-repo.git")
-        with patch.object(workflow, "_github", return_value={"state": "success"}) as github:
-            workflow._post_agent_verified(self.repo, "a" * 40)
-        github.assert_called_once_with(self.repo, "api", "--method", "POST", f"repos/example-owner/example-repo/statuses/{'a' * 40}",
-                                       "-f", "state=success", "-f", "context=agent-verified", "-f", "description=prove() pass")
-        git(self.repo, "remote", "set-url", "origin", "https://example.test/owner/repo.git")
-        with patch.object(workflow, "_github", side_effect=AssertionError("must not post")), \
-                self.assertRaisesRegex(workflow.WorkflowError, "not a validated GitHub repository"):
-            workflow._post_agent_verified(self.repo, "a" * 40)
-
-    def test_drift_precheck_briefs_docs_and_comments_naming_removed_paths_and_symbols(self):
-        self.write("lib/old_mod.py", "def helper_func():\n    pass\n\n\ndef _private_helper():\n    pass\n")
-        self.write("lib/renamed_from.py", "VALUE = 1\n")
-        self.write("web/mod.ts", "export function oldThing(): void {}\nexport const kept = 1;\n")
-        self.write("docs/guide.md", "Use lib/old_mod.py and helper_func.\nSee lib/renamed_from.py.\nCall oldThing.\nIgnore _private_helper.\n")
-        self.write("app.py", "# see helper_func for details\nhelper_func_count = 1\n")
-        self.write("use.py", "result = helper_func()\n")
-        self.write("docs/adr/0001-record.md", "We added helper_func.\n")
-        self.rebase_parent()
-        git(self.repo, "rm", "-q", "lib/old_mod.py")
-        git(self.repo, "mv", "lib/renamed_from.py", "lib/renamed_to.py")
-        self.write("web/mod.ts", "export const kept = 1;\n")
-        self.change()
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        drift = result["drift"]
-        joined = "\n".join(drift)
-        for fragment in ("docs/guide.md:1: names deleted or renamed path `lib/old_mod.py`", "docs/guide.md:1: names removed symbol `helper_func`",
-                         "docs/guide.md:2: names deleted or renamed path `lib/renamed_from.py`", "docs/guide.md:3: names removed symbol `oldThing`",
-                         "app.py:1: names removed symbol `helper_func`"):
-            self.assertIn(fragment, joined)
-        for absent in ("docs/adr/", "use.py", "_private_helper", "app.py:2", "`kept`", "web/mod.ts"):
-            self.assertNotIn(absent, joined)
-        brief = self.verifier.call_args.args[0]
-        self.assertIn("Address every Deterministic drift item", brief)
-        self.assertIn("docs/guide.md:3: names removed symbol `oldThing`", brief)
-        self.assertNotIn("Audit undeclared harness/config tampering, wrong/stale docs", brief)
-
-    def test_drift_precheck_reports_symbols_removed_from_export_lists(self):
-        self.write("web/one.ts", "function oldThing() { return 1; }\nexport { oldThing };\n")
-        self.write("web/many.ts", "const a = 1, b = 2;\nexport {\n  a as oldAlias,\n  type b,\n};\n")
-        self.write("web/kept.ts", "const k = 1;\nexport { k as keptName };\n")
-        self.write("guide.md", "Import oldThing.\nUse oldAlias and b.\nUse keptName.\n")
-        self.rebase_parent()
-        self.write("web/one.ts", "export const other = 1;\n")
-        self.write("web/many.ts", "export const c = 1;\n")
-        self.write("web/kept.ts", "const k = 2;\nexport { k as keptName };\n")
-        self.change()
-        joined = "\n".join(self.prove()["drift"])
-        for fragment in ("guide.md:1: names removed symbol `oldThing`", "guide.md:2: names removed symbol `oldAlias`",
-                         "guide.md:2: names removed symbol `b`"):
-            self.assertIn(fragment, joined)
-        self.assertNotIn("keptName", joined)
-
-    def test_drift_precheck_reports_every_binding_of_a_removed_variable_declaration(self):
-        self.write("web/vars.ts", "export const first = 1, removed = pair(1, 2), typed: Map<string, number> = new Map();\n")
-        self.write("guide.md", "Use removed.\nUse typed.\nUse first.\n")
-        self.rebase_parent()
-        self.write("web/vars.ts", "export const first = 1;\n")
-        self.change()
-        joined = "\n".join(self.prove()["drift"])
-        self.assertIn("guide.md:1: names removed symbol `removed`", joined)
-        self.assertIn("guide.md:2: names removed symbol `typed`", joined)
-        self.assertNotIn("`first`", joined)
-
-    def test_drift_precheck_reports_docs_the_same_change_also_edits(self):
-        self.write("old.py", "def removed_export():\n    pass\n")
-        self.write("guide.md", "See old.py and removed_export.\n")
-        self.rebase_parent()
-        git(self.repo, "rm", "-q", "old.py")
-        self.write("guide.md", "See old.py and removed_export.\nNew paragraph.\n")
-        self.change()
-        joined = "\n".join(self.prove()["drift"])
-        self.assertIn("guide.md:1: names deleted or renamed path `old.py`", joined)
-        self.assertIn("guide.md:1: names removed symbol `removed_export`", joined)
-
-    def test_drift_precheck_reports_removals_another_file_redeclares(self):
-        self.write("old.py", "def public_api():\n    pass\n")
-        self.write("guide.md", "Import old.public_api.\n")
-        self.rebase_parent()
-        self.write("old.py", "VALUE = 1\n")
-        self.write("unrelated.py", "def public_api():\n    pass\n")
-        self.change()
-        self.assertIn("guide.md:1: names removed symbol `public_api`", "\n".join(self.prove()["drift"]))
-
-    def test_drift_precheck_keeps_symbols_the_same_file_redeclares(self):
-        self.write("mod.py", "def public_api():\n    return 1\n")
-        self.write("guide.md", "Call public_api.\n")
-        self.rebase_parent()
-        self.write("mod.py", "def public_api():\n    return 2\n\n\nVALUE = 1\n")
-        self.change()
-        self.assertEqual(self.prove()["drift"], [])
-
-    def test_drift_precheck_reports_removed_go_and_rust_public_items(self):
-        self.write("svc/api.go", "package svc\n\nfunc PublicAPI() {}\n\nfunc (s *Server) Handle() {}\n\nfunc private() {}\n")
-        self.write("core/lib.rs", "pub fn rust_api() {}\npub struct Widget;\nfn hidden() {}\n")
-        self.write("guide.md", "Call PublicAPI and Handle.\nUse rust_api with Widget.\nprivate hidden\n")
-        self.rebase_parent()
-        self.write("svc/api.go", "package svc\n")
-        self.write("core/lib.rs", "pub fn other() {}\n")
-        self.change()
-        joined = "\n".join(self.prove()["drift"])
-        for symbol in ("PublicAPI", "Handle", "rust_api", "Widget"):
-            self.assertIn(f"names removed symbol `{symbol}`", joined)
-        for absent in ("`private`", "`hidden`"):
-            self.assertNotIn(absent, joined)
-
-    def test_drift_precheck_is_empty_without_removals(self):
-        self.change()
-        self.assertEqual(self.prove()["drift"], [])
-
-    def test_prove_accepts_head_whose_freeze_predates_contract_bump(self):
-        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}
-        self.write_gate(json.dumps(dict(gate, dynaflowsContract=4)))
-        self.rebase_parent("contract 4")
-        with patch.object(workflow, "dynaflows_contract", return_value=4):
-            path, _ = self.freeze([self.proof()])
-        self.assertEqual(json.loads(path.read_text())["dynaflowsContract"], 4, "freeze records the contract it ran under")
-        self.write("value", "fixed")
-        self.head = self.commit("change under contract 4")
-        self.ledger()
-        with patch.object(workflow, "dynaflows_contract", return_value=5):
-            self.assert_block(self.prove(), f"Dynaflows contract v4 recorded; current is v5. {workflow.CONTRACT_REMEDY}")
-            self.write_gate(json.dumps(dict(gate, dynaflowsContract=5)))
-            result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertEqual(result["manifest"]["dynaflowsContract"], 4)
+        self.assertEqual(self.prove()["status"], "pass", "CI already ran the repo's gates")
 
     def test_prove_refuses_before_any_spend_when_required_context_is_not_success(self):
         self.gate()
@@ -1367,8 +791,6 @@ class RepositoryTests(unittest.TestCase):
                 self.assert_block(result, f'required CI context "gate" is {state} for {self.head}; prove() runs only after CI is green on this exact head')
                 self.assertFalse(any(item.startswith("infrastructure") for item in result["blocking"]), result)
                 self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
-        self.verifier.assert_not_called()
-        self.post.assert_not_called()
         self.ci.return_value = "success"
         self.assertEqual(self.prove()["status"], "pass")
 
@@ -1401,105 +823,57 @@ class RepositoryTests(unittest.TestCase):
             with self.subTest(expected=expected, statuses=statuses, runs=runs), patch.object(workflow, "_github", side_effect=respond(statuses, runs)):
                 self.assertEqual(workflow._required_context_state(self.repo, head, "ci/gate"), expected)
 
-    def harness_script(self, body):
-        """A harness check command that logs its argv, cwd and HEAD outside the repo, then runs `body`."""
-        log = self.tmp / "harness.log"
-        script = ("import json, os, subprocess, sys\n"
-                  "head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
-                  f"open({str(log)!r}, 'a').write(json.dumps([sys.argv[1:], os.getcwd(), head]) + '\\n')\n" + body)
-        self.guardrails.return_value = [sys.executable, "-c", script]
-        return log
-
-    def test_prove_runs_the_harness_checks_over_the_head_tree_and_publishes_the_verdict(self):
-        log = self.harness_script("print('no findings')")
-        self.change()
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", result)
-        self.assertEqual(result["harnessCheck"], {"status": "pass", "output": "no findings\n"})
-        (argv, cwd, head), = [json.loads(line) for line in log.read_text().splitlines()]
-        self.assertEqual(argv[0], "--repo")
-        self.assertEqual(Path(argv[1]).resolve(), Path(cwd).resolve(), "the checks inspect the tree they run in")
-        self.assertNotEqual(Path(cwd).resolve(), self.repo.resolve(), "the checks run over the head tree, not the source checkout")
-        self.assertEqual(head, self.head, "the head tree is checked out at the proved head")
-        self.assertEqual(argv[2:], ["--record", str(self.record)])
-        self.assertEqual(self.comment.call_args.args[2]["harnessCheck"]["status"], "pass", "the published result carries the verdict")
-
-    def test_failing_harness_checks_block_prove_before_the_verifier(self):
-        self.harness_script("print('NAMING.file src/x.py'); sys.exit(1)")
-        self.change()
-        result = self.prove()
-        self.assert_block(result, "harness checks (omp-guardrails) failed at head")
-        self.assert_block(result, "NAMING.file src/x.py")
-        self.assertEqual(result["harnessCheck"]["status"], "fail")
-        self.assertEqual(self.comment.call_args.args[2]["harnessCheck"]["status"], "fail")
-        self.verifier.assert_not_called()
-        self.post.assert_not_called()
-
-    def test_harness_checks_that_write_into_the_head_tree_block(self):
-        self.harness_script("open('stray.txt', 'w').write('x')")
-        self.change()
-        result = self.prove()
-        self.assert_block(result, "the harness checks wrote into the head tree")
-        self.verifier.assert_not_called()
-
-    def test_harness_check_timeout_blocks_and_is_separate_from_the_proof_timeout(self):
-        self.harness_script("import time; time.sleep(2)")
-        self.change()
-        with patch.object(workflow, "HARNESS_CHECK_TIMEOUT", 0.2):
-            result = self.prove()
-        self.assert_block(result, "harness checks (omp-guardrails) failed at head")
-        self.assertIn("timeout", result["harnessCheck"]["output"])
-        self.harness_script("pass")
-        with patch.object(workflow, "CHECK_TIMEOUT", 0.0001):
-            self.assertTrue(workflow._harness_check(self.repo, self.record)[0],
-                            "a tiny per-proof CHECK_TIMEOUT does not apply to the harness check")
-
-    def test_harness_command_is_omp_guardrails_from_the_harness_reference_project(self):
-        self.guardrails_patch.stop()
-        self.addCleanup(self.guardrails_patch.start)
-        project = workflow._harness_root() / "agent/skills/setup-repository-guardrails/assets/python-reference"
-        self.assertTrue((project / "pyproject.toml").is_file())
-        self.assertEqual(workflow._guardrails_command(), ["uv", "run", "--project", str(project), "omp-guardrails", "check"])
-
-    def test_prove_writes_result_beside_pass_marker_and_posts_it_on_the_pr(self):
+    def test_prove_writes_result_and_posts_it_on_the_pr(self):
         self.change()
         result = self.prove()
         self.assertEqual(result["status"], "pass", result)
         path = workflow.result_path(self.repo, self.head)
         self.assertEqual(path.parent, workflow._common(self.repo) / "omp-prove")
-        self.assertTrue((path.parent / f"{self.head}.json").is_file())
         self.assertEqual(json.loads(path.read_text()), result)
         self.assertEqual(result["prComment"], self.comment.return_value)
         self.assertEqual((result["head"], result["objective"], result["manifestSha256"]), (self.head, "fix value", workflow._sha(self.manifest_path)))
         repo, head, posted = self.comment.call_args.args
         self.assertEqual((repo, head, posted["status"]), (self.repo.resolve(), self.head, "pass"))
-        self.verifier.return_value = dict(verdict(), status="fail", blocking=["wrong"])
+        self.write("value", "regressed")
+        self.head = self.commit("regression")
         failed = self.prove()
-        self.assert_block(failed, "wrong")
-        self.assertEqual(json.loads(path.read_text())["status"], "fail", "a failed prove also writes and posts its result")
+        self.assert_block(failed, "head run 1 failed")
+        self.assertEqual(self.stored_status(), "fail", "a failed prove also writes and posts its result")
         self.assertEqual(self.comment.call_args.args[2]["status"], "fail")
 
-    def test_unpublished_pass_fails_and_revokes_marker(self):
+    def test_unpublished_pass_fails(self):
         self.change()
         self.comment.side_effect = workflow.WorkflowError("no unique open PR at requested head")
         result = self.prove()
         self.assert_block(result, "infrastructure: publishing prove result: no unique open PR at requested head")
-        self.assertEqual(json.loads(workflow.result_path(self.repo, self.head).read_text())["status"], "fail")
-        history = json.loads((workflow._common(self.repo) / "omp-prove" / "attempts" / f"{self.head}.json").read_text())
-        self.assertEqual(history[-1]["status"], "fail")
+        self.assertEqual(self.stored_status(), "fail")
 
-    def test_result_comment_omits_local_paths_and_fits_github_limit(self):
-        result = {"status": "pass", "head": "a" * 40, "worktree": str(self.repo), "blocking": [],
+    def test_unwritable_result_never_leaves_a_stale_pass(self):
+        self.change()
+        self.assertEqual(self.prove()["status"], "pass")
+        writes = []
+        original = workflow._atomic_json
+        def fail_second(path, value):
+            writes.append(path)
+            if len(writes) == 2:
+                raise OSError("disk full")
+            return original(path, value)
+        with patch.object(workflow, "_atomic_json", side_effect=fail_second):
+            result = self.prove()
+        self.assert_block(result, "infrastructure: publishing prove result: disk full")
+        self.assertIsNone(self.stored_status())
+
+    def test_result_comment_fits_github_limit(self):
+        result = {"status": "pass", "head": "a" * 40, "blocking": [],
                   "deterministic": {"proofs": {"P1": [{"location": "head", "output": "x" * 5000 + "END"}]}}}
         body = workflow._result_comment(result)
         self.assertTrue(body.startswith(workflow.RESULT_MARKER))
-        self.assertNotIn(str(self.repo), body)
         self.assertIn("[TRUNCATED to last 1000 chars]", body)
         self.assertIn("END", body)
         self.assertEqual(result["deterministic"]["proofs"]["P1"][0]["output"], "x" * 5000 + "END", "the returned result stays complete")
         result["deterministic"]["proofs"] = {f"P{n}": [{"output": "y" * 5000}] * 3 for n in range(30)}
         self.assertLessEqual(len(workflow._result_comment(result)), workflow.COMMENT_LIMIT)
-        result["verifier"] = {"followUps": ["z" * workflow.COMMENT_LIMIT]}
+        result["blocking"] = ["z" * workflow.COMMENT_LIMIT]
         self.assertIn("too large for a PR comment", workflow._result_comment(result))
 
     def test_post_result_comment_targets_the_one_open_pr_at_head(self):
@@ -1520,16 +894,6 @@ class RepositoryTests(unittest.TestCase):
         with patch.object(workflow, "_github", return_value=[]), self.assertRaisesRegex(workflow.WorkflowError, "no unique open PR"):
             workflow._post_result_comment(self.repo, head, {"status": "pass", "head": head})
 
-    def test_verifier_receives_proof_records_as_settled_evidence(self):
-        self.change(proofs=[self.proof(ident="P2", filename="second.py"), self.proof()])
-        self.verifier.return_value = verdict(())
-        result = self.prove()
-        self.assertEqual(result["status"], "pass", "the verifier need not re-drive proofs prove() already ran")
-        brief = self.verifier.call_args.args[0]
-        self.assertIn("Deterministic proof records are settled evidence", brief)
-        self.assertIn("Do not re-run proofs to confirm them.", brief)
-        self.assertNotIn("Drive every criterion live", brief)
-
 
 class WorkflowErrorForTest(RuntimeError):
     pass
@@ -1540,7 +904,7 @@ class SchemaTests(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.path = Path(scratch.name) / "manifest.json"
-        self.data = {"schemaVersion": 1, "slug": "valid", "base": "a" * 40, "proofs": [{"id": "P", "criterion": "works", "kind": "preserve",
+        self.data = {"schemaVersion": 1, "slug": "valid", "base": "a" * 40, "proofs": [{"id": "P", "criterion": "works",
                      "cmd": [sys.executable, "proof.py"], "files": ["proof.py"], "sha256": {"proof.py": "b" * 64}}]}
 
     def load(self, data):
@@ -1549,13 +913,12 @@ class SchemaTests(unittest.TestCase):
 
     def test_manifest_invalid_shapes(self):
         mutations = [("slug", []), ("schemaVersion", True), ("base", None), ("setup", "shell"), ("revisions", {}),
-                     ("dynaflowsContract", 0), ("dynaflowsContract", "5"), ("dynaflowsContract", True),
-                     ("revisions", [{"id": [], "reason": "why", "oldSha256": "a" * 64}]), ("proofs", None)]
+                     ("revisions", [{"id": [], "reason": "why", "oldSha256": "a" * 64}]), ("proofs", None), ("proofs", {})]
         for key, value in mutations:
             with self.subTest(key=key, value=value), self.assertRaises(workflow.WorkflowError):
                 self.load(dict(self.data, **{key: value}))
-        for key, value in (("files", [["unhashable"]]), ("files", ["a", "a"]), ("cmd", "shell"), ("kind", []), ("criterion", " "),
-                           ("sha256", []), ("sha256", {"proof.py": 3}), ("expectRed", "unexpected"), ("parent", "HEAD")):
+        for key, value in (("files", [["unhashable"]]), ("files", ["a", "a"]), ("cmd", "shell"), ("criterion", " "),
+                           ("sha256", []), ("sha256", {"proof.py": 3}), ("parent", "HEAD")):
             data = copy.deepcopy(self.data)
             data["proofs"][0][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(workflow.WorkflowError):
@@ -1563,6 +926,21 @@ class SchemaTests(unittest.TestCase):
         self.path.write_text("{")
         with self.assertRaises(workflow.WorkflowError):
             workflow.load_manifest(self.path, workflow._sha(self.path))
+
+    def test_zero_proofs_are_valid(self):
+        data = dict(self.data, proofs=[])
+        self.assertEqual(self.load(data), data)
+
+    def test_retired_proof_kinds_and_expect_red_are_refused(self):
+        for key, value in (("kind", "defect"), ("kind", "preserve"), ("kind", "new-surface"), ("expectRed", None), ("expectRed", "x")):
+            data = copy.deepcopy(self.data)
+            data["proofs"][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(workflow.WorkflowError, f"P: {key} retired"):
+                self.load(data)
+
+    def test_legacy_manifest_contract_field_is_ignored(self):
+        data = dict(self.data, dynaflowsContract=2)
+        self.assertEqual(self.load(data), data)
 
     def test_noncanonical_paths_and_tmp_independence(self):
         for name in ("./proof.py", "../proof.py", "a//b", "a/./b", "a/../b", "/proof.py", "a/", "C:proof", "a\\b", "a/.git/b", "a\0b", ""):
@@ -1574,10 +952,10 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(self.load(self.data), self.data)
 
     def test_gate_schema_optional_fields(self):
-        valid = [{"schemaVersion": 2, **SWITCH}, {"schemaVersion": 2, "pathCheckTimeoutMs": 1, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}, **SWITCH},
+        valid = [{"schemaVersion": 2, **SWITCH}, {"schemaVersion": 2, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}, **SWITCH},
                  {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": "ci-gate"},
                   "checks": {"format": ["ruff", "format"], "profile": ["omp-guardrails", "profile-check"]}, "dynaflows": {"enabled": False}}]
-        invalid = [{"schemaVersion": True}, {"schemaVersion": 3}, *({"schemaVersion": 2, "pathCheckTimeoutMs": x} for x in (0, True, 1.5, None, 9007199254740992)),
+        invalid = [{"schemaVersion": True}, {"schemaVersion": 3},
                    {"schemaVersion": 2, "checks": {"ci": None}}, {"schemaVersion": 2, "pathCheck": None}, {"schemaVersion": 2, "testGlobs": [2]},
                    {"schemaVersion": 2, "agentMerge": False}, {"schemaVersion": 2, "checks": {"format": "ruff format"}},
                    {"schemaVersion": 2, "checks": {"profile": []}}, {"schemaVersion": 2, "ci": None}, {"schemaVersion": 2, "ci": "gate"},
@@ -1597,42 +975,15 @@ class SchemaTests(unittest.TestCase):
                 gate = {"schemaVersion": 2} if switch is None else {"schemaVersion": 2, "dynaflows": switch}
                 self.assertEqual(workflow.gate_reason(gate), 'dynaflows must be {"enabled": true|false}')
         policy = workflow.gate_policy(valid[2])
-        self.assertEqual((policy["format"], policy["profile"], policy["ci"]),
-                         (["ruff", "format"], ["omp-guardrails", "profile-check"], {"requiredContext": "gate", "runner": "ci-gate"}))
+        self.assertEqual(policy, {"pathCheck": None, "format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
 
-    def test_gate_contract_must_be_positive_safe_integer(self):
-        self.assertEqual(workflow.gate_policy({"schemaVersion": 2, "dynaflowsContract": 3, **SWITCH})["dynaflowsContract"], 3)
-        self.assertIsNone(workflow.gate_policy({"schemaVersion": 2, **SWITCH})["dynaflowsContract"])
-        for value in (0, -1, True, 2.0, "2", None, 9007199254740992):
-            with self.subTest(value=value):
-                self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "dynaflowsContract": value}),
-                                 "dynaflowsContract must be a positive safe integer")
-
-    def test_contract_reads_the_single_top_level_rails_line(self):
-        self.assertEqual(workflow.dynaflows_contract(), workflow.dynaflows_contract(RAILS))
-        self.assertGreater(CONTRACT, 0)
-        with tempfile.TemporaryDirectory() as scratch:
-            path = Path(scratch) / "agent-rails.yml"
-            for text, expected in (("# note\ndynaflowsContract: 7  # current\nreferences: {}\n", 7),
-                                   ("dynaflowsContract: 3\r\n", 3)):
-                path.write_text(text, newline="")
-                self.assertEqual(workflow.dynaflows_contract(path), expected)
-            for text in ("references: {}\n", "dynaflowsContract: 0\n", "dynaflowsContract: two\n",
-                         "  dynaflowsContract: 2\n", "dynaflowsContract: 2\ndynaflowsContract: 3\n"):
-                path.write_text(text)
-                with self.subTest(text=text), self.assertRaises(workflow.WorkflowError):
-                    workflow.dynaflows_contract(path)
-            with self.assertRaises(workflow.WorkflowError):
-                workflow.dynaflows_contract(Path(scratch) / "missing.yml")
-        loaded = {"__name__": "kernel"}
-        exec(compile(MODULE.read_text(), "<cell>", "exec"), loaded)
-        with self.assertRaisesRegex(loaded["WorkflowError"], "without __file__"):
-            loaded["dynaflows_contract"]()
-        # The eval kernel's %load sets __file__ in the shared namespace; a later %load replaces it.
-        kernel = {"__name__": "kernel", "__file__": str(MODULE)}
-        exec(compile(MODULE.read_text(), str(MODULE), "exec"), kernel)
-        kernel["__file__"] = "/elsewhere/other.py"
-        self.assertEqual(kernel["dynaflows_contract"](), CONTRACT)
+    def test_legacy_record_fields_are_accepted_and_ignored(self):
+        for legacy in ({"dynaflowsContract": 3}, {"dynaflowsContract": 0}, {"dynaflowsContract": "2"}, {"dynaflowsContract": None},
+                       {"pathCheckTimeoutMs": 0}, {"pathCheckTimeoutMs": 1.5}, {"pathCheckTimeoutMs": 9007199254740992}):
+            with self.subTest(legacy=legacy):
+                gate = {"schemaVersion": 2, "pathCheck": ["true"], **SWITCH, **legacy}
+                self.assertIsNone(workflow.gate_reason(gate))
+                self.assertEqual(workflow.gate_policy(gate), {"pathCheck": ["true"], "format": None, "ci": None})
 
     def test_retired_ci_host_is_rejected_with_migration_message(self):
         for value in ("github", "self-hosted", None):
@@ -1651,22 +1002,21 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(workflow.WorkflowError, "journey must be a boolean"):
             self.load(data)
 
+    def test_harness_root_survives_a_later_kernel_load(self):
+        loaded = {"__name__": "kernel"}
+        exec(compile(MODULE.read_text(), "<cell>", "exec"), loaded)
+        with self.assertRaisesRegex(loaded["WorkflowError"], "without __file__"):
+            loaded["_harness_root"]()
+        # The eval kernel's %load sets __file__ in the shared namespace; a later %load replaces it.
+        kernel = {"__name__": "kernel", "__file__": str(MODULE)}
+        exec(compile(MODULE.read_text(), str(MODULE), "exec"), kernel)
+        kernel["__file__"] = "/elsewhere/other.py"
+        self.assertEqual(kernel["_harness_root"](), MODULE.resolve().parents[4])
+
     def test_workflow_code_holds_no_model_ids_or_hosts(self):
         text = MODULE.read_text()
         for pattern in (r"gpt-\d", r"claude-", r"sonnet", r"opus", r"openai-codex", r"\bnuc\b", r"omarchy", r"/Users/"):
             self.assertIsNone(re.search(pattern, text, re.IGNORECASE), pattern)
-
-    def test_run_verifier_seam_selector_schema_and_override(self):
-        with patch.object(workflow, "agent", create=True, return_value="handle") as spawn, patch.object(workflow, "wait", create=True, return_value=[verdict()]) as wait:
-            workflow._run_verifier("brief", ["P2", "P1"])
-            self.assertEqual(spawn.call_args.kwargs["agent"], "verifier")
-            self.assertNotIn("model", spawn.call_args.kwargs)
-            self.assertFalse(spawn.call_args.kwargs["schema"]["additionalProperties"])
-            proof_id_schema = spawn.call_args.kwargs["schema"]["properties"]["criteria"]["items"]["properties"]["proofId"]
-            self.assertEqual(proof_id_schema, {"enum": ["P1", "P2"]})
-            self.assertEqual(wait.call_args.kwargs, {"raise_errors": False})
-            workflow._run_verifier("brief", ["P1"], model="provider/example-verifier")
-            self.assertEqual(spawn.call_args.kwargs["model"], "provider/example-verifier")
 
     def test_load_safe_no_bang_lines(self):
         self.assertIsNone(re.search(r"^\s*!", MODULE.read_text(), re.MULTILINE))

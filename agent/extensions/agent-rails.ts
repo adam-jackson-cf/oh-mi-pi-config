@@ -1,9 +1,9 @@
-import { access, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
+import { access, lstat, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
 	z, type ExtensionAPI, type ExtensionContext, type ToolCallEvent, type ToolResultEvent,
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
@@ -12,17 +12,13 @@ import {
 	configRoot as defaultConfigRoot, findRecord, GATE_FILE, offText, RECORDS_DIR, readGateText, resolveRecord,
 } from "../lib/repo-record.ts";
 
-// Hang guard for the rails' own short git/gh reads. CI waits never use it: their timeouts come
-// from the runner config. gate.json `pathCheckTimeoutMs` overrides it for the path check.
+// The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
 const SUBPROCESS_TIMEOUT_MS = 20_000;
 const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { new RegExp(value); return true; } catch { return false; }
 });
-const contractVersion = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const mappingSchema = z.object({
-	// The dynaflows contract this omp install implements; repos record theirs in gate.json.
-	dynaflowsContract: contractVersion,
 	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
 		for (const key of ["firstEdit", "newFile", "test", "verification", "workflow", "git"]) {
 			const urls = references[key];
@@ -44,23 +40,21 @@ const nonEmpty = z.string().refine(value => value.trim().length > 0);
 const retiredCiHost = "ciHost is retired; declare ci.requiredContext and ci.runner";
 const policyFields = {
 	pathCheck: argvSchema.optional(),
-	pathCheckTimeoutMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 	testGlobs: stringList.optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	// `requiredContext` is the commit status or check run that must be SUCCESS on the exact PR head,
 	// whoever posts it; `runner` is a role resolved by the machine's ci-runners.json.
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
 	ciHost: z.unknown().optional(),
-	// The dynaflows contract the record was set up against; rails and workflows refuse a lower one.
-	dynaflowsContract: contractVersion.optional(),
 	// The repo's dynaflows switch (required); it replaces the retired project-level dynaflows file.
 	dynaflows: z.unknown().optional(),
 };
 const dynaflowsSwitch = z.object({ enabled: z.boolean() });
 // The per-repo record's gate.json (repos/<owner>/<name>/ under the oh-mi-pi-config root).
-// `checks.commit` is the repo's own commit command: rails run it at the agent's commit, then the
-// harness checks; `checks.ci` runs in CI for push and merge; `checks.format` runs in freeze()
-// before hashing; `checks.profile` runs first in prove().
+// `checks.commit` is the repo's own commit command: rails run it at the agent's commit, after
+// pathCheck and before the harness checks; `checks.ci` runs in CI; `checks.format` runs in freeze()
+// before hashing; `checks.profile` is validated for the harness's other consumers. Unknown fields
+// (such as a retired dynaflowsContract or pathCheckTimeoutMs) are ignored, so older records load.
 const gateSchema = z.object({
 	schemaVersion: z.literal(2),
 	checks: z.object({
@@ -76,11 +70,9 @@ const gateSchema = z.object({
 	commit: gate.checks?.commit,
 	ciCheck: gate.checks?.ci,
 	pathCheck: gate.pathCheck,
-	pathCheckTimeoutMs: gate.pathCheckTimeoutMs,
 	testGlobs: gate.testGlobs,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
-	dynaflowsContract: gate.dynaflowsContract,
 	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),
 }));
 const prCiSchema = z.object({
@@ -97,8 +89,6 @@ const prCiSchema = z.object({
 const harnessVariables = ["AGENT"];
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
-const agentVerified = "agent-verified";
-const agentVerifiedStatusOnly = "Agent rails: agent-verified is a SHA-bound commit status; prove() posts it (non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified)";
 // Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci-runner.py.
 const ciRunnerPath = fileURLToPath(new URL("../../scripts/ci-runner.py", import.meta.url));
 function shellWord(value: string): string {
@@ -134,8 +124,6 @@ type Gate = z.infer<typeof gateSchema>;
 type RepoRecord = { dir: string; gate: Gate };
 type GitAction = {
 	command: string; args: string[]; cwd?: string; config: string[];
-	// Git's global options before the subcommand, e.g. -C, -c, --exec-path=… (git actions only).
-	globals?: string[];
 	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
 	hookSkip?: string;
 };
@@ -179,12 +167,6 @@ function absolute(path: string, cwd: string): string | undefined {
 function absentFile(error: NodeJS.ErrnoException): null {
 	const parsed = fileErrorSchema.safeParse(error);
 	if (parsed.success && parsed.data.code === "ENOENT") return null;
-	throw error;
-}
-// For record scans: a missing path, or one of the wrong kind (file vs directory), holds nothing.
-function absentEntry(error: NodeJS.ErrnoException): null {
-	const parsed = fileErrorSchema.safeParse(error);
-	if (parsed.success && ["ENOENT", "ENOTDIR", "EISDIR"].includes(parsed.data.code ?? "")) return null;
 	throw error;
 }
 async function repoRoot(path: string): Promise<string | undefined> {
@@ -418,10 +400,8 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 		} else if (executable === "git") {
 			let effective = cwd;
 			const config: string[] = [];
-			const globals: string[] = [];
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
-				globals.push(option);
 				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
 					const value = words.shift();
 					if (option === "-C") effective = await directory(value, effective);
@@ -430,7 +410,7 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
 				else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
-			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config, globals });
+			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
 		} else if (executable === "gh") {
 			if (words.some(word => ["-R", "--repo", "--hostname"].includes(word) || /^(-R.|--repo=|--hostname=)/.test(word))) {
 				throw new Error("gh remote repository overrides are unsupported; use the validated local target repository");
@@ -538,90 +518,6 @@ function commitBypass(action: GitAction): string | undefined {
 	return action.hookSkip;
 }
 
-// Rails run commit checks at tool-call time, before the command runs. So a checked commit must be
-// the whole command: one `git` (or tool-launcher) invocation with no unquoted operator, subshell,
-// redirection or substitution, no shell, eval or xargs wrapper, and no leading VAR=value assignment.
-function soleCommit(command: string): boolean {
-	let plain = "";
-	for (let i = 0; i < command.length; i++) {
-		const char = command[i];
-		if (char === "\\") { plain += "__"; i++; continue; }
-		if (char !== "'" && char !== '"') { plain += char; continue; }
-		const end = command.indexOf(char, i + 1);
-		if (end < 0) return false;
-		const body = command.slice(i + 1, end);
-		if (char === '"' && (/[`\\]/.test(body) || body.includes("$("))) return false;
-		plain += "_".repeat(body.length + 2);
-		i = end;
-	}
-	if (/[;&|()<>`{}\n]/.test(plain.trim())) return false;
-	const executable = basename(plain.trim().split(/\s+/)[0] ?? "");
-	return executable === "git" || Object.hasOwn(toolLaunchers, executable);
-}
-// Which `git commit` arguments (after "commit") stage everything (-a/--all), give the message
-// (-m/--message/-F/--file) or may open an editor (-e/--edit, -c/--reedit-message).
-function commitOptions(args: string[]) {
-	const seen = { all: false, message: false, edit: false };
-	for (let index = 0; index < args.length; index++) {
-		const arg = args[index];
-		if (arg === "--") break;
-		if (arg.startsWith("--")) {
-			const name = arg.split("=")[0];
-			if (name === "--all") seen.all = true;
-			if (["--message", "--file"].includes(name)) seen.message = true;
-			if (name.length > 2 && ("--edit".startsWith(name) || "--reedit-message".startsWith(name))) seen.edit = true;
-			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
-			continue;
-		}
-		if (!arg.startsWith("-") || arg === "-") continue;
-		for (let at = 1; at < arg.length; at++) {
-			const flag = arg[at];
-			if (flag === "a") seen.all = true;
-			if (flag === "e" || flag === "c") seen.edit = true;
-			if (flag === "m" || flag === "F") seen.message = true;
-			if (flag === "u" || flag === "S") break;
-			if (Object.hasOwn(commitValueShorts, flag)) {
-				if (at === arg.length - 1) index++;
-				break;
-			}
-		}
-	}
-	return seen;
-}
-// Why a dynaflows commit could run a program the commit checks never saw, if it could.
-function checkedCommitReason(command: string, action: GitAction): string | undefined {
-	if (!soleCommit(command)) return "Agent rails: commit checks run before the command, so `git commit` must be the whole command. Stage your changes first (git add) in a separate call, then run `git commit` on its own: no &&, ||, ;, |, newline, subshell, $(...), backticks, redirection, leading VAR=value assignment or sh -c/eval/xargs wrapper; use the cwd parameter or git -C instead of cd.";
-	const global = action.globals?.find(option => /^(?:-c|--config-env|--exec-path)/.test(option));
-	if (global) return `Agent rails: dynaflows commits refuse git global option ${global}, which can make the commit run other programs; drop it and commit again.`;
-	const options = commitOptions(action.args.slice(1));
-	if (!options.message || options.edit) return "Agent rails: dynaflows commits must give the message with -m/--message or -F/--file and must not open an editor (-e/--edit, -c/--reedit-message); commit again with -m.";
-}
-
-type Author = { family: string; model: string; agent: string };
-type AuthorScope = { worktree: string; common: string; branch: string; ledger: string };
-const authorText = z.string().refine(value => value.trim().length > 0);
-// Rails refuse a record whose contract differs from the installed one (absent, below or above):
-// strict callers block, the rest note it and treat dynaflows as off. workflows.py
-// contract_mismatch() states the same text.
-function contractMismatch(recorded: number | undefined, current: number): string | undefined {
-	if (recorded === current) return;
-	const stated = `Dynaflows contract v${recorded ?? "none"} recorded; current is v${current}.`;
-	return recorded !== undefined && recorded > current
-		? `${stated} The record expects a newer dynaflows contract; update omp.`
-		: `${stated} Draft the update with omp-guardrails init --extend --record <a copy of the record outside repos/>, ` +
-			"then ask the owner to review it and save it over the live record; agents never write records.";
-}
-const authorSchema = z.object({ family: authorText, model: authorText, agent: authorText });
-const ledgerSchema = z.object({
-	schemaVersion: z.literal(1), worktree: z.string(), branch: z.string(), authors: z.array(authorSchema).min(1),
-});
-function compareAuthors(a: Author, b: Author): number {
-	for (const key of ["family", "model", "agent"] as const) {
-		if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
-	}
-	return 0;
-}
-
 // The harness checks: omp-guardrails run from the harness's own reference project (never installed
 // into the repo), over the whole repo, with the record as config. Rails append
 // `--repo <worktree> --record <record dir>`.
@@ -642,10 +538,7 @@ export default function agentRails(
 		guardrailsCommand = defaultGuardrailsCommand,
 	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[] } = {},
 ): void {
-	// Factories are rebound to child sessions; only the parent-keyed authorship registry is shared.
 	const states = new Map<string, State>();
-	// Record file texts taken when a non-edit tool call starts, keyed by tool call ID.
-	const recordSnapshots = new Map<string, Map<string, { link?: string; data?: Buffer }>>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
@@ -669,14 +562,6 @@ export default function agentRails(
 		if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
 		return result.stdout.trim();
 	}
-	async function scopeAt(cwd: string) {
-		const worktree = await realpath(await gitValue(cwd, ["rev-parse", "--show-toplevel"]));
-		const common = await realpath(resolve(worktree, await gitValue(worktree, ["rev-parse", "--git-common-dir"])));
-		const branchResult = await pi.exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd: worktree, timeout: SUBPROCESS_TIMEOUT_MS });
-		const branch = branchResult.code === 0 ? branchResult.stdout.trim() : `detached:${await gitValue(worktree, ["rev-parse", "HEAD"])}`;
-		const key = createHash("sha256").update(`${worktree}\0${branch}`).digest("hex");
-		return { worktree, common, branch, ledger: resolve(common, "omp-authors", `${key}.json`) };
-	}
 	async function primaryGithubRepository(cwd: string): Promise<string> {
 		const remotes = (await gitValue(cwd, ["remote"])).split("\n");
 		const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
@@ -686,81 +571,13 @@ export default function agentRails(
 		if (!match) throw new Error("primary remote is not a validated GitHub repository");
 		return match[1];
 	}
-	async function externalAuthors(scope: AuthorScope, parent?: string): Promise<Author[]> {
-		const repository = await primaryGithubRepository(scope.worktree);
-		async function github(args: string[]): Promise<string> {
-			const result = await pi.exec("gh", args, { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
-			if (result.code !== 0 || result.killed) throw new Error(`gh failed: ${result.stderr}`);
-			return result.stdout;
-		}
-		const head = await gitValue(scope.worktree, ["rev-parse", "HEAD"]);
-		const prs = z.array(z.object({
-			author: z.object({ login: z.string() }).nullable(), headRefName: z.string(), headRefOid: z.string(),
-		})).parse(JSON.parse(await github(["pr", "list", "--search", head, "--state", "open", "--json", "author,headRefName,headRefOid"])));
-		const matches = prs.filter(pr => pr.headRefOid === head);
-		if (matches.length !== 1) throw new Error("no unique open PR at requested head");
-		const pr = matches[0];
-		if (!pr.author || !["app/dependabot", "dependabot[bot]"].includes(pr.author.login)) throw new Error("PR author is not Dependabot");
-		if (!pr.headRefName.startsWith("dependabot/")) throw new Error("PR head branch is not dependabot/");
-		if (!parent) {
-			const base = z.object({ baseRefOid: z.string().regex(/^[0-9a-f]{40}$/) }).parse(
-				JSON.parse(await github(["pr", "view", pr.headRefName, "--json", "baseRefOid"])));
-			parent = await gitValue(scope.worktree, ["merge-base", base.baseRefOid, head]);
-		}
-		const ancestry = await pi.exec("git", ["merge-base", "--is-ancestor", parent, head], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
-		if (ancestry.code !== 0 || ancestry.killed) throw new Error("external bot parent is not an ancestor of head");
-		const range = await pi.exec("git", ["rev-list", `${parent}..${head}`], { cwd: scope.worktree, timeout: SUBPROCESS_TIMEOUT_MS });
-		if (range.code !== 0 || range.killed) throw new Error(`cannot resolve external bot commit range: ${range.stderr}`);
-		if (!range.stdout.trim()) throw new Error("empty external bot commit range");
-		const commits = range.stdout.trim().split("\n");
-		for (const sha of commits) {
-			const commit = z.object({
-				author: z.object({ login: z.string() }).nullable(),
-				commit: z.object({ verification: z.object({ verified: z.boolean() }) }),
-			}).parse(JSON.parse(await github(["api", `repos/${repository}/commits/${sha}`])));
-			if (commit.author?.login !== "dependabot[bot]") throw new Error(`commit ${sha} author is not dependabot[bot]`);
-			if (!commit.commit.verification.verified) throw new Error(`commit ${sha} is not verified`);
-		}
-		return [{ family: "external", model: "dependabot[bot]", agent: "dependabot[bot]" }];
-	}
-	async function authorsAt(scope: AuthorScope, required: boolean, parent?: string): Promise<Author[]> {
-		try {
-			const ledger = ledgerSchema.parse(JSON.parse(await readFile(scope.ledger, "utf8")));
-			if (ledger.worktree !== scope.worktree || ledger.branch !== scope.branch) throw new Error("author ledger scope mismatch");
-			if (ledger.authors.some((author, index) => index > 0 && compareAuthors(ledger.authors[index - 1], author) >= 0)) {
-				throw new Error("author ledger must be sorted and deduplicated");
-			}
-			return ledger.authors;
-		} catch (error) {
-			const parsed = fileErrorSchema.safeParse(error);
-			if (parsed.success && parsed.data.code === "ENOENT") {
-				if (!required) return [];
-				try { return await externalAuthors(scope, parent); }
-				catch (reason) { throw new Error(`no author ledger for ${scope.worktree} ${scope.branch}; authorship unknown: ${String(reason)}`); }
-			}
-			throw new Error(`authorship unknown for ${scope.worktree} ${scope.branch}: ${String(error)}`);
-		}
-	}
-	async function recordAuthor(ctx: ExtensionContext, root: string) {
-		const model = ctx.models.current();
-		if (!model) throw new Error("cannot resolve the editing agent's model family");
-		const scope = await scopeAt(root);
-		const authors = await authorsAt(scope, false);
-		authors.push({ family: ctx.models.family(model), model: `${model.provider}/${model.id}`, agent: ctx.agent.id ?? ctx.sessionManager.getSessionId() });
-		const sorted = [...new Map(authors.map(author => [JSON.stringify(author), author])).values()]
-			.sort(compareAuthors);
-		await mkdir(dirname(scope.ledger), { recursive: true });
-		const temp = `${scope.ledger}.${randomUUID()}.tmp`;
-		await writeFile(temp, `${JSON.stringify({ schemaVersion: 1, worktree: scope.worktree, branch: scope.branch, authors: sorted })}\n`);
-		await rename(temp, scope.ledger);
-	}
 	const note = (state: State, ctx: ExtensionContext, message: string) => {
 		if (state.notes.has(message)) return;
 		state.notes.add(message);
 		ctx.ui.notify(message, "info");
 	};
 	// The repo's per-repo record, resolved from its origin remote; undefined when it has none. An
-	// unreadable or invalid record, or one below the installed contract, throws.
+	// unreadable or invalid record throws.
 	async function recordAt(root: string): Promise<RepoRecord | undefined> {
 		const dir = await findRecord(root, configRoot);
 		if (!dir) return;
@@ -770,8 +587,6 @@ export default function agentRails(
 		try { parsed = gateSchema.safeParse(JSON.parse(text)); }
 		catch (error) { throw new Error(`${path}: ${String(error)}`); }
 		if (!parsed.success) throw new Error(`${path}: invalid gate: ${parsed.error.message}`);
-		const contract = contractMismatch(parsed.data.dynaflowsContract, map.dynaflowsContract);
-		if (contract) throw new Error(`${path}: ${contract}`);
 		return { dir, gate: parsed.data };
 	}
 	async function gateAt(root: string, state: State, ctx: ExtensionContext, strict = false): Promise<Gate | undefined> {
@@ -786,86 +601,26 @@ export default function agentRails(
 	function repoExec(argv: string[], cwd: string, timeout?: number) {
 		return pi.exec("env", [...harnessVariables.flatMap(name => ["-u", name]), "--", ...argv], { cwd, timeout });
 	}
-	// The canonical form of `target`: symlinks resolved, including a dangling final link and missing
-	// descendants of an existing directory.
-	async function canonicalPath(target: string, depth = 0): Promise<string> {
-		try { return await realpath(target); }
-		catch (error) {
-			const parsed = fileErrorSchema.safeParse(error);
-			if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
-		}
-		const link = await readlink(target).catch(() => undefined);
-		if (link !== undefined) {
-			if (depth > 40) throw new Error(`too many symlinks resolving ${target}`);
-			return canonicalPath(resolve(dirname(target), link), depth + 1);
-		}
-		const parent = dirname(target);
-		return parent === target ? target : join(await canonicalPath(parent, depth), basename(target));
+	// True when `path` lies lexically under the records root (<config root>/repos/). Symlink aliases
+	// and bash writes are not followed (accepted for a single owner).
+	function underRecords(path: string): boolean {
+		const rel = relative(resolve(configRoot, RECORDS_DIR), resolve(path));
+		return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 	}
-	// True when `path` lies under the records root (<config root>/repos/), compared both as written
-	// and through symlinks, so an alias of a record file is a record file.
-	async function underRecords(path: string): Promise<boolean> {
-		const records = resolve(configRoot, RECORDS_DIR);
-		for (const [base, file] of [[records, resolve(path)], [await canonicalPath(records), await canonicalPath(resolve(path))]]) {
-			const rel = relative(base, file);
-			if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return true;
-		}
-		return false;
-	}
-	// Every entry under the records root: a file's bytes or a symlink's target, keyed by path. Tools
-	// other than the edit tools (bash above all) can write anywhere, so rails compare the records
-	// before and after each such call.
-	async function recordEntries(): Promise<Map<string, { link?: string; data?: Buffer }>> {
-		const found = new Map<string, { link?: string; data?: Buffer }>();
-		const walk = async (dir: string) => {
-			for (const entry of (await readdir(dir, { withFileTypes: true }).catch(absentEntry)) ?? []) {
-				const path = join(dir, entry.name);
-				if (entry.isDirectory()) await walk(path);
-				else if (entry.isSymbolicLink()) found.set(path, { link: await readlink(path) });
-				else if (entry.isFile()) found.set(path, { data: await readFile(path) });
-			}
-		};
-		await walk(resolve(configRoot, RECORDS_DIR));
-		return found;
-	}
-	// Restores every record entry a non-edit tool call added, changed or removed, and says which.
-	async function revertRecordChanges(before: Map<string, { link?: string; data?: Buffer }>): Promise<string | undefined> {
-		const after = await recordEntries();
-		const same = (a?: { link?: string; data?: Buffer }, b?: { link?: string; data?: Buffer }) =>
-			a?.link === b?.link && (a?.data === b?.data || (a?.data !== undefined && b?.data !== undefined && a.data.equals(b.data)));
-		const restored: string[] = [];
-		for (const path of new Set([...before.keys(), ...after.keys()])) {
-			const previous = before.get(path);
-			if (same(previous, after.get(path))) continue;
-			await rm(path, { force: true, recursive: true });
-			if (previous?.link !== undefined) {
-				await mkdir(dirname(path), { recursive: true });
-				await symlink(previous.link, path);
-			} else if (previous?.data !== undefined) {
-				await mkdir(dirname(path), { recursive: true });
-				await writeFile(path, previous.data);
-			}
-			restored.push(path);
-		}
-		if (restored.length) return `Agent rails: this tool call changed per-repo record files (${restored.join(", ")}); ` +
-			"rails restored each to its state before the call. Agents never write records: print the drafted change " +
-			"or write it outside repos/, and ask the owner to save it by hand.";
-	}
-	async function passMarkerReason(cwd: string, head: string): Promise<string | undefined> {
+	// prove()'s result file <git-common-dir>/omp-prove/<head>.result.json is the one pass signal:
+	// it must say status pass for exactly `head`.
+	async function proveResultReason(cwd: string, head: string): Promise<string | undefined> {
 		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
-		if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for pass marker");
-		const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.json`);
-		const marker = z.object({
-			schemaVersion: z.literal(1), head: z.literal(head), status: z.literal("pass"), kind: z.enum(["prove", "docs-only"]),
-		});
+		if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for the prove() result");
+		const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.result.json`);
+		const result = z.object({ head: z.literal(head), status: z.literal("pass") });
 		try {
-			if (marker.safeParse(JSON.parse(await readFile(path, "utf8"))).success) return;
-		} catch { /* Missing or corrupt proof is not a pass. */ }
-		return `Agent rails: no valid pass marker for ${head} at ${path}; run prove() or exempt_docs_only() for this head`;
+			if (result.safeParse(JSON.parse(await readFile(path, "utf8"))).success) return;
+		} catch { /* A missing or corrupt result is not a pass. */ }
+		return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 	}
-	type PrCi = { head?: string; repository?: string; reason?: string; agentVerified?: string };
-	// Reads the PR's exact head and its checks. `agent-verified` is evidence, not CI: it is reported
-	// separately and never counts towards (or against) the CI rule.
+	type PrCi = { head?: string; repository?: string; reason?: string };
+	// Reads the PR's exact head and whether its CI is green there.
 	async function prCi(cwd: string | undefined, selector: string | undefined, state: State, ctx: ExtensionContext): Promise<PrCi> {
 		if (!cwd) throw new Error("cannot resolve PR action cwd");
 		const root = await repoRoot(cwd);
@@ -883,9 +638,7 @@ export default function agentRails(
 			return { head, repository, reason: `Agent rails: run from a checkout of ${repository}` };
 		}
 		const gate = await gateAt(root, state, ctx, true);
-		const evidence = pr.statusCheckRollup.find(check => check.__typename === "StatusContext" && check.context === agentVerified);
-		const agentVerifiedState = evidence?.__typename === "StatusContext" ? evidence.state : "missing";
-		const checks = pr.statusCheckRollup.filter(check => !(check.__typename === "StatusContext" && check.context === agentVerified));
+		const checks = pr.statusCheckRollup;
 		const stateOf = (check: typeof checks[number]) => check.__typename === "StatusContext"
 			? check.state : `${check.status}/${check.conclusion ?? ""}`;
 		const green = (check: typeof checks[number]) => check.__typename === "StatusContext"
@@ -895,18 +648,18 @@ export default function agentRails(
 			const named = checks.filter(check => (check.__typename === "StatusContext" ? check.context : check.name) === requiredContext);
 			if (!named.some(green)) {
 				const command = (verb: string) => `python3 ${shellWord(ciRunnerPath)} ${verb} ${shellWord(runner)} ${repository} ${head}`;
-				return { head, repository, agentVerified: agentVerifiedState, reason:
+				return { head, repository, reason:
 					`Agent rails: required CI context "${requiredContext}" is ${named.length ? stateOf(named[0]) : "missing"} for ${head} in ${repository} (runner ${runner}). ` +
 					`Submit and wait: ${command("submit")}, then ${command("wait")} --context ${shellWord(requiredContext)}; ` +
 					"see skill://git-tool/references/merge-and-recover.md for failures." };
 			}
 			// A declared context alone decides; other reported checks (optional apps, previews) never block.
-			return { head, repository, agentVerified: agentVerifiedState };
+			return { head, repository };
 		}
 		// No ci block declared: every reported check must be green.
 		if (!checks.length) {
 			const workflows = await stat(resolve(root, ".github/workflows")).catch(absentFile);
-			return { head, repository, agentVerified: agentVerifiedState, reason: gate?.ciCheck || workflows?.isDirectory()
+			return { head, repository, reason: gate?.ciCheck || workflows?.isDirectory()
 				? `Agent rails: no CI checks reported for ${head}` : undefined };
 		}
 		const nonGreen: string[] = [];
@@ -917,49 +670,8 @@ export default function agentRails(
 				nonGreen.push(`${name}: ${stateOf(check)}`);
 			}
 		}
-		return { head, repository, agentVerified: agentVerifiedState, reason: nonGreen.length || !checks.some(green)
+		return { head, repository, reason: nonGreen.length || !checks.some(green)
 			? `Agent rails: CI is not green for ${head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined };
-	}
-	// The open PR whose head is exactly `sha`; status posts are judged by that PR's checks.
-	async function prAtHead(cwd: string, sha: string): Promise<{ selector?: string; reason?: string }> {
-		const result = await pi.exec("gh", ["pr", "list", "--search", sha, "--state", "open", "--json", "number,headRefOid"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
-		if (result.code !== 0 || result.killed) return {
-			reason: `Agent rails: cannot find the PR for ${sha} via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
-		};
-		const prs = z.array(z.object({ number: z.number().int(), headRefOid: z.string() })).parse(JSON.parse(result.stdout))
-			.filter(pr => pr.headRefOid === sha);
-		if (prs.length !== 1) return { reason: `Agent rails: ${prs.length ? "several open PRs have" : "no open PR has"} head ${sha}; agent-verified is posted only on the exact head of one open PR.` };
-		return { selector: String(prs[0].number) };
-	}
-	// `gh api .../statuses/<sha>` posting the agent-verified context: allowed only when the PR whose
-	// head is <sha> has green exact-head CI (and, with dynaflows on, a valid pass marker for <sha>).
-	async function statusPostReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
-		const endpoint = action.args.slice(1).map(arg => /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/statuses\/([^/?#\s]*)/.exec(arg)).find(match => match);
-		if (!endpoint) return;
-		const method = action.args.findIndex(arg => ["-X", "--method"].includes(arg));
-		const verb = method >= 0 ? action.args[method + 1] : action.args.find(arg => /^(?:-X|--method=)/.test(arg))?.replace(/^(?:-X|--method=)/, "");
-		if (verb?.toUpperCase() === "GET") return;
-		// A payload rails cannot read (file input or @file values) may carry the agent-verified context.
-		if (action.args.some(arg => arg === "--input" || arg.startsWith("--input=") || /^[^=]+=@/.test(arg))) {
-			return "Agent rails: commit status posts must pass fields with -f/-F literals (no --input or @file), so rails can check the context.";
-		}
-		if (!action.args.some(arg => arg.includes(agentVerified))) return;
-		const [, owner, name, sha] = endpoint;
-		if (/[$`]/.test(sha)) return `Agent rails: received unexpanded shell text \`${sha}\`; rails check the literal command, so pass the 40-hex SHA itself`;
-		if (!/^[0-9a-f]{40}$/.test(sha)) return `Agent rails: agent-verified status needs a lowercase 40-hex SHA, got ${sha}`;
-		if (!action.cwd) throw new Error("cannot resolve status post cwd");
-		const root = await repoRoot(action.cwd);
-		if (!root) throw new Error("status posts require a validated local Git repository");
-		const checkout = await primaryGithubRepository(root);
-		if (!(owner === "{owner}" && name === "{repo}") && checkout.toLowerCase() !== `${owner}/${name}`.toLowerCase()) {
-			return `Agent rails: run from a checkout of ${owner}/${name}`;
-		}
-		const found = await prAtHead(action.cwd, sha);
-		if (found.reason) return found.reason;
-		const pr = await prCi(action.cwd, found.selector, state, ctx);
-		if (pr.reason) return pr.reason;
-		if (pr.head !== sha) return `Agent rails: PR head is ${pr.head}, not ${sha}; re-verify the current head`;
-		if (await dynaflowsOn(ctx, action.cwd)) return passMarkerReason(action.cwd, sha);
 	}
 	async function machineDynaflows(state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined> {
 		try {
@@ -1012,11 +724,10 @@ export default function agentRails(
 		return path;
 	}
 	// Records hold the owner's policy and approvals and never reach a PR, so the owner edits them by
-	// hand: rails refuse every edit-tool write under the records root. Other tools are checked after
-	// they run (`revertRecordChanges`).
-	async function recordWriteReason(targets: string[]): Promise<string | undefined> {
+	// hand: rails refuse every edit-tool write under the records root.
+	function recordWriteReason(targets: string[]): string | undefined {
 		for (const path of targets) {
-			if (await underRecords(path)) return `Agent rails: ${path} is under the per-repo records root; agents never write records. ` +
+			if (underRecords(path)) return `Agent rails: ${path} is under the per-repo records root; agents never write records. ` +
 				"Print the drafted change (or write it outside repos/) and ask the owner to save it by hand.";
 		}
 	}
@@ -1054,7 +765,7 @@ export default function agentRails(
 			}
 			changed = changed.filter(path => changedPaths.has(relative(canonicalRoot, path)));
 			if (!changed.length) { state.pathFailures.delete(root); return; }
-			const result = await repoExec([...gate.pathCheck, ...changed], canonicalRoot, gate.pathCheckTimeoutMs ?? SUBPROCESS_TIMEOUT_MS);
+			const result = await repoExec([...gate.pathCheck, ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);
 		} catch (error) {
@@ -1062,12 +773,28 @@ export default function agentRails(
 			return `Agent rails: pathCheck failed in ${root}: ${String(error)}`;
 		}
 	}
-	// At the agent's commit in a dynaflows-on repo: the record's checks.commit (the repo's own
-	// command), then the harness checks over the whole repo with the record as config. Any failure
-	// or finding blocks the commit; there are no baselines and no diff scoping.
-	async function commitChecksReason(root: string): Promise<string | undefined> {
+	// Repo paths a commit can take: staged and unstaged tracked changes, as absolute paths.
+	async function commitPaths(root: string): Promise<string[]> {
+		const found = new Set<string>();
+		for (const args of [["diff", "--cached", "--name-only", "-z"], ["diff", "--name-only", "-z"]]) {
+			const result = await pi.exec("git", args, { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
+			if (result.code !== 0 || result.killed) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`.trim());
+			for (const path of result.stdout.split("\0")) if (path) found.add(resolve(root, path));
+		}
+		return [...found];
+	}
+	// At the agent's commit in a dynaflows-on repo: the record's pathCheck over the paths the commit
+	// can take, the record's checks.commit (the repo's own command), then the harness checks over the
+	// whole repo with the record as config. Any failure or finding blocks the commit; there are no
+	// baselines and no diff scoping.
+	async function commitChecksReason(root: string, state: State): Promise<string | undefined> {
 		const record = await recordAt(root);
 		if (!record) return;
+		if (record.gate.pathCheck) {
+			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...await commitPaths(root)])];
+			const failed = await checkPaths(root, changed, record.gate, state);
+			if (failed) return `${failed}\nFix the findings, then commit again.`;
+		}
 		const runs: [string, string[]][] = [
 			...(record.gate.commit ? [[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit] satisfies [string, string[]]] : []),
 			["harness checks (omp-guardrails)", [...guardrailsCommand, "--repo", root, "--record", record.dir]],
@@ -1112,14 +839,6 @@ export default function agentRails(
 			if (matches(relative(root, path), map.codeGlobs)) state.edits.add(root);
 			const group = groups.get(root) ?? [];
 			group.push(path); groups.set(root, group);
-		}
-		// A per-repo record file is harness config, not a change to the repo that holds it.
-		if (runCheck) for (const [root, edited] of groups) {
-			for (const path of edited) {
-				if (await underRecords(path)) continue;
-				await recordAuthor(ctx, root);
-				break;
-			}
 		}
 		const errors: string[] = [];
 		if (runCheck) for (const [root, changedPaths] of groups) {
@@ -1167,42 +886,6 @@ export default function agentRails(
 		const state = stateFor(ctx);
 		state.reads.clear();
 	});
-	pi.on("before_subagent_spawn", async (event, ctx) => {
-		if (event.agent !== "verifier") return;
-		try {
-			let scope = await scopeAt(ctx.cwd);
-			let parent: string | undefined;
-			const contextPath = resolve(scope.common, "omp-prove/verifier-context.json");
-			const contextText = await readFile(contextPath, "utf8").catch(absentFile);
-			try {
-				if (contextText !== null) {
-					const raw: unknown = JSON.parse(contextText);
-					const context = z.object({ schemaVersion: z.literal(1), worktree: z.string(), branch: z.string().refine(value => value.startsWith("refs/heads/")), head: z.string().refine(value => /^[0-9a-f]{40}$/.test(value)), parent: z.string().regex(/^[0-9a-f]{40}$/) }).parse(raw);
-					// SAFETY: the object schema above rejects null and primitive values before inspecting raw keys.
-					if (Object.keys(raw as object).sort().join(",") !== "branch,head,parent,schemaVersion,worktree") throw new Error("unexpected verifier context fields");
-					const source = await scopeAt(context.worktree);
-					if (source.common !== scope.common || source.worktree !== context.worktree || source.branch !== context.branch ||
-						await gitValue(source.worktree, ["rev-parse", "HEAD"]) !== context.head) throw new Error("scope mismatch");
-					scope = source;
-					parent = context.parent;
-				}
-			} catch (error) {
-				throw new Error(`stale verifier context; rerun prove(): ${String(error)}`);
-			}
-			if (contextText === null && !(await dynaflowsOn(ctx, scope.worktree))) return;
-			const authors = await authorsAt(scope, true, parent);
-			const candidates = event.patterns.length
-				? event.patterns.map(pattern => ({ pattern, model: ctx.models.resolve(pattern) }))
-				: [{ pattern: undefined, model: ctx.models.current() }];
-			if (candidates.some(candidate => !candidate.model)) throw new Error("cannot resolve every verifier model candidate");
-			const independent = candidates.filter(candidate => candidate.model && !authors.some(author => author.family === ctx.models.family(candidate.model!)));
-			if (!independent.length) throw new Error(`verifier must use a different model family from every recorded author: ${JSON.stringify(authors)}`);
-			if (independent.length !== candidates.length) return {
-				model: independent.flatMap(candidate => candidate.pattern === undefined ? [] : [candidate.pattern]),
-				note: "Agent rails: removed verifier models from recorded author families.",
-			};
-		} catch (error) { return { block: true, reason: `Agent rails: ${String(error)}` }; }
-	});
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { block: true, reason: loadError };
@@ -1212,28 +895,15 @@ export default function agentRails(
 				const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 				for (const action of await gitActions(event.input.command, cwd)) {
 					if (action.hookSkip) return { block: true, reason: `Agent rails: pre-commit hook environment mutation is forbidden: ${action.hookSkip}` };
-					if (action.command.startsWith("gh ") && action.args[0] === "api") {
-						if (action.args.some(arg => /(?:^|\/)labels(?:[/?#]|$)/.test(arg)) && action.args.some(arg => arg.includes(agentVerified))) {
-							return { block: true, reason: agentVerifiedStatusOnly };
-						}
-						const reason = await statusPostReason(action, state, ctx);
-						if (reason) return { block: true, reason };
-					}
-					if (/^gh (?:pr|issue) edit\b/.test(action.command) && action.args.some((arg, index, args) =>
-						(arg === "--add-label" ? args[index + 1] ?? "" : arg.startsWith("--add-label=") ? arg.slice("--add-label=".length) : "")
-							.split(",").includes(agentVerified))) {
-						return { block: true, reason: agentVerifiedStatusOnly };
+					// Pulling commits in needs nothing beyond the hooks the commits it makes run.
+					if (/^git (?:merge|rebase|cherry-pick|revert|am|pull)(?![-\w])/.test(action.command)) {
+						const bypass = commitBypass(action);
+						if (bypass) return { block: true, reason: `Agent rails: drop hook bypass ${bypass}` };
+						continue;
 					}
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
-					if (/^git (?:merge|rebase|cherry-pick|revert|am|pull)(?![-\w])/.test(action.command)) {
-						const bypass = commitBypass(action);
-						if (bypass) return { block: true, reason: `Agent rails: drop hook bypass ${bypass}` };
-						if (!action.cwd) throw new Error("cannot resolve history operation cwd");
-						const root = await repoRoot(action.cwd);
-						if (root) await recordAuthor(ctx, root);
-					}
 					if (/^git commit\b/.test(action.command)) {
 						const bypass = commitBypass(action);
 						if (bypass) return {
@@ -1247,20 +917,9 @@ export default function agentRails(
 						// Fail-open is never silent: every commit outside dynaflows says why.
 						if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");
 						if (root && at.on) {
-							const sole = checkedCommitReason(event.input.command, action);
-							if (sole) return { block: true, reason: sole };
-							if (!commitOptions(action.args.slice(1)).all) {
-								const diff = await pi.exec("git", ["diff", "--quiet"], { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
-								if (diff.code !== 0 || diff.killed) return {
-									block: true, reason: diff.code === 1 && !diff.killed
-										? "Agent rails: tracked files have unstaged changes, so the commit checks would not see what gets committed. Rule: without -a/--all, `git diff --quiet` must pass (every tracked change staged; untracked files are fine). Stage the changes (git add) or stash them, or commit with -a, then commit again."
-										: `Agent rails: cannot check for unstaged changes (git diff --quiet): ${diff.stderr}`,
-								};
-							}
-							const reason = await commitChecksReason(root);
+							const reason = await commitChecksReason(root, state);
 							if (reason) return { block: true, reason };
 						}
-						if (root) await recordAuthor(ctx, root);
 					}
 					if (/^(?:git push\b|gh pr (?:create|merge)\b)/.test(action.command)) {
 						if (!action.cwd) return {
@@ -1272,9 +931,8 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						const merge = /^gh pr merge\b/.test(action.command);
-						const dynaflows = merge && await dynaflowsOn(ctx, action.cwd);
-						if (merge && (gate?.requiredCi || dynaflows)) {
+						// With dynaflows on, a merge needs CI green on the PR head and prove()'s pass for that head.
+						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd)) {
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 							const head = at < 0 ? undefined : args[at].includes("=") ? args[at].slice(args[at].indexOf("=") + 1) : args[at + 1];
@@ -1283,26 +941,18 @@ export default function agentRails(
 								block: true, reason: `Agent rails: received unexpanded shell text \`${head}\`; rails check the literal command, so pass the 40-hex SHA itself`,
 							};
 							if (!/^[0-9a-f]{40}$/.test(head)) return { block: true, reason: `Agent rails: --match-head-commit must be a lowercase 40-hex SHA, got ${head}` };
-							if (dynaflows) {
-								const reason = await passMarkerReason(action.cwd, head);
-								if (reason) return { block: true, reason };
-							}
+							const proved = await proveResultReason(action.cwd, head);
+							if (proved) return { block: true, reason: proved };
 							const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
 							if (pr.head && pr.head !== head) return {
-								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; re-verify the current head`,
+								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; prove() the current head`,
 							};
 							if (pr.reason) return { block: true, reason: pr.reason };
-							if (pr.agentVerified !== "SUCCESS") return {
-								block: true, reason: `Agent rails: agent-verified status is ${pr.agentVerified ?? "missing"} for ${head}${pr.repository ? ` in ${pr.repository}` : ""}; verify this exact head first (prove() posts it; non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified).`,
-							};
 						}
 					}
 				}
 			}
-			if (!map.editTools.includes(event.toolName)) {
-				recordSnapshots.set(event.toolCallId, await recordEntries());
-				return;
-			}
+			if (!map.editTools.includes(event.toolName)) return;
 			if (ctx.agent.kind !== "main") {
 				const reason = await subagentPathReason([
 					...pathArguments(event, map),
@@ -1311,7 +961,7 @@ export default function agentRails(
 				if (reason) return { block: true, reason };
 			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
-			const recordWrite = await recordWriteReason(targets);
+			const recordWrite = recordWriteReason(targets);
 			if (recordWrite) return { block: true, reason: recordWrite };
 			const required = new Set<string>();
 			for (const path of targets) {
@@ -1332,14 +982,7 @@ export default function agentRails(
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { additionalContext: loadError };
-		try {
-			const before = recordSnapshots.get(event.toolCallId);
-			recordSnapshots.delete(event.toolCallId);
-			const reverted = before ? await revertRecordChanges(before) : undefined;
-			const result = await recordResult(event, ctx, stateFor(ctx), true);
-			if (!reverted) return result;
-			return { additionalContext: [reverted, result?.additionalContext].filter(Boolean).join("\n") };
-		}
+		try { return await recordResult(event, ctx, stateFor(ctx), true); }
 		catch (error) { return { additionalContext: `Agent rails: post-edit policy failed: ${String(error)}` }; }
 	});
 	pi.on("session_stop", async (_event, ctx) => {

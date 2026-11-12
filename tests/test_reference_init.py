@@ -23,12 +23,9 @@ from omp_guardrails import cli, harness  # noqa: E402
 from omp_guardrails.config.house_style import load_house_style  # noqa: E402
 from omp_guardrails.config.profile import load_profile  # noqa: E402
 from omp_guardrails.init import command, discovery, lsp, native_config  # noqa: E402
-from omp_guardrails.init import contract as dynaflows_contract  # noqa: E402
 
 CATALOGUE = REFERENCE / "omp_guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
-# The version this omp config declares, read from agent/agent-rails.yml as init reads it.
-CURRENT = dynaflows_contract.current()
 # A language server speaking just enough LSP over stdio: it asks the client for configuration
 # (which the client must answer) before it answers a references query with one location.
 FAKE_SERVER = """import json, sys
@@ -185,7 +182,6 @@ class DraftRecordTests(InitCase):
                 "pathCheck": ["make", "check-paths"],
                 "ci": {"requiredContext": "gate", "runner": "github-actions"},
                 "dynaflows": {"enabled": False},
-                "dynaflowsContract": CURRENT,
             },
         )
         profile = load_profile(self.record)
@@ -333,75 +329,34 @@ class RequiredChecksTests(InitCase):
         self.assertNotIn("ci", self.gate())
 
 
-class ContractTests(InitCase):
-    """dynaflowsContract: written when absent, raised when lower, never lowered."""
+class ExtendTests(InitCase):
+    """--extend updates an existing record; a legacy dynaflowsContract field still loads."""
 
     def setUp(self) -> None:
         super().setUp()
         self.write_record("profile.md", '---\n{"adapter": "pytest"}\n---\n')
 
-    def stored(self, version: object) -> dict:
-        gate = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]}, "dynaflowsContract": version}
-        self.write_record("gate.json", json.dumps(gate))
-        return gate
-
-    def test_source_is_the_agent_rails_yml_of_this_config(self) -> None:
-        self.assertEqual(harness.RAILS_CONFIG, ROOT / "agent/agent-rails.yml")
-        self.assertGreaterEqual(CURRENT, 3)
-
-    def test_raises_a_lower_version_once(self) -> None:
-        self.stored(CURRENT - 1)
-        code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn(f"wrote dynaflowsContract {CURRENT}", output)
-        self.assertEqual(self.gate()["dynaflowsContract"], CURRENT)
-        self.assert_second_run_changes_nothing()
-
-    def test_never_lowers_a_higher_version(self) -> None:
-        self.stored(CURRENT + 5)
-        code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["dynaflowsContract"], CURRENT + 5)
-        self.assertIn("expects a newer dynaflows contract", output)
-
-    def test_missing_source_is_a_clear_error_and_writes_nothing(self) -> None:
-        self.stored(CURRENT)
-        before = snapshot(self.record)
-        source = self.repo.parent / "agent-rails.yml"
-        source.write_text("references: {}\n")
-        with mock.patch.object(harness, "RAILS_CONFIG", source):
-            code, output = self.init()
-        self.assertEqual(code, 1)
-        self.assertIn("cannot find the current dynaflows contract", output)
-        self.assertEqual(snapshot(self.record), before)
-
-    def test_invalid_recorded_value_is_reported_not_rewritten(self) -> None:
-        for value in (0, "2", True, None):
-            with self.subTest(value=value):
-                self.stored(value)
-                before = snapshot(self.record)
-                code, output = self.init()
-                self.assertEqual(code, 1)
-                self.assertIn("dynaflowsContract must be a positive integer", output)
-                self.assertEqual(snapshot(self.record), before)
-
     def test_extend_updates_an_existing_record_and_never_creates_one(self) -> None:
-        self.stored(CURRENT - 1)
+        self.write_record("gate.json", json.dumps({"schemaVersion": 2}))
         code, output = self.init("--extend")
         self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["dynaflowsContract"], CURRENT)
+        self.assertEqual(self.gate()["dynaflows"], {"enabled": False})
         (self.record / "gate.json").unlink()
         code, output = self.init("--extend")
         self.assertEqual(code, 1)
         self.assertIn("--extend needs an existing record:gate.json", output)
         self.assertFalse((self.record / "gate.json").exists())
 
-    def test_raise_waits_for_the_other_writes(self) -> None:
-        self.stored(CURRENT - 1)
-        failing = mock.patch.object(command, "apply_native", side_effect=RuntimeError("failed"))
-        with failing, self.assertRaises(RuntimeError):
-            self.init()
-        self.assertEqual(self.gate()["dynaflowsContract"], CURRENT - 1)
+    def test_legacy_dynaflows_contract_field_loads_and_is_left_as_recorded(self) -> None:
+        for value in (3, 0, "2", None):
+            with self.subTest(value=value):
+                gate = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]}, "dynaflowsContract": value}
+                self.write_record("gate.json", json.dumps(gate))
+                code, output = self.init("--extend")
+                self.assertEqual(code, 0, output)
+                self.assertNotIn("dynaflowsContract", output)
+                self.assertEqual(self.gate()["dynaflowsContract"], value)
+                self.assert_second_run_changes_nothing()
 
 
 class LspTests(InitCase):

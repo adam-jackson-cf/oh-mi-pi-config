@@ -14,15 +14,13 @@ The target repository holds nothing about the harness.
 The record holds two files:
 
 - `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`, `pathCheck`), test globs,
-  the required CI context and runner role, `dynaflowsContract` and `dynaflows.enabled`.
+  the required CI context and runner role, and `dynaflows.enabled`.
 - `profile.md`: the repo test profile, JSON front matter between `---` lines, then prose. Start
   it from `skill://test-guidance/assets/templates/test-profile.md`.
 
 `gate.json` here is a generic example; setup drafts the real one from the repo's make targets,
 hook config and CI jobs for the owner to confirm. Rules for the record:
 
-- `dynaflowsContract` must be at least the `dynaflowsContract` line in `agent/agent-rails.yml`;
-  workflows and rails refuse a lower one.
 - `dynaflows.enabled` is the on/off switch. No origin remote or no record means dynaflows is off.
 - Paths in a record setting are repo-relative when they name repo files and record-relative when
   they name record files. No setting names a harness directory inside the repo.
