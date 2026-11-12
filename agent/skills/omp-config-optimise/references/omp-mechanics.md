@@ -38,9 +38,8 @@ the docs live at `omp://models.md`, `omp://settings.md`,
 - `task.agentServiceTierOverrides[agent]` sets the Fast/priority tier per agent;
   Vibe workers use `tier.subagent` instead.
 - Priority overrides now cover only `task`, `kiss` and `sonic` (2026-11-04).
-- `verifier` resolves `@verifier` to Sonnet 5.5 medium. Agent rails records every code
-  author's resolved family and, with dynaflows on, blocks a verifier matching any of them;
-  session isolation alone is insufficient. Former plan/test/completeness judging roles:
+- The `verifier` role and agent were removed 2026-11-12: dynaflows proof is TDD (red at base,
+  green at head) with no agent review. Former plan/test/completeness judging roles:
   removed 2026-11-04, proof-first workflow. Bundled `reviewer` remains for open-ended
   contextual eval judgments.
 - Bundled agents without a role alias in their frontmatter (e.g. `reviewer`) ignore a same-named

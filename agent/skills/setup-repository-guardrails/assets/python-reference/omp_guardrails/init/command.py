@@ -13,14 +13,12 @@ an existing record, copy it to a draft directory outside ``repos/`` first. Into 
 3. writes ``gate.json`` with the absent fields drafted from the discovery (``record_gate``);
 4. writes proposed native-tool configs to ``proposed/`` (``native_config``); the owner applies
    them to the repository as a fix;
-5. records the dynaflows contract version (``contract``) as its last write;
-6. records the detected language servers in ``command_notes.lsp`` and runs each server's canary
+5. records the detected language servers in ``command_notes.lsp`` and runs each server's canary
    references query (``lsp``). A server missing from ``PATH`` is a setup gap unless
    ``--allow-missing-lsp`` is given; a server that fails the canary always is.
 
-``--extend`` brings an existing record to the current format and contract (for example after
-a contract bump) and refuses to create a record. The report lists what was discovered and every
-value the owner must confirm. Init never
+``--extend`` brings an existing record to the current format and refuses to create a record.
+The report lists what was discovered and every value the owner must confirm. Init never
 overwrites a recorded value, never writes an approval and never turns dynaflows on, so a second
 run changes nothing.
 """
@@ -34,7 +32,7 @@ from pathlib import Path
 from omp_guardrails import harness
 from omp_guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
 from omp_guardrails.findings import Finding
-from omp_guardrails.init import contract, discovery, lsp, native_config, profile_fill, record_gate
+from omp_guardrails.init import discovery, lsp, native_config, profile_fill, record_gate
 
 USAGE_RULE = "PROFILE.complete"
 PROPOSED_DIR = "proposed"
@@ -144,38 +142,18 @@ def optional_profile(record: Path) -> dict:
         return {}
 
 
-def apply_contract(record: Path, version: int, changes: list[str]) -> list[str]:
-    """Record ``version`` in the gate on disk; run after every other write succeeded."""
-    gate = record_gate.load_gate(record)
-    if gate is None:
-        return [f"{contract.FIELD}: no {record_gate.GATE_PATH} was written"]
-    planned, note = contract.planned(gate, version)
-    if planned != gate:
-        write_if_changed(
-            record / record_gate.GATE_FILE,
-            record_gate.render(planned),
-            changes,
-            f"{contract.FIELD} {version} in {record_gate.GATE_PATH}",
-        )
-    return [note] if note else []
-
-
 def initialise(
     repo: Path, record: Path, options: argparse.Namespace
 ) -> tuple[list[str], list[Finding]]:
     """Draft the record; return report lines and setup-gap findings."""
     gate = record_gate.load_gate(record)
-    if gate is not None:
-        contract.recorded(gate)
-    elif options.extend:
+    if gate is None and options.extend:
         raise UsageError(f"--extend needs an existing {record_gate.GATE_PATH}; run init without it")
-    version = contract.current()
     found = discovery.discover(repo, offline=options.offline)
     changes: list[str] = []
     report = found.report() + apply_profile(repo, record, options, changes)
     report += apply_gate(record, gate, found, options, changes)
     report += apply_native(repo, record, changes)
-    report += apply_contract(record, version, changes)
     lsp_findings, lsp_lines = lsp.readiness(
         repo,
         lsp.detect(repo),
@@ -209,7 +187,7 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
         )]
     try:
         lines, findings = initialise(repo, record, parse(argv))
-    except (UsageError, contract.ContractError) as error:
+    except UsageError as error:
         return [usage_finding(str(error))]
     except record_gate.GateError as error:
         return [record_gate.gate_finding(error)]
