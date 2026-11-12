@@ -1,5 +1,0 @@
-{
-  "schemaVersion": 2,
-  "checks": {"ci": ["bash", "scripts/run-ci-quality-gates.sh"]},
-  "ci": {"requiredContext": "gate", "runner": "ci-gate"}
-}

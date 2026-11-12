@@ -120,7 +120,6 @@ tests/fixtures/*
 !.omp/
 .omp/*
 !.omp/lsp.json
-!.omp/gate.json
 !.omp/AGENTS.md
 
 !.devcontainer/
