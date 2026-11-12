@@ -28,8 +28,7 @@ execution.
    limits; an unapproved machine prompts for a baseline and reports timing
    only.
 4. Parse the record's `gate.json` and verify Step 6's schema, version, field
-   types, command arrays, timeout, globs, merge-policy enum/defaults,
-   `dynaflowsContract` at or above `agent/agent-rails.yml` and a boolean
+   types, command arrays, globs, merge-policy enum/defaults and a boolean
    `dynaflows.enabled`. Optional fields must remain optional to the format
    validator. Prove the target's own wiring: actual CI runs `checks.ci`; for
    parallel CI, the aggregate depends on every tier and fails on any failed,

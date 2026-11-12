@@ -19,7 +19,7 @@ intact.
 3. Draft the confirmed record in a directory outside the live records root
    and ask the owner to save it by hand as `repos/<owner>/<name>/` under the
    oh-mi-pi-config root (Step 0's path). Agents never write the live record:
-   rails refuse every agent write there and restore any change bash makes.
+   rails refuse every agent edit-tool write there.
    `/repos/` is gitignored: never commit a record, stage it or copy it into
    the target. The device rollout copies records to every device. Where the
    stack has a skill reference, run `omp-guardrails init --repo <worktree>
@@ -43,11 +43,9 @@ intact.
        "ci": ["make", "gate-ci"]
      },
      "pathCheck": ["make", "check-paths"],
-     "pathCheckTimeoutMs": 20000,
      "testGlobs": ["**/*.test.ts", "tests/**"],
      "agentMerge": "allowed",
      "ci": { "requiredContext": "gate", "runner": "github-actions" },
-     "dynaflowsContract": 3,
      "dynaflows": { "enabled": false }
    }
    ```
@@ -58,16 +56,17 @@ intact.
    strings, and name the repo's own commands, never an omp path. Checks follow
    the test tiers and run only at these events:
 
-   1. Commit: at the agent's commit, rails run the record's `checks.commit`
-      (static checks, every T1 test, and affected T2 boundary tests: seams and
-      journeys) and then the harness checks over the whole repo. Any finding
+   1. Commit: at the agent's commit, rails run the record's `pathCheck`, its
+      `checks.commit` when set (static checks, every T1 test, and affected T2
+      boundary tests: seams and journeys) and then the harness checks over the
+      whole repo. Any finding
       blocks the commit until fixed, including drift from contributors who do
       not use omp. No baseline and no diff scoping apply.
    2. Push and pull request: the repo's CI runs `checks.ci`, the full T1 and T2
       suite.
    3. Merge: the declared required context (`ci.requiredContext`, normally
       `gate`) from `checks.ci` must be green on the exact head, whoever posts
-      it.
+      it; with dynaflows on, `prove()` must also have passed on that head.
    4. Schedule: T3 runs on a schedule, outside the record's checks.
 
    No pre-push hook and no handoff check run exist. CI runs `checks.ci` as one
@@ -78,30 +77,21 @@ intact.
    unless every tier result is `success` (not failed, cancelled, or skipped).
    Append changed paths to `pathCheck` as arguments. It exits 0 when clean;
    nonzero output has one error per line, each naming the file and fix for
-   structure, naming, or test placement. `pathCheckTimeoutMs` is a positive
-   integer timeout in milliseconds; `testGlobs` lists strings. `agentMerge`
+   structure, naming, or test placement. Rails run it with one fixed timeout;
+   `testGlobs` lists strings. `agentMerge`
    accepts only `allowed` or `disabled`; an absent field or record defaults to
    `allowed`. Do not infer merge permission from this setup skill; honor the
-   governing Git authorization. Optional `checks.profile` is a profile
-   completeness command; `prove()` runs it first and blocks on failure.
+   governing Git authorization. Optional `checks.profile` names the
+   profile completeness command (normally `omp-guardrails profile-check`);
+   `prove()` does not run it.
    Optional `checks.format` is the formatter `freeze()` runs before hashing
    proofs.
 
    `dynaflows.enabled` is the repo's dynaflows switch; no `origin` remote or
    no record means off. Write `false` at setup; the owner turns it on once
    the harness checks report zero findings over the whole repo.
-
-   `dynaflowsContract` is the positive-integer dynaflows contract version the
-   record was set up against; the current version is `agent/agent-rails.yml`
-   `dynaflowsContract`. `omp-guardrails init` writes it when absent and
-   raises a lower value; never lower it by hand. Workflows
-   and rails refuse a record whose version differs from the current one (below
-   or above), except that project setup's `project_setup=True` freeze tolerates
-   a lower or absent one. Raising it means re-running
-   `omp-guardrails init --extend` against a copy of the record outside `repos/`
-   and asking the owner to save it, outside Steps 0–7: no repo commit, no
-   proposal and no Step 5, unless the change adds a gate or profile field the
-   record lacks.
+   A record that still carries a legacy `dynaflowsContract` field loads
+   unchanged; nothing reads the field, so drop it when next editing the record.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the
@@ -130,7 +120,7 @@ intact.
    `user_approval`, `house_style.exceptions`, `fast_tier_budget` machine
    approvals and `coverage_ratchet` approvals) are the owner's: the owner
    writes them by hand, and that edit is the approval. Rails refuse every
-   agent write to the record. Draft them for the owner; never write them.
+   agent edit-tool write to the record. Draft them for the owner; never write them.
 6. A repo hook is the repo's own control. When the project wants one, run
    `checks.commit` through the repo's tracked hook manager or a native
    `.githooks/pre-commit` enabled with `git config core.hooksPath .githooks`,

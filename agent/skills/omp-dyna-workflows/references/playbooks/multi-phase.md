@@ -18,9 +18,9 @@ Resolve unanswered cross-unit questions before committing to interfaces.
 
 ## 3. Plan
 
-One manifest/slug `<epic>-<unit>` per unit PR. Choose defect, preserve or new-surface
-by actual behaviour. Name a final flag-removal/cutover unit with its own end-to-end
-proofs, not an unverified closing edit.
+One manifest/slug `<epic>-<unit>` per unit PR. Each unit's proofs fail at base and pass
+at head; a unit with no behaviour change freezes none. Name a final flag-removal/cutover
+unit with its own end-to-end proofs, not an unverified closing edit.
 
 Give each owner-delegated decision one ADR with a Deciders line naming the
 delegation. Mark recommendations revised after delegation as revised and raise
@@ -43,4 +43,4 @@ Land decision/ADR units before proving their dependent units.
 
 ## 6. Integrate
 
-Integrate units serially in dependency order; no long-lived or stacked branches.
+Integrate units in dependency order; no long-lived or stacked branches.
