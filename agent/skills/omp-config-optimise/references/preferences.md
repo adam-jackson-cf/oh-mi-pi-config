@@ -16,10 +16,8 @@ recommendation, not a silent edit.
   reasoning ≤ medium.
 - Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
   reasoning ≤ medium.
-- Verification (`verifier`): Claude Sonnet 5.5 `medium`, independent and cross-family to
-  every author (Sol implementation by default), enforced by agent-rails with dynaflows on (2026-11-04).
 - Bundled `reviewer`: Sonnet 5.5 `medium` for open-ended contextual eval judging, not the
-  proof-first verification stage; preserve independent cross-family sessions.
+  dynaflows proof; preserve independent cross-family sessions.
 - Implementation with a fixed plan or todo list (`task`): GPT-6.1 Sol `medium` with Codex
   `priority` service tier (owner decision 2026-11-03).
 - Image reading (`vision`): GPT Terra (current: GPT-6.1 Terra `low`, owner decision 2026-10-27).

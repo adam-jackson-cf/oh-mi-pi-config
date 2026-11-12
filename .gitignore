@@ -89,7 +89,6 @@ agent/agents/*
 !agent/agents/innovation-council.md
 !agent/agents/kiss.md
 !agent/agents/operator.md
-!agent/agents/verifier.md
 
 !agent/extensions/
 agent/extensions/*
