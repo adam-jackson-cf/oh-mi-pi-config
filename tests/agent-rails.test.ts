@@ -516,6 +516,72 @@ describe("agent rails", () => {
 		}
 	});
 
+	test("dynaflows commit checks see what gets committed: chained or wrapped commits are refused", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-sole-")));
+		// Fails unless the repo's `value` file reads "good".
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, `#!/bin/sh\ntest "$(cat value)" = good || { echo "value is not good" >&2; exit 1; }\n`, { mode: 0o755 });
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], { cwd: h.root });
+			h.gate({ schemaVersion: 2, checks: { commit: [script] } });
+			h.dynaflows(true);
+			const sole = "`git commit` must be the whole command";
+			for (const command of [
+				"printf bad > value && git commit -qam unchecked", "true || git commit -m x", "true; git commit -m x",
+				"echo x | git commit -F -", "true\ngit commit -m x", "(git commit -m x)", "git commit -m \"$(printf bad > value)\"",
+				"git commit -m `printf bad > value`", "echo -m | xargs git commit", "eval 'printf bad > value; git commit -am x'",
+				"sh -c 'printf bad > value && git commit -am x'", "bash -c 'git commit -m x'", "git commit -m x > log",
+				"git commit -m x & printf bad > value", "{ git commit -m x; }",
+			]) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes(sole), `${command}: ${blocked?.reason}`);
+				assert.ok(blocked?.reason?.includes("Stage your changes first"), command);
+			}
+			assert.equal(readFileSync(join(h.root, "value"), "utf8"), "good", "rails never ran the chained command");
+			assert.equal(await h.call("bash", { command: "git commit -m 'plain; message | with $(text)'" }), undefined,
+				"a plain commit on a clean tree passes; quoted prose is not a command");
+			assert.equal(await h.call("bash", { command: "mise exec -- git commit -m x" }), undefined, "a tool launcher runs git directly");
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+	});
+
+	test("dynaflows commits refuse unstaged tracked changes unless -a/--all; untracked files are fine", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-unstaged-")));
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, `#!/bin/sh\ntest "$(cat value)" = good || { echo "value is not good" >&2; exit 1; }\n`, { mode: 0o755 });
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], { cwd: h.root });
+			h.gate({ schemaVersion: 2, checks: { commit: [script] } });
+			h.dynaflows(true);
+			writeFileSync(join(h.root, "untracked.txt"), "new");
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "untracked files do not block");
+			writeFileSync(join(h.root, "value"), "bad");
+			for (const command of ["git commit -m x", "git commit -m -a", "git commit --message --all"]) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes("tracked files have unstaged changes"), blocked?.reason);
+				assert.ok(blocked?.reason?.includes("`git diff --quiet` must pass"), blocked?.reason);
+			}
+			for (const command of ["git commit -am x", "git commit --all -m x"]) {
+				const blocked = await h.call("bash", { command });
+				assert.ok(blocked?.reason?.includes("value is not good"), `${command}: -a commits the tree, so the checks see it: ${blocked?.reason}`);
+			}
+			await execute("git", ["add", "value"], { cwd: h.root });
+			assert.ok((await h.call("bash", { command: "git commit -m x" }))?.reason?.includes("value is not good"), "staged content is checked");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a plain commit of staged, passing content passes");
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+	});
+
 	test("the default harness check is omp-guardrails from the harness's own reference project", async () => {
 		const h = harness({ guardrailsCommand: "default" });
 		try {

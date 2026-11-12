@@ -588,6 +588,53 @@ function commitBypass(action: GitAction): string | undefined {
 	return action.hookSkip;
 }
 
+// Rails run commit checks at tool-call time, before the command runs. So a checked commit must be
+// the whole command: one `git` (or tool-launcher) invocation with no unquoted operator, subshell,
+// redirection or substitution, and no shell, eval or xargs wrapper that could change the tree first.
+function soleCommit(command: string): boolean {
+	let plain = "";
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i];
+		if (char === "\\") { plain += "__"; i++; continue; }
+		if (char !== "'" && char !== '"') { plain += char; continue; }
+		const end = command.indexOf(char, i + 1);
+		if (end < 0) return false;
+		const body = command.slice(i + 1, end);
+		if (char === '"' && (/[`\\]/.test(body) || body.includes("$("))) return false;
+		plain += "_".repeat(body.length + 2);
+		i = end;
+	}
+	if (/[;&|()<>`{}\n]/.test(plain.trim())) return false;
+	const words = plain.trim().split(/\s+/);
+	while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
+	const executable = basename(words[0] ?? "");
+	return executable === "git" || Object.hasOwn(toolLaunchers, executable);
+}
+// Whether `git commit` arguments (after "commit") include -a/--all.
+function commitAll(args: string[]): boolean {
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--") break;
+		if (arg === "--all") return true;
+		if (arg.startsWith("--")) {
+			const name = arg.split("=")[0];
+			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
+			continue;
+		}
+		if (!arg.startsWith("-") || arg === "-") continue;
+		for (let at = 1; at < arg.length; at++) {
+			const flag = arg[at];
+			if (flag === "a") return true;
+			if (flag === "u" || flag === "S") break;
+			if (Object.hasOwn(commitValueShorts, flag)) {
+				if (at === arg.length - 1) index++;
+				break;
+			}
+		}
+	}
+	return false;
+}
+
 type Author = { family: string; model: string; agent: string };
 type AuthorScope = { worktree: string; common: string; branch: string; ledger: string };
 const authorText = z.string().refine(value => value.trim().length > 0);
@@ -1234,6 +1281,17 @@ export default function agentRails(
 						};
 						const root = await repoRoot(action.cwd);
 						if (root && await dynaflowsOn(ctx, root, true)) {
+							if (!soleCommit(event.input.command)) return {
+								block: true, reason: "Agent rails: commit checks run before the command, so `git commit` must be the whole command. Stage your changes first (git add) in a separate call, then run `git commit` on its own: no &&, ||, ;, |, newline, subshell, $(...), backticks, redirection or sh -c/eval/xargs wrapper; use the cwd parameter or git -C instead of cd.",
+							};
+							if (!commitAll(action.args.slice(1))) {
+								const diff = await pi.exec("git", ["diff", "--quiet"], { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
+								if (diff.code !== 0 || diff.killed) return {
+									block: true, reason: diff.code === 1 && !diff.killed
+										? "Agent rails: tracked files have unstaged changes, so the commit checks would not see what gets committed. Rule: without -a/--all, `git diff --quiet` must pass (every tracked change staged; untracked files are fine). Stage the changes (git add) or stash them, or commit with -a, then commit again."
+										: `Agent rails: cannot check for unstaged changes (git diff --quiet): ${diff.stderr}`,
+								};
+							}
 							const reason = await commitChecksReason(root);
 							if (reason) return { block: true, reason };
 						}
