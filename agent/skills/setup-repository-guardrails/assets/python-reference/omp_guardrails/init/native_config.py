@@ -31,7 +31,7 @@ from pathlib import Path
 from omp_guardrails.config.profile import PLACEHOLDER
 
 DATA_FILE = "native-tools.json"
-HEADER = "# Proposed by omp-guardrails init from its native-tool data; edit the values per ADR.\n"
+HEADER = "# Proposed native-tool configuration; edit the values per ADR.\n"
 REQUIRES = re.compile(r">=\s*(\d+)\.(\d+)")
 SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
 
