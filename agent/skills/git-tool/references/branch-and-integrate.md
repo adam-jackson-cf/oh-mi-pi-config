@@ -1,7 +1,7 @@
 # Branch and integrate
 
 One verified unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the repository's
-project context (`.omp/AGENTS.md`) documents a target/merge-method exception.
+project instructions document a target/merge-method exception.
 Authority and safety belong to [git-tool](../SKILL.md).
 
 ## Main prepares the unit
@@ -12,13 +12,14 @@ Authority and safety belong to [git-tool](../SKILL.md).
 3. Resolve the default once with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`,
    or the primary remote's symbolic HEAD (for origin, `git symbolic-ref refs/remotes/origin/HEAD`).
    Record `<remote>` and `<default>`; never assume `main`. Use this resolution for comparisons, PR targets and recovery.
-4. Read `.omp/gate.json`. Invalid JSON, unsupported schema or invalid fields fail closed.
+4. Read the repo's record `gate.json` ([git-tool](../SKILL.md#task) defines the record). Invalid JSON, unsupported schema,
+   invalid fields or a `dynaflowsContract` below `agent/agent-rails.yml` fail closed.
    `agentMerge: disabled` requires owner approval for this workflow; absent field defaults to allowed, not permission to skip prerequisites.
-5. Ordinary implementation requires valid schema-v2 `checks.commit`, `pathCheck`, and an installed pre-commit hook running `checks.commit`.
-   Missing controls route to [dynaflows SKILL's owner-approved project-setup prerequisite](skill://omp-dyna-workflows/SKILL.md).
-   Follow its link to `setup-repository-guardrails` for proposal/approval mechanics, not autonomous installation.
-   Bootstrap may propose/install the approved controls without already having the completed gate; install the approved hook before its first commit.
-   Complete that prerequisite PR before resuming ordinary work. No-CI is not a bootstrap waiver.
+5. Ordinary implementation requires a record with valid schema-v2 `checks.commit` and `pathCheck`.
+   No record or missing controls route to [dynaflows SKILL's owner-approved project-setup prerequisite](skill://omp-dyna-workflows/SKILL.md).
+   Follow its link to `setup-repository-guardrails` for record draft and approval mechanics, not autonomous installation.
+   Bootstrap may propose the record and repo fixes without already having the completed gate.
+   Complete that prerequisite before resuming ordinary work. No-CI is not a bootstrap waiver.
 6. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default or a spike).
    Supply each task the absolute worktree and assigned file paths. Keep one writer per branch.
    The [stage-4 contract](skill://omp-dyna-workflows/SKILL.md) owns task ordering, proof freezing and atomic proof/fix history;
@@ -31,14 +32,15 @@ Authority and safety belong to [git-tool](../SKILL.md).
 
 Proof tasks stop uncommitted; only the assigned implementation task performs these steps.
 
-1. Review the final diff and stage only intended files. Create new logical commits via `git commit` through the approved pre-commit hook.
-   The hook runs `checks.commit`; never disable it with flags, configuration or hook-skip environment variables.
+1. Review the final diff and stage only intended files. Create new logical commits via `git commit`.
+   Rails run the record's `checks.commit` and then the harness checks over the whole repo; any finding blocks the commit.
+   Never disable the repo's own hooks with flags, configuration or hook-skip environment variables.
    Use the [skill's commit vocabulary and safety rules](../SKILL.md#git-safety).
    CI runs `checks.ci`; do not add pre-push or handoff suite runs.
 2. Push the branch to the resolved GitHub primary remote, adding upstream tracking when needed.
    No routine rebase is needed; [merge-and-recover](merge-and-recover.md) owns rebase conditions and history permissions.
 3. Read [PR description](pr-description.md) and write the complete body. Use existing reported evidence only;
-   unavailable comparable measurements are `baseline unavailable`. `prove()` later posts the verification record and
+   unavailable comparable measurements are `baseline unavailable`. `prove()` later posts the verification result and
    main a short judgement comment, both separate from the body.
 4. Open the actual PR with the prepared body, concise title, resolved base and agent branch head.
    Use GitHub `pr_create` when available, otherwise authenticated `gh pr create`; never use `fill` instead of the body.

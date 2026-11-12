@@ -36,12 +36,13 @@ from pathlib import Path, PurePosixPath
 
 import tomllib
 
-from omp_guardrails.catalogue.scratch import clean_environment
 from omp_guardrails.catalogue.versions import (
     VersionError,
     canonical_name,
     parse_requirement,
 )
+from omp_guardrails.child_env import clean_environment
+from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import (
     InventoryError,
@@ -57,7 +58,6 @@ LOCK_VERSION = "PARITY.lock-version"
 PRETTIER = "PRETTIER.version"
 AUDIT = "SECURITY.dependency-audit"
 LOCAL_CI = "GATE.local-ci-parity"
-PROFILE = ".omp/test-profile.md"
 UV_SYNC = re.compile(r"\buv\s+sync\b")
 MAKE_TARGET = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)")
 DEFAULT_DEPENDENCY_FILES = (
@@ -543,7 +543,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 LOCAL_CI,
-                PROFILE,
+                PROFILE_PATH,
                 f"guardrails.toolchain_parity configures no {mode} section",
                 f"configure one of {', '.join(configured)} or drop this check from the gate",
             )
@@ -565,7 +565,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 rule,
-                PROFILE,
+                PROFILE_PATH,
                 f"toolchain inputs cannot be read: {' '.join(str(error).split())}",
                 "repair the configured toolchain files or settings",
             )

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from omp_guardrails.config.house_style import apply_exceptions
-from omp_guardrails.config.profile import is_missing_text
+from omp_guardrails.config.profile import PROFILE_PATH, is_missing_text
 from omp_guardrails.diffs.changes import (
     DiffError,
     DiffRange,
@@ -162,7 +162,7 @@ def check(repo: Path, profile: dict, diff: DiffRange) -> list[Finding]:
         return [
             Finding(
                 GROWTH,
-                ".omp/test-profile.md",
+                PROFILE_PATH,
                 f"adapter {profile.get('adapter')!r} has no static test-case collector",
                 "name an adapter that ships one, or add 'cases.collect' to the adapter",
             )

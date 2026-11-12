@@ -1,11 +1,20 @@
-"""Single entry point: ``omp-guardrails <subcommand> [--repo DIR] [args...]``.
+"""Single entry point: ``omp-guardrails <subcommand> [--repo DIR] [--record DIR] [args...]``.
+
+omp-guardrails runs from the harness, never from the repository's environment: the agent rails
+call ``uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/
+python-reference omp-guardrails check --repo <worktree> --record <record dir>``. ``--repo`` is the
+checkout to inspect (default: the working directory). ``--record`` is the repo's personal
+per-repo record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``); its ``profile.md`` is the
+only configuration. A record inside the repository is refused: the repository holds nothing of
+the harness. omp-guardrails never writes into the repository tree; output files go outside it.
 
 Each subcommand names the checker modules it runs. Modules are imported only when their
 subcommand runs, so a missing optional extra (the pytest adapter's) fails only that subcommand.
 Every module exposes ``run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]``.
-Exit codes: 0 no findings, 1 findings, 2 usage error.
+Exit codes: 0 no findings, 1 findings, 2 usage error (including a missing ``--record``).
 ``omp-guardrails <subcommand> --help`` prints the subcommand's module documentation without
 reading the profile; ``init`` and ``adapter`` parse their own options and print their own help.
+``init`` drafts the record itself, so it is the one subcommand that writes (into the record).
 """
 
 from __future__ import annotations
@@ -16,7 +25,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from omp_guardrails.config.profile import PROFILE_PATH, ProfileError, load_profile
+from omp_guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
 from omp_guardrails.findings import Finding, exit_code, format_findings
 
 
@@ -36,12 +45,16 @@ class Subcommand:
 ADAPTER_PACKAGE = "omp_guardrails.adapters"
 
 SUBCOMMANDS: dict[str, Subcommand] = {
+    "check": Subcommand(
+        ("omp_guardrails.whole_repo",),
+        "the whole-repo harness checks the agent rails run at commit (any finding blocks)",
+    ),
     "profile-check": Subcommand(
-        ("omp_guardrails.config.profile",), "PROFILE.complete: validate .omp/test-profile.md"
+        ("omp_guardrails.config.profile",), "PROFILE.complete: validate the record's profile.md"
     ),
     "init": Subcommand(
         ("omp_guardrails.init.command",),
-        "write gate, hook, native configs and the pinned reference (greenfield/adopt/extend)",
+        "draft the repo's local record (gate.json, profile.md) for owner confirmation",
         needs_profile=False,
     ),
     "path-check": Subcommand(
@@ -66,24 +79,9 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         ("omp_guardrails.python_policy.subprocess_timeouts",),
         "TEST.subprocess-timeouts: bounded process calls in Python tests",
     ),
-    "canaries": Subcommand(
-        ("omp_guardrails.catalogue.canaries",), "rule canaries: planted violations must fail"
-    ),
-    "rule-evidence": Subcommand(
-        ("omp_guardrails.catalogue.rule_evidence",),
-        "repo-checker ledger against the packaged rule catalogue (no processes run)",
-    ),
-    "rule-coverage": Subcommand(
-        ("omp_guardrails.catalogue.rule_coverage",),
-        "rule-evidence, then each repo checker's canaries run live (CI or setup only)",
-    ),
-    "hook-check": Subcommand(
-        ("omp_guardrails.catalogue.hook_installation",), "GATE.pre-commit hook installation"
-    ),
     "toolchain-parity": Subcommand(
         ("omp_guardrails.catalogue.toolchain_parity",), "PARITY.* toolchain parity"
     ),
-    "gate": Subcommand(("omp_guardrails.catalogue.gate_runner",), "run the declared gate checks"),
     "report-check": Subcommand(
         ("omp_guardrails.test_evidence.propagation",),
         "TEST.failure-propagation over the normalised run report (commit and CI gates)",
@@ -132,7 +130,11 @@ SUBCOMMANDS: dict[str, Subcommand] = {
 
 def usage() -> str:
     width = max(len(name) for name in SUBCOMMANDS)
-    lines = ["usage: omp-guardrails <subcommand> [--repo DIR] [args...]", "", "subcommands:"]
+    lines = [
+        "usage: omp-guardrails <subcommand> [--repo DIR] [--record DIR] [args...]",
+        "",
+        "subcommands:",
+    ]
     lines.extend(f"  {name.ljust(width)}  {item.summary}" for name, item in SUBCOMMANDS.items())
     return "\n".join(lines)
 
@@ -145,20 +147,63 @@ def wants_help(argv: list[str]) -> bool:
 
 def subcommand_help(name: str) -> str:
     command = SUBCOMMANDS[name]
-    lines = [f"usage: omp-guardrails {name} [--repo DIR] [args...]", "", command.summary]
+    lines = [
+        f"usage: omp-guardrails {name} [--repo DIR] [--record DIR] [args...]",
+        "",
+        command.summary,
+    ]
     for module_name in command.modules:
         doc = inspect.getdoc(importlib.import_module(module_name)) or ""
         lines.extend(["", f"{module_name}:", doc])
     return "\n".join(lines)
 
 
-def split_repo(argv: list[str]) -> tuple[Path, list[str]]:
-    """Take a leading ``--repo DIR`` (default: the working directory) off the arguments."""
-    if argv[:1] == ["--repo"] and len(argv) >= 2:
-        return Path(argv[1]).resolve(), argv[2:]
-    if argv[:1] and argv[0].startswith("--repo="):
-        return Path(argv[0].split("=", 1)[1]).resolve(), argv[1:]
-    return Path.cwd().resolve(), argv
+class UsageError(Exception):
+    """The command line names no usable repository or record."""
+
+
+@dataclass(frozen=True)
+class Target:
+    """The checkout a subcommand inspects and the record that configures it."""
+
+    repo: Path
+    record: Path | None
+
+
+LOCATION_OPTIONS = ("--repo", "--record")
+
+
+def split_locations(argv: list[str]) -> tuple[dict[str, Path], list[str]]:
+    """Take leading ``--repo DIR`` and ``--record DIR`` options (either order) off the arguments."""
+    found: dict[str, Path] = {}
+    rest = list(argv)
+    while rest:
+        option, _, value = rest[0].partition("=")
+        if option not in LOCATION_OPTIONS or option in found:
+            break
+        if not value:
+            if len(rest) < 2:
+                raise UsageError(f"{option} needs a directory")
+            value, rest = rest[1], rest[2:]
+        else:
+            rest = rest[1:]
+        found[option] = Path(value).expanduser().resolve()
+    return found, rest
+
+
+def resolve_target(argv: list[str], needs_record: bool) -> tuple[Target, list[str]]:
+    found, rest = split_locations(argv)
+    repo = found.get("--repo", Path.cwd().resolve())
+    record = found.get("--record")
+    if record is None:
+        if needs_record:
+            raise UsageError(
+                "pass --record DIR: the repo's record under <oh-mi-pi-config>/repos/<owner>/<name>"
+            )
+        return Target(repo, None), rest
+    if record == repo or record.is_relative_to(repo):
+        raise UsageError(f"--record {record} is inside the repository; records live in the harness")
+    return Target(repo, record), rest
 
 
 def module_names(name: str, profile: dict) -> tuple[str, ...]:
@@ -170,13 +215,24 @@ def module_names(name: str, profile: dict) -> tuple[str, ...]:
     return (f"{ADAPTER_PACKAGE}.{adapter}",)
 
 
-def run_subcommand(name: str, repo: Path, argv: list[str]) -> list[Finding]:
-    command = SUBCOMMANDS[name]
+def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
+    if name == "init":
+        from omp_guardrails.init.command import run_init
+
+        assert target.record is not None
+        return run_init(target.repo, target.record, argv)
+    assert target.record is not None
     try:
-        profile = load_profile(repo) if command.needs_profile else optional_profile(repo)
+        profile = load_profile(target.record)
         modules = module_names(name, profile)
     except ProfileError as error:
         return [profile_finding(error)]
+    return run_modules(modules, target.repo, profile, argv)
+
+
+def run_modules(
+    modules: tuple[str, ...], repo: Path, profile: dict, argv: list[str]
+) -> list[Finding]:
     findings: list[Finding] = []
     for module_name in modules:
         module = importlib.import_module(module_name)
@@ -184,20 +240,13 @@ def run_subcommand(name: str, repo: Path, argv: list[str]) -> list[Finding]:
     return findings
 
 
-def optional_profile(repo: Path) -> dict:
-    """Commands that create the profile (init) run before it exists."""
-    try:
-        return load_profile(repo)
-    except ProfileError:
-        return {}
-
-
 def profile_finding(error: ProfileError) -> Finding:
     return Finding(
         "PROFILE.complete",
         PROFILE_PATH,
         str(error),
-        "write the machine-readable front matter from the test-profile template",
+        f"write the record's {PROFILE_FILE} front matter from the test-profile template "
+        "(omp-guardrails init drafts it)",
     )
 
 
@@ -213,13 +262,17 @@ def main(argv: list[str] | None = None) -> int:
     if wants_help(rest) and SUBCOMMANDS[name].needs_profile and name != "adapter":
         print(subcommand_help(name))
         return 0
-    repo, rest = split_repo(rest)
     try:
-        findings = run_subcommand(name, repo, rest)
+        target, rest = resolve_target(rest, needs_record=True)
+    except UsageError as error:
+        print(f"{name}: {error}", file=sys.stderr)
+        return 2
+    try:
+        findings = run_subcommand(name, target, rest)
     except ModuleNotFoundError as error:
         print(
-            f"{name}: cannot import {error.name}; install the extra this subcommand needs "
-            "(e.g. omp-guardrails[pytest])",
+            f"{name}: cannot import {error.name}; run omp-guardrails with the extra this "
+            "subcommand needs (uv run --project <python-reference> --extra pytest ...)",
             file=sys.stderr,
         )
         return 2

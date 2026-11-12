@@ -1,4 +1,7 @@
-"""Write ``.omp/test-profile.md`` from the template without overwriting recorded values.
+"""Write the record's ``profile.md`` from the template without overwriting recorded values.
+
+The template is the test-guidance skill's ``assets/templates/test-profile.md``, read from the
+harness (``omp_guardrails.harness.PROFILE_TEMPLATE``).
 
 Merge rule: a key the profile already holds keeps its value. Missing keys come from the
 template, recursively through nested sections. Two kinds of template object are taken whole
@@ -15,23 +18,27 @@ placeholder value with the installed house-style version.
 from __future__ import annotations
 
 import json
-from importlib import resources
 from pathlib import Path
 
+from omp_guardrails import harness
 from omp_guardrails.config.house_style import load_house_style
 from omp_guardrails.config.profile import (
     FENCE,
     PLACEHOLDER,
+    PROFILE_FILE,
     PROFILE_PATH,
     ProfileError,
     parse_front_matter,
 )
 
-TEMPLATE_NAME = "test-profile.md"
-
 
 def template_text() -> str:
-    return resources.files(__package__).joinpath(TEMPLATE_NAME).read_text(encoding="utf-8")
+    try:
+        return harness.PROFILE_TEMPLATE.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ProfileError(
+            f"cannot read the test-profile template {harness.PROFILE_TEMPLATE}: {error}"
+        ) from error
 
 
 def split_document(text: str) -> tuple[dict, str]:
@@ -94,19 +101,22 @@ def with_lsp_notes(values: dict, notes: list[dict]) -> tuple[dict, str | None]:
     return {**values, "command_notes": {**command_notes, "lsp": notes}}, None
 
 
-def read_existing(repo: Path) -> tuple[dict, str] | None:
-    path = repo / PROFILE_PATH
+def read_existing(record: Path) -> tuple[dict, str] | None:
+    path = record / PROFILE_FILE
     if not path.exists():
         return None
-    return split_document(path.read_text(encoding="utf-8"))
+    try:
+        return split_document(path.read_text(encoding="utf-8"))
+    except ProfileError as error:
+        raise ProfileError(f"{PROFILE_PATH}: {error}") from error
 
 
 def planned_profile(
-    repo: Path, settings: dict, lsp_notes: list[dict]
+    record: Path, settings: dict, lsp_notes: list[dict]
 ) -> tuple[str | None, list[str]]:
     """Return the new profile text (None when unchanged) and notes for the report."""
     template_values, template_body = split_document(template_text())
-    existing = read_existing(repo)
+    existing = read_existing(record)
     current, body = existing if existing else ({}, template_body)
     values = fill_missing(current, template_values)
     assert isinstance(values, dict)
@@ -121,7 +131,7 @@ def planned_profile(
 
 
 def load_settings(path: Path | None) -> dict:
-    """Per-checker settings for ``guardrails`` from a JSON file (adopt mode)."""
+    """Per-checker settings for ``guardrails`` from a JSON file (``--settings``)."""
     if path is None:
         return {}
     try:

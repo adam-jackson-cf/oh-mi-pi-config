@@ -45,12 +45,12 @@ Keep test growth justified, assertions singly owned and verification within appr
 ### TEST.budget.per-test-time
 
 - Enforced by TEST.budget.per-test-time (omp-guardrails budget-check).
-  Budgets apply to the local commit gate only; CI never measures or reports test timing.
+  Budgets apply only at the agent's commit; CI never measures or reports test timing.
 - When the checker reports an unknown machine, ask the owner once to record a baseline;
   approval permits recording the measured limit and reference; rejection leaves timing report-only.
   The first limit and every raise require owner approval; record its reference per machine.
-  Approval = the owner merges the PR that records it: an agent never merges a PR that adds or changes an approval field
-  ([merge-and-recover](skill://git-tool/references/merge-and-recover.md#owner-approval-changes)).
+  Approval = the owner edits the field by hand in the repo test profile (under DynaFlows, the record's `profile.md`);
+  an agent never writes an approval field ([merge-and-recover](skill://git-tool/references/merge-and-recover.md#owner-approval-fields)).
   Derive proposed limits from repeated local measurements, never from a convenient single run.
 - Fix excess cost: remove real-clock waits, bound the actual waiting object, isolate contention and minimize steps.
   Keep one scenario per test; never split redundant work merely to disguise its total cost.
@@ -64,12 +64,12 @@ Keep test growth justified, assertions singly owned and verification within appr
   Stop cutting when no further redundant or misplaced work is identifiable; never delete required coverage.
   If still over budget, report the commit blocked and ask the repo owner through the calling workflow once:
   "Approve a fast-tier wall limit of `<value>` on `<machine id>`, based on these repeated measurements: `<values>`?"
-  Approval writes Per machine limits and Per machine owner approval reference in the repo test profile
-  in the current change, then reruns Duration-report and Commit commands. Rejection keeps the limit and commit blocked;
-  do not ask again for this change. Obtain any scope permission the calling workflow requires before editing the profile.
+  On approval, the owner writes Per machine limits and Per machine owner approval reference in the repo test profile
+  by hand; then rerun Duration-report and Commit commands. Rejection keeps the limit and commit blocked;
+  do not ask again for this change.
   Avoid nested worker pools; use one owner for test parallelism.
 - Select targeted checks by behaviour and blast radius, using `lsp references` and the repo test profile's affected-T2 selection.
-  Targeted checks never replace the pre-commit hook or CI merge gate.
+  Targeted checks never replace the commit checks or CI merge gate.
 - In the PR report baseline/head counts and fast-tier durations, deltas, units and measurement conditions.
   Explain additions, removals and variation. Mark unavailable comparable evidence unavailable, never zero or passed.
   Count and timing deltas are operational evidence, not statistical claims of behavioural improvement.

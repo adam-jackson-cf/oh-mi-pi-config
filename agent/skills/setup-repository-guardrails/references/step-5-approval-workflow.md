@@ -1,40 +1,44 @@
-# Merge and replacement approval
+# Record and fix approval
 
 ## Objective
 
-Make the user's scope and ownership decisions the boundary before target writes.
+Make the owner's record and fix decisions the boundary before any record or target write.
 
 ## Required actions
 
-1. Present an action matrix: ID, rule IDs, current owner, proposed owner, audience, operation
-   (`keep`, `merge`, `replace`, `add`, or `defer`), paths, dry-run change count, baseline
-   violations, verification, and risk.
-2. Explain the consequence of every replacement or exception, including whether a current hook,
-   CI workflow, config, or developer document would be removed or changed.
+1. Present an action matrix: ID, rule IDs, current owner, proposed owner (repo control or
+   harness check), audience, operation (`keep`, `merge`, `replace`, `add`, or `defer`), paths,
+   dry-run change count, findings, verification, and risk.
+2. Present the draft record for confirmation: every `gate.json` command and its discovered
+   source (make target, hook entry, CI job, required check), `ci.requiredContext`, `ci.runner`,
+   scope exclusions, and the `profile.md` values. Explain the consequence of every replacement
+   or exception, including whether a current hook, CI workflow, config, or developer document
+   would be removed or changed.
 3. For existing repositories, request an explicit operation for each conflicting practice. For a
    greenfield repository, propose a minimal central runner and only the stack-relevant rules; do
    not invent a CI provider.
-4. Show the complete applicable rule mapping from Step 2 and, for each candidate repository
-   checker, its `omp-guardrails rule-coverage` result (or the stack's own proof without a
-   reference). A rule still blocked by missing implementation or proof stays blocked; do not
-   offer a passing approval path by relabeling it.
-5. Offer two tiers. `Minimal`: least change that gives `.omp/gate.json` (schema version 2) a
-   `checks.commit` and a `pathCheck`, plus an installed pre-commit hook running `checks.commit`;
-   state which applicable rules it leaves unenforced (narrower scope, not a relabel). `Full`:
-   every applicable rule and recommendation, including `checks.ci` wired into CI by the gate's
-   `ci.runner` role.
-   Write the repo-relative candidate paths per tier to `.omp/guardrail-proposal.json` as
-   `{"schemaVersion":1,"minimal":[...],"full":[...]}`; this file is the only target write
-   allowed before approval.
-6. Ask the user to choose a tier and approve exact candidate paths and merge/replace decisions,
-   using `ask` with a question containing "guardrail" and options "Minimal" and "Full" (with
-   dynaflows on, agent-rails blocks `.omp/gate.json` and proposal paths until this is
-   answered). **STOP** until the user replies; elapsed time or a default option is not approval.
-7. If the user chooses a narrower scope, recompute the candidate diff, coverage ledger and
-   proposal file while preserving the complete applicable rule set inside that scope.
+4. Show the complete applicable rule mapping from Step 2 and the whole-repo findings from Step 4.
+   A rule still blocked by a missing harness implementation stays blocked; do not offer a
+   passing approval path by relabeling it.
+5. Offer two tiers. `Minimal`: least change that gives the record's `gate.json` a
+   `checks.commit` and a `pathCheck` naming the repo's own commands, plus the repo fixes that
+   clear every finding of the rules it enables; state which applicable rules it leaves
+   unenforced (narrower rule set, not a relabel). `Full`: every applicable rule and
+   recommendation, including `checks.ci` wired into the repo's CI by the record's `ci.runner`
+   role.
+   Write the repo-relative candidate paths per tier to `guardrail-proposal.json` in the record
+   directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; this file is the only record
+   write allowed before approval, and nothing is written into the target.
+6. Ask the owner to choose a tier, confirm the record, and approve exact candidate paths and
+   merge/replace decisions, using `ask` with a question containing "guardrail" and options
+   "Minimal" and "Full". Write neither the record's `gate.json` nor any proposal path until this
+   is answered. **STOP** until the owner replies; elapsed time or a default option is not
+   approval.
+7. If the owner chooses a narrower rule set, recompute the candidate diff, findings and
+   proposal file while preserving whole-repo scope for every rule it keeps.
 
 ## Done when
 
-- Approved scope, paths, conflict decisions, and rule deviations are explicit.
-- No target mutation other than `.omp/guardrail-proposal.json` occurs before approval, and no
+- The confirmed record, approved paths, conflict decisions, and rule deviations are explicit.
+- No write other than the record's `guardrail-proposal.json` occurs before approval, and no
   blocker is represented as green.

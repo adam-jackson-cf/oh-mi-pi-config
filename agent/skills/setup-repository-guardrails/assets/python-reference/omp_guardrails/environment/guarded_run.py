@@ -32,6 +32,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from omp_guardrails.child_env import repo_environment
 from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import as_list, matches_any, settings
@@ -90,7 +91,8 @@ def network_prefix(config: dict, home: Path) -> list[str] | None:
 def guarded_env(root: Path) -> tuple[dict[str, str], Path]:
     home = root / "home"
     home.mkdir()
-    env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
+    env = repo_environment()
+    env.update(HOME=str(home), USERPROFILE=str(home))
     for name, folder in XDG_DIRS.items():
         target = root / "xdg" / folder
         target.mkdir(parents=True, mode=0o700)

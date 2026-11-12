@@ -157,7 +157,7 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configuration": ".omp/gate.json",
+        "configuration": "record:gate.json",
         "schema_version": 2,
         "authoritative_command_field": "checks.ci",
         "required_context_field": "ci.requiredContext",
@@ -175,7 +175,6 @@
       },
       "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite.",
       "reference": [
-        {"subcommand": "gate", "module": "omp_guardrails.catalogue.gate_runner"},
         {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
       ]
     },
@@ -185,7 +184,7 @@
       "applicability": "always",
       "evidence_kind": "git_hook",
       "contract": {
-        "configuration": ".omp/gate.json",
+        "configuration": "record:gate.json",
         "required_command_field": "checks.commit",
         "scope": "static_checks_all_t1_and_t2_boundary_tests_for_affected_code",
         "hook_manager": "any_tracked_manager_or_native_hook",
@@ -193,10 +192,7 @@
         "hook_installed_in_every_clone": true,
         "nonzero_exit_blocks_commit": true
       },
-      "summary": "Run checks.commit before every commit through an installed hook and propagate failure.",
-      "reference": [
-        {"subcommand": "hook-check", "module": "omp_guardrails.catalogue.hook_installation"}
-      ]
+      "summary": "Run checks.commit before every commit through an installed hook and propagate failure."
     },
     {
       "id": "GATE.path-check",
@@ -204,7 +200,7 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configuration": ".omp/gate.json",
+        "configuration": "record:gate.json",
         "required_command_field": "pathCheck",
         "changed_paths_appended_as_arguments": true,
         "success_exit_code": 0,
@@ -1323,7 +1319,7 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "profile": ".omp/test-profile.md",
+        "profile": "record:profile.md",
         "format": "json_front_matter",
         "missing_values": [
           "absent",

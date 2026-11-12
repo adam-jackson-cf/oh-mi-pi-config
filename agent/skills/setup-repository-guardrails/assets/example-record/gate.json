@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "checks": {
+    "commit": ["make", "gate-commit"],
+    "ci": ["make", "gate-ci"]
+  },
+  "pathCheck": ["make", "check-paths"],
+  "testGlobs": ["tests/**/*.py"],
+  "ci": {"requiredContext": "gate", "runner": "github-actions"},
+  "agentMerge": "allowed",
+  "dynaflowsContract": 3,
+  "dynaflows": {"enabled": false}
+}

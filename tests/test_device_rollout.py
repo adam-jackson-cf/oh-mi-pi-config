@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -22,7 +23,7 @@ OLD = "b" * 40
 class Runner:
     def __init__(self, stale=False, unreachable=False, dirty=False, behind=False,
                  service_failed=False, malformed=False, pull_failed=False,
-                 coverage="complete", husks="", find_output=None, runners="current"):
+                 coverage="complete", husks="", find_output=None, runners="current", records=None):
         self.stale = stale
         self.unreachable = unreachable
         self.dirty = dirty
@@ -34,6 +35,7 @@ class Runner:
         self.husks = husks
         self.find_output = find_output
         self.runners = runners
+        self.records = {} if records is None else records
         self.commands = []
 
     def __call__(self, argv):
@@ -43,6 +45,8 @@ class Runner:
         code, stdout = 0, ""
         if remote and self.unreachable:
             code = 255
+        elif "omp-records-list" in text:
+            stdout = json.dumps(self.records)
         elif "ci-runners.json" in text:
             stdout = self.runners + "\n"
         elif "omp find" in text:
@@ -211,8 +215,8 @@ class DeviceRolloutTests(unittest.TestCase):
         for runner, expected in ((Runner(), 0), (Runner(unreachable=True), 1)):
             pipeline = Pipeline()
             with redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(rollout.main(["--check"], runner=runner, pipeline=pipeline),
-                                 expected)
+                self.assertEqual(rollout.main(["--check"], runner=runner, pipeline=pipeline,
+                                              base="/base"), expected)
             self.assertIn("deployed", output.getvalue())
             self.assertIn("find", output.getvalue().splitlines()[0])
             self.assertEqual(pipeline.calls, [])
@@ -453,6 +457,134 @@ class DeviceRolloutTests(unittest.TestCase):
                  f"import sys; open({str(sink)!r}, 'w').write(sys.stdin.read())"])
             self.assertEqual(codes, (0, 0))
             self.assertEqual(sink.read_text(), "payload\n")
+
+
+class RecordRolloutTests(unittest.TestCase):
+    """Per-repo records go one way from the rollout source to remote omp devices."""
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory(prefix="records-rollout-test-")
+        self.addCleanup(scratch.cleanup)
+        self.scratch = Path(scratch.name)
+        self.base = self.scratch / "source"
+        self.write(self.base, "example-owner/example-repo/gate.json", '{"schemaVersion": 2}\n', 1_000)
+        self.write(self.base, "example-owner/example-repo/profile.md", "---\n{}\n---\n", 1_000)
+        self.source = rollout.record_files(self.base / "repos")
+
+    @staticmethod
+    def write(base, relative, text, mtime_s):
+        path = base / "repos" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        os.utime(path, (mtime_s, mtime_s))
+        return path
+
+    def execute(self, runner, check=True, pipeline=None):
+        deployment = rollout.Rollout(HOSTS, check=check, runner=runner, home="/local",
+                                     hostname="cdhvc2hw3l", pipeline=pipeline or Pipeline(),
+                                     base=self.base)
+        return deployment, deployment.execute()
+
+    def target(self, **changes):
+        listing = {relative: list(value) for relative, value in self.source.items()}
+        listing.update(changes)
+        return listing
+
+    def test_records_go_only_to_devices_that_run_omp(self):
+        deployment, code = self.execute(Runner(records=self.target()))
+        self.assertEqual(code, 0)
+        self.assertEqual([item[:2] for item in deployment.rows if item[1] == "records"],
+                         [["codex-omarchy-nuc", "records"]])
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "current")
+
+    def test_check_reports_missing_records_without_copying(self):
+        pipeline = Pipeline()
+        deployment, code = self.execute(Runner(records={}), pipeline=pipeline)
+        self.assertEqual(code, 1)
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "stale")
+        self.assertEqual(pipeline.calls, [])
+        self.assertIn("codex-omarchy-nuc: 2 record file(s) to copy", deployment.report())
+
+    def test_apply_streams_changed_files_to_the_target_base(self):
+        pipeline = Pipeline()
+        older = [1, "0" * 64]
+        deployment, code = self.execute(Runner(records=self.target(**{"example-owner/example-repo/gate.json": older})),
+                                        check=False, pipeline=pipeline)
+        self.assertEqual(code, 0)
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "current")
+        copies = [call for call in pipeline.calls if call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER]]
+        self.assertEqual(len(copies), 1)
+        producer, consumer = copies[0]
+        self.assertEqual(producer[3:], [str(self.base / "repos"), "example-owner/example-repo/gate.json"])
+        self.assertEqual(consumer[:5], ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"])
+        self.assertEqual(consumer[5], "codex-omarchy-nuc")
+        self.assertIn("omp-records-write", consumer[6])
+        self.assertTrue(consumer[6].rstrip("'\"").endswith("~/.omp"), consumer[6])
+
+    def test_newer_target_record_is_refused_and_reported(self):
+        pipeline = Pipeline()
+        newer = [self.source["example-owner/example-repo/gate.json"][0] + 1, "f" * 64]
+        runner = Runner(records=self.target(**{"example-owner/example-repo/gate.json": newer,
+                                                "example-owner/example-repo/profile.md": [1, "0" * 64]}))
+        deployment, code = self.execute(runner, check=False, pipeline=pipeline)
+        self.assertEqual(code, 1)
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "record-newer")
+        self.assertFalse(any(call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER] for call in pipeline.calls),
+                         "no file of a newer target record may be overwritten")
+        self.assertIn("codex-omarchy-nuc: record example-owner/example-repo is newer on the target; not overwritten",
+                      deployment.report())
+
+    def test_unreachable_target_records_row(self):
+        deployment, code = self.execute(Runner(unreachable=True))
+        self.assertEqual(code, 1)
+        self.assertEqual(row(deployment, "codex-omarchy-nuc", "records")[5], "unreachable")
+
+    def test_no_source_records_adds_no_row(self):
+        self.base = self.scratch / "empty"
+        deployment, code = self.execute(Runner())
+        self.assertEqual(code, 0)
+        self.assertFalse(any(item[1] == "records" for item in deployment.rows))
+
+    def test_plan_copies_missing_and_older_and_leaves_target_only_files(self):
+        gate, profile = "o/n/gate.json", "o/n/profile.md"
+        source = {gate: (10, "a"), profile: (10, "b"), "o/other/gate.json": (10, "c")}
+        target = {gate: (10, "a"), profile: (5, "old"), "o/n/extra.md": (99, "x"),
+                  "o/other/gate.json": (11, "edited")}
+        self.assertEqual(rollout.record_plan(source, target), ([profile], ["o/other"]))
+        self.assertEqual(rollout.record_plan(source, {}), (sorted(source), []))
+
+    def test_bundler_writer_and_lister_round_trip_on_a_real_target(self):
+        home = self.scratch / "home"
+        (home / ".omp").mkdir(parents=True)
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+        files = sorted(self.source)
+        producer = [sys.executable, "-c", rollout.RECORDS_BUNDLER, str(self.base / "repos"), *files]
+        bundle = subprocess.run(producer, capture_output=True, check=True)
+        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp"], input=bundle.stdout,
+                                 capture_output=True, env=env, check=False)
+        self.assertEqual(written.returncode, 0, written.stderr)
+        for relative in files:
+            target = home / ".omp/repos" / relative
+            self.assertEqual(target.read_bytes(), (self.base / "repos" / relative).read_bytes())
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        listed = subprocess.run([sys.executable, "-c", rollout.RECORDS_LISTER, "~/.omp"],
+                                capture_output=True, text=True, env=env, check=True)
+        listing = {key: tuple(value) for key, value in json.loads(listed.stdout).items()}
+        self.assertEqual(listing, self.source, "the copy keeps source bytes and mtimes")
+        self.assertEqual(rollout.record_plan(self.source, listing), ([], []))
+        self.write(home / ".omp", "example-owner/example-repo/gate.json", "{}\n", 2_000)
+        listing = rollout.record_files(home / ".omp/repos")
+        self.assertEqual(rollout.record_plan(self.source, listing), ([], ["example-owner/example-repo"]))
+
+    def test_writer_refuses_paths_that_leave_the_records_root(self):
+        home = self.scratch / "home"
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+        for relative in ("../escape", "/abs", "o/./n", ""):
+            with self.subTest(relative=relative):
+                document = json.dumps({relative: [1, "eA=="]}).encode()
+                result = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp"],
+                                        input=document, capture_output=True, env=env, check=False)
+                self.assertEqual(result.returncode, 4)
+        self.assertFalse((self.scratch / "escape").exists())
 
 
 if __name__ == "__main__":

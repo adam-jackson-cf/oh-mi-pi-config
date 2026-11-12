@@ -1,6 +1,7 @@
-# Dynaflows contract version this install implements. Repos record the version they were set up
-# against as .omp/gate.json dynaflowsContract; workflows.py reads this exact line.
-dynaflowsContract: 2
+# Dynaflows contract version this install implements. Each per-repo record
+# (repos/<owner>/<name>/gate.json) states the version it was set up against as dynaflowsContract;
+# workflows and rails refuse a lower one. workflows.py reads this exact line.
+dynaflowsContract: 3
 references:
   firstEdit:
     - skill://coding-guidance/references/implementation-integrity.md

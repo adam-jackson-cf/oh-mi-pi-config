@@ -1,6 +1,8 @@
 # Project setup playbook
 
-Establish the approved verification surface before guardrails in a prerequisite PR.
+Establish the approved verification surface and the repo's record before guardrails, with any
+repo fixes in a prerequisite PR. The record (`repos/<owner>/<name>/` under the oh-mi-pi-config
+root) is local and never committed; the PR holds only repo changes that never mention omp.
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order.
 Helper mechanics live in [patterns](../patterns.md); Git mechanics in `skill://git-tool`.
 
@@ -8,7 +10,7 @@ Helper mechanics live in [patterns](../patterns.md); Git mechanics in `skill://g
 
 Identify stack, protected work, missing controls and owners. Read `skill://setup-repository-guardrails`
 and `skill://test-guidance/references/verification-surface.md`.
-Read `.omp/test-profile.md` when present. Trigger surface setup lazily for user-visible work
+Read the record's `profile.md` when present. Trigger surface setup lazily for user-visible work
 without a surface; an owner-approved no-runnable-app exemption does not trigger it.
 For an already guarded repo, use surface-only extend mode, not a second guardrail system.
 
@@ -25,10 +27,11 @@ Map lever journeys to `preserve` proofs; new-control canaries remain `new-surfac
 controls `preserve`. Cover intentional violations rejected and valid inputs accepted.
 The proof task writes the production lever and runner-invoked journey files and freezes them
  together with `freeze(..., project_setup=True)`; implementation owns the feature map, profile and
-guardrails, not lever bytes. Project setup freezes before stage 4 records `dynaflowsContract`, so
-this flag tolerates a missing gate or an absent or lower recorded contract; a higher one still refuses.
-A stale contract alone in a repo that already has controls is not a project-setup trigger: it
-takes the mechanical `omp-guardrails init --extend` commit in [SKILL](../../SKILL.md#4-implement).
+guardrails, not lever bytes. Project setup freezes before stage 4 writes the record's
+`dynaflowsContract`, so this flag tolerates a missing record gate or an absent or lower contract; a
+higher one still refuses. A stale contract alone in a repo that already has controls is not a
+project-setup trigger: it takes the record-only `omp-guardrails init` re-run in
+[SKILL](../../SKILL.md#4-implement).
 Complete guardrails Step 5 owner approval.
 Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
 `STRUCT.folder-placement`, `NAME.conventions`, ownership areas and affected-T2 selection.
@@ -36,19 +39,17 @@ Keep the Step 5 STOP; existing controls are not permission to skip approval.
 
 ## 4. Implement
 
-After freeze, implementation writes the feature map and copies
-`skill://test-guidance/assets/templates/test-profile.md` to `.omp/test-profile.md`, filling its
-machine-readable front matter and prose before guardrails application. `omp-guardrails init`
-writes the same template; `omp-guardrails profile-check` must pass (PROFILE.complete).
-Init also records the current dynaflows contract version as `.omp/gate.json` `dynaflowsContract`
-(`--greenfield` writes the gate; `--extend` raises a stale one and needs the profile written
-first); commit it with the setup so `prove()` sees the current version at head.
-Preserve existing profile values when extending it.
-Use `git check-ignore .omp/test-profile.md`; if ignored, re-include that exact path in the
-repo ignore rules and confirm it is trackable. Never force-add an ignored profile.
-Then invoke guardrails Step 6 using the profile and Step 7 coverage verification.
-Install the approved hook before the first commit; commit frozen proofs and greening changes
-atomically through it. Bootstrap permits proposing controls before they exist, not bypassing approval.
+After freeze, implementation writes the feature map in the repo. The confirmed record's
+`profile.md` starts from `skill://test-guidance/assets/templates/test-profile.md`, with its
+machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
+`--record <record dir>`, drafts the same template and the record's `gate.json`, including the
+current `dynaflowsContract` (written when absent, raised when stale, never lowered).
+`omp-guardrails profile-check` must pass (PROFILE.complete).
+Preserve existing profile values when extending it. Write the record only after Step 5 approval,
+with `dynaflows.enabled` false; never commit, stage or copy it into the repo.
+Then invoke guardrails Step 6 and Step 7 verification. Commit frozen proofs and greening changes
+atomically; rails run the record's `checks.commit` and the harness checks at each commit.
+Bootstrap permits proposing controls before they exist, not bypassing approval.
 
 ## 5. Verify
 

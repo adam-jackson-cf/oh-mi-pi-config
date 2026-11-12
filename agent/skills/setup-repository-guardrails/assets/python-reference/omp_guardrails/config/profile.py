@@ -1,6 +1,10 @@
-"""Load the repo test profile's machine-readable values and validate PROFILE.complete.
+"""Load a per-repo record's test profile and validate PROFILE.complete.
 
-Format choice: ``.omp/test-profile.md`` starts with a front-matter block between two ``---``
+The profile lives in the harness, never in the repository: ``<record>/profile.md``, where the
+record is ``<oh-mi-pi-config root>/repos/<owner>/<name>/`` and the caller passes it as
+``--record DIR``. Findings about the profile name it ``record:profile.md``.
+
+Format choice: ``profile.md`` starts with a front-matter block between two ``---``
 lines that holds one JSON object. JSON is valid YAML flow syntax, so Markdown and YAML tools
 treat the block as ordinary front matter, while this package reads it with the standard
 library's ``json`` module and needs no YAML parser. The human sections follow the block.
@@ -21,7 +25,9 @@ from typing import Any
 
 from omp_guardrails.findings import Finding
 
-PROFILE_PATH = ".omp/test-profile.md"
+PROFILE_FILE = "profile.md"
+# How findings name the record's profile; it is not a repository path.
+PROFILE_PATH = "record:profile.md"
 RULE = "PROFILE.complete"
 FENCE = "---"
 EXEMPTABLE = frozenset({
@@ -50,9 +56,9 @@ class ProfileError(Exception):
     """The profile file is absent or its front matter cannot be read."""
 
 
-def load_profile(repo: Path) -> dict:
-    """Return the JSON object in the front matter of ``<repo>/.omp/test-profile.md``."""
-    path = repo / PROFILE_PATH
+def load_profile(record: Path) -> dict:
+    """Return the JSON object in the front matter of ``<record>/profile.md``."""
+    path = record / PROFILE_FILE
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as error:
