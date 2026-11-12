@@ -17,6 +17,8 @@ from urllib.parse import quote
 MAX_AGENTS = 16
 MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
+# The whole-repo harness checks prove() runs at head; separate from the per-proof CHECK_TIMEOUT.
+HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
     "missing checks.commit or pathCheck; follow skill://omp-dyna-workflows/SKILL.md "
     "owner-approval prerequisite (skill://setup-repository-guardrails)")
@@ -149,10 +151,15 @@ def _guardrails_command():
 def _harness_check(tree, record):
     """Run the whole-repo harness checks over `tree` with the record as config: (ok, output).
 
-    The checks never write into the tree; a tracked or untracked change they leave fails the run.
+    The checks never write into the tree; a tracked or untracked change they leave fails the run,
+    and so does a launch error or timeout.
     """
     before = _git(tree, "status", "--porcelain=v2", "--untracked-files=all")
-    ok, out = run_check([*_guardrails_command(), "--repo", str(tree), "--record", str(record)], tree)
+    try:
+        ok, out = run_check([*_guardrails_command(), "--repo", str(tree), "--record", str(record)], tree,
+                            HARNESS_CHECK_TIMEOUT)
+    except WorkflowError as exc:
+        ok, out = False, str(exc)
     if _git(tree, "status", "--porcelain=v2", "--untracked-files=all") != before:
         return False, f"{out}\nthe harness checks wrote into the head tree"
     return ok, out
@@ -163,14 +170,17 @@ def _is_argv(value):
         isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value)
 
 
-def run_check(cmd, cwd):
-    """Run an argv proof or repo command without harness variables, retaining complete, replacement-decoded diagnostics."""
+def run_check(cmd, cwd, timeout=None):
+    """Run an argv proof or repo command without harness variables, retaining complete, replacement-decoded diagnostics.
+
+    `timeout` defaults to CHECK_TIMEOUT.
+    """
     if not _is_argv(cmd):
         raise WorkflowError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
         p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                           errors="replace", timeout=CHECK_TIMEOUT)
+                           errors="replace", timeout=CHECK_TIMEOUT if timeout is None else timeout)
     except subprocess.TimeoutExpired as exc:
         def decode(value):
             return value.decode(errors="replace") if isinstance(value, bytes) else value or ""

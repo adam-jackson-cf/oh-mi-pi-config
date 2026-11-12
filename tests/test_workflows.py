@@ -1442,6 +1442,18 @@ class RepositoryTests(unittest.TestCase):
         self.assert_block(result, "the harness checks wrote into the head tree")
         self.verifier.assert_not_called()
 
+    def test_harness_check_timeout_blocks_and_is_separate_from_the_proof_timeout(self):
+        self.harness_script("import time; time.sleep(2)")
+        self.change()
+        with patch.object(workflow, "HARNESS_CHECK_TIMEOUT", 0.2):
+            result = self.prove()
+        self.assert_block(result, "harness checks (omp-guardrails) failed at head")
+        self.assertIn("timeout", result["harnessCheck"]["output"])
+        self.harness_script("pass")
+        with patch.object(workflow, "CHECK_TIMEOUT", 0.0001):
+            self.assertTrue(workflow._harness_check(self.repo, self.record)[0],
+                            "a tiny per-proof CHECK_TIMEOUT does not apply to the harness check")
+
     def test_harness_command_is_omp_guardrails_from_the_harness_reference_project(self):
         self.guardrails_patch.stop()
         self.addCleanup(self.guardrails_patch.start)
