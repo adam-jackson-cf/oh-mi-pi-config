@@ -1,9 +1,0 @@
-{
-  "rule": "TEST.failure-propagation",
-  "expect": "fail",
-  "check": {"subcommand": "gate", "argv": ["ci"]},
-  "files": {
-    ".omp/gate.json": "{\"schemaVersion\": 2, \"checks\": {\"ci\": [\"git\", \"diff\", \"--quiet\", \"--cached\", \"HEAD\"]}}\n"
-  },
-  "base": {"src/app/core.txt": "base\n"}
-}

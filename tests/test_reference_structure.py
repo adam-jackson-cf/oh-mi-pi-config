@@ -78,7 +78,9 @@ class CheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-structure-")
         self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name)
+        self.repo = Path(scratch.name).resolve() / "repo"
+        self.record = Path(scratch.name).resolve() / "record"
+        self.record.mkdir()
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         self.profile = copy.deepcopy(CLEAN["profile"])
         for path, text in CLEAN["files"].items():
@@ -127,7 +129,7 @@ class CheckerTests(unittest.TestCase):
             self.findings(layout), {("STRUCT.dependency-direction", "src/orders/contract/fetch.py")}
         )
         del self.profile["guardrails"]["structure"]["root_files"]
-        self.assertIn(("STRUCT.folder-placement", ".omp/test-profile.md"), self.findings(layout))
+        self.assertIn(("STRUCT.folder-placement", "record:profile.md"), self.findings(layout))
 
     def test_naming_reports_house_style_violations(self) -> None:
         planted = {
@@ -205,12 +207,12 @@ class CheckerTests(unittest.TestCase):
         ]
         self.assertEqual(self.findings(naming), {("NAME.conventions", "src/orders/cli/helpers.py")})
 
-    def test_cli_runs_the_checkers_against_the_profile_file(self) -> None:
-        profile_path = self.repo / ".omp/test-profile.md"
-        profile_path.parent.mkdir()
-        self.profile["structure"]["owners"]["files"][".omp/test-profile.md"] = "test profile"
-        self.profile["guardrails"]["structure"]["root_directories"].append(".omp")
-        profile_path.write_text(f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n")
+    def write_profile(self) -> None:
+        text = f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n"
+        (self.record / "profile.md").write_text(text)
+
+    def test_cli_runs_the_checkers_against_the_record_profile(self) -> None:
+        self.write_profile()
         for name in ("structure", "naming", "path-check"):
             with self.subTest(name=name):
                 self.assertEqual(self.run_cli(name), (0, f"{name}: ok\n"))
@@ -219,11 +221,54 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("src/orders/engine/misc.py: NAME.conventions:", out)
 
-    def run_cli(self, name: str) -> tuple[int, str]:
+    def run_cli(self, name: str, *paths: str) -> tuple[int, str]:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = cli.main([name, "--repo", str(self.repo)])
+            code = cli.main([name, "--repo", str(self.repo), "--record", str(self.record), *paths])
         return code, out.getvalue()
+
+    def test_path_check_reports_one_actionable_line_per_named_path(self) -> None:
+        """GATE.path-check: changed paths as arguments, exit 0 clean, one error line per file."""
+        self.write_profile()
+        self.write("src/orders/engine/misc.py")
+        self.assertEqual(self.run_cli("path-check", "src/orders/engine/runner.py")[0], 0)
+        code, out = self.run_cli("path-check", "src/orders/engine/misc.py")
+        self.assertEqual(code, 1)
+        lines = out.splitlines()
+        self.assertTrue(lines and all(line.startswith("src/orders/engine/misc.py: ") for line in lines))
+
+    def test_check_runs_the_record_steps_over_the_whole_repo_and_writes_nothing(self) -> None:
+        self.profile["guardrails"]["check"] = {"run": ["structure", "naming", "path-check"]}
+        self.write_profile()
+        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
+        self.write("src/orders/engine/misc.py")
+        self.write("vendor/third/misc.py")
+        before = sorted(path for path in self.repo.rglob("*") if ".git" not in path.parts)
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("src/orders/engine/misc.py: NAME.conventions:", out)
+        self.assertIn("vendor", out)
+        self.assertEqual(
+            sorted(path for path in self.repo.rglob("*") if ".git" not in path.parts), before
+        )
+        self.profile["guardrails"]["check"]["exclude"] = ["vendor/**", "src/orders/engine/misc.py"]
+        self.write_profile()
+        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
+
+    def test_check_steps_come_from_a_fixed_list_and_record_findings_always_show(self) -> None:
+        self.profile["guardrails"]["check"] = {"run": ["diff-check"], "exclude": ["**"]}
+        self.write_profile()
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("record:profile.md: PROFILE.complete: guardrails.check.run names", out)
+        from omp_guardrails import whole_repo
+
+        steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
+        self.assertEqual((steps, problems), (list(whole_repo.DEFAULT_STEPS), []))
+        self.assertIn("adapter lint", steps)
+        code, out = self.run_cli("check", "src")
+        self.assertEqual(code, 1)
+        self.assertIn("check takes no paths or options", out)
 
 
 if __name__ == "__main__":

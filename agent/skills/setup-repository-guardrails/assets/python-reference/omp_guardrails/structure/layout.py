@@ -21,6 +21,7 @@ import ast
 from pathlib import Path, PurePosixPath
 
 from omp_guardrails.config.house_style import apply_exceptions
+from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import (
     InventoryError,
@@ -34,7 +35,7 @@ from omp_guardrails.structure.inventory import (
 PLACEMENT = "STRUCT.folder-placement"
 DIRECTION = "STRUCT.dependency-direction"
 SETTINGS_FIX = (
-    "or add the entry to guardrails.structure in .omp/test-profile.md with owner approval"
+    "or add the entry to guardrails.structure in the record profile with owner approval"
 )
 
 
@@ -202,7 +203,7 @@ def configuration_findings(config: dict) -> list[Finding]:
         return []
     return [
         placement(
-            ".omp/test-profile.md",
+            PROFILE_PATH,
             "guardrails.structure.root_directories and root_files are not configured",
             "record the approved root allowlist in the profile",
         )

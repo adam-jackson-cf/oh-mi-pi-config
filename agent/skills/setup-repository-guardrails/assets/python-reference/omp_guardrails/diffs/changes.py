@@ -14,7 +14,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from omp_guardrails.config.profile import PROFILE_PATH, ProfileError, parse_front_matter
 from omp_guardrails.findings import Finding
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -139,17 +138,6 @@ def file_at(repo: Path, ref: str, path: str) -> str | None:
         return git(repo, "show", f"{ref}:{path}")
     except DiffError:
         return None
-
-
-def profile_at(repo: Path, ref: str) -> dict:
-    """The profile front matter at a commit; empty when absent or unreadable there."""
-    text = file_at(repo, ref, PROFILE_PATH)
-    if text is None:
-        return {}
-    try:
-        return parse_front_matter(text)
-    except ProfileError:
-        return {}
 
 
 def range_finding(rule: str, error: DiffError) -> Finding:

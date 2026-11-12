@@ -26,6 +26,8 @@ import tempfile
 from pathlib import Path
 
 import omp_guardrails
+from omp_guardrails.child_env import repo_environment
+from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import as_list, settings
 
@@ -33,7 +35,6 @@ PLUGIN = "omp_guardrails.adapters.pytest.plugin"
 SETTINGS = "adapter_pytest"
 NO_TESTS_COLLECTED = 5
 PROPAGATION = "TEST.failure-propagation"
-PROFILE_PATH = ".omp/test-profile.md"
 
 
 def selector_arguments(selector: str) -> list[str]:
@@ -62,8 +63,12 @@ def collect_command(locations: list[str], selector: str, out_file: Path) -> list
 
 
 def package_environment() -> dict[str, str]:
-    """The child pytest must import this package even when it runs from a source checkout."""
-    environment = dict(os.environ)
+    """The child pytest must import this package even when it runs from a source checkout.
+
+    It writes no bytecode caches: omp-guardrails never writes into the repository tree.
+    """
+    environment = repo_environment()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     root = str(Path(omp_guardrails.__file__).resolve().parent.parent)
     current = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join([root, current] if current else [root])

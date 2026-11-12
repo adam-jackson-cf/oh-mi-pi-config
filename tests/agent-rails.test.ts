@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { describe, test } from "node:test";
 import { promisify } from "node:util";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import agentRails from "../agent/extensions/agent-rails";
+import { parseOrigin } from "../agent/lib/repo-record.ts";
 
 const integrity = "skill://coding-guidance/references/implementation-integrity.md";
 const structure = "skill://coding-guidance/references/structure-and-grouping.md";
@@ -17,11 +18,10 @@ const verification = "skill://coding-guidance/references/verification.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; pathCheckTimeoutMs?: number; agentMerge?: "allowed" | "disabled";
-	ci?: { requiredContext: string; runner: string }; dynaflowsContract?: number;
+	ci?: { requiredContext: string; runner: string }; dynaflowsContract?: number; dynaflows?: { enabled: boolean };
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
-type Answer = { question?: string; selectedOptions?: string[]; timedOut?: boolean };
-type Details = Answer & { applied?: boolean; files?: string[]; totalReplacements?: number; results?: Answer[] };
+type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
@@ -47,11 +47,32 @@ const wrappedPublishing = [
 	"env -S 'git push'", "env --split-string='git push'", "env -S git push",
 ];
 
-function harness({ configPath }: { configPath?: string } = {}) {
+const railsConfig = join(import.meta.dir, "../agent/agent-rails.yml");
+const currentContract = z.object({ dynaflowsContract: z.number().int().positive() })
+	.parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8"))).dynaflowsContract;
+const defaultOrigin = "git@github.com:owner/repo.git";
+// A record's gate.json as tests read it back: the switch typed, every other field kept.
+const recordGateSchema = z.object({ dynaflows: z.object({ enabled: z.boolean() }) }).passthrough();
+
+// Rails run every repo command as `env -u AGENT -- <argv>`; this returns <argv> and fails otherwise.
+function repoCommand(command: string, args: string[]): [string, string[]] {
+	if (command !== "env") return [command, args];
+	assert.deepEqual(args.slice(0, 3), ["-u", "AGENT", "--"], "repo commands run without the harness variables");
+	return [args[3], args.slice(4)];
+}
+
+// A temp repo whose origin names a per-repo record under a temp config root (never the real one).
+// `configRoot` shares another harness's records; `guardrailsCommand: "default"` keeps the real
+// omp-guardrails invocation, otherwise the harness checks are `true`.
+function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"] }: {
+	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default";
+} = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
+	const ownedRecords = configRoot === undefined;
+	const records = configRoot ?? realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-records-")));
 	execFileSync("git", ["init", "-b", "agent/test", root]);
-	mkdirSync(join(root, ".omp"));
+	execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
 	writeFileSync(join(root, "existing.ts"), "export const answer = 42;\n");
 	const handlers = new Map<string, Handler>();
 	const notes: string[] = [];
@@ -76,7 +97,7 @@ function harness({ configPath }: { configPath?: string } = {}) {
 	const api = {
 		on(name: string, handler: Handler) { handlers.set(name, handler); },
 		registerCommand() {},
-		async exec(command: string, args: string[], options: { cwd: string; timeout: number }) {
+		async exec(command: string, args: string[], options: { cwd: string; timeout?: number }) {
 			try {
 				const { stdout, stderr } = await execute(command, args, options);
 				return { code: 0, killed: false, stdout, stderr };
@@ -87,8 +108,27 @@ function harness({ configPath }: { configPath?: string } = {}) {
 			}
 		},
 	};
+	const options: Parameters<typeof agentRails>[1] = { machineDynaflowsPath: join(machine, "dynaflows.json"), configPath, configRoot: records };
+	if (guardrailsCommand !== "default") options.guardrailsCommand = guardrailsCommand;
 	// SAFETY: this fake supplies on, registerCommand and exec, the only API surfaces agentRails consumes.
-	agentRails(api as ExtensionAPI, { machineDynaflowsPath: join(machine, "dynaflows.json"), configPath });
+	agentRails(api as ExtensionAPI, options);
+	// The record's gate.json: the fixture over a current-contract, dynaflows-off default; `dynaflows()` wins.
+	let fixture: GateFixture | undefined;
+	let enabled: boolean | undefined;
+	let slug = parseOrigin(remote);
+	const recordDir = () => {
+		assert.ok(slug, "the harness origin names a record");
+		return join(records, "repos", slug);
+	};
+	const writeRecord = (text: string) => {
+		mkdirSync(recordDir(), { recursive: true });
+		writeFileSync(join(recordDir(), "gate.json"), text);
+	};
+	const writeGate = () => {
+		const gate = { dynaflowsContract: currentContract, dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
+		if (enabled !== undefined) gate.dynaflows = { enabled };
+		writeRecord(JSON.stringify(gate));
+	};
 	let id = 0;
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
 		const handler = handlers.get(name);
@@ -97,12 +137,25 @@ function harness({ configPath }: { configPath?: string } = {}) {
 		return handler({ type: name, ...event }, context as ExtensionContext);
 	}
 	return {
-		root, notes, branch, context, emit, api,
-		cleanup() { for (const dir of [root, machine]) rmSync(dir, { recursive: true, force: true }); },
+		root, notes, branch, context, emit, api, options, records, recordDir,
+		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
-		gate(value: GateFixture) { writeFileSync(join(root, ".omp/gate.json"), JSON.stringify(value)); },
-		dynaflows(enabled: boolean) { writeFileSync(join(root, ".omp/dynaflows.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
-		machineDynaflows(enabled: boolean) { writeFileSync(join(machine, "dynaflows.json"), JSON.stringify({ schemaVersion: 1, enabled })); },
+		gate(value: GateFixture) { fixture = value; writeGate(); },
+		dynaflows(value: boolean) { enabled = value; writeGate(); },
+		// Raw gate.json text, for invalid and contract fixtures.
+		rawGate(text: string) { writeRecord(text); },
+		record() { return recordGateSchema.parse(JSON.parse(readFileSync(join(recordDir(), "gate.json"), "utf8"))); },
+		// Moves origin; an existing record moves with it, as a re-pointed clone keeps its record.
+		async origin(url: string) {
+			const previous = slug ? join(records, "repos", slug) : undefined;
+			await execute("git", ["remote", "set-url", "origin", url], { cwd: root });
+			slug = parseOrigin(url);
+			if (previous && existsSync(previous) && slug && previous !== recordDir()) {
+				mkdirSync(dirname(recordDir()), { recursive: true });
+				renameSync(previous, recordDir());
+			}
+		},
+		machineDynaflows(value: boolean) { writeFileSync(join(machine, "dynaflows.json"), JSON.stringify({ schemaVersion: 1, enabled: value })); },
 		async read(...urls: string[]) {
 			for (const path of urls) await emit("tool_result", {
 				toolName: "read", toolCallId: `read-${++id}`, input: { path }, isError: false,
@@ -128,31 +181,19 @@ const greenCi = [
 type PrCiHarness = {
 	root: string;
 	api: {
-		exec(command: string, args: string[], options: { cwd: string; timeout: number }):
+		exec(command: string, args: string[], options: { cwd: string; timeout?: number }):
 			Promise<{ code: number; killed: boolean; stdout: string; stderr: string }>;
 	};
 };
 
-const ciBase = "c".repeat(40);
-// Guardrail file contents served by the fake contents API, keyed by ref then repo-relative path.
-type Contents = Record<string, Record<string, string>>;
-// Fakes `gh pr view`, `gh pr list --search <sha>` (status posts) and `gh api .../contents/<path>?ref=<sha>`
-// (the approval guard; absent files answer HTTP 404); every other command runs for real.
+// Fakes `gh pr view` and `gh pr list --search <sha>` (status posts); every other command runs for real.
 function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: string, failure?: string,
-	url = "https://github.com/owner/repo/pull/3", listed: object[] = [{ number: 3, headRefOid: head }], contents: Contents = {}) {
+	url = "https://github.com/owner/repo/pull/3", listed: object[] = [{ number: 3, headRefOid: head }]) {
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
 		assert.equal(options.cwd, h.root);
 		assert.equal(options.timeout, 20000);
-		if (args[0] === "api" && args.at(-1)?.includes("/contents/")) {
-			assert.deepEqual(args.slice(0, 3), ["api", "-H", "Accept: application/vnd.github.raw+json"]);
-			const match = /^repos\/[^/]+\/[^/]+\/contents\/(.+)\?ref=([0-9a-f]{40})$/.exec(args[3]);
-			assert.ok(match, args[3]);
-			const text = contents[match[2]]?.[match[1]];
-			return text === undefined ? { code: 1, killed: false, stdout: "", stderr: "gh: Not Found (HTTP 404)" }
-				: { code: 0, killed: false, stdout: text, stderr: "" };
-		}
 		if (args[1] === "list") {
 			assert.match(args[3], /^[0-9a-f]{40}$/);
 			assert.deepEqual(args, ["pr", "list", "--search", args[3], "--state", "open", "--json", "number,headRefOid"]);
@@ -163,19 +204,15 @@ function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: st
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ baseRefOid: ciBase, headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 
-// Answers every `gh pr view` with an approval-free PR and every guardrail contents read with HTTP 404, from any cwd,
-// so publishing-policy tests reach the merge rails without a real GitHub remote.
-function stubPlainMerge(h: PrCiHarness) {
+// Refuses every gh call: plain publishing (no ci block, dynaflows off) must never query GitHub.
+function forbidGh(h: PrCiHarness) {
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
-		if (command !== "gh") return exec(command, args, options);
-		if (args[0] === "api" && args.at(-1)?.includes("/contents/")) return { code: 1, killed: false, stdout: "", stderr: "gh: Not Found (HTTP 404)" };
-		if (args[0] === "pr" && args[1] === "view") return { code: 0, killed: false, stderr: "",
-			stdout: JSON.stringify({ baseRefOid: ciBase, headRefOid: ciHead, statusCheckRollup: [], url: "https://github.com/owner/repo/pull/7" }) };
+		assert.notEqual(command, "gh", "plain publishing must not query gh");
 		return exec(command, args, options);
 	};
 }
@@ -185,8 +222,8 @@ const ciGate = { requiredContext: "gate", runner: "ci-gate" };
 const ciRunner = resolve(import.meta.dir, "../scripts/ci-runner.py");
 const statusPost = (sha = ciHead, repo = "owner/repo") => `gh api repos/${repo}/statuses/${sha} -f state=success -f context=agent-verified -f description='prove() pass'`;
 const statusOnly = "Agent rails: agent-verified is a SHA-bound commit status; prove() posts it (non-dynaflows: gh api repos/OWNER/REPO/statuses/SHA -f state=success -f context=agent-verified)";
-async function originRemote(h: { root: string }, remote = "git@github.com:owner/repo.git") {
-	await execute("git", ["remote", "add", "origin", remote], { cwd: h.root });
+async function originRemote(h: { origin(url: string): Promise<void> }, remote = defaultOrigin) {
+	await h.origin(remote);
 }
 
 function passMarker(h: { root: string }, head = ciHead) {
@@ -239,13 +276,14 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("absent and invalid gates fall back to reference enforcement without throwing", async () => {
+	test("absent and invalid records fall back to reference enforcement without throwing", async () => {
 		const h = harness();
 		try {
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
-			assert.ok(h.notes.some(note => note.includes("absent")));
-			writeFileSync(join(h.root, ".omp/gate.json"), "{broken");
+			assert.deepEqual(h.notes, [], "a repo without a record is normal, not noteworthy");
+			h.rawGate("{broken");
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
+			assert.ok(h.notes.some(note => note.includes(join(h.recordDir(), "gate.json"))));
 			h.gate({ schemaVersion: 2, pathCheck: "not an argv array" });
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
 			assert.ok(h.notes.some(note => note.includes("invalid")));
@@ -258,7 +296,6 @@ describe("agent rails", () => {
 		test(`handoff needs only the verification read after code edits, never a check run (dynaflows ${dynaflows ? "on" : "off"})`, async () => {
 			const h = harness();
 			try {
-				await execute("git", ["init"], { cwd: h.root });
 				h.dynaflows(dynaflows);
 				h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
 				await h.emit("session_start");
@@ -342,10 +379,10 @@ describe("agent rails", () => {
 
 	test("repo merge policy fails closed for publishing actions, respecting git -C", async () => {
 		const h = harness();
-		const other = harness();
+		const other = harness({ configRoot: h.records, remote: "git@github.com:owner/other.git" });
 		try {
 			await h.read("skill://git-tool");
-			stubPlainMerge(h);
+			forbidGh(h);
 			const commands = ["git push", "gh pr create", "gh pr merge 7", ...wrappedPublishing];
 			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
 			h.gate({ schemaVersion: 2 });
@@ -382,8 +419,8 @@ describe("agent rails", () => {
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":1}', '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"ciHost":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}']) {
-				writeFileSync(join(h.root, ".omp/gate.json"), invalid);
+			for (const invalid of ["{broken", '{"schemaVersion":1}', '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"ciHost":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
+				h.rawGate(invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });
 					assert.equal(blocked?.block, true, command);
@@ -429,29 +466,194 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("a declared commit check needs an installed executable pre-commit hook, honouring core.hooksPath", async () => {
-		const h = harness();
+	test("dynaflows commits run the record's checks.commit, then the whole-repo harness checks, without AGENT", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-commit-")));
+		const log = join(scratch, "runs.log");
+		// Appends its label, argv and AGENT to the log, then exits with $FAIL_<label> (default 0).
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, `#!/bin/sh\nlabel=$1; shift\necho "$label $* AGENT=\${AGENT-unset}" >> '${log}'\necho "$label finding: src/x.py" >&2\neval "exit \\\${FAIL_$label:-0}"\n`, { mode: 0o755 });
+		const h = harness({ guardrailsCommand: [script, "harness"] });
+		const previous = process.env.AGENT;
+		process.env.AGENT = "1";
 		try {
-			await execute("git", ["init"], { cwd: h.root });
 			await h.read("skill://git-tool");
 			const commit = () => h.call("bash", { command: "git commit -m x" });
-			assert.equal(await commit(), undefined, "no gate.json: nothing to enforce");
-			h.gate({ schemaVersion: 2, checks: { ci: ["bun", "ci"] } });
-			assert.equal(await commit(), undefined, "no commit check declared");
-			h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"] } });
-			assert.ok((await commit())?.reason?.includes("no pre-commit hook is installed"));
-			const hook = join(h.root, ".git/hooks/pre-commit");
-			mkdirSync(join(h.root, ".git/hooks"), { recursive: true });
-			writeFileSync(hook, "#!/bin/sh\nexit 0\n");
-			chmodSync(hook, 0o644);
-			assert.equal((await commit())?.block, true, "Git skips a non-executable hook");
-			chmodSync(hook, 0o755);
+			const runs = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+			h.gate({ schemaVersion: 2, checks: { commit: [script, "commit"] } });
 			assert.equal(await commit(), undefined);
-			await execute("git", ["config", "core.hooksPath", ".githooks"], { cwd: h.root });
-			assert.equal((await commit())?.block, true, "core.hooksPath moves the hook Git runs");
-			mkdirSync(join(h.root, ".githooks"));
-			writeFileSync(join(h.root, ".githooks/pre-commit"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			assert.deepEqual(runs(), [], "dynaflows off: rails run no repo or harness check");
+			h.dynaflows(true);
 			assert.equal(await commit(), undefined);
+			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`],
+				"the repo command first, then the harness over the whole repo with the record; AGENT never reaches either");
+			rmSync(log);
+			process.env.FAIL_commit = "3";
+			let blocked = await commit();
+			assert.equal(blocked?.block, true);
+			assert.ok(blocked?.reason?.includes(`checks.commit (${script} commit) failed in ${h.root} (exit 3)`), blocked?.reason);
+			assert.ok(blocked?.reason?.includes("commit finding: src/x.py"), "the agent sees the repo command's output");
+			assert.deepEqual(runs(), ["commit  AGENT=unset"], "a failed repo command stops before the harness checks");
+			rmSync(log);
+			delete process.env.FAIL_commit;
+			process.env.FAIL_harness = "1";
+			blocked = await commit();
+			assert.equal(blocked?.block, true);
+			assert.ok(blocked?.reason?.includes(`harness checks (omp-guardrails) failed in ${h.root} (exit 1)`), blocked?.reason);
+			assert.ok(blocked?.reason?.includes("harness finding: src/x.py"), blocked?.reason);
+			h.gate({ schemaVersion: 2 });
+			rmSync(log);
+			assert.equal((await commit())?.block, true, "harness checks run even when the record declares no checks.commit");
+			assert.deepEqual(runs(), [`harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`]);
+			delete process.env.FAIL_harness;
+			h.machineDynaflows(false);
+			rmSync(log);
+			assert.equal(await commit(), undefined);
+			assert.deepEqual(runs(), [], "the machine default off turns enforcement off with dynaflows");
+		} finally {
+			if (previous === undefined) delete process.env.AGENT; else process.env.AGENT = previous;
+			delete process.env.FAIL_commit; delete process.env.FAIL_harness;
+			h.cleanup(); rmSync(scratch, { recursive: true, force: true });
+		}
+	});
+
+	test("dynaflows commit checks see what gets committed: chained or wrapped commits are refused", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-sole-")));
+		// Fails unless the repo's `value` file reads "good".
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, `#!/bin/sh\ntest "$(cat value)" = good || { echo "value is not good" >&2; exit 1; }\n`, { mode: 0o755 });
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], { cwd: h.root });
+			h.gate({ schemaVersion: 2, checks: { commit: [script] } });
+			h.dynaflows(true);
+			const sole = "`git commit` must be the whole command";
+			for (const command of [
+				"printf bad > value && git commit -qam unchecked", "true || git commit -m x", "true; git commit -m x",
+				"echo x | git commit -F -", "true\ngit commit -m x", "(git commit -m x)", "git commit -m \"$(printf bad > value)\"",
+				"git commit -m `printf bad > value`", "echo -m | xargs git commit", "eval 'printf bad > value; git commit -am x'",
+				"sh -c 'printf bad > value && git commit -am x'", "bash -c 'git commit -m x'", "git commit -m x > log",
+				"git commit -m x & printf bad > value", "{ git commit -m x; }",
+			]) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes(sole), `${command}: ${blocked?.reason}`);
+				assert.ok(blocked?.reason?.includes("Stage your changes first"), command);
+			}
+			assert.equal(readFileSync(join(h.root, "value"), "utf8"), "good", "rails never ran the chained command");
+			assert.equal(await h.call("bash", { command: "git commit -m 'plain; message | with $(text)'" }), undefined,
+				"a plain commit on a clean tree passes; quoted prose is not a command");
+			assert.equal(await h.call("bash", { command: "mise exec -- git commit -m x" }), undefined, "a tool launcher runs git directly");
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+	});
+
+	test("dynaflows commits refuse assignments, program-running git options, editors and hook bypass", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
+			h.dynaflows(true);
+			const refusals: [string, string][] = [
+				["GIT_EDITOR='printf bad > value' git commit -m x", "leading VAR=value assignment"],
+				["PATH=/usr/bin git commit -m x", "leading VAR=value assignment"],
+				["FOO=1 mise exec -- git commit -m x", "leading VAR=value assignment"],
+				["git -c core.editor=vi commit -m x", "global option -c"],
+				["git -ccore.editor=vi commit -m x", "global option -ccore.editor=vi"],
+				["git --config-env=core.editor=ED commit -m x", "global option --config-env=core.editor=ED"],
+				["git --config-env core.editor=ED commit -m x", "global option --config-env"],
+				["git --exec-path=/tmp/x commit -m x", "global option --exec-path=/tmp/x"],
+				["git commit", "-m/--message or -F/--file"],
+				["git commit -a", "-m/--message or -F/--file"],
+				["git commit -C HEAD", "-m/--message or -F/--file"],
+				["git commit -m x -e", "must not open an editor"],
+				["git commit -em x", "must not open an editor"],
+				["git commit --edit -m x", "must not open an editor"],
+				["git commit -c HEAD -m x", "must not open an editor"],
+				["git commit --reedit-message=HEAD -m x", "must not open an editor"],
+				["git commit --no-verify -m x", "pre-commit hook"],
+				["git commit -nm x", "pre-commit hook"],
+			];
+			for (const [command, reason] of refusals) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes(reason), `${command}: ${blocked?.reason}`);
+			}
+			for (const command of [
+				"git commit -m x", "git commit -F msg.txt", "git commit --message=x", "git commit --file msg.txt",
+				"git commit -m x --no-edit", "git commit -m '-e'", "git commit -me", `git -C '${h.root}' commit -m x`,
+				"mise exec -- git commit -m x",
+			]) assert.equal(await h.call("bash", { command }), undefined, command);
+		} finally { h.cleanup(); }
+	});
+
+	test("dynaflows commits refuse unstaged tracked changes unless -a/--all; untracked files are fine", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-unstaged-")));
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, `#!/bin/sh\ntest "$(cat value)" = good || { echo "value is not good" >&2; exit 1; }\n`, { mode: 0o755 });
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], { cwd: h.root });
+			h.gate({ schemaVersion: 2, checks: { commit: [script] } });
+			h.dynaflows(true);
+			writeFileSync(join(h.root, "untracked.txt"), "new");
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "untracked files do not block");
+			writeFileSync(join(h.root, "value"), "bad");
+			for (const command of ["git commit -m x", "git commit -m -a", "git commit --message --all"]) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes("tracked files have unstaged changes"), blocked?.reason);
+				assert.ok(blocked?.reason?.includes("`git diff --quiet` must pass"), blocked?.reason);
+			}
+			for (const command of ["git commit -am x", "git commit --all -m x"]) {
+				const blocked = await h.call("bash", { command });
+				assert.ok(blocked?.reason?.includes("value is not good"), `${command}: -a commits the tree, so the checks see it: ${blocked?.reason}`);
+			}
+			await execute("git", ["add", "value"], { cwd: h.root });
+			assert.ok((await h.call("bash", { command: "git commit -m x" }))?.reason?.includes("value is not good"), "staged content is checked");
+			writeFileSync(join(h.root, "value"), "good");
+			await execute("git", ["add", "value"], { cwd: h.root });
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a plain commit of staged, passing content passes");
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+	});
+
+	test("the default harness check is omp-guardrails from the harness's own reference project", async () => {
+		const h = harness({ guardrailsCommand: "default" });
+		try {
+			await h.read("skill://git-tool");
+			h.dynaflows(true);
+			const seen: string[][] = [];
+			const exec = h.api.exec.bind(h.api);
+			h.api.exec = async (command, args, options) => {
+				const [name, rest] = repoCommand(command, args);
+				if (name !== "uv") return exec(command, args, options);
+				assert.equal(options.cwd, h.root);
+				seen.push(rest);
+				return { code: 0, killed: false, stdout: "", stderr: "" };
+			};
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+			const project = resolve(import.meta.dir, "../agent/skills/setup-repository-guardrails/assets/python-reference");
+			assert.deepEqual(seen, [["run", "--project", project, "omp-guardrails", "check", "--repo", h.root, "--record", h.recordDir()]]);
+		} finally { h.cleanup(); }
+	});
+
+	test("an invalid or below-contract record refuses dynaflows commits", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.gate({ schemaVersion: 2, dynaflowsContract: currentContract - 1, dynaflows: { enabled: true } });
+			let blocked = await h.call("bash", { command: "git commit -m x" });
+			assert.equal(blocked?.block, true);
+			assert.ok(blocked?.reason?.includes(`Dynaflows contract v${currentContract - 1} recorded; current is v${currentContract}`), blocked?.reason);
+			h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflowsContract: currentContract }));
+			blocked = await h.call("bash", { command: "git commit -m x" });
+			assert.ok(blocked?.reason?.includes('dynaflows must be {"enabled": true|false}'), blocked?.reason);
+			h.gate({ schemaVersion: 2 });
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 		} finally { h.cleanup(); }
 	});
 
@@ -497,52 +699,87 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("$dynaflows persists a project setting that overrides the machine default; only main prompts toggle it", async () => {
+	test("$dynaflows sets the record's switch; the machine default can only turn it off; only main prompts toggle it", async () => {
 		const h = harness();
 		try {
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "pull latest" }), undefined, "off by default");
 			h.machineDynaflows(true);
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "pull latest" }), undefined, "no record: off whatever the machine says");
+			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
+			assert.ok(h.notes.some(note => note.includes("has no per-repo record")), h.notes.join("; "));
+			assert.equal(existsSync(h.recordDir()), false, "the toggle never creates a record");
+			h.gate({ schemaVersion: 2 });
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the record says off");
+			h.dynaflows(true);
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
-			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "machine default turns it on");
-			assert.ok(pointer.includes("guardrail"), "missing guardrails start the sign-off flow");
+			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "the record turns it on");
+			assert.ok(pointer.includes("lacks checks.commit or pathCheck") && pointer.includes("skill://setup-repository-guardrails"),
+				"an incomplete record points at setup");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
 			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
-			assert.deepEqual(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")), { schemaVersion: 1, enabled: false });
-			assert.ok(readFileSync(join(h.root, ".git/info/exclude"), "utf8").split("\n").includes("/.omp/dynaflows.json"));
+			assert.deepEqual(h.record(), { dynaflowsContract: currentContract, dynaflows: { enabled: false }, schemaVersion: 2 },
+				"only the switch changes");
 			h.setSession("restarted");
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "project off outlives the session and overrides machine on");
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
 			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://omp-dyna-workflows"));
+			h.setSession("machine-off");
+			h.machineDynaflows(false);
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "machine off beats record on");
 			h.setSession("sub"); h.context.agent.kind = "sub";
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }), undefined, "subagents cannot toggle dynaflows");
-			assert.equal(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")).enabled, true);
+			assert.deepEqual(h.record().dynaflows, { enabled: true });
 		} finally { h.cleanup(); }
 	});
 
-	test("dynaflows blocks guardrail writes until the owner picks a proposal option via ask", async () => {
+	test("a repo without an origin remote has no record, so dynaflows is off", async () => {
 		const h = harness();
 		try {
-			await h.read(integrity, structure, naming);
-			assert.equal(await h.call("write", { path: ".omp/gate.json" }), undefined, "no sign-off with dynaflows off");
 			h.dynaflows(true);
-			writeFileSync(join(h.root, ".omp/guardrail-proposal.json"), JSON.stringify({
-				schemaVersion: 1, minimal: ["scripts/fast-gate.sh"], full: ["scripts/fast-gate.sh", "scripts/full-gate.sh"],
-			}));
-			assert.ok((await h.call("write", { path: ".omp/gate.json" }))?.reason?.includes("sign-off"));
-			assert.equal((await h.call("write", { path: "scripts/full-gate.sh" }))?.block, true);
-			assert.equal(await h.call("write", { path: "other.ts" }), undefined, "non-guardrail paths are unaffected");
-			await h.call("ask", {}, { question: "Which guardrail option?", selectedOptions: ["Minimal"], timedOut: true });
-			assert.equal((await h.call("write", { path: ".omp/gate.json" }))?.block, true, "a timeout auto-selection is not sign-off");
-			await h.call("ask", {}, { question: "Which lint profile?", selectedOptions: ["Minimal"] });
-			assert.equal((await h.call("write", { path: ".omp/gate.json" }))?.block, true, "unrelated questions are not sign-off");
-			await h.call("ask", {}, { results: [{ question: "Which guardrail option?", selectedOptions: ["Minimal"] }] });
-			assert.equal(await h.call("write", { path: ".omp/gate.json" }), undefined);
-			assert.equal(await h.call("write", { path: "scripts/fast-gate.sh" }), undefined);
-			assert.ok((await h.call("write", { path: "scripts/full-gate.sh" }))?.reason?.includes("minimal"), "the unchosen option stays blocked");
-			h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"] }, pathCheck: [process.execPath, "-e", "0"] });
-			assert.equal(await h.call("write", { path: "scripts/full-gate.sh" }), undefined, "complete guardrails end the sign-off phase");
+			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://omp-dyna-workflows"));
+			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
+			h.setSession("no-origin");
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
+			await h.read("skill://git-tool");
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("dynaflows off is never silent: one note at session start and one at every commit name the slug and reason", async () => {
+		const h = harness();
+		try {
+			const gate = join(h.recordDir(), "gate.json");
+			const cases: [string, () => Promise<void> | void, string][] = [
+				["missing record", () => {}, `dynaflows off for owner/repo: no per-repo record at ${gate}`],
+				["record off", () => h.gate({ schemaVersion: 2 }), `dynaflows off for owner/repo: the record ${gate} sets dynaflows.enabled false`],
+				["machine off", () => { h.dynaflows(true); h.machineDynaflows(false); }, "dynaflows off for owner/repo: the machine default "],
+				["non-GitHub origin", async () => {
+					h.machineDynaflows(true);
+					await execute("git", ["remote", "set-url", "origin", "https://gitlab.com/owner/repo.git"], { cwd: h.root });
+				}, "dynaflows off for none: origin https://gitlab.com/owner/repo.git is not a GitHub owner/name URL"],
+				["no origin", () => execute("git", ["remote", "remove", "origin"], { cwd: h.root }).then(() => {}), "dynaflows off for none: no origin remote"],
+			];
+			for (const [name, arrange, text] of cases) {
+				await arrange();
+				h.notes.length = 0;
+				h.setSession(name);
+				await h.emit("session_start");
+				await h.read("skill://git-tool");
+				assert.equal(h.notes.filter(note => note.includes(text)).length, 1, `${name}: ${h.notes.join("; ")}`);
+				for (let commit = 0; commit < 2; commit++) assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, name);
+				const commits = h.notes.filter(note => note.includes(text) && note.includes("commit checks do not run"));
+				assert.equal(commits.length, 2, `${name}: every commit says why: ${h.notes.join("; ")}`);
+			}
+			h.machineDynaflows(true);
+			await execute("git", ["remote", "add", "origin", defaultOrigin], { cwd: h.root });
+			h.dynaflows(true);
+			h.notes.length = 0;
+			h.setSession("on");
+			await h.emit("session_start");
+			await h.read("skill://git-tool");
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+			assert.deepEqual(h.notes.filter(note => note.includes("dynaflows off")), [], "dynaflows on adds no off note");
 		} finally { h.cleanup(); }
 	});
 
@@ -631,7 +868,7 @@ for (const family of ["openai", "anthropic"]) {
 			h.gate({ schemaVersion: 2, pathCheck: [process.execPath, "-e", "0"] });
 			assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
 			// SAFETY: this is the same on/registerCommand/exec harness used for the initial factory.
-			agentRails(h.api as ExtensionAPI);
+			agentRails(h.api as ExtensionAPI, h.options);
 			const selector = `${family === "openai" ? "anthropic" : "openai"}/review@route:medium`;
 			const result = await h.emit("before_subagent_spawn", { agent: "verifier", patterns: [`${family}/same`, selector] });
 			assert.deepEqual(result?.model, [selector], JSON.stringify(result));
@@ -651,7 +888,8 @@ test("path checks forget deleted and ignored failures without skipping live repo
 		let checked: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
 		h.api.exec = async (command, args, options) => {
-			if (command === "checker") { checked.push(args); return { code: 1, killed: false, stdout: "", stderr: "bad live path" }; }
+			const [name, rest] = repoCommand(command, args);
+			if (name === "checker") { checked.push(rest); return { code: 1, killed: false, stdout: "", stderr: "bad live path" }; }
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
@@ -675,7 +913,8 @@ test("path checks exclude Git directory internals while checking live files", as
 		const checked: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
 		h.api.exec = async (command, args, options) => {
-			if (command === "checker") { checked.push(args); return { code: 0, killed: false, stdout: "", stderr: "" }; }
+			const [name, rest] = repoCommand(command, args);
+			if (name === "checker") { checked.push(rest); return { code: 0, killed: false, stdout: "", stderr: "" }; }
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
@@ -695,7 +934,8 @@ test("path checks forget failures for files restored to HEAD", async () => {
 		const checked: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
 		h.api.exec = async (command, args, options) => {
-			if (command === "checker") { checked.push(args); return { code: 1, killed: false, stdout: "", stderr: "bad tracked path" }; }
+			const [name, rest] = repoCommand(command, args);
+			if (name === "checker") { checked.push(rest); return { code: 1, killed: false, stdout: "", stderr: "bad tracked path" }; }
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
@@ -723,7 +963,8 @@ test("path checks keep ignored files excluded when a path crosses a symlink", as
 		const checked: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
 		h.api.exec = async (command, args, options) => {
-			if (command === "checker") { checked.push(args); return { code: 0, killed: false, stdout: "", stderr: "" }; }
+			const [name, rest] = repoCommand(command, args);
+			if (name === "checker") { checked.push(rest); return { code: 0, killed: false, stdout: "", stderr: "" }; }
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
@@ -847,128 +1088,96 @@ test("without a ci block every reported check still decides the merge", async ()
 	} finally { h.cleanup(); }
 });
 
-// Owner-approval guard: the owner's own merge is the approval act, so an agent merge whose PR adds
-// or changes an approval field is handed to the owner. Contents are served at the PR base and head.
-type Approved = { approval: string };
-type ProfileFixture = {
-	guardrails: {
-		test_evidence: { approved_skips: (Approved & { id: string; reason: string })[]; slow_ms: number };
-		coverage_ratchet: { approvals: (Approved & { path: string })[] };
-	};
-	verification_surface: Approved & { none: string };
-	fast_tier_budget: { machines: (Approved & { id: string; wall_s: number })[] };
-	house_style: { version: number; exceptions: { rule: string; path: string; adr: string }[] };
-};
-const profile = (values: ProfileFixture) => `---\n${JSON.stringify(values, null, 2)}\n---\n\n# Test profile\n`;
-const skip = { id: "tests/test_vendor.py::*", reason: "vendor outage", approval: "owner 2026-11-01" };
-const baseProfile: ProfileFixture = {
-	guardrails: { test_evidence: { approved_skips: [skip], slow_ms: 200 }, coverage_ratchet: { approvals: [] } },
-	verification_surface: { none: "library only", approval: "owner 2026-10-01" },
-	fast_tier_budget: { machines: [{ id: "m1", wall_s: 30, approval: "owner 2026-10-02" }] },
-	house_style: { version: 1, exceptions: [] },
-};
-const ledger = (rows: object[]) => JSON.stringify({ schema_version: 1, rules: rows });
-const ledgerRow = { id: "GATE.pre-commit", evidence_kind: "git_hook", status: "implemented" };
-const approvedRow = { id: "PRETTIER.version", status: "not_applicable", user_approval: "approved", reason: "r", evidence_path: "readme.md", evidence_marker: "m" };
-const gateJson = JSON.stringify({ schemaVersion: 2, ci: ciGate });
-const baseFiles = { ".omp/test-profile.md": profile(baseProfile), ".omp/rule-coverage.json": ledger([ledgerRow]), ".omp/gate.json": gateJson };
-const withProfile = (change: (value: ProfileFixture) => void) => {
-	const value = structuredClone(baseProfile);
-	change(value);
-	return { ...baseFiles, ".omp/test-profile.md": profile(value) };
-};
-// The profile's guardrails.rule_evidence.ledger moves the ledger; the old default file is left behind.
-const withLedger = (path: string, rows: object[]) => {
-	const value = { ...structuredClone(baseProfile), guardrails: { ...structuredClone(baseProfile.guardrails), rule_evidence: { ledger: path } } };
-	return { ...baseFiles, ".omp/test-profile.md": `---\n${JSON.stringify(value, null, 2)}\n---\n`, [path]: ledger(rows) };
-};
-for (const scenario of [
-	{ name: "added approved skip", head: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: ".omp/test-profile.md guardrails.test_evidence.approved_skips[]" },
-	{ name: "widened approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips[0].id = "tests/**"; }), field: "approved_skips[]" },
-	{ name: "changed exemption approval", head: withProfile(value => { value.verification_surface.approval = "agent says ok"; }), field: ".omp/test-profile.md verification_surface" },
-	{ name: "added coverage ratchet approval", head: withProfile(value => { value.guardrails.coverage_ratchet.approvals = [{ path: "src/**", approval: "ok" }]; }), field: "guardrails.coverage_ratchet.approvals[]" },
-	{ name: "raised approved machine budget", head: withProfile(value => { value.fast_tier_budget.machines[0].wall_s = 90; }), field: "fast_tier_budget.machines[]" },
-	{ name: "added house style exception", head: withProfile(value => { value.house_style.exceptions = [{ rule: "TEST.no-evasion", path: "tests/x.py", adr: "adr/1.md" }]; }), field: "house_style.exceptions[]" },
-	{ name: "added ledger user_approval row", head: { ...baseFiles, ".omp/rule-coverage.json": ledger([ledgerRow, approvedRow]) }, field: ".omp/rule-coverage.json rules[]" },
-	{ name: "approval field in gate.json", head: { ...baseFiles, ".omp/gate.json": JSON.stringify({ schemaVersion: 2, ci: ciGate, approved_contexts: ["lint"] }) }, field: ".omp/gate.json approved_contexts[]" },
-	{ name: "new profile with an approval", base: {}, head: baseFiles, field: "approved_skips[]" },
-	{ name: "ledger moved to a file with an approved row", head: withLedger("docs/ledger.json", [ledgerRow, approvedRow]), field: "docs/ledger.json (ledger moved from .omp/rule-coverage.json) rules[]" },
-	{ name: "ledger moved onto an existing file with an approved row", base: { ...baseFiles, "docs/ledger.json": ledger([ledgerRow, approvedRow]) },
-		head: { ...withLedger("docs/ledger.json", [ledgerRow, approvedRow]), "docs/ledger.json": ledger([ledgerRow, approvedRow]) }, field: "docs/ledger.json (ledger moved from .omp/rule-coverage.json) rules[]" },
-	{ name: "approved row added at a configured ledger", base: withLedger("docs/ledger.json", [ledgerRow]), head: withLedger("docs/ledger.json", [ledgerRow, approvedRow]), field: "docs/ledger.json rules[]" },
-	{ name: "ledger moved without approved rows", head: withLedger("docs/ledger.json", [ledgerRow]) },
-	{ name: "unreadable head profile", head: { ...baseFiles, ".omp/test-profile.md": "# no front matter\n" }, field: ".omp/test-profile.md (unreadable at head" },
-	{ name: "removed approved skip", head: withProfile(value => { value.guardrails.test_evidence.approved_skips = []; }) },
-	{ name: "non-approval profile change", head: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
-	{ name: "unchanged files", head: baseFiles },
-	{ name: "no guardrail files", base: {}, head: {} },
-] as const) {
-	test(`merge approval guard: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			h.dynaflows(false);
-			h.gate({ schemaVersion: 2, ci: ciGate });
-			const base = "base" in scenario ? scenario.base : baseFiles;
-			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }, verified], ciHead, "3",
-				undefined, undefined, undefined, { [ciBase]: { ...base }, [ciHead]: { ...scenario.head } });
-			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-			if ("field" in scenario) {
-				assert.equal(result?.block, true, "an approval change is the owner's merge");
-				assert.ok(result?.reason?.includes(scenario.field), result?.reason);
-				assert.ok(result?.reason?.includes("do not merge it yourself; hand the PR to the owner"), result?.reason);
-			} else assert.equal(result, undefined);
-		} finally { h.cleanup(); }
-	});
-}
+// Records hold the owner's policy and approvals and never reach a PR, so the owner edits them by
+// hand: rails refuse every agent write under the records root and restore any change bash makes.
+const baseGate = { schemaVersion: 2, dynaflowsContract: currentContract, dynaflows: { enabled: false } };
+test("rails refuse every agent write or edit under the records root, through any alias", async () => {
+	const h = harness();
+	const aliases = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-records-alias-")));
+	try {
+		await h.read(integrity, structure, naming);
+		h.gate({ schemaVersion: 2 });
+		writeFileSync(join(h.recordDir(), "profile.md"), "---\n{}\n---\n");
+		const gate = join(h.recordDir(), "gate.json");
+		const before = readFileSync(gate, "utf8");
+		const targets = [
+			gate, join(h.recordDir(), "profile.md"), join(h.recordDir(), "proposed", "ruff.toml"), join(h.recordDir(), "notes.md"),
+			join(h.records, "repos", "owner", "fresh", "gate.json"), join(h.records, "repos", "stray.json"),
+		];
+		for (const path of targets) {
+			for (const [tool, input] of [["write", { path, content: JSON.stringify({ ...baseGate, checks: { commit: ["true"] } }) }],
+				["edit", { path }], ["ast_edit", { paths: [path] }]] as const) {
+				const result = await h.call(tool, input);
+				assert.equal(result?.block, true, `${tool} ${path}`);
+				assert.ok(result?.reason?.includes("agents never write records"), result?.reason);
+				assert.ok(result?.reason?.includes(path), result?.reason);
+			}
+		}
+		assert.equal(readFileSync(gate, "utf8"), before, "checks.commit, pathCheck and dynaflows.enabled stay the owner's");
+		const alias = join(aliases, "records");
+		symlinkSync(h.records, alias);
+		assert.equal((await h.call("write", { path: join(alias, "repos", "owner", "repo", "gate.json"), content: "{}" }))?.block, true,
+			"a symlinked root still reaches the record");
+		const fileAlias = join(aliases, "alias.json");
+		symlinkSync(gate, fileAlias);
+		assert.equal((await h.call("write", { path: fileAlias, content: "{}" }))?.block, true, "a symlink to a record file is a record file");
+		const dangling = join(aliases, "notes.txt");
+		symlinkSync(join(h.records, "repos", "owner", "new", "profile.md"), dangling);
+		assert.equal((await h.call("write", { path: dangling, content: "x" }))?.block, true, "a dangling alias into the records root is refused");
+		assert.equal(await h.call("write", { path: join(h.root, "profile.md"), content: "x" }), undefined,
+			"a repo file named like a record file is not a record");
+		assert.equal(await h.call("write", { path: join(h.records, "draft", "gate.json"), content: "{}" }), undefined,
+			"a draft outside repos/ is the agent's");
+	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
+});
 
-// The guard is not tied to a ci block or dynaflows: a guardrail repo with neither still leaves approvals to the owner.
-for (const scenario of [
-	{ name: "added approved skip", head: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: "approved_skips[]" },
-	{ name: "non-approval profile change", head: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
-] as const) {
-	test(`merge approval guard without a ci block or dynaflows: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			h.dynaflows(false);
-			h.gate({ schemaVersion: 2 });
-			mockPrCi(h, [], ciHead, "3", undefined, undefined, undefined, { [ciBase]: { ...baseFiles }, [ciHead]: { ...scenario.head } });
-			const result = await h.call("bash", { command: "gh pr merge 3 --rebase" });
-			if ("field" in scenario) {
-				assert.equal(result?.block, true, "an approval change is the owner's merge");
-				assert.ok(result?.reason?.includes(scenario.field), result?.reason);
-				assert.ok(result?.reason?.includes("hand the PR to the owner"), result?.reason);
-			} else assert.equal(result, undefined);
-		} finally { h.cleanup(); }
-	});
+// Bash and other non-edit tools can write anywhere, so rails compare the records around each call.
+async function aroundBash(h: ReturnType<typeof harness>, change: () => void) {
+	const event = { toolName: "bash", toolCallId: `bash-${randomUUID()}`, input: { command: "true" } };
+	assert.equal(await h.emit("tool_call", event), undefined);
+	change();
+	return h.emit("tool_result", { ...event, details: {}, isError: false });
 }
-
-test("merge approval guard without a ci block fails closed when gh cannot read the PR", async () => {
+test("rails restore every record change a bash call makes: edits, new files, deletions and symlinks", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool");
-		h.dynaflows(false);
 		h.gate({ schemaVersion: 2 });
-		mockPrCi(h, [], ciHead, "3", "HTTP 502");
-		const result = await h.call("bash", { command: "gh pr merge 3" });
-		assert.equal(result?.block, true);
-		assert.ok(result?.reason?.includes("cannot read PR head/CI via gh: HTTP 502"), result?.reason);
+		const gate = join(h.recordDir(), "gate.json");
+		const profilePath = join(h.recordDir(), "profile.md");
+		writeFileSync(profilePath, "---\n{}\n---\n");
+		const before = readFileSync(gate, "utf8");
+		for (const field of [{ checks: { commit: ["true"] } }, { pathCheck: ["true"] }, { dynaflows: { enabled: true } }]) {
+			const changed = await aroundBash(h, () => writeFileSync(gate, JSON.stringify({ ...JSON.parse(before), ...field })));
+			assert.ok(changed?.additionalContext?.includes(gate), changed?.additionalContext);
+			assert.ok(changed?.additionalContext?.includes("restored"), changed?.additionalContext);
+			assert.equal(readFileSync(gate, "utf8"), before, JSON.stringify(field));
+		}
+		const guardrails = "---\n{\"guardrails\": {\"check\": {\"exclude\": [\"**\"]}}}\n---\n";
+		await aroundBash(h, () => writeFileSync(profilePath, guardrails));
+		assert.equal(readFileSync(profilePath, "utf8"), "---\n{}\n---\n", "guardrails.check settings stay the owner's");
+		const fresh = join(h.records, "repos", "owner", "fresh", "gate.json");
+		const created = await aroundBash(h, () => { mkdirSync(dirname(fresh), { recursive: true }); writeFileSync(fresh, "{}"); });
+		assert.ok(created?.additionalContext?.includes(fresh), created?.additionalContext);
+		assert.equal(existsSync(fresh), false, "a record file bash created is removed");
+		await aroundBash(h, () => rmSync(profilePath));
+		assert.equal(readFileSync(profilePath, "utf8"), "---\n{}\n---\n", "a record file bash deleted comes back");
+		await aroundBash(h, () => { rmSync(gate); symlinkSync(profilePath, gate); });
+		assert.equal(lstatSync(gate).isSymbolicLink(), false, "a record file swapped for a symlink comes back");
+		assert.equal(readFileSync(gate, "utf8"), before);
+		const outside = join(h.root, "notes.md");
+		const unrelated = await aroundBash(h, () => writeFileSync(outside, "kept"));
+		assert.equal(unrelated?.additionalContext?.includes("restored") ?? false, false, unrelated?.additionalContext);
+		assert.equal(readFileSync(outside, "utf8"), "kept", "files outside the records root are untouched");
 	} finally { h.cleanup(); }
 });
 
-test("merge approval guard fails closed when gh cannot read a guardrail file", async () => {
+test("plain merges with no ci block and dynaflows off never query GitHub", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool");
-		h.gate({ schemaVersion: 2, ci: ciGate });
-		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }, verified], ciHead, "3");
-		const exec = h.api.exec.bind(h.api);
-		h.api.exec = async (command, args, options) => command === "gh" && args[0] === "api"
-			? { code: 1, killed: false, stdout: "", stderr: "HTTP 502" } : exec(command, args, options);
-		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-		assert.equal(result?.block, true);
-		assert.ok(result?.reason?.includes("cannot read .omp/test-profile.md"), result?.reason);
+		h.gate({ schemaVersion: 2 });
+		forbidGh(h);
+		assert.equal(await h.call("bash", { command: "gh pr merge 3 --rebase" }), undefined);
 	} finally { h.cleanup(); }
 });
 
@@ -986,7 +1195,7 @@ test("a retired ciHost gate is refused with the migration message", async () => 
 	try {
 		await h.read("skill://git-tool");
 		for (const ciHost of ["github", "nuc"]) {
-			writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify({ schemaVersion: 2, ciHost }));
+			h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflowsContract: currentContract, dynaflows: { enabled: false }, ciHost }));
 			const result = await h.call("bash", { command: "git push" });
 			assert.equal(result?.block, true);
 			assert.ok(result?.reason?.includes("ciHost is retired; declare ci.requiredContext and ci.runner"), result?.reason);
@@ -1050,7 +1259,7 @@ test("PR query contract: requests the PR URL", async () => {
 			return exec(command, args, options);
 		};
 		await h.call("bash", { command: statusPost() });
-		assert.equal(fields, "baseRefOid,headRefOid,statusCheckRollup,url");
+		assert.equal(fields, "headRefOid,statusCheckRollup,url");
 	} finally { h.cleanup(); }
 });
 
@@ -1240,10 +1449,11 @@ test("path checks canonicalize a symlinked repository root before executing", as
 		const exec = h.api.exec.bind(h.api);
 		let checked = false;
 		h.api.exec = async (command, args, options) => {
-			if (command === "checker") {
+			const [name, rest] = repoCommand(command, args);
+			if (name === "checker") {
 				checked = true;
 				assert.equal(options.cwd, h.root);
-				assert.deepEqual(args, [join(h.root, "existing.ts")]);
+				assert.deepEqual(rest, [join(h.root, "existing.ts")]);
 				return { code: 0, killed: false, stdout: "", stderr: "" };
 			}
 			return exec(command, args, options);
@@ -1359,13 +1569,16 @@ test("toggle commands ignore prose and reject contradictions and nonrepositories
 	const h = harness();
 	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "rails-toggle-")));
 	try {
+		h.gate({ schemaVersion: 2 });
+		const record = h.record();
 		for (const prompt of ["please $dynaflows on", '"$dynaflows"', "$dynaflows status", "$dynaflows on\n$dynaflows off"]) {
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
-			assert.throws(() => readFileSync(join(h.root, ".omp/dynaflows.json")));
+			assert.deepEqual(h.record(), record, prompt);
 		}
+		assert.equal(existsSync(join(h.root, ".omp")), false, "the repo tree is never written");
 		h.context.cwd = scratch;
 		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" });
-		assert.throws(() => readFileSync(join(scratch, ".omp/dynaflows.json")));
+		assert.equal(existsSync(join(scratch, ".omp")), false);
 		assert.ok(h.notes.some(note => note.includes("Git project")));
 	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 });
@@ -1382,7 +1595,6 @@ for (const scenario of ["external", "unverified", "other commit author", "other 
 			const parent = await commit("base");
 			const first = await commit("first bot");
 			const head = await commit("second bot");
-			await execute("git", ["remote", "add", "origin", "git@github.com:adam-jackson-cf/oh-mi-pi-config.git"], { cwd: h.root });
 			const executeReal = h.api.exec;
 			const checked: string[] = [];
 			h.api.exec = async (command, args, options) => {
@@ -1434,15 +1646,17 @@ for (const scenario of ["external", "unverified", "other commit author", "other 
 	});
 }
 
-test("linked worktrees share primary toggle and verifier context selects only the named source", async () => {
+test("linked worktrees resolve the main checkout's record and verifier context selects only the named source", async () => {
 	const h = harness();
 	const linked = `${h.root}-linked`;
 	try {
+		h.gate({ schemaVersion: 2 });
 		await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "seed"], { cwd: h.root });
 		await execute("git", ["worktree", "add", "-b", "agent/source", linked], { cwd: h.root });
 		h.context.cwd = linked;
 		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
-		assert.equal(JSON.parse(readFileSync(join(h.root, ".omp/dynaflows.json"), "utf8")).enabled, true);
+		assert.deepEqual(h.record().dynaflows, { enabled: true }, "the linked worktree toggles the shared record");
+		assert.equal(existsSync(join(linked, ".omp")), false);
 		writeFileSync(join(linked, "source.md"), "substantive documentation");
 		await h.read(structure, naming);
 		h.context.models.current = () => ({ provider: "anthropic", id: "writer" });
@@ -1508,7 +1722,10 @@ test("dynaflows off ignores unresolved models while on rejects every unresolved 
 });
 
 test("Python proof gates and rails accept the same schema fixtures", async () => {
-	const cases = [
+	// Each case sits over a current-contract, dynaflows-off record; the contract floor itself is
+	// checked apart from the schema, in the contract tests below.
+	const record = { dynaflowsContract: currentContract, dynaflows: { enabled: false } };
+	const cases: object[] = [
 		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} },
 		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, pathCheck: ["check"], pathCheckTimeoutMs: 1, testGlobs: ["", "tests/**"], agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
 		{ schemaVersion: 2, pathCheckTimeoutMs: 9007199254740991, ci: { requiredContext: "build", runner: "github-actions" } },
@@ -1523,32 +1740,40 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 		{ schemaVersion: 2, testGlobs: [1] }, { schemaVersion: 2, testGlobs: null },
 		{ schemaVersion: 2, agentMerge: "maybe" },
 		{ schemaVersion: true }, { schemaVersion: 3 },
-		{ schemaVersion: 2, dynaflowsContract: 1 }, { schemaVersion: 2, dynaflowsContract: 9007199254740991 },
+		{ schemaVersion: 2, dynaflowsContract: 9007199254740991 },
 		{ schemaVersion: 2, dynaflowsContract: 0 }, { schemaVersion: 2, dynaflowsContract: -1 }, { schemaVersion: 2, dynaflowsContract: 1.5 },
 		{ schemaVersion: 2, dynaflowsContract: "2" }, { schemaVersion: 2, dynaflowsContract: true }, { schemaVersion: 2, dynaflowsContract: null },
 		{ schemaVersion: 2, dynaflowsContract: 9007199254740992 },
-	];
+		{ schemaVersion: 2, dynaflows: { enabled: true } }, { schemaVersion: 2, dynaflows: null },
+		{ schemaVersion: 2, dynaflows: {} }, { schemaVersion: 2, dynaflows: { enabled: "yes" } },
+	].map(value => ({ ...record, ...value }));
+	cases.push({ schemaVersion: 2, dynaflowsContract: currentContract });
 	const h = harness();
 	try {
 		await h.read("skill://git-tool");
 		const rails: boolean[] = [];
 		for (const value of cases) {
-			writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify(value));
+			h.rawGate(JSON.stringify(value));
 			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
 		}
 		const modulePath = join(import.meta.dir, "../agent/skills/omp-dyna-workflows/templates/workflows.py");
-		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
+		// Both sides also refuse a record whose contract differs from the installed one.
+		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); policies=[module.gate_policy(v) for v in json.loads(sys.argv[2])]; print(json.dumps([p is not None and module.contract_mismatch(p['dynaflowsContract'], module.dynaflows_contract()) is None for p in policies]))";
 		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
 		assert.deepEqual(JSON.parse(result.stdout), rails);
 	} finally { h.cleanup(); }
 });
 
-test("metadata does not author a change; docs do, and corrupt or different branch ledgers fail closed", async () => {
+test("record edits do not author a change; docs do, and corrupt or different branch ledgers fail closed", async () => {
 	const h = harness();
 	try {
 		h.dynaflows(true);
 		await h.read(structure, naming);
-		await h.call("write", { path: join(h.root, ".omp/guardrail-proposal.json") });
+		// The config root is itself a Git checkout, as oh-mi-pi-config is; its ignored records are harness config.
+		execFileSync("git", ["init", "-b", "main", h.records]);
+		const gate = join(h.recordDir(), "gate.json");
+		assert.equal((await h.call("write", { path: gate, content: JSON.stringify({ ...h.record(), pathCheck: ["check"] }) }))?.block, true);
+		assert.equal(existsSync(join(h.records, ".git/omp-authors")), false, "a refused record write records no author");
 		const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
 		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
 		assert.equal(await h.call("write", { path: join(h.root, "README.md") }), undefined);
@@ -1568,10 +1793,7 @@ test("mise commits pass the tool-call handler and record authors in a real repos
 	const h = harness();
 	try {
 		await h.read("skill://git-tool");
-		h.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
-		const hook = join(h.root, ".git/hooks/pre-commit");
-		writeFileSync(hook, "#!/bin/sh\nexit 0\n");
-		chmodSync(hook, 0o755);
+		h.gate({ schemaVersion: 2, checks: { commit: ["true"] }, dynaflows: { enabled: true } });
 		const result = await h.emit("tool_call", { toolName: "bash", input: { command: "mise exec -- git commit -m x" } });
 		assert.equal(result, undefined);
 		const common = (await execute("git", ["rev-parse", "--git-common-dir"], { cwd: h.root })).stdout.trim();
@@ -1624,13 +1846,10 @@ test("tool-runner launchers cannot bypass commit hooks or publishing checks", as
 
 test("mise directory options resolve the wrapped commit repository", async () => {
 	const h = harness();
-	const target = harness();
+	const target = harness({ configRoot: h.records, remote: "git@github.com:owner/target.git" });
 	try {
 		await h.read("skill://git-tool");
 		target.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
-		const hook = join(target.root, ".git/hooks/pre-commit");
-		writeFileSync(hook, "#!/bin/sh\nexit 0\n");
-		chmodSync(hook, 0o755);
 		for (const command of [
 			`mise x -C '${target.root}' -- git commit -m x`,
 			`mise exec --cd='${target.root}' node@20 -- git commit -m x`,
@@ -1640,6 +1859,9 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 			const ledger = JSON.parse(readFileSync(join(target.root, ".git/omp-authors", `${key}.json`), "utf8"));
 			assert.equal(ledger.worktree, target.root);
 		}
+		target.gate({ schemaVersion: 2, checks: { commit: ["false"] }, dynaflows: { enabled: true } });
+		const enforced = await h.call("bash", { command: `mise x -C '${target.root}' -- git commit -m x` });
+		assert.ok(enforced?.reason?.includes(`checks.commit (false) failed in ${target.root}`), "the wrapped repo's record is enforced");
 		const unresolved = await h.call("bash", { command: "mise x -C /nonexistent-rails-directory -- git commit -m x" });
 		assert.equal(unresolved?.block, true);
 		assert.ok(unresolved?.reason?.includes("effective cwd"));
@@ -1736,14 +1958,10 @@ test("uv and poetry separator commits record author ledgers", async () => {
 	}
 });
 
-const railsConfig = join(import.meta.dir, "../agent/agent-rails.yml");
-const currentContract = z.object({ dynaflowsContract: z.number().int().positive() })
-	.parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8"))).dynaflowsContract;
-
 describe("dynaflows contract version", () => {
-	const stale = "Run omp-guardrails init --extend and commit its change as a mechanical commit (no proposal); " +
-		"ask the owner only when it adds a gate or profile field the repo lacks";
-	const newer = "The repo expects a newer dynaflows contract; update omp";
+	const stale = "Draft the update with omp-guardrails init --extend --record <a copy of the record outside repos/>, " +
+		"then ask the owner to review it and save it over the live record; agents never write records";
+	const newer = "The record expects a newer dynaflows contract; update omp";
 	const scenarios = [
 		{ name: "absent", recorded: undefined, expected: `Dynaflows contract vnone recorded; current is v${currentContract}. ${stale}` },
 		{ name: "lower", recorded: currentContract - 1, expected: `Dynaflows contract v${currentContract - 1} recorded; current is v${currentContract}. ${stale}` },
@@ -1751,42 +1969,40 @@ describe("dynaflows contract version", () => {
 		{ name: "higher", recorded: currentContract + 1, expected: `Dynaflows contract v${currentContract + 1} recorded; current is v${currentContract}. ${newer}` },
 	];
 	for (const scenario of scenarios) {
-		test(`dynaflows on, recorded contract ${scenario.name}: ${scenario.expected ? "notes once" : "stays silent"}`, async () => {
+		test(`dynaflows on, recorded contract ${scenario.name}: ${scenario.expected ? "refused" : "stays silent"}`, async () => {
 			assert.ok(currentContract > 1, "a lower contract must still be a positive int");
 			const h = harness();
 			try {
 				h.gate({ schemaVersion: 2, dynaflowsContract: scenario.recorded });
 				h.dynaflows(true);
-				const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }));
+				const pointer = await h.emit("before_agent_start", { reason: "prompt", prompt: "work" });
 				await h.emit("before_agent_start", { reason: "prompt", prompt: "more work" });
 				const contractNotes = h.notes.filter(note => note.includes("Dynaflows contract"));
 				if (scenario.expected) {
-					assert.deepEqual(contractNotes, [`Agent rails: ${scenario.expected}.`], "one note per session");
-					assert.ok(pointer.includes(scenario.expected), "the agent sees the same text");
+					const slug = relative(join(h.records, "repos"), h.recordDir());
+					assert.equal(pointer, undefined, "a refused record leaves dynaflows off");
+					assert.deepEqual(contractNotes, [`Agent rails: dynaflows off for ${slug}: ${join(h.recordDir(), "gate.json")}: ${scenario.expected}.`], "one note per session");
+					await h.read("skill://git-tool");
+					const blocked = await h.call("bash", { command: "git push" });
+					assert.equal(blocked?.block, true);
+					assert.ok(blocked?.reason?.includes(scenario.expected), blocked?.reason);
+					const commit = await h.call("bash", { command: "git commit -m x" });
+					assert.equal(commit?.block, true, "a refused record blocks dynaflows commits");
+					assert.ok(commit?.reason?.includes(scenario.expected), commit?.reason);
 				} else {
 					assert.deepEqual(contractNotes, []);
-					assert.equal(pointer.includes("Dynaflows contract"), false);
+					assert.equal(JSON.stringify(pointer).includes("Dynaflows contract"), false);
 				}
 			} finally { h.cleanup(); }
 		});
 	}
-
-	test("dynaflows off never notes a stale contract", async () => {
-		const h = harness();
-		try {
-			h.gate({ schemaVersion: 2 });
-			h.dynaflows(false);
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
-			assert.equal(h.notes.some(note => note.includes("Dynaflows contract")), false);
-		} finally { h.cleanup(); }
-	});
 
 	test("gate.json accepts only a positive integer dynaflowsContract", async () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool");
 			for (const dynaflowsContract of [0, -1, 1.5, "2", true, null, 9007199254740992]) {
-				writeFileSync(join(h.root, ".omp/gate.json"), JSON.stringify({ schemaVersion: 2, dynaflowsContract }));
+				h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflowsContract, dynaflows: { enabled: false } }));
 				const blocked = await h.call("bash", { command: "git push" });
 				assert.equal(blocked?.block, true, JSON.stringify(dynaflowsContract));
 				assert.ok(blocked?.reason?.includes("dynaflowsContract"), blocked?.reason);

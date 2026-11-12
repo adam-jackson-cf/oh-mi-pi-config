@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from omp_guardrails.child_env import repo_environment
 from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 
@@ -169,6 +170,7 @@ class Session:
             self.process = subprocess.Popen(
                 [server, "--stdio"],
                 cwd=workspace,
+                env=repo_environment(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,

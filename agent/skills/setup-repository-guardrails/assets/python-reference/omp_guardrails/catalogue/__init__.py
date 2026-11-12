@@ -1,1 +1,1 @@
-"""Catalogue process checkers: gate, hook, rule evidence and coverage, canaries, parity."""
+"""The packaged rule catalogue, toolchain parity and version matching."""

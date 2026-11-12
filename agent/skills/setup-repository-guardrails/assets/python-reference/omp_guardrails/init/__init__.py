@@ -1,7 +1,7 @@
-"""``omp-guardrails init``: bootstrap a repository's profile, gate, hook, pin and LSP notes.
+"""``omp-guardrails init``: draft a repository's personal per-repo record for owner confirmation.
 
-``test-profile.md`` in this package is a byte-for-byte copy of the test-guidance skill's
-template (``agent/skills/test-guidance/assets/templates/test-profile.md``). The package is
-installed from a git subdirectory, so it cannot read the skill folder at run time; the repo's
-gate test fails when the two copies differ.
+Init writes only into the record directory (``--record``): ``gate.json``, ``profile.md`` and,
+under ``proposed/``, native-tool configs the owner may apply to the repository as a fix. It
+writes nothing into the repository. The profile template is the test-guidance skill's
+``assets/templates/test-profile.md``, read from the harness (``omp_guardrails.harness``).
 """

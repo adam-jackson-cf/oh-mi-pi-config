@@ -11,6 +11,7 @@ Assign each test one tier and report green only for the event actually exercised
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
 - The calling workflow supplies the repo test profile's location and whether DynaFlows is active.
+  Under DynaFlows the profile is the repo's record `profile.md`, outside the repo; never look for one in the repo.
   If either is unknown, ask once before choosing that branch; never guess a profile from a repo-local skill.
   Read its values using the shipped [profile template](../assets/templates/test-profile.md) field names.
 - Start with tiers, case selection, naming/layout and outcome tests; add property tests for pure cores.

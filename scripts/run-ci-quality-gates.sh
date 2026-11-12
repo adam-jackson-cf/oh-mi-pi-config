@@ -48,11 +48,11 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# .omp/gate.json is the only CI contract: checks.commit (run by .githooks/pre-commit) and
-# checks.ci (run by the configured ci.runner) must use this runner. The GitHub Actions
+# The commit tier runs through .githooks/pre-commit, which must use this runner; the CI tier
+# command lives in the owner's personal record, outside this repository. The GitHub Actions
 # workflow is an optional manual fallback and is not part of the parity check.
 runner_base='scripts/run-ci-quality-gates'
-config=.omp/gate.json
+config=.githooks/pre-commit
 if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
   printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
   exit 1

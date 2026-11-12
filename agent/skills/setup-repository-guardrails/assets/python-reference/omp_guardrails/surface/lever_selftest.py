@@ -37,6 +37,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from omp_guardrails.child_env import repo_environment
 from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import as_list, settings
@@ -246,7 +247,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
                 *path_arguments(data_flag, healthy_data),
                 *path_arguments(evidence_flag, healthy_evidence),
             ],
-            dict(os.environ),
+            repo_environment(),
             root,
             config,
         )
@@ -262,7 +263,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         found.extend(run_findings("healthy", healthy, healthy_evidence))
 
         broken_evidence = root / "broken-evidence"
-        env = dict(os.environ)
+        env = repo_environment()
         if isinstance(failure_env, dict) and failure_env:
             broken_data = root / "broken-data"
             broken_data.mkdir()
