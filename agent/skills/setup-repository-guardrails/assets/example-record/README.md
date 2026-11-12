@@ -26,11 +26,11 @@ hook config and CI jobs for the owner to confirm. Rules for the record:
 - `dynaflows.enabled` is the on/off switch. No origin remote or no record means dynaflows is off.
 - Paths in a record setting are repo-relative when they name repo files and record-relative when
   they name record files. No setting names a harness directory inside the repo.
-- Approval and exception fields are the owner's: the owner edits them by hand, and rails refuse
-  an agent write that adds or changes one.
+- The record is the owner's: the owner edits it by hand, and rails refuse every agent write to it.
 
-`omp-guardrails init --repo <clone> --record <record dir>` drafts both files for owner
-confirmation and writes nothing into the repo. At the agent's commit the rails run
+`omp-guardrails init --repo <clone> --record <draft dir>` drafts both files into a draft outside
+the live `repos/` root for owner confirmation and writes nothing into the repo; the owner saves
+the draft as the live record by hand. At the agent's commit the rails run
 `checks.commit`, then `omp-guardrails check --repo <worktree> --record <record dir>` over the
 whole repo. The profile's `guardrails.check.run` picks the check steps and
 `guardrails.check.exclude` lists the generated, vendored and fixture paths left out.

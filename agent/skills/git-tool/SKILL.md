@@ -42,8 +42,8 @@ ask the user once when the choice changes the outcome, state the choice in the r
 - Remote/default resolution belongs to [branch-and-integrate](references/branch-and-integrate.md).
   Rebase conditions, force-with-lease and any project-documented merge-method exception belong to
   [merge-and-recover](references/merge-and-recover.md).
-- Owner-approval fields live only in the repo's record and never reach a PR. The owner edits them by hand; rails refuse
-  an agent write that adds or changes one ([merge-and-recover](references/merge-and-recover.md#owner-approval-fields)).
+- The repo's record (policy, checks and approvals) never reaches a PR. Only the owner writes it, by hand; rails refuse
+  every agent write under the records root ([merge-and-recover](references/merge-and-recover.md#records-are-owner-only)).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit directly to the default branch.
 - Primary remote not GitHub: stop before pushing and ask the owner; this workflow authorizes no other host.

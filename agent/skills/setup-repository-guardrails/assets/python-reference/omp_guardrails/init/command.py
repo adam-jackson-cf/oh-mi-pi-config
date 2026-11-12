@@ -1,7 +1,10 @@
-"""``omp-guardrails init --repo DIR --record DIR [options]``: draft the repo's personal record.
+"""``omp-guardrails init --repo DIR --record DRAFT [options]``: draft the repo's personal record.
 
-Init reads the repository and writes only into the record (``<oh-mi-pi-config
-root>/repos/<owner>/<name>/``, gitignored in the harness and never committed):
+Init reads the repository and writes only into the draft record directory ``--record``, never
+the live record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and
+never committed): only the owner writes the live record, by hand. Init refuses a ``--record``
+under the live records root; its report names the draft and where the owner saves it. To extend
+an existing record, copy it to a draft directory outside ``repos/`` first. Into the draft, init:
 
 1. discovers the repository's own controls (``discovery``): make targets, hook managers, CI
    jobs and, through ``gh``, the default branch's required checks;
@@ -28,6 +31,7 @@ import argparse
 import shlex
 from pathlib import Path
 
+from omp_guardrails import harness
 from omp_guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
 from omp_guardrails.findings import Finding
 from omp_guardrails.init import contract, discovery, lsp, native_config, profile_fill, record_gate
@@ -179,7 +183,12 @@ def initialise(
         timeout=options.lsp_timeout,
     )
     summary = [f"init: {line}" for line in changes or ["no changes"]]
-    return summary + report + lsp_lines, lsp_findings
+    handoff = [
+        f"init: draft record at {record}. Agents never write the live record: ask the owner to "
+        f"review this draft and save it by hand as {harness.RECORDS}/<owner>/<name>/ "
+        "(the repository's origin owner/name, lowercase)."
+    ]
+    return summary + report + lsp_lines + handoff, lsp_findings
 
 
 def usage_finding(message: str) -> Finding:
@@ -191,6 +200,13 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
+    live = harness.RECORDS.resolve()
+    if record.resolve() == live or record.resolve().is_relative_to(live):
+        return [usage_finding(
+            f"--record {record} is under the live records root {live}; agents never write records. "
+            "Pass a draft directory outside it (to extend a record, copy it there first); the owner "
+            "saves the reviewed draft as the live record by hand"
+        )]
     try:
         lines, findings = initialise(repo, record, parse(argv))
     except (UsageError, contract.ContractError) as error:

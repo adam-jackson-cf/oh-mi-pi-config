@@ -16,15 +16,16 @@ intact.
    nothing can be removed, record why the added contract has no predecessor.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
-3. Write the confirmed record to `repos/<owner>/<name>/` under the
-   oh-mi-pi-config root (Step 0's path). `/repos/` is gitignored there: never
-   commit a record, stage it or copy it into the target. The device rollout
-   copies records to every device. Where the stack has a skill reference, run
-   `omp-guardrails init --repo <worktree> --record <record dir>` from the
-   harness, then write the confirmed profile values; compare what it wrote
-   with the approved matrix before continuing. Change record files only with
-   the whole-file `write` tool: rails refuse other edit tools on record files
-   so they can check approval fields. Install no harness
+3. Draft the confirmed record in a directory outside the live records root
+   and ask the owner to save it by hand as `repos/<owner>/<name>/` under the
+   oh-mi-pi-config root (Step 0's path). Agents never write the live record:
+   rails refuse every agent write there and restore any change bash makes.
+   `/repos/` is gitignored: never commit a record, stage it or copy it into
+   the target. The device rollout copies records to every device. Where the
+   stack has a skill reference, run `omp-guardrails init --repo <worktree>
+   --record <draft dir>` from the harness, then write the confirmed profile
+   values into the draft; compare it with the approved matrix before handing
+   it to the owner. Install no harness
    package into the target. Pin tools the repo itself runs through the target
    package manager. Keep target roots, scope exclusions, allowlists,
    naming/ownership maps, and CI wiring explicit.
@@ -94,9 +95,11 @@ intact.
    record was set up against; the current version is `agent/agent-rails.yml`
    `dynaflowsContract`. `omp-guardrails init` writes it when absent and
    raises a lower value; never lower it by hand. Workflows
-   and rails refuse a record below the current version, except project
-   setup's `project_setup=True` freeze. Raising it means re-running
-   `omp-guardrails init` against the record, outside Steps 0–7: no repo commit, no
+   and rails refuse a record whose version differs from the current one (below
+   or above), except that project setup's `project_setup=True` freeze tolerates
+   a lower or absent one. Raising it means re-running
+   `omp-guardrails init --extend` against a copy of the record outside `repos/`
+   and asking the owner to save it, outside Steps 0–7: no repo commit, no
    proposal and no Step 5, unless the change adds a gate or profile field the
    record lacks.
 
@@ -126,8 +129,8 @@ intact.
    (`approved_skips`, any `approval`, `approved_*` or `*_approval` field,
    `user_approval`, `house_style.exceptions`, `fast_tier_budget` machine
    approvals and `coverage_ratchet` approvals) are the owner's: the owner
-   writes them by hand, and that edit is the approval. Rails refuse an agent
-   write that adds or changes one. Draft them for the owner; never write them.
+   writes them by hand, and that edit is the approval. Rails refuse every
+   agent write to the record. Draft them for the owner; never write them.
 6. A repo hook is the repo's own control. When the project wants one, run
    `checks.commit` through the repo's tracked hook manager or a native
    `.githooks/pre-commit` enabled with `git config core.hooksPath .githooks`,

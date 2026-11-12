@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
-import { configRoot, dynaflowsEnabled, findRecord, parseOrigin, RecordError, recordDir, repoSlug } from "../agent/lib/repo-record.ts";
+import { configRoot, dynaflowsEnabled, findRecord, offText, parseOrigin, RecordError, recordDir, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
 
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
@@ -52,6 +52,23 @@ describe("parseOrigin", () => {
 });
 
 describe("record resolution", () => {
+	test("resolveRecord names the slug and the reason a clone has no record, in the twin's words", async () => {
+		const f = fixture();
+		try {
+			assert.deepEqual(await resolveRecord(f.repo, f.config), { slug: null, dir: null, reason: "no origin remote" });
+			git("-C", f.repo, "remote", "add", "origin", "https://gitlab.com/owner/name.git");
+			assert.deepEqual(await resolveRecord(f.repo, f.config),
+				{ slug: null, dir: null, reason: "origin https://gitlab.com/owner/name.git is not a GitHub owner/name URL" });
+			git("-C", f.repo, "remote", "set-url", "origin", "git@github.com:Owner/Name.git");
+			const gate = join(f.config, "repos", "owner", "name", "gate.json");
+			assert.deepEqual(await resolveRecord(f.repo, f.config), { slug: "owner/name", dir: null, reason: `no per-repo record at ${gate}` });
+			const record = f.writeRecord("owner/name", "{}");
+			assert.deepEqual(await resolveRecord(f.repo, f.config), { slug: "owner/name", dir: record });
+			assert.equal(offText(null, "no origin remote"), "dynaflows off for none: no origin remote");
+			assert.equal(offText("owner/name", "why"), "dynaflows off for owner/name: why");
+		} finally { f.cleanup(); }
+	});
+
 	test("no origin means no record and dynaflows off", async () => {
 		const f = fixture();
 		try {

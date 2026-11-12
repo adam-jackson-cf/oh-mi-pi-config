@@ -100,8 +100,8 @@ reads as ordinary front matter. Checkers, `prove()` and `omp-guardrails profile-
   `line_floor` and `branch_floor` in percent.
 - `structure.tiers` may be an empty list while the code stays flat in one package.
 - `house_style.exceptions` may be an empty list; each entry needs an ADR reference.
-- Approval = the owner edits the field by hand. Rails refuse an agent write that adds or changes an
-  `approval`, `*_approval`, `approved_*` or `house_style.exceptions` entry here.
+- Approval = the owner edits the field by hand. Under DynaFlows this profile is the per-repo record,
+  and rails refuse every agent write to it.
 - `guardrails` holds per-checker settings such as `structure`, `naming` and `paths`; each
   checker's module documentation in the guardrails reference lists its settings.
 
