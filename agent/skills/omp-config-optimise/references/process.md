@@ -31,11 +31,10 @@ check these invariants:
 - No Opus or Astra role above medium outside `innovation-council`,
   `experiment-design`, and their peers (`innovation-challenger`,
   `experiment-peer`).
-- Verifiers run independently and in a different model family from every author, enforced by
-  agent-rails with dynaflows on (2026-11-04). Sonnet 5.5 medium verifies Sol implementation
-  live; `kiss` cuts criteria/questions, not risk. Former plan/test/completeness judging roles
-  were removed 2026-11-04, proof-first workflow; bundled `reviewer` handles open-ended eval
-  judgments.
+- No `verifier` role or agent exists (removed 2026-11-12): dynaflows proof is TDD, red at
+  base and green at head, with no agent review. `kiss` cuts criteria/questions, not risk.
+  Former plan/test/completeness judging roles were removed 2026-11-04, proof-first
+  workflow; bundled `reviewer` handles open-ended eval judgments.
 - Priority tier applies only to `task`, `kiss` and `sonic`.
 - Effort lives only in `config.yml` role suffixes, not agent frontmatter.
 - Every agent with `model: ["@x"]` has a `modelRoles.x`, and every custom role
