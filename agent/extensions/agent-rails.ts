@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -235,6 +235,12 @@ function absolute(path: string, cwd: string): string | undefined {
 function absentFile(error: NodeJS.ErrnoException): null {
 	const parsed = fileErrorSchema.safeParse(error);
 	if (parsed.success && parsed.data.code === "ENOENT") return null;
+	throw error;
+}
+// For record scans: a missing path, or one of the wrong kind (file vs directory), holds nothing.
+function absentEntry(error: NodeJS.ErrnoException): null {
+	const parsed = fileErrorSchema.safeParse(error);
+	if (parsed.success && ["ENOENT", "ENOTDIR", "EISDIR"].includes(parsed.data.code ?? "")) return null;
 	throw error;
 }
 async function repoRoot(path: string): Promise<string | undefined> {
@@ -629,6 +635,8 @@ export default function agentRails(
 ): void {
 	// Factories are rebound to child sessions; only the parent-keyed authorship registry is shared.
 	const states = new Map<string, State>();
+	// Record file texts taken when a non-edit tool call starts, keyed by tool call ID.
+	const recordSnapshots = new Map<string, Map<string, string>>();
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
@@ -769,28 +777,69 @@ export default function agentRails(
 	function repoExec(argv: string[], cwd: string, timeout?: number) {
 		return pi.exec("env", [...harnessVariables.flatMap(name => ["-u", name]), "--", ...argv], { cwd, timeout });
 	}
+	// The canonical form of `target`: symlinks resolved, including a dangling final link and missing
+	// descendants of an existing directory.
+	async function canonicalPath(target: string, depth = 0): Promise<string> {
+		try { return await realpath(target); }
+		catch (error) {
+			const parsed = fileErrorSchema.safeParse(error);
+			if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
+		}
+		const link = await readlink(target).catch(() => undefined);
+		if (link !== undefined) {
+			if (depth > 40) throw new Error(`too many symlinks resolving ${target}`);
+			return canonicalPath(resolve(dirname(target), link), depth + 1);
+		}
+		const parent = dirname(target);
+		return parent === target ? target : join(await canonicalPath(parent, depth), basename(target));
+	}
 	// True when `path` is a file of a per-repo record (repos/<owner>/<name>/{gate.json,profile.md}),
-	// compared both as written and through symlinks.
+	// compared both as written and through symlinks, so an alias of a record file is a record file.
 	async function isRecordFile(path: string): Promise<boolean> {
-		if (![GATE_FILE, PROFILE_FILE].includes(basename(path))) return false;
 		const records = resolve(configRoot, RECORDS_DIR);
-		const canonical = async (target: string) => {
-			let parent = target;
-			for (;;) {
-				try { return resolve(await realpath(parent), relative(parent, target)); }
-				catch (error) {
-					const parsed = fileErrorSchema.safeParse(error);
-					if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
-					if (dirname(parent) === parent) return target;
-					parent = dirname(parent);
-				}
-			}
-		};
-		for (const [base, file] of [[records, resolve(path)], [await canonical(records), await canonical(resolve(path))]]) {
+		for (const [base, file] of [[records, resolve(path)], [await canonicalPath(records), await canonicalPath(resolve(path))]]) {
+			if (![GATE_FILE, PROFILE_FILE].includes(basename(file))) continue;
 			const rel = relative(base, file);
 			if (!rel.startsWith("..") && !isAbsolute(rel) && rel.split(sep).length === 3) return true;
 		}
 		return false;
+	}
+	// Every record file's text, keyed by path. Tools other than the edit tools (bash above all) can
+	// write anywhere, so rails compare record approvals before and after each such call.
+	async function recordTexts(): Promise<Map<string, string>> {
+		const texts = new Map<string, string>();
+		const records = resolve(configRoot, RECORDS_DIR);
+		const entries = async (dir: string) => (await readdir(dir, { withFileTypes: true }).catch(absentEntry)) ?? [];
+		for (const owner of await entries(records)) {
+			for (const name of await entries(join(records, owner.name))) {
+				for (const file of [GATE_FILE, PROFILE_FILE]) {
+					const path = join(records, owner.name, name.name, file);
+					const text = await readFile(path, "utf8").catch(absentEntry);
+					if (text !== null) texts.set(path, text);
+				}
+			}
+		}
+		return texts;
+	}
+	function approvalsIn(path: string, text: string | undefined): Set<string> {
+		if (text === undefined) return new Set();
+		try { return approvalRecords(guardrailJson(path, text)); }
+		catch { return new Set(); }
+	}
+	// Restores each record file whose owner-approval fields a non-edit tool call added or changed,
+	// and says which files it restored. A file the call created with approvals is removed.
+	async function revertRecordApprovals(before: Map<string, string>): Promise<string | undefined> {
+		const restored: string[] = [];
+		for (const [path, text] of await recordTexts()) {
+			const previous = before.get(path);
+			const prior = approvalsIn(path, previous);
+			if (![...approvalsIn(path, text)].some(record => !prior.has(record))) continue;
+			if (previous === undefined) await rm(path, { force: true });
+			else await writeFile(path, previous);
+			restored.push(path);
+		}
+		if (restored.length) return `Agent rails: this tool call added or changed owner-approval fields in ${restored.join(", ")}; ` +
+			"rails restored each file to its text before the call. Only the owner edits approvals, by hand: ask the owner to make that edit.";
 	}
 	async function passMarkerReason(cwd: string, head: string): Promise<string | undefined> {
 		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -944,20 +993,22 @@ export default function agentRails(
 	// Owner approvals live only in records, which never reach a PR: the owner's hand edit is the
 	// approval. Rails refuse an agent write that adds or changes an approval field (`approvalFields`)
 	// in a record file. Only the write tool carries the whole new text, so other edit tools are
-	// refused on record files.
+	// refused on record files; other tools are checked after they run (`revertRecordApprovals`).
 	async function recordWriteReason(event: ToolEvent, targets: string[]): Promise<string | undefined> {
 		for (const path of targets) {
 			if (!(await isRecordFile(path))) continue;
+			// The canonical name picks the parser, so an alias of profile.md still parses as front matter.
+			const record = await canonicalPath(resolve(path));
 			if (event.toolName !== "write" || event.input.path === map.resolveDevice || event.input.content === undefined) {
 				return `Agent rails: ${path} is a per-repo record file; change it with write (the whole file) so rails can check owner-approval fields.`;
 			}
 			let after: Set<string>;
-			try { after = approvalRecords(guardrailJson(path, event.input.content)); }
+			try { after = approvalRecords(guardrailJson(record, event.input.content)); }
 			catch (error) { return `Agent rails: cannot parse the new ${path} to check owner-approval fields: ${String(error)}`; }
 			let before = new Set<string>();
 			try {
 				const text = await readFile(path, "utf8").catch(absentFile);
-				if (text !== null) before = approvalRecords(guardrailJson(path, text));
+				if (text !== null) before = approvalRecords(guardrailJson(record, text));
 			} catch { /* An unreadable record approves nothing, so every new approval counts as added. */ }
 			const fields = [...new Set([...after].filter(record => !before.has(record)).map(record => record.slice(0, record.indexOf("="))))];
 			if (fields.length) return `Agent rails: this write adds or changes owner-approval fields (${fields.join(", ")}) in ${path}. ` +
@@ -1225,7 +1276,10 @@ export default function agentRails(
 					}
 				}
 			}
-			if (!map.editTools.includes(event.toolName)) return;
+			if (!map.editTools.includes(event.toolName)) {
+				recordSnapshots.set(event.toolCallId, await recordTexts());
+				return;
+			}
 			if (ctx.agent.kind !== "main") {
 				const reason = await subagentPathReason([
 					...pathArguments(event, map),
@@ -1255,7 +1309,14 @@ export default function agentRails(
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { additionalContext: loadError };
-		try { return await recordResult(event, ctx, stateFor(ctx), true); }
+		try {
+			const before = recordSnapshots.get(event.toolCallId);
+			recordSnapshots.delete(event.toolCallId);
+			const reverted = before ? await revertRecordApprovals(before) : undefined;
+			const result = await recordResult(event, ctx, stateFor(ctx), true);
+			if (!reverted) return result;
+			return { additionalContext: [reverted, result?.additionalContext].filter(Boolean).join("\n") };
+		}
 		catch (error) { return { additionalContext: `Agent rails: post-edit policy failed: ${String(error)}` }; }
 	});
 	pi.on("session_stop", async (_event, ctx) => {

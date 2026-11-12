@@ -107,8 +107,10 @@ Exceptions and approvals live only in the repo's record (`gate.json` and `profil
 committed and never part of a PR. Approval = the owner edits the field by hand. Guardrail approval fields are
 `approved_skips`, profile exemption `approval`, `guardrails.coverage_ratchet.approvals`, `user_approval`,
 `fast_tier_budget.machines` approvals, `house_style.exceptions`, and any field named `approval`, `*_approval` or
-`approved_*`. Rails refuse an agent write that adds or changes one in a record file, and accept record changes only
-through the whole-file `write` tool so they can compare the fields. On that refusal, do not
+`approved_*`. Rails refuse an agent write that adds or changes one in a record file, including through a symlinked
+path, and accept edit-tool record changes only through the whole-file `write` tool so they can compare the fields.
+When `bash` or another non-edit tool adds or changes one, rails restore that record file to its text before the
+call. On that refusal, do not
 retry through another tool or split the change to evade it: draft the exact field value, report it to the owner for a
 hand edit, and continue with unrelated work. The field list lives in `approvalFields` in
 `agent/extensions/agent-rails.ts`.
