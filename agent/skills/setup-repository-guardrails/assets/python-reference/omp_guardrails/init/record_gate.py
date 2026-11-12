@@ -3,7 +3,7 @@
 The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
 ``checks.ci``, ``pathCheck``, ``testGlobs``, ``ci`` (``requiredContext``: the status context or
 check run that must be green on the exact head; ``runner``: a role the machine's runner config
-resolves), ``agentMerge``, ``dynaflowsContract`` and ``dynaflows`` (``{"enabled": bool}``).
+resolves), ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
 Every command is the repository's own, run in the checkout; the harness checks
 (``omp-guardrails check``) are not gate commands, because the rails run them from the harness.
 

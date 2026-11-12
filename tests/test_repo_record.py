@@ -108,6 +108,13 @@ class Resolve(unittest.TestCase):
         with self.assertRaises(repo_record.RecordError):
             repo_record.dynaflows_enabled(self.repo, self.config)
 
+    def test_record_with_a_legacy_dynaflows_contract_field_still_loads(self):
+        git("-C", str(self.repo), "remote", "add", "origin", "https://github.com/owner/name")
+        gate = {"schemaVersion": 2, "dynaflowsContract": 3, "dynaflows": {"enabled": True}}
+        record = self.write_record("owner/name", gate)
+        self.assertEqual(repo_record.load_gate(record), gate)
+        self.assertTrue(repo_record.dynaflows_enabled(self.repo, self.config))
+
     def test_default_root_is_the_checkout_holding_the_module(self):
         self.assertEqual(repo_record.config_root(), ROOT)
         self.assertEqual(repo_record.record_dir("Owner/Name"), ROOT / "repos/owner/name")
