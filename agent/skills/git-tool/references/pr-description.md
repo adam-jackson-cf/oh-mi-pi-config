@@ -5,13 +5,12 @@
 - Write for a reviewer arriving cold: no session history, no knowledge of the plan, limited time.
 - The description exists to direct review attention, not to prove every claim. Evidence is a summary; the diff and linked docs hold the detail.
 - Target 400–650 words. If you are over, cut evidence before cutting the risk table.
-- The implementation writer owns the body and later corrections. `prove()` posts the complete verification record as a
-  separate PR comment and main adds a short judgement comment under
-  [verify-loop](verify-loop.md#verification-comment-and-agent-verified-status), both outside this word budget.
+- The implementation writer owns the body and later corrections. With dynaflows on, `prove()` posts its result as a
+  separate PR comment ([verify-loop](verify-loop.md#the-pr-check)), outside this word budget.
 
 ## Template
 
-Use these sections in this order. Omit `Gate changes`, `Decisions needed from the owner`, `After merge` and `Notes` only when empty.
+Use these sections in this order. Omit `Decisions needed from the owner`, `After merge` and `Notes` only when empty.
 
 ```markdown
 ## In short
@@ -39,10 +38,6 @@ Closes #<n>. <Depends on <repo>#<n>, if any.>
 
 **Not tested:** <what could not be exercised before merge, and where it will be>
 
-## Gate changes
-
-- `<path>` — <effect on checks; omit this section when empty>
-
 ## Decisions needed from the owner
 
 1. <yes/no question> (#<risk row>)
@@ -69,8 +64,7 @@ Closes #<n>. <Depends on <repo>#<n>, if any.>
 - Use existing CI-reported measurements only. Include test count/time comparisons only for comparable head/default runs of the same tier;
   otherwise say `baseline unavailable`. Never invent a budget, fabricate measurements or run extra suites/benchmarks solely to fill the body.
 - One line per check. Link long analysis rather than pasting tables of per-item results.
-- The writer names gate/config paths and their effects under `Gate changes`, updating omissions discovered by `prove().gateChanges`.
-  Listing a path is not itself a merge gate. Full verification evidence belongs in `prove()`'s result comment, not this summary.
+- Full proof evidence belongs in `prove()`'s result comment, not this summary.
 - Always include `Not tested:`; an empty answer must be earned.
 - When a comparison is confounded, say what the numbers do not show in bold, before the reader draws the wrong conclusion.
 

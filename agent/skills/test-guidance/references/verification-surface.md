@@ -12,7 +12,7 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
 - The lever is one command performing launch → doctor → drive → evidence → cleanup.
   Doctor proves ready means usable, not merely that a process or port exists.
 - Document the doctor-failure marker in Command notes. Enforced by SURFACE.lever-isolation (omp-guardrails lever-selftest).
-  Classify that marker as blocked infrastructure, never as a defect proof's expectRed,
+  Classify that marker as blocked infrastructure, never as a proof's red at base,
   even when the command exits nonzero. Stop that run, retain marker/probe evidence, clean up and report blocked
   to the calling workflow. Repair only within authorized scope; otherwise ask the owner once:
   "Repair the environment so doctor succeeds, or leave this proof blocked?"
@@ -32,10 +32,9 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
 - Script deterministic T2 journeys. Enforced by SURFACE.journeys (omp-guardrails surface-lint).
   A library's map points to T1 outcome tests when no process, build or UI boundary is crossed.
   Agent exploration belongs in T3, not deterministic journey proofs.
-- Under DynaFlows, a defect proof must fail with its asserted expectRed on the broken baseline;
-  a preserve proof must pass before and after. New-surface tolerates an absent baseline API.
-  Lever journeys use defect with an asserted unmet outcome (including a newly requested outcome),
-  or preserve for existing outcomes, never new-surface. Freeze means pin whole proof-file bytes before implementation.
+- Under DynaFlows, every proof, lever journeys included, fails at base and passes at head: the journey asserts
+  an outcome the base does not meet (a broken or newly requested outcome). Freeze means pin whole proof-file bytes
+  before implementation.
   Under DynaFlows, `prove()` checks journey stability: a `journey: true` proof must pass every clean run on the
   head being merged, so do not rerun journeys by hand before freeze.
   Outside DynaFlows, retain these test/proof principles without imposing task actors, and run each journey proof
