@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -1026,10 +1026,56 @@ test("record approval write guard: new records, partial edits, symlinked roots a
 		symlinkSync(h.records, alias);
 		assert.equal((await h.call("write", { path: join(alias, "repos", "owner", "repo", "gate.json"),
 			content: JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }) }))?.block, true, "a symlinked path still reaches the record");
+		const fileAlias = join(aliases, "alias.json");
+		symlinkSync(gate, fileAlias);
+		const aliasResult = await h.call("write", { path: fileAlias, content: JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }) });
+		assert.equal(aliasResult?.block, true, "a symlink to a record file is a record file");
+		assert.ok(aliasResult?.reason?.includes("approved_contexts[]"), aliasResult?.reason);
+		const profileAlias = join(aliases, "notes.txt");
+		symlinkSync(join(h.recordDir(), "profile.md"), profileAlias);
+		assert.ok((await h.call("write", { path: profileAlias, content: profile(baseProfile) }))?.reason?.includes("approved_skips[]"),
+			"a dangling alias of a new record profile parses as front matter and adds its approvals");
 		assert.equal(await h.call("write", { path: join(h.root, "profile.md"), content: profile(baseProfile) }), undefined,
 			"a repo file named like a record file is not a record");
 		assert.equal(await h.call("write", { path: join(h.records, "repos", "owner", "repo", "notes.md"), content: "approval: none" }), undefined);
 	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
+});
+
+// Bash and other non-edit tools can write anywhere, so rails compare record approvals around each call.
+async function aroundBash(h: ReturnType<typeof harness>, change: () => void) {
+	const event = { toolName: "bash", toolCallId: `bash-${randomUUID()}`, input: { command: "true" } };
+	assert.equal(await h.emit("tool_call", event), undefined);
+	change();
+	return h.emit("tool_result", { ...event, details: {}, isError: false });
+}
+test("record approval guard restores approval changes made by bash", async () => {
+	const h = harness();
+	try {
+		h.gate({ schemaVersion: 2 });
+		const path = join(h.recordDir(), "profile.md");
+		writeFileSync(path, profile(baseProfile));
+		const before = readFileSync(path, "utf8");
+		const added = await aroundBash(h, () => writeFileSync(path, withProfile(value => {
+			value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/**" });
+		})));
+		assert.ok(added?.additionalContext?.includes(path), added?.additionalContext);
+		assert.ok(added?.additionalContext?.includes("restored"), added?.additionalContext);
+		assert.equal(readFileSync(path, "utf8"), before, "an approval added by bash is restored");
+		const fresh = join(h.records, "repos", "owner", "fresh", "gate.json");
+		const created = await aroundBash(h, () => {
+			mkdirSync(dirname(fresh), { recursive: true });
+			writeFileSync(fresh, JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }));
+		});
+		assert.ok(created?.additionalContext?.includes(fresh), created?.additionalContext);
+		assert.equal(existsSync(fresh), false, "a record file bash created with approvals is removed");
+		const plain = withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; });
+		const kept = await aroundBash(h, () => writeFileSync(path, plain));
+		assert.ok(!kept?.additionalContext?.includes("restored"), kept?.additionalContext);
+		assert.equal(readFileSync(path, "utf8"), plain, "a non-approval change by bash stays");
+		const removed = withProfile(value => { value.guardrails.test_evidence.approved_skips = []; });
+		await aroundBash(h, () => writeFileSync(path, removed));
+		assert.equal(readFileSync(path, "utf8"), removed, "removing an approval stays");
+	} finally { h.cleanup(); }
 });
 
 test("plain merges with no ci block and dynaflows off never query GitHub", async () => {

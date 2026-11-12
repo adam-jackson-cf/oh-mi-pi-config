@@ -142,7 +142,8 @@ anyone else who takes this config. `scripts/device-rollout.py` copies them to
 devices. `skill://setup-repository-guardrails` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
 Approval fields in a record are the owner's: rails refuse an agent write that adds
-or changes one, and the owner's hand edit is the approval. Rails and `workflows.py`
+or changes one (and restore the file when bash makes that change), and the owner's
+hand edit is the approval. Rails and `workflows.py`
 strip the harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
