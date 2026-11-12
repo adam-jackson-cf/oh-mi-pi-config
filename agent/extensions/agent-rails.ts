@@ -192,6 +192,8 @@ type Gate = z.infer<typeof gateSchema>;
 type RepoRecord = { dir: string; gate: Gate };
 type GitAction = {
 	command: string; args: string[]; cwd?: string; config: string[];
+	// Git's global options before the subcommand, e.g. -C, -c, --exec-path=… (git actions only).
+	globals?: string[];
 	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
 	hookSkip?: string;
 };
@@ -470,8 +472,10 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 		} else if (executable === "git") {
 			let effective = cwd;
 			const config: string[] = [];
+			const globals: string[] = [];
 			while (words[0]?.startsWith("-")) {
 				const option = words.shift()!;
+				globals.push(option);
 				if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"].includes(option)) {
 					const value = words.shift();
 					if (option === "-C") effective = await directory(value, effective);
@@ -480,7 +484,7 @@ async function gitActions(command: string, cwd: string | undefined, scan: { hook
 				else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
 				else if (option.startsWith("-C") && option.length > 2) effective = await directory(option.slice(2), effective);
 			}
-			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config });
+			actions.push({ command: `git ${words.join(" ")}`, args: [...words], cwd: effective, config, globals });
 		} else if (executable === "gh") {
 			if (words.some(word => ["-R", "--repo", "--hostname"].includes(word) || /^(-R.|--repo=|--hostname=)/.test(word))) {
 				throw new Error("gh remote repository overrides are unsupported; use the validated local target repository");
@@ -590,7 +594,7 @@ function commitBypass(action: GitAction): string | undefined {
 
 // Rails run commit checks at tool-call time, before the command runs. So a checked commit must be
 // the whole command: one `git` (or tool-launcher) invocation with no unquoted operator, subshell,
-// redirection or substitution, and no shell, eval or xargs wrapper that could change the tree first.
+// redirection or substitution, no shell, eval or xargs wrapper, and no leading VAR=value assignment.
 function soleCommit(command: string): boolean {
 	let plain = "";
 	for (let i = 0; i < command.length; i++) {
@@ -605,26 +609,30 @@ function soleCommit(command: string): boolean {
 		i = end;
 	}
 	if (/[;&|()<>`{}\n]/.test(plain.trim())) return false;
-	const words = plain.trim().split(/\s+/);
-	while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
-	const executable = basename(words[0] ?? "");
+	const executable = basename(plain.trim().split(/\s+/)[0] ?? "");
 	return executable === "git" || Object.hasOwn(toolLaunchers, executable);
 }
-// Whether `git commit` arguments (after "commit") include -a/--all.
-function commitAll(args: string[]): boolean {
+// Which `git commit` arguments (after "commit") stage everything (-a/--all), give the message
+// (-m/--message/-F/--file) or may open an editor (-e/--edit, -c/--reedit-message).
+function commitOptions(args: string[]) {
+	const seen = { all: false, message: false, edit: false };
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === "--") break;
-		if (arg === "--all") return true;
 		if (arg.startsWith("--")) {
 			const name = arg.split("=")[0];
+			if (name === "--all") seen.all = true;
+			if (["--message", "--file"].includes(name)) seen.message = true;
+			if (name.length > 2 && ("--edit".startsWith(name) || "--reedit-message".startsWith(name))) seen.edit = true;
 			if (!arg.includes("=") && name.length > 2 && Object.keys(commitValueLongs).some(long => long.startsWith(name))) index++;
 			continue;
 		}
 		if (!arg.startsWith("-") || arg === "-") continue;
 		for (let at = 1; at < arg.length; at++) {
 			const flag = arg[at];
-			if (flag === "a") return true;
+			if (flag === "a") seen.all = true;
+			if (flag === "e" || flag === "c") seen.edit = true;
+			if (flag === "m" || flag === "F") seen.message = true;
 			if (flag === "u" || flag === "S") break;
 			if (Object.hasOwn(commitValueShorts, flag)) {
 				if (at === arg.length - 1) index++;
@@ -632,7 +640,15 @@ function commitAll(args: string[]): boolean {
 			}
 		}
 	}
-	return false;
+	return seen;
+}
+// Why a dynaflows commit could run a program the commit checks never saw, if it could.
+function checkedCommitReason(command: string, action: GitAction): string | undefined {
+	if (!soleCommit(command)) return "Agent rails: commit checks run before the command, so `git commit` must be the whole command. Stage your changes first (git add) in a separate call, then run `git commit` on its own: no &&, ||, ;, |, newline, subshell, $(...), backticks, redirection, leading VAR=value assignment or sh -c/eval/xargs wrapper; use the cwd parameter or git -C instead of cd.";
+	const global = action.globals?.find(option => /^(?:-c|--config-env|--exec-path)/.test(option));
+	if (global) return `Agent rails: dynaflows commits refuse git global option ${global}, which can make the commit run other programs; drop it and commit again.`;
+	const options = commitOptions(action.args.slice(1));
+	if (!options.message || options.edit) return "Agent rails: dynaflows commits must give the message with -m/--message or -F/--file and must not open an editor (-e/--edit, -c/--reedit-message); commit again with -m.";
 }
 
 type Author = { family: string; model: string; agent: string };
@@ -1281,10 +1297,9 @@ export default function agentRails(
 						};
 						const root = await repoRoot(action.cwd);
 						if (root && await dynaflowsOn(ctx, root, true)) {
-							if (!soleCommit(event.input.command)) return {
-								block: true, reason: "Agent rails: commit checks run before the command, so `git commit` must be the whole command. Stage your changes first (git add) in a separate call, then run `git commit` on its own: no &&, ||, ;, |, newline, subshell, $(...), backticks, redirection or sh -c/eval/xargs wrapper; use the cwd parameter or git -C instead of cd.",
-							};
-							if (!commitAll(action.args.slice(1))) {
+							const sole = checkedCommitReason(event.input.command, action);
+							if (sole) return { block: true, reason: sole };
+							if (!commitOptions(action.args.slice(1)).all) {
 								const diff = await pi.exec("git", ["diff", "--quiet"], { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
 								if (diff.code !== 0 || diff.killed) return {
 									block: true, reason: diff.code === 1 && !diff.killed
