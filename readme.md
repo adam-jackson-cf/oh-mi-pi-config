@@ -85,9 +85,11 @@ push and merge. Optional `checks.format` is the formatter `freeze()` runs before
 optional `checks.profile` is the profile completeness command `prove()` runs before any proof,
 after it refuses a head whose declared `ci.requiredContext` is not success. `dynaflowsContract`
 states the dynaflows contract version the record was set up against (current: 3, in
-`agent/agent-rails.yml`); workflows and rails refuse a record below it. In a repo with controls,
-the remedy is re-running `omp-guardrails init` against the record, with no repo commit; the
-project-setup playbook's `freeze(..., project_setup=True)` tolerates it until init records it.
+`agent/agent-rails.yml`); workflows and rails refuse a record whose version differs from it,
+below or above. In a repo with controls, the remedy is re-running `omp-guardrails init --extend`
+against a copy of the record outside `repos/` and asking the owner to save it, with no repo
+commit; the project-setup playbook's `freeze(..., project_setup=True)` tolerates a lower or
+absent version until the owner saves the record.
 For `git commit`, rails block explicit hook bypass flags/settings. Supported merge/rebase forms
 also reject explicit hook disabling with command-specific flag semantics. Standalone
 executable-shell assignment, `export`/`declare`, `unset` and `env -u` of hook-skip variables are
@@ -141,9 +143,13 @@ Worktrees resolve to the same record as their main checkout.
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
 devices. `skill://setup-repository-guardrails` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
-Approval fields in a record are the owner's: rails refuse an agent write that adds
-or changes one (and restore the file when bash makes that change), and the owner's
-hand edit is the approval. Rails and `workflows.py`
+A record is the owner's alone: rails refuse every agent write under `repos/` (and
+restore any record file bash adds, changes or deletes), so the owner's hand edit is
+its only review. When dynaflows resolves off, rails say why once at session start and
+at every commit, naming the slug (or `none`) and the reason; `workflows.py` uses the
+same words when it refuses. `prove()` reruns the whole-repo harness checks over the
+head tree as a blocking step, so commits made by merge, rebase or outside dynaflows
+are checked before merge. Rails and `workflows.py`
 strip the harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow

@@ -30,7 +30,7 @@ The proof task writes the production lever and runner-invoked journey files and 
 guardrails, not lever bytes. Project setup freezes before stage 4 writes the record's
 `dynaflowsContract`, so this flag tolerates a missing record gate or an absent or lower contract; a
 higher one still refuses. A stale contract alone in a repo that already has controls is not a
-project-setup trigger: it takes the record-only `omp-guardrails init` re-run in
+project-setup trigger: it takes the record-only `omp-guardrails init --extend` draft in
 [SKILL](../../SKILL.md#4-implement).
 Complete guardrails Step 5 owner approval.
 Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
@@ -42,11 +42,12 @@ Keep the Step 5 STOP; existing controls are not permission to skip approval.
 After freeze, implementation writes the feature map in the repo. The confirmed record's
 `profile.md` starts from `skill://test-guidance/assets/templates/test-profile.md`, with its
 machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
-`--record <record dir>`, drafts the same template and the record's `gate.json`, including the
-current `dynaflowsContract` (written when absent, raised when stale, never lowered).
+`--record <draft dir>` outside `repos/`, drafts the same template and the record's `gate.json`,
+including the current `dynaflowsContract` (written when absent, raised when stale, never lowered).
 `omp-guardrails profile-check` must pass (PROFILE.complete).
-Preserve existing profile values when extending it. Write the record only after Step 5 approval,
-with `dynaflows.enabled` false; never commit, stage or copy it into the repo.
+Preserve existing profile values when extending it. After Step 5 approval, ask the owner to save
+the draft as the live record by hand, with `dynaflows.enabled` false (agents never write records);
+never commit, stage or copy it into the repo.
 Then invoke guardrails Step 6 and Step 7 verification. Commit frozen proofs and greening changes
 atomically; rails run the record's `checks.commit` and the harness checks at each commit.
 Bootstrap permits proposing controls before they exist, not bypassing approval.

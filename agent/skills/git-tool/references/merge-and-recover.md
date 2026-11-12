@@ -101,19 +101,15 @@ that fallback cannot manufacture a prove marker. Risk-tier verification still ap
 After merge, record/submit target CI and continue; immediately before the next merge wait for the latest target SHA to be green.
 Recovery also waits for restored-green target CI after the revert before any further integration.
 
-### Owner-approval fields
+### Records are owner-only
 
-Exceptions and approvals live only in the repo's record (`gate.json` and `profile.md` front matter), which is never
-committed and never part of a PR. Approval = the owner edits the field by hand. Guardrail approval fields are
-`approved_skips`, profile exemption `approval`, `guardrails.coverage_ratchet.approvals`, `user_approval`,
-`fast_tier_budget.machines` approvals, `house_style.exceptions`, and any field named `approval`, `*_approval` or
-`approved_*`. Rails refuse an agent write that adds or changes one in a record file, including through a symlinked
-path, and accept edit-tool record changes only through the whole-file `write` tool so they can compare the fields.
-When `bash` or another non-edit tool adds or changes one, rails restore that record file to its text before the
-call. On that refusal, do not
-retry through another tool or split the change to evade it: draft the exact field value, report it to the owner for a
-hand edit, and continue with unrelated work. The field list lives in `approvalFields` in
-`agent/extensions/agent-rails.ts`.
+The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
+checks, `pathCheck`, `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
+committed and never part of a PR, so the owner's hand edit is its only review. Rails refuse every agent edit-tool
+write under the records root, including through a symlinked path, and restore any record file that `bash` or another
+non-edit tool adds, changes or deletes. On that refusal, do not retry through another tool or split the change to
+evade it: print the drafted change (or write it to a draft outside `repos/`), ask the owner to save it by hand, and
+continue with unrelated work.
 
 ## Recover a red default branch
 

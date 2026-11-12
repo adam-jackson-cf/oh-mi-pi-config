@@ -50,7 +50,7 @@ Keep test growth justified, assertions singly owned and verification within appr
   approval permits recording the measured limit and reference; rejection leaves timing report-only.
   The first limit and every raise require owner approval; record its reference per machine.
   Approval = the owner edits the field by hand in the repo test profile (under DynaFlows, the record's `profile.md`);
-  an agent never writes an approval field ([merge-and-recover](skill://git-tool/references/merge-and-recover.md#owner-approval-fields)).
+  an agent never writes an approval field ([merge-and-recover](skill://git-tool/references/merge-and-recover.md#records-are-owner-only)).
   Derive proposed limits from repeated local measurements, never from a convenient single run.
 - Fix excess cost: remove real-clock waits, bound the actual waiting object, isolate contention and minimize steps.
   Keep one scenario per test; never split redundant work merely to disguise its total cost.

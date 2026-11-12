@@ -69,6 +69,10 @@ class RepositoryTests(unittest.TestCase):
         self.ci_patch = patch.object(workflow, "_required_context_state", return_value="success")
         self.ci = self.ci_patch.start()
         self.addCleanup(self.ci_patch.stop)
+        # The harness checks pass by default; the harness-check tests swap in their own command.
+        self.guardrails_patch = patch.object(workflow, "_guardrails_command", return_value=[sys.executable, "-c", "pass"])
+        self.guardrails = self.guardrails_patch.start()
+        self.addCleanup(self.guardrails_patch.stop)
         self.comment_patch = patch.object(workflow, "_post_result_comment", return_value="https://github.com/example-owner/example-repo/pull/1#issuecomment-1")
         self.comment = self.comment_patch.start()
         self.addCleanup(self.comment_patch.stop)
@@ -962,13 +966,13 @@ class RepositoryTests(unittest.TestCase):
         with patch.object(workflow, "_setup", side_effect=AssertionError("trees must not be built")):
             result = self.prove()
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
-        self.assert_block(result, "this clone has no per-repo record")
+        self.assert_block(result, f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}")
         self.verifier.assert_not_called()
 
     def test_prove_without_origin_finds_no_record(self):
         git(self.repo, "remote", "remove", "origin")
         self.change()
-        self.assert_block(self.prove(), "this clone has no per-repo record")
+        self.assert_block(self.prove(), "dynaflows off for none: no origin remote")
 
     def test_repo_tracked_omp_files_are_never_read(self):
         # A leftover repo .omp/ directory must not change policy: only the record counts.
@@ -1045,7 +1049,9 @@ class RepositoryTests(unittest.TestCase):
     def test_freeze_without_gate_reports_missing_contract(self):
         (self.record / "gate.json").unlink()
         self.rebase_parent("no gate")
-        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
+        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(
+                f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}; "
+                f"Dynaflows contract vnone recorded; current is v{CONTRACT}.")):
             self.freeze([self.proof()])
 
     def test_project_setup_freeze_tolerates_absent_or_lower_contract_only(self):
@@ -1394,6 +1400,54 @@ class RepositoryTests(unittest.TestCase):
         for statuses, runs, expected in cases:
             with self.subTest(expected=expected, statuses=statuses, runs=runs), patch.object(workflow, "_github", side_effect=respond(statuses, runs)):
                 self.assertEqual(workflow._required_context_state(self.repo, head, "ci/gate"), expected)
+
+    def harness_script(self, body):
+        """A harness check command that logs its argv, cwd and HEAD outside the repo, then runs `body`."""
+        log = self.tmp / "harness.log"
+        script = ("import json, os, subprocess, sys\n"
+                  "head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()\n"
+                  f"open({str(log)!r}, 'a').write(json.dumps([sys.argv[1:], os.getcwd(), head]) + '\\n')\n" + body)
+        self.guardrails.return_value = [sys.executable, "-c", script]
+        return log
+
+    def test_prove_runs_the_harness_checks_over_the_head_tree_and_publishes_the_verdict(self):
+        log = self.harness_script("print('no findings')")
+        self.change()
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        self.assertEqual(result["harnessCheck"], {"status": "pass", "output": "no findings\n"})
+        (argv, cwd, head), = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual(argv[0], "--repo")
+        self.assertEqual(Path(argv[1]).resolve(), Path(cwd).resolve(), "the checks inspect the tree they run in")
+        self.assertNotEqual(Path(cwd).resolve(), self.repo.resolve(), "the checks run over the head tree, not the source checkout")
+        self.assertEqual(head, self.head, "the head tree is checked out at the proved head")
+        self.assertEqual(argv[2:], ["--record", str(self.record)])
+        self.assertEqual(self.comment.call_args.args[2]["harnessCheck"]["status"], "pass", "the published result carries the verdict")
+
+    def test_failing_harness_checks_block_prove_before_the_verifier(self):
+        self.harness_script("print('NAMING.file src/x.py'); sys.exit(1)")
+        self.change()
+        result = self.prove()
+        self.assert_block(result, "harness checks (omp-guardrails) failed at head")
+        self.assert_block(result, "NAMING.file src/x.py")
+        self.assertEqual(result["harnessCheck"]["status"], "fail")
+        self.assertEqual(self.comment.call_args.args[2]["harnessCheck"]["status"], "fail")
+        self.verifier.assert_not_called()
+        self.post.assert_not_called()
+
+    def test_harness_checks_that_write_into_the_head_tree_block(self):
+        self.harness_script("open('stray.txt', 'w').write('x')")
+        self.change()
+        result = self.prove()
+        self.assert_block(result, "the harness checks wrote into the head tree")
+        self.verifier.assert_not_called()
+
+    def test_harness_command_is_omp_guardrails_from_the_harness_reference_project(self):
+        self.guardrails_patch.stop()
+        self.addCleanup(self.guardrails_patch.start)
+        project = workflow._harness_root() / "agent/skills/setup-repository-guardrails/assets/python-reference"
+        self.assertTrue((project / "pyproject.toml").is_file())
+        self.assertEqual(workflow._guardrails_command(), ["uv", "run", "--project", str(project), "omp-guardrails", "check"])
 
     def test_prove_writes_result_beside_pass_marker_and_posts_it_on_the_pr(self):
         self.change()

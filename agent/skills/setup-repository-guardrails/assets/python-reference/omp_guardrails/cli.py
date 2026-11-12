@@ -14,7 +14,8 @@ Every module exposes ``run(repo: Path, profile: dict, argv: list[str]) -> list[F
 Exit codes: 0 no findings, 1 findings, 2 usage error (including a missing ``--record``).
 ``omp-guardrails <subcommand> --help`` prints the subcommand's module documentation without
 reading the profile; ``init`` and ``adapter`` parse their own options and print their own help.
-``init`` drafts the record itself, so it is the one subcommand that writes (into the record).
+``init`` drafts the record itself, so it is the one subcommand that writes (into a draft record
+directory, never the live records root; the owner saves the draft by hand).
 """
 
 from __future__ import annotations

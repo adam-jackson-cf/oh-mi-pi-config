@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, test } from "node:test";
@@ -746,6 +746,43 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
+	test("dynaflows off is never silent: one note at session start and one at every commit name the slug and reason", async () => {
+		const h = harness();
+		try {
+			const gate = join(h.recordDir(), "gate.json");
+			const cases: [string, () => Promise<void> | void, string][] = [
+				["missing record", () => {}, `dynaflows off for owner/repo: no per-repo record at ${gate}`],
+				["record off", () => h.gate({ schemaVersion: 2 }), `dynaflows off for owner/repo: the record ${gate} sets dynaflows.enabled false`],
+				["machine off", () => { h.dynaflows(true); h.machineDynaflows(false); }, "dynaflows off for owner/repo: the machine default "],
+				["non-GitHub origin", async () => {
+					h.machineDynaflows(true);
+					await execute("git", ["remote", "set-url", "origin", "https://gitlab.com/owner/repo.git"], { cwd: h.root });
+				}, "dynaflows off for none: origin https://gitlab.com/owner/repo.git is not a GitHub owner/name URL"],
+				["no origin", () => execute("git", ["remote", "remove", "origin"], { cwd: h.root }).then(() => {}), "dynaflows off for none: no origin remote"],
+			];
+			for (const [name, arrange, text] of cases) {
+				await arrange();
+				h.notes.length = 0;
+				h.setSession(name);
+				await h.emit("session_start");
+				await h.read("skill://git-tool");
+				assert.equal(h.notes.filter(note => note.includes(text)).length, 1, `${name}: ${h.notes.join("; ")}`);
+				for (let commit = 0; commit < 2; commit++) assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, name);
+				const commits = h.notes.filter(note => note.includes(text) && note.includes("commit checks do not run"));
+				assert.equal(commits.length, 2, `${name}: every commit says why: ${h.notes.join("; ")}`);
+			}
+			h.machineDynaflows(true);
+			await execute("git", ["remote", "add", "origin", defaultOrigin], { cwd: h.root });
+			h.dynaflows(true);
+			h.notes.length = 0;
+			h.setSession("on");
+			await h.emit("session_start");
+			await h.read("skill://git-tool");
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+			assert.deepEqual(h.notes.filter(note => note.includes("dynaflows off")), [], "dynaflows on adds no off note");
+		} finally { h.cleanup(); }
+	});
+
 	test("requires absolute subagent paths across mapped writes and edit payloads", async () => {
 		const h = harness();
 		try {
@@ -1051,135 +1088,86 @@ test("without a ci block every reported check still decides the merge", async ()
 	} finally { h.cleanup(); }
 });
 
-// Owner-approval write guard: records never reach a PR, so the owner's hand edit is the approval act
-// and rails refuse an agent write that adds or changes an approval field in a record file.
-type Approved = { approval: string };
-type ProfileFixture = {
-	guardrails: {
-		test_evidence: { approved_skips: (Approved & { id: string; reason: string })[]; slow_ms: number };
-		coverage_ratchet: { approvals: (Approved & { path: string })[] };
-	};
-	verification_surface: Approved & { none: string };
-	fast_tier_budget: { machines: (Approved & { id: string; wall_s: number })[] };
-	house_style: { version: number; exceptions: { rule: string; path: string; adr: string }[] };
-	user_rows?: { id: string; user_approval: string }[];
-};
-const profile = (values: ProfileFixture) => `---\n${JSON.stringify(values, null, 2)}\n---\n\n# Test profile\n`;
-const skip = { id: "tests/test_vendor.py::*", reason: "vendor outage", approval: "owner 2026-11-01" };
-const baseProfile: ProfileFixture = {
-	guardrails: { test_evidence: { approved_skips: [skip], slow_ms: 200 }, coverage_ratchet: { approvals: [] } },
-	verification_surface: { none: "library only", approval: "owner 2026-10-01" },
-	fast_tier_budget: { machines: [{ id: "m1", wall_s: 30, approval: "owner 2026-10-02" }] },
-	house_style: { version: 1, exceptions: [] },
-};
-const withProfile = (change: (value: ProfileFixture) => void) => {
-	const value = structuredClone(baseProfile);
-	change(value);
-	return profile(value);
-};
+// Records hold the owner's policy and approvals and never reach a PR, so the owner edits them by
+// hand: rails refuse every agent write under the records root and restore any change bash makes.
 const baseGate = { schemaVersion: 2, dynaflowsContract: currentContract, dynaflows: { enabled: false } };
-for (const scenario of [
-	{ name: "added approved skip", file: "profile.md", content: withProfile(value => value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/test_new.py::*" })), field: "guardrails.test_evidence.approved_skips[]" },
-	{ name: "widened approved skip", file: "profile.md", content: withProfile(value => { value.guardrails.test_evidence.approved_skips[0].id = "tests/**"; }), field: "approved_skips[]" },
-	{ name: "changed exemption approval", file: "profile.md", content: withProfile(value => { value.verification_surface.approval = "agent says ok"; }), field: "verification_surface" },
-	{ name: "added coverage ratchet approval", file: "profile.md", content: withProfile(value => { value.guardrails.coverage_ratchet.approvals = [{ path: "src/**", approval: "ok" }]; }), field: "guardrails.coverage_ratchet.approvals[]" },
-	{ name: "raised approved machine budget", file: "profile.md", content: withProfile(value => { value.fast_tier_budget.machines[0].wall_s = 90; }), field: "fast_tier_budget.machines[]" },
-	{ name: "added house style exception", file: "profile.md", content: withProfile(value => { value.house_style.exceptions = [{ rule: "TEST.no-evasion", path: "tests/x.py", adr: "adr/1.md" }]; }), field: "house_style.exceptions[]" },
-	{ name: "added user_approval row", file: "profile.md", content: withProfile(value => { value.user_rows = [{ id: "PRETTIER.version", user_approval: "approved" }]; }), field: "user_rows[]" },
-	{ name: "approval field in gate.json", file: "gate.json", content: JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }), field: "approved_contexts[]" },
-	{ name: "unreadable profile", file: "profile.md", content: "# no front matter\n", field: "cannot parse the new" },
-	{ name: "removed approved skip", file: "profile.md", content: withProfile(value => { value.guardrails.test_evidence.approved_skips = []; }) },
-	{ name: "non-approval profile change", file: "profile.md", content: withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; }) },
-	{ name: "non-approval gate change", file: "gate.json", content: JSON.stringify({ ...baseGate, dynaflows: { enabled: true } }) },
-	{ name: "unchanged profile", file: "profile.md", content: profile(baseProfile) },
-] as const) {
-	test(`record approval write guard: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			h.gate({ schemaVersion: 2 });
-			writeFileSync(join(h.recordDir(), "profile.md"), profile(baseProfile));
-			const path = join(h.recordDir(), scenario.file);
-			const before = readFileSync(path, "utf8");
-			const result = await h.call("write", { path, content: scenario.content });
-			if ("field" in scenario) {
-				assert.equal(result?.block, true, "an approval change is the owner's hand edit");
-				assert.ok(result?.reason?.includes(scenario.field), result?.reason);
-				assert.ok(result?.reason?.includes(path), result?.reason);
-				assert.equal(readFileSync(path, "utf8"), before);
-			} else assert.equal(result, undefined);
-		} finally { h.cleanup(); }
-	});
-}
-
-test("record approval write guard: new records, partial edits, symlinked roots and repo files", async () => {
+test("rails refuse every agent write or edit under the records root, through any alias", async () => {
 	const h = harness();
 	const aliases = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-records-alias-")));
 	try {
 		await h.read(integrity, structure, naming);
-		const fresh = join(h.records, "repos", "owner", "fresh", "profile.md");
-		assert.ok((await h.call("write", { path: fresh, content: profile(baseProfile) }))?.reason?.includes("approved_skips[]"),
-			"a new record file adds every approval it holds");
-		assert.equal(await h.call("write", { path: join(h.records, "repos", "owner", "fresh", "gate.json"), content: JSON.stringify(baseGate) }), undefined);
 		h.gate({ schemaVersion: 2 });
+		writeFileSync(join(h.recordDir(), "profile.md"), "---\n{}\n---\n");
 		const gate = join(h.recordDir(), "gate.json");
-		for (const [tool, input] of [["edit", { path: gate }], ["ast_edit", { paths: [gate] }], ["write", { path: gate }]] as const) {
-			const result = await h.call(tool, input);
-			assert.equal(result?.block, true, tool);
-			assert.ok(result?.reason?.includes("change it with write (the whole file)"), result?.reason);
+		const before = readFileSync(gate, "utf8");
+		const targets = [
+			gate, join(h.recordDir(), "profile.md"), join(h.recordDir(), "proposed", "ruff.toml"), join(h.recordDir(), "notes.md"),
+			join(h.records, "repos", "owner", "fresh", "gate.json"), join(h.records, "repos", "stray.json"),
+		];
+		for (const path of targets) {
+			for (const [tool, input] of [["write", { path, content: JSON.stringify({ ...baseGate, checks: { commit: ["true"] } }) }],
+				["edit", { path }], ["ast_edit", { paths: [path] }]] as const) {
+				const result = await h.call(tool, input);
+				assert.equal(result?.block, true, `${tool} ${path}`);
+				assert.ok(result?.reason?.includes("agents never write records"), result?.reason);
+				assert.ok(result?.reason?.includes(path), result?.reason);
+			}
 		}
+		assert.equal(readFileSync(gate, "utf8"), before, "checks.commit, pathCheck and dynaflows.enabled stay the owner's");
 		const alias = join(aliases, "records");
 		symlinkSync(h.records, alias);
-		assert.equal((await h.call("write", { path: join(alias, "repos", "owner", "repo", "gate.json"),
-			content: JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }) }))?.block, true, "a symlinked path still reaches the record");
+		assert.equal((await h.call("write", { path: join(alias, "repos", "owner", "repo", "gate.json"), content: "{}" }))?.block, true,
+			"a symlinked root still reaches the record");
 		const fileAlias = join(aliases, "alias.json");
 		symlinkSync(gate, fileAlias);
-		const aliasResult = await h.call("write", { path: fileAlias, content: JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }) });
-		assert.equal(aliasResult?.block, true, "a symlink to a record file is a record file");
-		assert.ok(aliasResult?.reason?.includes("approved_contexts[]"), aliasResult?.reason);
-		const profileAlias = join(aliases, "notes.txt");
-		symlinkSync(join(h.recordDir(), "profile.md"), profileAlias);
-		assert.ok((await h.call("write", { path: profileAlias, content: profile(baseProfile) }))?.reason?.includes("approved_skips[]"),
-			"a dangling alias of a new record profile parses as front matter and adds its approvals");
-		assert.equal(await h.call("write", { path: join(h.root, "profile.md"), content: profile(baseProfile) }), undefined,
+		assert.equal((await h.call("write", { path: fileAlias, content: "{}" }))?.block, true, "a symlink to a record file is a record file");
+		const dangling = join(aliases, "notes.txt");
+		symlinkSync(join(h.records, "repos", "owner", "new", "profile.md"), dangling);
+		assert.equal((await h.call("write", { path: dangling, content: "x" }))?.block, true, "a dangling alias into the records root is refused");
+		assert.equal(await h.call("write", { path: join(h.root, "profile.md"), content: "x" }), undefined,
 			"a repo file named like a record file is not a record");
-		assert.equal(await h.call("write", { path: join(h.records, "repos", "owner", "repo", "notes.md"), content: "approval: none" }), undefined);
+		assert.equal(await h.call("write", { path: join(h.records, "draft", "gate.json"), content: "{}" }), undefined,
+			"a draft outside repos/ is the agent's");
 	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
 });
 
-// Bash and other non-edit tools can write anywhere, so rails compare record approvals around each call.
+// Bash and other non-edit tools can write anywhere, so rails compare the records around each call.
 async function aroundBash(h: ReturnType<typeof harness>, change: () => void) {
 	const event = { toolName: "bash", toolCallId: `bash-${randomUUID()}`, input: { command: "true" } };
 	assert.equal(await h.emit("tool_call", event), undefined);
 	change();
 	return h.emit("tool_result", { ...event, details: {}, isError: false });
 }
-test("record approval guard restores approval changes made by bash", async () => {
+test("rails restore every record change a bash call makes: edits, new files, deletions and symlinks", async () => {
 	const h = harness();
 	try {
 		h.gate({ schemaVersion: 2 });
-		const path = join(h.recordDir(), "profile.md");
-		writeFileSync(path, profile(baseProfile));
-		const before = readFileSync(path, "utf8");
-		const added = await aroundBash(h, () => writeFileSync(path, withProfile(value => {
-			value.guardrails.test_evidence.approved_skips.push({ ...skip, id: "tests/**" });
-		})));
-		assert.ok(added?.additionalContext?.includes(path), added?.additionalContext);
-		assert.ok(added?.additionalContext?.includes("restored"), added?.additionalContext);
-		assert.equal(readFileSync(path, "utf8"), before, "an approval added by bash is restored");
+		const gate = join(h.recordDir(), "gate.json");
+		const profilePath = join(h.recordDir(), "profile.md");
+		writeFileSync(profilePath, "---\n{}\n---\n");
+		const before = readFileSync(gate, "utf8");
+		for (const field of [{ checks: { commit: ["true"] } }, { pathCheck: ["true"] }, { dynaflows: { enabled: true } }]) {
+			const changed = await aroundBash(h, () => writeFileSync(gate, JSON.stringify({ ...JSON.parse(before), ...field })));
+			assert.ok(changed?.additionalContext?.includes(gate), changed?.additionalContext);
+			assert.ok(changed?.additionalContext?.includes("restored"), changed?.additionalContext);
+			assert.equal(readFileSync(gate, "utf8"), before, JSON.stringify(field));
+		}
+		const guardrails = "---\n{\"guardrails\": {\"check\": {\"exclude\": [\"**\"]}}}\n---\n";
+		await aroundBash(h, () => writeFileSync(profilePath, guardrails));
+		assert.equal(readFileSync(profilePath, "utf8"), "---\n{}\n---\n", "guardrails.check settings stay the owner's");
 		const fresh = join(h.records, "repos", "owner", "fresh", "gate.json");
-		const created = await aroundBash(h, () => {
-			mkdirSync(dirname(fresh), { recursive: true });
-			writeFileSync(fresh, JSON.stringify({ ...baseGate, approved_contexts: ["lint"] }));
-		});
+		const created = await aroundBash(h, () => { mkdirSync(dirname(fresh), { recursive: true }); writeFileSync(fresh, "{}"); });
 		assert.ok(created?.additionalContext?.includes(fresh), created?.additionalContext);
-		assert.equal(existsSync(fresh), false, "a record file bash created with approvals is removed");
-		const plain = withProfile(value => { value.guardrails.test_evidence.slow_ms = 100; });
-		const kept = await aroundBash(h, () => writeFileSync(path, plain));
-		assert.ok(!kept?.additionalContext?.includes("restored"), kept?.additionalContext);
-		assert.equal(readFileSync(path, "utf8"), plain, "a non-approval change by bash stays");
-		const removed = withProfile(value => { value.guardrails.test_evidence.approved_skips = []; });
-		await aroundBash(h, () => writeFileSync(path, removed));
-		assert.equal(readFileSync(path, "utf8"), removed, "removing an approval stays");
+		assert.equal(existsSync(fresh), false, "a record file bash created is removed");
+		await aroundBash(h, () => rmSync(profilePath));
+		assert.equal(readFileSync(profilePath, "utf8"), "---\n{}\n---\n", "a record file bash deleted comes back");
+		await aroundBash(h, () => { rmSync(gate); symlinkSync(profilePath, gate); });
+		assert.equal(lstatSync(gate).isSymbolicLink(), false, "a record file swapped for a symlink comes back");
+		assert.equal(readFileSync(gate, "utf8"), before);
+		const outside = join(h.root, "notes.md");
+		const unrelated = await aroundBash(h, () => writeFileSync(outside, "kept"));
+		assert.equal(unrelated?.additionalContext?.includes("restored") ?? false, false, unrelated?.additionalContext);
+		assert.equal(readFileSync(outside, "utf8"), "kept", "files outside the records root are untouched");
 	} finally { h.cleanup(); }
 });
 
@@ -1769,7 +1757,8 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
 		}
 		const modulePath = join(import.meta.dir, "../agent/skills/omp-dyna-workflows/templates/workflows.py");
-		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
+		// Both sides also refuse a record whose contract differs from the installed one.
+		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); policies=[module.gate_policy(v) for v in json.loads(sys.argv[2])]; print(json.dumps([p is not None and module.contract_mismatch(p['dynaflowsContract'], module.dynaflows_contract()) is None for p in policies]))";
 		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
 		assert.deepEqual(JSON.parse(result.stdout), rails);
 	} finally { h.cleanup(); }
@@ -1783,8 +1772,8 @@ test("record edits do not author a change; docs do, and corrupt or different bra
 		// The config root is itself a Git checkout, as oh-mi-pi-config is; its ignored records are harness config.
 		execFileSync("git", ["init", "-b", "main", h.records]);
 		const gate = join(h.recordDir(), "gate.json");
-		assert.equal(await h.call("write", { path: gate, content: JSON.stringify({ ...h.record(), pathCheck: ["check"] }) }), undefined);
-		assert.equal(existsSync(join(h.records, ".git/omp-authors")), false, "a record write records no author");
+		assert.equal((await h.call("write", { path: gate, content: JSON.stringify({ ...h.record(), pathCheck: ["check"] }) }))?.block, true);
+		assert.equal(existsSync(join(h.records, ".git/omp-authors")), false, "a refused record write records no author");
 		const verifier = { agent: "verifier", patterns: ["anthropic/review"] };
 		assert.ok((await h.emit("before_subagent_spawn", verifier))?.reason?.includes("authorship unknown"));
 		assert.equal(await h.call("write", { path: join(h.root, "README.md") }), undefined);
@@ -1970,17 +1959,17 @@ test("uv and poetry separator commits record author ledgers", async () => {
 });
 
 describe("dynaflows contract version", () => {
-	const stale = "Run omp-guardrails init --extend to bring the per-repo record to the current contract " +
-		"(it edits the local record, never the repo); ask the owner only when it adds a gate or profile field the record lacks";
+	const stale = "Draft the update with omp-guardrails init --extend --record <a copy of the record outside repos/>, " +
+		"then ask the owner to review it and save it over the live record; agents never write records";
 	const newer = "The record expects a newer dynaflows contract; update omp";
 	const scenarios = [
-		{ name: "absent", recorded: undefined, refused: true, expected: `Dynaflows contract vnone recorded; current is v${currentContract}. ${stale}` },
-		{ name: "lower", recorded: currentContract - 1, refused: true, expected: `Dynaflows contract v${currentContract - 1} recorded; current is v${currentContract}. ${stale}` },
-		{ name: "equal", recorded: currentContract, refused: false, expected: undefined },
-		{ name: "higher", recorded: currentContract + 1, refused: false, expected: `Dynaflows contract v${currentContract + 1} recorded; current is v${currentContract}. ${newer}` },
+		{ name: "absent", recorded: undefined, expected: `Dynaflows contract vnone recorded; current is v${currentContract}. ${stale}` },
+		{ name: "lower", recorded: currentContract - 1, expected: `Dynaflows contract v${currentContract - 1} recorded; current is v${currentContract}. ${stale}` },
+		{ name: "equal", recorded: currentContract, expected: undefined },
+		{ name: "higher", recorded: currentContract + 1, expected: `Dynaflows contract v${currentContract + 1} recorded; current is v${currentContract}. ${newer}` },
 	];
 	for (const scenario of scenarios) {
-		test(`dynaflows on, recorded contract ${scenario.name}: ${scenario.refused ? "refused" : scenario.expected ? "notes once" : "stays silent"}`, async () => {
+		test(`dynaflows on, recorded contract ${scenario.name}: ${scenario.expected ? "refused" : "stays silent"}`, async () => {
 			assert.ok(currentContract > 1, "a lower contract must still be a positive int");
 			const h = harness();
 			try {
@@ -1989,16 +1978,17 @@ describe("dynaflows contract version", () => {
 				const pointer = await h.emit("before_agent_start", { reason: "prompt", prompt: "work" });
 				await h.emit("before_agent_start", { reason: "prompt", prompt: "more work" });
 				const contractNotes = h.notes.filter(note => note.includes("Dynaflows contract"));
-				if (scenario.refused) {
+				if (scenario.expected) {
+					const slug = relative(join(h.records, "repos"), h.recordDir());
 					assert.equal(pointer, undefined, "a refused record leaves dynaflows off");
-					assert.deepEqual(contractNotes, [`Agent rails: ${join(h.recordDir(), "gate.json")}: ${scenario.expected}.; dynaflows off.`], "one note per session");
+					assert.deepEqual(contractNotes, [`Agent rails: dynaflows off for ${slug}: ${join(h.recordDir(), "gate.json")}: ${scenario.expected}.`], "one note per session");
 					await h.read("skill://git-tool");
 					const blocked = await h.call("bash", { command: "git push" });
 					assert.equal(blocked?.block, true);
-					assert.ok(blocked?.reason?.includes(scenario.expected ?? ""), blocked?.reason);
-				} else if (scenario.expected) {
-					assert.deepEqual(contractNotes, [`Agent rails: ${scenario.expected}.`], "one note per session");
-					assert.ok(JSON.stringify(pointer).includes(scenario.expected), "the agent sees the same text");
+					assert.ok(blocked?.reason?.includes(scenario.expected), blocked?.reason);
+					const commit = await h.call("bash", { command: "git commit -m x" });
+					assert.equal(commit?.block, true, "a refused record blocks dynaflows commits");
+					assert.ok(commit?.reason?.includes(scenario.expected), commit?.reason);
 				} else {
 					assert.deepEqual(contractNotes, []);
 					assert.equal(JSON.stringify(pointer).includes("Dynaflows contract"), false);

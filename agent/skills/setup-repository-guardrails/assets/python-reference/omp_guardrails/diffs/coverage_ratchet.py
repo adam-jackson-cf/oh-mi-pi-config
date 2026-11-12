@@ -13,7 +13,7 @@ Over ``git diff <base> <head>`` the checker reports:
 A finding is cleared only by an owner approval in the record's profile:
 ``guardrails.coverage_ratchet.approvals: [{"path": "<path or glob>", "approval": "<ref>"}]``.
 The record is not part of the repository diff, so the approval is the owner's hand edit of the
-record (the agent rails refuse an agent write that adds or changes one). The owner removes an
+record (the agent rails refuse every agent write to a record). The owner removes an
 approval once its change has merged, so no standing approval disables the ratchet. The record's
 own ``coverage`` floors are owner config outside the diff and are not compared here.
 

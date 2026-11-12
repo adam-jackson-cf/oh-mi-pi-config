@@ -63,6 +63,30 @@ def record_dir(slug: str, root: str | Path | None = None) -> Path:
     return Path(root if root is not None else config_root()) / RECORDS_DIR / owner / name
 
 
+def off_text(slug: str | None, reason: str) -> str:
+    """Why dynaflows is off, in the words rails and workflows.py both use: names the slug or "none"."""
+    return f"dynaflows off for {slug or 'none'}: {reason}"
+
+
+def resolve_record(repo: str | Path, root: str | Path | None = None) -> tuple[str | None, Path | None, str | None]:
+    """``(slug, record dir, None)``, or the reason the clone has no record: no origin remote, an
+    origin that is not a GitHub owner/name URL, or no ``gate.json`` at the record directory."""
+    try:
+        process = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
+                                 capture_output=True, text=True, errors="replace")
+    except OSError:
+        return None, None, "no origin remote"
+    if process.returncode:
+        return None, None, "no origin remote"
+    slug = parse_origin(process.stdout)
+    if slug is None:
+        return None, None, f"origin {process.stdout.strip()} is not a GitHub owner/name URL"
+    path = record_dir(slug, root)
+    if not (path / GATE_FILE).is_file():
+        return slug, None, f"no per-repo record at {path / GATE_FILE}"
+    return slug, path, None
+
+
 def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None:
     """Record directory for the clone at ``repo`` when its ``gate.json`` exists, else None."""
     slug = repo_slug(repo)

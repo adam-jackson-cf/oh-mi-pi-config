@@ -76,13 +76,14 @@ application; never apply before approval.
 
 The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
 current one, and the record's `gate.json` `dynaflowsContract` states the version it was set up
-against (`omp-guardrails init` writes it). With dynaflows on, a missing or lower version makes
-rails emit a session note and `freeze()`/`prove()` refuse. Missing controls go through project
-setup, whose stage-3 `freeze(..., project_setup=True)` tolerates the version gap. With controls
-in place, a missing or lower version is a contract bump: re-run `omp-guardrails init` against
-the record, which raises it. It changes no repo file, so it needs no commit, proposal or
-project-setup playbook. Ask the owner only when that change adds a gate or profile field the
-record lacks.
+against (`omp-guardrails init` writes it). A missing, lower or higher version makes rails refuse
+the record (dynaflows off, with a note; dynaflows commits blocked) and `freeze()`/`prove()`
+refuse. Missing controls go through project setup, whose stage-3
+`freeze(..., project_setup=True)` tolerates a missing or lower version. With controls in place, a
+missing or lower version is a contract bump: run `omp-guardrails init --extend` against a copy of
+the record outside `repos/` and ask the owner to save the draft over the live record (agents never
+write records). It changes no repo file, so it needs no commit, proposal or project-setup
+playbook.
 The manifest records the contract it was frozen under, but `prove()` checks the record, so a
 bump during a PR needs no re-freeze. A higher version means omp needs updating, and refuses
 even under `project_setup=True`.
@@ -121,7 +122,10 @@ The writer lists gate paths/effects in **Gate changes** per
 ### 5. Verify
 
 Main confirms the writer has no pending edits. `prove()` reads the gate's declared required CI
-context first and refuses before verifier spend unless it is success on the exact head.
+context first and refuses before verifier spend unless it is success on the exact head. It then
+runs the whole-repo harness checks (`omp-guardrails check`, the record as config) over the head
+tree as a blocking step, so commits made by merge, rebase, cherry-pick or outside dynaflows are
+checked too; the verdict is the result's `harnessCheck`.
 Follow `skill://git-tool/references/verify-loop.md` for risk tiers, durable fix
 rounds, changed-head invalidation and evidence/status mechanics. Eligible docs-only
 work uses a fresh `exempt_docs_only(..., target_ref=...)` plus green CI, without a

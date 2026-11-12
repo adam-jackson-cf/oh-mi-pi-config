@@ -14,4 +14,6 @@ PACKAGE = Path(__file__).resolve().parent
 SKILLS = PACKAGE.parents[3]
 AGENT = SKILLS.parent
 RAILS_CONFIG = AGENT / "agent-rails.yml"
+# The live per-repo records (<harness>/repos/<owner>/<name>/). Only the owner writes them, by hand.
+RECORDS = AGENT.parent / "repos"
 PROFILE_TEMPLATE = SKILLS / "test-guidance/assets/templates/test-profile.md"

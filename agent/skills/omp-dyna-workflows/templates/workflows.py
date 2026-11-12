@@ -41,9 +41,13 @@ class ProveBlocked(WorkflowError):
 
 CONTRACT_LINE = re.compile(r"^dynaflowsContract:[ \t]*(\d+)[ \t]*(?:#.*)?\r?$", re.MULTILINE)
 MAX_SAFE_INTEGER = 9007199254740991
-CONTRACT_REMEDY = ("Run omp-guardrails init --extend to bring the per-repo record to the current contract "
-                   "(it edits the local record, never the repo); ask the owner only when it adds a gate or "
-                   "profile field the record lacks.")
+CONTRACT_REMEDY = ("Draft the update with omp-guardrails init --extend --record <a copy of the record outside repos/>, "
+                   "then ask the owner to review it and save it over the live record; agents never write records.")
+# The harness checks rails run at commit, run again by prove() over the head tree: omp-guardrails
+# from the harness's own reference project (never installed into the repo), with the record as config.
+GUARDRAILS_PROJECT = "agent/skills/setup-repository-guardrails/assets/python-reference"
+# Characters of the harness check output kept in prove()'s result (the tail, where findings end).
+HARNESS_OUTPUT_TAIL = 8000
 # Harness variables the omp runtime exports to its tools. Repo commands must behave as they do
 # without the harness, so run_check removes them at the exec boundary.
 HARNESS_ENV = ("AGENT",)
@@ -128,6 +132,30 @@ def read_record(repo):
     if reason is not None:
         raise WorkflowError(f"record {record / resolver.GATE_FILE}: {reason}")
     return record, gate
+
+
+def no_record_reason(repo):
+    """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
+    resolver = _resolver()
+    slug, _, reason = resolver.resolve_record(repo, _records_root())
+    return resolver.off_text(slug, reason or "no per-repo record")
+
+
+def _guardrails_command():
+    """argv of the harness checks; prove() appends --repo <tree> --record <record dir>."""
+    return ["uv", "run", "--project", str(_harness_root() / GUARDRAILS_PROJECT), "omp-guardrails", "check"]
+
+
+def _harness_check(tree, record):
+    """Run the whole-repo harness checks over `tree` with the record as config: (ok, output).
+
+    The checks never write into the tree; a tracked or untracked change they leave fails the run.
+    """
+    before = _git(tree, "status", "--porcelain=v2", "--untracked-files=all")
+    ok, out = run_check([*_guardrails_command(), "--repo", str(tree), "--record", str(record)], tree)
+    if _git(tree, "status", "--porcelain=v2", "--untracked-files=all") != before:
+        return False, f"{out}\nthe harness checks wrote into the head tree"
+    return ok, out
 
 
 def _is_argv(value):
@@ -586,7 +614,7 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     `project_setup=True` tolerates an absent record or a lower recorded contract; prove() still
     requires the current one. A higher recorded contract always refuses. The manifest records the
     installed contract it was frozen under; prove() ignores it and checks the record, so a
-    contract bump during a PR needs only an `omp-guardrails init --extend` of the record, not a re-freeze.
+    contract bump during a PR needs only an `omp-guardrails init --extend` draft the owner saves, not a re-freeze.
     Journey stability is a prove() check on the head being merged, not a freeze() check.
     """
     if not isinstance(project_setup, bool):
@@ -628,7 +656,7 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     recorded, contract = (policy["dynaflowsContract"] if policy else None), dynaflows_contract()
     mismatch = contract_mismatch(recorded, contract)
     if mismatch and not (project_setup and (recorded is None or recorded < contract)):
-        raise WorkflowError(mismatch)
+        raise WorkflowError(mismatch if record is not None else f"{no_record_reason(root)}; {mismatch}")
     formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
     manifest = {"schemaVersion": 1, "slug": slug, "base": resolved_base, "dynaflowsContract": contract, "proofs": []}
     if setup is not None:
@@ -1153,13 +1181,16 @@ def _publish_result(result, repo, head):
 
 def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, target_ref,
           max_checks=MAX_PROOFS, verifier_model=None, objective_revision=None):
-    """Refuse unless the required CI context is green at head, run frozen proofs, then one cross-family verifier.
+    """Refuse unless the required CI context is green at head, run the harness checks and frozen proofs, then one cross-family verifier.
+
+    The harness checks (omp-guardrails over the whole head tree, the record as config) are blocking;
+    their verdict is the result's `harnessCheck`.
 
     The result is written to result_path(repo, head) beside the pass marker and posted on the PR at head.
     """
     result = {"status": "fail", "head": None, "objective": _json_safe(objective), "manifestSha256": _json_safe(manifest_sha256),
               "deterministic": {}, "verifier": {}, "blocking": [], "followUps": [],
-              "authors": [], "drift": [], "verifierModel": _json_safe(verifier_model)}
+              "authors": [], "drift": [], "harnessCheck": {}, "verifierModel": _json_safe(verifier_model)}
     trees = []
     attempts_path, attempts, published = None, [], None
     try:
@@ -1184,8 +1215,7 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         result.update(worktree=str(repo), branch=branch)
         record, gate = read_record(repo)
         if record is None:
-            raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; this clone has no per-repo record "
-                                "(repos/<owner>/<name>/gate.json under the harness, named by the origin remote)")
+            raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; {no_record_reason(repo)}")
         policy = gate_policy(gate)
         mismatch = contract_mismatch(policy["dynaflowsContract"], dynaflows_contract())
         if mismatch:
@@ -1249,6 +1279,13 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                     commit = proof.get("parent", base)
                     parent_trees[commit] = tree_at("baseline", commit)
                     labels.append({"label": f"baseline {proof['id']}", "sha": commit, "path": str(parent_trees[commit])})
+                # The same whole-repo harness checks rails run at commit, over the head tree: commits made
+                # by merge, rebase, cherry-pick or outside dynaflows reach the head without them.
+                ok, out = _harness_check(head_tree, record)
+                output = _scrub(out, head_tree)[-HARNESS_OUTPUT_TAIL:]
+                result["harnessCheck"] = {"status": "pass" if ok else "fail", "output": output}
+                if not ok:
+                    result["blocking"].append(f"harness checks (omp-guardrails) failed at head; fix every finding, then prove again:\n{output}")
                 paths = [p for p in _git(repo, "diff", "--name-only", "--no-renames", "-z", parent, head).split("\0") if p]
                 deterministic = deterministic_checks(parent_tree, head_tree, manifest, gate, paths, parent_trees, repo, baselines)
                 result["deterministic"] = deterministic

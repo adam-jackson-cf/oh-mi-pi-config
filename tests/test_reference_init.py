@@ -271,6 +271,23 @@ class DraftRecordTests(InitCase):
                 self.assertIn("GATE.local-ci-parity", output)
                 self.assertEqual(self.gate(), gate)
 
+    def test_live_record_is_refused_and_the_draft_names_where_the_owner_saves_it(self) -> None:
+        live = Path(self.temporary.name).resolve() / "harness/repos"
+        with mock.patch.object(harness, "RECORDS", live):
+            draft = self.record
+            self.record = live / "owner/target"
+            code, output = self.init()
+            self.assertNotEqual(code, 0)
+            self.assertIn("is under the live records root", output)
+            self.assertIn("agents never write records", output)
+            self.assertFalse(self.record.exists(), "init writes nothing into the live record")
+            self.record = draft
+            code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertTrue((draft / "gate.json").is_file())
+        self.assertIn(f"init: draft record at {draft}. Agents never write the live record", output)
+        self.assertIn(f"save it by hand as {live}/<owner>/<name>/", output)
+
     def test_record_inside_the_repo_is_refused(self) -> None:
         self.record = self.repo / "record"
         self.assertEqual(self.init()[0], 2)

@@ -50,6 +50,30 @@ export function recordDir(slug: string, root: string = configRoot()): string {
 	return join(root, RECORDS_DIR, owner, name);
 }
 
+/** Why dynaflows is off, in the words rails and workflows.py both use: names the slug or "none". */
+export function offText(slug: string | null, reason: string): string {
+	return `dynaflows off for ${slug ?? "none"}: ${reason}`;
+}
+
+/**
+ * The clone's slug and record directory, or the reason it has no record: no origin remote, an
+ * origin that is not a GitHub owner/name URL, or no gate.json at the record directory.
+ */
+export function resolveRecord(repo: string, root: string = configRoot()): Promise<{ slug: string | null; dir: string | null; reason?: string }> {
+	return new Promise(done => {
+		execFile("git", ["-C", repo, "remote", "get-url", "origin"], { encoding: "utf8" }, (error, stdout) => {
+			if (error) { done({ slug: null, dir: null, reason: "no origin remote" }); return; }
+			const slug = parseOrigin(stdout);
+			if (slug === null) { done({ slug: null, dir: null, reason: `origin ${stdout.trim()} is not a GitHub owner/name URL` }); return; }
+			const dir = recordDir(slug, root);
+			stat(join(dir, GATE_FILE)).then(
+				found => done(found.isFile() ? { slug, dir } : { slug, dir: null, reason: `no per-repo record at ${join(dir, GATE_FILE)}` }),
+				() => done({ slug, dir: null, reason: `no per-repo record at ${join(dir, GATE_FILE)}` }),
+			);
+		});
+	});
+}
+
 /** Record directory for the clone at repo when its gate.json exists, else null. */
 export async function findRecord(repo: string, root: string = configRoot()): Promise<string | null> {
 	const slug = await repoSlug(repo);

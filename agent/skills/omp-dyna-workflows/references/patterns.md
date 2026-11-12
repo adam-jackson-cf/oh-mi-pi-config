@@ -45,8 +45,8 @@ a positive integer `max_checks` (not bool), applied to current/previous manifest
 The entire draft and top-level inputs are validated before hashing or execution.
 Freeze records the installed `dynaflowsContract` in the manifest. Prove ignores
 that value and checks the repo's record `gate.json` against the current contract,
-so a contract bump during a PR needs only a re-run of `omp-guardrails init`
-against the record, not a re-freeze or a repo commit.
+so a contract bump during a PR needs only an `omp-guardrails init --extend` draft
+the owner saves over the record, not a re-freeze or a repo commit.
 When the record's `gate.json` declares `checks.format`, freeze runs that formatter in the
 worktree before hashing. A nonzero exit fails freeze. The result lists files the
 formatter changed (from `git status`) so the writer commits them; hashes cover the

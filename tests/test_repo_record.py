@@ -62,6 +62,20 @@ class Resolve(unittest.TestCase):
         (record / "gate.json").write_text(json.dumps(gate))
         return record
 
+    def test_resolve_record_names_the_slug_and_the_reason_in_the_twin_s_words(self):
+        self.assertEqual(repo_record.resolve_record(self.repo, self.config), (None, None, "no origin remote"))
+        git("-C", str(self.repo), "remote", "add", "origin", "https://gitlab.com/owner/name.git")
+        self.assertEqual(repo_record.resolve_record(self.repo, self.config),
+                         (None, None, "origin https://gitlab.com/owner/name.git is not a GitHub owner/name URL"))
+        git("-C", str(self.repo), "remote", "set-url", "origin", "git@github.com:Owner/Name.git")
+        gate = self.config / "repos/owner/name/gate.json"
+        self.assertEqual(repo_record.resolve_record(self.repo, self.config),
+                         ("owner/name", None, f"no per-repo record at {gate}"))
+        record = self.write_record("owner/name", {})
+        self.assertEqual(repo_record.resolve_record(self.repo, self.config), ("owner/name", record, None))
+        self.assertEqual(repo_record.off_text(None, "no origin remote"), "dynaflows off for none: no origin remote")
+        self.assertEqual(repo_record.off_text("owner/name", "why"), "dynaflows off for owner/name: why")
+
     def test_no_origin_means_no_record_and_dynaflows_off(self):
         self.assertIsNone(repo_record.repo_slug(self.repo))
         self.assertIsNone(repo_record.find_record(self.repo, self.config))
