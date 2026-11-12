@@ -115,6 +115,17 @@ describe("record resolution", () => {
 		} finally { f.cleanup(); }
 	});
 
+	test("a record that still carries the retired dynaflowsContract loads", async () => {
+		const f = fixture();
+		try {
+			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
+			for (const dynaflowsContract of [1, 3, "2", null]) {
+				f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2, dynaflowsContract, dynaflows: { enabled: true } }));
+				assert.equal(await dynaflowsEnabled(f.repo, f.config), true, JSON.stringify(dynaflowsContract));
+			}
+		} finally { f.cleanup(); }
+	});
+
 	test("the default root is the checkout holding the module", () => {
 		const root = resolve(import.meta.dir, "..");
 		assert.equal(resolve(configRoot()), root);

@@ -16,9 +16,7 @@ routing changes. Claude routes use
 - `reviewer` → Sonnet 5.5 : medium. Used by bundled `reviewer` through
   `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
   model (fresh-process check 2026-09-28). Used for open-ended contextual eval judging,
-  in an independent cross-family session, not the proof-first verification stage.
-- `verifier` → Sonnet 5.5 : medium. Independent live proof verification, cross-family to every
-  author (Sol by default); agent-rails enforces the family invariant with dynaflows on (2026-11-04).
+  in an independent cross-family session, not dynaflows proof.
 - `task` → GPT-6.1 Sol : medium. Implementation, including small fixes delegated by main.
   Earlier Sonnet `low` fixed-plan measurements do not validate this route.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
@@ -54,10 +52,8 @@ GPT-6.1 Sol `medium` and GPT-6.1 Sol `low`. Other agents have no per-agent tier 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped
   at 50% of it; keep `experiment-design` for genuinely novel problems.
 - Implementation (`task`), `sonic`, `kiss`, vision and `operator` draw Codex;
-  main/planning, `designer`, `reviewer`, `verifier`, `scout` and Anthropic council/experiment
+  main/planning, `designer`, `reviewer`, `scout` and Anthropic council/experiment
   roles draw Anthropic. Monitor both quotas; old snapshots are not current capacity evidence.
 - The earlier fixed-plan and review-detection experiments evaluated superseded routes.
-  Do not use their ceiling scores to claim the current Sol `medium` implementation or
-  Sonnet `medium` verification routes were measured.
-- Independent sessions alone do not satisfy cross-family verification: a verifier must differ
-  from every author family, including when overriding author or verifier routes.
+  Do not use their ceiling scores to claim the current Sol `medium` implementation route
+  was measured.

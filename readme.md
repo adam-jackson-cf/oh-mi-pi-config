@@ -21,9 +21,8 @@ locations.
 Routing follows the owner's standing preferences, recorded with the process
 for revisiting them in `agent/skills/omp-config-optimise/`: Claude Opus 5.5
 orchestrates and plans at medium reasoning or below; GPT-6.1 Sol implements
-fixed-plan work; Claude Sonnet 5.5 designs and verifies; GPT-6 Luna handles
-simple actions. The verifier runs in an independent session using a different
-model family from every author. Reasoning above medium on Opus or Astra is reserved
+fixed-plan work; Claude Sonnet 5.5 designs; GPT-6 Luna handles
+simple actions. Reasoning above medium on Opus or Astra is reserved
 for the `innovation-council` (Opus-led, Astra challenger) and
 `experiment-design` (Fable-led, Astra and Opus peers).
 
@@ -31,7 +30,7 @@ for the `innovation-council` (Opus-led, Astra challenger) and
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
 locally. Its tracked custom-agent surface in `agent/agents/` is limited to
-judgment and specialist roles: `verifier`, `kiss`, `designer`, `operator`,
+judgment and specialist roles: `kiss`, `designer`, `operator`,
 `innovation-council`, `innovation-challenger`,
 `experiment-design`, and `experiment-peer`.
 
@@ -59,43 +58,28 @@ that `git status` reports as changed or untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
 
-`agent-verified` is a SHA-bound commit status, not a label. `prove()` posts it on
-a pass. Rails allow a `gh api .../statuses/<sha>` write with context
-`agent-verified` only when the PR whose head is that SHA has green exact-head CI,
-even with dynaflows off. With dynaflows on, the write also requires a valid
-exact-head pass marker. Rails refuse `agent-verified` label writes. Checks must
-all be green with at least one success. The repo's record `gate.json` is the
-policy authority. When it declares `ci`, `ci.requiredContext` must be `SUCCESS` on
-the exact PR head as a commit status or check run, whoever posts it. Without
-`ci`, an empty rollup is allowed only with neither `checks.ci` nor a workflows
-directory. URL selectors must match the checkout's primary GitHub repository.
-`gh pr merge` in a repository with `ci` declared, or with dynaflows on, requires
-a literal `--match-head-commit` SHA matching the current PR head, the required
-context and the `agent-verified` status green on that SHA. With dynaflows on, it
-also requires the pass marker.
+With dynaflows on, rails guard `gh pr merge`: CI must be green on the PR's exact
+head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
+must say `status: pass` for that head. That file is the one pass signal. The repo's
+record `gate.json` is the policy authority: when it declares `ci`,
+`ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
+check run, whoever posts it.
 
-Repository checks follow the test tiers. The record's `gate.json` (schema version 2)
-declares `checks.commit` (static checks, all T1 tests and T2 seams only for affected
-code) and `checks.ci` (the full T1 and T2 suite), each naming the repo's own command.
-At each agent commit, rails run `checks.commit` and then the harness checks: `omp-guardrails
-check`, run from this checkout with `--repo <worktree>` and `--record <record dir>`, over the
-whole repo. Any finding blocks the commit; there are no baselines and no diff scoping, and scope
-exclusions come from the record. The CI runner named by `ci.runner` runs `checks.ci` for every
-push and merge. Optional `checks.format` is the formatter `freeze()` runs before hashing, and
-optional `checks.profile` is the profile completeness command `prove()` runs before any proof,
-after it refuses a head whose declared `ci.requiredContext` is not success. `dynaflowsContract`
-states the dynaflows contract version the record was set up against (current: 3, in
-`agent/agent-rails.yml`); workflows and rails refuse a record whose version differs from it,
-below or above. In a repo with controls, the remedy is re-running `omp-guardrails init --extend`
-against a copy of the record outside `repos/` and asking the owner to save it, with no repo
-commit; the project-setup playbook's `freeze(..., project_setup=True)` tolerates a lower or
-absent version until the owner saves the record.
-For `git commit`, rails block explicit hook bypass flags/settings. Supported merge/rebase forms
-also reject explicit hook disabling with command-specific flag semantics. Standalone
-executable-shell assignment, `export`/`declare`, `unset` and `env -u` of hook-skip variables are
-blocked even without a Git action, closing the earlier persistent-shell assignment bypass.
-Quoted messages are not assignments; inherited external shell state is not a sandbox guarantee.
-Only schema version 2 is accepted.
+Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
+`checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
+`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. At each agent
+commit, rails run the record's `pathCheck`, `checks.commit` when set, and then the harness
+checks: `omp-guardrails check`, run from this checkout with `--repo <worktree>` and `--record
+<record dir>`, over the whole repo. Any finding blocks the commit; there are no baselines and no
+diff scoping, and scope exclusions come from the record. The CI runner named by `ci.runner` runs
+`checks.ci` for every push and merge. Optional `checks.format` is the formatter `freeze()` runs
+before hashing. Pulling existing commits into a branch (merge, rebase, cherry-pick, revert,
+pull) runs no harness check: those commits were checked when they were made, and CI checks the
+result. Rails block hook bypass flags/settings (`--no-verify`, `-n`, `core.hooksPath`) on Git
+commands. Standalone executable-shell assignment, `export`/`declare`, `unset` and `env -u` of
+hook-skip variables are blocked even without a Git action, closing the earlier persistent-shell
+assignment bypass. Quoted messages are not assignments; inherited external shell state is not a
+sandbox guarantee. Only schema version 2 is accepted.
 
 This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
 (`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
@@ -106,10 +90,8 @@ Use an entire standalone main-prompt line `$dynaflows`, `$dynaflows on` or
 `$dynaflows off`; prose/quoted mentions do not toggle it. The switch is the record's
 `dynaflows.enabled`; linked worktrees share their main checkout's record. No `origin`
 remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
-`{"enabled": false}` turns it off for every repo. With dynaflows on, rails injects the
-workflow pointer, requires guardrail owner approval and enforces verifier family
-independence against persistent per-change recorded repository editors/committers,
-scoped to real worktree and branch. Arbitrary bash-written authors are not detected.
+`{"enabled": false}` turns it off for every repo. With dynaflows on, rails inject the
+workflow pointer, require guardrail owner approval and guard `gh pr merge` as above.
 Subagent filesystem edit paths must be absolute and cannot escape enclosing Git
 roots through symlinks; outside-repo scratch paths and internal URIs are allowed.
 Selecting the assigned worktree remains an instruction, not a path-rail guarantee.
@@ -135,21 +117,19 @@ named by the clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
 Worktrees resolve to the same record as their main checkout.
 
 - `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`,
-  `pathCheck`), the `ci` contract, `agentMerge`, `dynaflowsContract` (3) and
-  `dynaflows.enabled`.
+  `pathCheck`), the `ci` contract, `agentMerge` and `dynaflows.enabled`.
 - `profile.md` holds the repo test profile, including every approval and exception.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
 devices. `skill://setup-repository-guardrails` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
-A record is the owner's alone: rails refuse every agent write under `repos/` (and
-restore any record file bash adds, changes or deletes), so the owner's hand edit is
-its only review. When dynaflows resolves off, rails say why once at session start and
-at every commit, naming the slug (or `none`) and the reason; `workflows.py` uses the
-same words when it refuses. `prove()` reruns the whole-repo harness checks over the
-head tree as a blocking step, so commits made by merge, rebase or outside dynaflows
-are checked before merge. Rails and `workflows.py`
+A record is the owner's alone: rails refuse every agent edit-tool write under `repos/`
+(a lexical check on the resolved path), so the owner's hand edit is its only review.
+Bash writes to records are not guarded. A record that still carries a legacy
+`dynaflowsContract` field loads unchanged. When dynaflows resolves off, rails say why
+once at session start and at every commit, naming the slug (or `none`) and the
+reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py`
 strip the harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
@@ -283,10 +263,8 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
 `~/.omp`. The only files it writes there are untracked: `ci-runners.json` and the
-gitignored `repos/` records. If `nuc-config` lacks `main`, open an
-`agent/nuc-sync-<date>` PR incorporating `main` into `nuc-config`, using a
-**merge commit** under the nuc-config sync exception in
-[`.omp/AGENTS.md`](.omp/AGENTS.md), then rerun the command.
+gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see
+[`.omp/AGENTS.md`](.omp/AGENTS.md)), then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
 the find canary run only on devices that run omp.
@@ -406,11 +384,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
   command from `~/.omp/ci-runners.json`.
 - `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
-- `.omp/gate.json` — CI transport for the NUC's deployed pre-record `ci-gate.py` only
-  (`checks.ci` and `ci`); nothing in this checkout reads it. The follow-up unit
-  `delete-repo-gate-json` deletes it once the NUC runs the record-reading `ci-gate.py`.
 - `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
-  fallback and the nuc-config sync exception.
+  fallback and how a nuc-config sync merges.
 - `.devcontainer/` — pinned gate image and dependency installation.
 - `tests/test_ci_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.

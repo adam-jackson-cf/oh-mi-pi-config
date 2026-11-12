@@ -8,6 +8,5 @@
   "testGlobs": ["tests/**/*.py"],
   "ci": {"requiredContext": "gate", "runner": "github-actions"},
   "agentMerge": "allowed",
-  "dynaflowsContract": 3,
   "dynaflows": {"enabled": false}
 }

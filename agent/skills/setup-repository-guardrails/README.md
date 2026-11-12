@@ -41,10 +41,11 @@ The record's `gate.json` (schema version 2) names the repo's own commands: `chec
 checks, every T1, affected T2 boundary tests), `checks.ci` (the full T1 and T2 suite),
 optional `checks.profile`, an actionable changed-path `pathCheck`, and `ci` (`requiredContext`,
 normally `gate`: the status or check run that must be green on the exact head; `runner`: a role
-each machine's runner config resolves to commands). It also holds `agentMerge`,
-`dynaflowsContract` (3; workflows and rails refuse a lower value) and `dynaflows.enabled`.
+each machine's runner config resolves to commands). It also holds `agentMerge` and
+`dynaflows.enabled`. Older records that still carry `dynaflowsContract` load unchanged.
 
-At each agent commit, rails run the record's `checks.commit` in the worktree, then the harness
+At each agent commit, rails run the record's `pathCheck`, then its `checks.commit` (when set) in
+the worktree, then the harness
 checks: `omp-guardrails check --repo <worktree> --record <record dir>`, run with
 `uv run --project` on this skill's `assets/python-reference`. The check covers the whole repo
 and blocks on any finding. There are no baselines and no diff scoping; generated, vendored and
@@ -77,7 +78,7 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
   proposed native-tool configs (Ruff, mypy, import-linter) into the draft's `proposed/` folder
   for the owner to apply to the repo as a fix. It proves language-server readiness with a canary
   `references` query. It never overwrites a recorded value, never writes an approval and never
-  turns dynaflows on. `--extend` brings an existing record to the current format and contract.
+  turns dynaflows on. `--extend` brings an existing record to the current format.
 - Per-repo settings live in the front matter of the record's `profile.md`. Shared style rules
   live in the reference's `omp_guardrails/data/house-style.json`.
 - The rule catalogue ships inside the package (`omp_guardrails/data/guardrail-rules.json`).

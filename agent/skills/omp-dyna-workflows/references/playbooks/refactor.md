@@ -17,12 +17,10 @@ Resolve design uncertainty only when inspection cannot settle it.
 
 ## 3. Plan
 
-Use `preserve` for unchanged behaviour and `new-surface` for new APIs/design surfaces.
-A red preserve baseline returns to Plan to repair proof/objective, never to weaken it.
-Lever journeys use only `preserve` or `defect` with asserted `expectRed`, never
-`new-surface`; environment/doctor failures are not red assertions.
-Freeze runner-invoked journey files
-and needed lever changes together; implementation changes product code and map docs only.
+A behaviour-preserving refactor maps no proofs: freeze an empty manifest, and `prove()`
+checks CI green only. The repo's existing tests and CI carry the preserved behaviour.
+If the refactor adds behaviour, that part is a feature: its proofs fail at base and pass
+at head, and implementation changes product code and map docs only.
 
 ## 4. Implement
 
@@ -31,7 +29,7 @@ and compatibility paths.
 
 ## 5. Verify
 
-Exercise preserved behaviour and any new design surface using their chosen proof kinds.
+CI green on the exact head, plus any frozen proofs for added behaviour.
 
 ## 6. Integrate
 

@@ -88,7 +88,7 @@ surface, Nightly scheduler (a Run events field), and Identity-bearing artefacts;
 missing value is a reported gap.
 
 The front matter above holds the same values as one JSON object; JSON is valid YAML, so the block
-reads as ordinary front matter. Checkers, `prove()` and `omp-guardrails profile-check`
+reads as ordinary front matter. Checkers, `freeze()` and `omp-guardrails profile-check`
 (`PROFILE.complete`) read only that block, so keep it and the sections below in step.
 
 - Replace every `<...>` placeholder with a value. Placeholders, `n/a`, `TBD`, empty values and a

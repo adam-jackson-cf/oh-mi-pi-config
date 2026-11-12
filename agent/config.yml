@@ -17,7 +17,6 @@ modelRoles:
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
-  verifier: anthropic/claude-sonnet-5-5:medium
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   experiment-design: anthropic/claude-fable-5-2:high

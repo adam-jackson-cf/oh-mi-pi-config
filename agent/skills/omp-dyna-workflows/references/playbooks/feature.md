@@ -17,9 +17,8 @@ Resolve only remaining questions on the real feature surface.
 
 ## 3. Plan
 
-Use `new-surface` for absent APIs and `preserve` for existing behaviour;
-use `defect` with asserted `expectRed` for regressions. Lever journeys are only
-`defect` or `preserve`, never `new-surface`; reject doctor/environment failures.
+Each proof encodes requested behaviour: it fails at base, where the feature is absent,
+and passes at head. Reject doctor/environment failures as red.
 Proof tasks freeze runner-invoked journey files
 and required lever changes together. Implementation changes product code and map docs only.
 
@@ -29,7 +28,7 @@ Implement the feature within the framed scope.
 
 ## 5. Verify
 
-Exercise the feature on its real surface under the shared risk tier.
+Frozen proofs pass at head and CI is green on the exact head.
 
 ## 6. Integrate
 

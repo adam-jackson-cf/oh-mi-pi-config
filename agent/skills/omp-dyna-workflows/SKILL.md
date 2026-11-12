@@ -59,34 +59,23 @@ ends here with its report; other playbooks continue in order.
 
 Keep the plan draft until spike answers land. Map every criterion to a named proof
 in a draft manifest using [proof contracts](references/patterns.md#proof-manifest).
+Every proof follows one rule: it fails at base and passes at head (TDD).
+A PR with no behaviour change (refactor, docs, project setup without new controls) maps no
+proofs and freezes an empty manifest; its PR check is CI green only.
 Read `skill://test-guidance/references/tiers.md`, `case-selection.md` and `suite-budget.md`
 under that reference prefix, plus the record's `profile.md`. Missing surfaces follow Start here.
 Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main requires a record whose schema-v2 `gate.json` has `checks.commit` and `pathCheck`.
+Main requires a record whose schema-v2 `gate.json` has `pathCheck`; `checks.commit` is optional.
 `agent/extensions/agent-rails.ts` owns accepted schema fields/types; `prove()` mirrors
-validation. At each agent commit, rails run the record's `checks.commit` (the repo's own
-command) and then the harness checks (`omp-guardrails`, run from the harness with the record
-as config) over the whole repo; any finding blocks the commit, with no baseline or diff scope.
-Missing controls or the lazy surface trigger above require owner-approved project setup.
-Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
+validation. At each agent commit, rails run the record's `pathCheck`, its `checks.commit` when
+set (the repo's own command) and then the harness checks (`omp-guardrails`, run from the harness
+with the record as config) over the whole repo; any finding blocks the commit, with no baseline
+or diff scope. Missing controls or the lazy surface trigger above require owner-approved project
+setup. Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
 application; never apply before approval.
-
-The dynaflows contract has a version: `agent/agent-rails.yml` `dynaflowsContract` is the
-current one, and the record's `gate.json` `dynaflowsContract` states the version it was set up
-against (`omp-guardrails init` writes it). A missing, lower or higher version makes rails refuse
-the record (dynaflows off, with a note; dynaflows commits blocked) and `freeze()`/`prove()`
-refuse. Missing controls go through project setup, whose stage-3
-`freeze(..., project_setup=True)` tolerates a missing or lower version. With controls in place, a
-missing or lower version is a contract bump: run `omp-guardrails init --extend` against a copy of
-the record outside `repos/` and ask the owner to save the draft over the live record (agents never
-write records). It changes no repo file, so it needs no commit, proposal or project-setup
-playbook.
-The manifest records the contract it was frozen under, but `prove()` checks the record, so a
-bump during a PR needs no re-freeze. A higher version means omp needs updating, and refuses
-even under `project_setup=True`.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
@@ -95,10 +84,10 @@ worktree using absolute paths. Confinement is a brief invariant; rails reject en
 symlink escapes, not another worktree. Outside-repo scratch and internal URIs remain allowed.
 
 1. Proof `task` writes proof files and stops uncommitted: no staging, push or PR.
-2. Main calls `freeze()` on those bytes.
+2. Main calls `freeze()` on those bytes; freeze shows every proof red at base.
+   With no proofs, main freezes an empty manifest and skips step 1.
 3. Separate implementation `task` makes the greening change and commits proofs
-   with it, normally atomically. No proof may enter history red before its fix;
-   split only if every earlier commit passes the commit checks with all proofs present.
+   with it, normally atomically. It never edits frozen proof bytes.
    Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
@@ -106,9 +95,9 @@ Each brief requires reads before editing. Proof briefs supply the record's `prof
 `skill://test-guidance/references/case-selection.md`, `naming-and-layout.md`, `outcome-tests.md`
 and `tiers.md` under that reference prefix; add `property-tests.md`, `determinism.md`,
 `behaviour-and-statistics.md` and `verification-surface.md` when applicable.
-Proofs use outcome tests or lever journeys; journeys use defect with asserted expectRed or preserve,
-never new-surface. Freeze required lever changes with runner-invoked journey files.
-Implementation changes product code and feature-map docs, never frozen lever/proof bytes.
+Proofs use outcome tests or lever journeys. Freeze required lever changes with runner-invoked
+journey files. Implementation changes product code and feature-map docs, never frozen
+lever/proof bytes.
 Implementation briefs supply `skill://coding-guidance/references/implementation-integrity.md`,
 applicable `structure-and-grouping.md` and `naming.md` under that prefix,
 `skill://test-guidance/references/before-commit.md`, and `verification-surface.md` when a mapped
@@ -116,45 +105,27 @@ feature changes (map docs only). Also supply `skill://git-tool`,
 `skill://git-tool/references/branch-and-integrate.md` and `pr-description.md` under that prefix.
 Both briefs include worktree, criteria, manifest, scope and task-specific references.
 Require `skill://coding-guidance/references/verification.md` before writer handoff.
-The writer lists gate paths/effects in **Gate changes** per
-[patterns](references/patterns.md#gate-changes); listing alone is not a merge gate.
 
 ### 5. Verify
 
-Main confirms the writer has no pending edits. `prove()` reads the gate's declared required CI
-context first and refuses before verifier spend unless it is success on the exact head. It then
-runs the whole-repo harness checks (`omp-guardrails check`, the record as config) over the head
-tree as a blocking step, so commits made by merge, rebase, cherry-pick or outside dynaflows are
-checked too; the verdict is the result's `harnessCheck`.
-Follow `skill://git-tool/references/verify-loop.md` for risk tiers, durable fix
-rounds, changed-head invalidation and evidence/status mechanics. Eligible docs-only
-work uses a fresh `exempt_docs_only(..., target_ref=...)` plus green CI, without a
-manifest or verifier. Runtime-loaded prose is not exempt.
+Main confirms the writer has no pending edits, then calls `prove()` against the PR's current
+head ([patterns](references/patterns.md#prove)). `prove()` checks two things:
 
-For everything else main loads the template in Python eval and calls `prove()`
-with objective and fetched PR `target_ref`. It assembles the brief and dispatches
-the sole cross-family `verifier`; never spawn a second verifier or substitute a
-`task`. Helper details live in [patterns](references/patterns.md#prove), and the
-exact blocker text lives only in `templates/workflows.py`'s `BLOCKING_RULE`.
-The verifier takes `prove()`'s proof runs as settled evidence and does not re-run them.
-`prove()` writes its JSON result beside the pass marker and posts it on the PR; main's own
-comment adds only the objective and its judgement. On a pass, `prove()` posts the SHA-bound
-`agent-verified` commit status on that head; it is never a label. Rails allow an
-`agent-verified` status write only when exact-head CI passes, and block label
-writes. The repo's record `gate.json` is the policy authority: when it declares
-`ci`, the declared required context must be green on the exact head, whoever posts
-it. Submit and wait with `python3 ~/.omp/scripts/ci-runner.py` and the gate's `ci.runner` role.
-URL selectors must match the checkout's primary GitHub repository. Merge requires
-`--match-head-commit`, the required context and `agent-verified` green on that SHA;
-with dynaflows on, a valid pass marker too. A new SHA has no status, so every new
-SHA invalidates evidence.
+1. The record's declared required CI context is green on the exact head.
+2. The frozen proof bytes are unchanged and every proof passes at head (twice; journeys 3 times).
+
+With an empty manifest it checks CI green only. It writes its result to
+`<git-common-dir>/omp-prove/<head>.result.json` and posts it on the PR. That file with
+`status: pass` for the exact head is the one pass signal: with dynaflows on, rails' `gh pr merge`
+guard requires it and CI green on that head. A rebase or other branch update needs nothing extra:
+run `prove()` on the new head before merge. No re-freeze, review agent or status posting.
+Mechanics live in `skill://git-tool/references/verify-loop.md`.
 
 ### 6. Integrate
 
-Main follows `skill://git-tool/references/merge-and-recover.md` for exact-head
-eligibility, merge method, confirmation, serial integration and recovery. Git-tool
-owns Git authority: `agentMerge: disabled` requires owner approval. Do not copy
-merge or post-merge CI mechanics into playbooks.
+Main follows `skill://git-tool/references/merge-and-recover.md` for merge method,
+confirmation and recovery. Git-tool owns Git authority: `agentMerge: disabled` requires owner
+approval. Do not copy merge mechanics into playbooks.
 
 ## References and evals
 
@@ -166,16 +137,13 @@ merge or post-merge CI mechanics into playbooks.
 - `workflowz`: native `workpool()` for independent fan-out.
 - `jevify`: deterministic prefilter, frozen rubric, calibrated `judge()` or
   `judge_batch()` for single-state properties; read `skill://jev-actions`.
-  Contextual critique uses an independent cross-family `reviewer`, not Jev.
-- Independent sessions do not share author context. Rails enforces verifier
-  family independence against recorded editors/committers; see patterns.
 
 ## Templates
 
 Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
-Only `freeze`, `prove`, `exempt_docs_only` and `blind_label` are supported
-orchestration APIs. `prove` and `blind_label` require eval's `agent()`/`wait()`
-globals; `freeze` and `exempt_docs_only` also run in plain Python. Other functions
-are internal helpers, even when plain-Python callable. Signatures, schemas, caps
-and failure handling have one home: [Pattern contracts](references/patterns.md).
+Only `freeze`, `prove` and `blind_label` are supported orchestration APIs.
+`blind_label` requires eval's `agent()`/`wait()` globals; `freeze` and `prove` also run in
+plain Python. Other functions are internal helpers, even when plain-Python callable.
+Signatures, schemas, caps and failure handling have one home:
+[Pattern contracts](references/patterns.md).
