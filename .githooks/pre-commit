@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Runs .omp/gate.json checks.commit. Enable once per clone: git config core.hooksPath .githooks
+# Runs this repository's commit tier. Enable once per clone: git config core.hooksPath .githooks
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-exec python3 - <<'PY'
-import json, os, sys
-argv = json.load(open(".omp/gate.json")).get("checks", {}).get("commit")
-if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv):
-    sys.exit("pre-commit: .omp/gate.json checks.commit must be a nonempty argv array")
-os.execvp(argv[0], argv)
-PY
+exec bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage

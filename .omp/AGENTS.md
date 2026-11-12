@@ -6,7 +6,11 @@ what is true of this repository.
 
 ## CI runner
 
-`.omp/gate.json` declares `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`.
+This repository's record `repos/adam-jackson-cf/oh-mi-pi-config/gate.json` (personal,
+gitignored) declares `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`.
+Migration note: the tracked `.omp/gate.json` stays only until every device runs a
+`ci-gate.py` that reads records and holds this repo's record; nothing in this checkout
+reads it, and it is deleted after that rollout.
 The `ci-gate` role is `scripts/ci-gate.py` on the owner's NUC. Each device's
 `~/.omp/ci-runners.json`, written by `scripts/device-rollout.py`, maps that role to
 local or ssh-wrapped commands. Use the repository and exact 40-hex SHA:
@@ -19,7 +23,7 @@ python3 ~/.omp/scripts/ci-runner.py logs ci-gate adam-jackson-cf/oh-mi-pi-config
 ```
 
 `ci-gate` executes `checks.ci` and publishes the required GitHub commit status `gate`
-on the exact head. Rails read `ci` from the checkout's `.omp/gate.json` and require
+on the exact head. Rails read `ci` from the repo's record `gate.json` and require
 that context to be `SUCCESS` before an `agent-verified` status write and before merge.
 Submit returns immediately; cached success/failure is reused and infrastructure
 `error` retries on resubmission. After a publication error, resubmitting republishes
