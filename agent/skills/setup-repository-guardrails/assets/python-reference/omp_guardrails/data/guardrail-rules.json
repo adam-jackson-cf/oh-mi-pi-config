@@ -1239,8 +1239,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "input": "git_diff_against_base_ref",
-        "changed_golden_requires_change_record_entry_naming_it": true,
-        "reason_correctness": "verifier_review"
+        "changed_golden_requires_change_record_entry_naming_it": true
       },
       "summary": "Require a change-record entry naming every changed golden file.",
       "reference": [

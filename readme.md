@@ -21,7 +21,7 @@ locations.
 Routing follows the owner's standing preferences, recorded with the process
 for revisiting them in `agent/skills/omp-config-optimise/`: Claude Opus 5.5
 orchestrates and plans at medium reasoning or below; GPT-6.1 Sol implements
-fixed-plan work; Claude Sonnet 5.5 designs and verifies; GPT-6 Luna handles
+fixed-plan work; Claude Sonnet 5.5 designs; GPT-6 Luna handles
 simple actions. Reasoning above medium on Opus or Astra is reserved
 for the `innovation-council` (Opus-led, Astra challenger) and
 `experiment-design` (Fable-led, Astra and Opus peers).
