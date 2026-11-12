@@ -165,8 +165,9 @@ Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
 It also writes each device's untracked `~/.omp/ci-runners.json` from the runner
 role definitions in `scripts/device-rollout-hosts.json`.
-It copies the ignored `repos/` records one way from this device to every target
-device, and refuses to overwrite a target record that is newer, naming it.
+It copies the ignored `repos/` records one way from this device into the `repos/`
+folder of every target device that runs omp (a registry entry with an `omp` path),
+and refuses to overwrite a target record that is newer, naming it.
 On each reachable device it also deletes retired `~/.agents/by-request` husks
 (folders without a `SKILL.md`), streams the judge key from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
@@ -183,8 +184,9 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 (or that hostname itself when unknown), and the local device is skipped as a remote target.
 
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
-`nuc-config` and `omp-config-pull.service`; this command never runs Git in or
-copies files into its `~/.omp`. If `nuc-config` lacks `main`, open an
+`nuc-config` and `omp-config-pull.service`; this command never runs Git in its
+`~/.omp`. The only files it writes there are untracked: `ci-runners.json` and the
+gitignored `repos/` records. If `nuc-config` lacks `main`, open an
 `agent/nuc-sync-<date>` PR incorporating `main` into `nuc-config`, using a
 **merge commit** under the nuc-config sync exception in
 [`.omp/AGENTS.md`](.omp/AGENTS.md), then rerun the command.
@@ -307,8 +309,9 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
   command from `~/.omp/ci-runners.json`.
 - `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
-- `.omp/gate.json` — migration note: kept only until every device's `ci-gate.py` reads
-  records; nothing in this checkout reads it.
+- `.omp/gate.json` — CI transport for the NUC's deployed pre-record `ci-gate.py` only
+  (`checks.ci` and `ci`); nothing in this checkout reads it. The follow-up unit
+  `delete-repo-gate-json` deletes it once the NUC runs the record-reading `ci-gate.py`.
 - `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
   fallback and the nuc-config sync exception.
 - `.devcontainer/` — pinned gate image and dependency installation.

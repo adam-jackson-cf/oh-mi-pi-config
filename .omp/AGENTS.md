@@ -8,9 +8,9 @@ what is true of this repository.
 
 This repository's record `repos/adam-jackson-cf/oh-mi-pi-config/gate.json` (personal,
 gitignored) declares `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`.
-Migration note: the tracked `.omp/gate.json` stays only until every device runs a
-`ci-gate.py` that reads records and holds this repo's record; nothing in this checkout
-reads it, and it is deleted after that rollout.
+The tracked `.omp/gate.json` holds only `checks.ci` and `ci` for the NUC's deployed
+pre-record `ci-gate.py`; nothing in this checkout reads it. The follow-up unit
+`delete-repo-gate-json` deletes it once the NUC runs the record-reading `ci-gate.py`.
 The `ci-gate` role is `scripts/ci-gate.py` on the owner's NUC. Each device's
 `~/.omp/ci-runners.json`, written by `scripts/device-rollout.py`, maps that role to
 local or ssh-wrapped commands. Use the repository and exact 40-hex SHA:

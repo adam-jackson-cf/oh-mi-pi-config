@@ -528,6 +528,17 @@ class NativeConfigTests(InitCase):
         self.assertIn("root_package = target", contract)
         self.assertIn("layers =\n    cli\n    core\n", contract)
 
+    def test_proposed_configs_never_name_the_harness(self) -> None:
+        # Repositories stay unaware of omp: applying a proposal unchanged adds no harness mention.
+        data = native_config.load_data()
+        rendered = {
+            "ruff.toml": native_config.render_ruff(data, (3, 11), ["target"]),
+            "mypy.ini": native_config.render_mypy(data, (3, 11), ["target"], ["src"]),
+            ".importlinter": native_config.render_importlinter("target", ["core", "cli"]),
+        }
+        for name, text in rendered.items():
+            self.assertNotRegex(text.lower(), r"\bomp|guardrails", name)
+
 
 if __name__ == "__main__":
     unittest.main()
