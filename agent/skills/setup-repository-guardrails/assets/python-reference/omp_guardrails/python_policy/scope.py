@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
+from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import (
     GLOB_CHARACTERS,
@@ -29,7 +30,6 @@ from omp_guardrails.structure.inventory import (
 )
 
 CHECKER = "python"
-PROFILE_PATH = ".omp/test-profile.md"
 # Generated, cached and dependency trees are never maintained source, in any repository.
 BUNDLED_EXCLUSIONS = (
     ".build",

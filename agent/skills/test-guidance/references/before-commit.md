@@ -8,7 +8,8 @@ Complete applicable verification without weakening assertions or hiding failures
 
 - Read Run events and Command notes in the repo test profile. Run its Commit command:
   static checks, all T1 and affected T2 boundary tests (seams and journeys).
-  When committing under the caller's Git authority, let the pre-commit hook run that command; never bypass it.
+  When committing under the caller's Git authority, let the commit checks run that command (under DynaFlows, rails run
+  the record's `checks.commit` and then the harness checks); never bypass them or a repo hook.
   This runbook grants no Git authority. If no Commit command is defined, report the gap, never invent a pass.
 - Select additional checks by changed behaviour and blast radius, using `lsp references` and the repo test profile's affected-T2 selection.
   Follow [tiers.md](tiers.md) for event membership: CI runs all T1 and T2; nightly adds T3 on active branches.
@@ -17,7 +18,7 @@ Complete applicable verification without weakening assertions or hiding failures
   Enforced by TEST.budget.per-test-time and TEST.budget.fast-tier-time (omp-guardrails budget-check).
 - Enforced by TEST.identity-artefacts (omp-guardrails diff-check).
 - Enforced by TEST.failure-propagation (omp-guardrails report-check, collection-check).
-  Report a blocked required check (or guardrail coverage-ledger rule) as blocked, not green.
+  Report a blocked required check (or harness-check finding) as blocked, not green.
   Name commands, events and outcomes actually exercised.
 - Only the repo's authorized fix command, recorded in Command notes, may write authorized check fixes.
   If none is designated, stay check-only. Do not use write mode to conceal failures.

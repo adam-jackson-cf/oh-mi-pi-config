@@ -2,6 +2,10 @@
 # Add an explicit exception when taking ownership of a new file or directory.
 *
 
+# Per-repo records (repos/<owner>/<name>/) are personal and never committed: they mean nothing
+# to anyone else who takes this config. The device rollout copies them between devices.
+/repos/
+
 !.gitignore
 !readme.md
 !package.json
@@ -49,6 +53,10 @@ agent/*
 !agent/config.yml
 !agent/lsp.json
 !agent/agent-rails.yml
+!agent/lib/
+agent/lib/*
+!agent/lib/repo_record.py
+!agent/lib/repo-record.ts
 !agent/rules/
 agent/rules/*
 !agent/rules/agent-rails-*.md
@@ -106,6 +114,8 @@ tests/fixtures/*
 !tests/fixtures/reference/
 !tests/fixtures/reference/**
 !tests/test_device_rollout.py
+!tests/test_repo_record.py
+!tests/repo-record.test.ts
 !tests/test_skill_references.py
 
 !.omp/

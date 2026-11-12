@@ -6,7 +6,7 @@ finding. An approved ``{"none": ..., "approval": ...}`` exemption disables the r
 
 A changed file is non-production when it is an identity artefact itself, a test file
 (``layout.test_file_patterns`` or the house-style defaults), lies under a tier location,
-``layout.support_dir`` or ``layout.fixtures_dir``, is the test profile, or matches
+``layout.support_dir`` or ``layout.fixtures_dir``, or matches
 ``guardrails.identity_artefacts.non_production`` (patterns such as docs). Every other changed
 file is production.
 """
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.diffs.changes import DiffError, changed_files, parse_range, range_finding
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import as_list, matches_any, settings
@@ -40,7 +39,6 @@ def test_locations(profile: dict) -> list[str]:
 
 def is_production(path: str, profile: dict, artefacts: list[str]) -> bool:
     non_production = [
-        PROFILE_PATH,
         *artefacts,
         *test_locations(profile),
         *as_list(settings(profile, CHECKER).get("non_production")),

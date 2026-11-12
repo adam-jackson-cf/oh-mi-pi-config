@@ -21,8 +21,8 @@ first and refuses unless it is success on the exact head; rails enforce exact-he
 
 1. Main obtains the actual PR base branch and exact 40-hex head from GitHub, using the primary remote/default already
    resolved by [branch-and-integrate](branch-and-integrate.md). Fetch the actual target and record its remote-tracking
-   ref as `target_ref`. PRs target the resolved default unless the repository's project context (`.omp/AGENTS.md`)
-   documents a target exception. Confirm that GitHub's PR target matches; helper range consistency cannot authenticate that metadata.
+   ref as `target_ref`. PRs target the resolved default unless the repository's project instructions
+   document a target exception. Confirm that GitHub's PR target matches; helper range consistency cannot authenticate that metadata.
 2. Set `parent` to `git merge-base <target_ref> <head>`, never `HEAD~1`. It must be a strict ancestor of head.
    This is the whole-PR range, distinct from each proof's pinned baseline parent.
 3. Record objective, acceptance criteria, frozen manifest/path and SHA-256, source worktree/branch and recorded authors.
@@ -33,7 +33,7 @@ first and refuses unless it is success on the exact head; rails enforce exact-he
    Otherwise main calls from Python eval:
    `prove(repo, parent, head, manifest_path, manifest_sha256, objective, target_ref=target_ref)`.
    `repo` is the dedicated source worktree on its named branch at head, not main's possibly different checkout.
-   Dependabot PRs use the [external-bot authorship exception](skill://omp-dyna-workflows/references/patterns.md#external-bot-prs) ("External bot PRs") with the same CI, `prove()` and rebase-merge path; when `.omp/gate.json` declares `ci`, main submits the Dependabot head SHA with the gate's runner role ([merge-and-recover](merge-and-recover.md#declared-ci-contract)); never re-apply as an agent PR.
+   Dependabot PRs use the [external-bot authorship exception](skill://omp-dyna-workflows/references/patterns.md#external-bot-prs) ("External bot PRs") with the same CI, `prove()` and rebase-merge path; when the record's `gate.json` declares `ci`, main submits the Dependabot head SHA with the gate's runner role ([merge-and-recover](merge-and-recover.md#declared-ci-contract)); never re-apply as an agent PR.
 5. `prove()` assembles the brief and dispatches the sole `agent='verifier'` session. Do not manually author a second
    brief or spawn another verifier. It reads persisted author provenance; rails decides family independence.
    For supported verifier-model override and failure handling, follow patterns; do not substitute a task for verifier.
@@ -47,7 +47,7 @@ first and refuses unless it is success on the exact head; rails enforce exact-he
 ## Changed heads and fix rounds
 
 Every new SHA invalidates previous evidence, including after amend, fix or rebase. `agent-verified` is a commit status
-bound to the SHA it was posted on, so a new head has none until it is verified again. The writer commits through the hook, pushes, updates the description and submits/waits for exact-head CI.
+bound to the SHA it was posted on, so a new head has none until it is verified again. The writer commits through the commit checks, pushes, updates the description and submits/waits for exact-head CI.
 Main then repeats the full risk tier: full `prove()` or a fresh eligible docs exemption.
 A wording-only change is not a no-verification exception. Old-head evidence never approves a new SHA.
 

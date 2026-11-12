@@ -1,38 +1,28 @@
-"""``omp-guardrails init [--greenfield | --adopt | --extend] [options]``.
+"""``omp-guardrails init --repo DIR --record DRAFT [options]``: draft the repo's personal record.
 
-Modes:
+Init reads the repository and writes only into the draft record directory ``--record``, never
+the live record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and
+never committed): only the owner writes the live record, by hand. Init refuses a ``--record``
+under the live records root; its report names the draft and where the owner saves it. To extend
+an existing record, copy it to a draft directory outside ``repos/`` first. Into the draft, init:
 
-- ``--greenfield`` (default when the repo has no ``.omp/gate.json``): write the test profile
-  from the template, a schema-v2 gate that runs the reference checks (``checks.profile`` runs
-  ``profile-check``; ``--runner`` and ``--required-context`` write ``ci``), the tracked pre-commit
-  hook, the CI wiring (``ci_wiring``), the native-tool configs (``native_config``) and the
-  pinned reference in ``pyproject.toml`` ``[dependency-groups] dev`` (``pin``). Each ``--check``
-  runs in ``checks.commit`` except the CI-only ``rule-coverage`` and ``canaries``
-  (``gate_config.CI_ONLY_CHECKS``), which spawn a process per canary; ``checks.ci`` leaves out
-  the local-only ``budget-check`` (``gate_config.LOCAL_ONLY_CHECKS``), since CI never measures
-  test timing.
-- ``--adopt`` (a repo with its own checkers): as greenfield, but existing ``checks.commit`` and
-  ``checks.ci`` keep running and the reference checks run after them (shadow comparison).
-  ``--settings FILE`` adds per-checker settings under the profile's ``guardrails``. Existing
-  checks, hooks and values are never removed or replaced.
-- ``--extend`` (surface only): add the profile sections and keys the repo's profile lacks, such
-  as ``verification_surface``, and record or raise the gate's ``dynaflowsContract`` (below). It
-  touches nothing else.
+1. discovers the repository's own controls (``discovery``): make targets, hook managers, CI
+   jobs and, through ``gh``, the default branch's required checks;
+2. writes ``profile.md`` from the test-guidance template, keeping every recorded value
+   (``profile_fill``); ``--settings FILE`` adds per-checker settings under ``guardrails``;
+3. writes ``gate.json`` with the absent fields drafted from the discovery (``record_gate``);
+4. writes proposed native-tool configs to ``proposed/`` (``native_config``); the owner applies
+   them to the repository as a fix;
+5. records the dynaflows contract version (``contract``) as its last write;
+6. records the detected language servers in ``command_notes.lsp`` and runs each server's canary
+   references query (``lsp``). A server missing from ``PATH`` is a setup gap unless
+   ``--allow-missing-lsp`` is given; a server that fails the canary always is.
 
-Every mode records the dynaflows contract version in ``.omp/gate.json`` ``dynaflowsContract``
-(``contract``): the current version comes from the omp config's ``agent/agent-rails.yml`` when
-the package runs from its skill folder, else from ``--dynaflows-contract N``. An absent value is
-written; ``--adopt`` and ``--extend`` raise a lower one as their last write; none lowers one.
-``--extend`` writes only this gate field, and never creates a missing gate.
-
-Every mode records the detected language servers in ``command_notes.lsp`` and runs each
-server's canary references query (``lsp``). A server missing from ``PATH`` is a setup gap
-unless ``--allow-missing-lsp`` is given; a server that fails the canary always is. Init never
-creates an empty folder and never overwrites a recorded value or an existing config, so a
-second run changes nothing.
-
-Without a mode flag, a repo whose gate already runs the reference re-runs greenfield (a no-op
-apart from filling gaps); any other existing gate needs an explicit ``--adopt`` or ``--extend``.
+``--extend`` brings an existing record to the current format and contract (for example after
+a contract bump) and refuses to create a record. The report lists what was discovered and every
+value the owner must confirm. Init never
+overwrites a recorded value, never writes an approval and never turns dynaflows on, so a second
+run changes nothing.
 """
 
 from __future__ import annotations
@@ -41,22 +31,13 @@ import argparse
 import shlex
 from pathlib import Path
 
-from omp_guardrails.config.profile import PROFILE_PATH, ProfileError
+from omp_guardrails import harness
+from omp_guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
 from omp_guardrails.findings import Finding
-from omp_guardrails.init import (
-    ci_wiring,
-    contract,
-    gate_config,
-    hook,
-    lsp,
-    native_config,
-    pin,
-    profile_fill,
-)
+from omp_guardrails.init import contract, discovery, lsp, native_config, profile_fill, record_gate
 
 USAGE_RULE = "PROFILE.complete"
-DEFAULT_CHECKS = ("profile-check",)
-NOT_GATE_CHECKS = frozenset({"init", "gate"})
+PROPOSED_DIR = "proposed"
 
 
 class UsageError(Exception):
@@ -65,33 +46,22 @@ class UsageError(Exception):
 
 def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(prog="omp-guardrails init", description=__doc__)
-    modes = command.add_mutually_exclusive_group()
-    for mode in ("greenfield", "adopt", "extend"):
-        modes.add_argument(f"--{mode}", dest="mode", action="store_const", const=mode)
+    command.add_argument(
+        "--extend", action="store_true", help="update an existing record; never create one"
+    )
+    command.add_argument("--commit-command", help="the repo's own commit gate command")
+    command.add_argument("--ci-command", help="the repo's own CI gate command")
     command.add_argument(
         "--required-context",
-        default=gate_config.DEFAULT_CONTEXT,
         help="ci.requiredContext: status context or check run that must be green on the head",
     )
     command.add_argument(
         "--runner", help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)"
     )
-    command.add_argument(
-        "--ci-setup", help="install command the github-actions workflow runs before checks.ci"
-    )
-    command.add_argument(
-        "--reference-command",
-        default="omp-guardrails",
-        help="how the repo invokes the pinned reference, e.g. 'uv run omp-guardrails'",
-    )
-    command.add_argument(
-        "--check",
-        action="append",
-        dest="checks",
-        help="reference subcommand the gate runs (repeatable; default profile-check; "
-        "budget-check runs on commit only; rule-coverage and canaries run in CI only)",
-    )
     command.add_argument("--settings", type=Path, help="JSON object of guardrails settings")
+    command.add_argument(
+        "--offline", action="store_true", help="do not ask gh for the required checks"
+    )
     command.add_argument("--allow-missing-lsp", action="store_true")
     command.add_argument(
         "--lsp-timeout",
@@ -99,62 +69,19 @@ def parser() -> argparse.ArgumentParser:
         default=lsp.DEFAULT_TIMEOUT_S,
         help="seconds each language-server canary may take",
     )
-    command.add_argument(
-        contract.FLAG,
-        type=int,
-        dest="dynaflows_contract",
-        help="current dynaflows contract version, when agent-rails.yml is not beside the package",
-    )
-    command.add_argument("--pin-url")
-    command.add_argument("--pin-commit")
-    command.add_argument("--pin-subdirectory")
     return command
 
 
 def parse(argv: list[str]) -> argparse.Namespace:
     try:
-        return parser().parse_args(argv)
+        options = parser().parse_args(argv)
     except SystemExit as error:
         raise UsageError(f"invalid init arguments: {shlex.join(argv)}") from error
-
-
-def gate_checks(names: list[str] | None) -> list[str]:
-    from omp_guardrails.cli import SUBCOMMANDS
-
-    checks = list(dict.fromkeys(names or DEFAULT_CHECKS))
-    unknown = [name for name in checks if name not in SUBCOMMANDS or name in NOT_GATE_CHECKS]
-    if unknown:
-        raise UsageError(f"--check names no gate subcommand: {unknown}")
-    if all(name in gate_config.LOCAL_ONLY_CHECKS for name in checks):
-        raise UsageError(
-            f"--check {checks} runs only on the local commit gate; add a check that CI runs, "
-            "e.g. --check report-check"
-        )
-    if all(name in gate_config.CI_ONLY_CHECKS for name in checks):
-        raise UsageError(
-            f"--check {checks} runs only in CI; add a check the commit gate runs, "
-            "e.g. --check profile-check"
-        )
-    return checks
-
-
-def ci_flags(options: argparse.Namespace) -> None:
-    flags = (("--runner", options.runner), ("--required-context", options.required_context))
-    for flag, value in flags:
+    for flag in ("commit_command", "ci_command", "required_context", "runner"):
+        value = getattr(options, flag)
         if value is not None and not value.strip():
-            raise UsageError(f"{flag} must be a non-empty name")
-
-
-def resolve_mode(requested: str | None, gate: dict | None, reference: list[str]) -> str:
-    if requested:
-        return requested
-    if gate is None:
-        return "greenfield"
-    checks = gate.get("checks")
-    commit = checks.get("commit") if isinstance(checks, dict) else None
-    if gate_config.runs_reference(commit, reference):
-        return "greenfield"
-    raise UsageError(f"{gate_config.GATE_PATH} already declares checks; choose --adopt or --extend")
+            raise UsageError(f"--{flag.replace('_', '-')} must not be empty")
+    return options
 
 
 def write_if_changed(path: Path, text: str | None, changes: list[str], label: str) -> None:
@@ -165,155 +92,128 @@ def write_if_changed(path: Path, text: str | None, changes: list[str], label: st
     changes.append(f"wrote {label}")
 
 
-def apply_profile(repo: Path, options: argparse.Namespace, changes: list[str]) -> list[str]:
+def apply_profile(
+    repo: Path, record: Path, options: argparse.Namespace, changes: list[str]
+) -> list[str]:
     settings = profile_fill.load_settings(options.settings)
     notes = lsp.notes(lsp.detect(repo))
-    text, report = profile_fill.planned_profile(repo, settings, notes)
-    write_if_changed(repo / PROFILE_PATH, text, changes, PROFILE_PATH)
+    text, report = profile_fill.planned_profile(record, settings, notes)
+    write_if_changed(record / PROFILE_FILE, text, changes, PROFILE_PATH)
     return report
 
 
 def apply_gate(
-    repo: Path, gate: dict | None, mode: str, options: argparse.Namespace, changes: list[str]
-) -> tuple[dict, list[str]]:
-    requested = gate_config.requested_ci(options.runner, options.required_context)
-    planned = gate_config.planned_gate(
+    record: Path,
+    gate: dict | None,
+    found: discovery.Discovery,
+    options: argparse.Namespace,
+    changes: list[str],
+) -> list[str]:
+    planned, confirmations = record_gate.planned_gate(
         gate,
-        adopt=mode == "adopt",
-        reference=shlex.split(options.reference_command),
-        checks=gate_checks(options.checks),
-        ci=requested,
+        found,
+        commit=options.commit_command,
+        ci_command=options.ci_command,
+        required_context=options.required_context,
+        runner=options.runner,
     )
     if planned != gate:
         write_if_changed(
-            repo / gate_config.GATE_PATH,
-            gate_config.render(planned),
+            record / record_gate.GATE_FILE,
+            record_gate.render(planned),
             changes,
-            gate_config.GATE_PATH,
+            record_gate.GATE_PATH,
         )
-    note = gate_config.ci_note(gate, requested)
-    return planned, [note] if note else []
+    return confirmations
 
 
-def apply_ci(
-    repo: Path, gate: dict, options: argparse.Namespace, changes: list[str]
-) -> tuple[list[str], list[Finding]]:
-    path = repo / ci_wiring.WORKFLOW_PATH
-    text, report, findings = ci_wiring.planned_wiring(
-        gate.get("ci"), options.ci_setup, path.exists()
-    )
-    write_if_changed(path, text, changes, ci_wiring.WORKFLOW_PATH)
-    return report, findings
-
-
-def apply_native(repo: Path, changes: list[str]) -> list[str]:
+def apply_native(repo: Path, record: Path, changes: list[str]) -> list[str]:
     if not (repo / "pyproject.toml").is_file():
         return []
-    planned, report = native_config.planned_configs(repo, optional_profile(repo))
+    planned, report = native_config.planned_configs(repo, optional_profile(record))
     for name, text in planned.items():
-        write_if_changed(repo / name, text, changes, name)
+        label = f"record:{PROPOSED_DIR}/{name} (apply it to the repository as a fix)"
+        write_if_changed(record / PROPOSED_DIR / name, text, changes, label)
     return report
 
 
-def optional_profile(repo: Path) -> dict:
-    from omp_guardrails.config.profile import load_profile
-
+def optional_profile(record: Path) -> dict:
     try:
-        return load_profile(repo)
+        return load_profile(record)
     except ProfileError:
         return {}
 
 
-def apply_pin(
-    repo: Path, options: argparse.Namespace, changes: list[str]
-) -> tuple[list[str], list[Finding]]:
-    explicit = pin.PinSource(options.pin_url, options.pin_commit, options.pin_subdirectory)
-    line, findings = pin.pin_line(pin.resolve(explicit, pin.installed_source()))
-    pyproject = repo / "pyproject.toml"
-    if not line:
-        declared = pin.existing_pins(pyproject)
-        if declared:
-            return [f"pin: kept the existing pin {declared[0]!r}"], []
-        return [], findings
-    if not pyproject.is_file():
-        return ["pin: no pyproject.toml; add this line to the dev dependencies:", f"  {line}"], []
-    text, report = pin.planned_pyproject(pyproject.read_text(encoding="utf-8"), line)
-    write_if_changed(pyproject, text, changes, "the reference pin in pyproject.toml")
-    return [report], []
-
-
-def apply_contract(repo: Path, mode: str, version: int, changes: list[str]) -> list[str]:
+def apply_contract(record: Path, version: int, changes: list[str]) -> list[str]:
     """Record ``version`` in the gate on disk; run after every other write succeeded."""
-    gate = gate_config.load_gate(repo)
+    gate = record_gate.load_gate(record)
     if gate is None:
-        gate_path = gate_config.GATE_PATH
-        return [f"{contract.FIELD}: no {gate_path}; run --greenfield or --adopt to write it"]
-    planned, note = contract.planned(gate, version, mode)
+        return [f"{contract.FIELD}: no {record_gate.GATE_PATH} was written"]
+    planned, note = contract.planned(gate, version)
     if planned != gate:
         write_if_changed(
-            repo / gate_config.GATE_PATH,
-            gate_config.render(planned),
+            record / record_gate.GATE_FILE,
+            record_gate.render(planned),
             changes,
-            f"{contract.FIELD} {version} in {gate_config.GATE_PATH}",
+            f"{contract.FIELD} {version} in {record_gate.GATE_PATH}",
         )
     return [note] if note else []
 
 
-def initialise(repo: Path, options: argparse.Namespace) -> tuple[list[str], list[Finding]]:
-    """Apply the selected mode; return report lines and setup-gap findings."""
-    reference = shlex.split(options.reference_command)
-    gate = gate_config.load_gate(repo)
+def initialise(
+    repo: Path, record: Path, options: argparse.Namespace
+) -> tuple[list[str], list[Finding]]:
+    """Draft the record; return report lines and setup-gap findings."""
+    gate = record_gate.load_gate(record)
     if gate is not None:
         contract.recorded(gate)
-    version = contract.current(options.dynaflows_contract)
-    mode = resolve_mode(options.mode, gate, reference)
-    if mode == "extend" and not (repo / PROFILE_PATH).exists():
-        raise UsageError(f"--extend needs an existing {PROFILE_PATH}; run --greenfield or --adopt")
-    if mode != "extend":
-        gate_checks(options.checks)
-        ci_flags(options)
+    elif options.extend:
+        raise UsageError(f"--extend needs an existing {record_gate.GATE_PATH}; run init without it")
+    version = contract.current()
+    found = discovery.discover(repo, offline=options.offline)
     changes: list[str] = []
-    report = apply_profile(repo, options, changes)
-    findings: list[Finding] = []
-    if mode != "extend":
-        planned_gate, gate_report = apply_gate(repo, gate, mode, options, changes)
-        report += gate_report
-        findings += hook.install_hook(repo, changes)
-        ci_report, ci_findings = apply_ci(repo, planned_gate, options, changes)
-        report += ci_report + apply_native(repo, changes)
-        findings += ci_findings
-        pin_lines, pin_findings = apply_pin(repo, options, changes)
-        report += pin_lines
-        findings += pin_findings
-    report += apply_contract(repo, mode, version, changes)
+    report = found.report() + apply_profile(repo, record, options, changes)
+    report += apply_gate(record, gate, found, options, changes)
+    report += apply_native(repo, record, changes)
+    report += apply_contract(record, version, changes)
     lsp_findings, lsp_lines = lsp.readiness(
         repo,
         lsp.detect(repo),
         allow_missing=options.allow_missing_lsp,
         timeout=options.lsp_timeout,
     )
-    findings += lsp_findings
-    summary = changes or ["no changes"]
-    return [f"init ({mode}): {line}" for line in summary] + report + lsp_lines, findings
+    summary = [f"init: {line}" for line in changes or ["no changes"]]
+    handoff = [
+        f"init: draft record at {record}. Agents never write the live record: ask the owner to "
+        f"review this draft and save it by hand as {harness.RECORDS}/<owner>/<name>/ "
+        "(the repository's origin owner/name, lowercase)."
+    ]
+    return summary + report + lsp_lines + handoff, lsp_findings
 
 
 def usage_finding(message: str) -> Finding:
     return Finding(USAGE_RULE, "omp-guardrails init", message, "fix the init arguments")
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     """CLI entry: print the report and return the setup gaps that remain."""
-    del profile
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
+    live = harness.RECORDS.resolve()
+    if record.resolve() == live or record.resolve().is_relative_to(live):
+        return [usage_finding(
+            f"--record {record} is under the live records root {live}; agents never write records. "
+            "Pass a draft directory outside it (to extend a record, copy it there first); the owner "
+            "saves the reviewed draft as the live record by hand"
+        )]
     try:
-        lines, findings = initialise(repo, parse(argv))
+        lines, findings = initialise(repo, record, parse(argv))
     except (UsageError, contract.ContractError) as error:
         return [usage_finding(str(error))]
-    except gate_config.GateError as error:
-        return [gate_config.gate_finding(error)]
+    except record_gate.GateError as error:
+        return [record_gate.gate_finding(error)]
     except ProfileError as error:
-        return [Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the profile file")]
+        return [Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")]
     print("\n".join(lines))
     return findings

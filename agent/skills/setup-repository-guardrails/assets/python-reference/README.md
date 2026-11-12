@@ -1,43 +1,64 @@
 # omp-guardrails
 
-`omp-guardrails` is the configured Python reference for the
+`omp-guardrails` is the harness's Python reference for the
 [rule catalogue](omp_guardrails/data/guardrail-rules.json), which ships inside
-the package. Repositories install it pinned and configure it with data. They
-never copy, adapt or edit its code or the catalogue. A behaviour the settings
-cannot express is a change to this package, made here.
+the package. It runs from this folder in the harness and inspects a
+repository from outside. Repositories never install, pin, copy or mention it.
+A behaviour the settings cannot express is a change to this package, made here.
 
-## Install
+## Run
 
-Add a dev dependency pinned to a commit of the skill repository, never to a
-branch, and lock it (for example with `uv.lock`):
+The agent rails run it at the agent's commit, after the repository's own
+commit command:
 
 ```text
-omp-guardrails @ git+https://github.com/adam-jackson-cf/oh-mi-pi-config@<commit>#subdirectory=agent/skills/setup-repository-guardrails/assets/python-reference
+uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference \
+  omp-guardrails check --repo <worktree> --record <record dir>
 ```
 
-Use the `omp-guardrails[pytest]` extra when the repository runs pytest
-(`requirements-pytest.lock` pins it with hashes). The T3 mutation run adds the
-`mutation` extra (`requirements-mutation.lock`). The runtime code otherwise
-needs only the standard library (Python 3.11 or newer). To upgrade, bump
-`<commit>` in a normal pull request so the gate runs.
-`omp-guardrails init` writes this pin into `[dependency-groups] dev` of
-`pyproject.toml` together with the gate, hook, CI wiring and native-tool
-configs; the repository's own lock command then locks it.
+```text
+omp-guardrails <subcommand> --repo DIR --record DIR [args ...]
+omp-guardrails --help
+```
+
+- `--repo` is the checkout to inspect (default: the working directory).
+- `--record` is the repository's personal record,
+  `<oh-mi-pi-config root>/repos/<owner>/<name>/`. Every subcommand needs it,
+  and a record inside the repository is refused.
+- `check` runs the static whole-repo steps over every tracked file: no
+  baselines and no diff scoping. Any finding blocks the commit.
+- omp-guardrails writes nothing into the repository. Output files (`--out`)
+  must lie outside the checkout, and child processes write no bytecode there.
+- Child processes that run repository code never see harness variables such
+  as `AGENT` (`omp_guardrails/child_env.py`).
+
+`uv.lock` locks the harness environment. `check` needs only the base
+dependencies. The pytest adapter's `tiers` and `conformance` actions need the
+`pytest` extra (`requirements-pytest.lock` pins it with hashes for the
+container). The T3 mutation run adds the `mutation` extra.
+
+Each finding prints as `path: RULE: message; fix`. A finding about the record
+names it `record:profile.md` or `record:gate.json`. The exit code is `0` with
+no findings, `1` with findings and `2` for a usage error.
 
 ## Configure
 
-Every per-repository value lives in the JSON front matter of
-`.omp/test-profile.md`:
+Every per-repository value lives in the record's `profile.md` front matter:
 
 - The test-guidance keys (tiers, layout, `public_entry_points`, budgets and
   others) feed the test-evidence, diff, environment and surface checkers.
-- `guardrails.<checker>` holds checker settings, such as
-  `guardrails.python` for `python-quality`, `python-scalability` and
-  `python-fanout`, or `guardrails.structure` and `guardrails.naming`.
+- `guardrails.<checker>` holds checker settings, such as `guardrails.python`
+  for `python-quality`, `python-scalability` and `python-fanout`, or
+  `guardrails.structure` and `guardrails.naming`.
+- `guardrails.check.run` picks the `check` steps (default: every step in
+  `omp_guardrails/whole_repo.py` `DEFAULT_STEPS`), and `guardrails.check.exclude`
+  lists generated, vendored and fixture paths whose findings are dropped.
 - `house_style.version` records the shipped
   `omp_guardrails/data/house-style.json` version. `house_style.exceptions`
   lists exceptions as `{rule, path, adr}`; an exception without an ADR is
   ignored.
+- Approvals (for example `guardrails.coverage_ratchet.approvals`) are the
+  owner's hand edits of the record.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers
@@ -45,34 +66,22 @@ every maintained root. Unconfigured repositories therefore fail with findings
 instead of passing silently. Numeric defaults are the catalogue contract
 values.
 
-## Run
-
-```text
-omp-guardrails <subcommand> [--repo DIR] [path ...]
-omp-guardrails --help
-```
-
-Each finding prints as `path: RULE: message; fix`. The exit code is `0` with
-no findings, `1` with findings and `2` for a usage error.
-
-The commit gate runs `report-check` (TEST.failure-propagation and run-report
-hygiene) and `budget-check` (TEST.budget.* test-time budgets). The CI gate runs
-`report-check` only: budgets apply to the local commit gate, and CI never
-measures or reports test timing.
+`omp-guardrails init --repo DIR --record DRAFT` drafts the record for owner
+confirmation into a draft directory; it refuses the live records root, and the
+owner saves the reviewed draft as the live record by hand. It discovers make
+targets, hook managers, CI jobs and, through `gh`, the required checks; it
+writes `gate.json`, `profile.md` and proposed native-tool configs under
+`proposed/` in the draft, and nothing into the
+repository.
 
 ## Rule coverage
 
-The pinned package version decides which catalogue rules apply, so a
-repository keeps no catalogue copy, no validator copy and no catalogue hash.
+The harness's package version decides which catalogue rules apply. A
+repository keeps no catalogue copy, no ledger, no canary fixtures and no
+validator.
 
 - Tool rules (`kind: "tool"`) and rules that name a `reference` module are
-  proven once, by this skill's own test suite. A repository records no ledger
-  row and no canary for them.
-- A rule the package does not implement needs a repository checker. Only those
-  checkers, and repository-local rules marked `"local": true`, have rows in
-  `.omp/rule-coverage.json` (`schema_version` 2). A repository with no such
-  checker needs no ledger file.
-- `rule-evidence` checks the ledger rows without running anything.
-  `rule-coverage` also runs each row's canaries and hook installation check.
-  `init` keeps `rule-coverage` and `canaries` out of `checks.commit`; they run
-  in `checks.ci` or during setup.
+  proven once, by this package's own tests in oh-mi-pi-config
+  (`tests/test_reference_*.py`). Every such rule is named by a test there.
+- A rule the package does not implement stays a setup-time review item until
+  the package implements it.

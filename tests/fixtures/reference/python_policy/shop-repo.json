@@ -371,7 +371,7 @@
     {
       "checker": "scalability",
       "rule": "PYS253",
-      "path": ".omp/test-profile.md",
+      "path": "record:profile.md",
       "files": {},
       "settings": {
         "ownership_markers": [
@@ -410,7 +410,7 @@
     {
       "checker": "fanout",
       "rule": "FANOUT.general",
-      "path": ".omp/test-profile.md",
+      "path": "record:profile.md",
       "files": {},
       "settings": {
         "source_roots": []

@@ -1,14 +1,13 @@
-"""Record the dynaflows contract version in ``.omp/gate.json`` ``dynaflowsContract``.
+"""Record the dynaflows contract version in the record's ``gate.json`` ``dynaflowsContract``.
 
-The current version has one source: the top-level ``dynaflowsContract: N`` line of
-``agent/agent-rails.yml`` in the omp config this package ships in. Init reads it relative to
-the package's skill folder when that file exists (a run from the skill folder). An installed
-copy of the package has no such file, so the caller passes ``--dynaflows-contract N``.
+The current version has one source: the top-level ``dynaflowsContract: N`` line of the harness's
+``agent/agent-rails.yml`` (``omp_guardrails.harness.RAILS_CONFIG``). Workflows and rails refuse
+a record below it.
 
-Every mode writes the current version when the gate lacks the field. ``--adopt`` and
-``--extend`` raise a lower recorded version, as the last step after every other write
-succeeded. Init never lowers a version: a higher recorded version means the repo expects a newer
-omp, which the report states.
+Init writes the current version when the record lacks it and raises a lower one, as the last
+step after every other write succeeded: init has just redrafted the record in the current
+format. Init never lowers a version; a higher one means the record was drafted by a newer
+harness, which the report states.
 """
 
 from __future__ import annotations
@@ -16,15 +15,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from omp_guardrails.init.gate_config import GATE_PATH, GateError
+from omp_guardrails import harness
+from omp_guardrails.init.record_gate import GATE_PATH, GateError
 
 FIELD = "dynaflowsContract"
-FLAG = "--dynaflows-contract"
-# init/ -> omp_guardrails/ -> python-reference/ -> assets/ -> setup-repository-guardrails/
-# -> skills/ -> agent/
-SOURCE = Path(__file__).resolve().parents[6] / "agent-rails.yml"
 LINE = re.compile(r"^dynaflowsContract:\s*([0-9]+)\s*(?:#.*)?$", re.MULTILINE)
-RAISING_MODES = frozenset({"adopt", "extend"})
 
 
 class ContractError(Exception):
@@ -35,13 +30,9 @@ def is_version(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def current(flag: int | None, source: Path | None = None) -> int:
-    """``flag`` when given, else the version ``source`` (default ``SOURCE``) declares."""
-    if flag is not None:
-        if not is_version(flag):
-            raise ContractError(f"{FLAG} must be a positive integer, got {flag}")
-        return flag
-    source = source or SOURCE
+def current(source: Path | None = None) -> int:
+    """The version ``source`` (default: the harness's agent-rails.yml) declares."""
+    source = source or harness.RAILS_CONFIG
     try:
         text = source.read_text(encoding="utf-8")
     except OSError:
@@ -50,8 +41,8 @@ def current(flag: int | None, source: Path | None = None) -> int:
     if match is None or not is_version(int(match.group(1))):
         where = "has no top-level dynaflowsContract line" if text is not None else "is not present"
         raise ContractError(
-            f"cannot find the current dynaflows contract: {source} {where}; "
-            f"pass {FLAG} N with the version of the omp install the repo uses"
+            f"cannot find the current dynaflows contract: {source} {where}; run omp-guardrails "
+            "from its skill folder in the harness"
         )
     return int(match.group(1))
 
@@ -65,18 +56,14 @@ def recorded(gate: dict) -> int | None:
     return value
 
 
-def planned(gate: dict, version: int, mode: str) -> tuple[dict, str | None]:
+def planned(gate: dict, version: int) -> tuple[dict, str | None]:
     """The gate with the contract applied, and a report note when it is left alone."""
     stored = recorded(gate)
-    if stored is None or (stored < version and mode in RAISING_MODES):
+    if stored is None or stored < version:
         return {**gate, FIELD: version}, None
-    if stored < version:
-        return gate, (
-            f"{FIELD}: kept v{stored} (current v{version}); run init --extend to raise it"
-        )
     if stored > version:
         return gate, (
-            f"{FIELD}: kept v{stored}; the repo expects a newer dynaflows contract than"
-            f" v{version}; update omp"
+            f"{FIELD}: kept v{stored}; the record expects a newer dynaflows contract than"
+            f" v{version}; update the harness"
         )
     return gate, None

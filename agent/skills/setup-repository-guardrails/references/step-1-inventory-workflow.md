@@ -13,9 +13,14 @@ Capture what the target actually enforces and what it only documents or proposes
    files and identify the owning source for each repeated rule.
 3. Read tracked formatter, linter, type checker, package/lock, hook, test, CI, release, and
    bespoke-check configuration. Record the exact command and trigger that runs each check.
+   Discover the inputs the record needs: make (or task runner) targets, pre-commit or other hook
+   manager config, CI workflow job names, and the default branch's required checks from
+   `gh api repos/<owner>/<name>/branches/<default>/protection` and
+   `gh api repos/<owner>/<name>/rules/branches/<default>`. A query that fails is recorded as
+   unknown, never as "no required checks".
 4. List test layers and evidence: unit, integration, seam, end-to-end, smoke, coverage, timeouts,
    fixtures, and CI matrix. Do not treat a config file as active unless an invoked command reads it.
-   Read `.omp/test-profile.md` when present; record its tiers, entry points, ownership
+   When the record exists, read its `profile.md`; record its tiers, entry points, ownership
    areas, affected-T2 selection, verification surface and per-machine budget approvals.
 5. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.

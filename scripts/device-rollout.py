@@ -4,11 +4,15 @@
 Apply mode also provisions the judge key into each device's omp credential store
 (Infisical -> builder -> `omp auth import -`, streamed over stdin only), runs a
 `omp find` canary per device, deletes retired `~/.agents/by-request` husks, and writes
-each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles.
+each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles, and copies the
+gitignored per-repo records (`<omp base>/repos/<owner>/<name>/`) one way from this checkout to
+every remote device that runs omp, refusing to overwrite a target record that is newer.
 The registry's `infisical` project and environment serve both the judge key and the
 `ci-gate` runner commands, which pass them to ci-gate.py as CI_GATE_INFISICAL_* settings.
 """
 import argparse
+import base64
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -60,6 +64,73 @@ RUNNERS_WRITER = (
     "    os.chmod(temporary, 0o644)\n"
     "    os.replace(temporary, path)\n"
     "    print('written')\n"
+)
+# Per-repo records: personal and gitignored, so git never moves them between devices.
+RECORDS = "repos"
+# A remote host's omp base when its registry `omp` entry names no `base`.
+REMOTE_BASE = "~/.omp"
+# Runs on the target device: argv[1] omp base. Prints {relative path: [mtime_ns, sha256]} for
+# every regular file under <base>/repos.
+RECORDS_LISTER = (
+    "# omp-records-list\n"
+    "import hashlib, json, os, sys\n"
+    "root = os.path.join(os.path.expanduser(sys.argv[1]), 'repos')\n"
+    "found = {}\n"
+    "for directory, _, names in os.walk(root):\n"
+    "    for name in names:\n"
+    "        path = os.path.join(directory, name)\n"
+    "        if os.path.islink(path) or not os.path.isfile(path):\n"
+    "            continue\n"
+    "        with open(path, 'rb') as stream:\n"
+    "            digest = hashlib.sha256(stream.read()).hexdigest()\n"
+    "        found[os.path.relpath(path, root).replace(os.sep, '/')] = [os.stat(path).st_mtime_ns, digest]\n"
+    "json.dump(found, sys.stdout)\n"
+)
+# Runs on the target device: argv[1] omp base; argv[2] {relative path: [mtime_ns, sha256] or null},
+# the target state the plan saw; stdin {relative path: [mtime_ns, base64 bytes]}. Immediately
+# before replacing each file it re-reads the target and refuses that file when the target no longer
+# matches the plan (edited, created or deleted since inventory), naming it on stderr and exiting 5
+# after the others. Writes atomically (temp file, then rename) and keeps the source mtime, so a
+# later edit on the target reads as newer.
+RECORDS_WRITER = (
+    "# omp-records-write\n"
+    "import base64, hashlib, json, os, sys, tempfile\n"
+    "root = os.path.join(os.path.expanduser(sys.argv[1]), 'repos')\n"
+    "planned = json.loads(sys.argv[2])\n"
+    "def current(path):\n"
+    "    try:\n"
+    "        with open(path, 'rb') as stream:\n"
+    "            digest = hashlib.sha256(stream.read()).hexdigest()\n"
+    "        return [os.stat(path).st_mtime_ns, digest]\n"
+    "    except FileNotFoundError:\n"
+    "        return None\n"
+    "refused = []\n"
+    "for relative, (mtime, data) in json.load(sys.stdin).items():\n"
+    "    parts = relative.split('/')\n"
+    "    if not relative or relative.startswith('/') or any(part in ('', '.', '..') for part in parts):\n"
+    "        sys.exit(4)\n"
+    "    path = os.path.join(root, *parts)\n"
+    "    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)\n"
+    "    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.record.')\n"
+    "    with os.fdopen(handle, 'wb') as stream:\n"
+    "        stream.write(base64.b64decode(data))\n"
+    "    os.chmod(temporary, 0o600)\n"
+    "    os.utime(temporary, ns=(mtime, mtime))\n"
+    "    if os.path.islink(path) or current(path) != planned.get(relative):\n"
+    "        os.unlink(temporary)\n"
+    "        refused.append(relative)\n"
+    "        print('changed since inventory: ' + relative, file=sys.stderr)\n"
+    "        continue\n"
+    "    os.replace(temporary, path)\n"
+    "sys.exit(5 if refused else 0)\n"
+)
+# Runs locally: argv[1] records root, argv[2:] relative paths. Prints the writer's stdin document.
+RECORDS_BUNDLER = (
+    "import base64, json, os, sys\n"
+    "root = sys.argv[1]\n"
+    "json.dump({relative: [os.stat(os.path.join(root, relative)).st_mtime_ns,\n"
+    "                      base64.b64encode(open(os.path.join(root, relative), 'rb').read()).decode()]\n"
+    "           for relative in sys.argv[2:]}, sys.stdout)\n"
 )
 CI_GATE_ARGS = {
     "submit": ["submit", "{repo}", "{sha}"],
@@ -139,6 +210,36 @@ def run_pipeline(producer, consumer):
     return source.wait(), code
 
 
+def record_files(root):
+    """{relative path: (mtime_ns, sha256)} for every regular file under the records root."""
+    root = Path(root)
+    found = {}
+    if not root.is_dir():
+        return found
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        found[path.relative_to(root).as_posix()] = (path.stat().st_mtime_ns,
+                                                    hashlib.sha256(path.read_bytes()).hexdigest())
+    return found
+
+
+def record_plan(source, target):
+    """Split source files into (paths to copy, records refused because the target copy is newer).
+
+    A record is `<owner>/<name>`. A target record is newer when any of its files differs from the
+    source and was modified after the source file; the whole record is then left alone.
+    Target-only files are never touched.
+    """
+    def record(relative):
+        return "/".join(relative.split("/")[:2])
+    newer = sorted({record(relative) for relative, (mtime, digest) in source.items()
+                    if relative in target and target[relative][1] != digest and target[relative][0] > mtime})
+    copy = [relative for relative, (_, digest) in sorted(source.items())
+            if record(relative) not in newer and (relative not in target or target[relative][1] != digest)]
+    return copy, newer
+
+
 def shell_path(path):
     return '"$HOME"/' + shlex.quote(path[2:]) if path.startswith("~/") else shlex.quote(path)
 
@@ -146,6 +247,7 @@ def shell_path(path):
 class Rollout:
     def __init__(self, hosts, check=False, runner=run_command, home=None, hostname=None,
                  pipeline=run_pipeline, base=None):
+        """`base` is the rollout source: the omp checkout whose `repos/` records are copied."""
         hostname = (socket.gethostname() if hostname is None else hostname).split(".")[0].lower()
         self.local = hosts.get("local", {}).get(hostname, hostname)
         self.hosts = {host: config for host, config in hosts.items()
@@ -320,6 +422,55 @@ class Rollout:
             self.notes.append(f"{device}: ci-runners.json {state}; run device-rollout.py without --check")
         self.rows.append([device, "ci-runners", "-", "-", "-", state])
 
+    def records(self, host, config, start):
+        """Copy this checkout's per-repo records to the host one way; never overwrite a newer target record."""
+        source_root = self.base / RECORDS
+        source = record_files(source_root)
+        if not source:
+            return
+        base = config.get("base", REMOTE_BASE)
+        if any(row[5] == "unreachable" for row in self.rows[start:]):
+            state = "unreachable"
+        else:
+            try:
+                listed = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
+                target = {relative: (int(value[0]), str(value[1])) for relative, value in listed.items()}
+                copy, newer = record_plan(source, target)
+                for slug in newer:
+                    self.notes.append(f"{host}: record {slug} is newer on the target; not overwritten "
+                                      "(merge it into the rollout source by hand, then re-run)")
+                if copy and self.check:
+                    state = "stale"
+                    self.notes.append(f"{host}: {len(copy)} record file(s) to copy; "
+                                      "run device-rollout.py without --check")
+                else:
+                    changed = []
+                    if copy:
+                        producer = [sys.executable, "-c", RECORDS_BUNDLER, str(source_root), *copy]
+                        planned = json.dumps({relative: list(target[relative]) if relative in target else None
+                                              for relative in copy}, sort_keys=True)
+                        consumer = self.remote(["python3", "-c", RECORDS_WRITER, base, planned], host)
+                        codes = tuple(self.pipeline(producer, consumer))
+                        if codes == (0, 5):
+                            # The writer refused files the target changed after inventory; name them.
+                            relisted = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
+                            changed = [relative for relative in copy
+                                       if (relisted.get(relative) or [None, None])[1] != source[relative][1]]
+                            for relative in changed:
+                                self.notes.append(f"{host}: record file {relative} changed on the target after "
+                                                  "inventory; not overwritten (merge it into the rollout source "
+                                                  "by hand, then re-run)")
+                        elif codes != (0, 0):
+                            raise CommandError("failed")
+                    state = "record-newer" if changed else "current"
+                if newer:
+                    state = "record-newer"
+            except CommandError as error:
+                state = error.state
+            except (OSError, ValueError, TypeError, AttributeError, IndexError):
+                state = "failed"
+        self.rows.append([host, "records", "-", "-", "-", state])
+
     def deployment(self, host, config, local_ready):
         deployed = expected = "-"
         state = "failed"
@@ -373,6 +524,8 @@ class Rollout:
                 self.deployment(host, config["omp"], local_omp in ("current", "stale"))
             self.finish_device(host, start, host, config["agents"], state, omp="omp" in config)
             self.runners(host, start, host)
+            if "omp" in config:
+                self.records(host, config["omp"], start)
         return int(any(row[5] != "current" for row in self.rows))
 
     def report(self):
@@ -382,15 +535,15 @@ class Rollout:
                          for row in rows) + ("\n" + "\n".join(self.notes) if self.notes else "")
 
 
-def main(argv=None, runner=run_command, pipeline=run_pipeline):
+def main(argv=None, runner=run_command, pipeline=run_pipeline, base=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true",
                         help="fetch and report without pulling, starting services, "
-                             "provisioning keys or deleting husks")
+                             "provisioning keys, deleting husks or copying records")
     args = parser.parse_args(argv)
     registry = Path(__file__).with_name("device-rollout-hosts.json")
     rollout = Rollout(json.loads(registry.read_text()), check=args.check, runner=runner,
-                      pipeline=pipeline)
+                      pipeline=pipeline, base=base)
     code = rollout.execute()
     print(rollout.report())
     return code

@@ -14,11 +14,27 @@ import threading
 import time
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/ci-gate.py'
+SOURCE = Path(__file__).resolve().parents[1]
+# ci-gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
+HARNESS_FILES = ('scripts/ci-gate.py', 'scripts/ci-gate-repos.json', 'agent/lib/repo_record.py')
+HARNESS = SCRIPT = None
 REPO = 'adam-jackson-cf/oh-mi-pi-config'
 TOKEN_ENV = 'NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'
-# A context other than 'gate' proves the status context comes from the checkout's gate.json.
+# A context other than 'gate' proves the status context comes from the record's gate.json.
 CONTEXT = 'exact-head-gate'
+
+
+def setUpModule():
+    global HARNESS, SCRIPT
+    HARNESS = Path(tempfile.mkdtemp(prefix='ci-gate-harness-')).resolve()
+    for name in HARNESS_FILES:
+        (HARNESS / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(SOURCE / name, HARNESS / name)
+    SCRIPT = HARNESS / 'scripts/ci-gate.py'
+
+
+def tearDownModule():
+    shutil.rmtree(HARNESS, ignore_errors=True)
 
 FAKE = r'''#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, time
@@ -74,11 +90,13 @@ class CiGateTests(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.name', 'Gate Test')
         self.git('config', 'user.email', 'gate@example.invalid')
-        (self.source / '.omp').mkdir()
         (self.source / '.devcontainer').mkdir()
-        (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 2, 'checks': {
+        self.record = HARNESS / 'repos' / REPO
+        shutil.rmtree(self.record, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, self.record, True)
+        self.write_gate({'schemaVersion': 2, 'checks': {
             'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]},
-            'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}}))
+            'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}, 'dynaflows': {'enabled': True}})
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
             'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': ['echo', 'setup words']}))
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
@@ -139,9 +157,13 @@ class CiGateTests(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.source), *args], text=True).strip()
 
+    def write_gate(self, gate):
+        self.record.mkdir(parents=True, exist_ok=True)
+        (self.record / 'gate.json').write_text(json.dumps(gate))
+
     def commit(self):
         self.git('add', '.')
-        self.git('commit', '-qm', 'fixture')
+        self.git('commit', '--allow-empty', '-qm', 'fixture')
         return self.git('rev-parse', 'HEAD')
 
     def cli(self, *args, expected=0, env=None):
@@ -265,6 +287,28 @@ class CiGateTests(unittest.TestCase):
         self.assertEqual(len(self.calls('systemd-run')), 1)
         self.assertEqual(json.loads(self.cli('status', REPO, self.sha).stdout)['state'], 'running')
 
+    def test_repo_tree_omp_gate_is_never_read(self):
+        # A leftover repo .omp/gate.json must not choose the command or the status context.
+        (self.source / '.omp').mkdir()
+        (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 2, 'checks': {'ci': ['false']},
+                                                                'ci': {'requiredContext': 'repo-context', 'runner': 'x'}}))
+        sha = self.commit()
+        self.submit(sha)
+        self.cli('run', self.job(sha))
+        self.assertEqual([request['body']['context'] for request in self.requests], [CONTEXT, CONTEXT])
+        run = next(argv for argv in self.calls('podman') if argv[0] == 'run')
+        self.assertIn("bash 'gate script.sh' 'a'\"'\"'b'", run[-1])
+
+    def test_missing_record_is_an_error_naming_the_rollout(self):
+        shutil.rmtree(self.record)
+        self.submit()
+        self.cli('run', self.job(), expected=1)
+        result = json.loads(self.cli('wait', REPO, self.sha, expected=1).stdout)
+        self.assertEqual(result['state'], 'error')
+        self.assertIn('No per-repo record for ' + REPO, result['error'])
+        self.assertIn('device-rollout.py', (self.job() / 'log').read_text())
+        self.assertEqual(self.requests, [], 'no status may go to a guessed context')
+
     def test_nonzero_gate_is_failure(self):
         self.submit()
         self.env['GATE_EXIT'] = '7'
@@ -300,9 +344,9 @@ class CiGateTests(unittest.TestCase):
                 gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}, 'ci': ci}}.get(
                     failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}, 'ci': ci})
                 if failure == 'missing-gate':
-                    (self.source / '.omp/gate.json').unlink()
+                    (self.record / 'gate.json').unlink()
                 else:
-                    (self.source / '.omp/gate.json').write_text(json.dumps(gate))
+                    self.write_gate(gate)
                 sha = self.commit()
                 self.submit(sha)
                 environment = {**self.env}
@@ -323,9 +367,9 @@ class CiGateTests(unittest.TestCase):
                         'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
                         'schema-v1': {'schemaVersion': 1, 'gate': ['true']}}.get(failure)
                 if failure == 'missing-gate':
-                    (self.source / '.omp/gate.json').unlink(missing_ok=True)
+                    (self.record / 'gate.json').unlink(missing_ok=True)
                 else:
-                    (self.source / '.omp/gate.json').write_text(json.dumps(gate))
+                    self.write_gate(gate)
                 sha = self.commit()
                 before = len(self.requests)
                 self.submit(sha)

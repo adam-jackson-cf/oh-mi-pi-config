@@ -4,15 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omp-guardrails"
-version = "2.0.0"
-description = "Configured guardrail checkers for the setup-repository-guardrails rule catalogue."
+version = "3.0.0"
+description = "Harness-side guardrail checkers for the setup-repository-guardrails rule catalogue."
 requires-python = ">=3.11"
-# Runtime code is standard-library only; only the pytest adapter needs its pinned extra.
-dependencies = []
+# The harness runs this project with `uv run --project <this folder>`; repositories never install
+# it. `check` needs ast-grep for the adapter lint step, so it is a base dependency.
+dependencies = ["ast-grep-py==0.51.0"]
 
 [project.optional-dependencies]
-pytest = ["pytest==9.1.1", "ast-grep-py==0.51.0"]
-# TEST.mutation-sensitivity runs in T3 only; the gate container does not install this extra.
+# The pytest adapter's tiers and conformance actions.
+pytest = ["pytest==9.1.1"]
+# TEST.mutation-sensitivity runs in T3 only.
 mutation = ["mutmut==3.8.1"]
 
 [project.scripts]

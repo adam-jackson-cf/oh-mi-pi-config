@@ -210,13 +210,13 @@ STOP = "#!/bin/sh\nexit 42\n"
 
 
 class RunnerParityTests(unittest.TestCase):
-    """run-ci-quality-gates.sh parity: .omp/gate.json is the only CI contract."""
+    """run-ci-quality-gates.sh parity: the tracked pre-commit hook must use this runner."""
     def setUp(self):
         scratch = tempfile.TemporaryDirectory(prefix="ci-parity-test-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
-        (self.repo / ".omp").mkdir()
+        (self.repo / ".githooks").mkdir()
         shutil.copy(GATES_SCRIPT, self.repo / "scripts")
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         # macOS bash 3.2 treats an empty array as unbound under `set -u`: track one Markdown file.
@@ -230,33 +230,39 @@ class RunnerParityTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.env["PATH"] = str(binary) + os.pathsep + self.env["PATH"]
 
-    def gate(self, checks):
-        (self.repo / ".omp/gate.json").write_text(json.dumps({"schemaVersion": 2, "checks": checks}))
+    def hook(self, command):
+        (self.repo / ".githooks/pre-commit").write_text(f"#!/usr/bin/env bash\nexec {command}\n")
 
     def run_script(self):
         return subprocess.run(["bash", str(self.repo / "scripts/run-ci-quality-gates.sh")],
                               cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
 
-    def test_gate_json_alone_satisfies_parity_without_a_workflow(self):
-        self.gate({"ci": ["bash", "scripts/run-ci-quality-gates.sh"]})
+    def test_hook_using_the_runner_satisfies_parity_without_a_workflow(self):
+        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage")
         result = self.run_script()
         self.assertIn("Runner parity check passed.", result.stdout)
         self.assertEqual(result.returncode, 42, "the run must continue to the quality tools")
         self.assertFalse((self.repo / ".github").exists())
 
-    def test_gate_json_without_runner_fails_even_when_workflow_references_it(self):
-        self.gate({"ci": ["make", "check"]})
+    def test_hook_without_runner_fails_even_when_workflow_references_it(self):
+        self.hook("make check")
         workflow = self.repo / ".github/workflows/ci-quality-gates.yml"
         workflow.parent.mkdir(parents=True)
         workflow.write_text("steps:\n  - run: bash scripts/run-ci-quality-gates.sh\n")
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Runner parity check failed: .omp/gate.json must reference", result.stderr)
+        self.assertIn("Runner parity check failed: .githooks/pre-commit must reference", result.stderr)
 
-    def test_missing_gate_json_fails(self):
+    def test_missing_hook_fails(self):
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
-        self.assertIn(".omp/gate.json", result.stderr)
+        self.assertIn(".githooks/pre-commit", result.stderr)
+
+    def test_repo_omp_gate_json_does_not_satisfy_parity(self):
+        (self.repo / ".omp").mkdir()
+        (self.repo / ".omp/gate.json").write_text('{"checks": {"ci": ["bash", "scripts/run-ci-quality-gates.sh"]}}')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
 
 
 if __name__ == "__main__":

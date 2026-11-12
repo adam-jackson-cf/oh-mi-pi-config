@@ -19,6 +19,7 @@ from __future__ import annotations
 import shlex
 from pathlib import Path, PurePosixPath
 
+from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import (
     GLOB_CHARACTERS,
@@ -97,7 +98,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 RULE,
-                ".omp/test-profile.md",
+                PROFILE_PATH,
                 "verification_surface needs journey_file_pattern and lever_command",
                 "record both in the test profile",
             )
