@@ -549,6 +549,45 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 	});
 
+	test("dynaflows commits refuse assignments, program-running git options, editors and hook bypass", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			h.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
+			h.dynaflows(true);
+			const refusals: [string, string][] = [
+				["GIT_EDITOR='printf bad > value' git commit -m x", "leading VAR=value assignment"],
+				["PATH=/usr/bin git commit -m x", "leading VAR=value assignment"],
+				["FOO=1 mise exec -- git commit -m x", "leading VAR=value assignment"],
+				["git -c core.editor=vi commit -m x", "global option -c"],
+				["git -ccore.editor=vi commit -m x", "global option -ccore.editor=vi"],
+				["git --config-env=core.editor=ED commit -m x", "global option --config-env=core.editor=ED"],
+				["git --config-env core.editor=ED commit -m x", "global option --config-env"],
+				["git --exec-path=/tmp/x commit -m x", "global option --exec-path=/tmp/x"],
+				["git commit", "-m/--message or -F/--file"],
+				["git commit -a", "-m/--message or -F/--file"],
+				["git commit -C HEAD", "-m/--message or -F/--file"],
+				["git commit -m x -e", "must not open an editor"],
+				["git commit -em x", "must not open an editor"],
+				["git commit --edit -m x", "must not open an editor"],
+				["git commit -c HEAD -m x", "must not open an editor"],
+				["git commit --reedit-message=HEAD -m x", "must not open an editor"],
+				["git commit --no-verify -m x", "pre-commit hook"],
+				["git commit -nm x", "pre-commit hook"],
+			];
+			for (const [command, reason] of refusals) {
+				const blocked = await h.call("bash", { command });
+				assert.equal(blocked?.block, true, command);
+				assert.ok(blocked?.reason?.includes(reason), `${command}: ${blocked?.reason}`);
+			}
+			for (const command of [
+				"git commit -m x", "git commit -F msg.txt", "git commit --message=x", "git commit --file msg.txt",
+				"git commit -m x --no-edit", "git commit -m '-e'", "git commit -me", `git -C '${h.root}' commit -m x`,
+				"mise exec -- git commit -m x",
+			]) assert.equal(await h.call("bash", { command }), undefined, command);
+		} finally { h.cleanup(); }
+	});
+
 	test("dynaflows commits refuse unstaged tracked changes unless -a/--all; untracked files are fine", async () => {
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-unstaged-")));
 		const script = join(scratch, "check.sh");
