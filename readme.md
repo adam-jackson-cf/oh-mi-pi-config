@@ -95,6 +95,10 @@ workflow pointer, require guardrail owner approval and guard `gh pr merge` as ab
 Subagent filesystem edit paths must be absolute and cannot escape enclosing Git
 roots through symlinks; outside-repo scratch paths and internal URIs are allowed.
 Selecting the assigned worktree remains an instruction, not a path-rail guarantee.
+Proofs are outcome tests tied to the repo's feature map (the record profile's
+`verification_surface.feature_map_path`): `freeze()` refuses a proof file no map doc links, and
+`prove()` blocks a map doc changed in the PR that links no frozen proof. Behaviour found during
+implementation, or by the map sweep before the PR, gets a map entry and a test, then a re-freeze.
 Helper contracts live in [patterns](agent/skills/omp-dyna-workflows/references/patterns.md);
 Git/PR/CI/merge authority lives in `skill://git-tool`.
 
