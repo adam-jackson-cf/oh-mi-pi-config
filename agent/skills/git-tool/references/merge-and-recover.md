@@ -94,6 +94,7 @@ the owner to save it by hand, and continue with unrelated work.
    Revert the landed range; never reset or rewrite default. Unsafe attribution or dependent changes require owner
    escalation with evidence.
 3. The revert is an ordinary PR with no behaviour proofs: exact-head CI green and, with dynaflows on, `prove()` on an
-   empty manifest. `agentMerge: disabled` still applies.
+   empty manifest. `agentMerge: disabled` still applies. `prove()` blocks a revert that changes a feature-map doc,
+   because that doc links no frozen proof; escalate that revert to the owner with the blocking doc paths.
 4. Implement the durable fix as a separate PR whose proofs reproduce the failure. Use `skill://codify-omp-workflow-corrections`
    when the incident exposes a repeated class. Owner authority never permits unrelated changes or check bypasses.

@@ -113,6 +113,23 @@ def resolve_link(repo: Path, doc: str, target: str) -> tuple[str | None, str]:
     return "/".join(parts) or ".", anchor
 
 
+def linked_files(repo: Path, doc: str, text: str) -> set[str]:
+    """Repo-relative files that a map document's relative links name, whether or not they exist."""
+    linked = set()
+    for target in parse(text).links:
+        if SCHEME.match(target):
+            continue
+        resolved, _ = resolve_link(repo, doc, target)
+        if resolved and resolved != "..":
+            linked.add(resolved)
+    return linked
+
+
+def index_files(profile: dict) -> set[str]:
+    """Map file names (``guardrails.feature_map.index_files``) that are not feature documents."""
+    return set(as_list(settings(profile, CHECKER).get("index_files")))
+
+
 def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
     found = []
     own_slugs = {slug(text) for _, text in document.headings}
@@ -211,13 +228,13 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
                 "write one document per feature at the feature map path",
             )
         ]
-    index_files = set(as_list(settings(profile, CHECKER).get("index_files")))
+    indexes = index_files(profile)
     found: list[Finding] = []
     owners: dict[str, str] = {}
     for doc in map_documents(repo, map_path):
         document = parse(read(repo / doc))
         found.extend(link_findings(repo, doc, document))
-        if PurePosixPath(doc).name in index_files:
+        if PurePosixPath(doc).name in indexes:
             continue
         found.extend(section_findings(doc, document, lever))
         for level, text in document.headings:
