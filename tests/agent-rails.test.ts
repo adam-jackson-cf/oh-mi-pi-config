@@ -17,7 +17,7 @@ const verification = "skill://coding-guidance/references/verification.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] }; testGlobs?: string[];
 	pathCheck?: string[] | string; agentMerge?: "allowed" | "disabled";
-	ci?: { requiredContext: string; runner: string }; dynaflowsContract?: number; dynaflows?: { enabled: boolean };
+	ci?: { requiredContext: string; runner: string }; dynaflows?: { enabled: boolean };
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
@@ -121,7 +121,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		writeFileSync(join(recordDir(), "gate.json"), text);
 	};
 	const writeGate = () => {
-		const gate = { dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
+		// A complete record: the required pathCheck and checks.commit default to `true`.
+		const gate = { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
 		if (enabled !== undefined) gate.dynaflows = { enabled };
 		writeRecord(JSON.stringify(gate));
 	};
@@ -236,16 +237,15 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("enforces first edit for existing code and honours repo-specific test placement", async () => {
+	test("enforces first edit for existing code; a repo with a record gets its pathCheck instead", async () => {
 		const h = harness();
 		try {
-			h.gate({ schemaVersion: 2, testGlobs: ["checks/**"] });
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.reason?.includes(integrity));
 			await h.read(integrity, structure, naming);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.ok((await h.call("write", { path: "checks/contract.ts" }))?.reason?.includes(tiers));
-			await h.read(tiers);
-			assert.equal(await h.call("write", { path: "checks/contract.ts" }), undefined);
+			assert.ok((await h.call("write", { path: "tests/contract.test.ts" }))?.reason?.includes(tiers));
+			h.gate({ schemaVersion: 2 });
+			assert.equal(await h.call("write", { path: "tests/contract.test.ts" }), undefined);
 		} finally { h.cleanup(); }
 	});
 
@@ -578,21 +578,26 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("an invalid record refuses dynaflows commits; a record with a legacy dynaflowsContract still loads", async () => {
+	test("a record missing pathCheck or checks.commit, or carrying an unknown field, refuses commits and pushes by name", async () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool");
-			h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflowsContract: 3 }));
-			const blocked = await h.call("bash", { command: "git commit -m x" });
-			assert.ok(blocked?.reason?.includes('dynaflows must be {"enabled": true|false}'), blocked?.reason);
-			for (const dynaflowsContract of [1, 3, 99, "2", null]) {
-				h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflowsContract, pathCheckTimeoutMs: 5, dynaflows: { enabled: true } }));
-				assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, JSON.stringify(dynaflowsContract));
-				assert.equal(await h.call("bash", { command: "git push" }), undefined, JSON.stringify(dynaflowsContract));
+			const complete = { schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: true } };
+			for (const [gate, named] of [
+				[{ ...complete, pathCheck: undefined }, "pathCheck"], [{ ...complete, checks: { ci: ["ci"] } }, "checks"],
+				[{ ...complete, checks: undefined }, "checks"], [{ ...complete, dynaflowsContract: 3 }, "dynaflowsContract"],
+				[{ ...complete, pathCheckTimeoutMs: 5 }, "pathCheckTimeoutMs"], [{ ...complete, ciHost: "github" }, "ciHost"],
+				[{ ...complete, checks: { commit: ["true"], lint: ["x"] } }, "checks.lint"],
+			] as const) {
+				h.rawGate(JSON.stringify(gate));
+				for (const command of ["git commit -m x", "git push"]) {
+					const refused = await h.call("bash", { command });
+					assert.equal(refused?.block, true, `${named}: ${command}`);
+					assert.ok(refused?.reason?.includes(named), refused?.reason);
+				}
 			}
-			h.setSession("legacy");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://omp-dyna-workflows"),
-				"a legacy record turns dynaflows on");
+			h.rawGate(JSON.stringify(complete));
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 		} finally { h.cleanup(); }
 	});
 
@@ -652,12 +657,10 @@ describe("agent rails", () => {
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
 			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "the record turns it on");
-			assert.ok(pointer.includes("lacks checks.commit or pathCheck") && pointer.includes("skill://setup-repository-guardrails"),
-				"an incomplete record points at setup");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
 			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
-			assert.deepEqual(h.record(), { dynaflows: { enabled: false }, schemaVersion: 2 },
+			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false }, schemaVersion: 2 },
 				"only the switch changes");
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
@@ -941,7 +944,7 @@ for (const scenario of [
 		const h = harness();
 		try {
 			await h.read("skill://git-tool");
-			if ("boundary" in scenario && scenario.boundary === "gate") h.gate({ schemaVersion: 2, checks: { ci: ["bun", "ci"] } });
+			if ("boundary" in scenario && scenario.boundary === "gate") h.gate({ schemaVersion: 2, checks: { commit: ["true"], ci: ["bun", "ci"] } });
 			if ("boundary" in scenario && scenario.boundary === "workflows") mkdirSync(join(h.root, ".github/workflows"), { recursive: true });
 			h.dynaflows(true);
 			proveResult(h);
@@ -1067,17 +1070,11 @@ test("ci-runner commands come from the extension's own location, never a host li
 	assert.equal(ciRunner, resolve(import.meta.dir, "..", "scripts", "ci-runner.py"));
 });
 
-test("a retired ciHost gate is refused with the migration message", async () => {
+test("a gate with every optional check and a ci block allows publishing", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool");
-		for (const ciHost of ["github", "nuc"]) {
-			h.rawGate(JSON.stringify({ schemaVersion: 2, dynaflows: { enabled: false }, ciHost }));
-			const result = await h.call("bash", { command: "git push" });
-			assert.equal(result?.block, true);
-			assert.ok(result?.reason?.includes("ciHost is retired; declare ci.requiredContext and ci.runner"), result?.reason);
-		}
-		h.gate({ schemaVersion: 2, ci: ciGate, checks: { format: ["ruff", "format"], profile: ["omp-guardrails", "profile-check"] } });
+		h.gate({ schemaVersion: 2, ci: ciGate, checks: { commit: ["true"], format: ["ruff", "format"], profile: ["omp-guardrails", "profile-check"] } });
 		assert.equal(await h.call("bash", { command: "git push" }), undefined);
 	} finally { h.cleanup(); }
 });
@@ -1266,8 +1263,7 @@ test("pathCheck runs under the one fixed rails timeout; a killed checker is surf
 			if (name === "checker") { timeouts.push(options.timeout); return { code: 1, killed: true, stdout: "", stderr: "" }; }
 			return exec(command, args, options);
 		};
-		// A legacy per-record timeout is ignored.
-		h.rawGate(JSON.stringify({ schemaVersion: 2, pathCheck: ["checker"], pathCheckTimeoutMs: 30, dynaflows: { enabled: false } }));
+		h.gate({ schemaVersion: 2, pathCheck: ["checker"] });
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("pathCheck failed"));
 		assert.deepEqual(timeouts, [20000]);
 	} finally { h.cleanup(); }
@@ -1345,15 +1341,14 @@ test("linked worktrees resolve the main checkout's record", async () => {
 });
 
 test("Python proof gates and rails accept the same schema fixtures", async () => {
-	// Each case sits over a dynaflows-off record. Retired fields (dynaflowsContract,
-	// pathCheckTimeoutMs) appear only with values both sides have always accepted.
-	const record = { dynaflows: { enabled: false } };
+	// Each case sits over a complete dynaflows-off record; a case's undefined value drops the field.
+	const record = { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false } };
 	const cases: object[] = [
-		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} },
+		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, pathCheck: undefined }, { schemaVersion: 2, checks: undefined },
 		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, pathCheck: ["check"], testGlobs: ["", "tests/**"], agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
 		{ schemaVersion: 2, ci: { requiredContext: "build", runner: "github-actions" } },
-		{ schemaVersion: 2, dynaflowsContract: 3, pathCheckTimeoutMs: 1000 },
-		{ schemaVersion: 2, ciHost: "github" }, { schemaVersion: 2, ciHost: "nuc" }, { schemaVersion: 2, ciHost: null },
+		{ schemaVersion: 2, dynaflowsContract: 3 }, { schemaVersion: 2, pathCheckTimeoutMs: 1000 }, { schemaVersion: 2, checks: { commit: ["c"], lint: ["l"] } },
+		{ schemaVersion: 2, ciHost: "github" }, { schemaVersion: 2, ciHost: null },
 		{ schemaVersion: 2, ci: null }, { schemaVersion: 2, ci: {} }, { schemaVersion: 2, ci: { requiredContext: " ", runner: "ci-gate" } },
 		{ schemaVersion: 2, ci: { requiredContext: "gate" } }, { schemaVersion: 2, ci: { requiredContext: "gate", runner: 1 } },
 		{ schemaVersion: 2, checks: { format: [] } }, { schemaVersion: 2, checks: { profile: [" "] } }, { schemaVersion: 2, checks: { format: "fmt" } },
@@ -1539,9 +1534,8 @@ test("uv and poetry separator commits pass the tool-call handler", async () => {
 	}
 });
 
-test("agent-rails.yml carries no dynaflows contract, and an invalid mapping fails the load", async () => {
+test("an invalid agent-rails.yml mapping fails the load", async () => {
 	const source = readFileSync(railsConfig, "utf8");
-	assert.equal(/dynaflowsContract/.test(source), false);
 	assert.equal(/merge\|rebase|cherry-pick|revert\|am\|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
 		"pulling commits in is not a gated git command");
 	const dir = mkdtempSync(join(tmpdir(), "agent-rails-config-"));

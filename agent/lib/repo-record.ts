@@ -86,9 +86,43 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 	}
 }
 
-const dynaflowsSwitch = z.object({ dynaflows: z.object({ enabled: z.boolean() }) });
+const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
+const nonEmpty = z.string().refine(value => value.trim().length > 0);
+const dynaflowsSwitch = z.object({ enabled: z.boolean() });
+// The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
+// is current: an unknown field, at the top level or in `checks`, is rejected by name.
+// `pathCheck` and `checks.commit` are required: rails run them at every agent commit, pathCheck
+// first. `checks.ci` runs in CI; `checks.format` runs in freeze() before hashing; `checks.profile`
+// is validated for the harness's other consumers. `ci.requiredContext` is the commit status or
+// check run that must be SUCCESS on the exact PR head, whoever posts it; `ci.runner` is a role
+// resolved by the machine's ci-runners.json.
+export const gateSchema = z.object({
+	schemaVersion: z.literal(2),
+	checks: z.object({
+		commit: argvSchema, ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
+	}).strict(),
+	pathCheck: argvSchema,
+	testGlobs: z.array(z.string()).optional(),
+	agentMerge: z.enum(["allowed", "disabled"]).optional(),
+	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
+	// The repo's dynaflows switch (required); checked below for one message.
+	dynaflows: z.unknown().optional(),
+}).strict().superRefine((gate, ctx) => {
+	if (!dynaflowsSwitch.safeParse(gate.dynaflows).success) {
+		ctx.addIssue({ code: "custom", path: ["dynaflows"], message: 'dynaflows must be {"enabled": true|false}' });
+	}
+}).transform(gate => ({
+	commit: gate.checks.commit,
+	ciCheck: gate.checks.ci,
+	pathCheck: gate.pathCheck,
+	testGlobs: gate.testGlobs,
+	agentMerge: gate.agentMerge,
+	requiredCi: gate.ci,
+	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),
+}));
+export type Gate = z.infer<typeof gateSchema>;
 
-/** The record's gate.json text; consumers parse it with their own gate schema. */
+/** The record's gate.json text. */
 export async function readGateText(record: string): Promise<string> {
 	const path = join(record, GATE_FILE);
 	try {
@@ -98,17 +132,20 @@ export async function readGateText(record: string): Promise<string> {
 	}
 }
 
+/** The record's gate, parsed with gateSchema; an unreadable or invalid gate throws RecordError. */
+export async function loadGate(record: string): Promise<Gate> {
+	const path = join(record, GATE_FILE);
+	const text = await readGateText(record);
+	let parsed;
+	try { parsed = gateSchema.safeParse(JSON.parse(text)); }
+	catch (error) { throw new RecordError(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
+	if (!parsed.success) throw new RecordError(`${path}: invalid gate: ${parsed.error.message}`);
+	return parsed.data;
+}
+
 /** True only when the clone has a record whose dynaflows.enabled is true. */
 export async function dynaflowsEnabled(repo: string, root: string = configRoot()): Promise<boolean> {
 	const record = await findRecord(repo, root);
 	if (record === null) return false;
-	const path = join(record, GATE_FILE);
-	let parsed;
-	try {
-		parsed = dynaflowsSwitch.safeParse(JSON.parse(await readGateText(record)));
-	} catch (error) {
-		throw error instanceof RecordError ? error : new RecordError(`${path}: ${error instanceof Error ? error.message : String(error)}`);
-	}
-	if (!parsed.success) throw new RecordError(`${path}: dynaflows must be {"enabled": true|false}`);
-	return parsed.data.dynaflows.enabled;
+	return (await loadGate(record)).dynaflows.enabled;
 }

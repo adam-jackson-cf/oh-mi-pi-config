@@ -20,11 +20,13 @@ MAX_AGENTS = 16
 MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
-    "missing pathCheck; follow skill://omp-dyna-workflows/SKILL.md "
+    "missing per-repo record; follow skill://omp-dyna-workflows/SKILL.md "
     "owner-approval prerequisite (skill://setup-repository-guardrails)")
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
-RETIRED_PROOF_FIELDS = ("kind", "expectRed")
+# Every current manifest and proof field; any other field is rejected by name.
+MANIFEST_FIELDS = frozenset({"schemaVersion", "slug", "base", "setup", "revisions", "proofs"})
+PROOF_FIELDS = frozenset({"id", "criterion", "parent", "cmd", "journey", "files", "sha256"})
 FEATURE_MAP_SETUP = (
     "the record profile declares no verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
@@ -118,9 +120,6 @@ def read_record(repo):
         gate = resolver.load_gate(record)
     except resolver.RecordError as exc:
         raise WorkflowError(f"record {exc}") from exc
-    reason = gate_reason(gate)
-    if reason is not None:
-        raise WorkflowError(f"record {record / resolver.GATE_FILE}: {reason}")
     return record, gate
 
 
@@ -265,6 +264,9 @@ def _validate(manifest, max_checks, *, frozen=True):
     _limit(max_checks)
     if not isinstance(manifest, dict) or type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1:
         raise WorkflowError("unsupported manifest schema")
+    unknown = sorted(set(manifest) - MANIFEST_FIELDS)
+    if unknown:
+        raise WorkflowError(f"unknown manifest field {', '.join(unknown)}")
     slug = manifest.get("slug")
     if not isinstance(slug, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", slug):
         raise WorkflowError("invalid manifest slug")
@@ -291,9 +293,9 @@ def _validate(manifest, max_checks, *, frozen=True):
         if not isinstance(ident, str) or not ident.strip() or ident in ids:
             raise WorkflowError("missing or duplicate proof id")
         ids.add(ident)
-        retired = [field for field in RETIRED_PROOF_FIELDS if field in proof]
-        if retired:
-            raise WorkflowError(f"{ident}: {', '.join(retired)} retired; every proof is red at base and green at head")
+        unknown = sorted(set(proof) - PROOF_FIELDS)
+        if unknown:
+            raise WorkflowError(f"{ident}: unknown proof field {', '.join(unknown)}")
         if not isinstance(proof.get("criterion"), str) or not proof["criterion"].strip():
             raise WorkflowError(f"{ident}: missing criterion")
         if "parent" in proof and (not isinstance(proof["parent"], str) or not proof["parent"].strip() or "\0" in proof["parent"]
@@ -748,46 +750,11 @@ def _range(repo, parent, head, target_ref):
     return parent, target
 
 
-CI_HOST_RETIRED = "ciHost is retired; declare ci.requiredContext and ci.runner"
-
-
-def gate_reason(gate):
-    """Why rails would reject this gate, or None when it is accepted. Retired fields (such as
-    dynaflowsContract or pathCheckTimeoutMs) in an older record are ignored, not rejected."""
-    if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
-        return "unsupported gate schemaVersion"
-    if "ciHost" in gate:
-        return CI_HOST_RETIRED
-    checks = gate.get("checks", {})
-    if not isinstance(checks, dict):
-        return "checks must be an object"
-    def argv(value):
-        return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
-    for key in ("commit", "ci", "format", "profile"):
-        if key in checks and not argv(checks[key]):
-            return f"checks.{key} must be argv"
-    if "pathCheck" in gate and not argv(gate["pathCheck"]):
-        return "pathCheck must be argv"
-    ci = gate.get("ci")
-    if "ci" in gate:
-        if not isinstance(ci, dict) or any(not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner")):
-            return "ci must declare nonblank requiredContext and runner"
-    if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
-        return "agentMerge must be allowed or disabled"
-    if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
-        return "testGlobs must be a string list"
-    dynaflows = gate.get("dynaflows")
-    if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
-        return 'dynaflows must be {"enabled": true|false}'
-    return None
-
-
 def gate_policy(gate):
-    """Mirror rails gate acceptance (None when rejected); return only the fields consumed here."""
-    if gate_reason(gate) is not None:
+    """The fields consumed here from a gate the harness's repo_record.gate_reason accepts, else None."""
+    if _resolver().gate_reason(gate) is not None:
         return None
-    checks = gate.get("checks", {})
-    return {"pathCheck": gate.get("pathCheck"), "format": checks.get("format"), "ci": gate.get("ci")}
+    return {"format": gate["checks"].get("format"), "ci": gate.get("ci")}
 
 
 def deterministic_checks(head_tree, manifest, roots=(), baselines=None):
@@ -923,8 +890,6 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
         if record is None:
             raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; {no_record_reason(repo)}")
         policy = gate_policy(gate)
-        if not policy["pathCheck"]:
-            raise WorkflowError(GUARDRAIL_PREREQUISITE)
         if policy["ci"]:
             context = policy["ci"]["requiredContext"]
             state = _required_context_state(repo, head, context)

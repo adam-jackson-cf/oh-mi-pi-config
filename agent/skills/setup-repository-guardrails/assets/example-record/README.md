@@ -14,7 +14,8 @@ The target repository holds nothing about the harness.
 The record holds two files:
 
 - `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`, `pathCheck`), test globs,
-  the required CI context and runner role, and `dynaflows.enabled`.
+  the required CI context and runner role, and `dynaflows.enabled`. `pathCheck` and
+  `checks.commit` are required; a field outside the schema fails the load, naming the field.
 - `profile.md`: the repo test profile, JSON front matter between `---` lines, then prose. Start
   it from `skill://test-guidance/assets/templates/test-profile.md`.
 

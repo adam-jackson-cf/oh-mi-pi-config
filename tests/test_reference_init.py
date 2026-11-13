@@ -244,7 +244,13 @@ class DraftRecordTests(InitCase):
         gate = self.gate()
         self.assertEqual(gate["checks"]["ci"], ["just", "ci"])
         self.assertEqual(gate["ci"], {"requiredContext": "ci", "runner": "ci-gate"})
-        for flags in (("--runner", " "), ("--commit-command", "")):
+        self.assertNotIn("pathCheck", gate)
+        self.assertIn("required: no pathCheck found; pass --path-command", output)
+        code, output = self.init("--path-command", "python3 scripts/check-paths.py")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.gate()["pathCheck"], ["python3", "scripts/check-paths.py"])
+        self.assertNotIn("required:", output)
+        for flags in (("--runner", " "), ("--commit-command", ""), ("--path-command", " ")):
             code, output = self.init(*flags)
             self.assertEqual(code, 1)
             self.assertIn("must not be empty", output)
@@ -257,14 +263,25 @@ class DraftRecordTests(InitCase):
         self.assertIn("discovered: pre-commit hooks: ruff", output)
         self.assertIn("confirm: no checks.ci found", output)
         self.assertIn("confirm: no ci found", output)
+        self.assertIn("required: no pathCheck found", output)
 
-    def test_unreadable_or_retired_gate_is_reported_not_rewritten(self) -> None:
-        for gate in ({"schemaVersion": 1}, {"schemaVersion": 2, "ciHost": "github"}):
+    def test_no_commit_command_found_is_reported_as_required(self) -> None:
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertIn("required: no checks.commit found; pass --commit-command", output)
+        self.assertIn("required: no pathCheck found; pass --path-command", output)
+
+    def test_unreadable_gate_or_unknown_field_is_reported_not_rewritten(self) -> None:
+        for gate, named in (({"schemaVersion": 1}, "schemaVersion 2"),
+                            ({"schemaVersion": 2, "ciHost": "github"}, "unknown field ciHost must be removed"),
+                            ({"schemaVersion": 2, "dynaflowsContract": 3}, "unknown field dynaflowsContract must be removed"),
+                            ({"schemaVersion": 2, "checks": {"lint": ["x"]}}, "unknown field checks.lint must be removed")):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))
                 code, output = self.init()
                 self.assertEqual(code, 1)
                 self.assertIn("GATE.local-ci-parity", output)
+                self.assertIn(named, output)
                 self.assertEqual(self.gate(), gate)
 
     def test_live_record_is_refused_and_the_draft_names_where_the_owner_saves_it(self) -> None:
@@ -330,7 +347,7 @@ class RequiredChecksTests(InitCase):
 
 
 class ExtendTests(InitCase):
-    """--extend updates an existing record; a legacy dynaflowsContract field still loads."""
+    """--extend updates an existing record and never creates one."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -347,16 +364,15 @@ class ExtendTests(InitCase):
         self.assertIn("--extend needs an existing record:gate.json", output)
         self.assertFalse((self.record / "gate.json").exists())
 
-    def test_legacy_dynaflows_contract_field_loads_and_is_left_as_recorded(self) -> None:
-        for value in (3, 0, "2", None):
-            with self.subTest(value=value):
-                gate = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]}, "dynaflowsContract": value}
-                self.write_record("gate.json", json.dumps(gate))
-                code, output = self.init("--extend")
-                self.assertEqual(code, 0, output)
-                self.assertNotIn("dynaflowsContract", output)
-                self.assertEqual(self.gate()["dynaflowsContract"], value)
-                self.assert_second_run_changes_nothing()
+    def test_extend_drafts_the_missing_required_fields(self) -> None:
+        self.write_record("gate.json", json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": True}}))
+        self.write("Makefile", MAKEFILE)
+        code, output = self.init("--extend")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.gate()["checks"]["commit"], ["make", "gate-commit"])
+        self.assertEqual(self.gate()["pathCheck"], ["make", "check-paths"])
+        self.assertNotIn("required:", output)
+        self.assert_second_run_changes_nothing()
 
 
 class LspTests(InitCase):
