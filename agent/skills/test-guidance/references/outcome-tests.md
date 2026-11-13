@@ -6,6 +6,9 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
 
 ## Guidance
 
+- Tie each outcome test that proves a feature to that feature's feature-map entry by a link from the entry
+  ([verification-surface.md](verification-surface.md#feature-map-and-journeys)). Under DynaFlows, an unlinked test
+  cannot be frozen as a proof.
 - Read Tiers' Public entry point per package in the repo test profile. Drive it with concrete realistic inputs.
   Derive the expected value independently from the requirement, never by copying the implementation's output.
 - For every kept test imagine two edits: a harmless internal refactor must leave it green, and breaking its claimed

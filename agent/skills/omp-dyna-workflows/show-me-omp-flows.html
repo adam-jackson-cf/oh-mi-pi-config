@@ -24,7 +24,7 @@
 <table><thead><tr><th>Event</th><th>Checks</th><th>Trigger owned by</th></tr></thead><tbody>
 <tr><td data-label="Event">Local commit, including one a merge creates</td><td data-label="Checks">The repo's own pre-commit checks</td><td data-label="Trigger owned by">Repo (its hook)</td></tr>
 <tr><td data-label="Event">Agent <code>git commit</code></td><td data-label="Checks">Record <code>pathCheck</code> and <code>checks.commit</code> (when set), then the harness checks (<code>omp-guardrails</code>, whole repo, block on any finding)</td><td data-label="Trigger owned by">Harness (rails)</td></tr>
-<tr><td data-label="Event">PR event (agent opens or merges a PR)</td><td data-label="Checks"><code>prove()</code>: frozen proofs failed at base (shown at freeze) and pass at head; CI green on head</td><td data-label="Trigger owned by">Harness (dynaflows)</td></tr>
+<tr><td data-label="Event">PR event (agent opens or merges a PR)</td><td data-label="Checks"><code>prove()</code>: frozen proofs failed at base (shown at freeze) and pass at head; every changed feature-map doc links a frozen proof; CI green on head</td><td data-label="Trigger owned by">Harness (dynaflows)</td></tr>
 <tr><td data-label="Event">CI event: PR, push, nightly; any host</td><td data-label="Checks">The repo's CI gates</td><td data-label="Trigger owned by">Repo and the CI host</td></tr>
 <tr><td data-label="Event">Pulling commits in: merge main, rebase, cherry-pick, revert, sync</td><td data-label="Checks">Nothing beyond the above</td><td data-label="Trigger owned by">none</td></tr>
 </tbody></table></section>
@@ -32,9 +32,9 @@
 <div class="stages">
 <article class="card"><b>1 · Frame</b><p>Main selects one playbook, captures all requested outcomes and discovers with <code>find</code> (<code>-k</code> synonyms, repeated until no new files), then <code>lsp</code>, <code>ast_grep</code> and <code>grep</code>/<code>glob</code>. Kiss removes unnecessary work/questions, never requested behaviour. Read-only scout maps genuinely unknown ownership.</p></article>
 <article class="card"><b>2 · Spike</b><p>Main fetches the resolved remote default and creates a detached tree. Task performs the bounded experiment; main saves the report before tree removal. Reproduction and setup inventory are mandatory; other spikes answer remaining questions. Spike code never lands.</p></article>
-<article class="card"><b>3 · Plan</b><p>Main maps criteria to named proofs. Draft until spike answers land; missing proof surfaces are first tasks. Each multi-phase unit, including final flag removal, has its own manifest and PR.</p></article>
-<article class="card task"><b>4 · Implement</b><p>Prerequisite: a record with valid controls. Missing controls route to <b>owner-approved</b> project setup. At each agent commit, rails run the record's <code>pathCheck</code> and <code>checks.commit</code> (when set), then the harness checks over the whole repo; any finding blocks the commit.</p><p>Proof task leaves files uncommitted → main freezes → separate implementation task (configured <code>task</code> model) commits proofs with the greening change, pushes, authors the body, opens the PR and waits for exact-head CI. Main never commits.</p><p class="check">Freeze runs the optional <code>checks.format</code> formatter first and hashes the formatted bytes, reporting files it changed for the writer to commit. One rule for every proof: <b>red at base</b> (any failing run; infrastructure is not red, and red containing the profile's doctor marker is refused). A PR with no behaviour change (refactor, docs, setup without new controls) freezes no proofs.</p><p>Designer owns presentational work and scores <b>10 principles, each 0–2</b>, inspecting screenshots—not a ten-point total.</p></article>
-<article class="card prove"><b>5 · Verify</b><p>Main confirms the writer has no pending edits, then calls <code>prove()</code> on the PR's current head. It checks only two things: the record's required CI context is green on the exact head, and every frozen proof is unchanged and passes at head (twice; journeys 3 times). With no proofs it checks CI green only.</p><p>It writes <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code> and posts the result on the PR. No review agent, no status posting. A rebase or update needs one more <code>prove()</code> on the new head, nothing else.</p></article>
+<article class="card"><b>3 · Plan</b><p>Main maps criteria to named proofs, each an outcome test or journey linked from a feature-map entry. No feature map routes to project setup first. Draft until spike answers land; missing proof surfaces are first tasks. Each multi-phase unit, including final flag removal, has its own manifest and PR.</p></article>
+<article class="card task"><b>4 · Implement</b><p>Prerequisite: a record with valid controls. Missing controls route to <b>owner-approved</b> project setup. At each agent commit, rails run the record's <code>pathCheck</code> and <code>checks.commit</code> (when set), then the harness checks over the whole repo; any finding blocks the commit.</p><p>Proof task writes proofs and the map entries that link them, uncommitted → main freezes (refuses unlinked proof files) → separate implementation task (configured <code>task</code> model) commits proofs with the greening change, pushes, authors the body, opens the PR and waits for exact-head CI. Main never commits.</p><p class="check">Freeze runs the optional <code>checks.format</code> formatter first and hashes the formatted bytes, reporting files it changed for the writer to commit. One rule for every proof: <b>red at base</b> (any failing run; infrastructure is not red, and red containing the profile's doctor marker is refused). A PR with no behaviour change (refactor, docs, setup without new controls) freezes no proofs.</p><p><b>Discoveries:</b> unplanned user-facing behaviour → implementation adds the map entry and outcome test → main re-freezes (red at base) → implementation resumes. <b>Map sweep</b> before the PR: each behaviour the diff adds or changes, with a concrete source path, that no changed map doc covers gets a map entry and a test, then a re-freeze. Entries and tests only, never review findings.</p><p>Designer owns presentational work and scores <b>10 principles, each 0–2</b>, inspecting screenshots—not a ten-point total.</p></article>
+<article class="card prove"><b>5 · Verify</b><p>Main confirms the writer has no pending edits, then calls <code>prove()</code> on the PR's current head. It checks only three things: the record's required CI context is green on the exact head, every feature-map doc changed in the PR links a frozen proof, and every frozen proof is unchanged and passes at head (twice; journeys 3 times). With no proofs and no map change it checks CI green only.</p><p>It writes <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code> and posts the result on the PR. No review agent, no status posting. A rebase or update needs one more <code>prove()</code> on the new head, nothing else.</p></article>
 <article class="card"><b>6 · Integrate</b><p>Main merges the head under <a href="skill://git-tool/references/merge-and-recover.md">merge-and-recover</a>, respecting <code>agentMerge: disabled</code>. With dynaflows on, rails' merge guard requires CI green on that head and its result file with <code>status: pass</code>. Wait for <code>MERGED</code>.</p><p>Repository-specific target or merge-method exceptions live in that repository's project instructions.</p></article>
 </div></section>
 <section aria-labelledby="boundary"><h2 id="boundary">Harness / repo boundary</h2>
@@ -54,8 +54,9 @@ and may tighten them. Plan reads tiers, case selection and suite budgets.</p>
 <p>User-visible work without a verification surface first completes owner-approved
 Project setup, including guarded repos in surface-only extend mode. An approved
 no-runnable-app exemption does not divert config or skill work. Setup demonstrates
-a broken variant in scratch, then discards that code. Proof tasks write the lever
-and runner-invoked journeys and freeze them together; like new-control canaries, they
+a broken variant in scratch, then discards that code. The feature map must exist before
+any TDD proof. Proof tasks write the lever, runner-invoked journeys and the map entries
+linking them, and freeze them together; like new-control canaries, they
 fail at base and pass at head. Implementation writes map, profile and guardrails,
 in that order; Step 5 approval remains mandatory. The profile and guardrail settings go in the local record, never in the repo.</p>
 <p>Outcome tests drive public entry points; property tests cover pure cores.
@@ -63,8 +64,9 @@ Every proof, lever journeys included, fails at base and passes at head; doctor/e
 failures are not accepted red.
 Proof briefs read case selection, naming/layout, outcome tests, tiers and profile,
 plus property, determinism, statistics and surface guidance when applicable.
-Implementation reads surface guidance for mapped-feature changes and edits map docs only,
-not frozen lever bytes.</p>
+Proofs come only from outcome tests and journeys linked from the feature map, the maintained
+verification source. Implementation edits product code and map docs, not frozen lever bytes; a new
+proof enters only through a discovery or map-sweep re-freeze.</p>
 <p>T1 has no processes or network; T2 owns seams and boundary-crossing journeys;
 T3 owns agent exploration and live paid calls. Commit runs static checks, T1 and affected
 T2; CI runs T1 + T2; nightly adds T3 on scheduler-enumerated active branches.
@@ -74,7 +76,7 @@ or reports test timing. First limits and raises need approval.</p>
 <section aria-labelledby="loop"><h2 id="loop">Ready PR → prove → merge</h2>
 <div class="loop">
 <div class="card"><b>1 · Writer ready</b>No pending edits; the exact pushed head has required green CI.</div>
-<div class="card"><b>2 · Main prove</b>CI green on head; frozen proofs unchanged and passing at head. Zero proofs: CI green only. Writes the head's result file and posts it on the PR.</div>
+<div class="card"><b>2 · Main prove</b>CI green on head; changed map docs each link a frozen proof; frozen proofs unchanged and passing at head. Zero proofs, no map change: CI green only. Writes the head's result file and posts it on the PR.</div>
 <div class="card"><b>3 · Merge</b>Rails (dynaflows on) require CI green on head and the result file with <code>status: pass</code> for that exact head. A new head needs one more <code>prove()</code>.</div>
 </div>
 <p>Three writer fix rounds maximum, then escalate with the actual blocker. See <a href="skill://git-tool/references/verify-loop.md">verify-loop</a>.</p>
@@ -102,7 +104,7 @@ or reports test timing. First limits and raises need approval.</p>
 <ol class="principles">
 <li><b>Proof over opinion.</b><p class="check">Check: deterministic proof execution; agent opinion review is not evidence.</p></li>
 <li><b>Questions before experiments.</b> Frame only plan-changing uncertainty; save scratch evidence before removal.</li>
-<li><b>Proofs before implementation.</b><p class="check">Check: freeze shows red at base; prove shows the same frozen bytes green at head.</p><p class="instruction">Instruction: ordered proof/main-freeze/implementation actors.</p></li>
+<li><b>Proofs before implementation.</b><p class="check">Check: freeze refuses proofs the feature map does not link and shows red at base; prove shows the same frozen bytes green at head and blocks changed map docs without a proof.</p><p class="instruction">Instruction: ordered proof/main-freeze/implementation actors.</p></li>
 <li><b>Events trigger checks.</b> Commit, PR and CI events run checks; pulling existing commits in runs nothing extra.</li>
 <li><b>Deterministic first.</b> Infrastructure failure is not red evidence; judgement cannot turn it into pass.</li>
 <li><b>Governed structure and tests.</b><p class="check">Check: the repo's own path/commit/CI controls, then the harness checks over the whole repo.</p><p class="block">Hard block: missing required references or unresolved path failures.</p></li>

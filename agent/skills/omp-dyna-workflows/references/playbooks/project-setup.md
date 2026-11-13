@@ -23,14 +23,21 @@ Step 4. Scratch work prepares Step 5 approval; never apply controls during inven
 
 ## 3. Plan
 
+The feature map must exist before any TDD proof: `freeze()` refuses every proof when the record
+profile declares no `verification_surface.feature_map_path`, and refuses a proof file no map doc
+links. Setup therefore establishes the map first.
+
 Proofs follow the one rule: red at base, green at head. A lever journey is red at base
 because the lever is absent; a new-control canary is red at base because the violation is
 still accepted there. Cover intentional violations rejected and valid inputs accepted.
-The proof task writes the production lever and runner-invoked journey files and freezes them
-together with `freeze(..., project_setup=True)`, which only tolerates an absent record (the
-owner saves it in stage 4). Implementation owns the feature map, profile and guardrails, not
-lever bytes. A setup PR that changes no behaviour (config, docs or repo fixes only) freezes an
-empty manifest; `prove()` then checks CI green only.
+A setup PR that changes no behaviour (config, docs, repo fixes or the first feature map only)
+freezes an empty manifest with `freeze(..., project_setup=True)`, which tolerates an absent
+record. Its PR check is CI green: the record is saved with `dynaflows.enabled` false, and
+`prove()` would block the new map docs because they link existing tests, not frozen proofs.
+A setup PR that freezes lever journeys or canaries needs the saved record with
+`feature_map_path` before freeze: the proof task writes the lever, the runner-invoked journey
+files and the map entries that link them, and main freezes them together.
+Implementation owns the map's prose, profile and guardrails, not lever bytes.
 Complete guardrails Step 5 owner approval.
 Surface-only mode still runs Steps 0–7 with extend scope: `TEST.placement`,
 `STRUCT.folder-placement`, `NAME.conventions`, ownership areas and affected-T2 selection.
@@ -38,7 +45,9 @@ Keep the Step 5 STOP; existing controls are not permission to skip approval.
 
 ## 4. Implement
 
-After freeze, implementation writes the feature map in the repo. The confirmed record's
+Implementation writes or completes the feature map in the repo: one document per feature under
+`feature_map_path`, each linking the outcome tests or journeys that prove it
+(`skill://test-guidance/references/verification-surface.md`). The confirmed record's
 `profile.md` starts from `skill://test-guidance/assets/templates/test-profile.md`, with its
 machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
 `--record <draft dir>` outside `repos/`, drafts the same template and the record's `gate.json`.
@@ -52,7 +61,8 @@ Bootstrap permits proposing controls before they exist, not bypassing approval.
 
 ## 5. Verify
 
-`prove()` shows frozen journeys and canaries green at head; doctor failures are never proof assertions.
+When proofs were frozen, `prove()` shows frozen journeys and canaries green at head and every map
+doc the PR changed links one of them; doctor failures are never proof assertions.
 
 ## 6. Integrate
 

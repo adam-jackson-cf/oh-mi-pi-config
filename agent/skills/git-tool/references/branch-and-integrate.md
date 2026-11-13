@@ -30,7 +30,8 @@ Authority and safety belong to [git-tool](../SKILL.md).
 
 ## Implementation task publishes
 
-Proof tasks stop uncommitted; only the assigned implementation task performs these steps.
+Proof tasks stop uncommitted; only the assigned implementation task performs these steps, after the
+[stage-4](skill://omp-dyna-workflows/SKILL.md) map sweep and any re-freeze it caused.
 
 1. Review the final diff and stage only intended files. Create new logical commits via `git commit`.
    Rails run the record's `pathCheck`, its `checks.commit` when set and then the harness checks over the whole repo;
