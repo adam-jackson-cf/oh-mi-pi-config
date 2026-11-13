@@ -9,7 +9,7 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, findRecord, GATE_FILE, offText, RECORDS_DIR, readGateText, resolveRecord,
+	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, RECORDS_DIR, readGateText, resolveRecord,
 } from "../lib/repo-record.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
@@ -35,46 +35,6 @@ const mappingSchema = z.object({
 	resolveDevice: z.string(),
 	rejectDevice: z.string(),
 });
-const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
-const nonEmpty = z.string().refine(value => value.trim().length > 0);
-const retiredCiHost = "ciHost is retired; declare ci.requiredContext and ci.runner";
-const policyFields = {
-	pathCheck: argvSchema.optional(),
-	testGlobs: stringList.optional(),
-	agentMerge: z.enum(["allowed", "disabled"]).optional(),
-	// `requiredContext` is the commit status or check run that must be SUCCESS on the exact PR head,
-	// whoever posts it; `runner` is a role resolved by the machine's ci-runners.json.
-	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
-	ciHost: z.unknown().optional(),
-	// The repo's dynaflows switch (required); it replaces the retired project-level dynaflows file.
-	dynaflows: z.unknown().optional(),
-};
-const dynaflowsSwitch = z.object({ enabled: z.boolean() });
-// The per-repo record's gate.json (repos/<owner>/<name>/ under the oh-mi-pi-config root).
-// `checks.commit` is the repo's own commit command: rails run it at the agent's commit, after
-// pathCheck and before the harness checks; `checks.ci` runs in CI; `checks.format` runs in freeze()
-// before hashing; `checks.profile` is validated for the harness's other consumers. Unknown fields
-// (such as a retired dynaflowsContract or pathCheckTimeoutMs) are ignored, so older records load.
-const gateSchema = z.object({
-	schemaVersion: z.literal(2),
-	checks: z.object({
-		commit: argvSchema.optional(), ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
-	}).optional(),
-	...policyFields,
-}).superRefine((gate, ctx) => {
-	if (gate.ciHost !== undefined) ctx.addIssue({ code: "custom", path: ["ciHost"], message: retiredCiHost });
-	if (!dynaflowsSwitch.safeParse(gate.dynaflows).success) {
-		ctx.addIssue({ code: "custom", path: ["dynaflows"], message: 'dynaflows must be {"enabled": true|false}' });
-	}
-}).transform(gate => ({
-	commit: gate.checks?.commit,
-	ciCheck: gate.checks?.ci,
-	pathCheck: gate.pathCheck,
-	testGlobs: gate.testGlobs,
-	agentMerge: gate.agentMerge,
-	requiredCi: gate.ci,
-	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),
-}));
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
 	url: z.string().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/),
@@ -120,7 +80,6 @@ const dynaflowsSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boole
 type Dynaflows = z.infer<typeof dynaflowsSchema>;
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
-type Gate = z.infer<typeof gateSchema>;
 type RepoRecord = { dir: string; gate: Gate };
 type GitAction = {
 	command: string; args: string[]; cwd?: string; config: string[];
@@ -581,13 +540,7 @@ export default function agentRails(
 	async function recordAt(root: string): Promise<RepoRecord | undefined> {
 		const dir = await findRecord(root, configRoot);
 		if (!dir) return;
-		const path = join(dir, GATE_FILE);
-		const text = await readGateText(dir);
-		let parsed;
-		try { parsed = gateSchema.safeParse(JSON.parse(text)); }
-		catch (error) { throw new Error(`${path}: ${String(error)}`); }
-		if (!parsed.success) throw new Error(`${path}: invalid gate: ${parsed.error.message}`);
-		return { dir, gate: parsed.data };
+		return { dir, gate: await loadGate(dir) };
 	}
 	async function gateAt(root: string, state: State, ctx: ExtensionContext, strict = false): Promise<Gate | undefined> {
 		try {
@@ -732,7 +685,6 @@ export default function agentRails(
 		}
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
-		if (!gate.pathCheck) return;
 		try {
 			const canonicalRoot = await realpath(root);
 			const candidates: string[] = [];
@@ -790,13 +742,11 @@ export default function agentRails(
 	async function commitChecksReason(root: string, state: State): Promise<string | undefined> {
 		const record = await recordAt(root);
 		if (!record) return;
-		if (record.gate.pathCheck) {
-			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...await commitPaths(root)])];
-			const failed = await checkPaths(root, changed, record.gate, state);
-			if (failed) return `${failed}\nFix the findings, then commit again.`;
-		}
+		const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...await commitPaths(root)])];
+		const failed = await checkPaths(root, changed, record.gate, state);
+		if (failed) return `${failed}\nFix the findings, then commit again.`;
 		const runs: [string, string[]][] = [
-			...(record.gate.commit ? [[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit] satisfies [string, string[]]] : []),
+			[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit],
 			["harness checks (omp-guardrails)", [...guardrailsCommand, "--repo", root, "--record", record.dir]],
 		];
 		for (const [label, argv] of runs) {
@@ -843,7 +793,7 @@ export default function agentRails(
 		const errors: string[] = [];
 		if (runCheck) for (const [root, changedPaths] of groups) {
 			const gate = await gateAt(root, state, ctx);
-			if (!gate?.pathCheck) continue;
+			if (!gate) continue;
 			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
 			const error = await checkPaths(root, changed, gate, state);
 			if (error) errors.push(error);
@@ -966,14 +916,14 @@ export default function agentRails(
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
-				const gate = root ? await gateAt(root, state, ctx) : undefined;
-				if (gate?.pathCheck) continue;
+				// A repo with a valid record gets its pathCheck after each edit instead of read gates.
+				if (root && await gateAt(root, state, ctx)) continue;
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
 				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
 				// New-file reads apply only to code files inside a repository, not scratch paths.
 				if (root && matches(rel, map.codeGlobs) && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
-				if (matches(rel, gate?.testGlobs ?? map.testGlobs)) triggers.push("test");
+				if (matches(rel, map.testGlobs)) triggers.push("test");
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
@@ -994,7 +944,7 @@ export default function agentRails(
 			for (const root of roots) {
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
-				if (failedPaths && gate?.pathCheck) {
+				if (failedPaths && gate) {
 					const error = await checkPaths(root, failedPaths, gate, state);
 					if (error) reasons.push(error);
 				}
@@ -1027,16 +977,9 @@ export default function agentRails(
 		}
 		if (state.pointed || !(await dynaflowsOn(ctx))) return;
 		state.pointed = true;
-		const lines = [`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`];
-		const root = await repoRoot(ctx.cwd);
-		const record = root ? await recordAt(root).catch(() => undefined) : undefined;
-		if (record && !(record.gate.commit && record.gate.pathCheck)) lines.push(
-			`The per-repo record ${record.dir} lacks checks.commit or pathCheck.`,
-			"Before guardrail work, ask the owner whether to complete it with skill://setup-repository-guardrails,",
-			"which drafts the record for owner confirmation and writes nothing into the repo except fixes.",
-		);
 		return { message: {
-			customType: "agent-rails-dynaflows", content: lines.join(" "), display: false, attribution: "agent",
+			customType: "agent-rails-dynaflows", content: `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`,
+			display: false, attribution: "agent",
 		} };
 	});
 	pi.registerCommand("extension-health-agent-rails", {

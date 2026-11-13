@@ -3,7 +3,8 @@
 The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
 ``checks.ci``, ``pathCheck``, ``testGlobs``, ``ci`` (``requiredContext``: the status context or
 check run that must be green on the exact head; ``runner``: a role the machine's runner config
-resolves), ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
+resolves), ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``). ``pathCheck`` and
+``checks.commit`` are required: rails run both at every agent commit.
 Every command is the repository's own, run in the checkout; the harness checks
 (``omp-guardrails check``) are not gate commands, because the rails run them from the harness.
 
@@ -12,14 +13,15 @@ Init fills only absent fields and never replaces a recorded value:
 - ``checks.commit`` and ``checks.ci`` from ``--commit-command`` and ``--ci-command``, else the
   first make target in ``COMMIT_TARGETS`` or ``CI_TARGETS``; a repo with only a pre-commit
   config gets ``pre-commit run --all-files`` for the commit;
-- ``pathCheck`` from a ``check-paths`` make target;
+- ``pathCheck`` from ``--path-command``, else a ``check-paths`` make target;
 - ``ci`` from ``--required-context`` and ``--runner``, else the single required check on the
   default branch (or a CI job named ``gate``), with ``github-actions`` as the runner when a
   GitHub workflow job reports that context;
 - ``dynaflows`` as ``{"enabled": false}``: the owner turns dynaflows on after confirming.
 
-``agentMerge``, ``testGlobs`` and every approval are the owner's to write. A gate that still
-declares the retired ``ciHost`` is refused.
+When init finds no ``checks.commit`` or ``pathCheck``, it reports each as required: the record
+does not load without both. ``agentMerge``, ``testGlobs`` and every approval are the owner's to
+write. A gate with a field outside today's schema is refused, naming the field.
 """
 
 from __future__ import annotations
@@ -36,7 +38,9 @@ GATE_FILE = "gate.json"
 GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
-RETIRED_CI_HOST = "ciHost is retired; declare ci.requiredContext and ci.runner"
+# Every current gate field; any other field, at the top level or in ``checks``, is refused.
+GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "testGlobs", "agentMerge", "ci", "dynaflows"})
+CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
 PATH_TARGET = "check-paths"
@@ -58,8 +62,12 @@ def load_gate(record: Path) -> dict | None:
         raise GateError(f"{GATE_PATH} cannot be read: {error}") from error
     if not isinstance(gate, dict) or gate.get("schemaVersion") != SCHEMA_VERSION:
         raise GateError(f"{GATE_PATH} must use schemaVersion {SCHEMA_VERSION}")
-    if "ciHost" in gate:
-        raise GateError(f"{GATE_PATH}: {RETIRED_CI_HOST}")
+    checks = gate.get("checks", {})
+    unknown = sorted(set(gate) - GATE_FIELDS)
+    if isinstance(checks, dict):
+        unknown += sorted(f"checks.{key}" for key in set(checks) - CHECK_FIELDS)
+    if unknown:
+        raise GateError(f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed")
     return gate
 
 
@@ -103,6 +111,7 @@ def planned_gate(
     *,
     commit: str | None,
     ci_command: str | None,
+    path_command: str | None,
     required_context: str | None,
     runner: str | None,
 ) -> tuple[dict, list[str]]:
@@ -113,7 +122,9 @@ def planned_gate(
     for event, argv in drafted_checks(found, commit, ci_command).items():
         checks.setdefault(event, argv)
     planned["checks"] = checks
-    if PATH_TARGET in found.make_targets:
+    if path_command:
+        planned.setdefault("pathCheck", shlex.split(path_command))
+    elif PATH_TARGET in found.make_targets:
         planned.setdefault("pathCheck", ["make", PATH_TARGET])
     ci = drafted_ci(found, required_context, runner)
     if ci:
@@ -125,9 +136,14 @@ def planned_gate(
 def confirmations(gate: dict) -> list[str]:
     lines = []
     checks = gate.get("checks") if isinstance(gate.get("checks"), dict) else {}
-    for event, flag in (("commit", "--commit-command"), ("ci", "--ci-command")):
-        if event not in checks:
-            lines.append(f"confirm: no checks.{event} found; pass {flag} or edit {GATE_PATH}")
+    if "commit" not in checks:
+        lines.append(
+            f"required: no checks.commit found; pass --commit-command or edit {GATE_PATH}"
+        )
+    if "pathCheck" not in gate:
+        lines.append(f"required: no pathCheck found; pass --path-command or edit {GATE_PATH}")
+    if "ci" not in checks:
+        lines.append(f"confirm: no checks.ci found; pass --ci-command or edit {GATE_PATH}")
     if "ci" not in gate:
         lines.append(
             f"confirm: no ci found; pass --required-context and --runner or edit {GATE_PATH}"

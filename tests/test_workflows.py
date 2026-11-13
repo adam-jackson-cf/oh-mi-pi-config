@@ -198,7 +198,8 @@ class RepositoryTests(unittest.TestCase):
         path, digest = self.freeze([], base=self.parent)
         self.assertEqual(json.loads(path.read_text())["proofs"], [])
         self.head = git(self.repo, "rev-parse", "HEAD")
-        self.write_gate(json.dumps({"schemaVersion": 2, "pathCheck": ["true"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"],
+                                    "ci": {"requiredContext": "gate", "runner": "ci-gate"}}))
         with patch.object(workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")):
             result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
             self.assertEqual(result["status"], "pass", result)
@@ -407,7 +408,9 @@ class RepositoryTests(unittest.TestCase):
 
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
         for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}),
-                     json.dumps({"schemaVersion": 2, "pathCheck": ["true"], "dynaflows": {"enabled": "yes"}})):
+                     json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}),
+                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "dynaflowsContract": 3}),
+                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "dynaflows": {"enabled": "yes"}})):
             self.write_gate(text)
             self.change()
             with patch.object(workflow, "_setup", side_effect=AssertionError("setup must not run")):
@@ -600,11 +603,14 @@ class RepositoryTests(unittest.TestCase):
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
         self.assert_block(result, f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}")
 
-    def test_prove_requires_path_check_but_not_commit_check(self):
-        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}))
+    def test_prove_requires_path_check_and_commit_check(self):
         self.change()
-        self.assert_block(self.prove(), workflow.GUARDRAIL_PREREQUISITE)
-        self.write_gate(json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}))
+        for gate, named in (({"schemaVersion": 2, "checks": {"commit": ["true"]}}, "pathCheck must be argv"),
+                            ({"schemaVersion": 2, "pathCheck": ["true"]}, "checks must be an object with checks.commit")):
+            with self.subTest(named=named):
+                self.write_gate(json.dumps(gate))
+                self.assert_block(self.prove(), named)
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}))
         self.assertEqual(self.prove()["status"], "pass")
 
     def test_prove_without_origin_finds_no_record(self):
@@ -614,7 +620,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_repo_tracked_omp_files_are_never_read(self):
         # A leftover repo .omp/ directory must not change policy: only the record counts.
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 2, "ciHost": "github"}))
+        self.write(".omp/gate.json", json.dumps({"schemaVersion": 3}))
         self.write(".omp/test-profile.md", "---\n{not json\n---\n")
         self.rebase_parent("leftover repo omp files")
         self.freeze([self.proof()])
@@ -632,27 +638,23 @@ class RepositoryTests(unittest.TestCase):
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def test_unreadable_or_rejected_record_raises(self):
-        for text, fragment in (("{", "record "), (json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": "yes"}}), 'dynaflows must be {"enabled": true|false}')):
+        complete = {"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}
+        for text, fragment in (("{", "record "), (json.dumps({**complete, "dynaflows": {"enabled": "yes"}}), 'dynaflows must be {"enabled": true|false}')):
             with self.subTest(text=text):
                 (self.record / "gate.json").write_text(text)
                 with self.assertRaisesRegex(workflow.WorkflowError, re.escape(fragment)):
                     workflow.read_record(self.repo)
 
-    def test_record_with_legacy_contract_fields_still_loads_freezes_and_proves(self):
-        for legacy in ({"dynaflowsContract": 1}, {"dynaflowsContract": 99}, {"dynaflowsContract": "old"},
-                       {"pathCheckTimeoutMs": 5000, "dynaflowsContract": 3}):
-            with self.subTest(legacy=legacy):
+    def test_record_with_an_unknown_field_blocks_freeze_and_prove(self):
+        for field, value in (("dynaflowsContract", 3), ("pathCheckTimeoutMs", 5000), ("ciHost", "github")):
+            with self.subTest(field=field):
                 self.manifest_path.unlink(missing_ok=True)
-                self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], **legacy}))
-                record, gate = workflow.read_record(self.repo)
-                self.assertEqual(record, self.record)
-                self.assertEqual({k: gate[k] for k in legacy}, legacy)
-                self.write("value", "old")
-                self.parent = self.commit(f"legacy record {legacy}")
-                self.freeze([self.proof()])
-                self.assertNotIn("dynaflowsContract", json.loads(self.manifest_path.read_text()))
-                self.change()
-                self.assertEqual(self.prove()["status"], "pass")
+                self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], field: value}))
+                with self.assertRaisesRegex(workflow.WorkflowError, f"unknown field {field} must be removed"):
+                    workflow.read_record(self.repo)
+                with self.assertRaisesRegex(workflow.WorkflowError, f"unknown field {field} must be removed"):
+                    self.freeze([self.proof()])
+                self.assertFalse(self.manifest_path.exists())
 
     def test_freeze_without_record_refuses_unless_project_setup(self):
         (self.record / "gate.json").unlink()
@@ -677,16 +679,6 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(os.environ["AGENT"], "1", "the harness's own environment is unchanged")
         self.assertTrue(ok)
         self.assertEqual(out.strip(), "None kept")
-
-    def test_retired_ci_host_blocks_freeze_and_prove(self):
-        retired = "ciHost is retired; declare ci.requiredContext and ci.runner"
-        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], "ciHost": "github"}))
-        self.rebase_parent("retired gate")
-        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(retired)):
-            self.freeze([self.proof()])
-        self.assertFalse(self.manifest_path.exists())
-        self.change()
-        self.assert_block(self.prove(), retired)
 
     def test_freeze_formats_before_hashing_and_reports_changed_files(self):
         self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
@@ -1021,16 +1013,17 @@ class SchemaTests(unittest.TestCase):
         data = dict(self.data, proofs=[])
         self.assertEqual(self.load(data), data)
 
-    def test_retired_proof_kinds_and_expect_red_are_refused(self):
-        for key, value in (("kind", "defect"), ("kind", "preserve"), ("kind", "new-surface"), ("expectRed", None), ("expectRed", "x")):
+    def test_unknown_proof_fields_are_refused_by_name(self):
+        for key, value in (("kind", "defect"), ("expectRed", None), ("note", "x")):
             data = copy.deepcopy(self.data)
             data["proofs"][0][key] = value
-            with self.subTest(key=key, value=value), self.assertRaisesRegex(workflow.WorkflowError, f"P: {key} retired"):
+            with self.subTest(key=key), self.assertRaisesRegex(workflow.WorkflowError, f"P: unknown proof field {key}"):
                 self.load(data)
 
-    def test_legacy_manifest_contract_field_is_ignored(self):
+    def test_unknown_manifest_fields_are_refused_by_name(self):
         data = dict(self.data, dynaflowsContract=2)
-        self.assertEqual(self.load(data), data)
+        with self.assertRaisesRegex(workflow.WorkflowError, "unknown manifest field dynaflowsContract"):
+            self.load(data)
 
     def test_noncanonical_paths_and_tmp_independence(self):
         for name in ("./proof.py", "../proof.py", "a//b", "a/./b", "a/../b", "/proof.py", "a/", "C:proof", "a\\b", "a/.git/b", "a\0b", ""):
@@ -1041,46 +1034,17 @@ class SchemaTests(unittest.TestCase):
         with patch.object(workflow.tempfile, "gettempdir", side_effect=AssertionError("lexical validation touched host")):
             self.assertEqual(self.load(self.data), self.data)
 
-    def test_gate_schema_optional_fields(self):
-        valid = [{"schemaVersion": 2, **SWITCH}, {"schemaVersion": 2, "testGlobs": ["", "*.py"], "checks": {"ci": ["true"]}, **SWITCH},
-                 {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-                  "checks": {"format": ["ruff", "format"], "profile": ["omp-guardrails", "profile-check"]}, "dynaflows": {"enabled": False}}]
-        invalid = [{"schemaVersion": True}, {"schemaVersion": 3},
-                   {"schemaVersion": 2, "checks": {"ci": None}}, {"schemaVersion": 2, "pathCheck": None}, {"schemaVersion": 2, "testGlobs": [2]},
-                   {"schemaVersion": 2, "agentMerge": False}, {"schemaVersion": 2, "checks": {"format": "ruff format"}},
-                   {"schemaVersion": 2, "checks": {"profile": []}}, {"schemaVersion": 2, "ci": None}, {"schemaVersion": 2, "ci": "gate"},
-                   {"schemaVersion": 2, "ci": {"requiredContext": "gate"}}, {"schemaVersion": 2, "ci": {"requiredContext": " ", "runner": "ci-gate"}},
-                   {"schemaVersion": 2, "ci": {"requiredContext": "gate", "runner": 1}}]
-        for data in valid:
-            self.assertIsNotNone(workflow.gate_policy(data))
-        for data in invalid:
-            with self.subTest(data=data):
-                self.assertIsNone(workflow.gate_policy(data))
-                self.assertIsInstance(workflow.gate_reason(data), str)
-        self.assertIsNone(workflow.gate_reason(valid[2]))
-        self.assertEqual(workflow.gate_reason({"schemaVersion": 2, "ci": {"requiredContext": "gate"}}),
-                         "ci must declare nonblank requiredContext and runner")
-        for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True):
-            with self.subTest(dynaflows=switch):
-                gate = {"schemaVersion": 2} if switch is None else {"schemaVersion": 2, "dynaflows": switch}
-                self.assertEqual(workflow.gate_reason(gate), 'dynaflows must be {"enabled": true|false}')
-        policy = workflow.gate_policy(valid[2])
-        self.assertEqual(policy, {"pathCheck": None, "format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
-
-    def test_legacy_record_fields_are_accepted_and_ignored(self):
-        for legacy in ({"dynaflowsContract": 3}, {"dynaflowsContract": 0}, {"dynaflowsContract": "2"}, {"dynaflowsContract": None},
-                       {"pathCheckTimeoutMs": 0}, {"pathCheckTimeoutMs": 1.5}, {"pathCheckTimeoutMs": 9007199254740992}):
-            with self.subTest(legacy=legacy):
-                gate = {"schemaVersion": 2, "pathCheck": ["true"], **SWITCH, **legacy}
-                self.assertIsNone(workflow.gate_reason(gate))
-                self.assertEqual(workflow.gate_policy(gate), {"pathCheck": ["true"], "format": None, "ci": None})
-
-    def test_retired_ci_host_is_rejected_with_migration_message(self):
-        for value in ("github", "self-hosted", None):
-            gate = {"schemaVersion": 2, "ciHost": value, "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
-            with self.subTest(value=value):
-                self.assertIsNone(workflow.gate_policy(gate))
-                self.assertEqual(workflow.gate_reason(gate), "ciHost is retired; declare ci.requiredContext and ci.runner")
+    def test_gate_policy_uses_the_harness_gate_validation(self):
+        # repo_record.gate_reason owns the schema (tests/test_repo_record.py); gate_policy accepts
+        # exactly what it accepts and returns the fields freeze() and prove() consume.
+        gate = {"schemaVersion": 2, "checks": {"commit": ["c"], "format": ["ruff", "format"]}, "pathCheck": ["p"],
+                "ci": {"requiredContext": "gate", "runner": "ci-gate"}, "dynaflows": {"enabled": False}}
+        self.assertEqual(workflow.gate_policy(gate),
+                         {"format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
+        for invalid in ({k: v for k, v in gate.items() if k != "pathCheck"}, {**gate, "checks": {"ci": ["c"]}},
+                        {**gate, "dynaflowsContract": 3}):
+            with self.subTest(gate=invalid):
+                self.assertIsNone(workflow.gate_policy(invalid))
 
     def test_journey_flag_must_be_boolean(self):
         for value in (True, False):

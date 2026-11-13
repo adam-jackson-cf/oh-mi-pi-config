@@ -94,9 +94,8 @@ class CiGateTests(unittest.TestCase):
         self.record = HARNESS / 'repos' / REPO
         shutil.rmtree(self.record, ignore_errors=True)
         self.addCleanup(shutil.rmtree, self.record, True)
-        self.write_gate({'schemaVersion': 2, 'checks': {
-            'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]},
-            'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}, 'dynaflows': {'enabled': True}})
+        self.write_gate(self.gate(checks={
+            'commit': ['bash', 'commit only.sh'], 'ci': ['bash', 'gate script.sh', "a'b"]}))
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
             'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': ['echo', 'setup words']}))
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
@@ -156,6 +155,14 @@ class CiGateTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.source), *args], text=True).strip()
+
+    @staticmethod
+    def gate(**fields):
+        """A complete record gate.json; `fields` replace its defaults, None removes one."""
+        gate = {'schemaVersion': 2, 'checks': {'commit': ['true'], 'ci': ['true']}, 'pathCheck': ['true'],
+                'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}, 'dynaflows': {'enabled': True}}
+        gate.update(fields)
+        return {key: value for key, value in gate.items() if value is not None}
 
     def write_gate(self, gate):
         self.record.mkdir(parents=True, exist_ok=True)
@@ -338,11 +345,10 @@ class CiGateTests(unittest.TestCase):
                          ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
-        ci = {'requiredContext': CONTEXT, 'runner': 'ci-gate'}
         for failure in ('missing-ci', 'build', 'podman'):
             with self.subTest(failure=failure):
-                gate = {'missing-ci': {'schemaVersion': 2, 'checks': {'commit': ['true']}, 'ci': ci}}.get(
-                    failure, {'schemaVersion': 2, 'checks': {'ci': ['true', failure]}, 'ci': ci})
+                gate = self.gate(checks={'commit': ['true']} if failure == 'missing-ci'
+                                 else {'commit': ['true'], 'ci': ['true', failure]})
                 if failure == 'missing-gate':
                     (self.record / 'gate.json').unlink()
                 else:
@@ -361,11 +367,15 @@ class CiGateTests(unittest.TestCase):
                 self.assertEqual(self.requests[-1]['body']['context'], CONTEXT)
 
     def test_gate_without_required_context_is_an_unpublished_error(self):
-        for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'schema-v1'):
+        for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'schema-v1', 'dynaflowsContract',
+                        'pathCheck', 'checks'):
             with self.subTest(failure=failure):
-                gate = {'missing-context': {'schemaVersion': 2, 'checks': {'ci': ['true']}},
+                gate = {'missing-context': self.gate(ci=None),
                         'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
-                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']}}.get(failure)
+                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']},
+                        'dynaflowsContract': self.gate(dynaflowsContract=3),
+                        'pathCheck': self.gate(pathCheck=None),
+                        'checks': self.gate(checks={'ci': ['true']})}.get(failure)
                 if failure == 'missing-gate':
                     (self.record / 'gate.json').unlink(missing_ok=True)
                 else:
@@ -379,6 +389,9 @@ class CiGateTests(unittest.TestCase):
                 result = json.loads(waited.stdout)
                 self.assertEqual(result['state'], 'error')
                 self.assertIn('ci.requiredContext', result['publicationError'])
+                if failure in ('dynaflowsContract', 'pathCheck', 'checks'):
+                    # The run's error names the field the strict record schema rejected.
+                    self.assertIn('checks.commit' if failure == 'checks' else failure, result['error'])
                 self.assertIn('ci.requiredContext', waited.stderr)
                 self.assertEqual(len(self.requests), before, 'no status may go to a guessed context')
 

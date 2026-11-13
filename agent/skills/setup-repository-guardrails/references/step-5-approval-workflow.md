@@ -20,8 +20,8 @@ Make the owner's record and fix decisions the boundary before any record or targ
 4. Show the complete applicable rule mapping from Step 2 and the whole-repo findings from Step 4.
    A rule still blocked by a missing harness implementation stays blocked; do not offer a
    passing approval path by relabeling it.
-5. Offer two tiers. `Minimal`: least change that gives the record's `gate.json` a
-   `checks.commit` and a `pathCheck` naming the repo's own commands, plus the repo fixes that
+5. Offer two tiers. `Minimal`: least change that gives the record's `gate.json` the required
+   `checks.commit` and `pathCheck` naming the repo's own commands, plus the repo fixes that
    clear every finding of the rules it enables; state which applicable rules it leaves
    unenforced (narrower rule set, not a relabel). `Full`: every applicable rule and
    recommendation, including `checks.ci` wired into the repo's CI by the record's `ci.runner`

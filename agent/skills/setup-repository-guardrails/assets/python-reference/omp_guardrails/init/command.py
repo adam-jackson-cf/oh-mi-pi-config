@@ -50,6 +50,9 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--commit-command", help="the repo's own commit gate command")
     command.add_argument("--ci-command", help="the repo's own CI gate command")
     command.add_argument(
+        "--path-command", help="pathCheck: the repo's own changed-path command (paths appended)"
+    )
+    command.add_argument(
         "--required-context",
         help="ci.requiredContext: status context or check run that must be green on the head",
     )
@@ -75,7 +78,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
         options = parser().parse_args(argv)
     except SystemExit as error:
         raise UsageError(f"invalid init arguments: {shlex.join(argv)}") from error
-    for flag in ("commit_command", "ci_command", "required_context", "runner"):
+    for flag in ("commit_command", "ci_command", "path_command", "required_context", "runner"):
         value = getattr(options, flag)
         if value is not None and not value.strip():
             raise UsageError(f"--{flag.replace('_', '-')} must not be empty")
@@ -112,6 +115,7 @@ def apply_gate(
         found,
         commit=options.commit_command,
         ci_command=options.ci_command,
+        path_command=options.path_command,
         required_context=options.required_context,
         runner=options.runner,
     )
