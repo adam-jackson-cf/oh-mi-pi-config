@@ -13,9 +13,9 @@ Authority and safety belong to [git-tool](../SKILL.md).
    or the primary remote's symbolic HEAD (for origin, `git symbolic-ref refs/remotes/origin/HEAD`).
    Record `<remote>` and `<default>`; never assume `main`. Use this resolution for comparisons, PR targets and recovery.
 4. Read the repo's record `gate.json` ([git-tool](../SKILL.md#task) defines the record). Invalid JSON, unsupported schema
-   or invalid fields fail closed.
+   or invalid, missing required or unknown fields fail closed.
    `agentMerge: disabled` requires owner approval for this workflow; absent field defaults to allowed, not permission to skip prerequisites.
-5. Ordinary implementation requires a record with a valid schema-v2 `pathCheck` (`checks.commit` optional).
+5. Ordinary implementation requires a valid schema-v2 record; it always has `pathCheck` and `checks.commit`.
    No record or missing controls route to [dynaflows SKILL's owner-approved project-setup prerequisite](skill://omp-dyna-workflows/SKILL.md).
    Follow its link to `setup-repository-guardrails` for record draft and approval mechanics, not autonomous installation.
    Bootstrap may propose the record and repo fixes without already having the completed gate.
@@ -34,7 +34,7 @@ Proof tasks stop uncommitted; only the assigned implementation task performs the
 [stage-4](skill://omp-dyna-workflows/SKILL.md) map sweep and any re-freeze it caused.
 
 1. Review the final diff and stage only intended files. Create new logical commits via `git commit`.
-   Rails run the record's `pathCheck`, its `checks.commit` when set and then the harness checks over the whole repo;
+   Rails run the record's `pathCheck`, its `checks.commit` and then the harness checks over the whole repo;
    any finding blocks the commit.
    Never disable the repo's own hooks with flags, configuration or hook-skip environment variables.
    Use the [skill's commit vocabulary and safety rules](../SKILL.md#git-safety).

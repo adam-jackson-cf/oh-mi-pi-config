@@ -42,9 +42,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    target, never an omp path. Record the repo's actual local/CI/hook
    invocations of those commands (through its existing hook manager, such as
    lefthook, husky or pre-commit, when one is tracked) and failure
-   propagation. At the agent's commit, rails run `checks.commit` and then the
-   harness checks, so a repo hook is the repo's own choice. Record any existing
-   pre-push hook as a practice to replace.
+   propagation. At the agent's commit, rails run `pathCheck`, then
+   `checks.commit` and then the harness checks, so a repo hook is the repo's
+   own choice. Record any existing pre-push hook as a practice to replace.
 6. For tool rules, record selector, limit, exceptions and pinned version; one
    tool rule may carry both a `selector` and its limit `value`. A row with a
    `reference` field is implemented by the named `omp-guardrails` subcommand,

@@ -42,9 +42,11 @@ checks, every T1, affected T2 boundary tests), `checks.ci` (the full T1 and T2 s
 optional `checks.profile`, an actionable changed-path `pathCheck`, and `ci` (`requiredContext`,
 normally `gate`: the status or check run that must be green on the exact head; `runner`: a role
 each machine's runner config resolves to commands). It also holds `agentMerge` and
-`dynaflows.enabled`. Older records that still carry `dynaflowsContract` load unchanged.
+`dynaflows.enabled`. `pathCheck` and `checks.commit` are required, and setup always drafts
+both; a record without either, or with a field outside the schema, fails to load with an error
+naming the field.
 
-At each agent commit, rails run the record's `pathCheck`, then its `checks.commit` (when set) in
+At each agent commit, rails run the record's `pathCheck`, then its `checks.commit` in
 the worktree, then the harness
 checks: `omp-guardrails check --repo <worktree> --record <record dir>`, run with
 `uv run --project` on this skill's `assets/python-reference`. The check covers the whole repo

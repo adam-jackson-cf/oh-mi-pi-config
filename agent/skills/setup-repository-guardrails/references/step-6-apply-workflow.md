@@ -50,14 +50,16 @@ intact.
    }
    ```
 
-   Only `schemaVersion` is required by the format; all other fields are
-   optional. A record that enforces guardrails populates `checks.commit`,
-   `checks.ci` and `pathCheck`. Commands are nonempty argv arrays, not shell
+   `schemaVersion`, `checks.commit`, `pathCheck` and `dynaflows` are
+   required; a record without one fails to load. A field outside this schema,
+   at the top level or in `checks`, is rejected by name, never ignored. A docs
+   repo still declares both commands; its `pathCheck` just has fewer paths to
+   check. Commands are nonempty argv arrays, not shell
    strings, and name the repo's own commands, never an omp path. Checks follow
    the test tiers and run only at these events:
 
    1. Commit: at the agent's commit, rails run the record's `pathCheck`, its
-      `checks.commit` when set (static checks, every T1 test, and affected T2
+      `checks.commit` (static checks, every T1 test, and affected T2
       boundary tests: seams and journeys) and then the harness checks over the
       whole repo. Any finding
       blocks the commit until fixed, including drift from contributors who do
@@ -90,8 +92,6 @@ intact.
    `dynaflows.enabled` is the repo's dynaflows switch; no `origin` remote or
    no record means off. Write `false` at setup; the owner turns it on once
    the harness checks report zero findings over the whole repo.
-   A record that still carries a legacy `dynaflowsContract` field loads
-   unchanged; nothing reads the field, so drop it when next editing the record.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the

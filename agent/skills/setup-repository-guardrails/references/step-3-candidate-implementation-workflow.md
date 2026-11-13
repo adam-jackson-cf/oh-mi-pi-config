@@ -23,8 +23,10 @@ Draft the record and the candidate repo fixes outside the target checkout.
    run changes nothing. It writes proposed native-tool configs to the record's
    `proposed/` directory for the owner to apply to the repo as a fix, and
    proves language-server readiness with a canary `references` query.
-   `--commit-command` and `--ci-command` name the repo's own gate commands;
-   `--runner` and `--required-context` set the record's `ci` object. In adopt
+   `--commit-command`, `--path-command` and `--ci-command` name the repo's own
+   gate commands; `--runner` and `--required-context` set the record's `ci`
+   object. Init reports a missing `checks.commit` or `pathCheck` as
+   `required:`, because a record without either does not load. In adopt
    mode, hand-written repo checkers that duplicate harness rules are replaced
    only after a shadow run with identical or owner-approved violation sets.
    Then fill every per-repo value in the front matter of the draft
@@ -35,8 +37,9 @@ Draft the record and the candidate repo fixes outside the target checkout.
    adapter, follow [adapter authoring](adapter-authoring.md). For a stack
    without a reference, the missing checkers are a change to the harness, not
    to the target (Step 2).
-2. The record's `pathCheck` names the repo's own path command when the repo
-   has one; the harness's `omp-guardrails path-check` covers
+2. The record's `pathCheck` (required) names the repo's own path command;
+   when the repo has none, the candidate fixes add one. The setup always drafts
+   both `pathCheck` and `checks.commit`. The harness's `omp-guardrails path-check` covers
    `STRUCT.dependency-direction`, `STRUCT.folder-placement`,
    `NAME.conventions`, and `TEST.placement` from record settings. A path
    command accepts changed paths appended as separate arguments, exits 0 when

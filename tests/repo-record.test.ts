@@ -6,6 +6,9 @@ import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
 import { configRoot, dynaflowsEnabled, findRecord, offText, parseOrigin, RecordError, recordDir, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
 
+// A complete gate.json; tests replace one field at a time (undefined drops it from the JSON).
+const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, pathCheck: ["make", "check-paths"], dynaflows: { enabled: true } };
+
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
 	"https://github.com/Owner-1/Repo.Name.git": "owner-1/repo.name",
@@ -92,7 +95,7 @@ describe("record resolution", () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/Owner/Name.git");
-			const record = f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2, dynaflows: { enabled: true } }));
+			const record = f.writeRecord("owner/name", JSON.stringify(completeGate));
 			const worktree = join(f.temp, "worktree");
 			git("-C", f.repo, "worktree", "add", "-q", "-b", "agent/x", worktree);
 			for (const clone of [f.repo, worktree]) {
@@ -106,7 +109,7 @@ describe("record resolution", () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
-			f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2, dynaflows: { enabled: false } }));
+			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, dynaflows: { enabled: false } }));
 			assert.equal(await dynaflowsEnabled(f.repo, f.config), false);
 			f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2 }));
 			await assert.rejects(dynaflowsEnabled(f.repo, f.config), RecordError);
@@ -115,13 +118,18 @@ describe("record resolution", () => {
 		} finally { f.cleanup(); }
 	});
 
-	test("a record that still carries the retired dynaflowsContract loads", async () => {
+	test("a record missing a required field or carrying an unknown one does not load", async () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
-			for (const dynaflowsContract of [1, 3, "2", null]) {
-				f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2, dynaflowsContract, dynaflows: { enabled: true } }));
-				assert.equal(await dynaflowsEnabled(f.repo, f.config), true, JSON.stringify(dynaflowsContract));
+			for (const [invalid, named] of [
+				[{ ...completeGate, pathCheck: undefined }, "pathCheck"], [{ ...completeGate, checks: { ci: ["ci"] } }, "checks"],
+				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, dynaflowsContract: 3 }, "dynaflowsContract"],
+				[{ ...completeGate, pathCheckTimeoutMs: 1000 }, "pathCheckTimeoutMs"], [{ ...completeGate, ciHost: "github" }, "ciHost"],
+				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],
+			] as const) {
+				f.writeRecord("owner/name", JSON.stringify(invalid));
+				await assert.rejects(dynaflowsEnabled(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);
 			}
 		} finally { f.cleanup(); }
 	});
