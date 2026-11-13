@@ -26,7 +26,6 @@ routing changes. Claude routes use
   `gpt-5.4-mini`.
 - `web` → GPT-6 Luna. Used by `web_search`. Verified working 2026-09-28.
 - `kiss` → GPT-6.1 Sol : low. Cut acceptance criteria and open questions before a spike.
-- Former plan/test/completeness judging roles: removed 2026-11-04, proof-first workflow.
 - `vision` → GPT-6.1 Terra : low. Used by image reading. Owner decision 2026-10-27.
 - `operator` → GPT-6.1 Terra : off. Used by the `operator` agent (browser and computer preludes).
   OMP has no browser/computer model role; the agent carries the route. Terra `:off` supports

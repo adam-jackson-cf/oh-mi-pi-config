@@ -24,7 +24,7 @@ OLD = "b" * 40
 class Runner:
     def __init__(self, stale=False, unreachable=False, dirty=False, behind=False,
                  service_failed=False, malformed=False, pull_failed=False,
-                 coverage="complete", husks="", find_output=None, runners="current", records=None):
+                 coverage="complete", find_output=None, runners="current", records=None):
         self.stale = stale
         self.unreachable = unreachable
         self.dirty = dirty
@@ -33,7 +33,6 @@ class Runner:
         self.malformed = malformed
         self.pull_failed = pull_failed
         self.coverage = coverage
-        self.husks = husks
         self.find_output = find_output
         self.runners = runners
         self.records = {} if records is None else records
@@ -54,10 +53,6 @@ class Runner:
             code = int(self.coverage == "unavailable")
             stdout = (self.find_output if self.find_output is not None
                       else json.dumps({"coverage": self.coverage, "hits": []}))
-        elif "by-request" in text:
-            deleting = "rm -rf" in text
-            stdout = "".join(f"{'deleted' if deleting and kind == 'husk' else kind} {name}\n"
-                             for kind, name in (line.split() for line in self.husks.splitlines()))
         elif "merge-base" in text:
             code = int(self.behind)
         elif "rev-list" in text:
@@ -106,16 +101,11 @@ class DeviceRolloutTests(unittest.TestCase):
         return deployment, code
 
     def test_current_and_read_only_check(self):
-        runner = Runner(husks="husk test-guidance\n")
+        runner = Runner()
         pipeline = Pipeline()
         deployment, code = self.execute(runner, pipeline=pipeline)
         self.assertEqual(pipeline.calls, [])
-        self.assertFalse(any("rm -rf" in " ".join(cmd) for cmd in runner.commands))
-        self.assertEqual(code, 1)
-        agents = [row for row in deployment.rows if row[1] == "agents"]
-        self.assertEqual({row[5] for row in agents}, {"husks-present"})
-        runner = Runner()
-        deployment, code = self.execute(runner)
+        self.assertFalse(any("pull" in cmd for cmd in runner.commands))
         self.assertEqual(code, 0)
         self.assertEqual({row[4] for row in checkouts(deployment, skip=("mac-cf2",))}, {"complete"})
         self.assertEqual(len(deployment.rows), 8)
@@ -267,37 +257,6 @@ class DeviceRolloutTests(unittest.TestCase):
         self.assertEqual(len(finds), 2)
         self.assertIn("/local/.agents/scripts --json -q", finds[0])
         self.assertTrue(all("--json -q" in text for text in finds[1:]))
-
-    def test_apply_deletes_only_husks_without_skill(self):
-        runner = Runner(husks="husk coding-guidance\nskill test-guidance\n")
-        deployment, code = self.execute(runner, check=False)
-        self.assertEqual(code, 1)
-        scripts = [" ".join(cmd) for cmd in runner.commands if "by-request" in " ".join(cmd)]
-        self.assertEqual(len(scripts), 3)
-        self.assertTrue(all("SKILL.md" in text and "rm -rf" in text for text in scripts))
-        report = deployment.report()
-        self.assertIn("mac-cf3: deleted by-request/coding-guidance husk", report)
-        self.assertIn("mac-cf3: by-request/test-guidance holds a SKILL.md; not deleted", report)
-        agents = [row for row in deployment.rows if row[1] == "agents"]
-        self.assertEqual({row[5] for row in agents}, {"husks-present"})
-
-    def test_husk_script_deletes_only_folders_without_skill(self):
-        with tempfile.TemporaryDirectory() as home:
-            base = Path(home) / ".agents/by-request"
-            (base / "coding-guidance/__pycache__").mkdir(parents=True)
-            (base / "test-guidance/nested").mkdir(parents=True)
-            (base / "test-guidance/nested/SKILL.md").write_text("x")
-            (base / "other").mkdir()
-            deployment = rollout.Rollout({}, check=False, runner=rollout.run_command, home=home,
-                                         hostname="test")
-            self.assertEqual(deployment.husks("dev", Path(home) / ".agents"), "husks-present")
-            self.assertEqual(sorted(path.name for path in base.iterdir()),
-                             ["other", "test-guidance"])
-            deployment.check = True
-            self.assertEqual(deployment.husks("dev", Path(home) / ".agents"), "husks-present")
-            (base / "test-guidance/nested/SKILL.md").unlink()
-            self.assertEqual(deployment.husks("dev", Path(home) / ".agents"), "husks-present")
-            self.assertTrue((base / "test-guidance").exists())
 
     def test_ci_runners_row_per_device_and_check_is_read_only(self):
         for state in ("missing", "stale"):

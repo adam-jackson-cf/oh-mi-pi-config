@@ -80,16 +80,13 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
   proposed native-tool configs (Ruff, mypy, import-linter) into the draft's `proposed/` folder
   for the owner to apply to the repo as a fix. It proves language-server readiness with a canary
   `references` query. It never overwrites a recorded value, never writes an approval and never
-  turns dynaflows on. `--extend` brings an existing record to the current format.
+  turns dynaflows on.
 - Per-repo settings live in the front matter of the record's `profile.md`. Shared style rules
   live in the reference's `omp_guardrails/data/house-style.json`.
 - The rule catalogue ships inside the package (`omp_guardrails/data/guardrail-rules.json`).
   Each catalogue row the reference implements has a `reference` field naming the
   `omp-guardrails` subcommand and module. The package's own tests in oh-mi-pi-config prove
-  catalogue coverage, canaries and rule evidence; repositories hold no ledger, canary,
-  validator or catalogue copy.
-- A row's optional `aliases` lists retired rule IDs it absorbed, so older evidence and guidance
-  that cite them resolve to the current rule.
+  every rule the package implements, once for every repository.
 - A test framework without an adapter gets one through
   [adapter authoring](references/adapter-authoring.md), accepted by a deterministic conformance
   run.

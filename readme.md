@@ -159,15 +159,13 @@ role definitions in `scripts/device-rollout-hosts.json`.
 It copies the ignored `repos/` records one way from this device into the `repos/`
 folder of every target device that runs omp (a registry entry with an `omp` path),
 and refuses to overwrite a target record that is newer, naming it.
-On each reachable device it also deletes retired `~/.agents/by-request` husks
-(folders without a `SKILL.md`), streams the judge key from Infisical into
+On each reachable device it also streams the judge key from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
 the `find` column. Untracked remote files are preserved; tracked changes block
 pulls. Use `--check` to fetch and report only, without pulls, service starts, key
-provisioning, or husk deletion. The table exits nonzero for stale, failed,
-unreachable, dirty-blocked, or behind-`main` deployments, for `husks-present`
-agents checkouts, and for `find-blocked` devices whose canary coverage is not
-`complete` (including `key-failed` when key provisioning fails).
+provisioning, or record copies. The table exits nonzero for stale, failed,
+unreachable, dirty-blocked, or behind-`main` deployments, and for `find-blocked`
+devices whose canary coverage is not `complete` (including `key-failed` when key provisioning fails).
 Hosts, paths, the `infisical` project and environment (shared by the judge key
 and the `ci-gate` runner commands), the `judgeKey` secret and the `findCanary` query live in
 `scripts/device-rollout-hosts.json`.
@@ -283,8 +281,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/skills/setup-repository-guardrails/` — repository guardrail setup. Its
   `omp-guardrails` Python reference ships the rule catalogue
   (`omp_guardrails/data/guardrail-rules.json`). The harness runs it from this
-  checkout; repositories never install it and hold no catalogue, ledger, validator
-  or hash copies. Its own tests prove catalogue coverage, canaries and rule evidence.
+  checkout over each repository from outside its tree. Its own tests prove every rule
+  it implements.
   `assets/example-record/` is the tracked generic per-repo record.
 - `agent/lib/repo_record.py` and `agent/lib/repo-record.ts` — the origin-to-record
   resolver for Python and TypeScript callers.

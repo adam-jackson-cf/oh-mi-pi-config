@@ -78,9 +78,8 @@ depend on any framework.
 
 - The adapter lives in the harness from its first repo: under the stack's
   skill reference at `adapters/<framework>/` in oh-mi-pi-config, with its
-  conformance fixtures as that reference's own tests. A target repository
-  never holds adapter code, a pin or a ledger, because it has no awareness of
-  the harness.
+  conformance fixtures as that reference's own tests. The harness owns the
+  adapter; the target repository has no awareness of it.
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only

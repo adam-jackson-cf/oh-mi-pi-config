@@ -1,7 +1,7 @@
 """Draft the record's ``gate.json`` from what the repository already runs.
 
 The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
-``checks.ci``, ``pathCheck``, ``testGlobs``, ``ci`` (``requiredContext``: the status context or
+``checks.ci``, ``pathCheck``, ``ci`` (``requiredContext``: the status context or
 check run that must be green on the exact head; ``runner``: a role the machine's runner config
 resolves), ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``). ``pathCheck`` and
 ``checks.commit`` are required: rails run both at every agent commit.
@@ -20,7 +20,7 @@ Init fills only absent fields and never replaces a recorded value:
 - ``dynaflows`` as ``{"enabled": false}``: the owner turns dynaflows on after confirming.
 
 When init finds no ``checks.commit`` or ``pathCheck``, it reports each as required: the record
-does not load without both. ``agentMerge``, ``testGlobs`` and every approval are the owner's to
+does not load without both. ``agentMerge`` and every approval are the owner's to
 write. A gate with a field outside today's schema is refused, naming the field.
 """
 
@@ -39,7 +39,7 @@ GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
 # Every current gate field; any other field, at the top level or in ``checks``, is refused.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "testGlobs", "agentMerge", "ci", "dynaflows"})
+GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "agentMerge", "ci", "dynaflows"})
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
@@ -148,9 +148,8 @@ def confirmations(gate: dict) -> list[str]:
         lines.append(
             f"confirm: no ci found; pass --required-context and --runner or edit {GATE_PATH}"
         )
-    for key in ("testGlobs", "agentMerge"):
-        if key not in gate:
-            lines.append(f"confirm: {key} is the owner's to set in {GATE_PATH}")
+    if "agentMerge" not in gate:
+        lines.append(f"confirm: agentMerge is the owner's to set in {GATE_PATH}")
     if gate.get("dynaflows") == {"enabled": False}:
         lines.append(f"confirm: dynaflows stays off until the owner sets it on in {GATE_PATH}")
     return lines
