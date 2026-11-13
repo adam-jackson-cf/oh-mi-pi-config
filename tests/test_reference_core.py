@@ -225,6 +225,15 @@ class ProfileCompleteTests(unittest.TestCase):
             keys_of(profile_module.validate_profile(profile)), {"house_style.exceptions[0].adr"}
         )
 
+    def test_guardrails_sections_must_name_a_checker_and_hold_an_object(self) -> None:
+        profile = complete_profile()
+        profile["guardrails"]["namig"] = {"pattern": "x"}
+        profile["guardrails"]["python"] = ["src"]
+        self.assertEqual(
+            keys_of(profile_module.validate_profile(profile)),
+            {"guardrails.namig", "guardrails.python"},
+        )
+
     def test_checker_settings_may_hold_regular_expressions(self) -> None:
         profile = complete_profile()
         profile["guardrails"]["naming"]["pattern"] = r"(?P<name>[a-z]+)"

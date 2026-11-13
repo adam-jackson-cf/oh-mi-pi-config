@@ -136,8 +136,27 @@ SCHEMA: dict[str, Any] = {
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer", "exceptions": ("optional_records", EXCEPTION)},
 }
-# Checker settings may hold regular expressions, so only their shape is checked here.
-OPTIONAL = {"guardrails": "object"}
+# One settings section per checker that reads ``guardrails.<section>``. Settings may hold
+# regular expressions, so only their names and shape are checked here.
+GUARDRAILS_SECTIONS = (
+    "adapter_pytest",
+    "check",
+    "coverage_ratchet",
+    "feature_map",
+    "golden_record",
+    "guarded_run",
+    "identity_artefacts",
+    "journeys",
+    "lever_selftest",
+    "naming",
+    "no_evasion",
+    "paths",
+    "python",
+    "structure",
+    "test_evidence",
+    "toolchain_parity",
+)
+OPTIONAL = {"guardrails": {f"{section}{OPTIONAL_MARK}": "object" for section in GUARDRAILS_SECTIONS}}
 
 
 def is_missing_text(value: object) -> bool:

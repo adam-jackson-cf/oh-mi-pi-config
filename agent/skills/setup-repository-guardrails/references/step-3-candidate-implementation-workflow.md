@@ -27,8 +27,16 @@ Draft the record and the candidate repo fixes outside the target checkout.
    gate commands; `--runner` and `--required-context` set the record's `ci`
    object. Init reports a missing `checks.commit` or `pathCheck` as
    `required:`, because a record without either does not load. In adopt
-   mode, hand-written repo checkers that duplicate harness rules are replaced
-   only after a shadow run with identical or owner-approved violation sets.
+   mode, shadow-run each harness step a repo checker covers on the same
+   clone: `omp-guardrails <step> --repo <temporary clone> --record <draft
+   record dir>` and the record's `checks.commit`. A harness finding that
+   `checks.commit` passes marks the repo checker weaker (a baseline, a
+   narrower scope, a missing rule or a disk walk): draft its expansion as a
+   candidate repo fix and keep the harness step until it lands. When they
+   agree, give the step to the repo with `--settings`, for example
+   `{"check": {"repo": {"python-quality": "scripts/checks/check-python-quality.py"}}}`,
+   and leave out settings only owned steps read (`check` rejects
+   `guardrails.python` once every configured Python step is the repo's).
    Then fill every per-repo value in the front matter of the draft
    `profile.md`: tiers, layout, `structure`, scope exclusions,
    `house_style.exceptions` (each with an ADR) and `guardrails.<checker>`

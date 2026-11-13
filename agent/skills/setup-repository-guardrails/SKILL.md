@@ -15,6 +15,12 @@ repo's **record**: `repos/<owner>/<name>/` under the oh-mi-pi-config root, resol
 clone's `origin` remote, gitignored and never committed. The
 [example record](assets/example-record/README.md) defines its layout and rules.
 
+The harness uses the repo's existing checks before adding its own. A rule family a repo checker
+already enforces through `checks.commit` stays with the repo: the record's
+`guardrails.check.repo` names that checker, and `omp-guardrails check` leaves its step out. A gap
+in a repo checker is fixed by expanding the repo checker, never by running the harness step
+beside it.
+
 ## Step 0: Set target and safety boundary
 
 - Purpose: Establish the Git checkout, its record path, chosen stack, setup mode, and protected work.
@@ -26,7 +32,7 @@ clone's `origin` remote, gitignored and never committed. The
 
 - Purpose: Distinguish active checks, behavioral guidance, user documentation, and developer practice.
 - Action: Record sources, triggers, ownership, make targets, hook config, CI job names and
-  required checks with evidence.
+  required checks with evidence; map each repo checker to the harness step it covers.
 - Workflow: [Existing guardrail inventory](references/step-1-inventory-workflow.md).
 
 ## Step 2: Map the complete rule contract
@@ -88,7 +94,8 @@ clone's `origin` remote, gitignored and never committed. The
 
 ## Rule coverage
 
-- Every bundled rule ID: applicable, implemented, not applicable with evidence, or blocked.
+- Every bundled rule ID: applicable, implemented (by a harness step, or by a repo checker named in
+  `guardrails.check.repo`), not applicable with evidence, or blocked.
 
 ## Proposed actions
 

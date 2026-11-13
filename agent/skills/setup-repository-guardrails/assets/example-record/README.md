@@ -31,5 +31,7 @@ hook config and CI jobs for the owner to confirm. Rules for the record:
 the live `repos/` root for owner confirmation and writes nothing into the repo; the owner saves
 the draft as the live record by hand. At the agent's commit the rails run
 `checks.commit`, then `omp-guardrails check --repo <worktree> --record <record dir>` over the
-whole repo. The profile's `guardrails.check.run` picks the check steps and
-`guardrails.check.exclude` lists the generated, vendored and fixture paths left out.
+whole repo. The profile's `guardrails.check.run` picks the check steps,
+`guardrails.check.repo` names the repo checkers that already enforce a step (`checks.commit` runs
+them, so `check` leaves those steps out) and `guardrails.check.exclude` lists the generated,
+vendored and fixture paths left out.

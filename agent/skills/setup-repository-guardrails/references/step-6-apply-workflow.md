@@ -14,6 +14,8 @@ intact.
    decision. Remove approved superseded runner/hook policies and any
    omp-specific files instead of retaining duplicate authorities; where
    nothing can be removed, record why the added contract has no predecessor.
+   A repo checker named in `guardrails.check.repo` is the authority for its
+   step; never remove it in favour of the harness step.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
 3. Draft the confirmed record in a directory outside the live records root

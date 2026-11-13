@@ -22,12 +22,17 @@ Capture what the target actually enforces and what it only documents or proposes
    fixtures, and CI matrix. Do not treat a config file as active unless an invoked command reads it.
    When the record exists, read its `profile.md`; record its tiers, entry points, ownership
    areas, affected-T2 selection, verification surface and per-machine budget approvals.
-5. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
+5. For each bespoke checker, name the `omp-guardrails check` step whose rule family it enforces
+   (`STEPS` in `omp_guardrails/whole_repo.py`), the `checks.commit` chain that runs it (for
+   example make target to script) and how it lists files. A checker that walks the disk instead
+   of `git ls-files --cached --others --exclude-standard`, or follows symlinks out of the repo, is
+   a gap to fix in the repo checker.
+6. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
-6. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
+7. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
    unsupported platforms with file references and observed command results. Avoid reading protected
    content or printing secrets.
-7. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
+8. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
    stack applicability, and current proof.
 
 ## Done when
