@@ -76,9 +76,7 @@ repository.
 
 ## Rule coverage
 
-The harness's package version decides which catalogue rules apply. A
-repository keeps no catalogue copy, no ledger, no canary fixtures and no
-validator.
+The harness's package version decides which catalogue rules apply.
 
 - Tool rules (`kind: "tool"`) and rules that name a `reference` module are
   proven once, by this package's own tests in oh-mi-pi-config

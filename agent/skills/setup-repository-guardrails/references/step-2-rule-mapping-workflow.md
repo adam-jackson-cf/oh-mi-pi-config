@@ -50,16 +50,13 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    `reference` field is implemented by the named `omp-guardrails` subcommand,
    run from the harness over the whole repo: map it to record settings, never
    to copied or edited reference code. `omp-guardrails`' own tests in
-   oh-mi-pi-config prove catalogue coverage, canaries and rule evidence for
-   every repository, so the target adds no ledger, canary or validator for
-   them. A rule only the repo's own checker can enforce is a repo control the
-   project keeps for itself, tested like any other repo code. A retired ID
-   listed in a row's `aliases` maps to that row. Elsewhere, read
-   source-specific roots and allowlists from target data rather than
-   hard-coding them.
+   oh-mi-pi-config prove these rules once for every repository. A rule only
+   the repo's own checker can enforce is a repo control the project keeps for
+   itself, tested like any other repo code. Elsewhere, read source-specific
+   roots and allowlists from target data rather than hard-coding them.
 7. Where no tool or `omp-guardrails` subcommand covers an applicable harness
    rule, the implementation is a change to `omp-guardrails` in oh-mi-pi-config
-   with its own tests and canaries, never a checker added to the target; keep
+   with its own tests, never a checker added to the target; keep
    the rule blocked until that change lands. Record deviations as
    unresolved decisions, not passes. Reuse existing ownership/naming/runner
    policies rather than adding parallel authorities.

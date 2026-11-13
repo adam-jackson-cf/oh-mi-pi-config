@@ -102,7 +102,6 @@ export const gateSchema = z.object({
 		commit: argvSchema, ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
 	}).strict(),
 	pathCheck: argvSchema,
-	testGlobs: z.array(z.string()).optional(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
 	// The repo's dynaflows switch (required); checked below for one message.
@@ -115,7 +114,6 @@ export const gateSchema = z.object({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	pathCheck: gate.pathCheck,
-	testGlobs: gate.testGlobs,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
 	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),

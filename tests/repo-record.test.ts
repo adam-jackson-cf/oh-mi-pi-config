@@ -124,8 +124,8 @@ describe("record resolution", () => {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
 			for (const [invalid, named] of [
 				[{ ...completeGate, pathCheck: undefined }, "pathCheck"], [{ ...completeGate, checks: { ci: ["ci"] } }, "checks"],
-				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, dynaflowsContract: 3 }, "dynaflowsContract"],
-				[{ ...completeGate, pathCheckTimeoutMs: 1000 }, "pathCheckTimeoutMs"], [{ ...completeGate, ciHost: "github" }, "ciHost"],
+				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, unknownField: 3 }, "unknownField"],
+				[{ ...completeGate, extraField: 1000 }, "extraField"], [{ ...completeGate, otherField: "github" }, "otherField"],
 				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],
 			] as const) {
 				f.writeRecord("owner/name", JSON.stringify(invalid));

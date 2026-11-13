@@ -5,7 +5,6 @@
     "ci": ["make", "gate-ci"]
   },
   "pathCheck": ["make", "check-paths"],
-  "testGlobs": ["tests/**/*.py"],
   "ci": {"requiredContext": "gate", "runner": "github-actions"},
   "agentMerge": "allowed",
   "dynaflows": {"enabled": false}

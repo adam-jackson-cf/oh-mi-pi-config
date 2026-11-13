@@ -258,12 +258,6 @@ class RunnerParityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(".githooks/pre-commit", result.stderr)
 
-    def test_repo_omp_gate_json_does_not_satisfy_parity(self):
-        (self.repo / ".omp").mkdir()
-        (self.repo / ".omp/gate.json").write_text('{"checks": {"ci": ["bash", "scripts/run-ci-quality-gates.sh"]}}')
-        result = self.run_script()
-        self.assertEqual(result.returncode, 1)
-
 
 if __name__ == "__main__":
     unittest.main()

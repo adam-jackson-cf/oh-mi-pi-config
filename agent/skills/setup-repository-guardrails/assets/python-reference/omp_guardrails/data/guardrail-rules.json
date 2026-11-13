@@ -152,7 +152,6 @@
     },
     {
       "id": "GATE.local-ci-parity",
-      "aliases": ["RUNNER.local-ci-parity"],
       "kind": "process",
       "applicability": "always",
       "evidence_kind": "local_ci",
@@ -769,7 +768,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-args",
-      "aliases": ["RUFF.SELECT.PLR0913"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -780,7 +778,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-branches",
-      "aliases": ["RUFF.SELECT.PLR0912"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -791,7 +788,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-locals",
-      "aliases": ["RUFF.SELECT.PLR0914"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -802,7 +798,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-positional-args",
-      "aliases": ["RUFF.SELECT.PLR0917"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -813,7 +808,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-public-methods",
-      "aliases": ["RUFF.SELECT.PLR0904"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -824,7 +818,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-returns",
-      "aliases": ["RUFF.SELECT.PLR0911"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -835,7 +828,6 @@
     },
     {
       "id": "RUFF.LIMIT.max-statements",
-      "aliases": ["RUFF.SELECT.PLR0915"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -1042,7 +1034,6 @@
     },
     {
       "id": "RUFF.SETTING.mccabe.max-complexity",
-      "aliases": ["RUFF.SELECT.C901"],
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
@@ -1199,7 +1190,6 @@
     },
     {
       "id": "TEST.tier-selectors",
-      "aliases": ["TEST.tiers"],
       "kind": "bespoke",
       "applicability": "always",
       "evidence_kind": "local_ci",
@@ -1217,7 +1207,6 @@
     },
     {
       "id": "TEST.coverage-ratchet",
-      "aliases": ["TEST.coverage-minimum"],
       "kind": "bespoke",
       "applicability": "always",
       "evidence_kind": "local_ci",
