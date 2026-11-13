@@ -1,10 +1,9 @@
 """The rule catalogue that ships in this package, and which rules the package proves.
 
-The catalogue (``omp_guardrails/data/guardrail-rules.json``) lives only here: repositories keep
-no copy, no ledger and no validator. A rule is **proven by the package** when it is
+The catalogue (``omp_guardrails/data/guardrail-rules.json``) lives only here. A rule is **proven by the package** when it is
 ``kind: "tool"`` (a native tool enforces its configuration) or names a ``reference`` module (an
 omp-guardrails checker enforces it). The package's own test suite proves each such rule once,
-for every repository; catalogue coverage and canaries are those tests, not repository files.
+for every repository.
 """
 
 from __future__ import annotations

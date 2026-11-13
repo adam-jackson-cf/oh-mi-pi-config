@@ -124,8 +124,8 @@ class Resolve(unittest.TestCase):
         record = self.write_record("owner/name", GATE)
         self.assertEqual(repo_record.load_gate(record), GATE)
         for invalid, named in ((gate(pathCheck=None), "pathCheck"), (gate(checks={"ci": ["ci"]}), "checks.commit"),
-                               (gate(checks=None), "checks"), (gate(dynaflowsContract=3), "dynaflowsContract"),
-                               (gate(pathCheckTimeoutMs=1000), "pathCheckTimeoutMs"), (gate(ciHost="github"), "ciHost"),
+                               (gate(checks=None), "checks"), (gate(unknownField=3), "unknownField"),
+                               (gate(extraField=1000), "extraField"), (gate(otherField="github"), "otherField"),
                                (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint")):
             with self.subTest(named=named):
                 (record / "gate.json").write_text(json.dumps(invalid))
@@ -141,7 +141,7 @@ class Resolve(unittest.TestCase):
 
 class GateReason(unittest.TestCase):
     def test_complete_gates_with_optional_fields_are_accepted(self):
-        for valid in (GATE, gate(testGlobs=["", "*.py"], agentMerge="disabled"),
+        for valid in (GATE, gate(agentMerge="disabled"),
                       gate(checks={"commit": ["c"], "ci": ["true"], "format": ["ruff", "format"], "profile": ["p"]},
                            ci={"requiredContext": "gate", "runner": "ci-gate"}, dynaflows={"enabled": False})):
             with self.subTest(gate=valid):
@@ -160,10 +160,9 @@ class GateReason(unittest.TestCase):
             (gate(checks={"commit": ["c"], "format": "ruff format"}), "checks.format must be argv"),
             (gate(checks={"commit": ["c"], "profile": []}), "checks.profile must be argv"),
             (gate(checks={"commit": ["c"], "lint": ["x"]}), "unknown field checks.lint must be removed"),
-            (gate(dynaflowsContract=3), "unknown field dynaflowsContract must be removed"),
-            (gate(dynaflowsContract=3, pathCheckTimeoutMs=5), "unknown field dynaflowsContract, pathCheckTimeoutMs must be removed"),
-            (gate(ciHost="github"), "unknown field ciHost must be removed"),
-            (gate(testGlobs=[2]), "testGlobs must be a string list"),
+            (gate(unknownField=3), "unknown field unknownField must be removed"),
+            (gate(unknownField=3, extraField=5), "unknown field extraField, unknownField must be removed"),
+            (gate(otherField="github"), "unknown field otherField must be removed"),
             (gate(agentMerge=False), "agentMerge must be allowed or disabled"),
             (gate(ci="gate"), "ci must declare nonblank requiredContext and runner"),
             (gate(ci={"requiredContext": "gate"}), "ci must declare nonblank requiredContext and runner"),

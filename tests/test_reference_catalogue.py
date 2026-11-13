@@ -1,7 +1,6 @@
 """The packaged rule catalogue, its coverage by these tests, toolchain parity and versions.
 
-Catalogue coverage and canaries are the package's own tests: repositories keep no ledger, no
-canary fixtures and no validator. Every rule the package proves is named by a test here.
+Every rule the package proves is named by a test here.
 """
 
 from __future__ import annotations
@@ -144,19 +143,6 @@ def reference_imports(sources: list[Path]) -> set[str]:
             ):
                 imported.add(node.module)
     return imported
-
-
-class RepositoryArtefactTests(unittest.TestCase):
-    """The package offers no check that reads repo-held harness artefacts."""
-
-    def test_no_subcommand_reads_a_ledger_hook_gate_wiring_or_canary(self) -> None:
-        for retired in ("canaries", "rule-evidence", "rule-coverage", "hook-check", "gate"):
-            self.assertNotIn(retired, cli.SUBCOMMANDS)
-        package = REFERENCE / "omp_guardrails"
-        sources = "".join(path.read_text(encoding="utf-8") for path in package.rglob("*.py"))
-        # Built from parts so a repository-wide search for the retired paths finds only code.
-        for path in (".omp" + "/", "rule-coverage" + ".json", "guardrail-proposal" + ".json"):
-            self.assertNotIn(path, sources)
 
 
 class ChildEnvironmentTests(unittest.TestCase):

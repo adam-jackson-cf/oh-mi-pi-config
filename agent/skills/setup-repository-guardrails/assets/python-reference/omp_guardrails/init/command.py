@@ -17,7 +17,6 @@ an existing record, copy it to a draft directory outside ``repos/`` first. Into 
    references query (``lsp``). A server missing from ``PATH`` is a setup gap unless
    ``--allow-missing-lsp`` is given; a server that fails the canary always is.
 
-``--extend`` brings an existing record to the current format and refuses to create a record.
 The report lists what was discovered and every value the owner must confirm. Init never
 overwrites a recorded value, never writes an approval and never turns dynaflows on, so a second
 run changes nothing.
@@ -44,9 +43,6 @@ class UsageError(Exception):
 
 def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(prog="omp-guardrails init", description=__doc__)
-    command.add_argument(
-        "--extend", action="store_true", help="update an existing record; never create one"
-    )
     command.add_argument("--commit-command", help="the repo's own commit gate command")
     command.add_argument("--ci-command", help="the repo's own CI gate command")
     command.add_argument(
@@ -151,8 +147,6 @@ def initialise(
 ) -> tuple[list[str], list[Finding]]:
     """Draft the record; return report lines and setup-gap findings."""
     gate = record_gate.load_gate(record)
-    if gate is None and options.extend:
-        raise UsageError(f"--extend needs an existing {record_gate.GATE_PATH}; run init without it")
     found = discovery.discover(repo, offline=options.offline)
     changes: list[str] = []
     report = found.report() + apply_profile(repo, record, options, changes)

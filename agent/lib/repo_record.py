@@ -97,7 +97,7 @@ def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None
 
 
 # Every current gate.json field; any other field, at the top level or in ``checks``, is rejected.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "testGlobs", "agentMerge", "ci", "dynaflows"})
+GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "agentMerge", "ci", "dynaflows"})
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 
 
@@ -135,8 +135,6 @@ def gate_reason(gate) -> str | None:
             return "ci must declare nonblank requiredContext and runner"
     if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
         return "agentMerge must be allowed or disabled"
-    if "testGlobs" in gate and (not isinstance(gate["testGlobs"], list) or not all(isinstance(x, str) for x in gate["testGlobs"])):
-        return "testGlobs must be a string list"
     dynaflows = gate.get("dynaflows")
     if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
         return 'dynaflows must be {"enabled": true|false}'

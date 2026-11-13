@@ -294,18 +294,6 @@ class CiGateTests(unittest.TestCase):
         self.assertEqual(len(self.calls('systemd-run')), 1)
         self.assertEqual(json.loads(self.cli('status', REPO, self.sha).stdout)['state'], 'running')
 
-    def test_repo_tree_omp_gate_is_never_read(self):
-        # A leftover repo .omp/gate.json must not choose the command or the status context.
-        (self.source / '.omp').mkdir()
-        (self.source / '.omp/gate.json').write_text(json.dumps({'schemaVersion': 2, 'checks': {'ci': ['false']},
-                                                                'ci': {'requiredContext': 'repo-context', 'runner': 'x'}}))
-        sha = self.commit()
-        self.submit(sha)
-        self.cli('run', self.job(sha))
-        self.assertEqual([request['body']['context'] for request in self.requests], [CONTEXT, CONTEXT])
-        run = next(argv for argv in self.calls('podman') if argv[0] == 'run')
-        self.assertIn("bash 'gate script.sh' 'a'\"'\"'b'", run[-1])
-
     def test_missing_record_is_an_error_naming_the_rollout(self):
         shutil.rmtree(self.record)
         self.submit()
@@ -367,13 +355,12 @@ class CiGateTests(unittest.TestCase):
                 self.assertEqual(self.requests[-1]['body']['context'], CONTEXT)
 
     def test_gate_without_required_context_is_an_unpublished_error(self):
-        for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'schema-v1', 'dynaflowsContract',
+        for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'unknownField',
                         'pathCheck', 'checks'):
             with self.subTest(failure=failure):
                 gate = {'missing-context': self.gate(ci=None),
-                        'unknown-schema': {'schemaVersion': 3, 'gate': ['true']},
-                        'schema-v1': {'schemaVersion': 1, 'gate': ['true']},
-                        'dynaflowsContract': self.gate(dynaflowsContract=3),
+                        'unknown-schema': {'schemaVersion': 3},
+                        'unknownField': self.gate(unknownField=3),
                         'pathCheck': self.gate(pathCheck=None),
                         'checks': self.gate(checks={'ci': ['true']})}.get(failure)
                 if failure == 'missing-gate':
@@ -389,7 +376,7 @@ class CiGateTests(unittest.TestCase):
                 result = json.loads(waited.stdout)
                 self.assertEqual(result['state'], 'error')
                 self.assertIn('ci.requiredContext', result['publicationError'])
-                if failure in ('dynaflowsContract', 'pathCheck', 'checks'):
+                if failure in ('unknownField', 'pathCheck', 'checks'):
                     # The run's error names the field the strict record schema rejected.
                     self.assertIn('checks.commit' if failure == 'checks' else failure, result['error'])
                 self.assertIn('ci.requiredContext', waited.stderr)

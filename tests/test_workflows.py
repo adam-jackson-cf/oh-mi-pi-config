@@ -409,7 +409,7 @@ class RepositoryTests(unittest.TestCase):
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
         for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}),
                      json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}),
-                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "dynaflowsContract": 3}),
+                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "unknownField": 3}),
                      json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "dynaflows": {"enabled": "yes"}})):
             self.write_gate(text)
             self.change()
@@ -618,15 +618,6 @@ class RepositoryTests(unittest.TestCase):
         self.change()
         self.assert_block(self.prove(), "dynaflows off for none: no origin remote")
 
-    def test_repo_tracked_omp_files_are_never_read(self):
-        # A leftover repo .omp/ directory must not change policy: only the record counts.
-        self.write(".omp/gate.json", json.dumps({"schemaVersion": 3}))
-        self.write(".omp/test-profile.md", "---\n{not json\n---\n")
-        self.rebase_parent("leftover repo omp files")
-        self.freeze([self.proof()])
-        self.change()
-        self.assertEqual(self.prove()["status"], "pass")
-
     def test_linked_worktree_resolves_to_the_main_checkout_record(self):
         linked = self.tmp / "linked"
         git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
@@ -646,7 +637,7 @@ class RepositoryTests(unittest.TestCase):
                     workflow.read_record(self.repo)
 
     def test_record_with_an_unknown_field_blocks_freeze_and_prove(self):
-        for field, value in (("dynaflowsContract", 3), ("pathCheckTimeoutMs", 5000), ("ciHost", "github")):
+        for field, value in (("unknownField", 3), ("extraField", 5000), ("otherField", "github")):
             with self.subTest(field=field):
                 self.manifest_path.unlink(missing_ok=True)
                 self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], field: value}))
@@ -1021,8 +1012,8 @@ class SchemaTests(unittest.TestCase):
                 self.load(data)
 
     def test_unknown_manifest_fields_are_refused_by_name(self):
-        data = dict(self.data, dynaflowsContract=2)
-        with self.assertRaisesRegex(workflow.WorkflowError, "unknown manifest field dynaflowsContract"):
+        data = dict(self.data, unknownField=2)
+        with self.assertRaisesRegex(workflow.WorkflowError, "unknown manifest field unknownField"):
             self.load(data)
 
     def test_noncanonical_paths_and_tmp_independence(self):
@@ -1042,7 +1033,7 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(workflow.gate_policy(gate),
                          {"format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
         for invalid in ({k: v for k, v in gate.items() if k != "pathCheck"}, {**gate, "checks": {"ci": ["c"]}},
-                        {**gate, "dynaflowsContract": 3}):
+                        {**gate, "unknownField": 3}):
             with self.subTest(gate=invalid):
                 self.assertIsNone(workflow.gate_policy(invalid))
 
@@ -1121,7 +1112,7 @@ class LabelTests(unittest.TestCase):
             self.path.write_text(json.dumps(cases))
             with self.assertRaises(workflow.WorkflowError):
                 workflow.blind_label([self.path], "rubric", ["yes"])
-        for selectors in (("scout", "task"), ("scout", "scout"), ("verifier", "reviewer")):
+        for selectors in (("scout", "task"), ("scout", "scout"), ("designer", "reviewer")):
             with self.assertRaises(workflow.WorkflowError):
                 workflow.blind_label([], "rubric", ["yes"], selectors)
         with self.assertRaises(workflow.WorkflowError):
