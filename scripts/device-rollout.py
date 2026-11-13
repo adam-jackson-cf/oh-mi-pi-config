@@ -3,7 +3,7 @@
 
 Apply mode also provisions the judge key into each device's omp credential store
 (Infisical -> builder -> `omp auth import -`, streamed over stdin only), runs a
-`omp find` canary per device, deletes retired `~/.agents/by-request` husks, and writes
+`omp find` canary per device, and writes
 each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles, and copies the
 gitignored per-repo records (`<omp base>/repos/<owner>/<name>/`) one way from this checkout to
 every remote device that runs omp, refusing to overwrite a target record that is newer.
@@ -24,8 +24,6 @@ import sys
 
 # Configuration keys in the registry that are not hosts.
 SETTINGS = ("local", "infisical", "judgeKey", "findCanary", "ciRunners")
-# Retired skill names whose untracked by-request folders shadow skill:// resolution.
-HUSKS = ("coding-guidance", "test-guidance", "setup-repository-guardrails")
 # Reads the secret named by argv[1] from the environment and prints an
 # `omp auth export` document for provider argv[2]; the key never reaches argv.
 CREDENTIAL_BUILDER = (
@@ -310,26 +308,6 @@ class Rollout:
         self.rows.append([device, component, deployed, expected, "-", state])
         return state
 
-    def husks(self, device, path, host=None):
-        """Report (check) or delete (apply) by-request husks that hold no SKILL.md."""
-        base = shell_path(path) if host else shlex.quote(str(path))
-        delete = "" if self.check else 'rm -rf -- "$d" && echo "deleted $n" && continue; '
-        script = ("for n in " + " ".join(HUSKS) + "; do d=" + base + '/by-request/"$n"; '
-                  '[ -d "$d" ] || continue; '
-                  'if [ -n "$(find "$d" -name SKILL.md -print | head -n 1)" ]; then '
-                  'echo "skill $n"; continue; fi; ' + delete + 'echo "husk $n"; done')
-        try:
-            output = self.command(["sh", "-c", script], host).stdout.split()
-        except CommandError as error:
-            return error.state
-        found = dict(zip(output[1::2], output[0::2]))
-        for name in sorted(found):
-            if found[name] == "skill":
-                self.notes.append(f"{device}: by-request/{name} holds a SKILL.md; not deleted")
-            elif found[name] == "deleted":
-                self.notes.append(f"{device}: deleted by-request/{name} husk")
-        return "husks-present" if any(kind in ("skill", "husk") for kind in found.values()) else None
-
     def provision(self, host=None):
         """Stream the judge key from Infisical into `omp auth import -`; True on success."""
         key, source = self.judge_key, self.infisical
@@ -365,17 +343,11 @@ class Rollout:
             return "failed"
         return coverage if coverage in ("complete", "partial", "unavailable") else "failed"
 
-    def finish_device(self, device, start, host=None, agents=None, agents_state=None, omp=True):
-        """Apply husk, key and find results to the device's rows from index `start`.
+    def finish_device(self, device, start, host=None, omp=True):
+        """Apply key and find results to the device's rows from index `start`.
 
         Key provisioning and the find canary run only on devices that run omp."""
         rows = self.rows[start:]
-        husk_state = self.husks(device, agents, host) if agents_state not in (
-            None, "unreachable") else None
-        if husk_state:
-            for row in rows:
-                if row[1] == "agents" and row[5] == "current":
-                    row[5] = husk_state
         if any(row[5] == "unreachable" for row in rows):
             coverage = "unreachable"
         elif not omp:
@@ -514,15 +486,15 @@ class Rollout:
     def execute(self):
         local_omp = self.checkout(self.local, "omp", self.home / ".omp")
         agents = self.home / ".agents"
-        self.finish_device(self.local, 0, agents=agents,
-                           agents_state=self.checkout(self.local, "agents", agents))
+        self.checkout(self.local, "agents", agents)
+        self.finish_device(self.local, 0)
         self.runners(self.local, 0)
         for host, config in self.hosts.items():
             start = len(self.rows)
-            state = self.checkout(host, "agents", config["agents"], host)
+            self.checkout(host, "agents", config["agents"], host)
             if "omp" in config:
                 self.deployment(host, config["omp"], local_omp in ("current", "stale"))
-            self.finish_device(host, start, host, config["agents"], state, omp="omp" in config)
+            self.finish_device(host, start, host, omp="omp" in config)
             self.runners(host, start, host)
             if "omp" in config:
                 self.records(host, config["omp"], start)
@@ -539,7 +511,7 @@ def main(argv=None, runner=run_command, pipeline=run_pipeline, base=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true",
                         help="fetch and report without pulling, starting services, "
-                             "provisioning keys, deleting husks or copying records")
+                             "provisioning keys or copying records")
     args = parser.parse_args(argv)
     registry = Path(__file__).with_name("device-rollout-hosts.json")
     rollout = Rollout(json.loads(registry.read_text()), check=args.check, runner=runner,

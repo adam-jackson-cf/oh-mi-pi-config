@@ -272,9 +272,9 @@ class DraftRecordTests(InitCase):
         self.assertIn("required: no pathCheck found; pass --path-command", output)
 
     def test_unreadable_gate_or_unknown_field_is_reported_not_rewritten(self) -> None:
-        for gate, named in (({"schemaVersion": 1}, "schemaVersion 2"),
-                            ({"schemaVersion": 2, "ciHost": "github"}, "unknown field ciHost must be removed"),
-                            ({"schemaVersion": 2, "dynaflowsContract": 3}, "unknown field dynaflowsContract must be removed"),
+        for gate, named in (({"schemaVersion": 3}, "schemaVersion 2"),
+                            ({"schemaVersion": 2, "otherField": "github"}, "unknown field otherField must be removed"),
+                            ({"schemaVersion": 2, "unknownField": 3}, "unknown field unknownField must be removed"),
                             ({"schemaVersion": 2, "checks": {"lint": ["x"]}}, "unknown field checks.lint must be removed")):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))
@@ -346,28 +346,17 @@ class RequiredChecksTests(InitCase):
         self.assertNotIn("ci", self.gate())
 
 
-class ExtendTests(InitCase):
-    """--extend updates an existing record and never creates one."""
+class ExistingRecordTests(InitCase):
+    """Init fills the absent fields of an existing record."""
 
     def setUp(self) -> None:
         super().setUp()
         self.write_record("profile.md", '---\n{"adapter": "pytest"}\n---\n')
 
-    def test_extend_updates_an_existing_record_and_never_creates_one(self) -> None:
-        self.write_record("gate.json", json.dumps({"schemaVersion": 2}))
-        code, output = self.init("--extend")
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["dynaflows"], {"enabled": False})
-        (self.record / "gate.json").unlink()
-        code, output = self.init("--extend")
-        self.assertEqual(code, 1)
-        self.assertIn("--extend needs an existing record:gate.json", output)
-        self.assertFalse((self.record / "gate.json").exists())
-
-    def test_extend_drafts_the_missing_required_fields(self) -> None:
+    def test_drafts_the_missing_required_fields(self) -> None:
         self.write_record("gate.json", json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": True}}))
         self.write("Makefile", MAKEFILE)
-        code, output = self.init("--extend")
+        code, output = self.init()
         self.assertEqual(code, 0, output)
         self.assertEqual(self.gate()["checks"]["commit"], ["make", "gate-commit"])
         self.assertEqual(self.gate()["pathCheck"], ["make", "check-paths"])

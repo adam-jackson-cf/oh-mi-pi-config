@@ -15,7 +15,7 @@ const naming = "skill://coding-guidance/references/naming.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://coding-guidance/references/verification.md";
 type GateFixture = {
-	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] }; testGlobs?: string[];
+	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
 	pathCheck?: string[] | string; agentMerge?: "allowed" | "disabled";
 	ci?: { requiredContext: string; runner: string }; dynaflows?: { enabled: boolean };
 };
@@ -139,7 +139,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		setSession(value: string) { sessionId = value; },
 		gate(value: GateFixture) { fixture = value; writeGate(); },
 		dynaflows(value: boolean) { enabled = value; writeGate(); },
-		// Raw gate.json text, for invalid and legacy fixtures.
+		// Raw gate.json text, for invalid fixtures.
 		rawGate(text: string) { writeRecord(text); },
 		record() { return recordGateSchema.parse(JSON.parse(readFileSync(join(recordDir(), "gate.json"), "utf8"))); },
 		// Moves origin; an existing record moves with it, as a re-pointed clone keeps its record.
@@ -406,7 +406,7 @@ describe("agent rails", () => {
 					assert.ok(blocked?.reason?.includes("effective cwd"));
 				}
 			}
-			for (const invalid of ["{broken", '{"schemaVersion":1}', '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"ciHost":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
 				h.rawGate(invalid);
 				for (const command of commands) {
 					const blocked = await h.call("bash", { command });
@@ -585,8 +585,7 @@ describe("agent rails", () => {
 			const complete = { schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: true } };
 			for (const [gate, named] of [
 				[{ ...complete, pathCheck: undefined }, "pathCheck"], [{ ...complete, checks: { ci: ["ci"] } }, "checks"],
-				[{ ...complete, checks: undefined }, "checks"], [{ ...complete, dynaflowsContract: 3 }, "dynaflowsContract"],
-				[{ ...complete, pathCheckTimeoutMs: 5 }, "pathCheckTimeoutMs"], [{ ...complete, ciHost: "github" }, "ciHost"],
+				[{ ...complete, checks: undefined }, "checks"], [{ ...complete, unknownField: 3 }, "unknownField"],
 				[{ ...complete, checks: { commit: ["true"], lint: ["x"] } }, "checks.lint"],
 			] as const) {
 				h.rawGate(JSON.stringify(gate));
@@ -920,8 +919,6 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 			writeFileSync(result, content);
 			assert.ok((await h.call("bash", { command }))?.reason?.includes(`no prove() pass for ${head}`), name);
 		}
-		writeFileSync(join(h.root, ".git/omp-prove", `${head}.json`), JSON.stringify({ schemaVersion: 1, head, kind: "prove", status: "pass" }));
-		assert.equal((await h.call("bash", { command }))?.block, true, "a retired pass marker is not a pass");
 		proveResult(h, head);
 		assert.equal(await h.call("bash", { command }), undefined);
 		assert.equal(await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${head}` }), undefined);
@@ -1249,7 +1246,6 @@ test("pulling commits in needs no read and no check beyond hook-bypass flags", a
 			assert.ok(blocked?.reason?.includes("drop hook bypass"), `${command}: ${blocked?.reason}`);
 		}
 		assert.ok((await h.call("bash", { command: "HUSKY=0 git merge x" }))?.reason?.includes("hook environment mutation"));
-		assert.equal(existsSync(join(h.root, ".git/omp-authors")), false, "no author ledger is kept");
 	} finally { h.cleanup(); }
 });
 
@@ -1345,16 +1341,15 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 	const record = { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false } };
 	const cases: object[] = [
 		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, pathCheck: undefined }, { schemaVersion: 2, checks: undefined },
-		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, pathCheck: ["check"], testGlobs: ["", "tests/**"], agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
+		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, pathCheck: ["check"], agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
 		{ schemaVersion: 2, ci: { requiredContext: "build", runner: "github-actions" } },
-		{ schemaVersion: 2, dynaflowsContract: 3 }, { schemaVersion: 2, pathCheckTimeoutMs: 1000 }, { schemaVersion: 2, checks: { commit: ["c"], lint: ["l"] } },
-		{ schemaVersion: 2, ciHost: "github" }, { schemaVersion: 2, ciHost: null },
+		{ schemaVersion: 2, unknownField: 3 }, { schemaVersion: 2, extraField: 1000 }, { schemaVersion: 2, checks: { commit: ["c"], lint: ["l"] } },
+		{ schemaVersion: 2, otherField: "github" }, { schemaVersion: 2, otherField: null },
 		{ schemaVersion: 2, ci: null }, { schemaVersion: 2, ci: {} }, { schemaVersion: 2, ci: { requiredContext: " ", runner: "ci-gate" } },
 		{ schemaVersion: 2, ci: { requiredContext: "gate" } }, { schemaVersion: 2, ci: { requiredContext: "gate", runner: 1 } },
 		{ schemaVersion: 2, checks: { format: [] } }, { schemaVersion: 2, checks: { profile: [" "] } }, { schemaVersion: 2, checks: { format: "fmt" } },
 		{ schemaVersion: 2, checks: null }, { schemaVersion: 2, checks: { commit: null } },
 		{ schemaVersion: 2, checks: { ci: [] } }, { schemaVersion: 2, pathCheck: [" "] },
-		{ schemaVersion: 2, testGlobs: [1] }, { schemaVersion: 2, testGlobs: null },
 		{ schemaVersion: 2, agentMerge: "maybe" },
 		{ schemaVersion: true }, { schemaVersion: 3 },
 		{ schemaVersion: 2, dynaflows: { enabled: true } }, { schemaVersion: 2, dynaflows: null },

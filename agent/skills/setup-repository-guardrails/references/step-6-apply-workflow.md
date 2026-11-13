@@ -43,7 +43,6 @@ intact.
        "ci": ["make", "gate-ci"]
      },
      "pathCheck": ["make", "check-paths"],
-     "testGlobs": ["**/*.test.ts", "tests/**"],
      "agentMerge": "allowed",
      "ci": { "requiredContext": "gate", "runner": "github-actions" },
      "dynaflows": { "enabled": false }
@@ -79,9 +78,8 @@ intact.
    unless every tier result is `success` (not failed, cancelled, or skipped).
    Append changed paths to `pathCheck` as arguments. It exits 0 when clean;
    nonzero output has one error per line, each naming the file and fix for
-   structure, naming, or test placement. Rails run it with one fixed timeout;
-   `testGlobs` lists strings. `agentMerge`
-   accepts only `allowed` or `disabled`; an absent field or record defaults to
+   structure, naming, or test placement. Rails run it with one fixed timeout.
+   `agentMerge` accepts only `allowed` or `disabled`; an absent field or record defaults to
    `allowed`. Do not infer merge permission from this setup skill; honor the
    governing Git authorization. Optional `checks.profile` names the
    profile completeness command (normally `omp-guardrails profile-check`);
@@ -134,7 +132,7 @@ intact.
    `ci.requiredContext` is green on the exact head before merge; a server-side
    ruleset is a later, optional owner step outside this skill.
 8. Tests for the repo's own checkers live near their owner as ordinary repo
-   code; harness rules need no repo canaries. Update contributor and
+   code. Update contributor and
    application-user documentation separately. Inspect for out-of-scope edits,
    secrets, and generated output before publication; follow existing Git/PR
    authorization.

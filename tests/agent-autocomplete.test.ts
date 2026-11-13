@@ -158,15 +158,15 @@ describe("agent autocomplete", () => {
 
 	test("adds commands for agents discovered when a session starts", async () => {
 		const harness = createExtensionHarness();
-		harness.setAvailableAgents([{ name: "verifier", description: "Verifies proofs" }]);
+		harness.setAvailableAgents([{ name: "auditor", description: "Audits changes" }]);
 
 		await harness.startSession("/other-project");
 
 		assert.equal(harness.discoveryCalls.at(-1), "/other-project");
-		assert.equal(harness.registeredCommands.get("agent:verifier")?.description, "Verifies proofs");
+		assert.equal(harness.registeredCommands.get("agent:auditor")?.description, "Audits changes");
 		assert.deepEqual(
-			(await harness.suggest("use /agent:ver"))?.items.map(item => item.value),
-			["agent:verifier"],
+			(await harness.suggest("use /agent:aud"))?.items.map(item => item.value),
+			["agent:auditor"],
 		);
 	});
 

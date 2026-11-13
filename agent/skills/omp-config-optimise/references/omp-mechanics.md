@@ -12,9 +12,8 @@ the docs live at `omp://models.md`, `omp://settings.md`,
 - Task model precedence: `task.agentModelOverrides[agent]` → agent frontmatter
   `model` → parent session model.
 - **A role's `:effort` suffix beats frontmatter `thinkingLevel`.** Verified by
-  spawning the former plan judging agent with frontmatter `low` and role `:high`; the child
-  session recorded `thinkingLevel: high`. That role was removed 2026-11-04, proof-first
-  workflow; retain this dated observation, and keep effort only in `config.yml`.
+  spawning an agent with frontmatter `low` and role `:high`; the child session recorded
+  `thinkingLevel: high`. Keep effort only in `config.yml`.
 - `defaultThinkingLevel` governs the main session. `auto` asks the `judge`
   role per prompt and can resolve up to `providers.autoThinkingMaxEffort`,
   which only accepts `xhigh|max`, so `auto` cannot be capped at medium. A
@@ -38,10 +37,8 @@ the docs live at `omp://models.md`, `omp://settings.md`,
 - `task.agentServiceTierOverrides[agent]` sets the Fast/priority tier per agent;
   Vibe workers use `tier.subagent` instead.
 - Priority overrides now cover only `task`, `kiss` and `sonic` (2026-11-04).
-- The `verifier` role and agent were removed 2026-11-12: dynaflows proof is TDD (red at base,
-  green at head) with no agent review. Former plan/test/completeness judging roles:
-  removed 2026-11-04, proof-first workflow. Bundled `reviewer` remains for open-ended
-  contextual eval judgments.
+- Dynaflows proof is TDD (red at base, green at head) with no agent review. Bundled
+  `reviewer` handles open-ended contextual eval judgments.
 - Bundled agents without a role alias in their frontmatter (e.g. `reviewer`) ignore a same-named
   `modelRoles` entry and inherit the parent model. Route them with
   `task.agentModelOverrides[agent]: "@<role>"` (verified 2026-09-28).

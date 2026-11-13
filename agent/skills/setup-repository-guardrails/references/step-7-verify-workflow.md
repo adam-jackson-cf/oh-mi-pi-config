@@ -13,10 +13,8 @@ execution.
    omp-guardrails check --repo <worktree> --record <record dir>`. Expected exit
    0: zero findings outside the record's
    scope exclusions, with JUnit and temporary output outside the worktree and
-   no file written into it. Catalogue coverage, canaries and rule evidence are
-   `omp-guardrails`' own tests in oh-mi-pi-config; they prove the checkers
-   for every repository, so the target holds no ledger, catalogue copy,
-   validator or canary for harness rules.
+   no file written into it. `omp-guardrails`' own tests in oh-mi-pi-config
+   prove the checkers once for every repository.
 2. For each repo-owned checker the project keeps for itself, run its own
    tests. For `STRUCT.dependency-direction`, `STRUCT.folder-placement`,
    `NAME.conventions` and `TEST.placement` implemented by the repo's own path
