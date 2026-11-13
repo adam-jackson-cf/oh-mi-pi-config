@@ -3,13 +3,15 @@
 """Proof-first verification (TDD: red at base, green at head) and blind labels; load in the OMP Python eval kernel."""
 import copy
 import hashlib
+import importlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 from urllib.parse import quote
@@ -23,6 +25,11 @@ GUARDRAIL_PREREQUISITE = (
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 RETIRED_PROOF_FIELDS = ("kind", "expectRed")
+FEATURE_MAP_SETUP = (
+    "the record profile declares no verification_surface.feature_map_path; proofs must be "
+    "outcome tests linked from the feature map, so set the map up first "
+    "(skill://omp-dyna-workflows/references/playbooks/project-setup.md). "
+    "A PR with no behaviour change freezes no proofs")
 
 
 class WorkflowError(RuntimeError):
@@ -71,6 +78,29 @@ def _resolver():
             raise WorkflowError(f"cannot load the record resolver: {exc}") from exc
         _RESOLVER.append(module)
     return _RESOLVER[0]
+
+
+_SURFACE = []
+GUARDRAILS_REFERENCE = "agent/skills/setup-repository-guardrails/assets/python-reference"
+
+
+def _surface():
+    """omp_guardrails' feature-map and journey modules from the harness's python reference, loaded once."""
+    if not _SURFACE:
+        reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
+        loaded = sys.modules.get("omp_guardrails")
+        if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(reference):
+            raise WorkflowError(f"omp_guardrails already loaded from {loaded.__file__}, not the harness reference {reference}")
+        sys.path.insert(0, str(reference))
+        try:
+            feature_map = importlib.import_module("omp_guardrails.surface.feature_map")
+            journeys = importlib.import_module("omp_guardrails.surface.journeys")
+        except (OSError, SyntaxError, ImportError) as exc:
+            raise WorkflowError(f"cannot load the feature-map checker: {exc}") from exc
+        finally:
+            sys.path.remove(str(reference))
+        _SURFACE.extend((feature_map, journeys))
+    return _SURFACE
 
 
 def read_record(repo):
@@ -469,19 +499,19 @@ def _profile_path(record):
     return Path(record) / _resolver().PROFILE_FILE
 
 
-def _doctor_marker(record):
-    """verification_surface.doctor_marker from the record profile's front matter; absent record, profile or value skips."""
+def _profile(record):
+    """The record profile's front-matter object; an absent record, profile or front matter is {}."""
     if record is None:
-        return None
+        return {}
     path = _profile_path(record)
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
-        return None
+        return {}
     except (OSError, UnicodeError) as exc:
         raise WorkflowError(f"{path} unreadable: {exc}") from exc
     if not lines or lines[0].strip() != "---":
-        return None
+        return {}
     end = next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
     if end is None:
         raise WorkflowError(f"{path} front matter has no closing '---' line")
@@ -489,11 +519,59 @@ def _doctor_marker(record):
         values = json.loads("\n".join(lines[1:end]))
     except ValueError as exc:
         raise WorkflowError(f"{path} front matter is not valid JSON: {exc}") from exc
-    surface = values.get("verification_surface") if isinstance(values, dict) else None
+    return values if isinstance(values, dict) else {}
+
+
+def _doctor_marker(profile):
+    """verification_surface.doctor_marker from the profile front matter; an absent or placeholder value skips."""
+    surface = profile.get("verification_surface")
     marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
     if not isinstance(marker, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL):
         return None
     return marker
+
+
+def _feature_map_path(profile):
+    """verification_surface.feature_map_path (repo-relative, no trailing slash), or None when the
+    profile declares none, exempts the surface or leaves a placeholder."""
+    surface = _surface()[0].surface(profile)
+    value = surface.get("feature_map_path") if surface is not None else None
+    if not isinstance(value, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", value, re.IGNORECASE | re.DOTALL):
+        return None
+    return value.strip().rstrip("/") or None
+
+
+def _unmapped_proof_files(root, map_path, proofs):
+    """Proof files that no feature-map document in the working tree links to."""
+    if not (Path(root) / map_path).exists():
+        raise WorkflowError(f"feature map {map_path} (verification_surface.feature_map_path) does not exist; "
+                            "write the feature map before freezing proofs")
+    linked, _ = _surface()[1].mapped_paths(Path(root), map_path)
+    return [f"{proof['id']}: {name}" for proof in proofs for name in proof["files"] if name not in linked]
+
+
+def _map_document(map_path, name, indexes):
+    """Whether a changed repo path is a feature document of the map at map_path (index files are not)."""
+    if PurePosixPath(name).name in indexes:
+        return False
+    return name == map_path or (name.startswith(f"{map_path}/") and name.endswith(".md"))
+
+
+def _unproven_map_docs(repo, parent, head, profile, manifest):
+    """Feature-map documents changed in parent..head that link no proof file in the manifest."""
+    map_path = _feature_map_path(profile)
+    if map_path is None:
+        return []
+    feature_map = _surface()[0]
+    indexes = feature_map.index_files(profile)
+    changed = _git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", parent, head, "--", map_path)
+    proof_files = {name for proof in manifest["proofs"] for name in proof["files"]}
+    unproven = []
+    for doc in sorted(name for name in changed.split("\0") if name and _map_document(map_path, name, indexes)):
+        text = _git(repo, "show", f"{head}:{doc}")
+        if not feature_map.linked_files(repo, doc, text) & proof_files:
+            unproven.append(doc)
+    return unproven
 
 
 def _dirty(root):
@@ -557,7 +635,8 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
     record, gate = read_record(root)
     if record is None and not project_setup:
         raise WorkflowError(no_record_reason(root))
-    marker = _doctor_marker(record)
+    profile = _profile(record)
+    marker = _doctor_marker(profile)
     policy = gate_policy(gate) if gate is not None else None
     formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
     manifest = {"schemaVersion": 1, "slug": slug, "base": resolved_base, "proofs": []}
@@ -583,10 +662,21 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
                 raise WorkflowError(f"{ident}: normalise line endings/clean filters: {name}")
             item["sha256"][name] = _sha(source)
         manifest["proofs"].append(item)
+    map_path = None
+    if manifest["proofs"]:
+        map_path = _feature_map_path(profile)
+        if map_path is None:
+            raise WorkflowError(FEATURE_MAP_SETUP)
+        unmapped = _unmapped_proof_files(root, map_path, manifest["proofs"])
+        if unmapped:
+            raise WorkflowError(f"proof files not linked from any feature-map document under {map_path}: "
+                                f"{', '.join(unmapped)}; link each proof from its feature's map entry")
     names = {name for proof in manifest["proofs"] for name in proof["files"]}
     for entry in _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames").split("\0"):
-        if entry and entry[3:] not in names and entry[3:] not in format_dirtied:
-            raise WorkflowError(f"unfrozen change: {entry[3:]}; add it to a proof's files or revert")
+        name = entry[3:]
+        if (entry and name not in names and name not in format_dirtied
+                and not (map_path and (name == map_path or name.startswith(f"{map_path}/")))):
+            raise WorkflowError(f"unfrozen change: {name}; add it to a proof's files or revert")
     current = {p["id"]: p for p in manifest["proofs"]}
     revisions, changed = list(old.get("revisions", [])), set()
     for ident, proof in old_proofs.items():
@@ -840,6 +930,11 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             if state != "success":
                 raise ProveBlocked(f'required CI context "{context}" is {state} for {head}; '
                                    "prove() runs only after CI is green on this exact head")
+        unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
+        if unproven:
+            raise ProveBlocked(f"feature-map documents changed in {parent}..{head} link no frozen proof: "
+                               f"{', '.join(unproven)}; add an outcome test for each changed entry, "
+                               "link it from the entry and re-freeze")
         for proof in manifest["proofs"]:
             commit = proof.get("parent", base)
             if not _ancestor(repo, commit, head, strict=True) or not _ancestor(repo, base, commit):
