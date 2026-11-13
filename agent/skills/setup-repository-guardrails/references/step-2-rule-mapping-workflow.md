@@ -50,7 +50,13 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    `reference` field is implemented by the named `omp-guardrails` subcommand,
    run from the harness over the whole repo: map it to record settings, never
    to copied or edited reference code. `omp-guardrails`' own tests in
-   oh-mi-pi-config prove these rules once for every repository. A rule only
+   oh-mi-pi-config prove these rules once for every repository. A rule family
+   a repo checker already enforces through `checks.commit` stays with the
+   repo: map its step to the checker in `guardrails.check.repo`, so `check`
+   leaves the harness step out, and never propose the harness step or copied
+   reference code beside it. A repo checker weaker than the harness step
+   (Step 3's shadow run) is a gap: its fix is a repo PR that expands the
+   checker, and the harness step runs until that PR lands. A rule only
    the repo's own checker can enforce is a repo control the project keeps for
    itself, tested like any other repo code. Elsewhere, read source-specific
    roots and allowlists from target data rather than hard-coding them.

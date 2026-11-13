@@ -8,7 +8,9 @@ Make the owner's record and fix decisions the boundary before any record or targ
 
 1. Present an action matrix: ID, rule IDs, current owner, proposed owner (repo control or
    harness check), audience, operation (`keep`, `merge`, `replace`, `add`, or `defer`), paths,
-   dry-run change count, findings, verification, and risk.
+   dry-run change count, findings, verification, and risk. `keep` gives a step to a repo
+   checker (`guardrails.check.repo`), `add` runs the harness step, and `merge` or `replace` is a
+   repo PR that changes the repo's checker.
 2. Present the draft record for confirmation: every `gate.json` command and its discovered
    source (make target, hook entry, CI job, required check), `ci.requiredContext`, `ci.runner`,
    scope exclusions, and the `profile.md` values. Explain the consequence of every replacement

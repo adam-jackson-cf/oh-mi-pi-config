@@ -79,11 +79,12 @@ a record missing either, or carrying a field outside the schema, fails to load w
 naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns accepted schema fields/types;
 its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI. At each
 agent commit, rails run the record's `pathCheck`, its `checks.commit` (the repo's own command)
-and then the harness checks (`omp-guardrails`, run from the harness
-with the record as config) over the whole repo; any finding blocks the commit, with no baseline
-or diff scope. Missing controls or the lazy surface trigger above require owner-approved project
-setup. Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
-application; never apply before approval.
+and then the harness checks (`omp-guardrails`, run from the harness with the record as config)
+over the whole repo, minus the steps the record's `guardrails.check.repo` gives to repo checkers
+that `checks.commit` already runs; any finding blocks the commit, with no baseline or diff scope.
+Missing controls or the lazy surface trigger above require owner-approved project setup. Read
+`skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and application;
+never apply before approval.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never

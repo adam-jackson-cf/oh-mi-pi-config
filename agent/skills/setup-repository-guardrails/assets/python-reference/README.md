@@ -49,10 +49,16 @@ Every per-repository value lives in the record's `profile.md` front matter:
   others) feed the test-evidence, diff, environment and surface checkers.
 - `guardrails.<checker>` holds checker settings, such as `guardrails.python`
   for `python-quality`, `python-scalability` and `python-fanout`, or
-  `guardrails.structure` and `guardrails.naming`.
+  `guardrails.structure` and `guardrails.naming`. A section name outside
+  `GUARDRAILS_SECTIONS` in `omp_guardrails/config/profile.py` fails
+  `profile-check`.
 - `guardrails.check.run` picks the `check` steps (default: every step in
   `omp_guardrails/whole_repo.py` `DEFAULT_STEPS`), and `guardrails.check.exclude`
   lists generated, vendored and fixture paths whose findings are dropped.
+- `guardrails.check.repo` maps a step to the repo checker that already
+  enforces it, for example
+  `{"python-quality": "scripts/checks/check-python-quality.py"}`. The repo's
+  `checks.commit` runs that checker, so `check` leaves the step out.
 - `house_style.version` records the shipped
   `omp_guardrails/data/house-style.json` version. `house_style.exceptions`
   lists exceptions as `{rule, path, adr}`; an exception without an ADR is
