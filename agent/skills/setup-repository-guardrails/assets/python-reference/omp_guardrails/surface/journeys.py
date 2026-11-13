@@ -31,10 +31,9 @@ from omp_guardrails.structure.inventory import (
 )
 from omp_guardrails.structure.naming import is_test_file
 from omp_guardrails.surface.feature_map import (
+    linked_files,
     map_documents,
-    parse,
     read,
-    resolve_link,
     surface,
 )
 
@@ -79,10 +78,7 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
     for doc in map_documents(repo, map_path):
         text = read(repo / doc)
         texts.append(text)
-        for target in parse(text).links:
-            resolved, _ = resolve_link(repo, doc, target)
-            if resolved:
-                linked.add(resolved)
+        linked |= linked_files(repo, doc, text)
     return linked, "\n".join(texts)
 
 

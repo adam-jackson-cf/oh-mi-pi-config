@@ -20,6 +20,16 @@ spec.loader.exec_module(workflow)
 SWITCH = {"dynaflows": {"enabled": True}}
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
 RED_AT_BASE = "from pathlib import Path\nassert Path('value').read_text() == 'fixed', 'expected fixed'\n"
+MAP_PATH = "docs/features"
+# Proof file names the tests freeze; the base feature map links them all, so proofs are mapped.
+MAPPED = ["proof.py", "-proof", "second.py", "later.py", "journey.py", *(f"proof{n}.py" for n in range(17))]
+
+
+def map_doc(*targets, title="Value"):
+    """A feature-map document whose 'Driving it with' section links `targets` (paths relative to docs/features/)."""
+    links = "\n".join(f"- [{target}]({target})" for target in targets) or "- none yet"
+    return (f"# {title}\n\n## Sub-features\n\n- value\n\n## How to get to it (user POV)\n\n- read value\n\n"
+            f"## Driving it with lever\n\n{links}\n\n## Gotchas\n\n- none\n")
 
 
 def git(repo, *args):
@@ -49,6 +59,8 @@ class RepositoryTests(unittest.TestCase):
         root_patch.start()
         self.addCleanup(root_patch.stop)
         self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
+        self.profile("<doctor failure marker>")
+        self.write(f"{MAP_PATH}/value.md", map_doc(*(f"../../{name}" for name in MAPPED)))
         self.write("value", "old")
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
@@ -649,7 +661,11 @@ class RepositoryTests(unittest.TestCase):
             self.freeze([self.proof()])
         self.assertEqual(str(raised.exception), no_record)
         self.assertFalse(self.manifest_path.exists())
-        self.freeze([self.proof()], project_setup=True)
+        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(workflow.FEATURE_MAP_SETUP)):
+            self.freeze([self.proof()], project_setup=True)
+        self.assertFalse(self.manifest_path.exists(), "without a record there is no feature map to link proofs from")
+        (self.repo / "proof.py").unlink()
+        self.freeze([], project_setup=True)
         self.assertTrue(self.manifest_path.exists())
         with self.assertRaisesRegex(workflow.WorkflowError, "project_setup must be a bool"):
             self.freeze([self.proof()], project_setup="yes")
@@ -704,8 +720,9 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.formatted, [])
         self.assertEqual(len(result), 2)
 
-    def profile(self, marker):
-        front = json.dumps({"verification_surface": {"lever_command": "lever", "doctor_marker": marker}})
+    def profile(self, marker, **surface):
+        values = {"lever_command": "lever", "doctor_marker": marker, "feature_map_path": f"{MAP_PATH}/", **surface}
+        front = json.dumps({"verification_surface": {k: v for k, v in values.items() if v is not None}})
         self.write_profile(f"---\n{front}\n---\n\n# Repo test profile\n")
 
     def test_freeze_refuses_red_from_environment_doctor(self):
@@ -720,13 +737,10 @@ class RepositoryTests(unittest.TestCase):
 
     def test_freeze_skips_doctor_check_for_placeholder_or_unparsed_profile(self):
         doctor = "from pathlib import Path\nprint('<doctor failure marker>')\n" + RED_AT_BASE
-        for text in (None, "# prose-only profile\n"):
-            with self.subTest(text=text):
-                if text is None:
-                    self.profile("<doctor failure marker>")
-                else:
-                    self.write_profile(text)
-                self.rebase_parent(f"profile {text}")
+        for marker in ("<doctor failure marker>", None):
+            with self.subTest(marker=marker):
+                self.profile(marker)
+                self.rebase_parent(f"profile {marker}")
                 path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
                 self.assertTrue(path.exists())
                 path.unlink()
@@ -734,6 +748,82 @@ class RepositoryTests(unittest.TestCase):
         self.rebase_parent("broken profile")
         with self.assertRaisesRegex(workflow.WorkflowError, "front matter is not valid JSON"):
             self.freeze([self.proof()], base=self.parent)
+
+    def test_freeze_refuses_a_proof_no_feature_map_document_links(self):
+        self.write(f"{MAP_PATH}/value.md", map_doc("../../journey.py"))
+        self.rebase_parent("map links only the journey")
+        unmapped = self.proof("unmapped.py")
+        with self.assertRaisesRegex(workflow.WorkflowError, re.escape(
+                f"proof files not linked from any feature-map document under {MAP_PATH}: P1: unmapped.py")):
+            self.freeze([unmapped])
+        self.assertFalse(self.manifest_path.exists())
+        # Naming a file in prose is not a link; only a resolving link from a map document maps a proof.
+        self.write(f"{MAP_PATH}/value.md", map_doc("../../journey.py") + "\nSee unmapped.py.\n")
+        self.rebase_parent("prose mention")
+        with self.assertRaisesRegex(workflow.WorkflowError, "not linked from any feature-map document"):
+            self.freeze([unmapped])
+
+    def test_freeze_accepts_a_proof_linked_from_an_uncommitted_map_entry(self):
+        self.write(f"{MAP_PATH}/value.md", map_doc())
+        self.rebase_parent("empty map")
+        proof = self.proof("tests/value_test.py")
+        self.write(f"{MAP_PATH}/value.md", map_doc("../../tests/value_test.py"))
+        path, _ = self.freeze([proof])
+        self.assertEqual(json.loads(path.read_text())["proofs"][0]["files"], ["tests/value_test.py"],
+                         "the map entry is documentation, not a frozen proof file")
+
+    def test_freeze_without_a_feature_map_refuses_proofs_but_not_zero_proofs(self):
+        for surface in ({"feature_map_path": None}, {"feature_map_path": "<feature map path>"}):
+            with self.subTest(surface=surface):
+                self.profile(None, **surface)
+                with self.assertRaisesRegex(workflow.WorkflowError, re.escape(workflow.FEATURE_MAP_SETUP)):
+                    self.freeze([self.proof()])
+                self.assertFalse(self.manifest_path.exists())
+        self.write_profile("---\n" + json.dumps({"verification_surface": {"none": "library", "approval": "owner"}}) + "\n---\n")
+        with self.assertRaisesRegex(workflow.WorkflowError, "project-setup"):
+            self.freeze([self.proof()])
+        self.profile(None, feature_map_path="docs/missing")
+        with self.assertRaisesRegex(workflow.WorkflowError, "feature map docs/missing .* does not exist"):
+            self.freeze([self.proof()])
+        (self.repo / "proof.py").unlink()
+        path, _ = self.freeze([])
+        self.assertEqual(json.loads(path.read_text())["proofs"], [])
+
+    def test_prove_blocks_a_changed_map_document_that_links_no_frozen_proof(self):
+        self.write(f"{MAP_PATH}/other.md", map_doc("../../other_test.py", title="Other"))
+        self.write("other_test.py", "assert True\n")
+        data = self.change()
+        self.assert_block(self.prove(), f"feature-map documents changed in {self.parent}..{self.head} link no frozen proof: "
+                                        f"{MAP_PATH}/other.md")
+        self.write(f"{MAP_PATH}/other.md", map_doc("../../other_test.py", "../../proof.py", title="Other"))
+        self.head = self.commit("link the frozen proof")
+        self.save(data)
+        self.assertEqual(self.prove()["status"], "pass")
+
+    def test_prove_passes_when_every_changed_map_document_links_a_proof(self):
+        self.write(f"{MAP_PATH}/value.md", map_doc("../../proof.py", "../../journey.py"))
+        self.write(f"{MAP_PATH}/README.md", "# Features\n\n- [Value](value.md)\n")
+        self.profile(None)
+        front = json.loads((self.record / "profile.md").read_text().split("---")[1])
+        front["guardrails"] = {"feature_map": {"index_files": ["README.md"]}}
+        self.write_profile(f"---\n{json.dumps(front)}\n---\n")
+        self.change()
+        result = self.prove()
+        self.assertEqual(result["status"], "pass", result)
+        (self.record / "profile.md").write_text("---\n" + json.dumps({"verification_surface": front["verification_surface"]}) + "\n---\n")
+        self.assert_block(self.prove(), f"link no frozen proof: {MAP_PATH}/README.md")
+
+    def test_zero_proof_pr_without_a_map_change_passes(self):
+        self.write("docs.md", "docs\n")
+        self.commit("docs")
+        path, digest = self.freeze([], base=self.parent)
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+        self.assertEqual(result["status"], "pass", result)
+        self.write(f"{MAP_PATH}/value.md", map_doc("../../proof.py") + "\nMore behaviour.\n")
+        self.head = self.commit("behaviour change without proof")
+        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+        self.assert_block(result, f"link no frozen proof: {MAP_PATH}/value.md")
 
     def journey(self, counter):
         code = ("import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
