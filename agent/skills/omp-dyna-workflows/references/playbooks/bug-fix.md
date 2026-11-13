@@ -21,7 +21,8 @@ Reproduction is mandatory. For intermittent failures read
 Each proof reproduces the failure: it fails at base and passes at head. Extend an existing
 scenario only in a small dedicated file; otherwise add a dedicated proof file and list every
 needed shared fixture. Whole files are frozen.
-Use outcome tests or lever journeys; a doctor/environment failure is not red.
+Use outcome tests or lever journeys linked from the affected feature-map entry; a
+doctor/environment failure is not red.
 Freeze runner-invoked journey files
 with needed lever changes; implementation changes product code and feature-map docs only.
 

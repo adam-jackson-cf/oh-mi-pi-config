@@ -19,8 +19,10 @@ Resolve design uncertainty only when inspection cannot settle it.
 
 A behaviour-preserving refactor maps no proofs: freeze an empty manifest, and `prove()`
 checks CI green only. The repo's existing tests and CI carry the preserved behaviour.
-If the refactor adds behaviour, that part is a feature: its proofs fail at base and pass
-at head, and implementation changes product code and map docs only.
+`prove()` blocks any feature-map doc changed without a linked proof, so a refactor that moves
+a mapped file and must edit a map link is not zero-proof: raise it with the owner in Plan.
+If the refactor adds behaviour, that part is a feature: its proofs fail at base, pass at head
+and are linked from their feature-map entries; implementation changes product code and map docs only.
 
 ## 4. Implement
 

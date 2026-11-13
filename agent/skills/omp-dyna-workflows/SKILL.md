@@ -25,9 +25,11 @@ mentions and prose are not commands. Contradictory directive lines fail without 
 Choose exactly one active playbook:
 
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
-- Missing controls, or user-visible work without a Verification surface in the record's `profile.md`:
+- Missing controls, or user-visible work without a Verification surface and feature map
+  (`verification_surface.feature_map_path`) in the record's `profile.md`:
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
-  An owner-approved no-runnable-app surface exemption does not trigger setup.
+  An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no
+  feature map, so `freeze()` accepts no proofs there.
 - Multiple PRs or flagged delivery: [Multi-phase](references/playbooks/multi-phase.md).
 - Otherwise the primary deliverable selects [Bug fix](references/playbooks/bug-fix.md),
   behaviour-preserving [Refactor](references/playbooks/refactor.md), or
@@ -60,8 +62,12 @@ ends here with its report; other playbooks continue in order.
 Keep the plan draft until spike answers land. Map every criterion to a named proof
 in a draft manifest using [proof contracts](references/patterns.md#proof-manifest).
 Every proof follows one rule: it fails at base and passes at head (TDD).
+Proofs are outcome tests (or lever journeys) tied to the feature map: each criterion names the
+feature-map entry, under the record profile's `verification_surface.feature_map_path`, that will
+link its proof file. A repo whose record declares no feature map gets one through Project setup
+before any proof is frozen.
 A PR with no behaviour change (refactor, docs, project setup without new controls) maps no
-proofs and freezes an empty manifest; its PR check is CI green only.
+proofs, changes no feature-map doc and freezes an empty manifest; its PR check is CI green only.
 Read `skill://test-guidance/references/tiers.md`, `case-selection.md` and `suite-budget.md`
 under that reference prefix, plus the record's `profile.md`. Missing surfaces follow Start here.
 Plan review is optional unless requested.
@@ -83,12 +89,25 @@ from spike code. Delegate edits, including small fixes, to sequential non-isolat
 worktree using absolute paths. Confinement is a brief invariant; rails reject enclosing-root
 symlink escapes, not another worktree. Outside-repo scratch and internal URIs remain allowed.
 
-1. Proof `task` writes proof files and stops uncommitted: no staging, push or PR.
-2. Main calls `freeze()` on those bytes; freeze shows every proof red at base.
+1. Proof `task` writes proof files and the feature-map entries that link them, and stops
+   uncommitted: no staging, push or PR.
+2. Main calls `freeze()` on those bytes; freeze refuses a proof file no feature-map doc links
+   and shows every proof red at base. Map docs are not frozen and may stay dirty.
    With no proofs, main freezes an empty manifest and skips step 1.
-3. Separate implementation `task` makes the greening change and commits proofs
+3. Separate implementation `task` makes the greening change and commits proofs and map docs
    with it, normally atomically. It never edits frozen proof bytes.
-   Main never commits. The writer pushes, writes the PR description, opens the PR
+4. **Discoveries.** When implementation finds user-facing behaviour the plan did not name, the
+   implementation task adds or updates its feature-map entry and writes its outcome test, leaves
+   both uncommitted with no other pending edits, and stops. Main re-freezes with
+   `previous=(path, digest)` (and `revise` only for changed existing proofs); the new test is red
+   at base because the behaviour did not exist there. Implementation then resumes. There is no
+   "added after freeze" exception.
+5. **Map sweep.** Before the PR opens, a sweep `task` lists every user-facing behaviour the
+   branch diff adds or changes, each with a concrete source path; an item without one is dropped.
+   Each item not covered by a feature-map doc changed in the diff gets a map entry and an outcome
+   test, handled as a discovery (re-freeze). The sweep writes map entries and tests only: no
+   review findings, finding schema or reviewer step.
+6. Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
 Each brief requires reads before editing. Proof briefs supply the record's `profile.md` path and
@@ -97,28 +116,33 @@ and `tiers.md` under that reference prefix; add `property-tests.md`, `determinis
 `behaviour-and-statistics.md` and `verification-surface.md` when applicable.
 Proofs use outcome tests or lever journeys. Freeze required lever changes with runner-invoked
 journey files. Implementation changes product code and feature-map docs, never frozen
-lever/proof bytes.
+lever/proof bytes; a new proof comes only through a discovery re-freeze.
 Implementation briefs supply `skill://coding-guidance/references/implementation-integrity.md`,
 applicable `structure-and-grouping.md` and `naming.md` under that prefix,
-`skill://test-guidance/references/before-commit.md`, and `verification-surface.md` when a mapped
-feature changes (map docs only). Also supply `skill://git-tool`,
+`skill://test-guidance/references/before-commit.md`, `verification-surface.md` and
+`outcome-tests.md` (map entries and discovery tests). Also supply `skill://git-tool`,
 `skill://git-tool/references/branch-and-integrate.md` and `pr-description.md` under that prefix.
 Both briefs include worktree, criteria, manifest, scope and task-specific references.
+Sweep briefs supply the base and head, the record's feature-map path and
+`skill://test-guidance/references/verification-surface.md` and `outcome-tests.md` under that prefix.
 Require `skill://coding-guidance/references/verification.md` before writer handoff.
 
 ### 5. Verify
 
 Main confirms the writer has no pending edits, then calls `prove()` against the PR's current
-head ([patterns](references/patterns.md#prove)). `prove()` checks two things:
+head ([patterns](references/patterns.md#prove)). `prove()` checks three things:
 
 1. The record's declared required CI context is green on the exact head.
-2. The frozen proof bytes are unchanged and every proof passes at head (twice; journeys 3 times).
+2. Every feature-map doc changed in `parent..head` links at least one proof file in the manifest;
+   otherwise it blocks with those doc paths (add an outcome test, link it, re-freeze).
+3. The frozen proof bytes are unchanged and every proof passes at head (twice; journeys 3 times).
 
-With an empty manifest it checks CI green only. It writes its result to
+With an empty manifest and no changed map doc it checks CI green only. It writes its result to
 `<git-common-dir>/omp-prove/<head>.result.json` and posts it on the PR. That file with
 `status: pass` for the exact head is the one pass signal: with dynaflows on, rails' `gh pr merge`
 guard requires it and CI green on that head. A rebase or other branch update needs nothing extra:
-run `prove()` on the new head before merge. No re-freeze, review agent or status posting.
+run `prove()` on the new head before merge. No review agent or status posting; re-freeze only
+for a discovery or a changed proof file.
 Mechanics live in `skill://git-tool/references/verify-loop.md`.
 
 ### 6. Integrate

@@ -24,14 +24,16 @@ freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
 
 `proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.
 An empty list is valid: a PR with no behaviour change (refactor, docs, project setup
-without new controls) freezes no proofs, and `prove()` then checks CI green only.
+without new controls) freezes no proofs, and `prove()` then checks CI green only, unless the
+PR changes a feature-map doc (which then needs a linked proof).
 Store the manifest at `<git-common-dir>/omp-manifests/<slug>.json`, outside tracked
 repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`;
 `previous=` may still read a manifest from a temporary location.
 `MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
 The entire draft and top-level inputs are validated before hashing or execution.
-`project_setup=True` only tolerates an absent record, for the setup PR that drafts it.
+`project_setup=True` only tolerates an absent record, for the setup PR that drafts it; without a
+record there is no feature map, so that freeze accepts only an empty manifest.
 When the record's `gate.json` declares `checks.format`, freeze runs that formatter in the
 worktree before hashing. A nonzero exit fails freeze. The result lists files the
 formatter changed (from `git status`) so the writer commits them; hashes cover the
@@ -57,6 +59,13 @@ Generated frozen output (not a draft input):
 }
 ```
 
+- **Mapped proofs.** Every proof file must be linked (a relative Markdown link) from a
+  feature-map doc under the record profile's `verification_surface.feature_map_path`, read
+  from the working tree with `omp_guardrails`' `journeys.mapped_paths`/`resolve_link`.
+  An unlinked file is refused with its proof ID. A profile with no `feature_map_path` (absent,
+  exempt or placeholder) refuses every proof and points to
+  [Project setup](playbooks/project-setup.md); a declared path that does not exist is refused.
+  Zero-proof manifests need no map.
 - One rule for every proof: **red at base, green at head**. Freeze overlays each
   proof's files on its pinned parent and requires a failing run there. When the
   record's `profile.md` front matter declares `verification_surface.doctor_marker`,
@@ -71,7 +80,8 @@ Generated frozen output (not a draft input):
   slash, NUL and `.git` components rather than normalising them. Symlinks, ignored
   files and clean-filter/EOL byte changes are rejected at actual roots; lexical
   validation does not depend on host temporary-directory contents.
-- Only listed files may be dirty. Freeze whole files, including shared fixtures.
+- Only listed files and feature-map docs may be dirty. Map docs are not hashed: implementation
+  may refine them. Freeze whole files, including shared fixtures.
   Each proof is overlaid alone, never with another proof's files.
 - Inspect each argv token literally, including the value after its first `=`;
   strip one leading `./` for comparison. Every token naming an existing regular
@@ -102,6 +112,16 @@ Generated frozen output (not a draft input):
   records require nonblank `revise={id: reason}` and record
   `{id, oldSha256, reason}`; the digest covers the entire old record.
 
+### Discoveries and the map sweep
+
+User-facing behaviour found during implementation, or by the map sweep before the PR, gets a
+feature-map entry and an outcome test written uncommitted, then main re-freezes with
+`previous=(path, digest)`, passing every earlier proof plus the new ones. Added proof IDs need no
+`revise`; only they (and revised proofs) run red at base at that freeze. Freeze refuses any other
+dirty file, so the writer commits or reverts in-progress product edits before stopping.
+The map sweep lists each behaviour with a concrete source path and adds entries and
+tests only; it emits no review findings.
+
 ### Recovery
 
 - `prove()`'s result file (and its PR comment, when it fits) carries the full manifest so a lost
@@ -129,10 +149,15 @@ Prove checks only:
 
 1. CI green on head: the record's `ci.requiredContext` (a commit status or check run, whoever
    posts it) must be success on the exact head before any proof runs.
-2. The frozen proofs: manifest and file hashes match, the head bytes are unchanged, and every
+2. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in
+   `parent..head` (`git diff --name-only`, deletions and the profile's map index files excluded)
+   must link at least one proof file in the manifest. Otherwise prove blocks and names the docs.
+   A record with no feature map skips this check.
+3. The frozen proofs: manifest and file hashes match, the head bytes are unchanged, and every
    proof passes at head (twice; `journey: true` proofs 3 times, all of which must pass).
 
-With an empty manifest prove checks CI green only. It runs no repository suites, no harness
+With an empty manifest and no changed map doc prove checks CI green only. It runs no
+repository suites, no harness
 checks and no `checks.profile`: rails ran the harness checks at each commit and CI ran the
 repo's gates. Red at base was shown at freeze; prove does not rerun base. Partial proofs,
 tracked mutation and changed frozen head bytes fail. Launch, timeout, IO, setup and cleanup
@@ -140,7 +165,8 @@ errors are attributed infrastructure failures (`ok: null`, error/output/location
 assertions. Cleanup failure prevents pass.
 
 A rebase, merge of the target or other branch update needs nothing extra: call prove on the
-new head. The proofs are frozen bytes, so no re-freeze is needed unless a proof file changed.
+new head. The proofs are frozen bytes, so no re-freeze is needed unless a proof file changed or a
+discovery added a proof.
 
 Output includes `status`, `deterministic`, `blocking`, `head`, `objective`, `manifestSha256`
 and the loaded `manifest`. Prove writes that result to
