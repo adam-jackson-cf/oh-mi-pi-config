@@ -69,15 +69,15 @@ def load(path):
 
 
 def record_gate(repo):
-    """Return the gate.json object of the allowlisted repo's per-repo record."""
+    """Return the gate.json object of the allowlisted repo's per-repo record, validated strictly."""
     record = repo_record.record_dir(repo, SELF.parents[1])
     if not (record / repo_record.GATE_FILE).is_file():
         raise RuntimeError(f'No per-repo record for {repo}; run scripts/device-rollout.py to copy records '
                            'to this device (no ci.requiredContext)')
     try:
         return repo_record.load_gate(record)
-    except repo_record.RecordError:
-        raise RuntimeError(f'Unreadable record gate.json for {repo} (no ci.requiredContext)') from None
+    except repo_record.RecordError as exc:
+        raise RuntimeError(f'Invalid record gate.json for {repo}: {exc} (no ci.requiredContext)') from None
 
 
 def ci_argv(policy):

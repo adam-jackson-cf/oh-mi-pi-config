@@ -68,7 +68,7 @@ check run, whoever posts it.
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. At each agent
-commit, rails run the record's `pathCheck`, `checks.commit` when set, and then the harness
+commit, rails run the record's `pathCheck`, then `checks.commit`, and then the harness
 checks: `omp-guardrails check`, run from this checkout with `--repo <worktree>` and `--record
 <record dir>`, over the whole repo. Any finding blocks the commit; there are no baselines and no
 diff scoping, and scope exclusions come from the record. The CI runner named by `ci.runner` runs
@@ -122,6 +122,8 @@ Worktrees resolve to the same record as their main checkout.
 
 - `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`,
   `pathCheck`), the `ci` contract, `agentMerge` and `dynaflows.enabled`.
+  `pathCheck` and `checks.commit` are required; a record without either, or with a
+  field outside the schema, fails to load with an error naming the field.
 - `profile.md` holds the repo test profile, including every approval and exception.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
@@ -130,8 +132,7 @@ devices. `skill://setup-repository-guardrails` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
 A record is the owner's alone: rails refuse every agent edit-tool write under `repos/`
 (a lexical check on the resolved path), so the owner's hand edit is its only review.
-Bash writes to records are not guarded. A record that still carries a legacy
-`dynaflowsContract` field loads unchanged. When dynaflows resolves off, rails say why
+Bash writes to records are not guarded. When dynaflows resolves off, rails say why
 once at session start and at every commit, naming the slug (or `none`) and the
 reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py`
 strip the harness's `AGENT` variable from every repo command they run.

@@ -74,10 +74,12 @@ Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main requires a record whose schema-v2 `gate.json` has `pathCheck`; `checks.commit` is optional.
-`agent/extensions/agent-rails.ts` owns accepted schema fields/types; `prove()` mirrors
-validation. At each agent commit, rails run the record's `pathCheck`, its `checks.commit` when
-set (the repo's own command) and then the harness checks (`omp-guardrails`, run from the harness
+Main requires a record whose schema-v2 `gate.json` has both `pathCheck` and `checks.commit`;
+a record missing either, or carrying a field outside the schema, fails to load with an error
+naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns accepted schema fields/types;
+its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI. At each
+agent commit, rails run the record's `pathCheck`, its `checks.commit` (the repo's own command)
+and then the harness checks (`omp-guardrails`, run from the harness
 with the record as config) over the whole repo; any finding blocks the commit, with no baseline
 or diff scope. Missing controls or the lazy surface trigger above require owner-approved project
 setup. Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
