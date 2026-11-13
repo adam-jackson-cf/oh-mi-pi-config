@@ -13,7 +13,9 @@ Show the full cost of clearing every harness finding before changing the target.
    `uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference
    omp-guardrails check --repo <temporary checkout> --record <draft record dir>`.
    They read nothing from, and write nothing into, the checkout's tree. Count findings by rule ID
-   and path over the whole repository. Mark an estimate `unknown` where safe execution or a
+   and path over the whole repository. Steps the draft record's `guardrails.check.repo` gives
+   to repo checkers run through `checks.commit` instead; report that command's result with
+   them. Mark an estimate `unknown` where safe execution or a
    candidate checker is unavailable.
 3. Report one view: the whole repository minus the draft record's scope exclusions. Adopting a
    repository means clearing every finding first; there is no baseline and no new/changed-code

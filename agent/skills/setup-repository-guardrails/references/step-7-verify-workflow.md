@@ -15,8 +15,9 @@ execution.
    scope exclusions, with JUnit and temporary output outside the worktree and
    no file written into it. `omp-guardrails`' own tests in oh-mi-pi-config
    prove the checkers once for every repository.
-2. For each repo-owned checker the project keeps for itself, run its own
-   tests. For `STRUCT.dependency-direction`, `STRUCT.folder-placement`,
+2. For each repo-owned checker the project keeps for itself, including every
+   checker named in `guardrails.check.repo`, run its own tests; `check`
+   reports a named checker file the repository does not list. For `STRUCT.dependency-direction`, `STRUCT.folder-placement`,
    `NAME.conventions` and `TEST.placement` implemented by the repo's own path
    command, assert that each failure names the file and exact corrective
    action.

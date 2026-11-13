@@ -29,9 +29,9 @@ Establish a safe, reproducible target, its record path and the setup mode before
    documentation ownership rule. Existing files remain owned by the target until the user chooses
    keep, merge, or replace.
 8. Record the setup mode: `greenfield` when no record exists and the target has no
-   guardrail checks, `adopt` when hand-written checkers in the repo duplicate harness rules and
-   the harness checks would replace them, and `extend` when a record exists and only a missing
-   part is added, such as a verification surface.
+   guardrail checks, `adopt` when hand-written checkers in the repo already enforce harness
+   rule families and the harness uses them instead of its own steps, and `extend` when a
+   record exists and only a missing part is added, such as a verification surface.
 
 ## Done when
 
