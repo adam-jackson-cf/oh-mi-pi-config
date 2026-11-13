@@ -598,8 +598,9 @@ def freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
 
     Policy comes from the clone's per-repo record (read_record), never from the repo tree. A
     clone without a record refuses, except with `project_setup=True`, where the record is still
-    being drafted. `proofs` may be empty: a PR with no behaviour change (refactor, docs, project
-    setup) freezes none, and prove() then checks CI green only.
+    being drafted. `proofs` may be empty: a PR with no behaviour change (refactor, docs) freezes
+    none, and prove() then checks CI green unless the PR changes a feature-map doc, which must
+    link a frozen proof. Every proof must be linked from a feature-map doc.
     Journey stability is a prove() check on the head being merged, not a freeze() check.
     """
     if not isinstance(project_setup, bool):

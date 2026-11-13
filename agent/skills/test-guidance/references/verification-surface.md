@@ -43,7 +43,8 @@ Drive usable product outcomes through an isolated, deterministic lever and maint
   at least three times; count only clean runs, rejecting doctor failures, hangs and contaminated state.
 - Proof commands run journey files through the test runner. The proof task writes any lever changes the proof needs
   and freezes them with the journey files. For the journey's greening change, implementation edits product code
-  and feature-map docs only, never frozen lever/journey bytes.
+  and feature-map docs, plus a discovery's outcome test before a re-freeze (see Discoveries below), never
+  frozen lever/journey bytes.
   During approved Project setup, implementation writes the feature map in the repo; profile and guardrail settings
   go in the repo test profile (under DynaFlows, the record's `profile.md`, never a repo file).
   Hand profile mapping gaps to that workflow's approved setup extension; separately approved budget-profile

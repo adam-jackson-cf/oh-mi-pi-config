@@ -22,7 +22,8 @@ and passes at head. Reject doctor/environment failures as red.
 Each proof is an outcome test or journey linked from the feature's map entry; the proof task
 writes or updates that entry with the proof, and `freeze()` refuses an unlinked proof file.
 Proof tasks freeze runner-invoked journey files
-and required lever changes together. Implementation changes product code and map docs only.
+and required lever changes together. Implementation changes product code and map docs,
+plus a discovery's map entry and outcome test (see Discoveries); never frozen proof bytes.
 
 ## 4. Implement
 
