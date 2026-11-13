@@ -24,7 +24,8 @@ needed shared fixture. Whole files are frozen.
 Use outcome tests or lever journeys linked from the affected feature-map entry; a
 doctor/environment failure is not red.
 Freeze runner-invoked journey files
-with needed lever changes; implementation changes product code and feature-map docs only.
+with needed lever changes; implementation changes product code and feature-map docs,
+plus a discovery's map entry and outcome test before a re-freeze; never frozen proof bytes.
 
 ## 4. Implement
 

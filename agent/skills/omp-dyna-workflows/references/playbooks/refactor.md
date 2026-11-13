@@ -22,7 +22,8 @@ checks CI green only. The repo's existing tests and CI carry the preserved behav
 `prove()` blocks any feature-map doc changed without a linked proof, so a refactor that moves
 a mapped file and must edit a map link is not zero-proof: raise it with the owner in Plan.
 If the refactor adds behaviour, that part is a feature: its proofs fail at base, pass at head
-and are linked from their feature-map entries; implementation changes product code and map docs only.
+and are linked from their feature-map entries; implementation changes product code and map docs,
+plus a discovery's map entry and outcome test before a re-freeze; never frozen proof bytes.
 
 ## 4. Implement
 
