@@ -75,13 +75,14 @@ class Runner:
 
 
 class Pipeline:
-    def __init__(self, codes=(0, 0)):
+    def __init__(self, codes=(0, 0), reason=""):
         self.codes = codes
+        self.reason = reason
         self.calls = []
 
     def __call__(self, producer, consumer):
         self.calls.append((producer, consumer))
-        return self.codes
+        return (*self.codes, self.reason)
 
 
 def row(deployment, device, component):
@@ -240,7 +241,16 @@ class DeviceRolloutTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual({row[4] for row in checkouts(deployment, skip=("mac-cf2",))}, {"key-failed"})
         self.assertEqual({row[5] for row in checkouts(deployment, skip=("mac-cf2",))}, {"find-blocked"})
-        self.assertIn("judge key provisioning failed", deployment.report())
+        self.assertIn("judge key provisioning failed (infisical exited 3)", deployment.report())
+
+    def test_key_failure_names_the_import_error_without_credential_material(self):
+        reason = rollout.failure_line(b"warming up\nerror: credential sk-or-v1-0123456789abcdef0123 rejected\n")
+        self.assertEqual(reason, "error: credential <redacted> rejected")
+        deployment, code = self.execute(Runner(), check=False, pipeline=Pipeline((0, 1), reason))
+        self.assertEqual(code, 1)
+        self.assertIn("judge key provisioning failed (omp auth import exited 1: "
+                      "error: credential <redacted> rejected)", deployment.report())
+        self.assertNotIn("0123456789abcdef", deployment.report())
 
     def test_non_complete_find_keeps_rows_non_current(self):
         for coverage, output in (("partial", None), ("unavailable", None), ("failed", "not json"),
@@ -415,8 +425,12 @@ class DeviceRolloutTests(unittest.TestCase):
                 [sys.executable, "-c", "print('payload')"],
                 [sys.executable, "-c",
                  f"import sys; open({str(sink)!r}, 'w').write(sys.stdin.read())"])
-            self.assertEqual(codes, (0, 0))
+            self.assertEqual(codes, (0, 0, ""))
             self.assertEqual(sink.read_text(), "payload\n")
+            failed = rollout.run_pipeline(
+                [sys.executable, "-c", "print('payload')"],
+                [sys.executable, "-c", "import sys; sys.stdin.read(); sys.exit('import refused')"])
+            self.assertEqual(failed, (0, 1, "import refused"))
 
 
 class RecordRolloutTests(unittest.TestCase):
