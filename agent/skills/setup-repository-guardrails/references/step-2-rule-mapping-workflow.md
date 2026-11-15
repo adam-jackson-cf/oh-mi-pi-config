@@ -50,16 +50,22 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    `reference` field is implemented by the named `omp-guardrails` subcommand,
    run from the harness over the whole repo: map it to record settings, never
    to copied or edited reference code. `omp-guardrails`' own tests in
-   oh-mi-pi-config prove these rules once for every repository. A rule family
-   a repo checker already enforces through `checks.commit` stays with the
-   repo: map its step to the checker in `guardrails.check.repo`, so `check`
-   leaves the harness step out, and never propose the harness step or copied
-   reference code beside it. A repo checker weaker than the harness step
-   (Step 3's shadow run) is a gap: its fix is a repo PR that expands the
-   checker, and the harness step runs until that PR lands. A rule only
-   the repo's own checker can enforce is a repo control the project keeps for
-   itself, tested like any other repo code. Elsewhere, read source-specific
-   roots and allowlists from target data rather than hard-coding them.
+   oh-mi-pi-config prove these rules once for every repository. A repo checker
+   covers a step only when Step 1's source evidence shows it enforces every
+   rule ID that step reports; missing one rule ID keeps the harness step until
+   a repo PR adds it. A rule family a repo checker covers and `checks.commit`
+   runs stays with the repo: map its step to the list of checker files in
+   `guardrails.check.repo` (one step's rule IDs may be split across several
+   checkers), so `check` leaves the harness step out, and never
+   propose the harness step or copied reference code beside it. A repo checker
+   weaker than the harness step (Step 3's shadow run) is a gap: its fix is a
+   repo PR that expands the checker, and the harness step runs until that PR
+   lands. A repo checker that `checks.commit` does not run (for example
+   CI-only) is wired into the commit command by a repo PR before its step is
+   owned. A rule only the repo's own checker can enforce is a repo control the
+   project keeps for itself, tested like any other repo code. Elsewhere, read
+   source-specific roots and allowlists from target data rather than
+   hard-coding them.
 7. Where no tool or `omp-guardrails` subcommand covers an applicable harness
    rule, the implementation is a change to `omp-guardrails` in oh-mi-pi-config
    with its own tests, never a checker added to the target; keep

@@ -27,20 +27,23 @@ Make the owner's record and fix decisions the boundary before any record or targ
    clear every finding of the rules it enables; state which applicable rules it leaves
    unenforced (narrower rule set, not a relabel). `Full`: every applicable rule and
    recommendation, including `checks.ci` wired into the repo's CI by the record's `ci.runner`
-   role.
-   Write the repo-relative candidate paths per tier to `guardrail-proposal.json` in the record
-   directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; this file is the only record
-   write allowed before approval, and nothing is written into the target.
+   role. In `adopt` mode both tiers give every step a repo checker carries to that checker in
+   `guardrails.check.repo`; a tier never keeps a duplicate harness step, or widens record
+   allowlists so the harness copy passes code the repo checker already accepts.
+   Write the repo-relative candidate paths per tier to `guardrail-proposal.json` in the draft
+   record directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; the owner saves it with
+   the record. Nothing is written into the target or the live record.
 6. Ask the owner to choose a tier, confirm the record, and approve exact candidate paths and
-   merge/replace decisions, using `ask` with a question containing "guardrail" and options
-   "Minimal" and "Full". Write neither the record's `gate.json` nor any proposal path until this
-   is answered. **STOP** until the owner replies; elapsed time or a default option is not
-   approval.
+   merge/replace decisions, using `ask` with a question containing "guardrail" and options "Minimal"
+   and "Full". When both tiers hold the same record settings and candidate paths, say so and ask
+   only for approval of that one draft, with options "Approve" and "Revise". Write neither the
+   record's `gate.json` nor any proposal path until this is answered. **STOP** until the owner
+   replies; elapsed time or a default option is not approval.
 7. If the owner chooses a narrower rule set, recompute the candidate diff, findings and
    proposal file while preserving whole-repo scope for every rule it keeps.
 
 ## Done when
 
 - The confirmed record, approved paths, conflict decisions, and rule deviations are explicit.
-- No write other than the record's `guardrail-proposal.json` occurs before approval, and no
+- No write outside the draft record and the candidate root occurs before approval, and no
   blocker is represented as green.

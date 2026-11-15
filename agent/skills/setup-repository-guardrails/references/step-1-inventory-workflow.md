@@ -23,10 +23,12 @@ Capture what the target actually enforces and what it only documents or proposes
    When the record exists, read its `profile.md`; record its tiers, entry points, ownership
    areas, affected-T2 selection, verification surface and per-machine budget approvals.
 5. For each bespoke checker, name the `omp-guardrails check` step whose rule family it enforces
-   (`STEPS` in `omp_guardrails/whole_repo.py`), the `checks.commit` chain that runs it (for
-   example make target to script) and how it lists files. A checker that walks the disk instead
-   of `git ls-files --cached --others --exclude-standard`, or follows symlinks out of the repo, is
-   a gap to fix in the repo checker.
+   (`STEPS` in `omp_guardrails/whole_repo.py`), the rule IDs it enforces, with the source line for
+   each, the `checks.commit` chain that runs it (for example make target to script) and how it lists
+   files. A step's rule IDs are the catalogue rows (`omp_guardrails/data/guardrail-rules.json`)
+   whose `reference.subcommand` names it. A checker that walks the disk instead of `git ls-files
+   --cached --others --exclude-standard`, or follows symlinks out of the repo, is a gap to fix in
+   the repo checker.
 6. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
 7. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and

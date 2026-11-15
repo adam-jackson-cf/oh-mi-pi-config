@@ -479,6 +479,7 @@ describe("agent rails", () => {
 			assert.equal(blocked?.block, true);
 			assert.ok(blocked?.reason?.includes(`checks.commit (${script} commit) failed in ${h.root} (exit 3)`), blocked?.reason);
 			assert.ok(blocked?.reason?.includes("commit finding: src/x.py"), "the agent sees the repo command's output");
+			assert.ok(!blocked?.reason?.includes("adopt mode"), "a repo command failure is fixed in the repo");
 			assert.deepEqual(runs(), ["commit  AGENT=unset"], "a failed repo command stops before the harness checks");
 			rmSync(log);
 			delete process.env.FAIL_commit;
@@ -487,6 +488,8 @@ describe("agent rails", () => {
 			assert.equal(blocked?.block, true);
 			assert.ok(blocked?.reason?.includes(`harness checks (omp-guardrails) failed in ${h.root} (exit 1)`), blocked?.reason);
 			assert.ok(blocked?.reason?.includes("harness finding: src/x.py"), blocked?.reason);
+			assert.ok(blocked?.reason?.includes("checks.commit passed. If a repo checker already enforces a failing step's rules"),
+				"a harness-only finding points at adopt mode before the agent reshapes repo code");
 			h.gate({ schemaVersion: 2 });
 			rmSync(log);
 			assert.equal((await commit())?.block, true, "harness checks run even when the record declares no checks.commit");

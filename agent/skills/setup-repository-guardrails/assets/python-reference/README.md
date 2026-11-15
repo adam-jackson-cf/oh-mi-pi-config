@@ -55,10 +55,10 @@ Every per-repository value lives in the record's `profile.md` front matter:
 - `guardrails.check.run` picks the `check` steps (default: every step in
   `omp_guardrails/whole_repo.py` `DEFAULT_STEPS`), and `guardrails.check.exclude`
   lists generated, vendored and fixture paths whose findings are dropped.
-- `guardrails.check.repo` maps a step to the repo checker that already
-  enforces it, for example
-  `{"python-quality": "scripts/checks/check-python-quality.py"}`. The repo's
-  `checks.commit` runs that checker, so `check` leaves the step out.
+- `guardrails.check.repo` maps a step to the repo checker files that between
+  them already enforce every rule it reports, for example
+  `{"python-quality": ["scripts/checks/check-python-quality.py"]}`. The repo's
+  `checks.commit` runs those checkers, so `check` leaves the step out.
 - `house_style.version` records the shipped
   `omp_guardrails/data/house-style.json` version. `house_style.exceptions`
   lists exceptions as `{rule, path, adr}`; an exception without an ADR is

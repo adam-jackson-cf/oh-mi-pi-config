@@ -28,10 +28,12 @@ Establish a safe, reproducible target, its record path and the setup mode before
 7. Record whether the target has an existing hook, gate runner, test suite, type checker, linter, or
    documentation ownership rule. Existing files remain owned by the target until the user chooses
    keep, merge, or replace.
-8. Record the setup mode: `greenfield` when no record exists and the target has no
-   guardrail checks, `adopt` when hand-written checkers in the repo already enforce harness
-   rule families and the harness uses them instead of its own steps, and `extend` when a
-   record exists and only a missing part is added, such as a verification surface.
+8. Record every setup mode that applies: `greenfield` when no record exists and the target
+   has no guardrail checks; `adopt` when hand-written checkers in the repo already enforce
+   harness rule families that the record, if one exists, does not give them in
+   `guardrails.check.repo`, so the harness uses them instead of its own steps; and `extend`
+   when a record exists and only a missing part is added, such as a verification surface.
+   An existing record does not rule out `adopt`.
 
 ## Done when
 
