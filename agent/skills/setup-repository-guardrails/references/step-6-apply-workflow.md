@@ -16,10 +16,13 @@ intact.
    nothing can be removed, record why the added contract has no predecessor.
    A repo checker named in `guardrails.check.repo` is the authority for its
    step; never remove it in favour of the harness step. The owner saves the
-   approved record, which gives `grow` steps to the repo, before the `grow`
-   PRs are committed, so stale harness settings never block the commits that
-   replace them. Setup is not done until every `grow` PR has merged with green
-   checks.
+   approved record before the `grow` PRs are committed, so stale harness
+   settings never block the commits that replace them. It gives every step
+   whose checker files the repo already lists to the repo. A `grow` step whose
+   checker the PR creates stays a harness step until that PR merges, because
+   `check` rejects a checker path the repo does not list; the owner then moves
+   it to `guardrails.check.repo`. Setup is not done until every `grow` PR has
+   merged with green checks and the record names every repo checker.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
 3. Draft the confirmed record in a directory outside the live records root
