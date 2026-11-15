@@ -468,6 +468,8 @@ class NativeConfigTests(InitCase):
         self.assertIn("packages = target", mypy)
         self.assertIn("mypy_path = src", mypy)
         self.assertIn("strict = True", mypy)
+        self.assertIn("follow_imports = normal", mypy)
+        self.assertNotIn("skip", mypy)
 
     def test_keeps_existing_tool_configuration(self) -> None:
         self.write("src/target/__init__.py", "")
