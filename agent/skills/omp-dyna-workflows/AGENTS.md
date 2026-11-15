@@ -66,6 +66,8 @@ first.
     - **Scope.** Every checker lists owned files only, from `git ls-files`. Each exclusion of
       third-party code names its path or package, with evidence of where it came from. A vendored
       copy that the repo edits becomes owned code and gets the full rules.
+      A checker's scope is derived from the repository; anything it cannot cover is a failure, not
+      a skip.
     - **No in-repo copies or shims.** Never keep copies, generated stubs or shims of third-party
       code in the repo to satisfy a rule, and never exempt such files from the repo's checkers.
       They bend the rules around code the repo cannot change, and every upgrade has to redo them.

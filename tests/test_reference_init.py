@@ -196,6 +196,18 @@ class DraftRecordTests(InitCase):
         self.assertIn("required checks not read (--offline)", output)
         self.assertIn("confirm: dynaflows stays off", output)
         self.assertIn("confirm: agentMerge is the owner's to set", output)
+        self.assertIn("required: ownerOnlyPaths is the owner's to set", output)
+        self.assertNotIn("ownerOnlyPaths", self.gate(), "init never drafts the owner-only paths")
+
+    def test_recorded_owner_only_paths_are_kept_and_satisfy_the_requirement(self) -> None:
+        owned = ["scripts/checks/dependency-audit-exceptions.json"]
+        gate = {"schemaVersion": 2, "ownerOnlyPaths": owned}
+        self.write_record("gate.json", json.dumps(gate))
+        self.write("Makefile", MAKEFILE)
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.gate()["ownerOnlyPaths"], owned)
+        self.assertNotIn("ownerOnlyPaths", output)
 
     def test_second_run_changes_nothing(self) -> None:
         self.write("Makefile", MAKEFILE)
@@ -249,7 +261,7 @@ class DraftRecordTests(InitCase):
         code, output = self.init("--path-command", "python3 scripts/check-paths.py")
         self.assertEqual(code, 0, output)
         self.assertEqual(self.gate()["pathCheck"], ["python3", "scripts/check-paths.py"])
-        self.assertNotIn("required:", output)
+        self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
         for flags in (("--runner", " "), ("--commit-command", ""), ("--path-command", " ")):
             code, output = self.init(*flags)
             self.assertEqual(code, 1)
@@ -346,6 +358,15 @@ class RequiredChecksTests(InitCase):
         self.assertNotIn("ci", self.gate())
 
 
+def required_fields(output: str) -> list[str]:
+    """The gate fields init reports as required, by the field each ``required:`` line names."""
+    fields = []
+    for line in output.splitlines():
+        if line.startswith("required:"):
+            fields.append("ownerOnlyPaths" if "ownerOnlyPaths" in line else line)
+    return fields
+
+
 class ExistingRecordTests(InitCase):
     """Init fills the absent fields of an existing record."""
 
@@ -360,7 +381,7 @@ class ExistingRecordTests(InitCase):
         self.assertEqual(code, 0, output)
         self.assertEqual(self.gate()["checks"]["commit"], ["make", "gate-commit"])
         self.assertEqual(self.gate()["pathCheck"], ["make", "check-paths"])
-        self.assertNotIn("required:", output)
+        self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
         self.assert_second_run_changes_nothing()
 
 

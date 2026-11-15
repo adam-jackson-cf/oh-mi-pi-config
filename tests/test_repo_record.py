@@ -31,7 +31,7 @@ REFUSED = [
 
 # A complete gate.json; tests vary one field at a time.
 GATE = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]}, "pathCheck": ["make", "check-paths"],
-        "dynaflows": {"enabled": True}}
+        "ownerOnlyPaths": [], "dynaflows": {"enabled": True}}
 
 
 def gate(**fields):
@@ -126,7 +126,8 @@ class Resolve(unittest.TestCase):
         for invalid, named in ((gate(pathCheck=None), "pathCheck"), (gate(checks={"ci": ["ci"]}), "checks.commit"),
                                (gate(checks=None), "checks"), (gate(unknownField=3), "unknownField"),
                                (gate(extraField=1000), "extraField"), (gate(otherField="github"), "otherField"),
-                               (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint")):
+                               (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint"),
+                               (gate(ownerOnlyPaths=None), "ownerOnlyPaths")):
             with self.subTest(named=named):
                 (record / "gate.json").write_text(json.dumps(invalid))
                 with self.assertRaisesRegex(repo_record.RecordError, named):
@@ -142,6 +143,7 @@ class Resolve(unittest.TestCase):
 class GateReason(unittest.TestCase):
     def test_complete_gates_with_optional_fields_are_accepted(self):
         for valid in (GATE, gate(agentMerge="disabled"),
+                      gate(ownerOnlyPaths=["scripts/checks/dependency-audit-exceptions.json", "security/"]),
                       gate(checks={"commit": ["c"], "ci": ["true"], "format": ["ruff", "format"], "profile": ["p"]},
                            ci={"requiredContext": "gate", "runner": "ci-gate"}, dynaflows={"enabled": False})):
             with self.subTest(gate=valid):
@@ -168,12 +170,31 @@ class GateReason(unittest.TestCase):
             (gate(ci={"requiredContext": "gate"}), "ci must declare nonblank requiredContext and runner"),
             (gate(ci={"requiredContext": " ", "runner": "ci-gate"}), "ci must declare nonblank requiredContext and runner"),
             (gate(ci={"requiredContext": "gate", "runner": 1}), "ci must declare nonblank requiredContext and runner"),
+            (gate(ownerOnlyPaths=None), "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"),
+            (gate(ownerOnlyPaths="a.json"), "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"),
+            (gate(ownerOnlyPaths=[1]), "ownerOnlyPaths entries must be strings"),
+            (gate(ownerOnlyPaths=["a.json", "a.json"]), "ownerOnlyPaths entries must be unique"),
         ]
+        cases += [(gate(ownerOnlyPaths=[path]),
+                   f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)")
+                  for path in ("", "/", "/abs.json", "a//b", "./a", "a/../b", "..", "a\\b", "a\0b")]
         cases += [(gate(dynaflows=switch), 'dynaflows must be {"enabled": true|false}')
                   for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True)]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):
                 self.assertEqual(repo_record.gate_reason(invalid), reason)
+
+
+class OwnerOnly(unittest.TestCase):
+    def test_a_file_entry_matches_itself_and_a_directory_entry_matches_what_lies_under_it(self):
+        owned = ["scripts/checks/exceptions.json", "security/"]
+        for path in ("scripts/checks/exceptions.json", "security/a.json", "security/deep/b.json"):
+            with self.subTest(path=path):
+                self.assertTrue(repo_record.owner_only(path, owned))
+        for path in ("scripts/checks/exceptions.json.bak", "scripts/checks", "securityx/a.json", "security"):
+            with self.subTest(path=path):
+                self.assertFalse(repo_record.owner_only(path, owned))
+        self.assertFalse(repo_record.owner_only("anything", []))
 
 
 if __name__ == "__main__":

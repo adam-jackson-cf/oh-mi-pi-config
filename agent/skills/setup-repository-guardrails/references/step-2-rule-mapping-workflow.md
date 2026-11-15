@@ -68,6 +68,16 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
      or dynaflows (`profile-check` checks the record itself), or it has no
      checker capability yet (a greenfield repo).
 
+   `SECURITY.dependency-audit` has no check step and never the `harness`
+   outcome, even in a greenfield repo: any repo can hold an audit without the
+   harness. It is `repo` when a checker that `checks.commit` and `checks.ci`
+   run meets the catalogue row's contract for every lock file and manifest in
+   Step 1's map. Otherwise it is `grow`: each uncovered lock file, unreadable
+   lock format, unlocked manifest, staged-file or scheduled trigger, severity
+   filter, waiver or off-format finding line is fixed in the repo's checker,
+   and a repo with no audit gets one. The repo's exception file goes into the
+   record's `ownerOnlyPaths`.
+
    Never run a harness step beside a repo checker, even until a repo PR lands,
    and never offer a route where the owner declines a `grow` PR and the harness
    step runs instead. A rule that does not apply needs Step 1 evidence that its

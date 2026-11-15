@@ -14,8 +14,9 @@ The target repository holds nothing about the harness.
 The record holds two files:
 
 - `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`, `pathCheck`), test globs,
-  the required CI context and runner role, and `dynaflows.enabled`. `pathCheck` and
-  `checks.commit` are required; a field outside the schema fails the load, naming the field.
+  the required CI context and runner role, `ownerOnlyPaths` and `dynaflows.enabled`. `pathCheck`,
+  `checks.commit` and `ownerOnlyPaths` are required; a field outside the schema fails the load,
+  naming the field.
 - `profile.md`: the repo test profile, JSON front matter between `---` lines, then prose. Start
   it from `skill://test-guidance/assets/templates/test-profile.md`.
 
@@ -26,6 +27,10 @@ hook config and CI jobs for the owner to confirm. Rules for the record:
 - Paths in a record setting are repo-relative when they name repo files and record-relative when
   they name record files. No setting names a harness directory inside the repo.
 - The record is the owner's: the owner edits it by hand, and rails refuse every agent write to it.
+- `ownerOnlyPaths` lists the repo paths only the owner changes, such as the dependency-audit
+  exception file. Each entry is a repo-relative POSIX path; a trailing `/` covers a directory.
+  Write `[]` when the repo has none. Rails refuse every agent commit whose staged or unstaged
+  changes touch one, whether dynaflows is on or off, and tell the agent to raise it to the owner.
 
 `omp-guardrails init --repo <clone> --record <draft dir>` drafts both files into a draft outside
 the live `repos/` root for owner confirmation and writes nothing into the repo; the owner saves
