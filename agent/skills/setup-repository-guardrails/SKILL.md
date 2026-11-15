@@ -17,7 +17,8 @@ clone's `origin` remote, gitignored and never committed. The
 
 The harness uses the repo's existing checks before adding its own. A rule family a repo checker
 already enforces through `checks.commit` stays with the repo: the record's
-`guardrails.check.repo` names that checker, and `omp-guardrails check` leaves its step out. A gap
+`guardrails.check.repo` lists the checker files that between them enforce the step's rules, and
+`omp-guardrails check` leaves its step out. A gap
 in a repo checker is fixed by expanding the repo checker, never by running the harness step
 beside it.
 

@@ -16,11 +16,12 @@ Settings (``guardrails.check`` in the record's ``profile.md``):
 
 - ``run``: the steps to run, replacing the default, chosen from ``STEPS`` (a step is a
   subcommand name, or ``"adapter lint"``). Every step that is configured runs in full.
-- ``repo``: the steps the repository's own checkers already enforce, each mapped to the checker
-  file, for example ``{"python-quality": "scripts/checks/check-python-quality.py"}``. The repo's
-  checker runs at commit through ``checks.commit``, so ``check`` leaves its step out. A step the
-  repo owns cannot also be in ``run``, its checker file must be in the repository's file list,
-  and settings sections read only by owned steps (``STEP_SETTINGS``) are rejected as dead.
+- ``repo``: the steps the repository's own checkers already enforce, each mapped to the list of
+  checker files that between them enforce every rule the step reports, for example
+  ``{"python-quality": ["scripts/checks/check-python-quality.py"]}``. The repo's checkers run at
+  commit through ``checks.commit``, so ``check`` leaves the step out. A step the repo owns cannot
+  also be in ``run``, every checker file must be in the repository's file list, and settings
+  sections read only by owned steps (``STEP_SETTINGS``) are rejected as dead.
   ``profile-check`` is the record's own check and cannot be owned.
 - ``exclude``: repository path patterns (as in ``structure.inventory``) for generated, vendored
   or fixture trees; findings at matching paths are dropped. Findings about the record itself
@@ -83,8 +84,8 @@ def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
     return list(dict.fromkeys(steps)), []
 
 
-def owned_steps(profile: dict) -> tuple[dict[str, str], list[Finding]]:
-    """``guardrails.check.repo``: step -> the repo checker file that enforces it."""
+def owned_steps(profile: dict) -> tuple[dict[str, list[str]], list[Finding]]:
+    """``guardrails.check.repo``: step -> the repo checker files that enforce it."""
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
         return {}, []
@@ -93,7 +94,7 @@ def owned_steps(profile: dict) -> tuple[dict[str, str], list[Finding]]:
         return {}, [
             record_finding(
                 "guardrails.check.repo must map steps to repo checker files",
-                'write {"<step>": "<repo-relative checker path>"}',
+                'write {"<step>": ["<repo-relative checker path>", ...]}',
             )
         ]
     findings = [
@@ -106,16 +107,18 @@ def owned_steps(profile: dict) -> tuple[dict[str, str], list[Finding]]:
     ]
     findings += [
         record_finding(
-            f"guardrails.check.repo.{step} must name the repo checker file",
-            "give the checker's repo-relative path",
+            f"guardrails.check.repo.{step} must list the repo checker files",
+            "give a non-empty list of repo-relative checker paths",
         )
-        for step, checker in declared.items()
-        if not isinstance(checker, str) or not checker.strip()
+        for step, checkers in declared.items()
+        if not isinstance(checkers, list)
+        or not checkers
+        or not all(isinstance(checker, str) and checker.strip() for checker in checkers)
     ]
     return (dict(declared), []) if not findings else ({}, findings)
 
 
-def dead_settings(profile: dict, configured: list[str], owned: dict[str, str]) -> list[Finding]:
+def dead_settings(profile: dict, configured: list[str], owned: dict[str, list[str]]) -> list[Finding]:
     """Settings sections whose configured steps are all owned by the repo."""
     findings = []
     for section, readers in STEP_SETTINGS.items():
@@ -165,7 +168,8 @@ def missing_checkers(repo: Path, profile: dict) -> list[Finding]:
             f"guardrails.check.repo.{step} names {checker}, which is not in the repository",
             "name the checker file the repo runs through checks.commit",
         )
-        for step, checker in owned.items()
+        for step, checkers in owned.items()
+        for checker in checkers
         if checker not in listed
     ]
 

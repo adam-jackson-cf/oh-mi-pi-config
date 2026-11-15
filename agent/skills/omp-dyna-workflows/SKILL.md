@@ -25,8 +25,10 @@ mentions and prose are not commands. Contradictory directive lines fail without 
 Choose exactly one active playbook:
 
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
-- Missing controls, or user-visible work without a Verification surface and feature map
-  (`verification_surface.feature_map_path`) in the record's `profile.md`:
+- Missing controls, user-visible work without a Verification surface and feature map
+  (`verification_surface.feature_map_path`) in the record's `profile.md`, or a harness check step
+  that duplicates a repo checker the record has not listed in `guardrails.check.repo` (a commit
+  blocked by harness findings after `checks.commit` passed is the usual sign):
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
   An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no
   feature map, so `freeze()` accepts no proofs there.

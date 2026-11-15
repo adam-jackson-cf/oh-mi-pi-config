@@ -12,7 +12,15 @@ Identify stack, protected work, missing controls and owners. Read `skill://setup
 and `skill://test-guidance/references/verification-surface.md`.
 Read the record's `profile.md` when present. Trigger surface setup lazily for user-visible work
 without a surface; an owner-approved no-runnable-app exemption does not trigger it.
-For an already guarded repo, use surface-only extend mode, not a second guardrail system.
+Pick the setup skill's Step 0 modes from the starting point; more than one can apply:
+
+- no record and no repo checkers: `greenfield`;
+- repo checkers that enforce harness rule families the record does not yet give them in
+  `guardrails.check.repo`, with or without a record: `adopt`. Never reshape repo code to satisfy
+  the harness copy of a rule the repo's checker already carries;
+- a record that lacks only a part, such as the verification surface: `extend`.
+
+Never build a second guardrail system beside the repo's own.
 
 ## 2. Spike
 

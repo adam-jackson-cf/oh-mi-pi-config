@@ -274,13 +274,13 @@ class CheckerTests(unittest.TestCase):
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
         from omp_guardrails import whole_repo
 
-        owned = {"guardrails": {"check": {"repo": {"naming": "src/orders/cli/main.py"}}}}
+        owned = {"guardrails": {"check": {"repo": {"naming": ["src/orders/cli/main.py"]}}}}
         steps, problems = whole_repo.configured_steps(owned)
         self.assertEqual(problems, [])
         self.assertEqual(steps, [step for step in whole_repo.DEFAULT_STEPS if step != "naming"])
         self.write("src/orders/engine/misc.py")
         self.profile["guardrails"]["check"] = {"run": ["structure"]}
-        self.profile["guardrails"]["check"]["repo"] = {"naming": "src/orders/cli/main.py"}
+        self.profile["guardrails"]["check"]["repo"] = {"naming": ["src/orders/cli/main.py"]}
         self.write_profile()
         self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
         self.write("scratch/notes.txt")
@@ -292,22 +292,27 @@ class CheckerTests(unittest.TestCase):
     def test_check_refuses_a_repo_owned_step_the_record_cannot_trust(self) -> None:
         cases = {
             "unknown step": (
-                {"repo": {"python-lint": "checks/lint.py"}},
+                {"repo": {"python-lint": ["checks/lint.py"]}},
                 "guardrails.check.repo names 'python-lint'",
             ),
             "record check": (
-                {"repo": {"profile-check": "checks/lint.py"}},
+                {"repo": {"profile-check": ["checks/lint.py"]}},
                 "guardrails.check.repo names 'profile-check'",
             ),
             "listed twice": (
-                {"run": ["naming"], "repo": {"naming": "src/orders/cli/main.py"}},
+                {"run": ["naming"], "repo": {"naming": ["src/orders/cli/main.py"]}},
                 "guardrails.check.run lists repo-owned steps ['naming']",
             ),
             "missing checker": (
-                {"repo": {"naming": "checks/absent.py"}},
+                {"repo": {"naming": ["src/orders/cli/main.py", "checks/absent.py"]}},
                 "guardrails.check.repo.naming names checks/absent.py, which is not in the repository",
             ),
             "not a map": ({"repo": ["naming"]}, "guardrails.check.repo must map steps"),
+            "single path": (
+                {"repo": {"naming": "src/orders/cli/main.py"}},
+                "guardrails.check.repo.naming must list the repo checker files",
+            ),
+            "no checkers": ({"repo": {"naming": []}}, "guardrails.check.repo.naming must list"),
         }
         for name, (check, expected) in cases.items():
             with self.subTest(name=name):
@@ -318,8 +323,8 @@ class CheckerTests(unittest.TestCase):
                 self.assertIn(f"record:profile.md: PROFILE.complete: {expected}", out)
 
     def test_check_rejects_settings_only_repo_owned_steps_read(self) -> None:
-        owned = {"python-quality": "src/orders/cli/main.py", "python-fanout": "src/orders/cli/main.py",
-                 "python-scalability": "src/orders/cli/main.py"}
+        owned = {"python-quality": ["src/orders/cli/main.py"], "python-fanout": ["src/orders/cli/main.py"],
+                 "python-scalability": ["src/orders/cli/main.py"]}
         self.profile["guardrails"]["python"] = {"maintained_roots": ["src"]}
         self.profile["guardrails"]["check"] = {"run": ["structure", "naming"], "repo": owned}
         self.write_profile()
