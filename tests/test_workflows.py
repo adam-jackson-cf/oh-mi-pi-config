@@ -81,13 +81,14 @@ class RepositoryTests(unittest.TestCase):
         return path
 
     def write_gate(self, text):
-        """Write the record's gate.json; a JSON object without a dynaflows switch gets it turned on."""
+        """Write the record's gate.json; a JSON object without a dynaflows switch gets it turned on,
+        and one without ownerOnlyPaths gets none."""
         try:
             gate = json.loads(text)
         except ValueError:
             gate = None
-        if isinstance(gate, dict) and "dynaflows" not in gate:
-            text = json.dumps({**gate, **SWITCH})
+        if isinstance(gate, dict):
+            text = json.dumps({**SWITCH, "ownerOnlyPaths": [], **gate})
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / "gate.json").write_text(text)
 
@@ -629,7 +630,7 @@ class RepositoryTests(unittest.TestCase):
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def test_unreadable_or_rejected_record_raises(self):
-        complete = {"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}
+        complete = {"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "ownerOnlyPaths": []}
         for text, fragment in (("{", "record "), (json.dumps({**complete, "dynaflows": {"enabled": "yes"}}), 'dynaflows must be {"enabled": true|false}')):
             with self.subTest(text=text):
                 (self.record / "gate.json").write_text(text)
@@ -1029,11 +1030,11 @@ class SchemaTests(unittest.TestCase):
         # repo_record.gate_reason owns the schema (tests/test_repo_record.py); gate_policy accepts
         # exactly what it accepts and returns the fields freeze() and prove() consume.
         gate = {"schemaVersion": 2, "checks": {"commit": ["c"], "format": ["ruff", "format"]}, "pathCheck": ["p"],
-                "ci": {"requiredContext": "gate", "runner": "ci-gate"}, "dynaflows": {"enabled": False}}
+                "ownerOnlyPaths": [], "ci": {"requiredContext": "gate", "runner": "ci-gate"}, "dynaflows": {"enabled": False}}
         self.assertEqual(workflow.gate_policy(gate),
                          {"format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
         for invalid in ({k: v for k, v in gate.items() if k != "pathCheck"}, {**gate, "checks": {"ci": ["c"]}},
-                        {**gate, "unknownField": 3}):
+                        {**gate, "unknownField": 3}, {k: v for k, v in gate.items() if k != "ownerOnlyPaths"}):
             with self.subTest(gate=invalid):
                 self.assertIsNone(workflow.gate_policy(invalid))
 
@@ -1118,6 +1119,230 @@ class LabelTests(unittest.TestCase):
         with self.assertRaises(workflow.WorkflowError):
             workflow.blind_label([self.path] * 9, "rubric", ["yes"])
         self.agent.assert_not_called()
+
+
+CATALOGUE = Path(__file__).resolve().parents[1] / (
+    "agent/skills/setup-repository-guardrails/assets/python-reference/omp_guardrails/data/guardrail-rules.json")
+ADVISORY = ("SECURITY.dependency-audit lock=uv.lock ecosystem=PyPI package=PyYAML version=5.3.1 "
+            "advisory=GHSA-8q59-q68h-6hv4 aliases=CVE-2020-14343,PYSEC-2021-142 fix=5.4")
+NO_FIX = ("SECURITY.dependency-audit lock=web/package-lock.json ecosystem=npm package=node-serialize version=0.0.4 "
+          "advisory=GHSA-q4v7-4rhw-9hqm aliases= fix=")
+
+
+def evidence(scope="runtime", hits=True, fix_options=""):
+    return {"advisory_text": "arbitrary code execution through full_load", "advisory_source": "https://osv.dev/x",
+            "scope": scope, "scope_source": "pyproject.toml:12", "fix_options": fix_options,
+            "code_search": {"queries": ["yaml.full_load"],
+                            "hits": [{"location": "api/imports.py:88", "line": "yaml.full_load(body)"}] if hits else []}}
+
+
+def answers(impact="rce", local=0.02, privileges=0.02, interaction=0.2, reached=0.95, spread=None):
+    probabilities = {name: 0.0 for name in workflow.IMPACT_LEVEL}
+    probabilities.update(spread or {impact: 1.0})
+    return {"impact": {"type": "choice", "choice": impact, "probabilities": probabilities, "confidence": 0.9},
+            "local_only": {"type": "bool", "bool": local}, "needs_privileges": {"type": "bool", "bool": privileges},
+            "needs_interaction": {"type": "bool", "bool": interaction}, "reached": {"type": "bool", "bool": reached}}
+
+
+class DependencyAuditParsingTests(unittest.TestCase):
+    def test_advisory_and_failure_lines_parse_by_the_catalogue_contract(self):
+        output = "\n".join(["make: entering gate", ADVISORY, NO_FIX, ADVISORY,
+                            "SECURITY.dependency-audit failure=manifest-without-lock path=tools/package.json reason=dependencies but no lock",
+                            "test_security.py::test_dependency PASSED mentions SECURITY.dependency-audit mid-line"])
+        found = workflow.parse_dependency_audit(output)
+        self.assertEqual(found["advisories"], [
+            {"lock": "uv.lock", "ecosystem": "PyPI", "package": "PyYAML", "version": "5.3.1",
+             "advisory": "GHSA-8q59-q68h-6hv4", "aliases": ["CVE-2020-14343", "PYSEC-2021-142"], "fix": ["5.4"]},
+            {"lock": "web/package-lock.json", "ecosystem": "npm", "package": "node-serialize", "version": "0.0.4",
+             "advisory": "GHSA-q4v7-4rhw-9hqm", "aliases": [], "fix": []}])
+        self.assertEqual(found["failures"], [{"kind": "manifest-without-lock", "path": "tools/package.json",
+                                              "reason": "dependencies but no lock"}])
+        self.assertEqual(workflow.advisory_key(found["advisories"][0]), "uv.lock:PyYAML@5.3.1:GHSA-8q59-q68h-6hv4")
+
+    def test_off_contract_rule_lines_and_truncated_output_fail_closed(self):
+        reordered = ADVISORY.replace("lock=uv.lock ecosystem=PyPI", "ecosystem=PyPI lock=uv.lock")
+        for line in (reordered, ADVISORY.replace(" fix=5.4", ""), ADVISORY + " extra=1",
+                     ADVISORY.replace("aliases=CVE-2020-14343,PYSEC-2021-142", "aliases=CVE-2020-14343,,X"),
+                     ADVISORY.replace("version=5.3.1", "version="), "SECURITY.dependency-audit",
+                     "SECURITY.dependency-audit PyYAML 5.3.1 has GHSA-8q59-q68h-6hv4",
+                     "SECURITY.dependency-audit failure=other path=a reason=b",
+                     "SECURITY.dependency-audit failure=auditor path=a reason="):
+            with self.subTest(line=line), self.assertRaisesRegex(workflow.WorkflowError, "SECURITY.dependency-audit"):
+                workflow.parse_dependency_audit(line)
+        with self.assertRaisesRegex(workflow.WorkflowError, "truncated"):
+            workflow.parse_dependency_audit("…" + ADVISORY)
+
+    def test_the_parser_matches_the_catalogue_contract(self):
+        rows = json.loads(CATALOGUE.read_text())["rules"]
+        contract = next(rule for rule in rows if rule["id"] == workflow.DEPENDENCY_AUDIT)["contract"]
+        self.assertEqual(list(workflow.ADVISORY_FIELDS), contract["advisory_fields_in_order"])
+        self.assertEqual(list(workflow.AUDIT_FAILURE_KINDS), contract["failure_kinds"])
+        example = re.sub(r"<[^>]+>", "x", contract["advisory_line"])
+        self.assertEqual(len(workflow.parse_dependency_audit(example)["advisories"]), 1)
+
+
+class SeverityRubricTests(unittest.TestCase):
+    def setUp(self):
+        self.decisions = workflow.severity_thresholds()
+        self.advisory = workflow.parse_dependency_audit(ADVISORY)["advisories"][0]
+        self.no_fix = workflow.parse_dependency_audit(NO_FIX)["advisories"][0]
+
+    def rate(self, answer, advisory=None, **kwargs):
+        return workflow.rate_advisory(advisory or self.advisory, evidence(**kwargs), answer, self.decisions)
+
+    def test_thresholds_belong_to_the_current_questions(self):
+        self.assertEqual(json.loads((workflow._severity_dir() / "thresholds.json").read_text())["version_key"],
+                         workflow.severity_version_key("typesafe/jev-1.14"))
+        self.assertEqual(set(self.decisions), {"impact", *workflow.PRECONDITIONS, "reached"})
+
+    def test_the_rubric_spans_every_level_and_both_exposures(self):
+        cases = [
+            (answers(), {}, "critical", "owner"),
+            (answers(reached=0.1), {}, "high", "owner"),
+            (answers(), {"scope": "dev"}, "high", "owner"),
+            (answers(local=0.9, reached=0.1), {}, "medium", "fix"),
+            (answers(impact="dos"), {}, "medium", "fix"),
+            (answers(impact="dos", reached=0.1), {"scope": "dev"}, "low", "fix"),
+            (answers(impact="info_leak", interaction=0.95, reached=0.05), {"scope": "dev"}, "low", "fix"),
+        ]
+        for answer, kwargs, severity, route in cases:
+            with self.subTest(severity=severity, kwargs=kwargs):
+                rated = self.rate(answer, **kwargs)
+                self.assertEqual((rated["severity"], rated["route"]), (severity, route))
+
+    def test_unclear_evidence_rounds_up(self):
+        self.assertEqual(self.rate(answers(impact="unclear"))["severity"], "critical")
+        spread = self.rate(answers(spread={"dos": 0.6, "rce": 0.35, "info_leak": 0.05}))
+        self.assertEqual((spread["dimensions"]["impact"]["class"], spread["severity"]), ("rce", "critical"))
+        doubtful = self.rate(answers(local=0.6, reached=0.45))
+        self.assertEqual((doubtful["dimensions"]["preconditions"]["cleared"], doubtful["severity"]), ([], "critical"))
+
+    def test_an_advisory_with_no_fix_always_goes_to_the_owner(self):
+        rated = self.rate(answers(impact="dos", reached=0.1), advisory=self.no_fix, scope="dev",
+                          fix_options="replace node-serialize with JSON.parse")
+        self.assertEqual((rated["severity"], rated["route"]), ("low", "owner"))
+        self.assertIn("dated exception", rated["reasons"][0])
+        self.assertEqual(rated["suggested_fix"], "replace node-serialize with JSON.parse")
+        with self.assertRaisesRegex(workflow.WorkflowError, "fix_options"):
+            self.rate(answers(), advisory=self.no_fix)
+
+    def test_invalid_judgment_answers_or_evidence_raise(self):
+        broken = answers()
+        broken["reached"] = {"type": "bool", "bool": "yes"}
+        for answer in (broken, {}, None, {**answers(), "impact": {"probabilities": {"rce": 1.0}}}):
+            with self.subTest(answer=answer), self.assertRaises(workflow.WorkflowError):
+                self.rate(answer)
+        bad = evidence()
+        bad["scope"] = "test"
+        with self.assertRaisesRegex(workflow.WorkflowError, "scope"):
+            workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
+        bad = {**evidence(), "extra": 1}
+        with self.assertRaisesRegex(workflow.WorkflowError, "evidence needs"):
+            workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
+
+
+MALICIOUS = ("SECURITY.dependency-audit lock=package-lock.json ecosystem=npm package=eslint-scope version=3.7.2 "
+             "advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw fix=3.7.3")
+
+
+class MaliciousPackageTests(unittest.TestCase):
+    def setUp(self):
+        self.decisions = workflow.severity_thresholds()
+
+    def advisory(self, line):
+        return workflow.parse_dependency_audit(line)["advisories"][0]
+
+    def test_a_mal_id_or_alias_marks_a_malicious_package(self):
+        self.assertTrue(workflow.malicious_package(self.advisory(MALICIOUS)))
+        own = MALICIOUS.replace("advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw", "advisory=MAL-2025-1 aliases=")
+        self.assertTrue(workflow.malicious_package(self.advisory(own)))
+        self.assertFalse(workflow.malicious_package(self.advisory(ADVISORY)))
+        self.assertFalse(workflow.malicious_package(self.advisory(MALICIOUS.replace("MAL-GHSA", "GHSA-MAL"))))
+
+    def test_malicious_is_critical_for_the_owner_whatever_scope_reach_or_fix(self):
+        mild = answers(impact="info_leak", local=0.9, reached=0.01)
+        for line, kwargs in ((MALICIOUS, {"scope": "dev", "hits": False}),
+                             (MALICIOUS.replace(" fix=3.7.3", " fix="), {"scope": "dev", "hits": False, "fix_options": "drop it"}),
+                             (MALICIOUS, {"scope": "runtime"})):
+            with self.subTest(line=line, kwargs=kwargs):
+                rated = workflow.rate_advisory(self.advisory(line), evidence(**kwargs), mild, self.decisions)
+                self.assertEqual((rated["severity"], rated["route"]), ("critical", "owner"))
+                self.assertIn("malicious package", rated["reasons"][0])
+                self.assertTrue(rated["suggested_fix"].startswith("remove eslint-scope or replace it"))
+                self.assertIn("rotate every credential", rated["suggested_fix"])
+
+    def test_the_judgment_is_never_asked_for_a_malicious_package(self):
+        async def judge(state, questions):
+            raise AssertionError("judge() must not run for a malicious package")
+        import asyncio
+        found = workflow.parse_dependency_audit(MALICIOUS)
+        key = workflow.advisory_key(found["advisories"][0])
+        with patch.object(workflow, "judge", judge, create=True):
+            result = asyncio.run(workflow.triage_advisories(found, {key: evidence(scope="dev", hits=False)}))
+        self.assertTrue(result["halt"])
+        self.assertEqual([item["severity"] for item in result["owner"]], ["critical"])
+        for text in ("Severity: critical", "malicious package", "rotate every credential", "not judged"):
+            self.assertIn(text, result["report"])
+
+    def test_the_contract_states_the_malicious_mark(self):
+        rows = json.loads(CATALOGUE.read_text())["rules"]
+        contract = next(rule for rule in rows if rule["id"] == workflow.DEPENDENCY_AUDIT)["contract"]
+        self.assertIn(workflow.MALICIOUS_PREFIX, contract["malicious_package_mark"])
+
+
+class TriageTests(unittest.TestCase):
+    def setUp(self):
+        self.found = workflow.parse_dependency_audit("\n".join([
+            ADVISORY, ADVISORY.replace("PyYAML version=5.3.1", "black version=23.12.1").replace("GHSA-8q59-q68h-6hv4", "PYSEC-B"),
+            "SECURITY.dependency-audit failure=auditor path=uv.lock reason=auditor exited 2"]))
+        self.keys = [workflow.advisory_key(a) for a in self.found["advisories"]]
+        self.calls = []
+
+    def run_triage(self, replies, evidence_map):
+        async def judge(state, questions):
+            self.calls.append((state, questions))
+            reply = replies[state["advisory"]["package"]]
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        import asyncio
+        with patch.object(workflow, "judge", judge, create=True):
+            return asyncio.run(workflow.triage_advisories(self.found, evidence_map))
+
+    def test_high_severity_halts_with_an_owner_report_and_low_is_fixed_in_flow(self):
+        result = self.run_triage({"PyYAML": answers(), "black": answers(impact="dos", reached=0.02)},
+                                 {self.keys[0]: evidence(), self.keys[1]: evidence(scope="dev", hits=False)})
+        self.assertTrue(result["halt"])
+        self.assertEqual([item["key"] for item in result["owner"]], [self.keys[0]])
+        self.assertEqual([(item["key"], item["severity"]) for item in result["fix"]], [(self.keys[1], "low")])
+        self.assertEqual(result["failures"], [{"kind": "auditor", "path": "uv.lock", "reason": "auditor exited 2"}])
+        for text in ("GHSA-8q59-q68h-6hv4", "CVE-2020-14343", "Severity: critical", "api/imports.py:88",
+                     "Suggested fix: upgrade PyYAML from 5.3.1 to a fixed version (5.4)", "pyproject.toml:12"):
+            self.assertIn(text, result["report"])
+        state, questions = self.calls[0]
+        self.assertEqual(set(questions), {"impact", *workflow.PRECONDITIONS, "reached"})
+        self.assertEqual(state["advisory"]["text"], "arbitrary code execution through full_load")
+
+    def test_all_low_or_medium_does_not_halt(self):
+        low = answers(impact="dos", reached=0.02)
+        result = self.run_triage({"PyYAML": low, "black": low}, {key: evidence() for key in self.keys})
+        self.assertEqual((result["halt"], result["owner"], result["report"]), (False, [], ""))
+        self.assertEqual([item["severity"] for item in result["fix"]], ["low", "low"])
+
+    def test_exception_file_failures_halt_for_the_owner(self):
+        self.found["failures"].append({"kind": "exception", "path": "scripts/checks/exceptions.json", "reason": "expired"})
+        low = answers(impact="dos", reached=0.02)
+        result = self.run_triage({"PyYAML": low, "black": low}, {key: evidence() for key in self.keys})
+        self.assertTrue(result["halt"])
+        self.assertIn("Exception file failure at scripts/checks/exceptions.json: expired (owner-only path)", result["report"])
+        self.assertEqual(result["owner"], [], "the low advisories themselves stay in-flow fixes")
+
+    def test_missing_evidence_or_a_failed_judgment_never_passes(self):
+        with self.assertRaisesRegex(workflow.WorkflowError, "missing"):
+            self.run_triage({}, {self.keys[0]: evidence()})
+        with self.assertRaisesRegex(workflow.WorkflowError, "severity judgment failed"):
+            self.run_triage({"PyYAML": RuntimeError("judge offline"), "black": answers()},
+                            {key: evidence() for key in self.keys})
 
 
 if __name__ == "__main__":

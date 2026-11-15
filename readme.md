@@ -121,9 +121,11 @@ named by the clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
 Worktrees resolve to the same record as their main checkout.
 
 - `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`,
-  `pathCheck`), the `ci` contract, `agentMerge` and `dynaflows.enabled`.
-  `pathCheck` and `checks.commit` are required; a record without either, or with a
-  field outside the schema, fails to load with an error naming the field.
+  `pathCheck`), the `ci` contract, `ownerOnlyPaths`, `agentMerge` and
+  `dynaflows.enabled`. `pathCheck`, `checks.commit` and `ownerOnlyPaths` are
+  required; a record without one, or with a field outside the schema, fails to load
+  with an error naming the field. `ownerOnlyPaths` lists the repo paths only the
+  owner changes (`[]` when none); rails refuse an agent commit that changes one.
 - `profile.md` holds the repo test profile, including every approval and exception.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to

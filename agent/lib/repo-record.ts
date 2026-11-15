@@ -87,6 +87,32 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 }
 
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
+
+/**
+ * Why `path` is not an owner-only path, or undefined when it is one: a repo-relative POSIX path
+ * with no leading slash, no empty, "." or ".." component, no backslash and no NUL. A trailing "/"
+ * names a directory and covers every path under it. repo_record.py's owner_path_problem is its
+ * Python twin.
+ */
+export function ownerPathProblem(path: string): string | undefined {
+	const body = path.endsWith("/") ? path.slice(0, -1) : path;
+	if (!body || /[\\\0]/.test(path) || body.split("/").some(part => part === "" || part === "." || part === "..")) {
+		return `ownerOnlyPaths entry ${JSON.stringify(path)} must be a repo-relative POSIX path (a trailing / names a directory)`;
+	}
+}
+
+/** True when the repo-relative `path` is, or lies under, one of the owner-only `owned` entries. */
+export function ownerOnly(path: string, owned: readonly string[]): boolean {
+	return owned.some(entry => entry.endsWith("/") ? path.startsWith(entry) : path === entry);
+}
+
+const ownerPathsSchema = z.array(z.string()).superRefine((paths, ctx) => {
+	for (const path of paths) {
+		const problem = ownerPathProblem(path);
+		if (problem) ctx.addIssue({ code: "custom", message: problem });
+	}
+	if (new Set(paths).size !== paths.length) ctx.addIssue({ code: "custom", message: "ownerOnlyPaths entries must be unique" });
+});
 const nonEmpty = z.string().refine(value => value.trim().length > 0);
 const dynaflowsSwitch = z.object({ enabled: z.boolean() });
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
@@ -95,13 +121,16 @@ const dynaflowsSwitch = z.object({ enabled: z.boolean() });
 // first. `checks.ci` runs in CI; `checks.format` runs in freeze() before hashing; `checks.profile`
 // is validated for the harness's other consumers. `ci.requiredContext` is the commit status or
 // check run that must be SUCCESS on the exact PR head, whoever posts it; `ci.runner` is a role
-// resolved by the machine's ci-runners.json.
+// resolved by the machine's ci-runners.json. `ownerOnlyPaths` (required, possibly empty) names the
+// repo paths only the owner changes, such as the dependency-audit exception file: rails refuse an
+// agent commit that changes one.
 export const gateSchema = z.object({
 	schemaVersion: z.literal(2),
 	checks: z.object({
 		commit: argvSchema, ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
 	}).strict(),
 	pathCheck: argvSchema,
+	ownerOnlyPaths: ownerPathsSchema,
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
 	// The repo's dynaflows switch (required); checked below for one message.
@@ -114,6 +143,7 @@ export const gateSchema = z.object({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	pathCheck: gate.pathCheck,
+	ownerOnlyPaths: gate.ownerOnlyPaths,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
 	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),

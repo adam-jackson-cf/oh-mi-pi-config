@@ -1,8 +1,10 @@
-"""Toolchain parity: interpreter pins, installer extras, documented installs, locks and audit.
+"""Toolchain parity: interpreter pins, installer extras, documented installs and locks.
 
-``omp-guardrails toolchain-parity [static|audit] [--ci] [path ...]`` (default ``static``).
-Every section runs only when ``guardrails.toolchain_parity`` configures it; a profile that
-configures none is itself a finding, so an unconfigured check never passes silently.
+``omp-guardrails toolchain-parity`` takes no arguments. Every section runs only when
+``guardrails.toolchain_parity`` configures it; a profile that configures none is itself a
+finding, so an unconfigured check never passes silently. The dependency audit
+(``SECURITY.dependency-audit``) is not here: the repository's own checker owns it, and the
+harness never runs a copy (see the catalogue row's contract).
 
 Settings (``guardrails.toolchain_parity``):
 
@@ -16,12 +18,6 @@ Settings (``guardrails.toolchain_parity``):
   Rules: ``PARITY.dependency-inventory``, ``PARITY.install-guidance``, ``PARITY.lock-version``.
 - ``prettier``: ``version`` (exact pin), ``package_json``, ``package_lock`` and ``npx_sources``
   (globs where an ``npx prettier`` call would bypass the lock). Rule: ``PRETTIER.version``.
-- ``audit``: ``project``, ``lock``, ``extra`` and ``package`` (the auditor's exact dev pin, e.g.
-  ``pip-audit`` in ``dev``), ``export_command`` (prints locked requirements),
-  ``audit_command`` (reads them on stdin and prints a pip-audit JSON report),
-  ``dependency_files`` (file names that trigger a local audit) and ``timeout_s``.
-  Rule: ``SECURITY.dependency-audit``. Locally the audit runs only when staged or named paths
-  touch a dependency file; with ``--ci`` it always runs.
 """
 
 from __future__ import annotations
@@ -30,7 +26,6 @@ import json
 import platform
 import re
 import shlex
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
@@ -41,7 +36,6 @@ from omp_guardrails.catalogue.versions import (
     canonical_name,
     parse_requirement,
 )
-from omp_guardrails.child_env import clean_environment
 from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure.inventory import (
@@ -56,17 +50,9 @@ INVENTORY = "PARITY.dependency-inventory"
 GUIDANCE = "PARITY.install-guidance"
 LOCK_VERSION = "PARITY.lock-version"
 PRETTIER = "PRETTIER.version"
-AUDIT = "SECURITY.dependency-audit"
 LOCAL_CI = "GATE.local-ci-parity"
 UV_SYNC = re.compile(r"\buv\s+sync\b")
 MAKE_TARGET = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)")
-DEFAULT_DEPENDENCY_FILES = (
-    "pyproject.toml",
-    "uv.lock",
-    "package.json",
-    "package-lock.json",
-)
-DEFAULT_AUDIT_TIMEOUT_S = 300
 
 
 def option_values(tokens: list[str], option: str) -> set[str]:
@@ -388,169 +374,28 @@ def static_findings(repo: Path, options: dict) -> list[Finding]:
     return findings
 
 
-def audit_pin_findings(options: dict, project_toml: str, lock_toml: str) -> list[Finding]:
-    package = canonical_name(options.get("package", "pip-audit"))
-    extra = options.get("extra", "dev")
-    group = tomllib.loads(project_toml)["project"].get("optional-dependencies", {}).get(extra, [])
-    pins = [parse_requirement(item) for item in group]
-    pins = [item for item in pins if item.name == package]
-    project_path = options.get("project", "pyproject.toml")
-    if len(pins) != 1 or [op for op, _ in pins[0].clauses] != ["=="]:
-        return [
-            Finding(
-                AUDIT,
-                project_path,
-                f"{package} lacks one exact pin in the {extra} extra",
-                f"add {package}==VERSION to the {extra} extra and regenerate the lock",
-            )
-        ]
-    locked = locked_versions(lock_toml).get(package, set())
-    if not locked or not all(pins[0].admits(version) for version in locked):
-        return [
-            Finding(
-                AUDIT,
-                options.get("lock", "uv.lock"),
-                f"locked {package} {sorted(locked)} differs from its exact pin",
-                "regenerate the lock to match the exact pin",
-            )
-        ]
-    return []
-
-
-def audit_report_problem(text: str) -> str:
-    """Why a pip-audit JSON report cannot be trusted, or ``""`` when it is complete."""
-    try:
-        report = json.loads(text)
-    except ValueError:
-        return "auditor returned invalid JSON"
-    dependencies = report.get("dependencies") if isinstance(report, dict) else None
-    if not isinstance(dependencies, list) or not dependencies:
-        return "auditor returned no usable dependency inventory"
-    for dependency in dependencies:
-        if (
-            not isinstance(dependency, dict)
-            or not dependency.get("name")
-            or not dependency.get("version")
-            or not isinstance(dependency.get("vulns"), list)
-            or dependency.get("skip_reason")
-        ):
-            return "auditor skipped or could not resolve a dependency"
-        for vulnerability in dependency["vulns"]:
-            if (
-                not isinstance(vulnerability, dict)
-                or not vulnerability.get("id")
-                or not isinstance(vulnerability.get("fix_versions"), list)
-            ):
-                return "auditor returned a malformed vulnerability"
-    return ""
-
-
-def vulnerability_findings(text: str, lock_path: str) -> list[Finding]:
-    return [
-        Finding(
-            AUDIT,
-            lock_path,
-            f"{dependency['name']}=={dependency['version']} has {vulnerability['id']}",
-            "upgrade to " + (", ".join(vulnerability["fix_versions"]) or "a patched release"),
-        )
-        for dependency in json.loads(text)["dependencies"]
-        for vulnerability in dependency["vulns"]
-    ]
-
-
-def run_audit(repo: Path, options: dict) -> tuple[str, list[Finding]]:
-    """Export the locked requirements, audit them, and return (tool problem, findings)."""
-    export, audit = options.get("export_command"), options.get("audit_command")
-    if not as_list(export) or not as_list(audit):
-        return "guardrails.toolchain_parity.audit needs export_command and audit_command", []
-    timeout = options.get("timeout_s", DEFAULT_AUDIT_TIMEOUT_S)
-    env = clean_environment()
-    exported = subprocess.run(
-        as_list(export), cwd=repo, env=env, text=True, capture_output=True, timeout=timeout
-    )
-    if exported.returncode or not exported.stdout.strip():
-        return "locked requirements export failed or was empty", []
-    audited = subprocess.run(
-        as_list(audit),
-        cwd=repo,
-        env=env,
-        input=exported.stdout,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-    )
-    problem = audit_report_problem(audited.stdout)
-    if not problem:
-        found = vulnerability_findings(audited.stdout, options.get("lock", "uv.lock"))
-        if found and audited.returncode in (0, 1):
-            return "", found
-    if audited.returncode:
-        problem = problem or f"auditor exited {audited.returncode}"
-        problem += f": {audited.stderr.strip()}" if audited.stderr.strip() else ""
-    return problem, []
-
-
-def staged_paths(repo: Path) -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--cached", "--name-only", "-z"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=60,
-        env=clean_environment(),
-    )
-    return [path for path in result.stdout.split("\0") if path]
-
-
-def audit_findings(repo: Path, options: dict, ci: bool, paths: list[str]) -> list[Finding]:
-    names = set(as_list(options.get("dependency_files")) or DEFAULT_DEPENDENCY_FILES)
-    changed = paths or ([] if ci else staged_paths(repo))
-    touched = any(
-        PurePosixPath(path).name in names
-        or re.fullmatch(r"requirements.*\.txt", PurePosixPath(path).name)
-        for path in changed
-    )
-    if not ci and not touched:
-        return []
-    project_path = options.get("project", "pyproject.toml")
-    findings = audit_pin_findings(
-        options, read_text(repo, project_path), read_text(repo, options.get("lock", "uv.lock"))
-    )
-    try:
-        problem, found = run_audit(repo, options)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        problem, found = f"audit tool failed ({type(error).__name__})", []
-    if problem:
-        found = [
-            Finding(
-                AUDIT,
-                options.get("lock", "uv.lock"),
-                problem,
-                "resolve the vulnerabilities or tool errors and rerun the strict locked audit",
-            )
-        ]
-    return findings + found
-
-
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+    if argv:
+        return [
+            Finding(
+                LOCAL_CI,
+                "omp-guardrails toolchain-parity",
+                f"toolchain-parity takes no arguments, got {argv}",
+                "run it without arguments; its sections are record settings",
+            )
+        ]
     options = settings(profile, "toolchain_parity")
-    mode = argv[0] if argv[:1] and argv[0] in {"static", "audit"} else "static"
-    rest = argv[1:] if argv[:1] == [mode] else argv
-    ci = "--ci" in rest
-    paths = [item for item in rest if item != "--ci"]
-    configured = {"static": ("python_pins", "uv", "prettier"), "audit": ("audit",)}[mode]
+    configured = ("python_pins", "uv", "prettier")
     if not any(options.get(key) for key in configured):
         return [
             Finding(
                 LOCAL_CI,
                 PROFILE_PATH,
-                f"guardrails.toolchain_parity configures no {mode} section",
+                "guardrails.toolchain_parity configures no section",
                 f"configure one of {', '.join(configured)} or drop this check from the gate",
             )
         ]
     try:
-        if mode == "audit":
-            return audit_findings(repo, options["audit"], ci, paths)
         return static_findings(repo, options)
     except (
         OSError,
@@ -559,12 +404,10 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         TypeError,
         InventoryError,
         VersionError,
-        subprocess.SubprocessError,
     ) as error:
-        rule = AUDIT if mode == "audit" else LOCK_VERSION
         return [
             Finding(
-                rule,
+                LOCK_VERSION,
                 PROFILE_PATH,
                 f"toolchain inputs cannot be read: {' '.join(str(error).split())}",
                 "repair the configured toolchain files or settings",

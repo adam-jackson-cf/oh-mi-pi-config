@@ -3,8 +3,9 @@
 The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
 ``checks.ci``, ``pathCheck``, ``ci`` (``requiredContext``: the status context or
 check run that must be green on the exact head; ``runner``: a role the machine's runner config
-resolves), ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``). ``pathCheck`` and
-``checks.commit`` are required: rails run both at every agent commit.
+resolves), ``ownerOnlyPaths``, ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
+``pathCheck``, ``checks.commit`` and ``ownerOnlyPaths`` are required: rails run the first two at
+every agent commit and refuse an agent commit that changes an owner-only path.
 Every command is the repository's own, run in the checkout; the harness checks
 (``omp-guardrails check``) are not gate commands, because the rails run them from the harness.
 
@@ -20,7 +21,9 @@ Init fills only absent fields and never replaces a recorded value:
 - ``dynaflows`` as ``{"enabled": false}``: the owner turns dynaflows on after confirming.
 
 When init finds no ``checks.commit`` or ``pathCheck``, it reports each as required: the record
-does not load without both. ``agentMerge`` and every approval are the owner's to
+does not load without both. ``ownerOnlyPaths`` is never drafted: the owner writes it (an empty
+list when the repo has no owner-only path, such as a dependency-audit exception file), and init
+reports it as required until then. ``agentMerge`` and every approval are the owner's to
 write. A gate with a field outside today's schema is refused, naming the field.
 """
 
@@ -39,7 +42,9 @@ GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
 # Every current gate field; any other field, at the top level or in ``checks``, is refused.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "agentMerge", "ci", "dynaflows"})
+GATE_FIELDS = frozenset(
+    {"schemaVersion", "checks", "pathCheck", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"}
+)
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
@@ -142,6 +147,11 @@ def confirmations(gate: dict) -> list[str]:
         )
     if "pathCheck" not in gate:
         lines.append(f"required: no pathCheck found; pass --path-command or edit {GATE_PATH}")
+    if "ownerOnlyPaths" not in gate:
+        lines.append(
+            f"required: ownerOnlyPaths is the owner's to set in {GATE_PATH}: list the repo paths "
+            "only the owner changes (the dependency-audit exception file), or [] when there are none"
+        )
     if "ci" not in checks:
         lines.append(f"confirm: no checks.ci found; pass --ci-command or edit {GATE_PATH}")
     if "ci" not in gate:

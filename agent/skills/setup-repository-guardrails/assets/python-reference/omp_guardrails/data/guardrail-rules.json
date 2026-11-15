@@ -1050,13 +1050,46 @@
     },
     {
       "id": "SECURITY.dependency-audit",
-      "kind": "process",
-      "applicability": "conditional",
-      "contract": {},
-      "summary": "Run a strict, stack-appropriate audit for dependency changes.",
-      "reference": [
-        {"subcommand": "toolchain-parity", "module": "omp_guardrails.catalogue.toolchain_parity"}
-      ]
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owner": "repo_checker_run_by_checks_commit_and_checks_ci",
+        "setup_outcomes": ["repo", "grow"],
+        "harness_copy_forbidden": true,
+        "scope_source": "git ls-files --cached --others --exclude-standard",
+        "scope": "every_lock_file_and_dependency_manifest_in_every_ecosystem",
+        "unknown_lock_format_is_failure": true,
+        "manifest_with_dependencies_and_no_lock_is_failure": true,
+        "exclusions": "fixture_or_vendored_paths_named_one_by_one_with_origin_evidence",
+        "exclusion_by_glob_ecosystem_or_package_forbidden": true,
+        "runs": "whole_repo_at_every_commit_and_every_ci_run",
+        "staged_file_trigger_forbidden": true,
+        "scheduled_run_by_default": false,
+        "every_advisory_blocks": true,
+        "severity_scoring_in_checker_forbidden": true,
+        "finding_per": "advisory_and_locked_package_version_and_lock",
+        "advisory_line": "SECURITY.dependency-audit lock=<lock-path> ecosystem=<osv-ecosystem> package=<name> version=<exact-locked-version> advisory=<advisory-id> aliases=<id>,<id> fix=<version>,<version>",
+        "advisory_fields_in_order": ["lock", "ecosystem", "package", "version", "advisory", "aliases", "fix"],
+        "failure_line": "SECURITY.dependency-audit failure=<kind> path=<repo-path> reason=<text-to-end-of-line>",
+        "failure_kinds": ["unknown-lock-format", "manifest-without-lock", "exception", "auditor"],
+        "line_grammar": "one finding per line; the rule ID starts the line; fields are separated by one space and appear in the stated order; values are nonempty and contain no whitespace except reason; list values are comma-separated with no spaces, and an empty list is an empty value (aliases=, fix=)",
+        "malicious_package_mark": "the advisory ID or an alias starts with MAL- (an OSV malicious-package record); an advisory the auditor marks malicious without one lists the alias MAL-<advisory-id>",
+        "untrusted_auditor_output_is_failure": true,
+        "exceptions": {
+          "allowed_only_for": "advisory_with_no_fix_version",
+          "file": "repo_json_file_named_in_the_record_owner_only_paths",
+          "entry_fields": ["advisory", "package", "version", "lock", "reason", "exposure", "expires"],
+          "expires_format": "YYYY-MM-DD",
+          "suppresses_only_the_exact_advisory_package_version_and_lock": true,
+          "expired_entry_reports_the_advisory_again_and_a_failure": true,
+          "entry_matching_no_reported_advisory_is_failure": true,
+          "entry_for_an_advisory_with_a_fix_is_failure": true,
+          "malformed_entry_is_failure": true,
+          "agents_never_add_or_edit": true
+        }
+      },
+      "summary": "Audit every lock file in the repo for advisories at every commit and CI run; every advisory blocks."
     },
     {
       "id": "SKILL.metadata",

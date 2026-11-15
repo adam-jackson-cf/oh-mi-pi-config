@@ -1,5 +1,5 @@
 # pyright: reportUndefinedVariable=false
-# agent and wait are OMP eval kernel globals, injected when this file is %load-ed.
+# agent, wait and judge are OMP eval kernel globals, injected when this file is %load-ed.
 """Proof-first verification (TDD: red at base, green at head) and blind labels; load in the OMP Python eval kernel."""
 import copy
 import hashlib
@@ -990,3 +990,298 @@ def blind_label(batch_files, rubric_path, labels, labellers=("scout", "reviewer"
             else:
                 disputed.append({"batch": n, "id": ident, "votes": value})
     return {"agreed": agreed, "disputed": disputed, "failed": failed}
+
+
+# Dependency advisories: the commit gate's SECURITY.dependency-audit findings, assessed by the
+# calibrated severity judgment and routed to the owner or to an in-flow fix. The line format is the
+# catalogue row's contract (omp_guardrails/data/guardrail-rules.json); repos print exactly it.
+DEPENDENCY_AUDIT = "SECURITY.dependency-audit"
+ADVISORY_FIELDS = ("lock", "ecosystem", "package", "version", "advisory", "aliases", "fix")
+ADVISORY_LISTS = ("aliases", "fix")
+AUDIT_FAILURE_KINDS = ("unknown-lock-format", "manifest-without-lock", "exception", "auditor")
+_ADVISORY_LINE = re.compile(
+    re.escape(DEPENDENCY_AUDIT) + "".join(
+        rf" {field}=(?P<{field}>\S*)" if field in ADVISORY_LISTS else rf" {field}=(?P<{field}>\S+)"
+        for field in ADVISORY_FIELDS))
+_FAILURE_LINE = re.compile(re.escape(DEPENDENCY_AUDIT) + r" failure=(?P<kind>\S+) path=(?P<path>\S+) reason=(?P<reason>\S.*)")
+SEVERITY_JUDGMENT = "agent/skills/omp-dyna-workflows/judgments/dependency-severity"
+SEVERITIES = ("low", "medium", "high", "critical")
+OWNER_SEVERITIES = ("high", "critical")
+# The fixed rubric: an impact class sets the base level; each mitigating dimension that the
+# judgment clears lowers it one level, never below low. Unclear evidence never lowers it.
+IMPACT_LEVEL = {"rce": 4, "auth_bypass": 4, "unclear": 4, "data_exposure": 3, "integrity_loss": 3, "dos": 2, "info_leak": 2}
+PRECONDITIONS = ("local_only", "needs_privileges", "needs_interaction")
+MALICIOUS_PREFIX = "MAL-"
+EVIDENCE_FIELDS = frozenset({"advisory_text", "advisory_source", "scope", "scope_source", "code_search", "fix_options"})
+
+
+def advisory_key(advisory):
+    """One advisory finding's identity: lock, package at version, advisory ID."""
+    return f"{advisory['lock']}:{advisory['package']}@{advisory['version']}:{advisory['advisory']}"
+
+
+def _listed(value, field, line):
+    items = value.split(",") if value else []
+    if any(not item for item in items):
+        raise WorkflowError(f"{DEPENDENCY_AUDIT} line has an empty {field} item: {line}")
+    return items
+
+
+def parse_dependency_audit(output):
+    """Every SECURITY.dependency-audit finding in commit-gate output: ``{advisories, failures}``.
+
+    A line that starts with the rule ID must match the catalogue contract exactly; any other such
+    line, or output the rails truncated, raises: a finding is never skipped.
+    """
+    if not isinstance(output, str):
+        raise WorkflowError("commit-gate output must be text")
+    if output.startswith("…"):
+        raise WorkflowError("commit-gate output is truncated; parse the full output of the record's checks.commit")
+    advisories, failures, seen = [], [], set()
+    for line in output.splitlines():
+        line = line.rstrip("\r")
+        if line != DEPENDENCY_AUDIT and not line.startswith(DEPENDENCY_AUDIT + " "):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        match = _ADVISORY_LINE.fullmatch(line)
+        if match:
+            advisory = match.groupdict()
+            for field in ADVISORY_LISTS:
+                advisory[field] = _listed(advisory[field], field, line)
+            advisories.append(advisory)
+            continue
+        match = _FAILURE_LINE.fullmatch(line)
+        if match and match["kind"] in AUDIT_FAILURE_KINDS:
+            failures.append(match.groupdict())
+            continue
+        raise WorkflowError(f"{DEPENDENCY_AUDIT} line does not match the catalogue contract: {line}")
+    return {"advisories": advisories, "failures": failures}
+
+
+def dependency_audit_findings(repo):
+    """Run the record's checks.commit in `repo` and parse its SECURITY.dependency-audit lines."""
+    _, gate = read_record(repo)
+    if gate is None:
+        raise WorkflowError(no_record_reason(repo))
+    ok, output = run_check(gate["checks"]["commit"], repo)
+    found = parse_dependency_audit(output)
+    if ok and (found["advisories"] or found["failures"]):
+        raise WorkflowError(f"checks.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block")
+    return {"ok": ok, **found}
+
+
+def _severity_dir():
+    return _harness_root() / SEVERITY_JUDGMENT
+
+
+def severity_questions():
+    """The frozen severity questions as judge() takes them, and their state shape."""
+    try:
+        document = json.loads((_severity_dir() / "questions.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise WorkflowError(f"cannot read the severity questions: {exc}") from exc
+    return document["questions"], document["state"]
+
+
+def severity_version_key(model):
+    """sha256 over the questions, the state shape and the pinned model (compose-and-integrate)."""
+    questions, state = severity_questions()
+    payload = json.dumps({"questions": questions, "state": state, "model": model}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def severity_thresholds():
+    """thresholds.json for the current question version; a stale version key raises (re-score, re-tune)."""
+    try:
+        thresholds = json.loads((_severity_dir() / "thresholds.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise WorkflowError(f"cannot read the severity thresholds: {exc}") from exc
+    if thresholds.get("version_key") != severity_version_key(thresholds.get("model")):
+        raise WorkflowError("severity thresholds are stale for the current questions; re-score the cases and re-tune")
+    return thresholds["decisions"]
+
+
+def _evidence(advisory, evidence):
+    """The cited evidence for one advisory, validated; a gap raises naming the advisory."""
+    key = advisory_key(advisory)
+    if not isinstance(evidence, dict) or set(evidence) != EVIDENCE_FIELDS:
+        raise WorkflowError(f"{key}: evidence needs exactly {sorted(EVIDENCE_FIELDS)}")
+    for field in ("advisory_text", "advisory_source", "scope_source"):
+        if not isinstance(evidence[field], str) or not evidence[field].strip():
+            raise WorkflowError(f"{key}: evidence.{field} must be nonblank")
+    if evidence["scope"] not in ("runtime", "dev"):
+        raise WorkflowError(f"{key}: evidence.scope must be runtime or dev")
+    search = evidence["code_search"]
+    if (not isinstance(search, dict) or set(search) != {"queries", "hits"}
+            or not isinstance(search["queries"], list) or not search["queries"]
+            or any(not isinstance(q, str) or not q.strip() for q in search["queries"])
+            or not isinstance(search["hits"], list)
+            or any(not isinstance(h, dict) or set(h) != {"location", "line"} or not all(isinstance(h[k], str) and h[k].strip() for k in h)
+                   for h in search["hits"])):
+        raise WorkflowError(f"{key}: evidence.code_search needs nonblank queries and hits of {{location, line}}")
+    if not isinstance(evidence["fix_options"], str) or (not advisory["fix"] and not evidence["fix_options"].strip()):
+        raise WorkflowError(f"{key}: evidence.fix_options must name a replacement or mitigation when no fixed version exists")
+    return evidence
+
+
+def _probability(answers, question, kind):
+    answer = answers.get(question) if isinstance(answers, dict) else None
+    if kind == "choice":
+        probabilities = answer.get("probabilities") if isinstance(answer, dict) else None
+        if (not isinstance(probabilities, dict) or set(probabilities) != set(IMPACT_LEVEL)
+                or not all(isinstance(p, (int, float)) and 0 <= p <= 1 for p in probabilities.values())):
+            raise WorkflowError(f"severity judgment returned no valid {question} answer")
+        return probabilities
+    value = answer.get("bool") if isinstance(answer, dict) else None
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
+        raise WorkflowError(f"severity judgment returned no valid {question} answer")
+    return value
+
+
+def rate_advisory(advisory, evidence, answers, decisions):
+    """Apply the fixed rubric to the judgment's answers: severity, route and the cited evidence.
+
+    Rounds up: the impact is the most severe class at or above the round-up floor, and a
+    mitigating dimension lowers the level only when the judgment clears its threshold. A malicious
+    package never reaches the rubric.
+    """
+    if malicious_package(advisory):
+        return malicious_assessment(advisory, evidence)
+    evidence = _evidence(advisory, evidence)
+    probabilities = _probability(answers, "impact", "choice")
+    floor = decisions["impact"]["round_up_floor"]
+    impact = max((c for c, p in probabilities.items() if p >= floor), key=IMPACT_LEVEL.get,
+                 default=max(probabilities, key=probabilities.get))
+    preconditions = {q: _probability(answers, q, "bool") for q in PRECONDITIONS}
+    reached = _probability(answers, "reached", "bool")
+    cleared = [q for q in PRECONDITIONS if preconditions[q] >= decisions[q]["threshold"]]
+    unreached = reached <= decisions["reached"]["unreached_at_most"]
+    level = IMPACT_LEVEL[impact] - bool(cleared) - (evidence["scope"] == "dev") - unreached
+    severity = SEVERITIES[max(1, level) - 1]
+    reasons = []
+    if severity in OWNER_SEVERITIES:
+        reasons.append(f"severity {severity}")
+    if not advisory["fix"]:
+        reasons.append("no fixed release: blocked until the owner approves a dated exception")
+    upgrade = f"upgrade {advisory['package']} from {advisory['version']} to a fixed version ({', '.join(advisory['fix'])})"
+    if advisory["fix"]:
+        suggested = upgrade + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")
+    else:
+        suggested = evidence["fix_options"]
+    return {
+        "key": advisory_key(advisory),
+        "advisory": advisory,
+        "severity": severity,
+        "route": "owner" if reasons else "fix",
+        "reasons": reasons,
+        "dimensions": {
+            "impact": {"class": impact, "probabilities": probabilities, "source": evidence["advisory_source"]},
+            "preconditions": {"probabilities": preconditions, "cleared": cleared, "source": evidence["advisory_source"]},
+            "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
+                         "reached": reached, "unreached": unreached, "code_search": evidence["code_search"]},
+            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"]},
+        },
+        "suggested_fix": suggested,
+    }
+
+
+def malicious_package(advisory):
+    """True when the advisory is an OSV malicious-package record: its ID or an alias starts with MAL-.
+
+    The catalogue contract has the checker report an auditor's own malicious mark the same way.
+    """
+    return any(ident.upper().startswith(MALICIOUS_PREFIX) for ident in (advisory["advisory"], *advisory["aliases"]))
+
+
+def malicious_assessment(advisory, evidence):
+    """A malicious package is a supply-chain compromise: critical and the owner's, whatever its
+    scope, reachability or fix. Decided in code; the severity judgment is never asked."""
+    evidence = _evidence(advisory, evidence)
+    return {
+        "key": advisory_key(advisory),
+        "advisory": advisory,
+        "severity": "critical",
+        "route": "owner",
+        "reasons": ["malicious package (OSV MAL- record): supply-chain compromise"],
+        "dimensions": {
+            "impact": {"class": "malicious_package", "probabilities": {}, "source": evidence["advisory_source"]},
+            "preconditions": {"probabilities": {}, "cleared": [], "source": evidence["advisory_source"]},
+            "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
+                         "reached": None, "unreached": False, "code_search": evidence["code_search"]},
+            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"]},
+        },
+        "suggested_fix": (f"remove {advisory['package']} or replace it with a trusted package, and rotate every "
+                          "credential the environments that installed it exposed (CI and developer tokens, keys)"
+                          + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")),
+    }
+
+
+async def assess_advisory(advisory, evidence):
+    """Severity of one advisory: the frozen questions through judge(), then the fixed rubric in code.
+
+    A malicious package is decided in code before any judgment. A failed or invalid judgment
+    raises; it is never read as a low severity.
+    """
+    if malicious_package(advisory):
+        return malicious_assessment(advisory, evidence)
+    evidence = _evidence(advisory, evidence)
+    questions, _ = severity_questions()
+    decisions = severity_thresholds()
+    state = {"advisory": {"id": advisory["advisory"], "aliases": advisory["aliases"], "ecosystem": advisory["ecosystem"],
+                          "package": advisory["package"], "version": advisory["version"], "fix": advisory["fix"],
+                          "text": evidence["advisory_text"], "source": evidence["advisory_source"]},
+             "code_search": evidence["code_search"]}
+    try:
+        answers = await judge(state, questions)
+    except Exception as exc:
+        raise WorkflowError(f"{advisory_key(advisory)}: severity judgment failed: {exc}") from exc
+    return rate_advisory(advisory, evidence, answers, decisions)
+
+
+def owner_report(assessments, failures=()):
+    """The report the workflow halts with: each advisory, severity, evidence and suggested fix."""
+    lines = [f"Dependency advisories need the owner ({DEPENDENCY_AUDIT}). The workflow stopped; nothing was changed for them."]
+    for item in assessments:
+        a, d = item["advisory"], item["dimensions"]
+        aliases = f" ({', '.join(a['aliases'])})" if a["aliases"] else ""
+        hits = ", ".join(h["location"] for h in d["exposure"]["code_search"]["hits"]) or "no hits"
+        pre = ", ".join(f"{q} {p:.2f}" for q, p in d["preconditions"]["probabilities"].items()) or "not judged"
+        lines += [
+            f"- {a['advisory']}{aliases}: {a['package']} {a['version']} ({a['ecosystem']}), lock {a['lock']}",
+            f"  - Severity: {item['severity']}; why the owner: {'; '.join(item['reasons'])}",
+            f"  - Impact: {d['impact']['class']} (advisory: {d['impact']['source']})",
+            f"  - Preconditions (raw judgment probabilities, not calibrated confidence): {pre}; "
+            f"cleared: {', '.join(d['preconditions']['cleared']) or 'none'}",
+            f"  - Exposure: {d['exposure']['scope']} dependency ({d['exposure']['scope_source']}); owned code reaches "
+            f"the vulnerable feature: {'no' if d['exposure']['unreached'] else 'yes or unclear'} "
+            f"(queries: {', '.join(d['exposure']['code_search']['queries'])}; hits: {hits})",
+            f"  - Fix availability: {', '.join(d['fix']['versions']) or 'no fixed release'}",
+            f"  - Suggested fix: {item['suggested_fix']}",
+        ]
+    for failure in failures:
+        lines.append(f"- Exception file failure at {failure['path']}: {failure['reason']} (owner-only path)")
+    return "\n".join(lines)
+
+
+async def triage_advisories(found, evidence):
+    """Assess every advisory in `found` (from dependency_audit_findings) with its cited evidence.
+
+    Returns ``{halt, owner, fix, failures, report}``. Any high or critical advisory, any advisory
+    with no fixed release and any exception-file failure halts the workflow with ``report`` for
+    the owner; ``fix`` lists the low and medium advisories to upgrade in the flow, and ``failures``
+    the other checker failures to fix in the flow.
+    """
+    keys = [advisory_key(a) for a in found["advisories"]]
+    missing = sorted(set(keys) - set(evidence))
+    extra = sorted(set(evidence) - set(keys))
+    if missing or extra:
+        raise WorkflowError(f"evidence must cover exactly the advisories found; missing {missing}, unknown {extra}")
+    assessed = [await assess_advisory(a, evidence[k]) for a, k in zip(found["advisories"], keys)]
+    owner = [item for item in assessed if item["route"] == "owner"]
+    exceptions = [f for f in found["failures"] if f["kind"] == "exception"]
+    halt = bool(owner or exceptions)
+    return {"halt": halt, "owner": owner, "fix": [item for item in assessed if item["route"] == "fix"],
+            "failures": [f for f in found["failures"] if f["kind"] != "exception"],
+            "report": owner_report(owner, exceptions) if halt else ""}
