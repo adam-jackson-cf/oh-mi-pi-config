@@ -27,16 +27,23 @@ Draft the record and the candidate repo fixes outside the target checkout.
    gate commands; `--runner` and `--required-context` set the record's `ci`
    object. Init reports a missing `checks.commit` or `pathCheck` as
    `required:`, because a record without either does not load. In adopt mode,
-   shadow-run each harness step a repo checker covers on the same clone:
-   `omp-guardrails <step> --repo <temporary clone> --record <draft record
-   dir>` and the record's `checks.commit`. A harness finding that
-   `checks.commit` passes marks the repo checker weaker (a baseline, a
-   narrower scope, a missing rule or a disk walk): draft its expansion as a
-   candidate repo fix and keep the harness step until it lands. Zero findings
-   on both sides shows no gap but not coverage; coverage comes from Step 2's
-   rule-ID evidence. When the step is covered and they agree, give the step to
-   the repo with `--settings`, for example `{"check": {"repo":
-   {"python-quality": "scripts/checks/check-python-quality.py"}}}`, and leave
+   shadow-run each `repo` or `grow` step on the same clone: `omp-guardrails
+   <step> --repo <temporary clone> --record <draft record dir>` and the
+   record's `checks.commit`. Sort every finding the harness reports and
+   `checks.commit` passes:
+   - the repo checker lacks the rule, scopes it narrower, baselines it or
+     misses files: add the fix to the step's `grow` PR;
+   - the repo checker's own exception or setting accepts code that a stale
+     record setting rejects: the repo checker is the authority, so drop the
+     record setting;
+   - never change repo code only to satisfy the harness copy.
+
+   Zero findings on both sides shows no gap but not coverage; coverage comes
+   from Step 2's rule-ID evidence. Draft each `grow` PR as candidate repo
+   changes, with tests for every added rule. Give `repo` and `grow` steps to
+   the repo in the draft record with `omp-guardrails init --settings`
+   (`check` itself takes no options), for example `{"check": {"repo":
+   {"python-quality": ["scripts/checks/check-python-quality.py"]}}}`, and leave
    out settings only owned steps read (`check` rejects `guardrails.python`
    once every configured Python step is the repo's). Then fill every per-repo
    value in the front matter of the draft `profile.md`: tiers, layout,
@@ -103,6 +110,8 @@ Draft the record and the candidate repo fixes outside the target checkout.
    candidates and the draft record outside the target and outside the
    records directory until Step 5 approval; identify the superseded
    checks/config to remove, including any omp-specific files the repo holds.
+   History is exempt: never rewrite an ADR or a frozen, digest-pinned study or
+   evaluation record to remove an omp mention.
 
 ## Done when
 

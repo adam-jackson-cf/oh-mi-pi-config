@@ -8,9 +8,10 @@ Make the owner's record and fix decisions the boundary before any record or targ
 
 1. Present an action matrix: ID, rule IDs, current owner, proposed owner (repo control or
    harness check), audience, operation (`keep`, `merge`, `replace`, `add`, or `defer`), paths,
-   dry-run change count, findings, verification, and risk. `keep` gives a step to a repo
-   checker (`guardrails.check.repo`), `add` runs the harness step, and `merge` or `replace` is a
-   repo PR that changes the repo's checker.
+   dry-run change count, findings, verification, and risk. `keep` gives a `repo` step to its
+   checkers (`guardrails.check.repo`), `merge` or `replace` is the `grow` PR that changes the
+   repo's checkers before they own the step, and `add` runs a `harness` step. No row runs a
+   harness step for a rule a repo checker holds or will hold.
 2. Present the draft record for confirmation: every `gate.json` command and its discovered
    source (make target, hook entry, CI job, required check), `ci.requiredContext`, `ci.runner`,
    scope exclusions, and the `profile.md` values. Explain the consequence of every replacement
@@ -27,9 +28,10 @@ Make the owner's record and fix decisions the boundary before any record or targ
    clear every finding of the rules it enables; state which applicable rules it leaves
    unenforced (narrower rule set, not a relabel). `Full`: every applicable rule and
    recommendation, including `checks.ci` wired into the repo's CI by the record's `ci.runner`
-   role. In `adopt` mode both tiers give every step a repo checker carries to that checker in
-   `guardrails.check.repo`; a tier never keeps a duplicate harness step, or widens record
-   allowlists so the harness copy passes code the repo checker already accepts.
+   role. In `adopt` mode both tiers give every `repo` and `grow` step to the repo's checkers in
+   `guardrails.check.repo` and include every `grow` PR; a tier never keeps a duplicate harness
+   step, or widens record allowlists so the harness copy passes code the repo checker already
+   accepts.
    Write the repo-relative candidate paths per tier to `guardrail-proposal.json` in the draft
    record directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; the owner saves it with
    the record. Nothing is written into the target or the live record.

@@ -15,12 +15,14 @@ repo's **record**: `repos/<owner>/<name>/` under the oh-mi-pi-config root, resol
 clone's `origin` remote, gitignored and never committed. The
 [example record](assets/example-record/README.md) defines its layout and rules.
 
-The harness uses the repo's existing checks before adding its own. A rule family a repo checker
-already enforces through `checks.commit` stays with the repo: the record's
-`guardrails.check.repo` lists the checker files that between them enforce the step's rules, and
-`omp-guardrails check` leaves its step out. A gap
-in a repo checker is fixed by expanding the repo checker, never by running the harness step
-beside it.
+The repo's own controls come first. Where the repo already has the capability for a control
+(its own checker scripts, a configurable linter, its test runner), the rule lives there: a rule
+the repo's checkers already enforce stays with them, and a missing rule is added to them by a
+repo PR. The record's `guardrails.check.repo` lists the checker files that enforce each step's
+rules, and `omp-guardrails check` leaves that step out. The harness runs a step only when the
+repo cannot hold its rules without depending on omp or dynaflows. It never runs a step beside a
+repo checker. Step 2 defines the three outcomes; the
+[design directive](../omp-dyna-workflows/AGENTS.md) holds the principles behind them.
 
 ## Step 0: Set target and safety boundary
 
@@ -33,7 +35,8 @@ beside it.
 
 - Purpose: Distinguish active checks, behavioral guidance, user documentation, and developer practice.
 - Action: Record sources, triggers, ownership, make targets, hook config, CI job names and
-  required checks with evidence; map each repo checker to the harness step it covers.
+  required checks with evidence; map every rule ID of every step to a repo checker source line or
+  `absent`, and record each baseline.
 - Workflow: [Existing guardrail inventory](references/step-1-inventory-workflow.md).
 
 ## Step 2: Map the complete rule contract

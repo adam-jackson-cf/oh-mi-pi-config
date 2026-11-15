@@ -62,6 +62,8 @@ UNOWNABLE = "profile-check"
 STEP_SETTINGS = {
     "python": ("python-quality", "python-fanout", "python-scalability", "python-test-hygiene"),
     "paths": ("path-check",),
+    "naming": ("naming", "path-check"),
+    "structure": ("structure", "path-check"),
 }
 
 

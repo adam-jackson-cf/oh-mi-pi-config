@@ -10,8 +10,9 @@ Establish a safe, reproducible target, its record path and the setup mode before
    clear reason if it is not a Git repository.
 2. Resolve the record path from `git remote get-url origin`: `https://github.com/<owner>/<name>(.git)`,
    `git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)` gives
-   `repos/<owner>/<name>/` (lowercase) under the oh-mi-pi-config root. A worktree resolves to its
-   main checkout's record. No GitHub `origin` remote means no record; report it and stop.
+   `repos/<owner>/<name>/` (lowercase) under the oh-mi-pi-config root: the checkout whose
+   `agent/skills/` directory holds this skill, the same root the rails use. A worktree resolves to
+   its main checkout's record. No GitHub `origin` remote means no record; report it and stop.
    Record whether that record already exists.
 3. Record the base ref, tracked and untracked work, protected paths, chosen language/runtime stack,
    operating system, and CI provider. Verify user-supplied stack choices against source and lockfile
@@ -29,9 +30,9 @@ Establish a safe, reproducible target, its record path and the setup mode before
    documentation ownership rule. Existing files remain owned by the target until the user chooses
    keep, merge, or replace.
 8. Record every setup mode that applies: `greenfield` when no record exists and the target
-   has no guardrail checks; `adopt` when hand-written checkers in the repo already enforce
-   harness rule families that the record, if one exists, does not give them in
-   `guardrails.check.repo`, so the harness uses them instead of its own steps; and `extend`
+   has no guardrail checks; `adopt` when the repo has its own checkers or configurable tools
+   that enforce, or could hold, harness rule families that the record, if one exists, does not
+   give them in `guardrails.check.repo` (Step 2's `repo` and `grow` outcomes); and `extend`
    when a record exists and only a missing part is added, such as a verification surface.
    An existing record does not rule out `adopt`.
 

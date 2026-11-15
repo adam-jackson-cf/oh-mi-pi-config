@@ -15,7 +15,11 @@ intact.
    omp-specific files instead of retaining duplicate authorities; where
    nothing can be removed, record why the added contract has no predecessor.
    A repo checker named in `guardrails.check.repo` is the authority for its
-   step; never remove it in favour of the harness step.
+   step; never remove it in favour of the harness step. The owner saves the
+   approved record, which gives `grow` steps to the repo, before the `grow`
+   PRs are committed, so stale harness settings never block the commits that
+   replace them. Setup is not done until every `grow` PR has merged with green
+   checks.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
 3. Draft the confirmed record in a directory outside the live records root
@@ -143,4 +147,5 @@ intact.
 
 - The record matches the confirmed draft; repo changes match the approved
   matrix, preserve unrelated work, and remove superseded authorities.
-- The target holds no omp-specific file, pin or mention.
+- The target holds no omp-specific file, pin or mention. History is exempt: ADRs and frozen,
+  digest-pinned study or evaluation records keep their wording.
