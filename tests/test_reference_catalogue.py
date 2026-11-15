@@ -123,6 +123,59 @@ class PackagedCatalogueTests(unittest.TestCase):
                 self.assertTrue(native or rule["id"] in texts, f"no skill test names {rule['id']}")
 
 
+class DependencyAuditContractTests(unittest.TestCase):
+    """SECURITY.dependency-audit belongs to the repo's checker; the catalogue states its contract."""
+
+    def setUp(self) -> None:
+        rows = catalogue_rules.packaged_catalogue()["rules"]
+        self.row = next(rule for rule in rows if rule["id"] == "SECURITY.dependency-audit")
+        self.contract = self.row["contract"]
+
+    def test_the_repo_checker_owns_the_rule_and_the_harness_runs_no_copy(self) -> None:
+        self.assertNotIn("reference", self.row)
+        self.assertFalse(catalogue_rules.proven_by_package(self.row))
+        self.assertEqual(self.row["applicability"], "always")
+        self.assertEqual(self.contract["setup_outcomes"], ["repo", "grow"])
+        self.assertTrue(self.contract["harness_copy_forbidden"])
+        self.assertNotIn("dependency-audit", "".join(cli.SUBCOMMANDS))
+
+    def test_scope_is_whole_repo_and_fails_closed(self) -> None:
+        self.assertEqual(
+            self.contract["scope_source"], "git ls-files --cached --others --exclude-standard"
+        )
+        for key in (
+            "unknown_lock_format_is_failure",
+            "manifest_with_dependencies_and_no_lock_is_failure",
+            "staged_file_trigger_forbidden",
+            "every_advisory_blocks",
+            "severity_scoring_in_checker_forbidden",
+            "exclusion_by_glob_ecosystem_or_package_forbidden",
+        ):
+            with self.subTest(key=key):
+                self.assertIs(self.contract[key], True)
+        self.assertIs(self.contract["scheduled_run_by_default"], False)
+
+    def test_the_advisory_line_names_its_fields_in_the_stated_order(self) -> None:
+        tokens = self.contract["advisory_line"].split(" ")
+        self.assertEqual(tokens[0], "SECURITY.dependency-audit")
+        fields = [token.split("=", 1)[0] for token in tokens[1:]]
+        self.assertEqual(fields, self.contract["advisory_fields_in_order"])
+        failure = self.contract["failure_line"].split(" ")
+        self.assertEqual(
+            [token.split("=", 1)[0] for token in failure[1:4]], ["failure", "path", "reason"]
+        )
+
+    def test_exceptions_are_owner_only_dated_and_for_no_fix_advisories(self) -> None:
+        exceptions = self.contract["exceptions"]
+        self.assertEqual(exceptions["allowed_only_for"], "advisory_with_no_fix_version")
+        self.assertEqual(
+            exceptions["entry_fields"],
+            ["advisory", "package", "version", "lock", "reason", "exposure", "expires"],
+        )
+        self.assertIs(exceptions["agents_never_add_or_edit"], True)
+        self.assertIn("owner_only_paths", exceptions["file"])
+
+
 def module_sources(module: str) -> list[Path]:
     """Source files of a reference module: one ``.py`` file, or a package's code and rules."""
     path = REFERENCE.joinpath(*module.split("."))
@@ -288,89 +341,17 @@ class ToolchainParityTests(RepoCase):
 
     def test_unconfigured_sections_never_pass_silently(self) -> None:
         self.assertEqual(rules_of(self.parity({})), ["GATE.local-ci-parity"])
-        audit = self.parity({"uv": self.uv}, "audit")
-        self.assertEqual(rules_of(audit), ["GATE.local-ci-parity"])
+
+    def test_arguments_are_refused_and_no_audit_mode_remains(self) -> None:
+        for argv in (["audit"], ["static"], ["--ci"]):
+            with self.subTest(argv=argv):
+                findings = self.parity({"uv": self.uv}, *argv)
+                self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"])
+                self.assertIn("takes no arguments", findings[0].message)
 
     def test_unreadable_inputs_are_findings(self) -> None:
         (self.repo / "uv.lock").unlink()
         self.assertEqual(rules_of(self.parity({"uv": self.uv})), ["PARITY.lock-version"])
-
-
-def report_command(report: object, status: int = 0) -> list[str]:
-    printed = json.dumps(json.dumps(report))
-    script = f"import sys; sys.stdin.read(); print({printed}); sys.exit({status})"
-    return [sys.executable, "-c", script]
-
-
-CLEAN_REPORT = {"dependencies": [{"name": "click", "version": "8.1.7", "vulns": []}]}
-VULNERABLE_REPORT = {
-    "dependencies": [
-        {
-            "name": "click",
-            "version": "8.1.7",
-            "vulns": [{"id": "PYSEC-1", "fix_versions": ["8.1.8"]}],
-        }
-    ]
-}
-
-
-class DependencyAuditTests(RepoCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.write("pyproject.toml", PYPROJECT)
-        self.write("uv.lock", LOCK)
-        self.audit = {
-            "export_command": [sys.executable, "-c", "print('click==8.1.7')"],
-            "audit_command": report_command(CLEAN_REPORT),
-            "timeout_s": 60,
-        }
-
-    def audit_findings(self, *argv: str) -> list:
-        profile = {"guardrails": {"toolchain_parity": {"audit": self.audit}}}
-        return toolchain_parity.run(self.repo, profile, ["audit", *argv])
-
-    def test_local_audit_runs_only_for_dependency_changes(self) -> None:
-        self.audit["audit_command"] = report_command(VULNERABLE_REPORT, 1)
-        self.assertEqual(self.audit_findings("src/app.py"), [])
-        self.assertEqual(rules_of(self.audit_findings("uv.lock")), ["SECURITY.dependency-audit"])
-        git(self.repo, "add", "pyproject.toml")
-        self.assertEqual(len(self.audit_findings()), 1)
-
-    def test_ci_audit_always_runs_and_reports_each_vulnerability(self) -> None:
-        self.assertEqual(self.audit_findings("--ci"), [])
-        self.audit["audit_command"] = report_command(VULNERABLE_REPORT, 1)
-        findings = self.audit_findings("--ci")
-        self.assertIn("PYSEC-1", findings[0].message)
-        self.assertIn("8.1.8", findings[0].fix)
-
-    def test_untrustworthy_reports_fail_closed(self) -> None:
-        cases = {
-            "invalid": "not json",
-            "empty": {"dependencies": []},
-            "skipped": {
-                "dependencies": [{"name": "a", "version": "1", "vulns": [], "skip_reason": "x"}]
-            },
-            "malformed vuln": {"dependencies": [{"name": "a", "version": "1", "vulns": [{}]}]},
-        }
-        for name, report in cases.items():
-            with self.subTest(name):
-                self.assertTrue(
-                    toolchain_parity.audit_report_problem(
-                        report if isinstance(report, str) else json.dumps(report)
-                    )
-                )
-        self.audit["export_command"] = [sys.executable, "-c", "pass"]
-        self.assertIn("export failed", self.audit_findings("--ci")[0].message)
-        self.audit["export_command"] = ["omp-guardrails-missing-exporter"]
-        self.assertIn("audit tool failed", self.audit_findings("--ci")[0].message)
-        del self.audit["audit_command"]
-        self.assertIn("audit_command", self.audit_findings("--ci")[0].message)
-
-    def test_auditor_pin_must_be_exact_and_locked(self) -> None:
-        self.write("pyproject.toml", PYPROJECT.replace("pip-audit==2.9.0", "pip-audit>=2"))
-        self.assertIn("exact pin", self.audit_findings("--ci")[0].message)
-        self.write("pyproject.toml", PYPROJECT.replace("pip-audit==2.9.0", "pip-audit==2.9.1"))
-        self.assertIn("differs", self.audit_findings("--ci")[0].message)
 
 
 class VersionMatchingTests(unittest.TestCase):

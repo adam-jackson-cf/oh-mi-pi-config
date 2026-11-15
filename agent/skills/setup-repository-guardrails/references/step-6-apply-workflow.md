@@ -52,14 +52,18 @@ intact.
        "ci": ["make", "gate-ci"]
      },
      "pathCheck": ["make", "check-paths"],
+     "ownerOnlyPaths": ["scripts/checks/dependency-audit-exceptions.json"],
      "agentMerge": "allowed",
      "ci": { "requiredContext": "gate", "runner": "github-actions" },
      "dynaflows": { "enabled": false }
    }
    ```
 
-   `schemaVersion`, `checks.commit`, `pathCheck` and `dynaflows` are
-   required; a record without one fails to load. A field outside this schema,
+   `schemaVersion`, `checks.commit`, `pathCheck`, `ownerOnlyPaths` and
+   `dynaflows` are required; a record without one fails to load.
+   `ownerOnlyPaths` lists the repo paths only the owner changes, such as the
+   dependency-audit exception file (`[]` when there are none); rails refuse an
+   agent commit that changes one. A field outside this schema,
    at the top level or in `checks`, is rejected by name, never ignored. A docs
    repo still declares both commands; its `pathCheck` just has fewer paths to
    check. Commands are nonempty argv arrays, not shell

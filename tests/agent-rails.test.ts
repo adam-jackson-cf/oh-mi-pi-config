@@ -16,7 +16,7 @@ const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://coding-guidance/references/verification.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
-	pathCheck?: string[] | string; agentMerge?: "allowed" | "disabled";
+	pathCheck?: string[] | string; ownerOnlyPaths?: string[]; agentMerge?: "allowed" | "disabled";
 	ci?: { requiredContext: string; runner: string }; dynaflows?: { enabled: boolean };
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
@@ -121,8 +121,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		writeFileSync(join(recordDir(), "gate.json"), text);
 	};
 	const writeGate = () => {
-		// A complete record: the required pathCheck and checks.commit default to `true`.
-		const gate = { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
+		// A complete record: the required pathCheck and checks.commit default to `true`, ownerOnlyPaths to none.
+		const gate = { checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
 		if (enabled !== undefined) gate.dynaflows = { enabled };
 		writeRecord(JSON.stringify(gate));
 	};
@@ -545,6 +545,49 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
+	test("an agent commit that changes an owner-only path is refused, dynaflows on or off, and tells the agent to raise it", async () => {
+		const h = harness();
+		const owned = "scripts/checks/dependency-audit-exceptions.json";
+		const git = (...args: string[]) => execFileSync("git", args, { cwd: h.root });
+		try {
+			await h.read("skill://git-tool");
+			mkdirSync(join(h.root, "scripts/checks"), { recursive: true });
+			mkdirSync(join(h.root, "security"), { recursive: true });
+			writeFileSync(join(h.root, owned), "[]\n");
+			writeFileSync(join(h.root, "security/policy.json"), "{}\n");
+			git("add", "-A");
+			git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "base");
+			h.gate({ schemaVersion: 2, ownerOnlyPaths: [owned, "security/"] });
+			const commit = () => h.call("bash", { command: "git commit -m x" });
+			writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
+			git("add", "existing.ts");
+			assert.equal(await commit(), undefined, "a commit that leaves owner-only paths alone passes");
+			for (const dynaflows of [false, true]) {
+				h.dynaflows(dynaflows);
+				writeFileSync(join(h.root, owned), '[{"advisory": "GHSA-x"}]\n');
+				git("add", owned);
+				const staged = await commit();
+				assert.equal(staged?.block, true, `staged exception edit, dynaflows ${dynaflows}`);
+				assert.ok(staged?.reason?.includes(`owner-only path ${owned}`), staged?.reason);
+				assert.ok(staged?.reason?.includes("raise the change to the owner"), staged?.reason);
+				assert.ok(staged?.reason?.includes(join(h.recordDir(), "gate.json")), "the refusal names the record that declares the path");
+				git("reset", "-q", owned);
+				assert.equal((await commit())?.block, true, "an unstaged change a commit -a could take is refused too");
+				git("checkout", "--", owned);
+				assert.equal(await commit(), undefined, "restored: the commit passes");
+			}
+			writeFileSync(join(h.root, "security/new.json"), "{}\n");
+			git("add", "security/new.json");
+			const added = await commit();
+			assert.ok(added?.reason?.includes("owner-only path security/new.json"), "a directory entry covers new files under it");
+			git("rm", "-q", "--cached", "security/new.json");
+			rmSync(join(h.root, "security/new.json"));
+			git("mv", owned, "scripts/checks/moved.json");
+			const moved = await commit();
+			assert.ok(moved?.reason?.includes(owned), `moving an owner-only file away is refused: ${moved?.reason}`);
+		} finally { h.cleanup(); }
+	});
+
 	test("dynaflows commits need no sole-command, message or staging shape; only hook bypass is refused", async () => {
 		const h = harness();
 		try {
@@ -585,8 +628,9 @@ describe("agent rails", () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool");
-			const complete = { schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: true } };
+			const complete = { schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: true } };
 			for (const [gate, named] of [
+				[{ ...complete, ownerOnlyPaths: undefined }, "ownerOnlyPaths"], [{ ...complete, ownerOnlyPaths: ["../outside.json"] }, "../outside.json"],
 				[{ ...complete, pathCheck: undefined }, "pathCheck"], [{ ...complete, checks: { ci: ["ci"] } }, "checks"],
 				[{ ...complete, checks: undefined }, "checks"], [{ ...complete, unknownField: 3 }, "unknownField"],
 				[{ ...complete, checks: { commit: ["true"], lint: ["x"] } }, "checks.lint"],
@@ -662,7 +706,7 @@ describe("agent rails", () => {
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
 			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
-			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false }, schemaVersion: 2 },
+			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: false }, schemaVersion: 2 },
 				"only the switch changes");
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
@@ -1341,7 +1385,7 @@ test("linked worktrees resolve the main checkout's record", async () => {
 
 test("Python proof gates and rails accept the same schema fixtures", async () => {
 	// Each case sits over a complete dynaflows-off record; a case's undefined value drops the field.
-	const record = { checks: { commit: ["true"] }, pathCheck: ["true"], dynaflows: { enabled: false } };
+	const record = { checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: false } };
 	const cases: object[] = [
 		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, pathCheck: undefined }, { schemaVersion: 2, checks: undefined },
 		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, pathCheck: ["check"], agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
@@ -1357,6 +1401,9 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 		{ schemaVersion: true }, { schemaVersion: 3 },
 		{ schemaVersion: 2, dynaflows: { enabled: true } }, { schemaVersion: 2, dynaflows: null },
 		{ schemaVersion: 2, dynaflows: {} }, { schemaVersion: 2, dynaflows: { enabled: "yes" } },
+		{ schemaVersion: 2, ownerOnlyPaths: undefined }, { schemaVersion: 2, ownerOnlyPaths: null }, { schemaVersion: 2, ownerOnlyPaths: "a.json" },
+		{ schemaVersion: 2, ownerOnlyPaths: ["scripts/checks/exceptions.json", "security/"] }, { schemaVersion: 2, ownerOnlyPaths: ["/abs.json"] },
+		{ schemaVersion: 2, ownerOnlyPaths: ["a/./b"] }, { schemaVersion: 2, ownerOnlyPaths: ["a.json", "a.json"] }, { schemaVersion: 2, ownerOnlyPaths: [1] },
 	].map(value => ({ ...record, ...value }));
 	const h = harness();
 	try {

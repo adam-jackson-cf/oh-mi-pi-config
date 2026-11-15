@@ -1,0 +1,68 @@
+{
+  "version_key": "81dff5cff3d92135bf9df890c7111408fec440af3adb463976904d2d0a7fd4b2",
+  "model": "typesafe/jev-1.14",
+  "model_reported": "typesafe/jev-1.14-20261014",
+  "score_space": "raw",
+  "status": "provisional",
+  "decisions": {
+    "impact": {
+      "round_up_floor": 0.3,
+      "status": "provisional",
+      "rule": "the most severe impact class with probability >= floor; 0.3 because a miss (understated severity) costs more than a false action (an extra owner report)"
+    },
+    "local_only": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "rule": "lowers the level only at >= 0.7: wrongly lowering costs more than escalating"
+    },
+    "needs_privileges": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "rule": "as local_only"
+    },
+    "needs_interaction": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "rule": "as local_only"
+    },
+    "reached": {
+      "unreached_at_most": 0.3,
+      "status": "provisional",
+      "rule": "treated as unreached only at P(reached) <= 0.3 (P(unreached) >= 0.7)"
+    }
+  },
+  "minimums": {
+    "precision": 0.8,
+    "recall": 0.9,
+    "assumed": true,
+    "reason": "assumed per jev-actions: the owner gave none; recall raised to 0.9 because a missed high/critical costs more than an extra owner report"
+  },
+  "label_set": {
+    "cases": 30,
+    "provenance": "agent_reviewed (author session and an independent blind session agreed on 150 of 150 labels)",
+    "synthetic": 2,
+    "split": "all dev; no test set yet",
+    "strata": {
+      "runtime/critical": 5,
+      "runtime/high": 5,
+      "runtime/medium": 9,
+      "runtime/low": 1,
+      "dev/high": 1,
+      "dev/medium": 4,
+      "dev/low": 5
+    },
+    "positives": {
+      "local_only": 2,
+      "needs_privileges": 0,
+      "needs_interaction": 3,
+      "reached": 17
+    }
+  },
+  "results": {
+    "v1": "first wording: rubric severity matched labels on 24/30; 4 understated (reached scored 0.27-0.30 on true hits: C01, C09, C11; C30 impact), 2 overstated",
+    "current": "after rewording reached and local_only: 26/30 match, 1 understated (C30: malicious version read as data_exposure, dev high -> medium), 3 overstated (C08 unclear round-up, C13, C15 reached on non-vulnerable use); halt decision (high/critical) matched 27/30",
+    "calibration": "tune_threshold.py --calibration --repeats 5 --conservative: no threshold met the minimums in any fold (too few positives); Brier raw local_only 0.034, needs_interaction 0.083, reached 0.066; Platt improved only needs_interaction (0.017) and cannot be confirmed without a test set, so raw is kept; needs_privileges has no positive case",
+    "cost_per_100_cases_usd": 0.0053
+  },
+  "todo": "provisional: grow to about 30 human-reviewed cases per label (needs_privileges positives, local_only positives, malicious-version advisories), build a test set from a newer replay window, then tune and recheck calibration; probabilities are not fit to show as confidence"
+}

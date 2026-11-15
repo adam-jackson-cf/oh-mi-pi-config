@@ -14,7 +14,8 @@ Make the owner's record and fix decisions the boundary before any record or targ
    harness step for a rule a repo checker holds or will hold.
 2. Present the draft record for confirmation: every `gate.json` command and its discovered
    source (make target, hook entry, CI job, required check), `ci.requiredContext`, `ci.runner`,
-   scope exclusions, and the `profile.md` values. Explain the consequence of every replacement
+   `ownerOnlyPaths` (the dependency-audit exception file and any other path only the owner
+   changes), scope exclusions, and the `profile.md` values. Explain the consequence of every replacement
    or exception, including whether a current hook, CI workflow, config, or developer document
    would be removed or changed.
 3. For existing repositories, request an explicit operation for each conflicting practice. For a

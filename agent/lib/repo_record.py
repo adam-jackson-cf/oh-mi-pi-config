@@ -97,7 +97,7 @@ def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None
 
 
 # Every current gate.json field; any other field, at the top level or in ``checks``, is rejected.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "agentMerge", "ci", "dynaflows"})
+GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"})
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 
 
@@ -105,11 +105,31 @@ def _argv(value) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
 
 
+def owner_path_problem(path) -> str | None:
+    """Why ``path`` is not an owner-only path, or None when it is one.
+
+    A repo-relative POSIX path with no leading slash, no empty, ``.`` or ``..`` component, no
+    backslash and no NUL. A trailing ``/`` names a directory and covers every path under it. The
+    Python twin of ``ownerPathProblem`` in repo-record.ts.
+    """
+    if not isinstance(path, str):
+        return "ownerOnlyPaths entries must be strings"
+    body = path[:-1] if path.endswith("/") else path
+    if not body or "\\" in path or "\0" in path or any(part in ("", ".", "..") for part in body.split("/")):
+        return f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)"
+    return None
+
+
+def owner_only(path: str, owned) -> bool:
+    """True when the repo-relative ``path`` is, or lies under, one of the owner-only ``owned`` entries."""
+    return any(path.startswith(entry) if entry.endswith("/") else path == entry for entry in owned)
+
+
 def gate_reason(gate) -> str | None:
     """Why rails would reject this gate.json object, or None when it is accepted.
 
-    The Python twin of ``gateSchema`` in repo-record.ts. ``pathCheck`` and ``checks.commit`` are
-    required; an unknown field is rejected by name.
+    The Python twin of ``gateSchema`` in repo-record.ts. ``pathCheck``, ``checks.commit`` and
+    ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
     """
     if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
         return "unsupported gate schemaVersion"
@@ -129,6 +149,15 @@ def gate_reason(gate) -> str | None:
             return f"checks.{key} must be argv"
     if not _argv(gate.get("pathCheck")):
         return "pathCheck must be argv"
+    owned = gate.get("ownerOnlyPaths")
+    if not isinstance(owned, list):
+        return "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"
+    for path in owned:
+        problem = owner_path_problem(path)
+        if problem:
+            return problem
+    if len(set(owned)) != len(owned):
+        return "ownerOnlyPaths entries must be unique"
     ci = gate.get("ci")
     if "ci" in gate:
         if not isinstance(ci, dict) or any(not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner")):

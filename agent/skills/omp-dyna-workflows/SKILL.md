@@ -85,6 +85,12 @@ agent commit, rails run the record's `pathCheck`, its `checks.commit` (the repo'
 and then the harness checks (`omp-guardrails`, run from the harness with the record as config)
 over the whole repo, minus the steps the record's `guardrails.check.repo` gives to repo checkers
 that `checks.commit` already runs; any finding blocks the commit, with no baseline or diff scope.
+When the commit gate reports `SECURITY.dependency-audit` findings, main stops implementation and
+follows [dependency advisories](references/patterns.md#dependency-advisories): each advisory gets
+the calibrated severity judgment, any high or critical advisory or advisory with no fixed release
+halts the workflow with a report to the owner, and low or medium ones are upgraded in the flow.
+Agents never edit the record's `ownerOnlyPaths`, such as the exception file; rails refuse the
+commit.
 Missing controls or the lazy surface trigger above require owner-approved project setup. Read
 `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and application;
 never apply before approval.
@@ -173,8 +179,10 @@ approval. Do not copy merge mechanics into playbooks.
 
 Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
-Only `freeze`, `prove` and `blind_label` are supported orchestration APIs.
-`blind_label` requires eval's `agent()`/`wait()` globals; `freeze` and `prove` also run in
-plain Python. Other functions are internal helpers, even when plain-Python callable.
+Only `freeze`, `prove`, `blind_label`, `dependency_audit_findings` and `triage_advisories` are
+supported orchestration APIs.
+`blind_label` requires eval's `agent()`/`wait()` globals and `triage_advisories` its `judge()`;
+`freeze`, `prove` and `dependency_audit_findings` also run in plain Python. Other functions are
+internal helpers, even when plain-Python callable.
 Signatures, schemas, caps and failure handling have one home:
 [Pattern contracts](references/patterns.md).
