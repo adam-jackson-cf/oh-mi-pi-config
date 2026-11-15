@@ -80,7 +80,16 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    findings is a `grow` fix, never an accepted state. mypy follows every
    import (`MYPY.follow_imports`): first-party errors are reported, installed
    third-party packages stay silent, and each vendored third-party module
-   found in Step 1 gets a named `follow_imports = silent` override. Where an applicable rule
+   found in Step 1 gets a named `follow_imports = silent` override.
+   Third-party types come from upstream: the package's own annotations, with a
+   named `follow_untyped_imports = true` override for a package without
+   `py.typed`, or a published stub package such as `types-PyYAML`. Use
+   `ignore_missing_imports` only for a package with neither. Every Step 1
+   boundary finding is a `grow` fix under design directive principle 10:
+   delete in-repo stubs, copies and shims of third-party code and any checker
+   exemption for them; scope a checker that reaches third-party code to owned
+   files; move third-party imports and upstream workarounds into the owned
+   adapter; make tests replace the owned interface. Where an applicable rule
    has neither a repo home nor an `omp-guardrails` subcommand, the
    implementation is a repo checker when the repo has the capability, and
    otherwise a change to `omp-guardrails` in oh-mi-pi-config with its own
