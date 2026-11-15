@@ -1241,6 +1241,55 @@ class SeverityRubricTests(unittest.TestCase):
             workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
 
 
+MALICIOUS = ("SECURITY.dependency-audit lock=package-lock.json ecosystem=npm package=eslint-scope version=3.7.2 "
+             "advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw fix=3.7.3")
+
+
+class MaliciousPackageTests(unittest.TestCase):
+    def setUp(self):
+        self.decisions = workflow.severity_thresholds()
+
+    def advisory(self, line):
+        return workflow.parse_dependency_audit(line)["advisories"][0]
+
+    def test_a_mal_id_or_alias_marks_a_malicious_package(self):
+        self.assertTrue(workflow.malicious_package(self.advisory(MALICIOUS)))
+        own = MALICIOUS.replace("advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw", "advisory=MAL-2025-1 aliases=")
+        self.assertTrue(workflow.malicious_package(self.advisory(own)))
+        self.assertFalse(workflow.malicious_package(self.advisory(ADVISORY)))
+        self.assertFalse(workflow.malicious_package(self.advisory(MALICIOUS.replace("MAL-GHSA", "GHSA-MAL"))))
+
+    def test_malicious_is_critical_for_the_owner_whatever_scope_reach_or_fix(self):
+        mild = answers(impact="info_leak", local=0.9, reached=0.01)
+        for line, kwargs in ((MALICIOUS, {"scope": "dev", "hits": False}),
+                             (MALICIOUS.replace(" fix=3.7.3", " fix="), {"scope": "dev", "hits": False, "fix_options": "drop it"}),
+                             (MALICIOUS, {"scope": "runtime"})):
+            with self.subTest(line=line, kwargs=kwargs):
+                rated = workflow.rate_advisory(self.advisory(line), evidence(**kwargs), mild, self.decisions)
+                self.assertEqual((rated["severity"], rated["route"]), ("critical", "owner"))
+                self.assertIn("malicious package", rated["reasons"][0])
+                self.assertTrue(rated["suggested_fix"].startswith("remove eslint-scope or replace it"))
+                self.assertIn("rotate every credential", rated["suggested_fix"])
+
+    def test_the_judgment_is_never_asked_for_a_malicious_package(self):
+        async def judge(state, questions):
+            raise AssertionError("judge() must not run for a malicious package")
+        import asyncio
+        found = workflow.parse_dependency_audit(MALICIOUS)
+        key = workflow.advisory_key(found["advisories"][0])
+        with patch.object(workflow, "judge", judge, create=True):
+            result = asyncio.run(workflow.triage_advisories(found, {key: evidence(scope="dev", hits=False)}))
+        self.assertTrue(result["halt"])
+        self.assertEqual([item["severity"] for item in result["owner"]], ["critical"])
+        for text in ("Severity: critical", "malicious package", "rotate every credential", "not judged"):
+            self.assertIn(text, result["report"])
+
+    def test_the_contract_states_the_malicious_mark(self):
+        rows = json.loads(CATALOGUE.read_text())["rules"]
+        contract = next(rule for rule in rows if rule["id"] == workflow.DEPENDENCY_AUDIT)["contract"]
+        self.assertIn(workflow.MALICIOUS_PREFIX, contract["malicious_package_mark"])
+
+
 class TriageTests(unittest.TestCase):
     def setUp(self):
         self.found = workflow.parse_dependency_audit("\n".join([

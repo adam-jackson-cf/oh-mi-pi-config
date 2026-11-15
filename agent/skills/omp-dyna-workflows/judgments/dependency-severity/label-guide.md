@@ -22,6 +22,8 @@ the advisory text states, not the worst outcome imaginable.
 - I5. ReDoS, hangs, recursion errors and resource exhaustion are `dos`.
 - I6. Learning only whether an account, e-mail address or file exists is `info_leak`.
 - I7. Text that names no attacker outcome ("improper input validation, upgrade") is `unclear`.
+- I8. A malicious package (ID or alias `MAL-`) never reaches these questions: code routes it as
+  critical to the owner. Its labels still follow I1.
 
 Examples: "execute arbitrary code by abusing the python/object/new constructor" is `rce` (I1).
 "Allows remote attackers to enumerate user e-mail addresses" is `info_leak` (I6).

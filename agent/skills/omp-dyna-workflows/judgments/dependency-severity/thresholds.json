@@ -47,9 +47,9 @@
       "runtime/high": 5,
       "runtime/medium": 9,
       "runtime/low": 1,
-      "dev/high": 1,
       "dev/medium": 4,
-      "dev/low": 5
+      "dev/low": 5,
+      "dev/critical (malicious-package rule)": 1
     },
     "positives": {
       "local_only": 2,
@@ -60,9 +60,10 @@
   },
   "results": {
     "v1": "first wording: rubric severity matched labels on 24/30; 4 understated (reached scored 0.27-0.30 on true hits: C01, C09, C11; C30 impact), 2 overstated",
-    "current": "after rewording reached and local_only: 26/30 match, 1 understated (C30: malicious version read as data_exposure, dev high -> medium), 3 overstated (C08 unclear round-up, C13, C15 reached on non-vulnerable use); halt decision (high/critical) matched 27/30",
+    "current": "after rewording reached and local_only: 27/30 match the policy severity (C30, a malicious package, is now routed critical to the owner by the deterministic MAL- rule before judge() and counts as a match), 0 understated, 3 overstated (C08 unclear round-up, C13, C15 reached on non-vulnerable use); halt decision (owner vs in-flow fix) matched 28/30",
     "calibration": "tune_threshold.py --calibration --repeats 5 --conservative: no threshold met the minimums in any fold (too few positives); Brier raw local_only 0.034, needs_interaction 0.083, reached 0.066; Platt improved only needs_interaction (0.017) and cannot be confirmed without a test set, so raw is kept; needs_privileges has no positive case",
-    "cost_per_100_cases_usd": 0.0053
+    "cost_per_100_cases_usd": 0.0053,
+    "malicious_rule": "C30 (eslint-scope 3.7.2, alias MAL-GHSA-hxxf-q3w9-4xgw) never reaches the judgment: workflows.malicious_package routes it as critical to the owner. Its Jev scores in scores.csv were taken before the MAL- alias was added to its state; the judgment had read it as data_exposure (dev high -> medium, the only understatement)"
   },
-  "todo": "provisional: grow to about 30 human-reviewed cases per label (needs_privileges positives, local_only positives, malicious-version advisories), build a test set from a newer replay window, then tune and recheck calibration; probabilities are not fit to show as confidence"
+  "todo": "provisional: grow to about 30 human-reviewed cases per label (needs_privileges positives, local_only positives), build a test set from a newer replay window, then tune and recheck calibration; probabilities are not fit to show as confidence"
 }
