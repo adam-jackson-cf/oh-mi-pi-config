@@ -4,10 +4,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
-import { configRoot, dynaflowsEnabled, findRecord, offText, parseOrigin, RecordError, recordDir, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
+import {
+	configRoot, dynaflowsEnabled, findRecord, offText, ownerOnly, ownerPathProblem, parseOrigin, RecordError, recordDir, repoSlug, resolveRecord,
+} from "../agent/lib/repo-record.ts";
 
 // A complete gate.json; tests replace one field at a time (undefined drops it from the JSON).
-const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, pathCheck: ["make", "check-paths"], dynaflows: { enabled: true } };
+const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, pathCheck: ["make", "check-paths"], ownerOnlyPaths: [], dynaflows: { enabled: true } };
 
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
@@ -127,11 +129,22 @@ describe("record resolution", () => {
 				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, unknownField: 3 }, "unknownField"],
 				[{ ...completeGate, extraField: 1000 }, "extraField"], [{ ...completeGate, otherField: "github" }, "otherField"],
 				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],
+				[{ ...completeGate, ownerOnlyPaths: undefined }, "ownerOnlyPaths"], [{ ...completeGate, ownerOnlyPaths: ["/abs.json"] }, "/abs.json"],
+				[{ ...completeGate, ownerOnlyPaths: ["a/../b"] }, "a/../b"], [{ ...completeGate, ownerOnlyPaths: ["a.json", "a.json"] }, "unique"],
 			] as const) {
 				f.writeRecord("owner/name", JSON.stringify(invalid));
 				await assert.rejects(dynaflowsEnabled(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);
 			}
 		} finally { f.cleanup(); }
+	});
+
+	test("owner-only entries are repo-relative paths; a trailing slash covers a directory", () => {
+		for (const path of ["scripts/checks/exceptions.json", "security/", "a"]) assert.equal(ownerPathProblem(path), undefined, path);
+		for (const path of ["", "/", "/abs.json", "a//b", "./a", "a/../b", "..", "a\\b", "a\0b"]) assert.ok(ownerPathProblem(path), path);
+		const owned = ["scripts/checks/exceptions.json", "security/"];
+		for (const path of ["scripts/checks/exceptions.json", "security/a.json", "security/deep/b.json"]) assert.equal(ownerOnly(path, owned), true, path);
+		for (const path of ["scripts/checks/exceptions.json.bak", "scripts/checks", "securityx/a.json", "security"]) assert.equal(ownerOnly(path, owned), false, path);
+		assert.equal(ownerOnly("anything", []), false);
 	});
 
 	test("the default root is the checkout holding the module", () => {

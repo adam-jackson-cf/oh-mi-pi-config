@@ -36,7 +36,8 @@ repo checker. Step 2 defines the three outcomes; the
 - Purpose: Distinguish active checks, behavioral guidance, user documentation, and developer practice.
 - Action: Record sources, triggers, ownership, make targets, hook config, CI job names and
   required checks with evidence; map every rule ID of every step to a repo checker source line or
-  `absent`, and record each baseline.
+  `absent`, map every lock file and manifest from `git ls-files` to the audit that covers it with
+  a source line or `absent`, and record each baseline.
 - Workflow: [Existing guardrail inventory](references/step-1-inventory-workflow.md).
 
 ## Step 2: Map the complete rule contract
@@ -100,6 +101,7 @@ repo checker. Step 2 defines the three outcomes; the
 
 - Every bundled rule ID: applicable, implemented (by a harness step, or by a repo checker named in
   `guardrails.check.repo`), not applicable with evidence, or blocked.
+- Every lock file and manifest: the audit that covers it, with a source line, or the `grow` fix.
 
 ## Proposed actions
 

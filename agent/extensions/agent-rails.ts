@@ -9,7 +9,7 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, RECORDS_DIR, readGateText, resolveRecord,
+	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, RECORDS_DIR, readGateText, resolveRecord,
 } from "../lib/repo-record.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
@@ -741,6 +741,26 @@ export default function agentRails(
 		}
 		return [...found];
 	}
+	// The record's ownerOnlyPaths are the owner's alone (for example the dependency-audit exception
+	// file). At every agent commit in a repo with a record, whether dynaflows is on or off, rails
+	// refuse the commit when a staged or unstaged tracked change touches one. Renames count as a
+	// deletion and an addition, so moving an owner-only file away is refused too.
+	async function ownerOnlyReason(root: string): Promise<string | undefined> {
+		const record = await recordAt(root);
+		if (!record || !record.gate.ownerOnlyPaths.length) return;
+		const touched = new Set<string>();
+		for (const args of [["diff", "--cached", "--name-only", "--no-renames", "-z"], ["diff", "--name-only", "--no-renames", "-z"]]) {
+			const result = await pi.exec("git", args, { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
+			if (result.code !== 0 || result.killed) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`.trim());
+			for (const path of result.stdout.split("\0")) if (path && ownerOnly(path, record.gate.ownerOnlyPaths)) touched.add(path);
+		}
+		if (!touched.size) return;
+		const paths = [...touched].sort();
+		return `Agent rails: this commit changes owner-only ${paths.length === 1 ? "path" : "paths"} ${paths.join(", ")} ` +
+			`(the record's ownerOnlyPaths in ${join(record.dir, GATE_FILE)}). Agents never change these paths, such as the ` +
+			"dependency-audit exception file. Restore them (git restore --staged --worktree -- <path>), then stop and raise " +
+			"the change to the owner: what you need changed, why, and the evidence. The owner makes the change.";
+	}
 	// At the agent's commit in a dynaflows-on repo: the record's pathCheck over the paths the commit
 	// can take, the record's checks.commit (the repo's own command), then the harness checks over the
 	// whole repo with the record as config. Any failure or finding blocks the commit; there are no
@@ -870,6 +890,8 @@ export default function agentRails(
 							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.",
 						};
 						const root = await repoRoot(action.cwd);
+						const owned = root ? await ownerOnlyReason(root) : undefined;
+						if (owned) return { block: true, reason: owned };
 						const at = root ? await dynaflowsAt(ctx, root, true) : await dynaflowsAt(ctx, action.cwd);
 						// Fail-open is never silent: every commit outside dynaflows says why.
 						if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");

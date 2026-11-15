@@ -39,16 +39,28 @@ Capture what the target actually enforces and what it only documents or proposes
    and how it excludes it. Record owned code that imports a third party outside its adapter, tests
    that replace a third party rather than an owned interface, and workarounds for upstream faults
    outside an adapter.
-7. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
+7. Map the dependency-audit scope (`SECURITY.dependency-audit`). List every lock file and
+   dependency manifest that `git ls-files --cached --others --exclude-standard` returns, in every
+   ecosystem. For each, record its ecosystem and the repo audit that covers it, with the source
+   line that reads it, or `absent`; for a manifest, also record the lock that pins it. Record each
+   excluded fixture or vendored path by name, with evidence of its origin. Each of these is a gap:
+   a lock file no audit covers, a lock format the audit cannot read, a manifest with dependencies
+   and no lock, an audit that runs only on staged files or on a schedule, and an audit that scores
+   severity, waives advisories or prints findings in another format than the catalogue row's
+   `advisory_line`. Record the repo's dependency-audit exception file, if any, for the record's
+   `ownerOnlyPaths`.
+8. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
-8. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
+9. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
    unsupported platforms with file references and observed command results. Avoid reading protected
    content or printing secrets.
-9. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
-   stack applicability, and current proof.
+10. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
+    stack applicability, and current proof.
 
 ## Done when
 
 - Each existing control has an owner and trigger, or is explicitly marked unverified.
+- Every lock file and manifest in the repository names the audit that covers it with a source
+  line, or is marked `absent`.
 - User-facing guidance and developer practice are separated, and contradictions are visible before
   new controls are designed.
