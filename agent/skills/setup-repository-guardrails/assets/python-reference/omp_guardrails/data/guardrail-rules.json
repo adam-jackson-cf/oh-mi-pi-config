@@ -1024,15 +1024,6 @@
       "summary": "Enable the Ruff W rule selector or target-language equivalent."
     },
     {
-      "id": "RUFF.SETTING.line-length",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "value": 88
-      },
-      "summary": "Preserve the line-length setting or target-language equivalent."
-    },
-    {
       "id": "RUFF.SETTING.mccabe.max-complexity",
       "kind": "tool",
       "applicability": "conditional",
