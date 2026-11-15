@@ -32,12 +32,19 @@ Capture what the target actually enforces and what it only documents or proposes
    source line or `absent` for each: a claim that the repo covers or lacks a rule needs that
    evidence. Record any baseline (a file of waived findings) each repo checker or tool applies,
    with its finding count; a baselined finding is an open finding.
-6. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
+6. Map the third-party boundary (design directive principle 10). List the dependencies the code
+   imports, the owned adapter (if any) each one is reached through, vendored or generated
+   third-party paths with evidence of their origin, and every in-repo stub, copy or shim of
+   third-party code. For each checker and type checker, record whether it reaches third-party code
+   and how it excludes it. Record owned code that imports a third party outside its adapter, tests
+   that replace a third party rather than an owned interface, and workarounds for upstream faults
+   outside an adapter.
+7. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
-7. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
+8. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
    unsupported platforms with file references and observed command results. Avoid reading protected
    content or printing secrets.
-8. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
+9. Record a concise inventory table with audience, enforcement mode, source, invocation trigger,
    stack applicability, and current proof.
 
 ## Done when

@@ -58,15 +58,28 @@ first.
    judgment where they cannot work, and LLM instructions only as a last resort.
 9. **Never version code to keep results comparable.** A code change that invalidates an
    experiment means the experiment is rerun.
-10. **Rules cover owned code; third parties are excluded at the boundary.** Quality rules apply to
-    code the repository owns. Installed packages, vendored copies and third-party fixture programs
-    are outside them, and each exclusion is scoped to a named path or package.
-    - Never maintain copies, generated stubs or shims of third-party code in the repo to satisfy a
-      rule. They bend the repo's rules around code it cannot change, and every upgrade has to
-      redo them.
-    - Take third-party types from upstream: the package's own annotations (mypy
-      `follow_untyped_imports` for a named package without `py.typed`) or a published stub package.
-      Ignore missing imports only for a package that has neither.
-    - Never reshape owned code around a false view of a third party. Where a repo calls a third
-      party wrongly, fix the call. Where a third party's own types are wrong, report it upstream
-      and keep the workaround inside the repo's adapter for it.
+10. **Verify and design only the code the repository owns.** Verification rules and design rules
+    apply to code the repository creates and controls. Third-party code is everything else:
+    installed packages, vendored copies, generated clients, toolchains, and third-party programs used
+    as fixtures. It is excluded at the boundary, and the repo never bends its own code or rules to
+    make third-party code pass them.
+    - **Scope.** Every checker lists owned files only, from `git ls-files`. Each exclusion of
+      third-party code names its path or package, with evidence of where it came from. A vendored
+      copy that the repo edits becomes owned code and gets the full rules.
+    - **No in-repo copies or shims.** Never keep copies, generated stubs or shims of third-party
+      code in the repo to satisfy a rule, and never exempt such files from the repo's checkers.
+      They bend the rules around code the repo cannot change, and every upgrade has to redo them.
+      A dependency upgrade never requires regenerating files in the repo.
+    - **Types from upstream.** Take third-party types from the package's own annotations (mypy
+      `follow_untyped_imports` for a named package without `py.typed`) or a published stub
+      package. Ignore missing imports only for a package that has neither.
+    - **Design at the boundary.** Owned code reaches a third party through an owned adapter. The
+      rest of the code depends on interfaces the repo defines, such as Protocols. Structure,
+      naming and complexity rules judge those owned interfaces, never the third party's API.
+    - **Tests.** Tests replace the owned interface, not the third party. Tests of the adapter prove
+      how the repo uses the third party, never the third party's own behaviour. Coverage and test
+      integrity measure owned code only.
+    - **Upstream faults.** Where owned code calls a third party wrongly, fix the call. Where the
+      third party's own types or behaviour are wrong, keep the workaround inside its adapter and
+      cite the upstream issue, so the workaround is removed when the fix lands. Never reshape the
+      rest of the code around it.

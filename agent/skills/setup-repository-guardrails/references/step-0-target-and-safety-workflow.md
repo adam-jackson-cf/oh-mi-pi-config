@@ -19,9 +19,8 @@ Establish a safe, reproducible target, its record path and the setup mode before
    evidence.
 4. The harness checks cover the whole repository. There are no baselines and no new/changed-code
    scope. Record candidate scope exclusions only for generated, vendored and fixture paths, with
-   evidence; they become record config after approval. Also record any in-repo stubs, copies or
-   shims of third-party code; the design directive rejects them, so they become removal fixes,
-   not exclusions.
+   evidence; they become record config after approval. Third-party code is excluded at the
+   boundary (design directive principle 10); Step 1 maps that boundary.
 5. Identify agent instructions and access restrictions before reading files. Never inspect secret
    files or protected paths without their required authorization; verify environment variables by
    presence only.
