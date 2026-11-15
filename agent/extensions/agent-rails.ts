@@ -482,6 +482,12 @@ function commitBypass(action: GitAction): string | undefined {
 // `--repo <worktree> --record <record dir>`.
 const guardrailsProject = fileURLToPath(new URL("../skills/setup-repository-guardrails/assets/python-reference", import.meta.url));
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "check"];
+// The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
+// checker already enforces that step and the record has not given the step to it.
+const harnessOnlyNote =
+	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
+	"code to the harness copy: route to project setup (skill://setup-repository-guardrails, adopt mode) to " +
+	"draft guardrails.check.repo for the owner to save.";
 
 // Dynaflows is on for a repo only when its per-repo record (resolved from the origin remote under
 // `configRoot`/repos/) says dynaflows.enabled true. `machineDynaflowsPath` (~/.omp/dynaflows.json)
@@ -753,8 +759,9 @@ export default function agentRails(
 			const result = await repoExec(argv, root);
 			if (result.code === 0 && !result.killed) continue;
 			const output = `${result.stdout}\n${result.stderr}`.trim();
+			const owned = argv === record.gate.commit ? "" : `\n${harnessOnlyNote}`;
 			return `Agent rails: ${label} failed in ${root}${result.killed ? " (killed)" : ` (exit ${result.code})`}; ` +
-				`fix every finding in the repo, then commit again:\n${output.length > commitOutputLimit ? `…${output.slice(-commitOutputLimit)}` : output}`;
+				`fix every finding in the repo, then commit again:\n${output.length > commitOutputLimit ? `…${output.slice(-commitOutputLimit)}` : output}${owned}`;
 		}
 	}
 	function recordRead(event: ToolEvent, state: State): void {

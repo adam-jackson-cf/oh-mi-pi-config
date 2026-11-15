@@ -25,8 +25,11 @@ mentions and prose are not commands. Contradictory directive lines fail without 
 Choose exactly one active playbook:
 
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
-- Missing controls, or user-visible work without a Verification surface and feature map
-  (`verification_surface.feature_map_path`) in the record's `profile.md`:
+- Missing controls, user-visible work without a Verification surface and feature map
+  (`verification_surface.feature_map_path`) in the record's `profile.md`, or a harness check step
+  whose rules the repo's checkers hold, or could hold, that the record has not listed in
+  `guardrails.check.repo` (a commit blocked by harness findings after `checks.commit` passed is
+  the usual sign):
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
   An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no
   feature map, so `freeze()` accepts no proofs there.
@@ -79,11 +82,12 @@ a record missing either, or carrying a field outside the schema, fails to load w
 naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns accepted schema fields/types;
 its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI. At each
 agent commit, rails run the record's `pathCheck`, its `checks.commit` (the repo's own command)
-and then the harness checks (`omp-guardrails`, run from the harness
-with the record as config) over the whole repo; any finding blocks the commit, with no baseline
-or diff scope. Missing controls or the lazy surface trigger above require owner-approved project
-setup. Read `skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and
-application; never apply before approval.
+and then the harness checks (`omp-guardrails`, run from the harness with the record as config)
+over the whole repo, minus the steps the record's `guardrails.check.repo` gives to repo checkers
+that `checks.commit` already runs; any finding blocks the commit, with no baseline or diff scope.
+Missing controls or the lazy surface trigger above require owner-approved project setup. Read
+`skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and application;
+never apply before approval.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
@@ -159,6 +163,7 @@ approval. Do not copy merge mechanics into playbooks.
 - Bugs: `skill://coding-guidance/references/regression-coverage.md`.
 - Intermittent failures: `skill://test-guidance/references/flakes.md`.
 - Owner correction: `skill://codify-omp-workflow-corrections`.
+- Changing dynaflows itself: the design directive in [AGENTS.md](AGENTS.md).
 - `orchestrate`: frame, delegate independent units, prove each unit.
 - `workflowz`: native `workpool()` for independent fan-out.
 - `jevify`: deterministic prefilter, frozen rubric, calibrated `judge()` or

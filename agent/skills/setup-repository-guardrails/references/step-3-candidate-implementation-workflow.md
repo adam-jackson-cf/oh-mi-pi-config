@@ -11,32 +11,48 @@ Draft the record and the candidate repo fixes outside the target checkout.
    [`omp-guardrails`](../assets/python-reference/README.md)), never copy,
    adapt or edit its code, and never install it into the target's environment
    or lockfile. Run it from the harness against a temporary clone of the
-   target under the candidate root:
-   `uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference
+   target under the candidate root: `uv run --project <omp
+   root>/agent/skills/setup-repository-guardrails/assets/python-reference
    omp-guardrails init --repo <temporary clone> --record <draft record dir>`.
    `<draft record dir>` sits under the candidate root, never under the records
-   directory; in extend mode, start it as a copy of the existing record. `init`
-   discovers the repo's make targets, hook managers, CI jobs and (through
-   `gh`) required checks, and drafts the record's `gate.json` and `profile.md`
-   from them. It writes nothing into the clone, never overwrites a recorded
-   value, never writes an approval and never turns dynaflows on, so a second
-   run changes nothing. It writes proposed native-tool configs to the record's
-   `proposed/` directory for the owner to apply to the repo as a fix, and
-   proves language-server readiness with a canary `references` query.
+   directory; in extend mode, start it as a copy of the existing record.
+   `init` discovers the repo's make targets, hook managers, CI jobs and
+   (through `gh`) required checks, and drafts the record's `gate.json` and
+   `profile.md` from them. It writes nothing into the clone, never overwrites
+   a recorded value, never writes an approval and never turns dynaflows on, so
+   a second run changes nothing. It writes proposed native-tool configs to the
+   record's `proposed/` directory for the owner to apply to the repo as a fix,
+   and proves language-server readiness with a canary `references` query.
    `--commit-command`, `--path-command` and `--ci-command` name the repo's own
    gate commands; `--runner` and `--required-context` set the record's `ci`
    object. Init reports a missing `checks.commit` or `pathCheck` as
-   `required:`, because a record without either does not load. In adopt
-   mode, hand-written repo checkers that duplicate harness rules are replaced
-   only after a shadow run with identical or owner-approved violation sets.
-   Then fill every per-repo value in the front matter of the draft
-   `profile.md`: tiers, layout, `structure`, scope exclusions,
-   `house_style.exceptions` (each with an ADR) and `guardrails.<checker>`
-   settings. A behaviour the settings cannot express is a change to the
-   reference itself, never a local fork. If the target's test framework has no
-   adapter, follow [adapter authoring](adapter-authoring.md). For a stack
-   without a reference, the missing checkers are a change to the harness, not
-   to the target (Step 2).
+   `required:`, because a record without either does not load. In adopt mode,
+   shadow-run each `repo` or `grow` step on the same clone: `omp-guardrails
+   <step> --repo <temporary clone> --record <draft record dir>` and the
+   record's `checks.commit`. Sort every finding the harness reports and
+   `checks.commit` passes:
+   - the repo checker lacks the rule, scopes it narrower, baselines it or
+     misses files: add the fix to the step's `grow` PR;
+   - the repo checker's own exception or setting accepts code that a stale
+     record setting rejects: the repo checker is the authority, so drop the
+     record setting;
+   - never change repo code only to satisfy the harness copy.
+
+   Zero findings on both sides shows no gap but not coverage; coverage comes
+   from Step 2's rule-ID evidence. Draft each `grow` PR as candidate repo
+   changes, with tests for every added rule. Give `repo` and `grow` steps to
+   the repo in the draft record with `omp-guardrails init --settings`
+   (`check` itself takes no options), for example `{"check": {"repo":
+   {"python-quality": ["scripts/checks/check-python-quality.py"]}}}`, and leave
+   out settings only owned steps read (`check` rejects `guardrails.python`
+   once every configured Python step is the repo's). Then fill every per-repo
+   value in the front matter of the draft `profile.md`: tiers, layout,
+   `structure`, scope exclusions, `house_style.exceptions` (each with an ADR)
+   and `guardrails.<checker>` settings. A behaviour the settings cannot
+   express is a change to the reference itself, never a local fork. If the
+   target's test framework has no adapter, follow [adapter
+   authoring](adapter-authoring.md). For a stack without a reference, the
+   missing checkers are a change to the harness, not to the target (Step 2).
 2. The record's `pathCheck` (required) names the repo's own path command;
    when the repo has none, the candidate fixes add one. The setup always drafts
    both `pathCheck` and `checks.commit`. The harness's `omp-guardrails path-check` covers
@@ -94,6 +110,8 @@ Draft the record and the candidate repo fixes outside the target checkout.
    candidates and the draft record outside the target and outside the
    records directory until Step 5 approval; identify the superseded
    checks/config to remove, including any omp-specific files the repo holds.
+   History is exempt: never rewrite an ADR or a frozen, digest-pinned study or
+   evaluation record to remove an omp mention.
 
 ## Done when
 
