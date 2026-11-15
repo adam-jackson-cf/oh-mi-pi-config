@@ -82,7 +82,7 @@
   "mypy": {
     "strict": true,
     "warn_unused_ignores": true,
-    "follow_imports": "skip",
+    "follow_imports": "normal",
     "show_error_codes": true
   }
 }

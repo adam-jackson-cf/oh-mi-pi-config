@@ -77,7 +77,10 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    allowlists from target data rather than hard-coding them.
 7. The same baseline rule covers the repo's own tools for catalogue rules
    without a `reference` (Ruff, mypy and similar): a baseline of waived
-   findings is a `grow` fix, never an accepted state. Where an applicable rule
+   findings is a `grow` fix, never an accepted state. mypy follows every
+   import (`MYPY.follow_imports`): first-party errors are reported, installed
+   third-party packages stay silent, and each vendored third-party module
+   found in Step 1 gets a named `follow_imports = silent` override. Where an applicable rule
    has neither a repo home nor an `omp-guardrails` subcommand, the
    implementation is a repo checker when the repo has the capability, and
    otherwise a change to `omp-guardrails` in oh-mi-pi-config with its own
