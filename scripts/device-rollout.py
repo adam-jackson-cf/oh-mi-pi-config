@@ -192,20 +192,33 @@ def run_command(argv):
     return subprocess.run(argv, capture_output=True, text=True, check=False)
 
 
+# Long unbroken word runs in a consumer's error line could be credential material; never report them.
+SECRET_LIKE = re.compile(r"[A-Za-z0-9_\-+/=.]{20,}")
+
+
+def failure_line(stderr):
+    """The consumer's last stderr line, with credential-like runs redacted, at most 200 characters."""
+    lines = [line.strip() for line in (stderr or b"").decode(errors="replace").splitlines() if line.strip()]
+    return SECRET_LIKE.sub("<redacted>", lines[-1])[:200] if lines else ""
+
+
 def run_pipeline(producer, consumer):
-    """Stream producer stdout into consumer stdin; return both exit codes, discard all output."""
+    """Stream producer stdout into consumer stdin.
+
+    Returns both exit codes and the consumer's redacted last stderr line; all other output is
+    discarded, and the producer's output never leaves the pipe."""
     try:
         source = subprocess.Popen(producer, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except OSError:
-        return 127, 127
+        return 127, 127, f"cannot start {producer[0]}"
     try:
         sink = subprocess.run(consumer, stdin=source.stdout, capture_output=True, check=False)
-        code = sink.returncode
+        code, reason = sink.returncode, failure_line(sink.stderr)
     except OSError:
-        code = 127
+        code, reason = 127, f"cannot start {consumer[0]}"
     finally:
         source.stdout.close()
-    return source.wait(), code
+    return source.wait(), code, reason
 
 
 def record_files(root):
@@ -309,22 +322,26 @@ class Rollout:
         return state
 
     def provision(self, host=None):
-        """Stream the judge key from Infisical into `omp auth import -`; True on success."""
+        """Stream the judge key from Infisical into `omp auth import -`; None on success, else why."""
         key, source = self.judge_key, self.infisical
         try:
             producer = ["infisical", "run", "--silent", "--projectId", source["project"],
                         "--env", source["environment"], "--", sys.executable, "-c",
                         CREDENTIAL_BUILDER, key["secret"], key["provider"]]
         except (TypeError, KeyError):
-            return False
+            return "the registry's infisical or judgeKey setting is incomplete"
         consumer = ["omp", "auth", "import", "-"]
         if host:
             consumer = self.remote(consumer, host)
         try:
-            codes = self.pipeline(producer, consumer)
+            produced, imported, reason = self.pipeline(producer, consumer)
         except OSError:
-            return False
-        return tuple(codes) == (0, 0)
+            return "cannot start the key pipeline"
+        if produced:
+            return f"infisical exited {produced}"
+        if imported:
+            return f"omp auth import exited {imported}" + (f": {reason}" if reason else "")
+        return None
 
     def find(self, host=None):
         """Run the find canary and return its coverage, or why it has none."""
@@ -354,9 +371,10 @@ class Rollout:
             coverage = None
         else:
             coverage = None
-            if self.judge_key and not self.check and not self.provision(host):
+            failure = self.provision(host) if self.judge_key and not self.check else None
+            if failure:
                 coverage = "key-failed"
-                self.notes.append(f"{device}: judge key provisioning failed")
+                self.notes.append(f"{device}: judge key provisioning failed ({failure})")
             if self.canary:
                 found = self.find(host)
                 coverage = coverage or found
@@ -422,7 +440,7 @@ class Rollout:
                         planned = json.dumps({relative: list(target[relative]) if relative in target else None
                                               for relative in copy}, sort_keys=True)
                         consumer = self.remote(["python3", "-c", RECORDS_WRITER, base, planned], host)
-                        codes = tuple(self.pipeline(producer, consumer))
+                        codes = tuple(self.pipeline(producer, consumer))[:2]
                         if codes == (0, 5):
                             # The writer refused files the target changed after inventory; name them.
                             relisted = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
