@@ -234,7 +234,12 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
      owned code as `{location, line}`.
    - `fix_options`: a replacement package or mitigation. It is required when the finding lists
      no fix version.
-3. `triage_advisories` asks the frozen questions in
+3. A malicious package is decided in code first: an advisory whose ID or an alias starts with
+   `MAL-` (an OSV malicious-package record, or the auditor's own malicious mark as the catalogue
+   contract states) is critical and goes to the owner, whatever its scope, reachability or fix.
+   No judgment is asked. Its suggested fix is to remove or replace the package and rotate every
+   credential the environments that installed it exposed.
+4. For every other advisory, `triage_advisories` asks the frozen questions in
    [dependency-severity](../judgments/dependency-severity/questions.json) through `judge()`. Code
    applies the fixed rubric:
    - impact class sets the base level: `rce`, `auth_bypass` and `unclear` are critical;
@@ -248,11 +253,12 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
    impact is the most severe class above the round-up floor, and a mitigation counts only past
    its threshold. A failed judgment, invalid answers, stale thresholds or missing evidence raise;
    they never pass.
-4. Act on the result:
+5. Act on the result:
    - `halt` true: stop the workflow and give the owner `report`. It names the advisory, severity,
-     per-dimension evidence and suggested fix of every high or critical advisory, every advisory
-     with no fixed release (blocked until the owner approves a dated exception), and every
-     exception-file failure. Do not upgrade, replace or mitigate these in the flow.
+     per-dimension evidence and suggested fix of every malicious package, every high or critical
+     advisory, every advisory with no fixed release (blocked until the owner approves a dated
+     exception), and every exception-file failure. Do not upgrade, replace or mitigate these in
+     the flow.
    - Otherwise upgrade each `fix` entry to a listed fixed version, and fix `failures` (an
      unknown lock format, a manifest without a lock, an auditor error) as any failing check.
      Then commit again.

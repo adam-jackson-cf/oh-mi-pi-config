@@ -1011,6 +1011,7 @@ OWNER_SEVERITIES = ("high", "critical")
 # judgment clears lowers it one level, never below low. Unclear evidence never lowers it.
 IMPACT_LEVEL = {"rce": 4, "auth_bypass": 4, "unclear": 4, "data_exposure": 3, "integrity_loss": 3, "dos": 2, "info_leak": 2}
 PRECONDITIONS = ("local_only", "needs_privileges", "needs_interaction")
+MALICIOUS_PREFIX = "MAL-"
 EVIDENCE_FIELDS = frozenset({"advisory_text", "advisory_source", "scope", "scope_source", "code_search", "fix_options"})
 
 
@@ -1143,8 +1144,11 @@ def rate_advisory(advisory, evidence, answers, decisions):
     """Apply the fixed rubric to the judgment's answers: severity, route and the cited evidence.
 
     Rounds up: the impact is the most severe class at or above the round-up floor, and a
-    mitigating dimension lowers the level only when the judgment clears its threshold.
+    mitigating dimension lowers the level only when the judgment clears its threshold. A malicious
+    package never reaches the rubric.
     """
+    if malicious_package(advisory):
+        return malicious_assessment(advisory, evidence)
     evidence = _evidence(advisory, evidence)
     probabilities = _probability(answers, "impact", "choice")
     floor = decisions["impact"]["round_up_floor"]
@@ -1183,11 +1187,45 @@ def rate_advisory(advisory, evidence, answers, decisions):
     }
 
 
+def malicious_package(advisory):
+    """True when the advisory is an OSV malicious-package record: its ID or an alias starts with MAL-.
+
+    The catalogue contract has the checker report an auditor's own malicious mark the same way.
+    """
+    return any(ident.upper().startswith(MALICIOUS_PREFIX) for ident in (advisory["advisory"], *advisory["aliases"]))
+
+
+def malicious_assessment(advisory, evidence):
+    """A malicious package is a supply-chain compromise: critical and the owner's, whatever its
+    scope, reachability or fix. Decided in code; the severity judgment is never asked."""
+    evidence = _evidence(advisory, evidence)
+    return {
+        "key": advisory_key(advisory),
+        "advisory": advisory,
+        "severity": "critical",
+        "route": "owner",
+        "reasons": ["malicious package (OSV MAL- record): supply-chain compromise"],
+        "dimensions": {
+            "impact": {"class": "malicious_package", "probabilities": {}, "source": evidence["advisory_source"]},
+            "preconditions": {"probabilities": {}, "cleared": [], "source": evidence["advisory_source"]},
+            "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
+                         "reached": None, "unreached": False, "code_search": evidence["code_search"]},
+            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"]},
+        },
+        "suggested_fix": (f"remove {advisory['package']} or replace it with a trusted package, and rotate every "
+                          "credential the environments that installed it exposed (CI and developer tokens, keys)"
+                          + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")),
+    }
+
+
 async def assess_advisory(advisory, evidence):
     """Severity of one advisory: the frozen questions through judge(), then the fixed rubric in code.
 
-    A failed or invalid judgment raises; it is never read as a low severity.
+    A malicious package is decided in code before any judgment. A failed or invalid judgment
+    raises; it is never read as a low severity.
     """
+    if malicious_package(advisory):
+        return malicious_assessment(advisory, evidence)
     evidence = _evidence(advisory, evidence)
     questions, _ = severity_questions()
     decisions = severity_thresholds()
@@ -1209,7 +1247,7 @@ def owner_report(assessments, failures=()):
         a, d = item["advisory"], item["dimensions"]
         aliases = f" ({', '.join(a['aliases'])})" if a["aliases"] else ""
         hits = ", ".join(h["location"] for h in d["exposure"]["code_search"]["hits"]) or "no hits"
-        pre = ", ".join(f"{q} {p:.2f}" for q, p in d["preconditions"]["probabilities"].items())
+        pre = ", ".join(f"{q} {p:.2f}" for q, p in d["preconditions"]["probabilities"].items()) or "not judged"
         lines += [
             f"- {a['advisory']}{aliases}: {a['package']} {a['version']} ({a['ecosystem']}), lock {a['lock']}",
             f"  - Severity: {item['severity']}; why the owner: {'; '.join(item['reasons'])}",
