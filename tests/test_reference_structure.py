@@ -279,6 +279,7 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(steps, [step for step in whole_repo.DEFAULT_STEPS if step != "naming"])
         self.write("src/orders/engine/misc.py")
+        self.profile["guardrails"].pop("naming", None)
         self.profile["guardrails"]["check"] = {"run": ["structure"]}
         self.profile["guardrails"]["check"]["repo"] = {"naming": ["src/orders/cli/main.py"]}
         self.write_profile()
@@ -314,6 +315,7 @@ class CheckerTests(unittest.TestCase):
             ),
             "no checkers": ({"repo": {"naming": []}}, "guardrails.check.repo.naming must list"),
         }
+        self.profile["guardrails"].pop("naming", None)
         for name, (check, expected) in cases.items():
             with self.subTest(name=name):
                 self.profile["guardrails"]["check"] = check
@@ -334,6 +336,16 @@ class CheckerTests(unittest.TestCase):
         self.profile["guardrails"]["check"]["run"].append("python-test-hygiene")
         self.write_profile()
         self.assertNotIn("guardrails.python configures", self.run_cli("check")[1])
+        self.profile["guardrails"]["naming"] = {"skip": ["vendor/**"]}
+        self.profile["guardrails"]["check"] = {
+            "run": ["profile-check"],
+            "repo": {"naming": ["src/orders/cli/main.py"]},
+        }
+        self.write_profile()
+        self.assertIn("guardrails.naming configures only repo-owned steps ['naming']", self.run_cli("check")[1])
+        self.profile["guardrails"]["check"]["run"].append("path-check")
+        self.write_profile()
+        self.assertNotIn("guardrails.naming configures", self.run_cli("check")[1])
 
 
 if __name__ == "__main__":

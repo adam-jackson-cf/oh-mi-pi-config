@@ -15,12 +15,14 @@ without a surface; an owner-approved no-runnable-app exemption does not trigger 
 Pick the setup skill's Step 0 modes from the starting point; more than one can apply:
 
 - no record and no repo checkers: `greenfield`;
-- repo checkers that enforce harness rule families the record does not yet give them in
-  `guardrails.check.repo`, with or without a record: `adopt`. Never reshape repo code to satisfy
-  the harness copy of a rule the repo's checker already carries;
+- repo checkers or tools that enforce, or could hold, harness rule families the record does not
+  yet give them in `guardrails.check.repo`, with or without a record: `adopt`. Missing rules are
+  added to the repo's checkers by a repo PR. Never reshape repo code to satisfy the harness copy
+  of a rule the repo's checker carries;
 - a record that lacks only a part, such as the verification surface: `extend`.
 
-Never build a second guardrail system beside the repo's own.
+Never build a second guardrail system beside the repo's own; the
+[design directive](../../AGENTS.md) holds the principles.
 
 ## 2. Spike
 

@@ -27,8 +27,9 @@ Choose exactly one active playbook:
 - Evidence-only deliverable: [Investigation](references/playbooks/investigation.md).
 - Missing controls, user-visible work without a Verification surface and feature map
   (`verification_surface.feature_map_path`) in the record's `profile.md`, or a harness check step
-  that duplicates a repo checker the record has not listed in `guardrails.check.repo` (a commit
-  blocked by harness findings after `checks.commit` passed is the usual sign):
+  whose rules the repo's checkers hold, or could hold, that the record has not listed in
+  `guardrails.check.repo` (a commit blocked by harness findings after `checks.commit` passed is
+  the usual sign):
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
   An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no
   feature map, so `freeze()` accepts no proofs there.
@@ -162,6 +163,7 @@ approval. Do not copy merge mechanics into playbooks.
 - Bugs: `skill://coding-guidance/references/regression-coverage.md`.
 - Intermittent failures: `skill://test-guidance/references/flakes.md`.
 - Owner correction: `skill://codify-omp-workflow-corrections`.
+- Changing dynaflows itself: the design directive in [AGENTS.md](AGENTS.md).
 - `orchestrate`: frame, delegate independent units, prove each unit.
 - `workflowz`: native `workpool()` for independent fan-out.
 - `jevify`: deterministic prefilter, frozen rubric, calibrated `judge()` or

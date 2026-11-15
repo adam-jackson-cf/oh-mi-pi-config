@@ -28,7 +28,10 @@ Capture what the target actually enforces and what it only documents or proposes
    files. A step's rule IDs are the catalogue rows (`omp_guardrails/data/guardrail-rules.json`)
    whose `reference.subcommand` names it. A checker that walks the disk instead of `git ls-files
    --cached --others --exclude-standard`, or follows symlinks out of the repo, is a gap to fix in
-   the repo checker.
+   the repo checker. Search the repo's checkers for every rule ID of every step, and record a
+   source line or `absent` for each: a claim that the repo covers or lacks a rule needs that
+   evidence. Record any baseline (a file of waived findings) each repo checker or tool applies,
+   with its finding count; a baselined finding is an open finding.
 6. Mark each discovered control `active`, `manual`, `proposed`, `stale`, or `unverified`;
    distinguish tracked assets from dirty or untracked work.
 7. Capture rule conflicts, duplicated ownership, tool-config drift, baseline failures, and
