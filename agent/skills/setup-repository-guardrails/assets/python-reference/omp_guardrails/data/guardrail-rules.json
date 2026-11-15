@@ -282,9 +282,12 @@
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
-        "value": "skip"
+        "value": "normal",
+        "third_party": "silent",
+        "vendored_third_party_override_required": true,
+        "skip_forbidden": true
       },
-      "summary": "Enforce follow_imports typing behavior or target-language equivalent."
+      "summary": "Follow every import: report errors in first-party modules, keep third-party types but hide their errors (installed packages are silent by default; vendored copies need a named silent override); never skip imports."
     },
     {
       "id": "MYPY.module-overrides",
