@@ -285,9 +285,11 @@
         "value": "normal",
         "third_party": "silent",
         "vendored_third_party_override_required": true,
-        "skip_forbidden": true
+        "skip_forbidden": true,
+        "untyped_third_party": "follow_untyped_imports",
+        "in_repo_third_party_stubs_forbidden": true
       },
-      "summary": "Follow every import: report errors in first-party modules, keep third-party types but hide their errors (installed packages are silent by default; vendored copies need a named silent override); never skip imports."
+      "summary": "Follow every import: report errors in first-party modules, keep third-party types but hide their errors (installed packages are silent by default; vendored copies need a named silent override); never skip imports. Third-party types come from upstream: the package's own annotations (follow_untyped_imports for a named package without py.typed) or a published stub package; never stubs or shims maintained in the repo."
     },
     {
       "id": "MYPY.module-overrides",
@@ -296,9 +298,10 @@
       "contract": {
         "target_named_module_overrides_required": true,
         "each_override_requires_missing_stub_or_decorator_evidence": true,
+        "published_stub_package_before_ignore_missing_imports": true,
         "unscoped_exceptions_forbidden": true
       },
-      "summary": "Scope missing-import and decorator exceptions to named modules."
+      "summary": "Scope missing-import and decorator exceptions to named modules. ignore_missing_imports only for a package with no annotations and no published stub package."
     },
     {
       "id": "MYPY.package-coverage",

@@ -58,3 +58,15 @@ first.
    judgment where they cannot work, and LLM instructions only as a last resort.
 9. **Never version code to keep results comparable.** A code change that invalidates an
    experiment means the experiment is rerun.
+10. **Rules cover owned code; third parties are excluded at the boundary.** Quality rules apply to
+    code the repository owns. Installed packages, vendored copies and third-party fixture programs
+    are outside them, and each exclusion is scoped to a named path or package.
+    - Never maintain copies, generated stubs or shims of third-party code in the repo to satisfy a
+      rule. They bend the repo's rules around code it cannot change, and every upgrade has to
+      redo them.
+    - Take third-party types from upstream: the package's own annotations (mypy
+      `follow_untyped_imports` for a named package without `py.typed`) or a published stub package.
+      Ignore missing imports only for a package that has neither.
+    - Never reshape owned code around a false view of a third party. Where a repo calls a third
+      party wrongly, fix the call. Where a third party's own types are wrong, report it upstream
+      and keep the workaround inside the repo's adapter for it.
