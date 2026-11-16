@@ -4,5 +4,8 @@
   },
   "adam-jackson-cf/skills-directory": {
     "tokenEnv": "NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF"
+  },
+  "adam-versed/game-system": {
+    "tokenEnv": "NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF"
   }
 }

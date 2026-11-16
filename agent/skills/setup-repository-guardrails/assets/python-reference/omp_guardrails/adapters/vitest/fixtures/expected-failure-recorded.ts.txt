@@ -1,0 +1,2 @@
+import { test, expect } from 'vitest';
+test.fails('known defect', () => { expect(1).toBe(2); });
