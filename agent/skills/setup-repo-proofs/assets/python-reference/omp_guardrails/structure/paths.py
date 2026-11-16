@@ -18,7 +18,6 @@ Layout allowlists come from ``guardrails.structure`` (see ``layout``) and names 
 from __future__ import annotations
 
 import ast
-import importlib.util
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -26,6 +25,8 @@ from omp_guardrails.child_env import repo_environment
 from omp_guardrails.config.house_style import apply_exceptions
 from omp_guardrails.findings import Finding
 from omp_guardrails.structure import layout, naming
+from omp_guardrails.structure.import_graph import import_config, imported_edges
+from omp_guardrails.structure.import_graph import run as import_graph_findings
 from omp_guardrails.structure.inventory import (
     InventoryError,
     as_list,
@@ -154,34 +155,6 @@ def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Findin
     return []
 
 
-def import_config(profile: dict) -> tuple[dict, list[str]]:
-    structure = section(profile, "structure")
-    direction = structure.get("import_direction")
-    return (direction if isinstance(direction, dict) else {}), as_list(structure.get("tiers"))
-
-
-def imported_edges(tree: ast.Module, module: str, package: str) -> list[str]:
-    """Import destinations inside ``package``, resolved without importing authored code."""
-    parent = (
-        module.removesuffix(".__init__")
-        if module.endswith(".__init__")
-        else module.rpartition(".")[0]
-    )
-    edges: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            edges.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            destination = node.module or ""
-            if node.level:
-                destination = importlib.util.resolve_name("." * node.level + destination, parent)
-            if destination == package or not node.module:
-                edges.extend(f"{destination}.{alias.name}" for alias in node.names)
-            elif destination:
-                edges.append(destination)
-    return [edge for edge in edges if edge == package or edge.startswith(f"{package}.")]
-
-
 def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
     direction, tiers = import_config(profile)
     package, source_root = direction.get("package"), direction.get("source_root")
@@ -203,7 +176,7 @@ def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
     owner = relative.parts[0] if relative and len(relative.parts) > 1 else None
     found = []
     for edge in edges:
-        destination = edge.split(".")[1] if "." in edge else None
+        destination = edge.removeprefix(f"{package}.").split(".")[0]
         allowed = (
             owner in tiers
             and destination in tiers
@@ -284,4 +257,5 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         if (p := normalized_path(repo, raw)) and p.endswith(".py") and matches_any(p, scan)
     })
     found.extend(native_findings(repo, sources, profile))
+    found.extend(import_graph_findings(repo, profile, []))
     return apply_exceptions(found, profile)

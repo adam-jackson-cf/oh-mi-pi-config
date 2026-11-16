@@ -35,6 +35,57 @@
       ]
     },
     {
+      "id": "STRUCT.tier-readership",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "whole_repository_no_baseline": true,
+        "shared_tier_minimum_distinct_readers": 2,
+        "diagnostic_names_tier_and_fix": true
+      },
+      "summary": "Require at least two distinct parts to read each populated shared tier.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"},
+        {"subcommand": "structure", "module": "omp_guardrails.structure.layout"}
+      ]
+    },
+    {
+      "id": "STRUCT.single-owner-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "whole_repository_no_baseline": true,
+        "reject_shared_module_with_one_owner": true,
+        "diagnostic_names_file_and_destination": true
+      },
+      "summary": "Move a shared-tier module read by exactly one part under that owner.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"},
+        {"subcommand": "structure", "module": "omp_guardrails.structure.layout"}
+      ]
+    },
+    {
+      "id": "STRUCT.sibling-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "whole_repository_no_baseline": true,
+        "reject_same_tier_cross_part_imports": true,
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject imports between distinct parts on the same tier.",
+      "reference": [
+        {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"},
+        {"subcommand": "structure", "module": "omp_guardrails.structure.layout"}
+      ]
+    },
+    {
       "id": "NAME.conventions",
       "kind": "bespoke",
       "applicability": "always",
