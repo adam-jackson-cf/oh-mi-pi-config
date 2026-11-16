@@ -624,7 +624,7 @@ class TestGrowthTests(unittest.TestCase):
 
     def test_changed_tests_without_a_collector_adapter_are_reported(self) -> None:
         self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
-        findings = self.check({**BASE_PROFILE, "adapter": "vitest"})
+        findings = self.check({**BASE_PROFILE, "adapter": "uninstalled_adapter"})
         self.assertEqual(rules(findings), [("TEST.growth.justified", "record:profile.md")])
 
 
