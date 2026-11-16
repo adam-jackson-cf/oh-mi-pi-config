@@ -62,8 +62,8 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 // A temp repo whose origin names a per-repo record under a temp config root (never the real one).
 // `configRoot` shares another harness's records; `guardrailsCommand: "default"` keeps the real
 // omp-guardrails invocation, otherwise the harness checks are `true`.
-function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"] }: {
-	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default";
+function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand }: {
+	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
 } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-machine-"));
@@ -109,6 +109,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		},
 	};
 	const options: Parameters<typeof agentRails>[1] = { machineDynaflowsPath: join(machine, "dynaflows.json"), configPath, configRoot: records };
+	options.ompCommand = ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")];
+	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
 	if (guardrailsCommand !== "default") options.guardrailsCommand = guardrailsCommand;
 	// SAFETY: this fake supplies on, registerCommand, registerTool and exec, the only API surfaces agentRails consumes.
 	agentRails(api as ExtensionAPI, options);
@@ -149,6 +151,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			return (await tool.execute("tool-1", params, undefined, undefined, context as ExtensionContext)).content.map(part => part.text).join("");
 		},
 		gate(value: GateFixture) { fixture = value; writeGate(); },
+		worktreeBase(value: string) { writeFileSync(join(machine, "worktree-base"), `${value}\n`); },
 		dynaflows(value: boolean) { enabled = value; writeGate(); },
 		// Raw gate.json text, for invalid fixtures.
 		rawGate(text: string) { writeRecord(text); },
@@ -373,6 +376,91 @@ describe("agent rails", () => {
 				assert.ok(blocked?.reason?.includes("skill://git-tool"), blocked?.reason ?? command);
 			}
 		} finally { h.cleanup(); }
+	});
+
+	test("worktree creation uses the configured base and lowercase origin name", async () => {
+		const h = harness({ remote: "git@github.com:Owner/RePo.git" });
+		const previous = process.env.OMP_WORKTREE_DIR;
+		delete process.env.OMP_WORKTREE_DIR;
+		try {
+			await h.read("skill://git-tool");
+			const base = join(h.root, "Worktrees");
+			h.worktreeBase(base);
+			for (const args of [
+				`-b agent/x '${base}/repo/x'`,
+				`--detach '${base}/repo/detached' HEAD`,
+				`--reason 'bounded experiment' --detach '${base}/repo/reason' HEAD`,
+				`--reason=experiment -- '${base}/repo/explicit'`,
+				`-B agent/x '${relative(h.root, base)}/repo/relative'`,
+			]) assert.equal(await h.call("bash", { command: `git worktree add ${args}` }), undefined, args);
+			for (const target of ["../repo-x", `${base}/x`, `${base}/other/x`, `${base}/repo/x/nested`]) {
+				const blocked = await h.call("bash", { command: `git worktree add '${target}'` });
+				assert.equal(blocked?.block, true, target);
+				assert.equal(blocked?.reason, `Agent rails: create worktrees at ${base}/repo/<slug>; got ${resolve(h.root, target)}.`);
+			}
+			for (const target of ["$HOME/worktrees/repo/x", "`pwd`/x"]) {
+				assert.match((await h.call("bash", { command: `git worktree add '${target}'` }))?.reason ?? "", /unexpanded shell text/);
+			}
+			h.worktreeBase("(not set)");
+			assert.equal((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason,
+				"Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.");
+			h.worktreeBase(base);
+			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
+			assert.match((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason ?? "", /no origin remote/);
+			await execute("git", ["remote", "add", "origin", "https://example.com/owner/repo.git"], { cwd: h.root });
+			assert.match((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason ?? "", /not a GitHub/);
+		} finally {
+			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			h.cleanup();
+		}
+	});
+
+	test("worktree environment base overrides the setting and invalid env defers to it", async () => {
+		const h = harness();
+		const previous = process.env.OMP_WORKTREE_DIR;
+		try {
+			await h.read("skill://git-tool");
+			h.worktreeBase(join(h.root, "setting"));
+			process.env.OMP_WORKTREE_DIR = join(h.root, "override");
+			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/override/repo/x'` }), undefined);
+			assert.equal((await h.call("bash", { command: `git worktree add '${h.root}/setting/repo/x'` }))?.block, true);
+			process.env.OMP_WORKTREE_DIR = "relative";
+			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/setting/repo/x'` }), undefined);
+		} finally {
+			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			h.cleanup();
+		}
+	});
+
+	test("worktree paths canonicalize mixed case on case-insensitive filesystems", async t => {
+		const h = harness();
+		const previous = process.env.OMP_WORKTREE_DIR;
+		delete process.env.OMP_WORKTREE_DIR;
+		try {
+			const base = join(h.root, "Worktrees");
+			mkdirSync(join(base, "repo"), { recursive: true });
+			if (!existsSync(join(h.root, "worktrees"))) { t.skip("temporary filesystem is case-sensitive"); return; }
+			await h.read("skill://git-tool");
+			h.worktreeBase(base);
+			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/worktrees/REPO/x'` }), undefined);
+		} finally {
+			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			h.cleanup();
+		}
+	});
+
+	test("worktree setting command errors fail closed", async () => {
+		const h = harness({ ompCommand: ["sh", "-c", "exit 7"] });
+		const previous = process.env.OMP_WORKTREE_DIR;
+		delete process.env.OMP_WORKTREE_DIR;
+		try {
+			await h.read("skill://git-tool");
+			assert.match((await h.call("bash", { command: `git worktree add '${h.root}/repo/x'` }))?.reason ?? "",
+				/policy could not be evaluated.*cannot read worktree.base/);
+		} finally {
+			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			h.cleanup();
+		}
 	});
 
 	test("repo merge policy fails closed for publishing actions, respecting git -C", async () => {

@@ -1,6 +1,6 @@
 import { access, lstat, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -9,7 +9,7 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, RECORDS_DIR, readGateText, recordDir, resolveRecord,
+	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, parseOrigin, RECORDS_DIR, readGateText, recordDir, resolveRecord,
 } from "../lib/repo-record.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
@@ -125,6 +125,31 @@ function fresh(): State {
 function absolute(path: string, cwd: string): string | undefined {
 	if (/^[a-z][\w+.-]*:\/\//i.test(path)) return;
 	return resolve(cwd, path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path);
+}
+// Native realpath preserves the filesystem's canonical spelling (including on case-insensitive
+// volumes). New worktree directories need not exist yet: retain their missing suffix.
+function canonicalPath(path: string): string {
+	const suffix: string[] = [];
+	let ancestor = path;
+	for (;;) {
+		try { return resolve(realpathSync.native(ancestor), ...suffix); }
+		catch (error) {
+			const parsed = fileErrorSchema.safeParse(error);
+			if (!parsed.success || parsed.data.code !== "ENOENT") throw error;
+			const parent = dirname(ancestor);
+			if (parent === ancestor) throw error;
+			suffix.unshift(basename(ancestor));
+			ancestor = parent;
+		}
+	}
+}
+function worktreeTarget(args: string[]): string | undefined {
+	for (let i = 2; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "--") return args[i + 1];
+		if (["-b", "-B", "--reason"].includes(arg)) { i++; continue; }
+		if (!arg.startsWith("-")) return arg;
+	}
 }
 function absentFile(error: NodeJS.ErrnoException): null {
 	const parsed = fileErrorSchema.safeParse(error);
@@ -516,7 +541,8 @@ export default function agentRails(
 		configPath = fileURLToPath(new URL("../agent-rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),
 		guardrailsCommand = defaultGuardrailsCommand,
-	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[] } = {},
+		ompCommand = ["omp"],
+	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[]; ompCommand?: string[] } = {},
 ): void {
 	const states = new Map<string, State>();
 	let map: Mapping;
@@ -541,6 +567,37 @@ export default function agentRails(
 		const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
 		return result.stdout.trim();
+	}
+	async function worktreeReason(action: GitAction): Promise<string | undefined> {
+		if (!action.cwd) throw new Error("cannot resolve git worktree add effective cwd");
+		const validBase = (value: string | undefined): value is string =>
+			value !== undefined && (isAbsolute(value) || value.startsWith("~/"));
+		let base = process.env.OMP_WORKTREE_DIR;
+		if (!validBase(base)) {
+			if (!ompCommand.length) throw new Error("omp command is empty");
+			const result = await pi.exec(ompCommand[0], [...ompCommand.slice(1), "config", "get", "worktree.base"],
+				{ cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+			if (result.code !== 0 || result.killed) throw new Error(`cannot read worktree.base: ${result.stderr}`);
+			base = result.stdout.trim();
+		}
+		if (!validBase(base)) return "Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.";
+		const expandedBase = absolute(base, action.cwd);
+		if (!expandedBase || !isAbsolute(expandedBase)) return "Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.";
+		const remote = await pi.exec("git", ["remote", "get-url", "origin"], { cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+		if (remote.killed) throw new Error("origin lookup was killed");
+		if (remote.code !== 0) return "Agent rails: no origin remote; cannot create a worktree.";
+		const origin = remote.stdout.trim();
+		const slug = parseOrigin(origin);
+		if (!slug) return `Agent rails: origin ${origin} is not a GitHub owner/name URL; cannot create a worktree.`;
+		const name = slug.split("/")[1];
+		const target = worktreeTarget(action.args);
+		if (!target) throw new Error("git worktree add requires a target path");
+		if (/[$`]/.test(target)) return `Agent rails: received unexpanded shell text \`${target}\`; rails check the literal command, so pass the worktree path itself`;
+		const resolved = absolute(target, action.cwd);
+		if (!resolved) throw new Error("git worktree add requires a filesystem target");
+		if (dirname(canonicalPath(resolved)) !== canonicalPath(join(expandedBase, name))) {
+			return `Agent rails: create worktrees at ${expandedBase}/${name}/<slug>; got ${resolved}.`;
+		}
 	}
 	async function primaryGithubRepository(cwd: string): Promise<string> {
 		const remotes = (await gitValue(cwd, ["remote"])).split("\n");
@@ -909,6 +966,10 @@ export default function agentRails(
 					if (!new RegExp(map.gitCommand).test(action.command)) continue;
 					const urls = missing(state, map, ["git"]);
 					if (urls.length) return { block: true, reason: readReason(urls) };
+					if (/^git worktree add\b/.test(action.command)) {
+						const reason = await worktreeReason(action);
+						if (reason) return { block: true, reason };
+					}
 					if (/^git commit\b/.test(action.command)) {
 						const bypass = commitBypass(action);
 						if (bypass) return {

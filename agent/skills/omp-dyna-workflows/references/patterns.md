@@ -6,14 +6,15 @@ Git authority and CI/PR/merge mechanics belong to `skill://git-tool`.
 ## Spike recipe
 
 Main reads `skill://git-tool`, resolves the primary remote/default and fetches it
-before creating `git worktree add --detach <absolute-scratch-path> <fetched-ref>`.
+before creating `git worktree add --detach ~/worktrees/<repo>/spike-<slug> <fetched-ref>`.
+Use the configured `worktree.base` root and the lowercase `origin` repo name, with a `spike-` slug prefix.
 Each question has a pass/fail predicate, timebox and declared side effects; writes
 to shared services require owner approval. Main gives a non-isolated task absolute
 scratch paths and the smallest bounded experiment on the real surface. Prototype
 races are useful only when built results decide; use innovation-council only when
 no prototype can settle the question. The task returns findings, commands, actual
 outputs and failures. Main saves `local://spike-<slug>.md` before removing the tree
-with `git worktree remove --force <absolute-scratch-path>`. No spike code is reused.
+with `git worktree remove --force ~/worktrees/<repo>/spike-<slug>`. No spike code is reused.
 
 ## Proof manifest
 
