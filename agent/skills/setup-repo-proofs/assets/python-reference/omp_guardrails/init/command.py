@@ -2,10 +2,8 @@
 
 Init reads the repository and writes only into the record directory ``--record``. The live
 record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and never
-committed) is written by agents only when the owner asked for dynaflows in the chat: then init
-runs with ``--enable-dynaflows``, writes the live record directly and drafts dynaflows on.
-Without that flag, init refuses a ``--record`` under the live records root, and its report names
-the draft and where the owner saves it. Into the record directory, init:
+committed) can be written directly by agents. ``--enable-dynaflows`` drafts dynaflows on.
+Into the record directory, init:
 
 1. discovers the repository's own controls (``discovery``): make targets, hook managers, CI
    jobs and, through ``gh``, the default branch's required checks;
@@ -64,8 +62,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument(
         "--enable-dynaflows",
         action="store_true",
-        help="the owner asked for dynaflows in the chat: write the live record "
-        "(repos/<owner>/<name>/) directly and draft dynaflows on",
+        help="draft dynaflows.enabled true in the record",
     )
     command.add_argument(
         "--lsp-timeout",
@@ -167,13 +164,7 @@ def initialise(
         timeout=options.lsp_timeout,
     )
     summary = [f"init: {line}" for line in changes or ["no changes"]]
-    handoff = [
-        f"init: live record at {record}; the owner asked for dynaflows, so it is in use as written."
-        if options.enable_dynaflows and is_live(record)
-        else f"init: draft record at {record}. Without the owner's dynaflows ask, agents never write the "
-        f"live record: ask the owner to review this draft and save it as {harness.RECORDS}/<owner>/<name>/ "
-        "(the repository's origin owner/name, lowercase)."
-    ]
+    handoff = [f"init: record at {record}."]
     return summary + report + lsp_lines + handoff, lsp_findings
 
 
@@ -196,12 +187,6 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     except UsageError as error:
         return [usage_finding(str(error))]
     live = harness.RECORDS.resolve()
-    if is_live(record) and not options.enable_dynaflows:
-        return [usage_finding(
-            f"--record {record} is under the live records root {live}; agents write records only when "
-            "the owner asked for dynaflows in the chat (pass --enable-dynaflows then). Otherwise pass a "
-            "draft directory outside it; the owner saves the reviewed draft as the live record"
-        )]
     if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
         return [usage_finding(f"--record {record} must be a repo's record, {live}/<owner>/<name>")]
     try:

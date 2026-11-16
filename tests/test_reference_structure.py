@@ -348,5 +348,79 @@ class CheckerTests(unittest.TestCase):
         self.assertNotIn("guardrails.naming configures", self.run_cli("check")[1])
 
 
+class ImportGraphTests(unittest.TestCase):
+    RULES = {
+        "STRUCT.tier-readership",
+        "STRUCT.single-owner-placement",
+        "STRUCT.sibling-isolation",
+    }
+    FIXTURE = json.loads((FIXTURES / "import-graph.json").read_text())
+
+    def make_repo(self, files: dict[str, str], profile: dict) -> tuple[Path, Path]:
+        scratch = tempfile.TemporaryDirectory(prefix="omp-import-graph-")
+        self.addCleanup(scratch.cleanup)
+        repo, record = Path(scratch.name) / "repo", Path(scratch.name) / "record"
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        record.mkdir()
+        (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
+        for path, text in files.items():
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        return repo, record
+
+    def test_graph_rules_have_violating_and_conforming_public_outcomes(self) -> None:
+        for case in self.FIXTURE["cases"]:
+            for outcome in ("violating", "conforming"):
+                with self.subTest(case=case["name"], outcome=outcome):
+                    profile = copy.deepcopy(self.FIXTURE["profile"])
+                    repo, record = self.make_repo(case[outcome], profile)
+                    expected = set(case["paths"]) if outcome == "violating" else set()
+                    for checker in (layout, paths):
+                        # A named, unrelated path must not narrow the import graph.
+                        findings = checker.run(repo, profile, ["src/orders/__init__.py"])
+                        self.assertEqual(
+                            {f.path for f in findings if f.rule_id == case["rule"]}, expected
+                        )
+                    for command in ("structure", "path-check"):
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            cli.main([
+                                command, "--repo", str(repo), "--record", str(record),
+                                "src/orders/__init__.py",
+                            ])
+                        self.assertEqual(case["rule"] in output.getvalue(), bool(expected))
+
+    def test_no_import_settings_means_no_graph_findings(self) -> None:
+        case = self.FIXTURE["cases"][0]
+        profile = copy.deepcopy(self.FIXTURE["profile"])
+        del profile["structure"]["import_direction"]
+        repo, _ = self.make_repo(case["violating"], profile)
+        for checker in (layout, paths):
+            self.assertFalse({f.rule_id for f in checker.run(repo, profile, [])} & self.RULES)
+
+    def test_scan_excludes_python_outside_its_scope(self) -> None:
+        profile = copy.deepcopy(self.FIXTURE["profile"])
+        profile["structure"]["import_direction"]["scan"] = ["src/orders/commands"]
+        files = dict(self.FIXTURE["cases"][0]["violating"])
+        files["src/orders/shared/broken.py"] = "this is not Python!\n"
+        repo, _ = self.make_repo(files, profile)
+        for checker in (layout, paths):
+            self.assertFalse({f.rule_id for f in checker.run(repo, profile, [])} & self.RULES)
+
+    def test_unused_shared_tier_fails_but_driving_tier_does_not(self) -> None:
+        profile = copy.deepcopy(self.FIXTURE["profile"])
+        repo, _ = self.make_repo({
+            "src/orders/shared/model.py": "VALUE = 1\n",
+            "src/orders/commands/export.py": "VALUE = 1\n",
+        }, profile)
+        for checker in (layout, paths):
+            found = checker.run(repo, profile, [])
+            self.assertEqual(
+                {(f.rule_id, f.path) for f in found if f.rule_id in self.RULES},
+                {("STRUCT.tier-readership", "src/orders/shared")},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

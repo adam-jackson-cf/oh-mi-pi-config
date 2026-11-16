@@ -8,10 +8,13 @@ A file's path shows its owner and dependency direction.
 - Tiers are folders. Lower tier: what others read (contracts, shared types, parsing). Higher tier: what drives them (entry points, commands).
   Import only from lower tiers, never from a sibling on the same tier.
   - Add a tier only once a part is read by two or more others; until then keep modules flat in one package.
+    Enforced by STRUCT.tier-readership (omp-guardrails structure, path-check).
   - Existing project: read the current order from its import direction.
   - Add an automated import check where the toolchain allows one.
 - Code two siblings both need moves down to the lowest tier both may read; never import one sibling from the other to reach it.
+  Enforced by STRUCT.sibling-isolation (omp-guardrails structure, path-check).
 - A part one owner uses lives under that owner; once a second owner uses it, move it to the lowest tier both may read.
+  Enforced by STRUCT.single-owner-placement (omp-guardrails structure, path-check).
 - Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json));
   shared code goes in the lowest tier, in a folder named for what it holds.
   Sibling files sharing a name prefix (`audit_*`) that change together are a candidate folder named for that prefix.

@@ -1,0 +1,63 @@
+{
+  "profile": {
+    "structure": {"tiers": ["shared", "commands"], "import_direction": {"package": "acme.orders", "source_root": "src/orders"}},
+    "guardrails": {"structure": {"root_directories": ["src"], "root_files": []}}
+  },
+  "cases": [
+    {
+      "name": "tier-needs-two-distinct-parts-not-files-or-imports",
+      "rule": "STRUCT.tier-readership",
+      "violating": {
+        "src/orders/shared/model.py": "VALUE = 1\n",
+        "src/orders/commands/export/one.py": "from acme.orders.shared.model import VALUE\nfrom acme.orders.shared import model\n",
+        "src/orders/commands/export/two.py": "from acme.orders.shared import model\n"
+      },
+      "conforming": {
+        "src/orders/shared/model.py": "VALUE = 1\n",
+        "src/orders/commands/export.py": "from acme.orders.shared.model import VALUE\n",
+        "src/orders/commands/report.py": "import acme.orders.shared.model\n"
+      },
+      "paths": ["src/orders/shared"]
+    },
+    {
+      "name": "shared-module-with-one-owner-moves-under-owner",
+      "rule": "STRUCT.single-owner-placement",
+      "violating": {
+        "src/orders/shared/model.py": "VALUE = 1\n",
+        "src/orders/commands/export.py": "from ..shared import model\n"
+      },
+      "conforming": {
+        "src/orders/commands/export/model.py": "VALUE = 1\n",
+        "src/orders/commands/export/run.py": "from . import model\n"
+      },
+      "paths": ["src/orders/shared/model.py"]
+    },
+    {
+      "name": "same-tier-siblings-move-common-code-lower",
+      "rule": "STRUCT.sibling-isolation",
+      "violating": {
+        "src/orders/commands/export.py": "from acme.orders.commands import report\n",
+        "src/orders/commands/report.py": "VALUE = 1\n"
+      },
+      "conforming": {
+        "src/orders/shared/model.py": "VALUE = 1\n",
+        "src/orders/commands/export.py": "from acme.orders.shared import model\n",
+        "src/orders/commands/report.py": "from acme.orders.shared import model\n"
+      },
+      "paths": ["src/orders/commands/export.py"]
+    },
+    {
+      "name": "subpackage-initializer-relative-import-is-a-sibling-edge",
+      "rule": "STRUCT.sibling-isolation",
+      "violating": {
+        "src/orders/commands/export/__init__.py": "from .. import report\n",
+        "src/orders/commands/report.py": "VALUE = 1\n"
+      },
+      "conforming": {
+        "src/orders/commands/export/__init__.py": "from . import model\n",
+        "src/orders/commands/export/model.py": "VALUE = 1\n"
+      },
+      "paths": ["src/orders/commands/export/__init__.py"]
+    }
+  ]
+}

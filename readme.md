@@ -90,9 +90,9 @@ Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `ini
 `$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
 `$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
 as "I want to enable dynaflows", the main agent judges whether you are asking (rather than asking about
-it or quoting it) and calls the `dynaflows` tool. The ask lets the session's main agent write that repo's
-record (agents write records when the owner asked for dynaflows in the chat; otherwise records stay
-owner-edited). Turning it on starts from the repo's stage: with no record the agent starts
+it or quoting it) and calls the `dynaflows` tool. Agents write records directly, with approval fields
+only as the owner stated them in the chat. Turning it on starts from the repo's stage:
+with no record the agent starts
 repository setup and writes the record, switch on, itself; with a refused record it resumes setup
 and repairs it; with a prompt that holds only the ask it assesses the repo against the workflow's
 Start here and starts that stage. The switch is the record's `dynaflows.enabled`; linked worktrees
@@ -141,9 +141,9 @@ Worktrees resolve to the same record as their main checkout.
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
 devices. `skill://setup-repo-proofs` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
-A record is the owner's alone: rails refuse every agent edit-tool write under `repos/`
-(a lexical check on the resolved path), so the owner's hand edit is its only review.
-Bash writes to records are not guarded. When dynaflows resolves off, rails say why
+Agents write records directly, with approval fields only as the owner stated them in the chat;
+records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit
+block remain unchanged. When dynaflows resolves off, rails say why
 once at session start and at every commit, naming the slug (or `none`) and the
 reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py`
 strip the harness's `AGENT` variable from every repo command they run.

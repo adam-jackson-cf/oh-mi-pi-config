@@ -46,6 +46,8 @@ tools/oxlint/*
 
 !adr/
 adr/*
+!docs/
+!docs/**
 !agent/
 agent/*
 !agent/AGENTS.md
