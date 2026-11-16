@@ -1127,11 +1127,16 @@ ADVISORY = ("SECURITY.dependency-audit lock=uv.lock ecosystem=PyPI package=PyYAM
             "advisory=GHSA-8q59-q68h-6hv4 aliases=CVE-2020-14343,PYSEC-2021-142 fix=5.4")
 NO_FIX = ("SECURITY.dependency-audit lock=web/package-lock.json ecosystem=npm package=node-serialize version=0.0.4 "
           "advisory=GHSA-q4v7-4rhw-9hqm aliases= fix=")
+BLOCKED_FIX = {
+    "blocked_by": "scanner@4.0",
+    "constraint": "scanner==4.0 requires PyYAML<5.4",
+    "constraint_source": "https://example.org/scanner/4.0/metadata",
+}
 
 
-def evidence(scope="runtime", hits=True, fix_options=""):
+def evidence(scope="runtime", hits=True, fix_options="", blocked_fix=None):
     return {"advisory_text": "arbitrary code execution through full_load", "advisory_source": "https://osv.dev/x",
-            "scope": scope, "scope_source": "pyproject.toml:12", "fix_options": fix_options,
+            "scope": scope, "scope_source": "pyproject.toml:12", "fix_options": fix_options, "blocked_fix": blocked_fix,
             "code_search": {"queries": ["yaml.full_load"],
                             "hits": [{"location": "api/imports.py:88", "line": "yaml.full_load(body)"}] if hits else []}}
 
@@ -1217,9 +1222,14 @@ class SeverityRubricTests(unittest.TestCase):
             (answers(impact="info_leak", interaction=0.95, reached=0.05), {"scope": "dev"}, "low", "fix"),
         ]
         for answer, kwargs, severity, route in cases:
-            with self.subTest(severity=severity, kwargs=kwargs):
-                rated = self.rate(answer, **kwargs)
-                self.assertEqual((rated["severity"], rated["route"]), (severity, route))
+            for blocker in (None, BLOCKED_FIX):
+                with self.subTest(severity=severity, kwargs=kwargs, blocker=blocker):
+                    rated = self.rate(answer, **kwargs, blocked_fix=blocker)
+                    expected_route = "owner" if blocker is not None else route
+                    self.assertEqual((rated["severity"], rated["route"]), (severity, expected_route))
+                    if blocker is not None:
+                        self.assertIn("dated exception", rated["suggested_fix"])
+                        self.assertEqual(rated["dimensions"]["fix"]["blocked_fix"], blocker)
 
     def test_unclear_evidence_rounds_up(self):
         self.assertEqual(self.rate(answers(impact="unclear"))["severity"], "critical")
@@ -1250,6 +1260,14 @@ class SeverityRubricTests(unittest.TestCase):
         bad = {**evidence(), "extra": 1}
         with self.assertRaisesRegex(workflow.WorkflowError, "evidence needs"):
             workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
+        for invalid in ({}, {**BLOCKED_FIX, "constraint": ""},
+                        {**BLOCKED_FIX, "blocked_by": "scanner"},
+                        {**BLOCKED_FIX, "constraint_source": "http://example.org"},
+                        {**BLOCKED_FIX, "unexpected": "value"}):
+            with self.subTest(blocker=invalid), self.assertRaises(workflow.WorkflowError):
+                self.rate(answers(), blocked_fix=invalid)
+        with self.assertRaises(workflow.WorkflowError):
+            self.rate(answers(), advisory=self.no_fix, blocked_fix=BLOCKED_FIX, fix_options="replace it")
 
 
 MALICIOUS = ("SECURITY.dependency-audit lock=package-lock.json ecosystem=npm package=eslint-scope version=3.7.2 "
@@ -1351,11 +1369,27 @@ class TriageTests(unittest.TestCase):
         self.assertEqual(set(questions), {"impact", *workflow.PRECONDITIONS, "reached"})
         self.assertEqual(state["advisory"]["text"], "arbitrary code execution through full_load")
 
-    def test_all_low_or_medium_does_not_halt(self):
-        low = answers(impact="dos", reached=0.02)
-        result = self.run_triage({"PyYAML": low, "black": low}, {key: evidence() for key in self.keys})
-        self.assertEqual((result["halt"], result["owner"], result["report"]), (False, [], ""))
-        self.assertEqual([item["severity"] for item in result["fix"]], ["low", "low"])
+    def test_low_or_medium_routes_by_fix_availability(self):
+        for answer, severity in ((answers(impact="dos", reached=0.02), "low"),
+                                 (answers(impact="dos"), "medium")):
+            for blocker in (None, BLOCKED_FIX):
+                with self.subTest(severity=severity, blocker=blocker):
+                    result = self.run_triage(
+                        {"PyYAML": answer, "black": answer},
+                        {self.keys[0]: evidence(blocked_fix=blocker), self.keys[1]: evidence()},
+                    )
+                    self.assertEqual(result["halt"], blocker is not None)
+                    self.assertEqual([item["key"] for item in result["owner"]],
+                                     [self.keys[0]] if blocker is not None else [])
+                    self.assertEqual([item["key"] for item in result["fix"]],
+                                     [self.keys[1]] if blocker is not None else self.keys)
+                    self.assertTrue(all(item["severity"] == severity
+                                        for item in result["owner"] + result["fix"]))
+                    if blocker is None:
+                        self.assertEqual(result["report"], "")
+                    else:
+                        for text in (*blocker.values(), "dated exception", "Pinned dependent"):
+                            self.assertIn(text, result["report"])
 
     def test_exception_file_failures_halt_for_the_owner(self):
         self.found["failures"].append({"kind": "exception", "path": "scripts/checks/exceptions.json", "reason": "expired"})

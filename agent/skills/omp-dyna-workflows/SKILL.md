@@ -97,8 +97,9 @@ that `checks.commit` already runs; any finding blocks the commit, with no baseli
 When the commit gate reports `SECURITY.dependency-audit` findings, main stops implementation and
 follows [dependency advisories](references/patterns.md#dependency-advisories): each advisory gets
 the calibrated severity judgment, except a malicious package (`MAL-`), which code routes to the
-owner as critical. Any high or critical advisory or advisory with no fixed release halts the
-workflow with a report to the owner, and low or medium ones are upgraded in the flow.
+owner as critical. Any high or critical advisory, advisory with no fixed release, or fix blocked
+by a pinned dependent halts the workflow with a report to the owner. Low or medium advisories
+with unblocked fixes are upgraded in the flow; blocked fixes need a dated owner exception.
 Agents never edit the record's `ownerOnlyPaths`, such as the exception file; rails refuse the
 commit.
 Missing controls or the lazy surface trigger above require owner-approved project setup. Read

@@ -323,6 +323,10 @@ for success, 1 for gate failure/error or status-publication failure, and 2 when 
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
 The runner executes `checks.ci` after the devcontainer's `postCreateCommand`.
+Bootstrap or install failures before `checks.ci` starts are infrastructure `error`
+results, so normal resubmission recreates the checkout and retries them. A phase
+marker outside the checkout distinguishes them from a nonzero gate result.
+Bootstrap and gate keep the same container and shell environment.
 
 Logs and atomic `result.json` files remain under
 `${XDG_STATE_HOME:-~/.local/state}/ci-gate/jobs/<owner>/<repo>/<sha>/`;

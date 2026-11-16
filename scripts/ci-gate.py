@@ -4,6 +4,8 @@
 The gate policy (checks.ci and ci.requiredContext) comes from the repo's personal per-repo record,
 <harness root>/repos/<owner>/<name>/gate.json beside this checkout, never from the repo tree.
 The device rollout copies records to every device.
+Bootstrap/install failures before checks.ci starts are retryable infrastructure errors.
+Once checks.ci starts, its nonzero result is a cached gate failure.
 """
 import argparse
 import base64
@@ -22,6 +24,7 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
 import urllib.request
 
 SELF = Path(__file__).resolve()
@@ -386,13 +389,22 @@ def execute(job, metadata):
                             image = config['image']
                             if not isinstance(image, str) or not image or image.startswith('-'):
                                 raise RuntimeError('Invalid container image')
-                    command = (post + ' && ' if post else '') + shlex.join(gate)
-                    code = container_command([podman, 'run', '--rm', '--name', container, *runtime_flags(),
-                                              '-v', str(src) + ':/work:rw', '-w', '/work', image,
-                                              'bash', '-c', command], log)
-                    if code in (125, 126, 127) or code < 0:
-                        raise RuntimeError('Podman execution failed')
-                    state = 'success' if code == 0 else 'failure'
+                    # Keep the phase marker outside the checkout: bootstrap and gate share one
+                    # shell/container, including exported variables and installed dependencies.
+                    command = ((post + '\n') if post else '') + (
+                        'bootstrap_status=$?\n'
+                        'if (( bootstrap_status )); then exit "$bootstrap_status"; fi\n'
+                        ': > /ci-gate-state/gate-started && exec ' + shlex.join(gate))
+                    with tempfile.TemporaryDirectory(prefix='execute-', dir=job) as phase:
+                        code = container_command([podman, 'run', '--rm', '--name', container, *runtime_flags(),
+                                                  '-v', str(src) + ':/work:rw',
+                                                  '-v', phase + ':/ci-gate-state:rw', '-w', '/work', image,
+                                                  'bash', '-c', command], log)
+                        if code in (125, 126, 127) or code < 0:
+                            raise RuntimeError('Podman execution failed')
+                        if not (Path(phase) / 'gate-started').is_file():
+                            raise RuntimeError(f'Container bootstrap failed (exit {code})')
+                        state = 'success' if code == 0 else 'failure'
             except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
                 reason = str(error) if isinstance(error, RuntimeError) else 'Infrastructure failure (' + type(error).__name__ + ')'
                 log.write(reason + '\n')
