@@ -41,7 +41,7 @@
     "cases": 56,
     "dev": 44,
     "test": 12,
-    "provenance": "agent_reviewed: two blind sessions on different models (opus, sonnet) labelled all 56 cases from the frozen guide and agreed on 280 of 280 labels; both reasons are kept per label; 3 impact rule citations were corrected by adjudication (C40, C49, C54). Same model family, so agreement is weak evidence; no human labels yet",
+    "provenance": "human: the owner reviewed all 56 cases one at a time on the label review page (https://claude.ai/artifact/WjwY8EcMvfAB34bMnCcuxs) and confirmed every agent_reviewed proposal unchanged (280 labels, none marked unsure). The proposals came from two blind sessions (opus, sonnet) that agreed on 280 of 280 labels from the frozen guide; both reasons are kept per label; 3 impact rule citations were corrected by adjudication (C40, C49, C54)",
     "synthetic": 2,
     "split": "dev: C01-C44 (30 original replay cases plus 14 real advisories chosen to fill scarce labels); test: C45-C56, a natural sample of real advisories published 2026-10-28 or later (first per upstream repository, pip and npm alternating)",
     "strata": {
@@ -81,5 +81,5 @@
     "malicious_rule": "C30 (eslint-scope 3.7.2, alias MAL-GHSA-hxxf-q3w9-4xgw) never reaches the judgment: workflows.malicious_package routes it as critical to the owner",
     "history": "v2 (version 81dff5cf, 30 cases): 27/30 severity match; superseded by the reached rewording (R6) and the guide's new rules U4, I3, P3 and named defaults"
   },
-  "todo": "provisional: the owner reviews every case on the label review page (https://claude.ai/artifact/WjwY8EcMvfAB34bMnCcuxs, decisions collection; each decision is appended to labels.jsonl as a `human` row by the owner) (human labels override these agent labels); then grow to about 30 positives per label for local_only, needs_privileges and needs_interaction, re-tune and recheck calibration; probabilities are not fit to show as confidence"
+  "todo": "provisional: grow to about 30 positives per label for local_only, needs_privileges and needs_interaction (currently 5-8 dev positives each), re-tune and recheck calibration; probabilities are not fit to show as confidence"
 }
