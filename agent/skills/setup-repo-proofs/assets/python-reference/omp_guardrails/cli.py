@@ -1,7 +1,7 @@
 """Single entry point: ``omp-guardrails <subcommand> [--repo DIR] [--record DIR] [args...]``.
 
 omp-guardrails runs from the harness, never from the repository's environment: the agent rails
-call ``uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/
+call ``uv run --project <omp root>/agent/skills/setup-repo-proofs/assets/
 python-reference omp-guardrails check --repo <worktree> --record <record dir>``. ``--repo`` is the
 checkout to inspect (default: the working directory). ``--record`` is the repo's personal
 per-repo record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``); its ``profile.md`` is the

@@ -10,7 +10,7 @@ Show the full cost of clearing every harness finding before changing the target.
    target counterpart using Git diff or equivalent exact file comparison. Count creates, edits,
    deletes, added/deleted lines, and files with unresolved merge conflicts.
 2. Run the harness checks from the harness against a temporary checkout with the draft record:
-   `uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference
+   `uv run --project <omp root>/agent/skills/setup-repo-proofs/assets/python-reference
    omp-guardrails check --repo <temporary checkout> --record <draft record dir>`.
    They read nothing from, and write nothing into, the checkout's tree. Count findings by rule ID
    and path over the whole repository. Steps the draft record's `guardrails.check.repo` gives

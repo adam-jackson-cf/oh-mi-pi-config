@@ -137,7 +137,7 @@ Worktrees resolve to the same record as their main checkout.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. `skill://setup-repository-guardrails` drafts a record for owner
+devices. `skill://setup-repo-proofs` drafts a record for owner
 confirmation and writes nothing into the target repo except approved fixes.
 A record is the owner's alone: rails refuse every agent edit-tool write under `repos/`
 (a lexical check on the resolved path), so the owner's hand edit is its only review.
@@ -378,7 +378,7 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/skills/setup-repository-guardrails/` — repository guardrail setup. Its
+- `agent/skills/setup-repo-proofs/` — repository guardrail setup. Its
   `omp-guardrails` Python reference ships the rule catalogue
   (`omp_guardrails/data/guardrail-rules.json`). The harness runs it from this
   checkout over each repository from outside its tree. Its own tests prove every rule

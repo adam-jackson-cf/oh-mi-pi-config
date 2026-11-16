@@ -8,7 +8,7 @@ Helper mechanics live in [patterns](../patterns.md); Git mechanics in `skill://g
 
 ## 1. Frame
 
-Identify stack, protected work, missing controls and owners. Read `skill://setup-repository-guardrails`
+Identify stack, protected work, missing controls and owners. Read `skill://setup-repo-proofs`
 and `skill://test-guidance/references/verification-surface.md`.
 Read the record's `profile.md` when present. Trigger surface setup lazily for user-visible work
 without a surface; an owner-approved no-runnable-app exemption does not trigger it.

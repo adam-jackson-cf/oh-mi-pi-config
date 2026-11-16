@@ -12,7 +12,7 @@ Draft the record and the candidate repo fixes outside the target checkout.
    adapt or edit its code, and never install it into the target's environment
    or lockfile. Run it from the harness against a temporary clone of the
    target under the candidate root: `uv run --project <omp
-   root>/agent/skills/setup-repository-guardrails/assets/python-reference
+   root>/agent/skills/setup-repo-proofs/assets/python-reference
    omp-guardrails init --repo <temporary clone> --record <draft record dir>`.
    `<draft record dir>` sits under the candidate root, never under the records
    directory; in extend mode, start it as a copy of the existing record.

@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
-# omp_guardrails/ -> python-reference/ -> assets/ -> setup-repository-guardrails/ -> skills/
+# omp_guardrails/ -> python-reference/ -> assets/ -> setup-repo-proofs/ -> skills/
 SKILLS = PACKAGE.parents[3]
 AGENT = SKILLS.parent
 # The live per-repo records (<harness>/repos/<owner>/<name>/). Agents write one only when the owner

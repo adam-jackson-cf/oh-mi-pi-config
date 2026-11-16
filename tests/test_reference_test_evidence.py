@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repository-guardrails/assets/python-reference"
+REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
 FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 sys.path.insert(0, str(REFERENCE))
 
