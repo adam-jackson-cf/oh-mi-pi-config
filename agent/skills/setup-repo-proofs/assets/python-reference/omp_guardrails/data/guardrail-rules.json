@@ -250,15 +250,15 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configuration": "record:gate.json",
-        "required_command_field": "pathCheck",
+        "configuration": "record:profile.md",
+        "harness_subcommand": "omp-guardrails path-check",
         "changed_paths_appended_as_arguments": true,
         "success_exit_code": 0,
         "violation_exit_nonzero": true,
         "diagnostic": "one_error_per_line_naming_file_and_fix",
         "checks": ["structure", "naming", "test_placement"]
       },
-      "summary": "Expose executable changed-path checks with actionable per-file errors.",
+      "summary": "Run harness-owned changed-path checks over record settings with actionable per-file errors.",
       "reference": [
         {"subcommand": "path-check", "module": "omp_guardrails.structure.paths"}
       ]

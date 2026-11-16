@@ -80,16 +80,56 @@ def tier_locations(profile: dict) -> dict[str, list[str]]:
 
 
 def defines_tests(repo: Path, path: str) -> bool:
+    """Recognize framework-backed module tests and direct test-class methods, not helpers."""
     if not path.endswith(".py") or not (repo / path).is_file():
         return False
     try:
         tree = ast.parse((repo / path).read_bytes(), filename=path)
     except (OSError, SyntaxError, ValueError):
         return False
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
-        for node in ast.walk(tree)
-    )
+    framework_imported = False
+    testcase_names = {"TestCase"}
+    unittest_names = {"unittest"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in {"pytest", "unittest"}:
+                    framework_imported = True
+                if alias.name == "unittest":
+                    unittest_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in {"pytest", "unittest"}:
+                framework_imported = True
+            if node.module == "unittest":
+                testcase_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name == "TestCase"
+                )
+    if not framework_imported:
+        return False
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in tree.body:
+        if isinstance(node, function_types) and node.name.startswith("test_"):
+            return True
+        if not isinstance(node, ast.ClassDef):
+            continue
+        is_test_class = node.name.startswith("Test") or any(
+            (isinstance(base, ast.Name) and base.id in testcase_names)
+            or (
+                isinstance(base, ast.Attribute)
+                and base.attr == "TestCase"
+                and isinstance(base.value, ast.Name)
+                and base.value.id in unittest_names
+            )
+            for base in node.bases
+        )
+        if is_test_class and any(
+            isinstance(method, function_types) and method.name.startswith("test_")
+            for method in node.body
+        ):
+            return True
+    return False
 
 
 def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
@@ -194,8 +234,15 @@ def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
     return found
 
 
-def native_findings(repo: Path, sources: list[str], profile: dict) -> list[Finding]:
-    native = import_config(profile)[0].get("native")
+def native_findings(repo: Path, paths: list[str], profile: dict) -> list[Finding]:
+    direction, _ = import_config(profile)
+    native = direction.get("native")
+    scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
+    sources = sorted({
+        path
+        for raw in paths
+        if (path := normalized_path(repo, raw)) and matches_any(path, scan)
+    })
     if not sources or not isinstance(native, dict):
         return []
     command, timeout = as_list(native.get("command")), native.get("timeout_s")
@@ -249,13 +296,6 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     except InventoryError as error:
         return [Finding(PLACEMENT, ".", str(error), "run inside a Git work tree")]
     found = [finding for raw in paths for finding in path_findings(repo, raw, profile)]
-    direction, _ = import_config(profile)
-    scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
-    sources = sorted({
-        p
-        for raw in paths
-        if (p := normalized_path(repo, raw)) and p.endswith(".py") and matches_any(p, scan)
-    })
-    found.extend(native_findings(repo, sources, profile))
+    found.extend(native_findings(repo, paths, profile))
     found.extend(import_graph_findings(repo, profile, []))
     return apply_exceptions(found, profile)

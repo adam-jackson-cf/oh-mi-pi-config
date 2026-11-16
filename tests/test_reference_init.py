@@ -179,7 +179,6 @@ class DraftRecordTests(InitCase):
             {
                 "schemaVersion": 2,
                 "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
-                "pathCheck": ["make", "check-paths"],
                 "ci": {"requiredContext": "gate", "runner": "github-actions"},
                 "dynaflows": {"enabled": False},
             },
@@ -257,16 +256,17 @@ class DraftRecordTests(InitCase):
         gate = self.gate()
         self.assertEqual(gate["checks"]["ci"], ["just", "ci"])
         self.assertEqual(gate["ci"], {"requiredContext": "ci", "runner": "ci-gate"})
-        self.assertNotIn("pathCheck", gate)
-        self.assertIn("required: no pathCheck found; pass --path-command", output)
-        code, output = self.init("--path-command", "python3 scripts/check-paths.py")
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["pathCheck"], ["python3", "scripts/check-paths.py"])
         self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
-        for flags in (("--runner", " "), ("--commit-command", ""), ("--path-command", " ")):
+        for flags in (("--runner", " "), ("--commit-command", "")):
             code, output = self.init(*flags)
             self.assertEqual(code, 1)
             self.assertIn("must not be empty", output)
+
+    def test_repo_path_command_flag_is_refused_without_writing_the_record(self) -> None:
+        code, output = self.init("--path-command", "python3 scripts/check-paths.py")
+        self.assertEqual(code, 1)
+        self.assertIn("invalid init arguments: --offline --path-command", output)
+        self.assertFalse(self.record.exists())
 
     def test_pre_commit_config_drafts_the_commit_command(self) -> None:
         self.write(".pre-commit-config.yaml", "repos:\n  - repo: local\n    hooks:\n      - id: ruff\n")
@@ -276,13 +276,12 @@ class DraftRecordTests(InitCase):
         self.assertIn("discovered: pre-commit hooks: ruff", output)
         self.assertIn("confirm: no checks.ci found", output)
         self.assertIn("confirm: no ci found", output)
-        self.assertIn("required: no pathCheck found", output)
+        self.assertEqual(required_fields(output), ["ownerOnlyPaths"])
 
     def test_no_commit_command_found_is_reported_as_required(self) -> None:
         code, output = self.init()
         self.assertEqual(code, 0, output)
         self.assertIn("required: no checks.commit found; pass --commit-command", output)
-        self.assertIn("required: no pathCheck found; pass --path-command", output)
 
     def test_unreadable_gate_or_unknown_field_is_reported_not_rewritten(self) -> None:
         for gate, named in (({"schemaVersion": 3}, "schemaVersion 2"),
@@ -310,7 +309,7 @@ class DraftRecordTests(InitCase):
         live = Path(self.temporary.name).resolve() / "harness/repos"
         with mock.patch.object(harness, "RECORDS", live):
             self.record = live / "owner/target"
-            code, output = self.init("--enable-dynaflows", "--commit-command", "make check", "--path-command", "make paths")
+            code, output = self.init("--enable-dynaflows", "--commit-command", "make check")
             self.assertEqual(code, 0, output)
             self.assertEqual(self.gate()["dynaflows"], {"enabled": True})
             self.assertIn(f"init: record at {self.record}", output)
@@ -388,7 +387,6 @@ class ExistingRecordTests(InitCase):
         code, output = self.init()
         self.assertEqual(code, 0, output)
         self.assertEqual(self.gate()["checks"]["commit"], ["make", "gate-commit"])
-        self.assertEqual(self.gate()["pathCheck"], ["make", "check-paths"])
         self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
         self.assert_second_run_changes_nothing()
 

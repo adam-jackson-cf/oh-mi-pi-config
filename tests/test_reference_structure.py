@@ -170,7 +170,7 @@ class CheckerTests(unittest.TestCase):
             "tests/boundary/test_payments_retry.py": "",
             "tests/fixtures/test_sample_order.py": "",
             "tests/scheduled/test_order_soak.py": "",
-            "src/orders/engine/checks.py": "def test_engine_runs():\n    assert True\n",
+            "src/orders/engine/checks.py": "import pytest\n\ndef test_engine_runs():\n    assert True\n",
             "src/orders/engine/upward.py": "from orders.cli import main\n",
             "src/orders/contract/reach.py": "from ..engine import runner\n",
         }
@@ -189,6 +189,60 @@ class CheckerTests(unittest.TestCase):
                 ("STRUCT.dependency-direction", "src/orders/contract/reach.py"),
             },
         )
+
+    def test_path_check_only_reports_framework_backed_collectable_tests(self) -> None:
+        cases = {
+            "production helper": ("def test_patterns(profile):\n    return profile\n", False),
+            "pytest function": ("import pytest\n\ndef test_x():\n    assert True\n", True),
+            "pytest class": (
+                "import pytest\n\nclass TestOrders:\n    def test_x(self):\n        assert True\n",
+                True,
+            ),
+            "unittest class": (
+                "import unittest\n\nclass Orders(unittest.TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "imported TestCase": (
+                "from unittest import TestCase\n\nclass Orders(TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "aliased TestCase": (
+                "from unittest import TestCase as Case\n\nclass Orders(Case):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "aliased unittest": (
+                "import unittest as unit\n\nclass Orders(unit.TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "nested function": (
+                "import pytest\n\ndef patterns():\n    def test_x():\n        assert True\n",
+                False,
+            ),
+            "ordinary class": (
+                "import pytest\n\nclass Patterns:\n    def test_node(self):\n        return True\n",
+                False,
+            ),
+            "nested class helper": (
+                "import pytest\n\ndef patterns():\n"
+                "    class TestOrders:\n        def test_x(self):\n            assert True\n",
+                False,
+            ),
+            "nested method helper": (
+                "import pytest\n\nclass TestOrders:\n    def patterns(self):\n"
+                "        def test_x():\n            assert True\n",
+                False,
+            ),
+        }
+        path = "src/orders/engine/checks.py"
+        for name, (source, collected) in cases.items():
+            with self.subTest(case=name):
+                self.write(path, source)
+                expected = {("TEST.placement", path)} if collected else set()
+                self.assertEqual(self.findings(paths, [path]), expected)
 
     def test_path_check_refuses_paths_outside_the_repository(self) -> None:
         self.assertEqual(
@@ -236,6 +290,65 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         lines = out.splitlines()
         self.assertTrue(lines and all(line.startswith("src/orders/engine/misc.py: ") for line in lines))
+
+    def test_native_import_direction_checks_non_python_sources(self) -> None:
+        source = "src/orders/engine/runner.ts"
+        self.write(source, "export const ready = true;\n")
+        for scope in ({"scan": ["src/**/*.ts"]}, {"source_root": "src"}):
+            for exit_code in (1, 0):
+                self.profile["structure"]["import_direction"] = {
+                    **scope,
+                    "native": {
+                        "command": [sys.executable, "-c", f"raise SystemExit({exit_code})"],
+                        "timeout_s": 5,
+                        "cwd": ".",
+                    },
+                }
+                self.write_profile()
+                for name in ("path-check", "structure"):
+                    with self.subTest(scope=scope, exit_code=exit_code, command=name):
+                        code, out = self.run_cli(name, source)
+                        self.assertEqual(code, exit_code)
+                        if exit_code:
+                            self.assertIn(f"{source}: STRUCT.dependency-direction:", out)
+                        else:
+                            self.assertEqual(out, f"{name}: ok\n")
+
+    def test_native_import_direction_ignores_paths_outside_scan(self) -> None:
+        self.profile["structure"]["import_direction"] = {
+            "scan": ["src/**/*.ts"],
+            "native": {
+                "command": [sys.executable, "-c", "raise SystemExit(1)"],
+                "timeout_s": 5,
+            },
+        }
+        self.write_profile()
+        for name in ("path-check", "structure"):
+            with self.subTest(command=name):
+                self.assertEqual(
+                    self.run_cli(name, "src/orders/engine/runner.py"), (0, f"{name}: ok\n")
+                )
+
+    def test_native_import_direction_checks_inventory_without_arguments(self) -> None:
+        source = "src/orders/engine/runner.ts"
+        self.write(source, "export const ready = true;\n")
+        self.profile["structure"]["import_direction"] = {
+            "scan": ["src/**/*.ts"],
+            "native": {
+                "command": [sys.executable, "-c", "raise SystemExit(1)"],
+                "timeout_s": 5,
+            },
+        }
+        self.write_profile()
+        for name in ("path-check", "structure"):
+            with self.subTest(command=name):
+                code, out = self.run_cli(name)
+                self.assertEqual(code, 1)
+                self.assertEqual(
+                    out.splitlines(),
+                    [f"{source}: STRUCT.dependency-direction: repository import contracts failed; "
+                     f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges"],
+                )
 
     def test_check_runs_the_record_steps_over_the_whole_repo_and_writes_nothing(self) -> None:
         self.profile["guardrails"]["check"] = {"run": ["structure", "naming", "path-check"]}
@@ -299,6 +412,10 @@ class CheckerTests(unittest.TestCase):
             "record check": (
                 {"repo": {"profile-check": ["checks/lint.py"]}},
                 "guardrails.check.repo names 'profile-check'",
+            ),
+            "harness path check": (
+                {"repo": {"path-check": ["src/orders/cli/main.py"]}, "exclude": ["**"]},
+                "guardrails.check.repo names 'path-check', which the repo cannot own",
             ),
             "listed twice": (
                 {"run": ["naming"], "repo": {"naming": ["src/orders/cli/main.py"]}},

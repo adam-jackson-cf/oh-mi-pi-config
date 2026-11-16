@@ -13,12 +13,15 @@ The target repository holds nothing about the harness.
 
 The record holds two files:
 
-- `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`, `pathCheck`), test globs,
-  the required CI context and runner role, `ownerOnlyPaths` and `dynaflows.enabled`. `pathCheck`,
+- `gate.json`: the repo's own commands (`checks.commit`, `checks.ci`), test globs,
+  the required CI context and runner role, `ownerOnlyPaths` and `dynaflows.enabled`.
   `checks.commit` and `ownerOnlyPaths` are required; a field outside the schema fails the load,
-  naming the field.
+  naming the field. The obsolete path command field is rejected.
 - `profile.md`: the repo test profile, JSON front matter between `---` lines, then prose. Start
   it from `skill://test-guidance/assets/templates/test-profile.md`.
+  Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings configure
+  harness-owned per-edit path checks; these settings remain required even with repo-owned
+  whole-repo checks.
 
 `gate.json` here is a generic example; setup drafts the real one from the repo's make targets,
 hook config and CI jobs for the owner to confirm. Rules for the record:
@@ -36,7 +39,8 @@ hook config and CI jobs for the owner to confirm. Rules for the record:
 `omp-guardrails init --repo <clone> --record <record dir>` drafts both files directly in the live
 record or a draft directory for owner confirmation, and writes nothing into the repo.
 `--enable-dynaflows` drafts dynaflows on when the owner asked for it in the chat.
-At the agent's commit the rails run
+After edits and before commit, rails run harness
+`omp-guardrails path-check --repo <worktree> --record <record dir>`. At commit this is followed by
 `checks.commit`, then `omp-guardrails check --repo <worktree> --record <record dir>` over the whole
 repo. The profile's `guardrails.check.run` picks the check steps, `guardrails.check.repo` maps each
 step the repo already enforces to the list of repo checker files that carry its rules

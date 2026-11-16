@@ -11,8 +11,8 @@ disable-model-invocation: true
 # Task
 
 A repo's **record** is its personal harness config: `repos/<owner>/<name>/` under the oh-mi-pi-config root, named by
-the clone's `origin` remote, gitignored and never committed. It holds `gate.json` (commands, `pathCheck`, `ci`, `agentMerge`,
-`dynaflows.enabled`; `pathCheck` and `checks.commit` are required) and `profile.md`. The repo itself holds nothing about omp or dynaflows.
+the clone's `origin` remote, gitignored and never committed. It holds `gate.json` (commands, `ci`, `agentMerge`,
+`dynaflows.enabled`; `checks.commit` is required) and `profile.md`. The repo itself holds nothing about omp or dynaflows.
 
 The orchestrating (main) agent owns each change from branch to merge; the owner reviews merged PRs afterwards when he chooses.
 Implementation tasks commit, push, write the description, open the PR and wait for exact-head green CI before handing off.
@@ -27,8 +27,8 @@ ask the user once when the choice changes the outcome, state the choice in the r
   Main runs the PR check, coordinates fixes and merges; implementation tasks commit through the commit checks and deliver ready PRs. Main never commits.
   Only same-branch writes contend: independent units run and merge independently.
   - Short-lived `agent/*` branches are the trunk-based unit; target same-day merge. A unit waits only on a unit it builds on.
-  - Every agent commit is checked: rails run the record's `pathCheck`, its `checks.commit` and then the harness
-    checks over the whole repo. Never bypass them or the repo's own hooks.
+  - Every agent commit is checked: rails run harness `omp-guardrails path-check` with the record as config,
+    then the record's `checks.commit` and whole-repo harness checks. Never bypass them or the repo's own hooks.
   - The proof/implementation task sequence belongs to
     [dynaflows SKILL stage 4](skill://omp-dyna-workflows/SKILL.md).
   - Land multi-phase work incrementally behind a flag with a stated removal criterion; never long-lived or stacked branches.

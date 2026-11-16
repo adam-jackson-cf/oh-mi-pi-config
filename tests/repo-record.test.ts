@@ -9,7 +9,7 @@ import {
 } from "../agent/lib/repo-record.ts";
 
 // A complete gate.json; tests replace one field at a time (undefined drops it from the JSON).
-const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, pathCheck: ["make", "check-paths"], ownerOnlyPaths: [], dynaflows: { enabled: true } };
+const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, ownerOnlyPaths: [], dynaflows: { enabled: true } };
 
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
@@ -125,7 +125,7 @@ describe("record resolution", () => {
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
 			for (const [invalid, named] of [
-				[{ ...completeGate, pathCheck: undefined }, "pathCheck"], [{ ...completeGate, checks: { ci: ["ci"] } }, "checks"],
+				[{ ...completeGate, checks: { ci: ["ci"] } }, "checks"],
 				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, unknownField: 3 }, "unknownField"],
 				[{ ...completeGate, extraField: 1000 }, "extraField"], [{ ...completeGate, otherField: "github" }, "otherField"],
 				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],

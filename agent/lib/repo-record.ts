@@ -117,8 +117,8 @@ const nonEmpty = z.string().refine(value => value.trim().length > 0);
 const dynaflowsSwitch = z.object({ enabled: z.boolean() });
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
-// `pathCheck` and `checks.commit` are required: rails run them at every agent commit, pathCheck
-// first. `checks.ci` runs in CI; `checks.format` runs in freeze() before hashing; `checks.profile`
+// `checks.commit` is required: rails run it after the harness path check at every agent commit.
+// `checks.ci` runs in CI; `checks.format` runs in freeze() before hashing; `checks.profile`
 // is validated for the harness's other consumers. `ci.requiredContext` is the commit status or
 // check run that must be SUCCESS on the exact PR head, whoever posts it; `ci.runner` is a role
 // resolved by the machine's ci-runners.json. `ownerOnlyPaths` (required, possibly empty) names the
@@ -129,7 +129,6 @@ export const gateSchema = z.object({
 	checks: z.object({
 		commit: argvSchema, ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
 	}).strict(),
-	pathCheck: argvSchema,
 	ownerOnlyPaths: ownerPathsSchema,
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
@@ -142,7 +141,6 @@ export const gateSchema = z.object({
 }).transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
-	pathCheck: gate.pathCheck,
 	ownerOnlyPaths: gate.ownerOnlyPaths,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,

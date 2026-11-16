@@ -79,6 +79,16 @@ class PackagedCatalogueTests(unittest.TestCase):
                 self.assertIn(rule["applicability"], {"always", "conditional"})
                 self.assertTrue(isinstance(rule["summary"], str) and rule["summary"])
 
+    def test_path_check_contract_is_a_harness_subcommand_over_record_settings(self) -> None:
+        rule = next(rule for rule in self.catalogue["rules"] if rule["id"] == "GATE.path-check")
+        contract = rule["contract"]
+        self.assertEqual(contract["configuration"], "record:profile.md")
+        self.assertEqual(contract["harness_subcommand"], "omp-guardrails path-check")
+        self.assertNotIn("required_command_field", contract)
+        self.assertTrue(contract["changed_paths_appended_as_arguments"])
+        self.assertEqual(contract["success_exit_code"], 0)
+        self.assertTrue(contract["violation_exit_nonzero"])
+
     def test_references_name_subcommands_whose_modules_emit_the_rule(self) -> None:
         for rule in self.catalogue["rules"]:
             for item in rule.get("reference", []):

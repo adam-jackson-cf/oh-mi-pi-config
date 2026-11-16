@@ -23,10 +23,10 @@ Draft the record and the candidate repo fixes outside the target checkout.
    a second run changes nothing. It writes proposed native-tool configs to the
    record's `proposed/` directory for the owner to apply to the repo as a fix,
    and proves language-server readiness with a canary `references` query.
-   `--commit-command`, `--path-command` and `--ci-command` name the repo's own
-   gate commands; `--runner` and `--required-context` set the record's `ci`
-   object. Init reports a missing `checks.commit` or `pathCheck` as
-   `required:`, because a record without either does not load. In adopt mode,
+   `--commit-command` and `--ci-command` name the repo's own gate commands;
+   `--runner` and `--required-context` set the record's `ci` object.
+   Init reports a missing `checks.commit` as `required:`, because a record without it
+   does not load. There is no path-command option or record field. In adopt mode,
    shadow-run each `repo` or `grow` step on the same clone: `omp-guardrails
    <step> --repo <temporary clone> --record <draft record dir>` and the
    record's `checks.commit`. Sort every finding the harness reports and
@@ -53,14 +53,13 @@ Draft the record and the candidate repo fixes outside the target checkout.
    target's test framework has no adapter, follow [adapter
    authoring](adapter-authoring.md). For a stack without a reference, the
    missing checkers are a change to the harness, not to the target (Step 2).
-2. The record's `pathCheck` (required) names the repo's own path command;
-   when the repo has none, the candidate fixes add one. The setup always drafts
-   both `pathCheck` and `checks.commit`. The harness's `omp-guardrails path-check` covers
-   `STRUCT.dependency-direction`, `STRUCT.folder-placement`,
-   `NAME.conventions`, and `TEST.placement` from record settings. A path
-   command accepts changed paths appended as separate arguments, exits 0 when
-   clean, and otherwise exits nonzero with one error per line naming the
-   file, rule ID, and concrete fix.
+2. Draft required profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths`
+   settings for harness `omp-guardrails path-check --repo <temporary clone> --record <draft record dir>`.
+   It covers `STRUCT.dependency-direction`, `STRUCT.folder-placement`, `NAME.conventions`
+   and `TEST.placement`. Rails supply changed paths as separate arguments; clean exits 0,
+   failures exit nonzero with one error per line naming the file, rule ID and concrete fix.
+   Do not add a repo path-check script for the harness or remove settings because whole-repo
+   checks are repo-owned. Preserve the repo's own commit and CI commands.
 3. The test-evidence checks read normalised evidence (the adapter's JUnit run
    report and per-tier collect-only test IDs), not console text. The harness
    runs `omp-guardrails report-check` and `collection-check`, and

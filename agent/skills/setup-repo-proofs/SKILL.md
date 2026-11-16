@@ -23,6 +23,11 @@ rules, and `omp-guardrails check` leaves that step out. The harness runs a step 
 repo cannot hold its rules without depending on omp or dynaflows. It never runs a step beside a
 repo checker. Step 2 defines the three outcomes; the
 [design directive](../omp-dyna-workflows/AGENTS.md) holds the principles behind them.
+Exception: rails always run harness `omp-guardrails path-check --repo <worktree> --record <record dir>`
+after edits and before commit. Its required profile settings are `guardrails.structure`,
+`guardrails.naming` and `guardrails.paths`; `guardrails.check.repo` does not delegate this check.
+This principles 1–2 exception is recorded in [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
+`gate.json` has no path-check command field; repo `checks.commit` and `checks.ci` stay repo-owned.
 
 ## Step 0: Set target and safety boundary
 

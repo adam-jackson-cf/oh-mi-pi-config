@@ -1,31 +1,30 @@
 """Draft the record's ``gate.json`` from what the repository already runs.
 
 The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
-``checks.ci``, ``pathCheck``, ``ci`` (``requiredContext``: the status context or
-check run that must be green on the exact head; ``runner``: a role the machine's runner config
-resolves), ``ownerOnlyPaths``, ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
-``pathCheck``, ``checks.commit`` and ``ownerOnlyPaths`` are required: rails run the first two at
+``checks.ci``, ``ci`` (``requiredContext``: the status context or check run that must be green
+on the exact head; ``runner``: a role the machine's runner config resolves),
+``ownerOnlyPaths``, ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
+``checks.commit`` and ``ownerOnlyPaths`` are required: rails run the commit command at
 every agent commit and refuse an agent commit that changes an owner-only path.
-Every command is the repository's own, run in the checkout; the harness checks
-(``omp-guardrails check``) are not gate commands, because the rails run them from the harness.
+Every gate command is the repository's own, run in the checkout; the harness checks
+(``omp-guardrails check`` and ``omp-guardrails path-check``) run from the harness over record settings.
 
 Init fills only absent fields and never replaces a recorded value:
 
 - ``checks.commit`` and ``checks.ci`` from ``--commit-command`` and ``--ci-command``, else the
   first make target in ``COMMIT_TARGETS`` or ``CI_TARGETS``; a repo with only a pre-commit
   config gets ``pre-commit run --all-files`` for the commit;
-- ``pathCheck`` from ``--path-command``, else a ``check-paths`` make target;
 - ``ci`` from ``--required-context`` and ``--runner``, else the single required check on the
   default branch (or a CI job named ``gate``), with ``github-actions`` as the runner when a
   GitHub workflow job reports that context;
 - ``dynaflows`` as ``{"enabled": true}`` when the owner asked for dynaflows in the chat
   (``--enable-dynaflows``), else ``{"enabled": false}``.
 
-When init finds no ``checks.commit`` or ``pathCheck``, it reports each as required: the record
-does not load without both. ``ownerOnlyPaths`` is never drafted: the owner writes it (an empty
-list when the repo has no owner-only path, such as a dependency-audit exception file), and init
-reports it as required until then. ``agentMerge`` and every approval are the owner's to
-write. A gate with a field outside today's schema is refused, naming the field.
+When init finds no ``checks.commit``, it reports it as required: the record does not load
+without it. ``ownerOnlyPaths`` is never drafted: the owner writes it (an empty list when the
+repo has no owner-only path, such as a dependency-audit exception file), and init reports it
+as required until then. ``agentMerge`` and every approval are the owner's to write.
+A gate with a field outside today's schema is refused, naming the field.
 """
 
 from __future__ import annotations
@@ -44,12 +43,11 @@ SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
 # Every current gate field; any other field, at the top level or in ``checks``, is refused.
 GATE_FIELDS = frozenset(
-    {"schemaVersion", "checks", "pathCheck", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"}
+    {"schemaVersion", "checks", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"}
 )
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
-PATH_TARGET = "check-paths"
 GITHUB_RUNNER = "github-actions"
 DEFAULT_CONTEXT = "gate"
 
@@ -117,7 +115,6 @@ def planned_gate(
     *,
     commit: str | None,
     ci_command: str | None,
-    path_command: str | None,
     required_context: str | None,
     runner: str | None,
     dynaflows: bool = False,
@@ -129,10 +126,6 @@ def planned_gate(
     for event, argv in drafted_checks(found, commit, ci_command).items():
         checks.setdefault(event, argv)
     planned["checks"] = checks
-    if path_command:
-        planned.setdefault("pathCheck", shlex.split(path_command))
-    elif PATH_TARGET in found.make_targets:
-        planned.setdefault("pathCheck", ["make", PATH_TARGET])
     ci = drafted_ci(found, required_context, runner)
     if ci:
         planned.setdefault("ci", ci)
@@ -147,8 +140,6 @@ def confirmations(gate: dict) -> list[str]:
         lines.append(
             f"required: no checks.commit found; pass --commit-command or edit {GATE_PATH}"
         )
-    if "pathCheck" not in gate:
-        lines.append(f"required: no pathCheck found; pass --path-command or edit {GATE_PATH}")
     if "ownerOnlyPaths" not in gate:
         lines.append(
             f"required: ownerOnlyPaths is the owner's to set in {GATE_PATH}: list the repo paths "
