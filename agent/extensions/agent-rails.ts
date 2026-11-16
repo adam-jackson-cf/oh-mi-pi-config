@@ -494,39 +494,14 @@ const harnessOnlyNote =
 
 // The dynaflows directive is a whole prompt line, case-insensitive: `$dynaflows` alone, or with an
 // on or off verb after it or before it. dynaflowsSetting gives true (on), false (off) or undefined.
+// Asks inside a sentence are left to the main agent, which tells a request from a question or a
+// quote and calls the dynaflows tool.
 const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on";
 const dynaflowsDirective = new RegExp(
 	`^(?:\\$dynaflows(?: (${dynaflowsOnVerbs}|off|disable|stop))?|(${dynaflowsOnVerbs}|disable|stop|turn off) \\$dynaflows)$`, "i");
 function dynaflowsSetting(line: string): boolean | undefined {
 	const match = dynaflowsDirective.exec(line.trim().replace(/\s+/g, " "));
 	if (match) return !/^(?:off|disable|stop|turn off)$/i.test(match[1] ?? match[2] ?? "");
-}
-// An ask inside a sentence ("I want to enable dynaflows", "please turn dynaflows off"): an on or
-// off verb up to two words before the name, or right after it; `$` is optional. Bare `on` and
-// `off` after the name need `$` ("work with dynaflows on the NUC" is not an ask). A negated verb
-// ("don't enable dynaflows") is no ask.
-const askOnVerbs = "enable|init|initiali[sz]e|start|set ?up|turn on|switch on|activate";
-const askOffVerbs = "disable|stop|turn off|switch off|deactivate";
-const askName = "\\$?dynaflows(?![\\w$-])";
-// Each pattern's last group is the verb that decides on or off.
-const dynaflowsAsks = [
-	new RegExp(`(?<![\\w$-])(${askOnVerbs}|${askOffVerbs}) (?:[\\w'-]+ ){0,2}?${askName}`, "gi"),
-	new RegExp(`(?<![\\w$-])${askName} (${askOnVerbs}|${askOffVerbs})(?![\\w-])`, "gi"),
-	new RegExp(`(?<![\\w$-])\\$dynaflows (on|off)(?![\\w-])`, "gi"),
-	new RegExp(`(?<![\\w$-])(?:turn|switch) (?:the )?${askName} (on|off)(?![\\w-])`, "gi"),
-];
-const askOff = new RegExp(`^(?:${askOffVerbs}|off)$`, "i");
-const negated = /\b(?:don'?t|do not|never|not|no need to)(?: [\w'-]+){0,2} $/i;
-// The settings a prompt line asks for: true (on), false (off), both (contradictory) or none.
-function dynaflowsAsk(line: string): Set<boolean> {
-	const text = line.trim().replace(/\s+/g, " ");
-	const asked = new Set<boolean>();
-	const standalone = dynaflowsSetting(text);
-	if (standalone !== undefined) return asked.add(standalone);
-	for (const pattern of dynaflowsAsks) for (const match of text.matchAll(pattern)) {
-		if (!negated.test(text.slice(0, match.index))) asked.add(!askOff.test(match[match.length - 1]));
-	}
-	return asked;
 }
 
 // Dynaflows is on for a repo only when its per-repo record (resolved from the origin remote under
@@ -1094,16 +1069,16 @@ export default function agentRails(
 		const state = stateFor(ctx);
 		const message = (content: string) => ({ message: { customType: "agent-rails-dynaflows", content, display: false, attribution: "agent" as const } });
 		const lines = (event.prompt ?? "").split("\n").filter(line => line.trim());
-		const asks = lines.map(dynaflowsAsk);
-		const asked = new Set(asks.flatMap(ask => [...ask]));
+		const settings = lines.map(dynaflowsSetting);
+		const asked = new Set(settings.filter(setting => setting !== undefined));
 		if (asked.size > 1) {
-			ctx.ui.notify("Agent rails: contradictory dynaflows asks; no setting changed.", "error");
+			ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error");
 			return message("The owner's message asks to both enable and disable dynaflows, so no setting changed. " +
 				"Ask the owner which they want, then call the dynaflows tool with their answer.");
 		}
 		if (asked.size) {
-			// A line with no ask is the task to route.
-			const { content } = await applyDynaflows(ctx, asked.has(true), asks.some(ask => !ask.size));
+			// A line with no directive is the task to route.
+			const { content } = await applyDynaflows(ctx, asked.has(true), settings.some(setting => setting === undefined));
 			return content === undefined ? undefined : message(content);
 		}
 		if (state.pointed || !(await dynaflowsOn(ctx))) return;
