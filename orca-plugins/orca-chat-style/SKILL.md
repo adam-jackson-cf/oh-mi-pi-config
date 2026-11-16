@@ -7,21 +7,47 @@ description: >-
 
 # Guidance
 
+## Locate the checkout and environment
+
+This skill ships inside an `orca-plugins` checkout; its location differs per machine. Resolve it
+before running anything: `CHECKOUT="$(cd "$(dirname "$(realpath <this SKILL.md>)")/.." && pwd)"`.
+The skill directory is usually a symlink, so resolve the real path first. Every path below is
+relative to `$CHECKOUT`. Never hard-code a user name, home path or Node path into tracked files.
+
+Then read the live environment, read-only, before choosing an action:
+
+- **Orca app:** `test -x /Applications/Orca.app/Contents/MacOS/Orca`. Missing: stop and report;
+  `inject.mjs` and the harness assume this bundle path.
+- **Orca running:** `pgrep -x Orca`. Not running: chat steps wait; terminal generation still works.
+- **Inspector fuse:** `npx -y @electron/fuses read --app /Applications/Orca.app`. Disabled: only
+  the theme layers work; never patch `app.asar`.
+- **Node:** `node -e "require('node:sqlite')"`. Fails: Node 22.5 or later must be on `PATH`.
+- **Setup state:** `launchctl print gui/$(id -u)/local.orca-chat-section-style`,
+  `orca plugin list --json` and `omp config get theme.dark`. Missing or stale: run
+  `sh "$CHECKOUT/install.sh"`.
+
+`install.sh` is idempotent and is the repair path for a fresh, moved or partially set-up checkout:
+it generates themes, hooks chat, loads both dev plugins, selects omp themes, links this skill into
+`~/.omp/agent/skills/` and renders the LaunchAgent from the `node` on `PATH` and `$CHECKOUT`.
+It refuses to replace a skill link that points at another checkout; report that conflict.
+Orca app-theme and terminal-theme selection stays manual through Settings.
+
 ## What exists
 
-Two surfaces share `~/.omp/orca-plugins/chat-section-style/mode` and `palette`:
+Two surfaces share `chat-section-style/mode` and `chat-section-style/palette`:
 
 - **Chat:** `chat.css`, `palettes/*.css`, `id-highlight.js` and `palette-auto.js` are installed by
   `inject.mjs` through Orca's inspector; Orca has no custom-CSS setting. App colours come from
-  Settings → Appearance (including `local.catppuccin-sections`); Chat UI uses contrast 124, width Wide.
+  Settings → Appearance (including `local.catppuccin-sections`). Recommended Chat UI: contrast 124
+  (the harness renders at it), width Wide; treat the user's current values as their choice.
 - **Terminal:** the data-only `local.terminal-sections` plugin supplies Sections Dark/Light colours;
   generated omp `orca-sections-dark/light` themes supply TUI colours and mode symbols. Optional
   `terminal-mode` and `terminal-palette` files override the shared choices independently. Missing
   overrides follow chat. Default shared choices are `gutter` and `auto`.
-- LaunchAgent `com.adamjackson.orca-chat-section-style` runs `inject.mjs --if-needed` every 30 seconds
-  and at load. Terminal generation happens before the chat pid/marker early exits.
-- Before changes or repairs, read `~/.omp/orca-plugins/chat-section-style/README.md`, the maintenance
-  runbook for reapplying, selectors, theme limits and removal.
+- LaunchAgent `local.orca-chat-section-style` runs `inject.mjs --if-needed` every 30 seconds and at
+  load. Terminal generation happens before the chat pid/marker early exits.
+- Before changes or repairs, read `chat-section-style/README.md`, the maintenance runbook for
+  reapplying, selectors, theme limits and removal.
 
 All four choice files are machine-local, untracked and ignored. Before parsing flags, `inject.mjs`
 creates missing shared `mode`/`palette` files with `gutter`/`auto`; it preserves existing choices
@@ -85,10 +111,10 @@ Switching a palette does not change the selected Orca app theme.
 ## Switch commands
 
 ```sh
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --mode document --palette auto
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --surface chat --mode editorial
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --surface terminal --palette ayu
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --surface both --mode gutter --palette auto
+node "$CHECKOUT/chat-section-style/inject.mjs" --mode document --palette auto
+node "$CHECKOUT/chat-section-style/inject.mjs" --surface chat --mode editorial
+node "$CHECKOUT/chat-section-style/inject.mjs" --surface terminal --palette ayu
+node "$CHECKOUT/chat-section-style/inject.mjs" --surface both --mode gutter --palette auto
 ```
 
 A hooked chat applies choice changes within a second. Terminal files regenerate during the command;

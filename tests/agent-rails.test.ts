@@ -13,7 +13,7 @@ const integrity = "skill://coding-guidance/references/implementation-integrity.m
 const structure = "skill://coding-guidance/references/structure-and-grouping.md";
 const naming = "skill://coding-guidance/references/naming.md";
 const tiers = "skill://test-guidance/references/tiers.md";
-const verification = "skill://coding-guidance/references/verification.md";
+const verification = "skill://test-guidance/references/before-commit.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
 	pathCheck?: string[] | string; ownerOnlyPaths?: string[]; agentMerge?: "allowed" | "disabled";

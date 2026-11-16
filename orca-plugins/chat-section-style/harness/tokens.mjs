@@ -6,10 +6,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const home = homedir()
+const here = dirname(fileURLToPath(import.meta.url))
 const pluginRoot = join(home, 'Library/Application Support/orca/plugins')
+const catppuccinThemes = join(here, '../../catppuccin-sections/themes')
 const sources = [
-  ['latte', join(home, '.omp/orca-plugins/catppuccin-sections/themes/latte.json')],
-  ['mocha', join(home, '.omp/orca-plugins/catppuccin-sections/themes/mocha.json')],
+  ['latte', join(catppuccinThemes, 'latte.json')],
+  ['mocha', join(catppuccinThemes, 'mocha.json')],
 ]
 for (const [plugin, ids] of [
   ['stablyai.orca-ayu-theme', ['ayu-light', 'ayu-mirage', 'ayu-dark']],
@@ -27,4 +29,4 @@ const tokens = Object.fromEntries(sources.map(([id, path]) => {
   if (!['light', 'dark'].includes(theme.base) || !theme.tokens) throw new Error(`Invalid theme: ${path}`)
   return [id, theme.tokens]
 }))
-writeFileSync(join(dirname(fileURLToPath(import.meta.url)), 'harness-tokens.js'), `window.HARNESS_TOKENS = ${JSON.stringify(tokens)};\n`)
+writeFileSync(join(here, 'harness-tokens.js'), `window.HARNESS_TOKENS = ${JSON.stringify(tokens)};\n`)

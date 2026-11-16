@@ -5,14 +5,15 @@ foreground and ANSI colours follow the terminal palette chosen by `../chat-secti
 The companion omp themes also translate the chat layout mode into terminal colours and symbols.
 
 `terminal/dark.json` and `terminal/light.json` are generated runtime output and ignored by Git.
-Run `node ~/.omp/orca-plugins/chat-section-style/inject.mjs --if-needed` to generate them on the
-installed checkout before loading or validating this plugin. The same run generates
-`~/.omp/agent/themes/orca-sections-{dark,light}.json`; never commit those files.
+`sh ../install.sh` generates them, loads this plugin and selects the omp themes. By hand, from the
+checkout root (the folder holding `install.sh`): run
+`node chat-section-style/inject.mjs --if-needed` before loading or validating this plugin. The same
+run generates `~/.omp/agent/themes/orca-sections-{dark,light}.json`; never commit those files.
 
 ## One-time setup
 
 1. Generate the files as above.
-2. Run `orca plugin dev load <absolute-checkout>/orca-plugins/terminal-sections`.
+2. Run `orca plugin dev load "$PWD/terminal-sections"` from the checkout root.
 3. In Settings → Appearance → Terminal, choose **Sections Dark** for Dark theme,
    **Sections Light** for Light theme, and line height **1.25**.
 

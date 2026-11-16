@@ -7,7 +7,7 @@ references:
   test:
     - skill://test-guidance/references/tiers.md
   verification:
-    - skill://coding-guidance/references/verification.md
+    - skill://test-guidance/references/before-commit.md
   workflow:
     - skill://omp-dyna-workflows
   git:
