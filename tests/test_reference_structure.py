@@ -170,7 +170,7 @@ class CheckerTests(unittest.TestCase):
             "tests/boundary/test_payments_retry.py": "",
             "tests/fixtures/test_sample_order.py": "",
             "tests/scheduled/test_order_soak.py": "",
-            "src/orders/engine/checks.py": "def test_engine_runs():\n    assert True\n",
+            "src/orders/engine/checks.py": "import pytest\n\ndef test_engine_runs():\n    assert True\n",
             "src/orders/engine/upward.py": "from orders.cli import main\n",
             "src/orders/contract/reach.py": "from ..engine import runner\n",
         }
@@ -189,6 +189,60 @@ class CheckerTests(unittest.TestCase):
                 ("STRUCT.dependency-direction", "src/orders/contract/reach.py"),
             },
         )
+
+    def test_path_check_only_reports_framework_backed_collectable_tests(self) -> None:
+        cases = {
+            "production helper": ("def test_patterns(profile):\n    return profile\n", False),
+            "pytest function": ("import pytest\n\ndef test_x():\n    assert True\n", True),
+            "pytest class": (
+                "import pytest\n\nclass TestOrders:\n    def test_x(self):\n        assert True\n",
+                True,
+            ),
+            "unittest class": (
+                "import unittest\n\nclass Orders(unittest.TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "imported TestCase": (
+                "from unittest import TestCase\n\nclass Orders(TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "aliased TestCase": (
+                "from unittest import TestCase as Case\n\nclass Orders(Case):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "aliased unittest": (
+                "import unittest as unit\n\nclass Orders(unit.TestCase):\n"
+                "    def test_x(self):\n        self.assertTrue(True)\n",
+                True,
+            ),
+            "nested function": (
+                "import pytest\n\ndef patterns():\n    def test_x():\n        assert True\n",
+                False,
+            ),
+            "ordinary class": (
+                "import pytest\n\nclass Patterns:\n    def test_node(self):\n        return True\n",
+                False,
+            ),
+            "nested class helper": (
+                "import pytest\n\ndef patterns():\n"
+                "    class TestOrders:\n        def test_x(self):\n            assert True\n",
+                False,
+            ),
+            "nested method helper": (
+                "import pytest\n\nclass TestOrders:\n    def patterns(self):\n"
+                "        def test_x():\n            assert True\n",
+                False,
+            ),
+        }
+        path = "src/orders/engine/checks.py"
+        for name, (source, collected) in cases.items():
+            with self.subTest(case=name):
+                self.write(path, source)
+                expected = {("TEST.placement", path)} if collected else set()
+                self.assertEqual(self.findings(paths, [path]), expected)
 
     def test_path_check_refuses_paths_outside_the_repository(self) -> None:
         self.assertEqual(

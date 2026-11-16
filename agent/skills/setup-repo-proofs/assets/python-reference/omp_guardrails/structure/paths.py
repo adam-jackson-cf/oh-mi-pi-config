@@ -80,16 +80,56 @@ def tier_locations(profile: dict) -> dict[str, list[str]]:
 
 
 def defines_tests(repo: Path, path: str) -> bool:
+    """Recognize framework-backed module tests and direct test-class methods, not helpers."""
     if not path.endswith(".py") or not (repo / path).is_file():
         return False
     try:
         tree = ast.parse((repo / path).read_bytes(), filename=path)
     except (OSError, SyntaxError, ValueError):
         return False
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
-        for node in ast.walk(tree)
-    )
+    framework_imported = False
+    testcase_names = {"TestCase"}
+    unittest_names = {"unittest"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in {"pytest", "unittest"}:
+                    framework_imported = True
+                if alias.name == "unittest":
+                    unittest_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in {"pytest", "unittest"}:
+                framework_imported = True
+            if node.module == "unittest":
+                testcase_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name == "TestCase"
+                )
+    if not framework_imported:
+        return False
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in tree.body:
+        if isinstance(node, function_types) and node.name.startswith("test_"):
+            return True
+        if not isinstance(node, ast.ClassDef):
+            continue
+        is_test_class = node.name.startswith("Test") or any(
+            (isinstance(base, ast.Name) and base.id in testcase_names)
+            or (
+                isinstance(base, ast.Attribute)
+                and base.attr == "TestCase"
+                and isinstance(base.value, ast.Name)
+                and base.value.id in unittest_names
+            )
+            for base in node.bases
+        )
+        if is_test_class and any(
+            isinstance(method, function_types) and method.name.startswith("test_")
+            for method in node.body
+        ):
+            return True
+    return False
 
 
 def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
