@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 MAX_AGENTS = 16
 MAX_PROOFS = 16
@@ -1012,7 +1012,8 @@ OWNER_SEVERITIES = ("high", "critical")
 IMPACT_LEVEL = {"rce": 4, "auth_bypass": 4, "unclear": 4, "data_exposure": 3, "integrity_loss": 3, "dos": 2, "info_leak": 2}
 PRECONDITIONS = ("local_only", "needs_privileges", "needs_interaction")
 MALICIOUS_PREFIX = "MAL-"
-EVIDENCE_FIELDS = frozenset({"advisory_text", "advisory_source", "scope", "scope_source", "code_search", "fix_options"})
+EVIDENCE_FIELDS = frozenset({"advisory_text", "advisory_source", "scope", "scope_source", "code_search", "fix_options", "blocked_fix"})
+BLOCKED_FIX_FIELDS = frozenset({"blocked_by", "constraint", "constraint_source"})
 
 
 def advisory_key(advisory):
@@ -1123,6 +1124,16 @@ def _evidence(advisory, evidence):
         raise WorkflowError(f"{key}: evidence.code_search needs nonblank queries and hits of {{location, line}}")
     if not isinstance(evidence["fix_options"], str) or (not advisory["fix"] and not evidence["fix_options"].strip()):
         raise WorkflowError(f"{key}: evidence.fix_options must name a replacement or mitigation when no fixed version exists")
+    blocked = evidence["blocked_fix"]
+    if blocked is not None:
+        if (not advisory["fix"] or not isinstance(blocked, dict) or set(blocked) != BLOCKED_FIX_FIELDS
+                or any(not isinstance(v, str) or not v.strip() for v in blocked.values())):
+            raise WorkflowError(f"{key}: evidence.blocked_fix needs exactly {sorted(BLOCKED_FIX_FIELDS)} for a fixed release, or null")
+        package, separator, version = blocked["blocked_by"].rpartition("@")
+        source = urlsplit(blocked["constraint_source"])
+        if (not separator or not package or not version or any(c.isspace() for c in blocked["blocked_by"])
+                or source.scheme != "https" or not source.netloc):
+            raise WorkflowError(f"{key}: blocked_fix needs package@exact-version and an absolute HTTPS constraint_source")
     return evidence
 
 
@@ -1165,11 +1176,18 @@ def rate_advisory(advisory, evidence, answers, decisions):
         reasons.append(f"severity {severity}")
     if not advisory["fix"]:
         reasons.append("no fixed release: blocked until the owner approves a dated exception")
+    if evidence["blocked_fix"] is not None:
+        reasons.append("fixed releases blocked by a pinned dependent: blocked until the owner approves a dated exception")
     upgrade = f"upgrade {advisory['package']} from {advisory['version']} to a fixed version ({', '.join(advisory['fix'])})"
     if advisory["fix"]:
         suggested = upgrade + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")
     else:
         suggested = evidence["fix_options"]
+    if evidence["blocked_fix"] is not None:
+        blocked = evidence["blocked_fix"]
+        suggested = (f"owner: approve a dated exception with blocked_by={blocked['blocked_by']}, "
+                     f"constraint={blocked['constraint']}, constraint_source={blocked['constraint_source']}; "
+                     "upgrade when the dependent's declared constraint permits a fixed release")
     return {
         "key": advisory_key(advisory),
         "advisory": advisory,
@@ -1181,7 +1199,7 @@ def rate_advisory(advisory, evidence, answers, decisions):
             "preconditions": {"probabilities": preconditions, "cleared": cleared, "source": evidence["advisory_source"]},
             "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
                          "reached": reached, "unreached": unreached, "code_search": evidence["code_search"]},
-            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"]},
+            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"], "blocked_fix": evidence["blocked_fix"]},
         },
         "suggested_fix": suggested,
     }
@@ -1210,7 +1228,7 @@ def malicious_assessment(advisory, evidence):
             "preconditions": {"probabilities": {}, "cleared": [], "source": evidence["advisory_source"]},
             "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
                          "reached": None, "unreached": False, "code_search": evidence["code_search"]},
-            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"]},
+            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"], "blocked_fix": evidence["blocked_fix"]},
         },
         "suggested_fix": (f"remove {advisory['package']} or replace it with a trusted package, and rotate every "
                           "credential the environments that installed it exposed (CI and developer tokens, keys)"
@@ -1260,6 +1278,10 @@ def owner_report(assessments, failures=()):
             f"  - Fix availability: {', '.join(d['fix']['versions']) or 'no fixed release'}",
             f"  - Suggested fix: {item['suggested_fix']}",
         ]
+        blocked = d["fix"]["blocked_fix"]
+        if blocked is not None:
+            lines.append(f"  - Pinned dependent: {blocked['blocked_by']}; declaration: {blocked['constraint']} "
+                         f"(source: {blocked['constraint_source']})")
     for failure in failures:
         lines.append(f"- Exception file failure at {failure['path']}: {failure['reason']} (owner-only path)")
     return "\n".join(lines)
@@ -1269,9 +1291,9 @@ async def triage_advisories(found, evidence):
     """Assess every advisory in `found` (from dependency_audit_findings) with its cited evidence.
 
     Returns ``{halt, owner, fix, failures, report}``. Any high or critical advisory, any advisory
-    with no fixed release and any exception-file failure halts the workflow with ``report`` for
-    the owner; ``fix`` lists the low and medium advisories to upgrade in the flow, and ``failures``
-    the other checker failures to fix in the flow.
+    with no fixed release or a fix blocked by a pinned dependent, and any exception-file failure
+    halts the workflow with ``report`` for the owner; ``fix`` lists only unblocked low and medium
+    advisories to upgrade in the flow, and ``failures`` the other checker failures to fix.
     """
     keys = [advisory_key(a) for a in found["advisories"]]
     missing = sorted(set(keys) - set(evidence))
