@@ -101,8 +101,9 @@ intact.
    proofs.
 
    `dynaflows.enabled` is the repo's dynaflows switch; no `origin` remote or
-   no record means off. Write `false` at setup; the owner turns it on once
-   the harness checks report zero findings over the whole repo.
+   no record means off. Write `false` at setup, or `true` when the owner
+   enabled dynaflows with the `$dynaflows` directive; otherwise the owner
+   turns it on once the harness checks report zero findings over the whole repo.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the
