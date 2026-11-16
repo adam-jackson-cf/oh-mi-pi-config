@@ -1,6 +1,7 @@
 # Chat styling procedures
 
-Paths below are relative to `~/.omp/orca-plugins/chat-section-style/` unless stated otherwise.
+Paths below are relative to `chat-section-style/` in the checkout that holds this skill (see
+"Locate the checkout" in `../SKILL.md`) unless stated otherwise.
 Use `--surface chat` for a chat-only choice switch; it pins both effective terminal choices.
 
 The choice files `mode`, `palette`, `terminal-mode` and `terminal-palette` are machine-local,
@@ -50,18 +51,10 @@ state their value explicitly (for example the reply container's transparent back
 
    `appliedPalette` is the palette `auto` resolved to for the active theme. Then
    `lsof -nP -iTCP:9229 -sTCP:LISTEN` must print nothing.
-3. `launchctl print gui/$(id -u)/com.adamjackson.orca-chat-section-style` should show
-   `last exit code = 0`. If missing, install the tracked plist. It hard-codes
-   `/opt/homebrew/bin/node` and `/Users/adamjackson/.omp/orca-plugins/chat-section-style/inject.mjs`;
-   edit those paths first on a Mac with a different user or Node location:
-
-   ```sh
-   cp ~/.omp/orca-plugins/chat-section-style/launchd/com.adamjackson.orca-chat-section-style.plist \
-     ~/Library/LaunchAgents/
-   launchctl bootstrap gui/$(id -u) \
-     ~/Library/LaunchAgents/com.adamjackson.orca-chat-section-style.plist
-   ```
-
+3. `launchctl print gui/$(id -u)/local.orca-chat-section-style` should show `last exit code = 0`
+   and `arguments` naming this checkout's `inject.mjs`. If missing or stale (moved checkout, new
+   Node), run `sh ../install.sh`: it renders the plist from the `node` on `PATH` and this checkout
+   path, then bootstraps it.
 4. Take a screenshot of a chat. If injection succeeded but nothing changed, Orca renamed its chat
    attributes; see "Re-map selectors".
 5. Theme: `orca plugin list --json` must list `local.catppuccin-sections` with `isDev: true`;
@@ -77,8 +70,8 @@ state their value explicitly (for example the reply container's transparent back
    "from profile_state_documents where domain='settings'"
    ```
 
-   Expected: the two `catppuccin-sections` themes and `{"width":"wide","contrast":124}`. Change
-   settings through the UI only.
+   Expected: the app themes the user chose, and the chat appearance they chose (recommended
+   `{"width":"wide","contrast":124}`). Change settings through the UI only.
 
 ## Re-map selectors
 
@@ -168,11 +161,11 @@ every apply; adding a new palette file requires reinstalling the hook.
 - `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp tokens,
   paired app colours, ≥4.5:1 text contrast (except deliberately dimmed `dim` and decorative borders),
   mode overlays, slot resolution, config and generator idempotence. Exit 1 on any failed check.
-- `sh harness/launchagent.sh` checks the tracked LaunchAgent plist: valid plist, label matches its
-  filename, requires Node (`node` executable) to run this folder's `inject.mjs --if-needed` with
-  no other arguments at load and every 30 seconds, and sends stdout and stderr to
-  `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the agent or
-  touches the running Orca.
+- `sh harness/launchagent.sh` checks the plist `../install.sh --print-launchagent` renders: valid
+  plist, label `local.orca-chat-section-style`, the `node` on `PATH` running this folder's
+  `inject.mjs --if-needed` with no other arguments at load and every 30 seconds, and stdout and
+  stderr sent to `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the
+  agent or touches the running Orca.
 - `harness-tokens.js` holds the installed themes' tokens; regenerate it with
   `node harness/tokens.mjs` after a theme update.
 - Score screenshots against the rubric in `chat.md`.

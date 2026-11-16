@@ -14,8 +14,8 @@ Colors and syntax token colors come from
 
 All values pass Orca's theme contrast guard (4.5:1 text, which drops failing tokens).
 
-Load: `orca plugin dev load ~/.omp/orca-plugins/catppuccin-sections`, then pick the themes in
-Settings → Appearance.
+Load: `sh ../install.sh`, or `orca plugin dev load "$PWD"` from this folder; then pick the themes
+in Settings → Appearance.
 
 Layout changes (reply cards, accent headings, turn dividers) live in `../chat-section-style/`,
 because themes can only set colours.
