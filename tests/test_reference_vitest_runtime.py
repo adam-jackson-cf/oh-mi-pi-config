@@ -57,17 +57,40 @@ class VitestRuntimeTests(unittest.TestCase):
 
     def test_native_process_and_network_violations_remain_sticky_when_caught(self):
         result = self.node("""
-for (const operation of [
-  () => spawnSync(process.execPath, ['-e', '']),
-  () => connect({ host: '127.0.0.1', port: 9 }),
-  () => fetch('http://127.0.0.1:9'),
-  () => { const socket = createSocket('udp4'); try { socket.send('x', 9, '127.0.0.1'); } finally { socket.close(); } },
-]) { try { operation(); } catch (error) { if (!error.message.includes('TEST.fast-tier-isolation')) throw error; } }
+for (const [name, operation] of [
+  ['process', () => spawnSync(process.execPath, ['-e', ''])],
+  ['net', () => connect({ host: '127.0.0.1', port: 9 })],
+  ['fetch', () => fetch('http://127.0.0.1:9')],
+  ['udp', () => { const socket = createSocket('udp4'); try { socket.send('x', 9, '127.0.0.1'); } finally { socket.close(); } }],
+]) {
+  const before = violations.length;
+  try { operation(); } catch (error) { if (!error.message.includes('TEST.fast-tier-isolation')) throw error; }
+  if (violations.length !== before + 1) throw new Error(`${name} bypassed the native process/network guard`);
+}
 """)
         self.assertEqual(len(result["violations"]), 4)
         self.assertTrue(all("TEST.fast-tier-isolation" in item for item in result["violations"]))
         self.assertEqual(sum(event["kind"] == "violation" for event in result["events"]), 4)
         self.assertEqual(result["events"][0]["guards"], ["fast-tier", "user-data"])
+
+    def test_process_guard_covers_captured_node_exports_and_native_bun_apis(self):
+        result = self.node("""
+const operations = [() => spawnSync(process.execPath, ['-e', ''])];
+if (globalThis.Bun) {
+  operations.push(
+    () => Bun.spawnSync([process.execPath, '-e', '']),
+    () => Bun.spawn([process.execPath, '-e', '']),
+  );
+}
+for (const operation of operations) {
+  const before = violations.length;
+  try { operation(); } catch (error) { if (!error.message.includes('TEST.fast-tier-isolation')) throw error; }
+  if (violations.length !== before + 1) throw new Error('native process creation bypassed the guard');
+}
+""")
+        self.assertIn("TEST.fast-tier-isolation", result["violations"][0])
+        reasons = [event["reason"] for event in result["events"] if event["kind"] == "violation"]
+        self.assertEqual(reasons, result["violations"])
 
     def test_user_home_guard_covers_native_promises_and_symlink_destinations(self):
         result = self.node("""
