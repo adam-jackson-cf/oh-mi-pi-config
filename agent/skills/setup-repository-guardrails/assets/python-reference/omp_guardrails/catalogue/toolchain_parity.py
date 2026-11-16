@@ -16,8 +16,9 @@ Settings (``guardrails.toolchain_parity``):
   targets), ``guidance`` (Markdown files whose shell blocks document installs) and
   ``exact_uv_pin`` (require one ``uv==X.Y.Z`` dependency equal to the locked uv).
   Rules: ``PARITY.dependency-inventory``, ``PARITY.install-guidance``, ``PARITY.lock-version``.
-- ``prettier``: ``version`` (exact pin), ``package_json``, ``package_lock`` and ``npx_sources``
-  (globs where an ``npx prettier`` call would bypass the lock). Rule: ``PRETTIER.version``.
+- ``prettier``: ``package_json``, ``package_lock`` and ``npx_sources`` (globs where an
+  ``npx prettier`` call would bypass the lock). The manifest owns the exact version pin;
+  the lock must contain only that version. Rule: ``PRETTIER.version``.
 """
 
 from __future__ import annotations
@@ -277,21 +278,28 @@ def python_pin_findings(pins: Mapping[str, bytes | None], interpreter: str) -> l
 
 
 def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding]:
-    version = options.get("version")
     package_json = options.get("package_json", "package.json")
     package_lock = options.get("package_lock", "package-lock.json")
     findings = []
     try:
         manifest = json.loads(sources.get(package_json) or "{}")
+        version = manifest.get("devDependencies", {}).get("prettier")
         lock = json.loads(sources.get(package_lock) or "{}")
         packages = lock.get("packages", {})
         locked = packages.get("node_modules/prettier", {})
         valid = (
-            manifest.get("devDependencies", {}).get("prettier") == version
+            isinstance(version, str)
+            and re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version) is not None
+            and "prettier" not in manifest.get("dependencies", {})
             and packages.get("", {}).get("devDependencies", {}).get("prettier") == version
             and locked.get("version") == version
             and bool(locked.get("integrity"))
             and bool(locked.get("resolved"))
+            and all(
+                entry.get("version") == version
+                for name, entry in packages.items()
+                if name.endswith("node_modules/prettier")
+            )
         )
     except (ValueError, AttributeError):
         valid = False
@@ -300,8 +308,8 @@ def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding
             Finding(
                 PRETTIER,
                 package_json,
-                f"Prettier is not exactly pinned and locked at {version}",
-                f"pin prettier {version} in devDependencies and commit its npm lock record",
+                "Prettier needs one exact manifest pin and a matching lock record",
+                "pin one prettier version in devDependencies and commit its npm lock record",
             )
         )
     for path, text in sources.items():

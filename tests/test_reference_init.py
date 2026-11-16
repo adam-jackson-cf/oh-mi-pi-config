@@ -402,6 +402,30 @@ class LspTests(InitCase):
         stacks = lsp.detect(self.repo)
         self.assertEqual([stack.server for stack in stacks], ["typescript-language-server"])
 
+    def test_typescript_six_keeps_the_javascript_language_server(self) -> None:
+        self.write("package.json", "{}")
+        self.write("node_modules/typescript/package.json", '{"version": "6.0.3"}')
+        stack = lsp.detect(self.repo)[1]
+        self.assertEqual(stack.server, "typescript-language-server")
+        self.assertEqual(stack.arguments, ("--stdio",))
+
+    def test_typescript_seven_queries_the_installed_native_server(self) -> None:
+        self.write("package.json", "{}")
+        self.write("node_modules/typescript/package.json", '{"version": "7.0.2"}')
+        native = self.repo / "node_modules/typescript/bin/tsc"
+        self.write(
+            "node_modules/typescript/bin/tsc",
+            f"#!{sys.executable}\nassert __import__('sys').argv[1:] == ['--lsp', '--stdio']\n"
+            + FAKE_SERVER,
+        )
+        native.chmod(0o755)
+        stack = lsp.detect(self.repo)[1]
+        self.assertEqual(stack.server, str(native))
+        with mock.patch.object(lsp.shutil, "which", side_effect=lambda server: server):
+            findings, lines = lsp.readiness(self.repo, [stack], allow_missing=False)
+        self.assertEqual(findings, [])
+        self.assertIn("canary ok: references in a canary module", lines[0])
+
     def test_repo_without_stack_records_no_server(self) -> None:
         (self.repo / "pyproject.toml").unlink()
         code, output = self.init()

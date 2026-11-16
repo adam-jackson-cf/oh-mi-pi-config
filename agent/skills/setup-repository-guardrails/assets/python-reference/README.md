@@ -80,6 +80,13 @@ writes `gate.json`, `profile.md` and proposed native-tool configs under
 `proposed/` in the draft, and nothing into the
 repository.
 
+For TypeScript 7 and newer, init uses the repository's installed native compiler
+(`node_modules/typescript/bin/tsc --lsp --stdio`) for its references readiness
+query. TypeScript 6 and older keep `typescript-language-server --stdio`.
+`PRETTIER.version` accepts the repository's own single exact Prettier pin rather
+than prescribing a formatter release; the lock must match, and tracked Markdown
+and YAML must invoke that pinned formatter.
+
 ## Rule coverage
 
 The harness's package version decides which catalogue rules apply.

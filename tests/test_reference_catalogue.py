@@ -322,7 +322,7 @@ class ToolchainParityTests(RepoCase):
         self.assertIn("missing", self.parity(options)[0].message)
 
     def test_prettier_must_be_exactly_locked_and_never_fetched_by_npx(self) -> None:
-        version = "3.6.2"
+        version = "3.9.10"
         self.write("package.json", json.dumps({"devDependencies": {"prettier": version}}))
         lock = {
             "packages": {
@@ -331,13 +331,22 @@ class ToolchainParityTests(RepoCase):
             }
         }
         self.write("package-lock.json", json.dumps(lock))
-        options = {"prettier": {"version": version, "npx_sources": ["Makefile"]}}
+        options = {"prettier": {"npx_sources": ["Makefile"]}}
         self.assertEqual(self.parity(options), [])
         self.write("Makefile", "fmt:\n\tnpx prettier --write .\n")
         self.assertEqual([f.path for f in self.parity(options)], ["Makefile"])
         self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
-        options["prettier"]["version"] = "3.7.0"
+        self.write("Makefile", "")
+        self.write("package.json", json.dumps({"devDependencies": {"prettier": "^3.9.10"}}))
         self.assertIn("package.json", [f.path for f in self.parity(options)])
+        self.write("package.json", json.dumps({"devDependencies": {"prettier": version}}))
+        lock["packages"]["node_modules/prettier"]["version"] = "3.9.9"
+        self.write("package-lock.json", json.dumps(lock))
+        self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
+        lock["packages"]["node_modules/prettier"]["version"] = version
+        lock["packages"]["node_modules/other/node_modules/prettier"] = {"version": "3.9.9"}
+        self.write("package-lock.json", json.dumps(lock))
+        self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
 
     def test_unconfigured_sections_never_pass_silently(self) -> None:
         self.assertEqual(rules_of(self.parity({})), ["GATE.local-ci-parity"])
