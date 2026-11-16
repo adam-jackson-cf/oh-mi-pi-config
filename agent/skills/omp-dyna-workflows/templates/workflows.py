@@ -21,7 +21,7 @@ MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
     "missing per-repo record; follow skill://omp-dyna-workflows/SKILL.md "
-    "owner-approval prerequisite (skill://setup-repository-guardrails)")
+    "owner-approval prerequisite (skill://setup-repo-proofs)")
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 # Every current manifest and proof field; any other field is rejected by name.
@@ -83,7 +83,7 @@ def _resolver():
 
 
 _SURFACE = []
-GUARDRAILS_REFERENCE = "agent/skills/setup-repository-guardrails/assets/python-reference"
+GUARDRAILS_REFERENCE = "agent/skills/setup-repo-proofs/assets/python-reference"
 
 
 def _surface():

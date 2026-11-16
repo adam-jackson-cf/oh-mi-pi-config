@@ -1122,7 +1122,7 @@ class LabelTests(unittest.TestCase):
 
 
 CATALOGUE = Path(__file__).resolve().parents[1] / (
-    "agent/skills/setup-repository-guardrails/assets/python-reference/omp_guardrails/data/guardrail-rules.json")
+    "agent/skills/setup-repo-proofs/assets/python-reference/omp_guardrails/data/guardrail-rules.json")
 ADVISORY = ("SECURITY.dependency-audit lock=uv.lock ecosystem=PyPI package=PyYAML version=5.3.1 "
             "advisory=GHSA-8q59-q68h-6hv4 aliases=CVE-2020-14343,PYSEC-2021-142 fix=5.4")
 NO_FIX = ("SECURITY.dependency-audit lock=web/package-lock.json ecosystem=npm package=node-serialize version=0.0.4 "

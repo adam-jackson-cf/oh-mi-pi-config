@@ -630,7 +630,7 @@ describe("agent rails", () => {
 				return { code: 0, killed: false, stdout: "", stderr: "" };
 			};
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
-			const project = resolve(import.meta.dir, "../agent/skills/setup-repository-guardrails/assets/python-reference");
+			const project = resolve(import.meta.dir, "../agent/skills/setup-repo-proofs/assets/python-reference");
 			assert.deepEqual(seen, [["run", "--project", project, "omp-guardrails", "check", "--repo", h.root, "--record", h.recordDir()]]);
 		} finally { h.cleanup(); }
 	});
@@ -765,7 +765,7 @@ describe("agent rails", () => {
 			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
 			// No record: setup starts at Step 0, drafting the switch on; nothing is written and no error shows.
 			const setup = await start("init $dynaflows");
-			assert.ok(setup.includes("Start skill://setup-repository-guardrails setup now, from Step 0") && setup.includes("owner/repo"), setup);
+			assert.ok(setup.includes("Start skill://setup-repo-proofs setup now, from Step 0") && setup.includes("owner/repo"), setup);
 			assert.ok(setup.includes('\\"dynaflows\\": {\\"enabled\\": true}'), setup);
 			assert.equal(existsSync(h.recordDir()), false, "enabling never creates a record");
 			assert.ok(h.notes.some(note => note.includes("starting repository setup")), h.notes.join("; "));
@@ -773,10 +773,10 @@ describe("agent rails", () => {
 			// A refused record: setup resumes and names the reason.
 			h.rawGate('{"schemaVersion":2,"dynaflows":{"enabled":false}}');
 			const resume = await start("$dynaflows enable");
-			assert.ok(resume.includes("Resume skill://setup-repository-guardrails setup now") && resume.includes("pathCheck"), resume);
+			assert.ok(resume.includes("Resume skill://setup-repo-proofs setup now") && resume.includes("pathCheck"), resume);
 			h.rawGate("{broken");
 			const broken = await start("$dynaflows enable");
-			assert.ok(broken.includes("Resume skill://setup-repository-guardrails setup now") && broken.includes("is refused: "), broken);
+			assert.ok(broken.includes("Resume skill://setup-repo-proofs setup now") && broken.includes("is refused: "), broken);
 			// A valid record and a directive-only prompt: assess the stage and start it.
 			h.gate({ schemaVersion: 2 });
 			const kickoff = await start("$dynaflows on");
