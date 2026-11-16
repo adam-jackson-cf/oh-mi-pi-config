@@ -1,0 +1,2 @@
+import { test } from 'vitest';
+test('runtime skip', context => { context.skip('waiting on vendor fix'); });

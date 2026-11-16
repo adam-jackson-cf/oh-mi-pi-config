@@ -24,4 +24,4 @@ omp-guardrails = "omp_guardrails.cli:main"
 include = ["omp_guardrails*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yml", "*.md"]
+"*" = ["*.json", "*.yml", "*.md", "*.mjs", "*.txt"]
