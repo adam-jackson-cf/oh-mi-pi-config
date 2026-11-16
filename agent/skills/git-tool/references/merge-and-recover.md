@@ -78,14 +78,17 @@ Record commands, outputs, SHA, host-query evidence and `no CI / no protection` i
 With dynaflows on, a record with valid schema-v2 controls remains a prerequisite to `prove()`; this exception cannot
 evade bootstrap. Unknown host state or commands block.
 
-### Records are owner-only
+### Who writes records
 
 The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
 checks, `pathCheck`, `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
-committed and never part of a PR, so the owner's hand edit is its only review. Rails refuse every agent edit-tool
-write to a path under the records root (a lexical check on the resolved path). On that refusal, do not retry through
-another tool or split the change to evade it: print the drafted change (or write it to a draft outside `repos/`), ask
-the owner to save it by hand, and continue with unrelated work.
+committed and never part of a PR. Agents write records when the owner asked for dynaflows in the chat; otherwise
+records stay owner-edited. The ask (a prompt asking to enable dynaflows, or the `dynaflows` tool called on it) lets
+the session's main agent write that repo's record directory, and a disable ask withdraws it. Write an approval field
+only as the owner stated it in the chat. Without the ask, rails refuse every agent edit-tool write under the records
+root (a lexical check on the resolved path). On that refusal, do not retry through another tool or split the change
+to evade it: print the drafted change (or write it to a draft outside `repos/`), ask the owner to save it, and
+continue with unrelated work.
 
 ## Recover a red default branch
 

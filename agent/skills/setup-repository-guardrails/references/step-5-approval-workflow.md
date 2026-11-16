@@ -34,8 +34,9 @@ Make the owner's record and fix decisions the boundary before any record or targ
    step, or widens record allowlists so the harness copy passes code the repo checker already
    accepts.
    Write the repo-relative candidate paths per tier to `guardrail-proposal.json` in the draft
-   record directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; the owner saves it with
-   the record. Nothing is written into the target or the live record.
+   record directory as `{"schemaVersion":1,"minimal":[...],"full":[...]}`; it goes into the record
+   with the rest of it. Nothing is written into the target, and nothing into the live record before
+   the owner's approval.
 6. Ask the owner to choose a tier, confirm the record, and approve exact candidate paths and
    merge/replace decisions, using `ask` with a question containing "guardrail" and options "Minimal"
    and "Full". When both tiers hold the same record settings and candidate paths, say so and ask

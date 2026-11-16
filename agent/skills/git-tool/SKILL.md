@@ -44,8 +44,9 @@ ask the user once when the choice changes the outcome, state the choice in the r
   [merge-and-recover](references/merge-and-recover.md).
 - Pulling existing commits into a branch (merge the target, rebase, cherry-pick, revert, sync) needs no proof and
   no extra checks: those commits were checked when they were made.
-- The repo's record (policy, checks and approvals) never reaches a PR. Only the owner writes it, by hand; rails refuse
-  every agent write under the records root ([merge-and-recover](references/merge-and-recover.md#records-are-owner-only)).
+- The repo's record (policy, checks and approvals) never reaches a PR. Agents write records when the owner asked for
+  dynaflows in the chat; otherwise records stay owner-edited and rails refuse every agent write under the records root
+  ([merge-and-recover](references/merge-and-recover.md#who-writes-records)).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit directly to the default branch.
 - Primary remote not GitHub: stop before pushing and ask the owner; this workflow authorizes no other host.

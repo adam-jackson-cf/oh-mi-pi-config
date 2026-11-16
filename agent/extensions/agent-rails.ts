@@ -9,7 +9,7 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, RECORDS_DIR, readGateText, resolveRecord,
+	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, RECORDS_DIR, readGateText, recordDir, resolveRecord,
 } from "../lib/repo-record.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
@@ -94,6 +94,9 @@ interface State {
 	pathFailures: Map<string, string[]>;
 	pointed: boolean;
 	proposal: string[];
+	// Record directories the owner asked to enable dynaflows for in this session: the main agent may
+	// write them (setup drafts the record there itself). A disable ask removes the repo's grant.
+	recordGrants: Set<string>;
 }
 type ToolEvent = {
 	toolName: string;
@@ -116,7 +119,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		pointed: false, proposal: [],
+		pointed: false, proposal: [], recordGrants: new Set(),
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -498,6 +501,33 @@ function dynaflowsSetting(line: string): boolean | undefined {
 	const match = dynaflowsDirective.exec(line.trim().replace(/\s+/g, " "));
 	if (match) return !/^(?:off|disable|stop|turn off)$/i.test(match[1] ?? match[2] ?? "");
 }
+// An ask inside a sentence ("I want to enable dynaflows", "please turn dynaflows off"): an on or
+// off verb up to two words before the name, or right after it; `$` is optional. Bare `on` and
+// `off` after the name need `$` ("work with dynaflows on the NUC" is not an ask). A negated verb
+// ("don't enable dynaflows") is no ask.
+const askOnVerbs = "enable|init|initiali[sz]e|start|set ?up|turn on|switch on|activate";
+const askOffVerbs = "disable|stop|turn off|switch off|deactivate";
+const askName = "\\$?dynaflows(?![\\w$-])";
+// Each pattern's last group is the verb that decides on or off.
+const dynaflowsAsks = [
+	new RegExp(`(?<![\\w$-])(${askOnVerbs}|${askOffVerbs}) (?:[\\w'-]+ ){0,2}?${askName}`, "gi"),
+	new RegExp(`(?<![\\w$-])${askName} (${askOnVerbs}|${askOffVerbs})(?![\\w-])`, "gi"),
+	new RegExp(`(?<![\\w$-])\\$dynaflows (on|off)(?![\\w-])`, "gi"),
+	new RegExp(`(?<![\\w$-])(?:turn|switch) (?:the )?${askName} (on|off)(?![\\w-])`, "gi"),
+];
+const askOff = new RegExp(`^(?:${askOffVerbs}|off)$`, "i");
+const negated = /\b(?:don'?t|do not|never|not|no need to)(?: [\w'-]+){0,2} $/i;
+// The settings a prompt line asks for: true (on), false (off), both (contradictory) or none.
+function dynaflowsAsk(line: string): Set<boolean> {
+	const text = line.trim().replace(/\s+/g, " ");
+	const asked = new Set<boolean>();
+	const standalone = dynaflowsSetting(text);
+	if (standalone !== undefined) return asked.add(standalone);
+	for (const pattern of dynaflowsAsks) for (const match of text.matchAll(pattern)) {
+		if (!negated.test(text.slice(0, match.index))) asked.add(!askOff.test(match[match.length - 1]));
+	}
+	return asked;
+}
 
 // Dynaflows is on for a repo only when its per-repo record (resolved from the origin remote under
 // `configRoot`/repos/) says dynaflows.enabled true. `machineDynaflowsPath` (~/.omp/dynaflows.json)
@@ -697,12 +727,19 @@ export default function agentRails(
 		await rename(temp, path);
 		return path;
 	}
-	// Records hold the owner's policy and approvals and never reach a PR, so the owner edits them by
-	// hand: rails refuse every edit-tool write under the records root.
-	function recordWriteReason(targets: string[]): string | undefined {
+	// Records hold the owner's policy and approvals and never reach a PR. Agents write a repo's record
+	// only after the owner asked for dynaflows in this session (the main agent, that repo's record
+	// directory only); otherwise rails refuse every edit-tool write under the records root.
+	function recordWriteReason(targets: string[], state: State, ctx: ExtensionContext): string | undefined {
 		for (const path of targets) {
-			if (underRecords(path)) return `Agent rails: ${path} is under the per-repo records root; agents never write records. ` +
-				"Print the drafted change (or write it outside repos/) and ask the owner to save it by hand.";
+			if (!underRecords(path)) continue;
+			if (ctx.agent.kind === "main" && [...state.recordGrants].some(dir => {
+				const rel = relative(dir, resolve(path));
+				return !rel.startsWith("..") && !isAbsolute(rel);
+			})) continue;
+			return `Agent rails: ${path} is under the per-repo records root; agents write records only for a repo whose ` +
+				"owner asked for dynaflows in this session. Without that ask, print the drafted change (or write it outside " +
+				"repos/) and ask the owner to save it.";
 		}
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
@@ -846,6 +883,7 @@ export default function agentRails(
 		const state = fresh();
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
+		state.recordGrants = previous?.recordGrants ?? new Set();
 		state.pathFailures = previous?.pathFailures ?? new Map();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
@@ -955,7 +993,7 @@ export default function agentRails(
 				if (reason) return { block: true, reason };
 			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
-			const recordWrite = recordWriteReason(targets);
+			const recordWrite = recordWriteReason(targets, state, ctx);
 			if (recordWrite) return { block: true, reason: recordWrite };
 			const required = new Set<string>();
 			for (const path of targets) {
@@ -1001,60 +1039,94 @@ export default function agentRails(
 			}
 		} catch (error) { return { decision: "block", reason: `Agent rails: handoff policy failed: ${String(error)}` }; }
 	});
+	// Applies the owner's dynaflows ask for the current repo: sets the record's switch, grants (or, on
+	// off, revokes) this session's record writes, and returns the next step for the agent, or none.
+	// `task` is true when the prompt also holds work to route.
+	async function applyDynaflows(ctx: ExtensionContext, enabled: boolean, task: boolean): Promise<{ notice: string; content?: string }> {
+		const state = stateFor(ctx);
+		const notify = (notice: string, level: "info" | "error" = "info") => { ctx.ui.notify(notice, level); return notice; };
+		let target: { slug: string; dir: string | null };
+		try { target = await directiveTarget(ctx); }
+		catch (error) { return { notice: notify(`Agent rails: ${String(error)}`, "error") }; }
+		state.pointed = false;
+		const { slug, dir } = target;
+		const recordPath = recordDir(slug, configRoot);
+		if (!enabled) state.recordGrants.delete(recordPath);
+		else state.recordGrants.add(recordPath);
+		if (!dir) {
+			if (!enabled) return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`) };
+			// No record yet: setup starts at Step 0 and the agent writes the record, switch on, itself.
+			return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
+				`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
+				"Start skill://setup-repository-guardrails setup now, from Step 0. The owner's ask lets you write the record " +
+				`yourself at ${recordPath}: save it there as setup reaches each file, with gate.json setting ` +
+				'"dynaflows": {"enabled": true}, so dynaflows is on once the record is complete. Never ask the owner to save a file.' };
+		}
+		const resume = (reason: string) => `The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
+			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repository-guardrails setup now and repair ` +
+			'the record yourself in place, with "dynaflows": {"enabled": true}; the owner\'s ask lets you write it. ' +
+			"Never ask the owner to save a file.";
+		let notice: string;
+		try {
+			notice = notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${await setDynaflows(dir, enabled)}).`);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			notice = notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
+			return { notice, content: enabled ? resume(reason) : undefined };
+		}
+		if (!enabled) return { notice, content: "Dynaflows off: do not apply omp-dyna-workflows." };
+		const at = await dynaflowsAt(ctx);
+		if (at.invalid) return { notice, content: resume(at.off ?? "invalid record") };
+		if (!at.on) {
+			const off = sentence(at.off ?? "dynaflows off");
+			return { notice: notify(`Agent rails: ${off}`), content: `${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply omp-dyna-workflows.` };
+		}
+		state.pointed = true;
+		if (task) return { notice, content: `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.` };
+		return { notice, content: `Dynaflows on for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
+			`${map.references.workflow.join(" and ")} and assess this repo against its Start here playbook selection ` +
+			"(Project setup when controls, the Verification surface or the feature map are missing). Report the stage you found " +
+			"and start it. If the owner's message also names a task, route that task; if setup is complete and no task was " +
+			"named, report that dynaflows is ready and ask the owner for the task." };
+	}
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
 		const message = (content: string) => ({ message: { customType: "agent-rails-dynaflows", content, display: false, attribution: "agent" as const } });
-		const route = `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`;
 		const lines = (event.prompt ?? "").split("\n").filter(line => line.trim());
-		const settings = lines.map(dynaflowsSetting);
-		const directives = new Set(settings.filter(setting => setting !== undefined));
-		if (directives.size > 1) { ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error"); return; }
-		if (directives.size) {
-			const enabled = directives.has(true);
-			let target: { slug: string; dir: string | null };
-			try { target = await directiveTarget(ctx); }
-			catch (error) { ctx.ui.notify(`Agent rails: ${String(error)}`, "error"); return; }
-			state.pointed = false;
-			const { slug, dir } = target;
-			if (!dir) {
-				if (!enabled) { ctx.ui.notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`, "info"); return; }
-				// No record yet: enabling starts setup, whose draft carries the switch for the owner to save.
-				ctx.ui.notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`, "info");
-				return message(`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
-					"Start skill://setup-repository-guardrails setup now, from Step 0. Because the owner asked to enable dynaflows, " +
-					'the drafted gate.json sets "dynaflows": {"enabled": true}, so the owner saving the record by hand turns dynaflows on. ' +
-					"Agents never write records: draft it outside repos/ and ask the owner to save it.");
-			}
-			const resume = (reason: string) => message(`The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
-				`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repository-guardrails setup now: draft the record ` +
-				'change, with "dynaflows": {"enabled": true}, and ask the owner to save it by hand; agents never write records.');
-			try {
-				ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${await setDynaflows(dir, enabled)}).`, "info");
-			} catch (error) {
-				const reason = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
-				return enabled ? resume(reason) : undefined;
-			}
-			if (!enabled) return message("Dynaflows off: do not apply omp-dyna-workflows.");
-			const at = await dynaflowsAt(ctx);
-			if (at.invalid) return resume(at.off ?? "invalid record");
-			if (!at.on) {
-				const off = sentence(at.off ?? "dynaflows off");
-				ctx.ui.notify(`Agent rails: ${off}`, "info");
-				return message(`${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply omp-dyna-workflows.`);
-			}
-			state.pointed = true;
-			// A prompt that is only the directive asks to start dynaflows here; any other line is the task.
-			if (settings.some(setting => setting === undefined)) return message(route);
-			return message(`Dynaflows on for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
-				`${map.references.workflow.join(" and ")} and assess this repo against its Start here playbook selection ` +
-				"(Project setup when controls, the Verification surface or the feature map are missing). Report the stage you found " +
-				"and start it. If setup is complete, report that dynaflows is ready and ask the owner for the task.");
+		const asks = lines.map(dynaflowsAsk);
+		const asked = new Set(asks.flatMap(ask => [...ask]));
+		if (asked.size > 1) {
+			ctx.ui.notify("Agent rails: contradictory dynaflows asks; no setting changed.", "error");
+			return message("The owner's message asks to both enable and disable dynaflows, so no setting changed. " +
+				"Ask the owner which they want, then call the dynaflows tool with their answer.");
+		}
+		if (asked.size) {
+			// A line with no ask is the task to route.
+			const { content } = await applyDynaflows(ctx, asked.has(true), asks.some(ask => !ask.size));
+			return content === undefined ? undefined : message(content);
 		}
 		if (state.pointed || !(await dynaflowsOn(ctx))) return;
 		state.pointed = true;
-		return message(route);
+		return message(`Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`);
+	});
+	const dynaflowsToolParams = z.object({ enabled: z.boolean().describe("true when the user asked to enable dynaflows, false to disable it") });
+	pi.registerTool({
+		name: "dynaflows",
+		label: "Dynaflows",
+		description: "Turn dynaflows on or off for the current repository and get the next step. Call it only when the " +
+			"user asked in this conversation to enable or disable dynaflows, in any wording; never on your own initiative. " +
+			"Enabling also lets you write this repository's per-repo record during setup.",
+		parameters: dynaflowsToolParams,
+		loadMode: "essential",
+		approval: "write",
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
+			if (loadError) return reply(loadError);
+			if (ctx.agent.kind !== "main") return reply("Agent rails: only the main agent can toggle dynaflows.");
+			const result = await applyDynaflows(ctx, dynaflowsToolParams.parse(params).enabled, false);
+			return reply(result.content ?? result.notice);
+		},
 	});
 	pi.registerCommand("extension-health-agent-rails", {
 		description: "Agent rails registration marker",
