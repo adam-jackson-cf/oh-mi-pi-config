@@ -23,6 +23,7 @@ from pathlib import Path, PurePosixPath
 from omp_guardrails.config.house_style import apply_exceptions
 from omp_guardrails.config.profile import PROFILE_PATH
 from omp_guardrails.findings import Finding
+from omp_guardrails.structure.import_graph import run as import_graph_findings
 from omp_guardrails.structure.inventory import (
     InventoryError,
     as_list,
@@ -221,6 +222,7 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     except InventoryError as error:
         return [placement(".", str(error), "run inside a Git work tree")]
     found = configuration_findings(config)
+    found.extend(import_graph_findings(repo, profile, []))
     for path in paths:
         found.extend(path_findings(path, config))
     found.extend(instance_findings(paths, config))
