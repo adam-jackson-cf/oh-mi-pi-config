@@ -161,7 +161,10 @@ def confirmations(gate: dict) -> list[str]:
     if "agentMerge" not in gate:
         lines.append(f"confirm: agentMerge is the owner's to set in {GATE_PATH}")
     if gate.get("dynaflows") == {"enabled": False}:
-        lines.append(f"confirm: dynaflows stays off until the owner sets it on in {GATE_PATH}")
+        lines.append(
+            f"confirm: dynaflows is off in {GATE_PATH}; the owner turns it on with an "
+            "`enable $dynaflows` line in a session, or by setting dynaflows.enabled to true"
+        )
     return lines
 
 
