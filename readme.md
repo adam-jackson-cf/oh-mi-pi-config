@@ -86,13 +86,18 @@ This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
 with `git config core.hooksPath .githooks`.
 
 Dynaflows switches on the [canonical six-stage workflow](agent/skills/omp-dyna-workflows/SKILL.md).
-Use an entire standalone main-prompt line: `$dynaflows`, `$dynaflows <verb>` or
-`<verb> $dynaflows` turns it on (`on`, `enable`, `init`, `initialise`, `start`, `setup`,
-`set up`, `turn on`), and `$dynaflows off|disable|stop` or `disable|stop|turn off $dynaflows`
-turns it off; prose/quoted mentions do not toggle it. Turning it on starts from the repo's stage:
-with no record the agent starts repository setup, drafting the record with the switch on for the
-owner to save; with a refused record it resumes setup; with a directive-only prompt it assesses
-the repo against the workflow's Start here and starts that stage. The switch is the record's
+Ask for it in the main chat in any sentence: an on verb (`enable`, `init`, `initialise`, `start`,
+`set up`, `turn on`, `switch on`, `activate`) up to two words before `dynaflows` (the `$` is
+optional) or right after it, `turn dynaflows on`, or `$dynaflows on`; a standalone `$dynaflows`
+line also turns it on. `disable`, `stop`, `turn off`, `switch off`, `deactivate` or
+`$dynaflows off` turn it off. A negated verb ("don't enable dynaflows") or a mention without a
+verb does not toggle it, and an ask for both changes nothing. For wording the parser misses, the
+main agent calls the `dynaflows` tool. The ask lets the session's main agent write that repo's
+record (agents write records when the owner asked for dynaflows in the chat; otherwise records
+stay owner-edited). Turning it on starts from the repo's stage: with no record the agent starts
+repository setup and writes the record, switch on, itself; with a refused record it resumes setup
+and repairs it; with a prompt that holds only the ask it assesses the repo against the workflow's
+Start here and starts that stage. The switch is the record's
 `dynaflows.enabled`; linked worktrees share their main checkout's record. No `origin`
 remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
 `{"enabled": false}` turns it off for every repo. With dynaflows on, rails inject the

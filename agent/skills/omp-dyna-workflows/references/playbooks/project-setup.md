@@ -62,9 +62,12 @@ Implementation writes or completes the feature map in the repo: one document per
 machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
 `--record <draft dir>` outside `repos/`, drafts the same template and the record's `gate.json`.
 `omp-guardrails profile-check` must pass (PROFILE.complete).
-Preserve existing profile values when extending it. After Step 5 approval, ask the owner to save
-the draft as the live record by hand, with `dynaflows.enabled` false (agents never write records);
-never commit, stage or copy it into the repo.
+Preserve existing profile values when extending it. Agents write records when the owner asked for
+dynaflows in the chat; otherwise records stay owner-edited. With that ask, write the live record
+yourself (`omp-guardrails init --enable-dynaflows --record <harness>/repos/<owner>/<name>`), with
+`dynaflows.enabled` true, and never ask the owner to save a file. Without it, after Step 5 approval
+ask the owner to save the draft as the live record, with `dynaflows.enabled` false. Never commit,
+stage or copy a record into the repo.
 Then invoke guardrails Step 6 and Step 7 verification. Commit frozen proofs and greening changes
 atomically; rails run the record's `pathCheck`, `checks.commit` and the harness checks at each commit.
 Bootstrap permits proposing controls before they exist, not bypassing approval.
