@@ -489,6 +489,16 @@ const harnessOnlyNote =
 	"code to the harness copy: route to project setup (skill://setup-repository-guardrails, adopt mode) to " +
 	"draft guardrails.check.repo for the owner to save.";
 
+// The dynaflows directive is a whole prompt line, case-insensitive: `$dynaflows` alone, or with an
+// on or off verb after it or before it. dynaflowsSetting gives true (on), false (off) or undefined.
+const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on";
+const dynaflowsDirective = new RegExp(
+	`^(?:\\$dynaflows(?: (${dynaflowsOnVerbs}|off|disable|stop))?|(${dynaflowsOnVerbs}|disable|stop|turn off) \\$dynaflows)$`, "i");
+function dynaflowsSetting(line: string): boolean | undefined {
+	const match = dynaflowsDirective.exec(line.trim().replace(/\s+/g, " "));
+	if (match) return !/^(?:off|disable|stop|turn off)$/i.test(match[1] ?? match[2] ?? "");
+}
+
 // Dynaflows is on for a repo only when its per-repo record (resolved from the origin remote under
 // `configRoot`/repos/) says dynaflows.enabled true. `machineDynaflowsPath` (~/.omp/dynaflows.json)
 // is the machine default: {"enabled": false} turns dynaflows off for every repo on this machine;
@@ -668,12 +678,17 @@ export default function agentRails(
 		if (at.invalid && at.off) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.off}`));
 		return at.on;
 	}
-	// `$dynaflows on|off` sets the record's switch; it never creates a record or touches the repo.
-	async function setDynaflows(ctx: ExtensionContext, enabled: boolean): Promise<string> {
+	// The dynaflows directive's target: the repo's slug and record directory (null when it has no
+	// record yet). Throws outside a Git project with a GitHub origin remote.
+	async function directiveTarget(ctx: ExtensionContext): Promise<{ slug: string; dir: string | null }> {
 		const root = await repoRoot(ctx.cwd);
 		if (!root) throw new Error("repo toggle needs a Git project; edit the machine default separately");
-		const dir = await findRecord(root, configRoot);
-		if (!dir) throw new Error(`${root} has no per-repo record (resolved from its origin remote); draft one with skill://setup-repository-guardrails first`);
+		const resolved = await resolveRecord(root, configRoot);
+		if (!resolved.slug) throw new Error(`repo toggle needs a Git project with a GitHub origin remote: ${root} has ${resolved.reason}`);
+		return { slug: resolved.slug, dir: resolved.dir };
+	}
+	// Sets the record's switch; it never creates a record or touches the repo.
+	async function setDynaflows(dir: string, enabled: boolean): Promise<string> {
 		const path = join(dir, GATE_FILE);
 		const gate = z.record(z.string(), z.unknown()).parse(JSON.parse(await readGateText(dir)));
 		gate.dynaflows = { enabled };
@@ -989,27 +1004,57 @@ export default function agentRails(
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
-		const directives = (event.prompt ?? "").split("\n").map(line => /^\$dynaflows(?: (on|off))?$/i.exec(line.trim())).filter(match => match !== null);
-		const settings = new Set(directives.map(match => match[1]?.toLowerCase() !== "off"));
-		if (settings.size > 1) { ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error"); return; }
-		if (directives.length) {
-			const enabled = directives[0][1]?.toLowerCase() !== "off";
-			let path: string;
-			try { path = await setDynaflows(ctx, enabled); }
+		const message = (content: string) => ({ message: { customType: "agent-rails-dynaflows", content, display: false, attribution: "agent" as const } });
+		const route = `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`;
+		const lines = (event.prompt ?? "").split("\n").filter(line => line.trim());
+		const settings = lines.map(dynaflowsSetting);
+		const directives = new Set(settings.filter(setting => setting !== undefined));
+		if (directives.size > 1) { ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error"); return; }
+		if (directives.size) {
+			const enabled = directives.has(true);
+			let target: { slug: string; dir: string | null };
+			try { target = await directiveTarget(ctx); }
 			catch (error) { ctx.ui.notify(`Agent rails: ${String(error)}`, "error"); return; }
-			ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${path}).`, "info");
 			state.pointed = false;
-			if (!enabled) return { message: {
-				customType: "agent-rails-dynaflows", content: "Dynaflows off: do not apply omp-dyna-workflows.",
-				display: false, attribution: "agent",
-			} };
+			const { slug, dir } = target;
+			if (!dir) {
+				if (!enabled) { ctx.ui.notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`, "info"); return; }
+				// No record yet: enabling starts setup, whose draft carries the switch for the owner to save.
+				ctx.ui.notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`, "info");
+				return message(`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
+					"Start skill://setup-repository-guardrails setup now, from Step 0. Because the owner asked to enable dynaflows, " +
+					'the drafted gate.json sets "dynaflows": {"enabled": true}, so the owner saving the record by hand turns dynaflows on. ' +
+					"Agents never write records: draft it outside repos/ and ask the owner to save it.");
+			}
+			const resume = (reason: string) => message(`The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
+				`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repository-guardrails setup now: draft the record ` +
+				'change, with "dynaflows": {"enabled": true}, and ask the owner to save it by hand; agents never write records.');
+			try {
+				ctx.ui.notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${await setDynaflows(dir, enabled)}).`, "info");
+			} catch (error) {
+				const reason = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
+				return enabled ? resume(reason) : undefined;
+			}
+			if (!enabled) return message("Dynaflows off: do not apply omp-dyna-workflows.");
+			const at = await dynaflowsAt(ctx);
+			if (at.invalid) return resume(at.off ?? "invalid record");
+			if (!at.on) {
+				const off = sentence(at.off ?? "dynaflows off");
+				ctx.ui.notify(`Agent rails: ${off}`, "info");
+				return message(`${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply omp-dyna-workflows.`);
+			}
+			state.pointed = true;
+			// A prompt that is only the directive asks to start dynaflows here; any other line is the task.
+			if (settings.some(setting => setting === undefined)) return message(route);
+			return message(`Dynaflows on for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
+				`${map.references.workflow.join(" and ")} and assess this repo against its Start here playbook selection ` +
+				"(Project setup when controls, the Verification surface or the feature map are missing). Report the stage you found " +
+				"and start it. If setup is complete, report that dynaflows is ready and ask the owner for the task.");
 		}
 		if (state.pointed || !(await dynaflowsOn(ctx))) return;
 		state.pointed = true;
-		return { message: {
-			customType: "agent-rails-dynaflows", content: `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.`,
-			display: false, attribution: "agent",
-		} };
+		return message(route);
 	});
 	pi.registerCommand("extension-health-agent-rails", {
 		description: "Agent rails registration marker",

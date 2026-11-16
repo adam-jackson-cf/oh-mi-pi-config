@@ -1,5 +1,5 @@
 {
-  "version_key": "81dff5cff3d92135bf9df890c7111408fec440af3adb463976904d2d0a7fd4b2",
+  "version_key": "258dd4c32c3c0dca576fa8396e08e09353e4255300277bb43f04b69de4eb4f94",
   "model": "typesafe/jev-1.14",
   "model_reported": "typesafe/jev-1.14-20261014",
   "score_space": "raw",
@@ -38,32 +38,48 @@
     "reason": "assumed per jev-actions: the owner gave none; recall raised to 0.9 because a missed high/critical costs more than an extra owner report"
   },
   "label_set": {
-    "cases": 30,
-    "provenance": "agent_reviewed (author session and an independent blind session agreed on 150 of 150 labels)",
+    "cases": 56,
+    "dev": 44,
+    "test": 12,
+    "provenance": "agent_reviewed: two blind sessions on different models (opus, sonnet) labelled all 56 cases from the frozen guide and agreed on 280 of 280 labels; both reasons are kept per label; 3 impact rule citations were corrected by adjudication (C40, C49, C54). Same model family, so agreement is weak evidence; no human labels yet",
     "synthetic": 2,
-    "split": "all dev; no test set yet",
+    "split": "dev: C01-C44 (30 original replay cases plus 14 real advisories chosen to fill scarce labels); test: C45-C56, a natural sample of real advisories published 2026-10-28 or later (first per upstream repository, pip and npm alternating)",
     "strata": {
+      "dev/critical": 1,
+      "dev/low": 5,
+      "dev/medium": 4,
+      "dev/new": 6,
       "runtime/critical": 5,
       "runtime/high": 5,
-      "runtime/medium": 9,
       "runtime/low": 1,
-      "dev/medium": 4,
-      "dev/low": 5,
-      "dev/critical (malicious-package rule)": 1
+      "runtime/medium": 9,
+      "runtime/new": 20
     },
     "positives": {
-      "local_only": 2,
-      "needs_privileges": 0,
-      "needs_interaction": 3,
-      "reached": 17
+      "local_only": {
+        "dev": 5,
+        "test": 2
+      },
+      "needs_privileges": {
+        "dev": 7,
+        "test": 3
+      },
+      "needs_interaction": {
+        "dev": 8,
+        "test": 2
+      },
+      "reached": {
+        "dev": 25,
+        "test": 5
+      }
     }
   },
   "results": {
-    "v1": "first wording: rubric severity matched labels on 24/30; 4 understated (reached scored 0.27-0.30 on true hits: C01, C09, C11; C30 impact), 2 overstated",
-    "current": "after rewording reached and local_only: 27/30 match the policy severity (C30, a malicious package, is now routed critical to the owner by the deterministic MAL- rule before judge() and counts as a match), 0 understated, 3 overstated (C08 unclear round-up, C13, C15 reached on non-vulnerable use); halt decision (owner vs in-flow fix) matched 28/30",
-    "calibration": "tune_threshold.py --calibration --repeats 5 --conservative: no threshold met the minimums in any fold (too few positives); Brier raw local_only 0.034, needs_interaction 0.083, reached 0.066; Platt improved only needs_interaction (0.017) and cannot be confirmed without a test set, so raw is kept; needs_privileges has no positive case",
-    "cost_per_100_cases_usd": 0.0053,
-    "malicious_rule": "C30 (eslint-scope 3.7.2, alias MAL-GHSA-hxxf-q3w9-4xgw) never reaches the judgment: workflows.malicious_package routes it as critical to the owner. Its Jev scores in scores.csv were taken before the MAL- alias was added to its state; the judgment had read it as data_exposure (dev high -> medium, the only understatement)"
+    "current": "rubric severity matched the labels on 36/44 dev and 9/12 test; understated 1 dev (C34: reached scored 0.11 on an `open-webui serve` hit, so high became medium and the halt was missed) and 1 test (C45: impact read as data_exposure, medium became low, no halt change); overstated 7 dev, 2 test; halt decision (owner vs in-flow fix) matched 39/44 dev and 11/12 test",
+    "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.9: no threshold met the minimums for local_only (5 dev positives) or needs_interaction (8); needs_privileges tuned 0.58 (test P 0.75 R 1.00) and reached 0.325 (test P 0.71 R 1.00), both below the precision minimum on test; with --repeats 5 --conservative no question qualifies. The shipped values below are unchanged and stay provisional",
+    "cost_per_100_cases_usd": 0.0058,
+    "malicious_rule": "C30 (eslint-scope 3.7.2, alias MAL-GHSA-hxxf-q3w9-4xgw) never reaches the judgment: workflows.malicious_package routes it as critical to the owner",
+    "history": "v2 (version 81dff5cf, 30 cases): 27/30 severity match; superseded by the reached rewording (R6) and the guide's new rules U4, I3, P3 and named defaults"
   },
-  "todo": "provisional: grow to about 30 human-reviewed cases per label (needs_privileges positives, local_only positives), build a test set from a newer replay window, then tune and recheck calibration; probabilities are not fit to show as confidence"
+  "todo": "provisional: the owner reviews every case on the label review page (https://claude.ai/artifact/WjwY8EcMvfAB34bMnCcuxs, decisions collection; each decision is appended to labels.jsonl as a `human` row by the owner) (human labels override these agent labels); then grow to about 30 positives per label for local_only, needs_privileges and needs_interaction, re-tune and recheck calibration; probabilities are not fit to show as confidence"
 }

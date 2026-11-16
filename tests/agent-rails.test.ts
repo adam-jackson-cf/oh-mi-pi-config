@@ -73,13 +73,14 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	writeFileSync(join(root, "existing.ts"), "export const answer = 42;\n");
 	const handlers = new Map<string, Handler>();
 	const notes: string[] = [];
+	const errors: string[] = [];
 	const branch: object[] = [];
 	let sessionId = "first";
 	const identity: ExtensionContext["agent"] = { kind: "main", id: root, name: "main", depth: 0 };
 	const context = {
 		cwd: root,
 		agent: identity,
-		ui: { notify(message: string) { notes.push(message); } },
+		ui: { notify(message: string, level?: string) { notes.push(message); if (level === "error") errors.push(message); } },
 		sessionManager: { getSessionId: () => sessionId, getBranch: () => branch },
 		models: {
 			current: () => ({ provider: "openai", id: "gpt" }),
@@ -134,7 +135,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		return handler({ type: name, ...event }, context as ExtensionContext);
 	}
 	return {
-		root, notes, branch, context, emit, api, options, records, recordDir,
+		root, notes, errors, branch, context, emit, api, options, records, recordDir,
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
 		gate(value: GateFixture) { fixture = value; writeGate(); },
@@ -694,8 +695,10 @@ describe("agent rails", () => {
 		try {
 			h.machineDynaflows(true);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "pull latest" }), undefined, "no record: off whatever the machine says");
+			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" });
+			assert.ok(h.notes.some(note => note.includes("has no per-repo record, so dynaflows is already off")), h.notes.join("; "));
 			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
-			assert.ok(h.notes.some(note => note.includes("has no per-repo record")), h.notes.join("; "));
+			assert.ok(h.notes.some(note => note.includes("has no per-repo record; starting repository setup")), h.notes.join("; "));
 			assert.equal(existsSync(h.recordDir()), false, "the toggle never creates a record");
 			h.gate({ schemaVersion: 2 });
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the record says off");
@@ -716,7 +719,67 @@ describe("agent rails", () => {
 			h.machineDynaflows(false);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "machine off beats record on");
 			h.setSession("sub"); h.context.agent.kind = "sub";
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }), undefined, "subagents cannot toggle dynaflows");
+			for (const prompt of ["$dynaflows off", "stop $dynaflows", "turn off $dynaflows"]) {
+				assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt }), undefined, `subagents cannot toggle dynaflows: ${prompt}`);
+			}
+			assert.deepEqual(h.record().dynaflows, { enabled: true });
+		} finally { h.cleanup(); }
+	});
+
+	test("every on and off directive form sets the record's switch", async () => {
+		const h = harness();
+		try {
+			h.gate({ schemaVersion: 2 });
+			const on = ["$dynaflows", "$DYNAFLOWS ON", "  $dynaflows enable  "];
+			for (const verb of ["on", "enable", "init", "initialise", "initialize", "start", "setup", "set up", "turn on"]) {
+				on.push(`$dynaflows ${verb}`, `${verb} $dynaflows`, `${verb.toUpperCase()}  $Dynaflows`);
+			}
+			const off = ["$dynaflows off", "$dynaflows disable", "$dynaflows stop", "disable $dynaflows", "stop $dynaflows", "Turn  Off $dynaflows"];
+			for (const prompt of on) {
+				h.dynaflows(false);
+				await h.emit("before_agent_start", { reason: "prompt", prompt });
+				assert.deepEqual(h.record().dynaflows, { enabled: true }, prompt);
+			}
+			for (const prompt of off) {
+				h.dynaflows(true);
+				const result = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
+				assert.deepEqual(h.record().dynaflows, { enabled: false }, prompt);
+				assert.ok(result.includes("Dynaflows off"), prompt);
+			}
+		} finally { h.cleanup(); }
+	});
+
+	test("enabling dynaflows starts from the repo's stage", async () => {
+		const h = harness();
+		try {
+			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
+			// No record: setup starts at Step 0, drafting the switch on; nothing is written and no error shows.
+			const setup = await start("init $dynaflows");
+			assert.ok(setup.includes("Start skill://setup-repository-guardrails setup now, from Step 0") && setup.includes("owner/repo"), setup);
+			assert.ok(setup.includes('\\"dynaflows\\": {\\"enabled\\": true}'), setup);
+			assert.equal(existsSync(h.recordDir()), false, "enabling never creates a record");
+			assert.ok(h.notes.some(note => note.includes("starting repository setup")), h.notes.join("; "));
+			assert.deepEqual(h.errors, [], "no record is a stage, not an error");
+			// A refused record: setup resumes and names the reason.
+			h.rawGate('{"schemaVersion":2,"dynaflows":{"enabled":false}}');
+			const resume = await start("$dynaflows enable");
+			assert.ok(resume.includes("Resume skill://setup-repository-guardrails setup now") && resume.includes("pathCheck"), resume);
+			h.rawGate("{broken");
+			const broken = await start("$dynaflows enable");
+			assert.ok(broken.includes("Resume skill://setup-repository-guardrails setup now") && broken.includes("is refused: "), broken);
+			// A valid record and a directive-only prompt: assess the stage and start it.
+			h.gate({ schemaVersion: 2 });
+			const kickoff = await start("$dynaflows on");
+			assert.ok(kickoff.includes("Dynaflows on for owner/repo") && kickoff.includes("skill://omp-dyna-workflows"), kickoff);
+			assert.ok(kickoff.includes("Report the stage you found and start it") && kickoff.includes("ask the owner for the task"), kickoff);
+			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the kickoff counts as the pointer");
+			// A directive beside a task: the prompt's task is routed.
+			const route = await start("enable $dynaflows\nfix the login bug");
+			assert.ok(route.includes("Dynaflows on. Route this work with skill://omp-dyna-workflows") && !route.includes("Report the stage"), route);
+			// The machine default keeps it off and says so.
+			h.machineDynaflows(false);
+			const kept = await start("$dynaflows");
+			assert.ok(kept.includes("Dynaflows off for owner/repo: the machine default") && kept.includes("Do not apply omp-dyna-workflows"), kept);
 			assert.deepEqual(h.record().dynaflows, { enabled: true });
 		} finally { h.cleanup(); }
 	});
@@ -1352,7 +1415,9 @@ test("toggle commands ignore prose and reject contradictions and nonrepositories
 	try {
 		h.gate({ schemaVersion: 2 });
 		const record = h.record();
-		for (const prompt of ["please $dynaflows on", '"$dynaflows"', "$dynaflows status", "$dynaflows on\n$dynaflows off"]) {
+		for (const prompt of ["please $dynaflows on", '"$dynaflows"', "$dynaflows status", "$dynaflows on\n$dynaflows off",
+			"init $dynaflows\nstop $dynaflows", "please enable $dynaflows", "$dynaflows enabled", "off $dynaflows", "$dynaflows turn off",
+			"`$dynaflows init`", "$dynaflows on.", "$dynaflowson"]) {
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
 			assert.deepEqual(h.record(), record, prompt);
 		}

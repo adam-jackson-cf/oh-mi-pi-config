@@ -5,7 +5,7 @@ them. The server names follow omp's built-in defaults (``omp://lsp-config.md``).
 each server and its install hint in the profile's ``command_notes.lsp``.
 
 Readiness means the server answers a real query, not only that it is on ``PATH``. For each
-detected server, init starts ``<server> --stdio`` and runs the canary over the Language Server
+detected server, init starts its stdio command and runs the canary over the Language Server
 Protocol: ``initialize``, open one file, one ``textDocument/references`` query on a known
 symbol, then ``shutdown``. The symbol is the first top-level definition in the repo's own
 source files; a repo with none yet gets a two-file canary module in a temporary workspace that
@@ -27,7 +27,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from omp_guardrails.child_env import repo_environment
@@ -57,6 +57,7 @@ class Stack:
     extensions: tuple[str, ...]
     definition: str
     canary_files: tuple[tuple[str, str], ...]
+    arguments: tuple[str, ...] = ("--stdio",)
 
 
 STACKS = (
@@ -96,7 +97,23 @@ class CanaryError(Exception):
 
 
 def detect(repo: Path) -> list[Stack]:
-    return [stack for stack in STACKS if any((repo / name).is_file() for name in stack.markers)]
+    stacks = [stack for stack in STACKS if any((repo / name).is_file() for name in stack.markers)]
+    for index, stack in enumerate(stacks):
+        if stack.name != "typescript":
+            continue
+        package = repo / "node_modules/typescript/package.json"
+        if not package.is_file():
+            continue
+        metadata = json.loads(package.read_text(encoding="utf-8"))
+        if re.match(r"^(?:[7-9]|\d{2,})\.", str(metadata.get("version", ""))):
+            # TS7 publishes the native tsgo compiler as tsc; it no longer has tsserver.js.
+            stacks[index] = replace(
+                stack,
+                server=str((package.parent / "bin/tsc").resolve()),
+                install="install the repository's pinned TypeScript with its package manager",
+                arguments=("--lsp", "--stdio"),
+            )
+    return stacks
 
 
 def notes(stacks: list[Stack]) -> list[dict]:
@@ -163,12 +180,14 @@ def read_messages(stream, inbox: queue.Queue) -> None:
 class Session:
     """A minimal LSP client over one server process's stdio."""
 
-    def __init__(self, server: str, workspace: Path, timeout: float) -> None:
+    def __init__(
+        self, server: str, workspace: Path, timeout: float, arguments: tuple[str, ...]
+    ) -> None:
         self.deadline = time.monotonic() + timeout
         self.next_id = 0
         try:
             self.process = subprocess.Popen(
-                [server, "--stdio"],
+                [server, *arguments],
                 cwd=workspace,
                 env=repo_environment(),
                 stdin=subprocess.PIPE,
@@ -238,7 +257,7 @@ class Session:
 
 
 def query(server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: float) -> int:
-    session = Session(server, workspace, timeout)
+    session = Session(server, workspace, timeout, stack.arguments)
     try:
         session.request(
             "initialize",
