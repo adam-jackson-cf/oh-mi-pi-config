@@ -58,7 +58,7 @@ class RepositoryTests(unittest.TestCase):
         root_patch = patch.object(workflow, "_records_root", return_value=self.config)
         root_patch.start()
         self.addCleanup(root_patch.stop)
-        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}, "pathCheck": ["true"]}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"]}}))
         self.profile("<doctor failure marker>")
         self.write(f"{MAP_PATH}/value.md", map_doc(*(f"../../{name}" for name in MAPPED)))
         self.write("value", "old")
@@ -199,7 +199,7 @@ class RepositoryTests(unittest.TestCase):
         path, digest = self.freeze([], base=self.parent)
         self.assertEqual(json.loads(path.read_text())["proofs"], [])
         self.head = git(self.repo, "rev-parse", "HEAD")
-        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"],
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]},
                                     "ci": {"requiredContext": "gate", "runner": "ci-gate"}}))
         with patch.object(workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")):
             result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
@@ -408,10 +408,10 @@ class RepositoryTests(unittest.TestCase):
         self.assert_block(self.prove(), "base must be")
 
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self):
-        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}),
-                     json.dumps({"schemaVersion": 2, "pathCheck": ["true"]}),
-                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "unknownField": 3}),
-                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "dynaflows": {"enabled": "yes"}})):
+        for text in ("null", "{", json.dumps({"schemaVersion": 3}), json.dumps({"schemaVersion": 2, "checks": {"commit": []}}),
+                     json.dumps({"schemaVersion": 2}),
+                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "unknownField": 3}),
+                     json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "dynaflows": {"enabled": "yes"}})):
             self.write_gate(text)
             self.change()
             with patch.object(workflow, "_setup", side_effect=AssertionError("setup must not run")):
@@ -589,7 +589,7 @@ class RepositoryTests(unittest.TestCase):
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def gate(self, **checks):
-        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"], **checks}, "pathCheck": ["true"],
+        gate = {"schemaVersion": 2, "checks": {"commit": ["false"], "ci": ["false"], **checks},
                 "ci": {"requiredContext": "gate", "runner": "ci-gate"}}
         self.write_gate(json.dumps(gate))
 
@@ -604,14 +604,14 @@ class RepositoryTests(unittest.TestCase):
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
         self.assert_block(result, f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}")
 
-    def test_prove_requires_path_check_and_commit_check(self):
+    def test_prove_requires_commit_check(self):
         self.change()
-        for gate, named in (({"schemaVersion": 2, "checks": {"commit": ["true"]}}, "pathCheck must be argv"),
-                            ({"schemaVersion": 2, "pathCheck": ["true"]}, "checks must be an object with checks.commit")):
+        for gate, named in (({"schemaVersion": 2, "checks": {}}, "checks.commit must be argv"),
+                            ({"schemaVersion": 2}, "checks must be an object with checks.commit")):
             with self.subTest(named=named):
                 self.write_gate(json.dumps(gate))
                 self.assert_block(self.prove(), named)
-        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"]}))
+        self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}}))
         self.assertEqual(self.prove()["status"], "pass")
 
     def test_prove_without_origin_finds_no_record(self):
@@ -625,12 +625,12 @@ class RepositoryTests(unittest.TestCase):
         try:
             record, gate = workflow.read_record(linked)
             self.assertEqual(record, self.record)
-            self.assertEqual(gate["pathCheck"], ["true"])
+            self.assertEqual(gate["checks"]["commit"], ["false"])
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
     def test_unreadable_or_rejected_record_raises(self):
-        complete = {"schemaVersion": 2, "checks": {"commit": ["true"]}, "pathCheck": ["true"], "ownerOnlyPaths": []}
+        complete = {"schemaVersion": 2, "checks": {"commit": ["true"]}, "ownerOnlyPaths": []}
         for text, fragment in (("{", "record "), (json.dumps({**complete, "dynaflows": {"enabled": "yes"}}), 'dynaflows must be {"enabled": true|false}')):
             with self.subTest(text=text):
                 (self.record / "gate.json").write_text(text)
@@ -641,7 +641,7 @@ class RepositoryTests(unittest.TestCase):
         for field, value in (("unknownField", 3), ("extraField", 5000), ("otherField", "github")):
             with self.subTest(field=field):
                 self.manifest_path.unlink(missing_ok=True)
-                self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, "pathCheck": ["true"], field: value}))
+                self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["false"]}, field: value}))
                 with self.assertRaisesRegex(workflow.WorkflowError, f"unknown field {field} must be removed"):
                     workflow.read_record(self.repo)
                 with self.assertRaisesRegex(workflow.WorkflowError, f"unknown field {field} must be removed"):
@@ -1029,11 +1029,11 @@ class SchemaTests(unittest.TestCase):
     def test_gate_policy_uses_the_harness_gate_validation(self):
         # repo_record.gate_reason owns the schema (tests/test_repo_record.py); gate_policy accepts
         # exactly what it accepts and returns the fields freeze() and prove() consume.
-        gate = {"schemaVersion": 2, "checks": {"commit": ["c"], "format": ["ruff", "format"]}, "pathCheck": ["p"],
+        gate = {"schemaVersion": 2, "checks": {"commit": ["c"], "format": ["ruff", "format"]},
                 "ownerOnlyPaths": [], "ci": {"requiredContext": "gate", "runner": "ci-gate"}, "dynaflows": {"enabled": False}}
         self.assertEqual(workflow.gate_policy(gate),
                          {"format": ["ruff", "format"], "ci": {"requiredContext": "gate", "runner": "ci-gate"}})
-        for invalid in ({k: v for k, v in gate.items() if k != "pathCheck"}, {**gate, "checks": {"ci": ["c"]}},
+        for invalid in ({k: v for k, v in gate.items() if k != "checks"}, {**gate, "checks": {"ci": ["c"]}},
                         {**gate, "unknownField": 3}, {k: v for k, v in gate.items() if k != "ownerOnlyPaths"}):
             with self.subTest(gate=invalid):
                 self.assertIsNone(workflow.gate_policy(invalid))

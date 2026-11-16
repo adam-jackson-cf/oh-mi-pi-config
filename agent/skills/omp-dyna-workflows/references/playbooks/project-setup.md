@@ -23,6 +23,8 @@ Pick the setup skill's Step 0 modes from the starting point; more than one can a
 
 Never build a second guardrail system beside the repo's own; the
 [design directive](../../AGENTS.md) holds the principles.
+The harness-owned per-edit `path-check` is the explicit exception in
+[ADR 0002](../../../../../docs/adr/0002-harness-owns-path-checks.md); it is not delegated through `guardrails.check.repo`.
 
 ## 2. Spike
 
@@ -62,13 +64,16 @@ Implementation writes or completes the feature map in the repo: one document per
 machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
 `--record <harness>/repos/<owner>/<name>`, drafts the same template and the record's `gate.json`.
 `omp-guardrails profile-check` must pass (PROFILE.complete).
+The profile requires `guardrails.structure`, `guardrails.naming` and `guardrails.paths` for
+harness `omp-guardrails path-check --repo <worktree> --record <record dir>`. Keep repo CI commands unchanged.
 Preserve existing profile values when extending it. Write the live record yourself; never ask the
 owner to save a file. Set `dynaflows.enabled` true only when the owner asked for dynaflows in the chat
 (`omp-guardrails init --enable-dynaflows`), else false. Write approval fields only as the owner stated
 them in the chat, and retain the Step 5 approval STOP before applying repository fixes.
 Never commit, stage or copy a record into the repo.
 Then invoke guardrails Step 6 and Step 7 verification. Commit frozen proofs and greening changes
-atomically; rails run the record's `pathCheck`, `checks.commit` and the harness checks at each commit.
+atomically; rails run harness `path-check` with record config, then `checks.commit` and the
+whole-repo harness checks at each commit.
 Bootstrap permits proposing controls before they exist, not bypassing approval.
 
 ## 5. Verify

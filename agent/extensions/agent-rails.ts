@@ -12,7 +12,7 @@ import {
 	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, parseOrigin, RECORDS_DIR, readGateText, recordDir, resolveRecord,
 } from "../lib/repo-record.ts";
 
-// The one hang guard for the rails' own short git/gh reads and the record's pathCheck.
+// The one hang guard for the rails' own short git/gh reads and the harness path check.
 const SUBPROCESS_TIMEOUT_MS = 20_000;
 const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
@@ -45,7 +45,7 @@ const prCiSchema = z.object({
 });
 
 // Harness variables the omp runtime sets for its own commands. Rails strip them from every repo
-// command they run (pathCheck, checks.commit, harness checks) so repos never see the harness.
+// command they run (path check, checks.commit, harness checks) so repos never see the harness.
 const harnessVariables = ["AGENT"];
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
@@ -507,6 +507,7 @@ function commitBypass(action: GitAction): string | undefined {
 // `--repo <worktree> --record <record dir>`.
 const guardrailsProject = fileURLToPath(new URL("../skills/setup-repo-proofs/assets/python-reference", import.meta.url));
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "check"];
+const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "path-check"];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
@@ -750,7 +751,7 @@ export default function agentRails(
 		await rename(temp, path);
 		return path;
 	}
-	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
+	async function checkPaths(root: string, changed: string[], state: State): Promise<string | undefined> {
 		try {
 			const canonicalRoot = await realpath(root);
 			const candidates: string[] = [];
@@ -783,12 +784,14 @@ export default function agentRails(
 			}
 			changed = changed.filter(path => changedPaths.has(relative(canonicalRoot, path)));
 			if (!changed.length) { state.pathFailures.delete(root); return; }
-			const result = await repoExec([...gate.pathCheck, ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
+			const record = await recordAt(root);
+			if (!record) throw new Error("per-repo record disappeared during path check");
+			const result = await repoExec([...harnessPathCommand, "--repo", canonicalRoot, "--record", record.dir, ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);
 		} catch (error) {
 			state.pathFailures.set(root, changed);
-			return `Agent rails: pathCheck failed in ${root}: ${String(error)}`;
+			return `Agent rails: path check failed in ${root}: ${String(error)}`;
 		}
 	}
 	// Repo paths a commit can take: staged and unstaged tracked changes, as absolute paths.
@@ -821,7 +824,7 @@ export default function agentRails(
 			"dependency-audit exception file. Restore them (git restore --staged --worktree -- <path>), then stop and raise " +
 			"the change to the owner: what you need changed, why, and the evidence. The owner makes the change.";
 	}
-	// At the agent's commit in a dynaflows-on repo: the record's pathCheck over the paths the commit
+	// At the agent's commit in a dynaflows-on repo: the harness path check over the paths the commit
 	// can take, the record's checks.commit (the repo's own command), then the harness checks over the
 	// whole repo with the record as config. Any failure or finding blocks the commit; there are no
 	// baselines and no diff scoping.
@@ -829,7 +832,7 @@ export default function agentRails(
 		const record = await recordAt(root);
 		if (!record) return;
 		const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...await commitPaths(root)])];
-		const failed = await checkPaths(root, changed, record.gate, state);
+		const failed = await checkPaths(root, changed, state);
 		if (failed) return `${failed}\nFix the findings, then commit again.`;
 		const runs: [string, string[]][] = [
 			[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit],
@@ -882,7 +885,7 @@ export default function agentRails(
 			const gate = await gateAt(root, state, ctx);
 			if (!gate) continue;
 			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
-			const error = await checkPaths(root, changed, gate, state);
+			const error = await checkPaths(root, changed, state);
 			if (error) errors.push(error);
 		}
 		return errors.length ? { additionalContext: errors.join("\n") } : undefined;
@@ -1007,7 +1010,7 @@ export default function agentRails(
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
-				// A repo with a valid record gets its pathCheck after each edit instead of read gates.
+				// A repo with a valid record gets the harness path check after each edit instead of read gates.
 				if (root && await gateAt(root, state, ctx)) continue;
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
@@ -1036,7 +1039,7 @@ export default function agentRails(
 				const gate = await gateAt(root, state, ctx);
 				const failedPaths = state.pathFailures.get(root);
 				if (failedPaths && gate) {
-					const error = await checkPaths(root, failedPaths, gate, state);
+					const error = await checkPaths(root, failedPaths, state);
 					if (error) reasons.push(error);
 				}
 			}

@@ -37,8 +37,8 @@ Choose exactly one active playbook:
 - Missing controls, user-visible work without a Verification surface and feature map
   (`verification_surface.feature_map_path`) in the record's `profile.md`, or a harness check step
   whose rules the repo's checkers hold, or could hold, that the record has not listed in
-  `guardrails.check.repo` (a commit blocked by harness findings after `checks.commit` passed is
-  the usual sign):
+  `guardrails.check.repo` (except harness-owned per-edit `path-check`, which always uses the
+  record's required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings):
   [Project setup](references/playbooks/project-setup.md) is a prerequisite PR.
   An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no
   feature map, so `freeze()` accepts no proofs there.
@@ -86,14 +86,17 @@ Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main requires a record whose schema-v2 `gate.json` has both `pathCheck` and `checks.commit`;
-a record missing either, or carrying a field outside the schema, fails to load with an error
-naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns accepted schema fields/types;
-its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI. At each
-agent commit, rails run the record's `pathCheck`, its `checks.commit` (the repo's own command)
-and then the harness checks (`omp-guardrails`, run from the harness with the record as config)
-over the whole repo, minus the steps the record's `guardrails.check.repo` gives to repo checkers
-that `checks.commit` already runs; any finding blocks the commit, with no baseline or diff scope.
+Main requires a record whose schema-v2 `gate.json` has `checks.commit`;
+a record missing it, or carrying a field outside the schema (including the obsolete path command field),
+fails to load with an error naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns
+accepted schema fields/types; its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves
+`prove()` and CI. Rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>`
+after edits and before commit, configured by required profile `guardrails.structure`,
+`guardrails.naming` and `guardrails.paths`. At each agent commit, this is followed by the record's
+`checks.commit` (the repo's own command) and whole-repo harness checks (`omp-guardrails check`),
+minus the steps `guardrails.check.repo` gives to repo checkers that `checks.commit` already runs.
+Any finding blocks the commit, with no baseline or diff scope for whole-repo checks.
+Per-edit path checks are the principles 1–2 exception in [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
 When the commit gate reports `SECURITY.dependency-audit` findings, main stops implementation and
 follows [dependency advisories](references/patterns.md#dependency-advisories): each advisory gets
 the calibrated severity judgment, except a malicious package (`MAL-`), which code routes to the

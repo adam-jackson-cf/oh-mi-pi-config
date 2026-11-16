@@ -300,6 +300,10 @@ class CheckerTests(unittest.TestCase):
                 {"repo": {"profile-check": ["checks/lint.py"]}},
                 "guardrails.check.repo names 'profile-check'",
             ),
+            "harness path check": (
+                {"repo": {"path-check": ["src/orders/cli/main.py"]}, "exclude": ["**"]},
+                "guardrails.check.repo names 'path-check', which the repo cannot own",
+            ),
             "listed twice": (
                 {"run": ["naming"], "repo": {"naming": ["src/orders/cli/main.py"]}},
                 "guardrails.check.run lists repo-owned steps ['naming']",

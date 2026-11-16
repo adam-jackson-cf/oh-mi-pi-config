@@ -168,7 +168,7 @@ class CiGateTests(unittest.TestCase):
     @staticmethod
     def gate(**fields):
         """A complete record gate.json; `fields` replace its defaults, None removes one."""
-        gate = {'schemaVersion': 2, 'checks': {'commit': ['true'], 'ci': ['true']}, 'pathCheck': ['true'],
+        gate = {'schemaVersion': 2, 'checks': {'commit': ['true'], 'ci': ['true']},
                 'ownerOnlyPaths': [], 'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}, 'dynaflows': {'enabled': True}}
         gate.update(fields)
         return {key: value for key, value in gate.items() if value is not None}
@@ -388,12 +388,11 @@ class CiGateTests(unittest.TestCase):
 
     def test_gate_without_required_context_is_an_unpublished_error(self):
         for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'unknownField',
-                        'pathCheck', 'checks', 'ownerOnlyPaths'):
+                        'checks', 'ownerOnlyPaths'):
             with self.subTest(failure=failure):
                 gate = {'missing-context': self.gate(ci=None),
                         'unknown-schema': {'schemaVersion': 3},
                         'unknownField': self.gate(unknownField=3),
-                        'pathCheck': self.gate(pathCheck=None),
                         'ownerOnlyPaths': self.gate(ownerOnlyPaths=None),
                         'checks': self.gate(checks={'ci': ['true']})}.get(failure)
                 if failure == 'missing-gate':
@@ -409,7 +408,7 @@ class CiGateTests(unittest.TestCase):
                 result = json.loads(waited.stdout)
                 self.assertEqual(result['state'], 'error')
                 self.assertIn('ci.requiredContext', result['publicationError'])
-                if failure in ('unknownField', 'pathCheck', 'checks', 'ownerOnlyPaths'):
+                if failure in ('unknownField', 'checks', 'ownerOnlyPaths'):
                     # The run's error names the field the strict record schema rejected.
                     self.assertIn('checks.commit' if failure == 'checks' else failure, result['error'])
                 self.assertIn('ci.requiredContext', waited.stderr)

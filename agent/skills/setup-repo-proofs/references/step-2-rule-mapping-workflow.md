@@ -36,15 +36,15 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    `TEST.duplicate-path` to normalized call-path/assertion fingerprints,
    compared against existing and other new cases; duplicates fail naming both
    tests and the merge-or-remove fix.
-5. Map `GATE.local-ci-parity`, `GATE.pre-commit`, and `GATE.path-check` to the
-   record's `gate.json` command arrays (`checks.ci`, `checks.commit`,
-   `pathCheck`). Each array names the repo's own command, such as a make
-   target, never an omp path. Record the repo's actual local/CI/hook
-   invocations of those commands (through its existing hook manager, such as
-   lefthook, husky or pre-commit, when one is tracked) and failure
-   propagation. At the agent's commit, rails run `pathCheck`, then
-   `checks.commit` and then the harness checks, so a repo hook is the repo's
-   own choice. Record any existing pre-push hook as a practice to replace.
+5. Map `GATE.local-ci-parity` and `GATE.pre-commit` to the record's `gate.json`
+   command arrays (`checks.ci`, `checks.commit`). Each names the repo's own command,
+   never an omp path. Preserve the repo's CI commands and record its actual local/CI/hook
+   invocations and failure propagation. Map `GATE.path-check` to harness
+   `omp-guardrails path-check --repo <worktree> --record <record dir>`, not a record command.
+   Required profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths` configure it.
+   Rails run it after edits and before commit; at commit `checks.commit` and whole-repo
+   harness checks follow. A repo hook remains the repo's choice.
+   Record any existing pre-push hook as a practice to replace.
 6. For tool rules, record selector, limit, exceptions and pinned version; one
    tool rule may carry both a `selector` and its limit `value`. A row with a
    `reference` field names the `omp-guardrails` check step that enforces it
@@ -67,6 +67,9 @@ Translate every bundled rule into an exact target-stack enforcement obligation.
    - `harness`: the repo cannot hold the step's rules without depending on omp
      or dynaflows (`profile-check` checks the record itself), or it has no
      checker capability yet (a greenfield repo).
+   Harness-owned per-edit `path-check` is outside this delegation: it always runs with the
+   required profile settings, even where repo checks overlap. See
+   [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md), the principles 1–2 exception.
 
    `SECURITY.dependency-audit` has no check step and never the `harness`
    outcome, even in a greenfield repo: any repo can hold an audit without the
