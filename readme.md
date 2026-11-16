@@ -53,7 +53,8 @@ Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. All-session handoff, including subagents, stays blocked
 until verification references are read after that session's code edits and failed
-`pathCheck` paths pass on retry. The check covers edited paths plus prior failures
+harness `path-check` paths pass on retry. Rails run `omp-guardrails path-check --repo <worktree>
+--record <record dir>` from the harness. It covers edited paths plus prior failures
 that `git status` reports as changed or untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
@@ -68,10 +69,11 @@ check run, whoever posts it.
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. At each agent
-commit, rails run the record's `pathCheck`, then `checks.commit`, and then the harness
-checks: `omp-guardrails check`, run from this checkout with `--repo <worktree>` and `--record
-<record dir>`, over the whole repo. Any finding blocks the commit; there are no baselines and no
-diff scoping, and scope exclusions come from the record. The CI runner named by `ci.runner` runs
+commit, rails run harness `omp-guardrails path-check` with repo and record arguments,
+then `checks.commit`, and then `omp-guardrails check`, also run from this checkout with
+`--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
+there are no baselines and no diff scoping, and scope exclusions come from the record.
+The CI runner named by `ci.runner` runs
 `checks.ci` for every push and merge. Optional `checks.format` is the formatter `freeze()` runs
 before hashing. Pulling existing commits into a branch (merge, rebase, cherry-pick, revert,
 pull) runs no harness check: those commits were checked when they were made, and CI checks the
@@ -129,13 +131,20 @@ named by the clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
 `git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)`).
 Worktrees resolve to the same record as their main checkout.
 
-- `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`,
-  `pathCheck`), the `ci` contract, `ownerOnlyPaths`, `agentMerge` and
-  `dynaflows.enabled`. `pathCheck`, `checks.commit` and `ownerOnlyPaths` are
-  required; a record without one, or with a field outside the schema, fails to load
-  with an error naming the field. `ownerOnlyPaths` lists the repo paths only the
-  owner changes (`[]` when none); rails refuse an agent commit that changes one.
+- `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`),
+  the `ci` contract, `ownerOnlyPaths`, `agentMerge` and `dynaflows.enabled`.
+  `checks.commit` and `ownerOnlyPaths` are required; missing required or unknown fields fail
+  to load with an error naming the field. The obsolete path command field is rejected.
+  `ownerOnlyPaths` lists the repo paths only the owner changes (`[]` when none);
+  rails refuse an agent commit that changes one.
 - `profile.md` holds the repo test profile, including every approval and exception.
+  Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings configure
+  harness-owned per-edit path checks even when whole-repo checks are repo-owned.
+  This is the explicit principles 1–2 exception in [ADR 0002](docs/adr/0002-harness-owns-path-checks.md):
+  consistent per-edit checks replace repo scripts whose contracts varied.
+  Existing records fail until the obsolete path command field is deleted and the required
+  profile is complete;
+  owner-approved migration follows immediately after merge, without changing repo CI commands.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
@@ -305,7 +314,7 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.
-- `scripts/check-paths.py` — the gate.json `pathCheck` for the source allowlist and test layout.
+- `scripts/check-paths.py` — repo-owned source allowlist and test-layout checks retained for repo CI.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
 - `scripts/ci-runner.py` — runs a CI runner role's submit, wait, status or logs
   command from `~/.omp/ci-runners.json`.

@@ -39,15 +39,17 @@ defines the layout.
 
 The record's `gate.json` (schema version 2) names the repo's own commands: `checks.commit` (static
 checks, every T1, affected T2 boundary tests), `checks.ci` (the full T1 and T2 suite),
-optional `checks.profile`, an actionable changed-path `pathCheck`, and `ci` (`requiredContext`,
+optional `checks.profile`, and `ci` (`requiredContext`,
 normally `gate`: the status or check run that must be green on the exact head; `runner`: a role
 each machine's runner config resolves to commands). It also holds `agentMerge` and
-`dynaflows.enabled`. `pathCheck` and `checks.commit` are required, and setup always drafts
-both; a record without either, or with a field outside the schema, fails to load with an error
-naming the field.
+`dynaflows.enabled`. `checks.commit` is required; missing required or unknown fields fail to load
+with an error naming the field. The obsolete path command field is rejected, not ignored.
 
-At each agent commit, rails run the record's `pathCheck`, then its `checks.commit` in
-the worktree, then the harness
+Rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>` after edits
+and before commit, using required profile `guardrails.structure`, `guardrails.naming` and
+`guardrails.paths` settings. This consistent per-edit contract is the explicit principles 1–2
+exception in [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
+At each agent commit, rails then run the record's `checks.commit` in the worktree, then the harness
 checks: `omp-guardrails check --repo <worktree> --record <record dir>`, run with
 `uv run --project` on this skill's `assets/python-reference`. The check covers the whole repo
 and blocks on any finding. There are no baselines and no diff scoping; generated, vendored and

@@ -97,7 +97,7 @@ def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None
 
 
 # Every current gate.json field; any other field, at the top level or in ``checks``, is rejected.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "pathCheck", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"})
+GATE_FIELDS = frozenset({"schemaVersion", "checks", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"})
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 
 
@@ -128,7 +128,7 @@ def owner_only(path: str, owned) -> bool:
 def gate_reason(gate) -> str | None:
     """Why rails would reject this gate.json object, or None when it is accepted.
 
-    The Python twin of ``gateSchema`` in repo-record.ts. ``pathCheck``, ``checks.commit`` and
+    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` and
     ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
     """
     if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
@@ -147,8 +147,6 @@ def gate_reason(gate) -> str | None:
     for key in ("ci", "format", "profile"):
         if key in checks and not _argv(checks[key]):
             return f"checks.{key} must be argv"
-    if not _argv(gate.get("pathCheck")):
-        return "pathCheck must be argv"
     owned = gate.get("ownerOnlyPaths")
     if not isinstance(owned, list):
         return "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"

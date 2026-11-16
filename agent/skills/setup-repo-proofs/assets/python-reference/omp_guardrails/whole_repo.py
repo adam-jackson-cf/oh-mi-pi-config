@@ -22,7 +22,8 @@ Settings (``guardrails.check`` in the record's ``profile.md``):
   commit through ``checks.commit``, so ``check`` leaves the step out. A step the repo owns cannot
   also be in ``run``, every checker file must be in the repository's file list, and settings
   sections read only by owned steps (``STEP_SETTINGS``) are rejected as dead.
-  ``profile-check`` is the record's own check and cannot be owned.
+  ``profile-check`` checks the record itself and ``path-check`` is always harness-owned;
+  neither can be owned by the repository.
 - ``exclude``: repository path patterns (as in ``structure.inventory``) for generated, vendored
   or fixture trees; findings at matching paths are dropped. Findings about the record itself
   (``record:``) are never dropped.
@@ -57,7 +58,7 @@ DEFAULT_STEPS = (
 )
 # Every static whole-repo step a record may select.
 STEPS = (*DEFAULT_STEPS, "path-check", "python-test-hygiene")
-UNOWNABLE = "profile-check"
+UNOWNABLE = ("profile-check", "path-check")
 # Settings sections that only check steps read; other sections also serve diff checks or prove().
 STEP_SETTINGS = {
     "python": ("python-quality", "python-fanout", "python-scalability", "python-test-hygiene"),
@@ -91,7 +92,7 @@ def owned_steps(profile: dict) -> tuple[dict[str, list[str]], list[Finding]]:
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
         return {}, []
-    ownable = [step for step in STEPS if step != UNOWNABLE]
+    ownable = [step for step in STEPS if step not in UNOWNABLE]
     if not isinstance(declared, dict) or not declared:
         return {}, [
             record_finding(

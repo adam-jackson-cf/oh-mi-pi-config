@@ -30,7 +30,7 @@ REFUSED = [
 
 
 # A complete gate.json; tests vary one field at a time.
-GATE = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]}, "pathCheck": ["make", "check-paths"],
+GATE = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]},
         "ownerOnlyPaths": [], "dynaflows": {"enabled": True}}
 
 
@@ -123,7 +123,7 @@ class Resolve(unittest.TestCase):
         git("-C", str(self.repo), "remote", "add", "origin", "https://github.com/owner/name")
         record = self.write_record("owner/name", GATE)
         self.assertEqual(repo_record.load_gate(record), GATE)
-        for invalid, named in ((gate(pathCheck=None), "pathCheck"), (gate(checks={"ci": ["ci"]}), "checks.commit"),
+        for invalid, named in ((gate(checks={"ci": ["ci"]}), "checks.commit"),
                                (gate(checks=None), "checks"), (gate(unknownField=3), "unknownField"),
                                (gate(extraField=1000), "extraField"), (gate(otherField="github"), "otherField"),
                                (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint"),
@@ -153,8 +153,6 @@ class GateReason(unittest.TestCase):
         cases = [
             ({"schemaVersion": True}, "unsupported gate schemaVersion"),
             (gate(schemaVersion=3), "unsupported gate schemaVersion"),
-            (gate(pathCheck=None), "pathCheck must be argv"),
-            (gate(pathCheck=[" "]), "pathCheck must be argv"),
             (gate(checks=None), "checks must be an object with checks.commit"),
             (gate(checks={"ci": ["true"]}), "checks.commit must be argv"),
             (gate(checks={"commit": []}), "checks.commit must be argv"),

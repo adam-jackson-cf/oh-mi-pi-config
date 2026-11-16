@@ -11,6 +11,8 @@ first.
    or workarounds. Anyone can clone it, build it, test it and run its checks without the harness.
    History is exempt: ADRs, and frozen study or evaluation records pinned by digest, keep their
    wording.
+   Exception to principles 1–2: harness-owned per-edit path checks provide one consistent contract;
+   repo build, tests and CI remain independent. See [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
 2. **Grow the repo's controls; the harness covers only the rest.** Where a repository already has
    the capability for a control (its own checkers, linters, test runner or CI gate), grow that
    control by adding the missing rules to it. The harness enforces a rule only when the repo could
@@ -25,6 +27,8 @@ first.
      satisfy a harness copy. When they disagree, either the repo control lacks the rule (repo PR)
      or the harness setting is stale (remove it).
    - A repo-owned control obeys principle 5: it carries no baseline.
+   - Harness `omp-guardrails path-check` is the explicit principles 1–2 exception in
+     [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md), even when repo checks overlap.
 3. **Per-repo configuration lives in the harness.** Each repository's settings are a record in
    oh-mi-pi-config, keyed by the clone's `origin` owner and name. Records are gitignored, never
    committed or part of a PR. Agents write records directly, with approval fields only as the owner
@@ -32,15 +36,17 @@ first.
    machine or host belongs in its deploy branches, not in AGENTS.md or workflow code. Workflow code
    holds no environment values, except configuration that a skill sets on purpose.
 4. **Required means required.** No optional checks, defaults that skip a check, fallbacks,
-   compatibility shims or tolerance of old formats. Records are strict: `pathCheck` and
-   `checks.commit` are required and unknown fields fail to load. Cutovers are clean: delete the
-   superseded skill, field or code. When the harness surfaces many failures in a repository, the
+   compatibility shims or tolerance of old formats. Records are strict: `checks.commit` is
+   required and unknown fields, including the obsolete path command field, fail to load.
+   Cutovers are clean: delete the superseded skill, field or code.
+   When the harness surfaces many failures in a repository, the
    job is to clean them up, never to soften the check.
-5. **Whole repo, always blocking.** Every check covers the whole repository, with no baselines
-   (harness-owned or repo-owned) and no diff scope. When a contributor without the harness
-   introduces drift, the next agent commit blocks until it is fixed.
+5. **Whole repo, always blocking.** Commit checks cover the whole repository, with no baselines
+   (harness-owned or repo-owned) and no diff scope. Per-edit path checks cover edited paths and
+   outstanding changed-path failures. Drift introduced without the harness blocks the next agent commit.
 6. **Events trigger checks, with no ceremony.**
-   - At commit, the rails run `pathCheck`, then `checks.commit`, then the harness checks.
+   - After edits and before commit, rails run harness `omp-guardrails path-check` with record config.
+     At commit it is followed by `checks.commit`, then the whole-repo harness checks.
    - CI reruns the gates offline on the events the repository chose. CI has no time budget.
    - Pulling or merging commits into a branch needs no proof. A commit that results from it runs
      the normal checks.

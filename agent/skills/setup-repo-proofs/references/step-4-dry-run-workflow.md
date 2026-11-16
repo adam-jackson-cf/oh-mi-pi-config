@@ -17,6 +17,10 @@ Show the full cost of clearing every harness finding before changing the target.
    to repo checkers run through `checks.commit` instead; report that command's result with
    them. Mark an estimate `unknown` where safe execution or a
    candidate checker is unavailable.
+   Also run harness `omp-guardrails path-check --repo <temporary checkout> --record <draft record dir>`
+   with candidate changed paths. It always uses required profile `guardrails.structure`,
+   `guardrails.naming` and `guardrails.paths`, independently of `guardrails.check.repo`;
+   report its findings separately.
 3. Report one view: the whole repository minus the draft record's scope exclusions. Adopting a
    repository means clearing every finding first; there is no baseline and no new/changed-code
    view. A narrower rollout changes which rules are enabled, never which paths a rule scans.

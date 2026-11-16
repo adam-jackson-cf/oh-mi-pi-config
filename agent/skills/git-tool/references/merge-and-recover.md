@@ -81,7 +81,7 @@ evade bootstrap. Unknown host state or commands block.
 ### Who writes records
 
 The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
-checks, `pathCheck`, `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
+checks, profile `guardrails.structure`, `guardrails.naming`, `guardrails.paths` and `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
 committed and never part of a PR. Agents write records directly. Write approval fields only as the owner
 stated them in the chat. This does not change `ownerOnlyPaths`: rails still refuse agent commits that
 touch those owner-only repository paths. Setup Step 5 owner approval remains required before applying

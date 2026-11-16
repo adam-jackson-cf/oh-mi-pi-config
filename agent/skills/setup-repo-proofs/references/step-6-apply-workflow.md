@@ -50,7 +50,6 @@ intact.
        "commit": ["make", "gate-commit"],
        "ci": ["make", "gate-ci"]
      },
-     "pathCheck": ["make", "check-paths"],
      "ownerOnlyPaths": ["scripts/checks/dependency-audit-exceptions.json"],
      "agentMerge": "allowed",
      "ci": { "requiredContext": "gate", "runner": "github-actions" },
@@ -58,19 +57,19 @@ intact.
    }
    ```
 
-   `schemaVersion`, `checks.commit`, `pathCheck`, `ownerOnlyPaths` and
+   `schemaVersion`, `checks.commit`, `ownerOnlyPaths` and
    `dynaflows` are required; a record without one fails to load.
    `ownerOnlyPaths` lists the repo paths only the owner changes, such as the
    dependency-audit exception file (`[]` when there are none); rails refuse an
    agent commit that changes one. A field outside this schema,
-   at the top level or in `checks`, is rejected by name, never ignored. A docs
-   repo still declares both commands; its `pathCheck` just has fewer paths to
-   check. Commands are nonempty argv arrays, not shell
-   strings, and name the repo's own commands, never an omp path. Checks follow
-   the test tiers and run only at these events:
+   at the top level or in `checks`, is rejected by name, never ignored.
+   The obsolete path command field is rejected. A docs repo still declares `checks.commit`.
+   Commands are nonempty argv arrays, not shell strings, and name the repo's own commands,
+   never an omp path. Required profile `guardrails.structure`, `guardrails.naming` and
+   `guardrails.paths` configure the harness-owned path check. Checks follow these events:
 
-   1. Commit: at the agent's commit, rails run the record's `pathCheck`, its
-      `checks.commit` (static checks, every T1 test, and affected T2
+   1. Commit: rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>`,
+      then the record's `checks.commit` (static checks, every T1 test, and affected T2
       boundary tests: seams and journeys) and then the harness checks over the
       whole repo. Any finding
       blocks the commit until fixed, including drift from contributors who do
@@ -88,9 +87,11 @@ intact.
    `ci.requiredContext` depending on every tier job. Run the aggregate
    unconditionally after dependencies finish, including on failure, and fail
    unless every tier result is `success` (not failed, cancelled, or skipped).
-   Append changed paths to `pathCheck` as arguments. It exits 0 when clean;
-   nonzero output has one error per line, each naming the file and fix for
-   structure, naming, or test placement. Rails run it with one fixed timeout.
+   After edits, rails also run harness `omp-guardrails path-check` with the repo and record
+   arguments above, appending changed paths as separate arguments. It exits 0 when clean;
+   failures name each file, rule and concrete fix. Rails use one fixed timeout.
+   Keep required profile path-check settings even where whole-repo checks are repo-owned.
+   Preserve the repo's existing commit and CI commands; no harness path script belongs in the repo.
    `agentMerge` accepts only `allowed` or `disabled`; an absent field or record defaults to
    `allowed`. Do not infer merge permission from this setup skill; honor the
    governing Git authorization. Optional `checks.profile` names the
