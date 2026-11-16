@@ -483,13 +483,13 @@ function commitBypass(action: GitAction): string | undefined {
 // The harness checks: omp-guardrails run from the harness's own reference project (never installed
 // into the repo), over the whole repo, with the record as config. Rails append
 // `--repo <worktree> --record <record dir>`.
-const guardrailsProject = fileURLToPath(new URL("../skills/setup-repository-guardrails/assets/python-reference", import.meta.url));
+const guardrailsProject = fileURLToPath(new URL("../skills/setup-repo-proofs/assets/python-reference", import.meta.url));
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "check"];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
 	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: route to project setup (skill://setup-repository-guardrails, adopt mode) to " +
+	"code to the harness copy: route to project setup (skill://setup-repo-proofs, adopt mode) to " +
 	"draft guardrails.check.repo for the owner to save.";
 
 // The dynaflows directive is a whole prompt line, case-insensitive: `$dynaflows` alone, or with an
@@ -1033,12 +1033,12 @@ export default function agentRails(
 			// No record yet: setup starts at Step 0 and the agent writes the record, switch on, itself.
 			return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
 				`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
-				"Start skill://setup-repository-guardrails setup now, from Step 0. The owner's ask lets you write the record " +
+				"Start skill://setup-repo-proofs setup now, from Step 0. The owner's ask lets you write the record " +
 				`yourself at ${recordPath}: save it there as setup reaches each file, with gate.json setting ` +
 				'"dynaflows": {"enabled": true}, so dynaflows is on once the record is complete. Never ask the owner to save a file.' };
 		}
 		const resume = (reason: string) => `The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
-			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repository-guardrails setup now and repair ` +
+			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repo-proofs setup now and repair ` +
 			'the record yourself in place, with "dynaflows": {"enabled": true}; the owner\'s ask lets you write it. ' +
 			"Never ask the owner to save a file.";
 		let notice: string;

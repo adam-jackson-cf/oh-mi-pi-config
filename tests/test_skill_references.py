@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
 CORE_SKILLS = ("coding-guidance", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
-GUARDRAILS = SKILLS / "setup-repository-guardrails/assets"
+GUARDRAILS = SKILLS / "setup-repo-proofs/assets"
 HOUSE_STYLE = GUARDRAILS / "python-reference/omp_guardrails/data/house-style.json"
 ENFORCED_BY = re.compile(
     r"Enforced by ((?:[A-Z]+\.[A-Za-z0-9.-]*[A-Za-z0-9])(?: and [A-Z]+\.[A-Za-z0-9.-]*[A-Za-z0-9])*)"

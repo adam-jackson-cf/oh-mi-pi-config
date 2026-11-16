@@ -105,7 +105,7 @@ if [[ "$tier" == commit ]]; then
   run_seams=false
   while IFS= read -r -d '' file; do
     case "$file" in
-      scripts/*|tests/test_*.py|tests/fixtures/*|.devcontainer/*|agent/skills/omp-dyna-workflows/templates/*|agent/skills/setup-repository-guardrails/*|agent/skills/test-guidance/*|agent/skills/coding-guidance/*)
+      scripts/*|tests/test_*.py|tests/fixtures/*|.devcontainer/*|agent/skills/omp-dyna-workflows/templates/*|agent/skills/setup-repo-proofs/*|agent/skills/test-guidance/*|agent/skills/coding-guidance/*)
         run_seams=true
         ;;
     esac

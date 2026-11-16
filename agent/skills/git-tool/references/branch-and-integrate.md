@@ -17,7 +17,7 @@ Authority and safety belong to [git-tool](../SKILL.md).
    `agentMerge: disabled` requires owner approval for this workflow; absent field defaults to allowed, not permission to skip prerequisites.
 5. Ordinary implementation requires a valid schema-v2 record; it always has `pathCheck` and `checks.commit`.
    No record or missing controls route to [dynaflows SKILL's owner-approved project-setup prerequisite](skill://omp-dyna-workflows/SKILL.md).
-   Follow its link to `setup-repository-guardrails` for record draft and approval mechanics, not autonomous installation.
+   Follow its link to `setup-repo-proofs` for record draft and approval mechanics, not autonomous installation.
    Bootstrap may propose the record and repo fixes without already having the completed gate.
    Complete that prerequisite before resuming ordinary work. No-CI is not a bootstrap waiver.
 6. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default or a spike).

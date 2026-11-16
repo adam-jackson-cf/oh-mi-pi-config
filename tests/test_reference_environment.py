@@ -11,7 +11,7 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repository-guardrails/assets/python-reference"
+REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails.environment import guarded_run  # noqa: E402

@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repository-guardrails/assets/python-reference"
+REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
 SKILL_TEMPLATE = ROOT / "agent/skills/test-guidance/assets/templates/test-profile.md"
 sys.path.insert(0, str(REFERENCE))
 

@@ -1,4 +1,4 @@
-# setup-repository-guardrails
+# setup-repo-proofs
 
 ## Overview
 
