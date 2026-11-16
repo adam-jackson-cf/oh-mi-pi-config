@@ -2,7 +2,7 @@ symbolPreset: nerd
 theme:
   dark: orca-sections-dark
   light: orca-sections-light
-setupVersion: 2
+setupVersion: 3
 extensions:
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
@@ -115,3 +115,7 @@ retry:
       - openai-codex/gpt-5.6-luna
       - xai-oauth/grok-4.5
       - web/ollama
+update:
+  auto: false
+dev:
+  autoqaConsent: denied
