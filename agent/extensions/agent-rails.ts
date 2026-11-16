@@ -94,9 +94,6 @@ interface State {
 	pathFailures: Map<string, string[]>;
 	pointed: boolean;
 	proposal: string[];
-	// Record directories the owner asked to enable dynaflows for in this session: the main agent may
-	// write them (setup drafts the record there itself). A disable ask removes the repo's grant.
-	recordGrants: Set<string>;
 }
 type ToolEvent = {
 	toolName: string;
@@ -119,7 +116,7 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		pointed: false, proposal: [], recordGrants: new Set(),
+		pointed: false, proposal: [],
 	};
 }
 function absolute(path: string, cwd: string): string | undefined {
@@ -632,12 +629,6 @@ export default function agentRails(
 	function repoExec(argv: string[], cwd: string, timeout?: number) {
 		return pi.exec("env", [...harnessVariables.flatMap(name => ["-u", name]), "--", ...argv], { cwd, timeout });
 	}
-	// True when `path` lies lexically under the records root (<config root>/repos/). Symlink aliases
-	// and bash writes are not followed (accepted for a single owner).
-	function underRecords(path: string): boolean {
-		const rel = relative(resolve(configRoot, RECORDS_DIR), resolve(path));
-		return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
-	}
 	// prove()'s result file <git-common-dir>/omp-prove/<head>.result.json is the one pass signal:
 	// it must say status pass for exactly `head`.
 	async function proveResultReason(cwd: string, head: string): Promise<string | undefined> {
@@ -758,21 +749,6 @@ export default function agentRails(
 		await writeFile(temp, `${JSON.stringify(gate, null, 2)}\n`);
 		await rename(temp, path);
 		return path;
-	}
-	// Records hold the owner's policy and approvals and never reach a PR. Agents write a repo's record
-	// only after the owner asked for dynaflows in this session (the main agent, that repo's record
-	// directory only); otherwise rails refuse every edit-tool write under the records root.
-	function recordWriteReason(targets: string[], state: State, ctx: ExtensionContext): string | undefined {
-		for (const path of targets) {
-			if (!underRecords(path)) continue;
-			if (ctx.agent.kind === "main" && [...state.recordGrants].some(dir => {
-				const rel = relative(dir, resolve(path));
-				return !rel.startsWith("..") && !isAbsolute(rel);
-			})) continue;
-			return `Agent rails: ${path} is under the per-repo records root; agents write records only for a repo whose ` +
-				"owner asked for dynaflows in this session. Without that ask, print the drafted change (or write it outside " +
-				"repos/) and ask the owner to save it.";
-		}
 	}
 	async function checkPaths(root: string, changed: string[], gate: Gate, state: State): Promise<string | undefined> {
 		try {
@@ -915,7 +891,6 @@ export default function agentRails(
 		const state = fresh();
 		const previous = states.get(ctx.sessionManager.getSessionId());
 		state.pointed = previous?.pointed ?? false;
-		state.recordGrants = previous?.recordGrants ?? new Set();
 		state.pathFailures = previous?.pathFailures ?? new Map();
 		states.set(ctx.sessionManager.getSessionId(), state);
 		if (loadError) { note(state, ctx, loadError); return; }
@@ -1029,8 +1004,6 @@ export default function agentRails(
 				if (reason) return { block: true, reason };
 			}
 			const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
-			const recordWrite = recordWriteReason(targets, state, ctx);
-			if (recordWrite) return { block: true, reason: recordWrite };
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
@@ -1087,20 +1060,18 @@ export default function agentRails(
 		state.pointed = false;
 		const { slug, dir } = target;
 		const recordPath = recordDir(slug, configRoot);
-		if (!enabled) state.recordGrants.delete(recordPath);
-		else state.recordGrants.add(recordPath);
 		if (!dir) {
 			if (!enabled) return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`) };
 			// No record yet: setup starts at Step 0 and the agent writes the record, switch on, itself.
 			return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
 				`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
-				"Start skill://setup-repo-proofs setup now, from Step 0. The owner's ask lets you write the record " +
-				`yourself at ${recordPath}: save it there as setup reaches each file, with gate.json setting ` +
+				"Start skill://setup-repo-proofs setup now, from Step 0. Write the record " +
+				`yourself at ${recordPath} as setup reaches each file, with gate.json setting ` +
 				'"dynaflows": {"enabled": true}, so dynaflows is on once the record is complete. Never ask the owner to save a file.' };
 		}
 		const resume = (reason: string) => `The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
 			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://setup-repo-proofs setup now and repair ` +
-			'the record yourself in place, with "dynaflows": {"enabled": true}; the owner\'s ask lets you write it. ' +
+			'the record yourself in place, with "dynaflows": {"enabled": true}. ' +
 			"Never ask the owner to save a file.";
 		let notice: string;
 		try {
@@ -1151,8 +1122,7 @@ export default function agentRails(
 		name: "dynaflows",
 		label: "Dynaflows",
 		description: "Turn dynaflows on or off for the current repository and get the next step. Call it only when the " +
-			"user asked in this conversation to enable or disable dynaflows, in any wording; never on your own initiative. " +
-			"Enabling also lets you write this repository's per-repo record during setup.",
+			"user asked in this conversation to enable or disable dynaflows, in any wording; never on your own initiative.",
 		parameters: dynaflowsToolParams,
 		loadMode: "essential",
 		approval: "write",

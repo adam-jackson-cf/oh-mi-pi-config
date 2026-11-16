@@ -27,8 +27,8 @@ first.
    - A repo-owned control obeys principle 5: it carries no baseline.
 3. **Per-repo configuration lives in the harness.** Each repository's settings are a record in
    oh-mi-pi-config, keyed by the clone's `origin` owner and name. Records are gitignored, never
-   committed. Agents write records when the owner asked for dynaflows in the chat; otherwise records
-   stay owner-edited. oh-mi-pi-config is the bespoke harness. Setup for one
+   committed or part of a PR. Agents write records directly, with approval fields only as the owner
+   stated them in the chat. oh-mi-pi-config is the bespoke harness. Setup for one
    machine or host belongs in its deploy branches, not in AGENTS.md or workflow code. Workflow code
    holds no environment values, except configuration that a skill sets on purpose.
 4. **Required means required.** No optional checks, defaults that skip a check, fallbacks,
