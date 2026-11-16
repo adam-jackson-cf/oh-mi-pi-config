@@ -1,8 +1,21 @@
 {
-  "version_key": "258dd4c32c3c0dca576fa8396e08e09353e4255300277bb43f04b69de4eb4f94",
+  "version_key": "6473f90e5318a0df6458258029b5eb5bc6782d7aa8f355093197f81008cd388b",
   "model": "typesafe/jev-1.14",
   "model_reported": "typesafe/jev-1.14-20261014",
   "score_space": "raw",
+  "score_provenance": {
+    "decision": "Reuse the saved raw probabilities and provisional thresholds: only the API primitive spelling changes, not the question meanings, state, model, probability orientation or rubric. No new inference or tuning was performed.",
+    "source_commit": "d93920b48cd9c85eb663db4cd4f708ba1a433186",
+    "source_version_key": "258dd4c32c3c0dca576fa8396e08e09353e4255300277bb43f04b69de4eb4f94",
+    "scores_sha256": "599e6ba23d254a44a6061da3b61fbe4d73880d6667e621168f0fdb5290056fe2",
+    "scores_question_version": "<question>@258dd4c32c3c (retained as the original scoring identity, not relabelled as new inference)",
+    "equivalence": "The four yes/no questions changed type from TypeSafe's noul to OMP judge()'s bool. Both return raw P(yes) in [0, 1], not a boolean decision or confidence. All other question fields, state shape and the pinned model are byte-for-byte unchanged after reversing that spelling change.",
+    "contracts": [
+      "https://docs.typesafe.ai/primitives/noul.md: type noul, answer noul = P(yes)",
+      "xd://eval/judge: type bool, answer {bool: P(yes)}"
+    ],
+    "limitations": "Existing provisional status, unmet tuning minimums and prohibition on displaying probabilities as confidence are unchanged."
+  },
   "status": "provisional",
   "decisions": {
     "impact": {
