@@ -291,6 +291,65 @@ class CheckerTests(unittest.TestCase):
         lines = out.splitlines()
         self.assertTrue(lines and all(line.startswith("src/orders/engine/misc.py: ") for line in lines))
 
+    def test_native_import_direction_checks_non_python_sources(self) -> None:
+        source = "src/orders/engine/runner.ts"
+        self.write(source, "export const ready = true;\n")
+        for scope in ({"scan": ["src/**/*.ts"]}, {"source_root": "src"}):
+            for exit_code in (1, 0):
+                self.profile["structure"]["import_direction"] = {
+                    **scope,
+                    "native": {
+                        "command": [sys.executable, "-c", f"raise SystemExit({exit_code})"],
+                        "timeout_s": 5,
+                        "cwd": ".",
+                    },
+                }
+                self.write_profile()
+                for name in ("path-check", "structure"):
+                    with self.subTest(scope=scope, exit_code=exit_code, command=name):
+                        code, out = self.run_cli(name, source)
+                        self.assertEqual(code, exit_code)
+                        if exit_code:
+                            self.assertIn(f"{source}: STRUCT.dependency-direction:", out)
+                        else:
+                            self.assertEqual(out, f"{name}: ok\n")
+
+    def test_native_import_direction_ignores_paths_outside_scan(self) -> None:
+        self.profile["structure"]["import_direction"] = {
+            "scan": ["src/**/*.ts"],
+            "native": {
+                "command": [sys.executable, "-c", "raise SystemExit(1)"],
+                "timeout_s": 5,
+            },
+        }
+        self.write_profile()
+        for name in ("path-check", "structure"):
+            with self.subTest(command=name):
+                self.assertEqual(
+                    self.run_cli(name, "src/orders/engine/runner.py"), (0, f"{name}: ok\n")
+                )
+
+    def test_native_import_direction_checks_inventory_without_arguments(self) -> None:
+        source = "src/orders/engine/runner.ts"
+        self.write(source, "export const ready = true;\n")
+        self.profile["structure"]["import_direction"] = {
+            "scan": ["src/**/*.ts"],
+            "native": {
+                "command": [sys.executable, "-c", "raise SystemExit(1)"],
+                "timeout_s": 5,
+            },
+        }
+        self.write_profile()
+        for name in ("path-check", "structure"):
+            with self.subTest(command=name):
+                code, out = self.run_cli(name)
+                self.assertEqual(code, 1)
+                self.assertEqual(
+                    out.splitlines(),
+                    [f"{source}: STRUCT.dependency-direction: repository import contracts failed; "
+                     f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges"],
+                )
+
     def test_check_runs_the_record_steps_over_the_whole_repo_and_writes_nothing(self) -> None:
         self.profile["guardrails"]["check"] = {"run": ["structure", "naming", "path-check"]}
         self.write_profile()

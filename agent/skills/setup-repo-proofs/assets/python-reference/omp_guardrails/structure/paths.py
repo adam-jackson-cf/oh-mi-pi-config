@@ -234,8 +234,15 @@ def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
     return found
 
 
-def native_findings(repo: Path, sources: list[str], profile: dict) -> list[Finding]:
-    native = import_config(profile)[0].get("native")
+def native_findings(repo: Path, paths: list[str], profile: dict) -> list[Finding]:
+    direction, _ = import_config(profile)
+    native = direction.get("native")
+    scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
+    sources = sorted({
+        path
+        for raw in paths
+        if (path := normalized_path(repo, raw)) and matches_any(path, scan)
+    })
     if not sources or not isinstance(native, dict):
         return []
     command, timeout = as_list(native.get("command")), native.get("timeout_s")
@@ -289,13 +296,6 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     except InventoryError as error:
         return [Finding(PLACEMENT, ".", str(error), "run inside a Git work tree")]
     found = [finding for raw in paths for finding in path_findings(repo, raw, profile)]
-    direction, _ = import_config(profile)
-    scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
-    sources = sorted({
-        p
-        for raw in paths
-        if (p := normalized_path(repo, raw)) and p.endswith(".py") and matches_any(p, scan)
-    })
-    found.extend(native_findings(repo, sources, profile))
+    found.extend(native_findings(repo, paths, profile))
     found.extend(import_graph_findings(repo, profile, []))
     return apply_exceptions(found, profile)
