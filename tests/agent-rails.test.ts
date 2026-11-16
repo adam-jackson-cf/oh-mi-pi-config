@@ -432,14 +432,19 @@ describe("agent rails", () => {
 		}
 	});
 
-	test("worktree paths canonicalize mixed case on case-insensitive filesystems", async t => {
+	const caseProbe = mkdtempSync(join(tmpdir(), "agent-rails-case-"));
+	let caseInsensitive: boolean;
+	try {
+		mkdirSync(join(caseProbe, "MixedCase"));
+		caseInsensitive = existsSync(join(caseProbe, "mixedcase"));
+	} finally { rmSync(caseProbe, { recursive: true, force: true }); }
+	test("worktree paths canonicalize mixed case on case-insensitive filesystems", { skip: !caseInsensitive }, async () => {
 		const h = harness();
 		const previous = process.env.OMP_WORKTREE_DIR;
 		delete process.env.OMP_WORKTREE_DIR;
 		try {
 			const base = join(h.root, "Worktrees");
 			mkdirSync(join(base, "repo"), { recursive: true });
-			if (!existsSync(join(h.root, "worktrees"))) { t.skip("temporary filesystem is case-sensitive"); return; }
 			await h.read("skill://git-tool");
 			h.worktreeBase(base);
 			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/worktrees/REPO/x'` }), undefined);
