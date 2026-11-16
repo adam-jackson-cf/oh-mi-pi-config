@@ -25,7 +25,7 @@ directive line (case-insensitive) sets it at once: `$dynaflows`, `$dynaflows` fo
 contradictory lines change nothing and the agent asks which. Any other wording, such as "I want to
 enable dynaflows", is yours to judge: when the owner is asking (not asking about it, quoting it or
 negating it), call the `dynaflows` tool; never call it on your own initiative. Agents write records
-when the owner asked for dynaflows in the chat; otherwise records stay owner-edited. Turning it on
+directly, with approval fields only as the owner stated them in the chat. Turning it on
 with no record starts `skill://setup-repo-proofs`, and the agent writes the record,
 `dynaflows.enabled` true, itself; a refused record resumes setup and the agent repairs it; a prompt
 that is only the ask asks for this selection: report the stage found and start it, or, with setup

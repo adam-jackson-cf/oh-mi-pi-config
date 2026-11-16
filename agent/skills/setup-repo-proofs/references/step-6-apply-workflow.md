@@ -26,11 +26,8 @@ intact.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
 3. Save the confirmed record as `repos/<owner>/<name>/` under the
-   oh-mi-pi-config root (Step 0's path). Agents write records when the owner
-   asked for dynaflows in the chat; otherwise records stay owner-edited. With
-   that ask, write the live record yourself and never ask the owner to save a
-   file. Without it, draft the record outside the live records root and ask the
-   owner to save it: rails refuse every agent edit-tool write there.
+   oh-mi-pi-config root (Step 0's path). Write the live record yourself; never
+   ask the owner to save a file.
    `/repos/` is gitignored: never commit a record, stage it or copy it into
    the target. The device rollout copies records to every device. Where the
    stack has a skill reference, run `omp-guardrails init --repo <worktree>
@@ -131,10 +128,8 @@ intact.
 5. The record holds every approval and exception. Approval fields
    (`approved_skips`, any `approval`, `approved_*` or `*_approval` field,
    `user_approval`, `house_style.exceptions`, `fast_tier_budget` machine
-   approvals and `coverage_ratchet` approvals) are the owner's decisions. With
-   the owner's dynaflows ask, write each approval only as the owner stated it
-   in the chat. Without it, the owner's edit is the approval: draft them for
-   the owner and never write them.
+   approvals and `coverage_ratchet` approvals) are the owner's decisions.
+   Write each approval only as the owner stated it in the chat.
 6. A repo hook is the repo's own control. When the project wants one, run
    `checks.commit` through the repo's tracked hook manager or a native
    `.githooks/pre-commit` enabled with `git config core.hooksPath .githooks`,

@@ -1272,71 +1272,30 @@ test("without a ci block every reported check still decides the merge", async ()
 	} finally { h.cleanup(); }
 });
 
-// Records hold the owner's policy and approvals and never reach a PR: without the owner's dynaflows
-// ask in the session, rails refuse every agent edit-tool write lexically under the records root.
-test("rails refuse every edit-tool write or edit lexically under the records root", async () => {
-	const h = harness();
-	const aliases = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-records-alias-")));
-	try {
-		await h.read(integrity, structure, naming);
-		h.gate({ schemaVersion: 2 });
-		writeFileSync(join(h.recordDir(), "profile.md"), "---\n{}\n---\n");
-		const gate = join(h.recordDir(), "gate.json");
-		const before = readFileSync(gate, "utf8");
-		const targets = [
-			gate, join(h.recordDir(), "profile.md"), join(h.recordDir(), "proposed", "ruff.toml"), join(h.recordDir(), "notes.md"),
-			join(h.records, "repos", "owner", "fresh", "gate.json"), join(h.records, "repos", "stray.json"),
-			join(h.records, "draft", "..", "repos", "owner", "repo", "gate.json"),
-		];
-		for (const path of targets) {
-			for (const [tool, input] of [["write", { path, content: JSON.stringify({ schemaVersion: 2, dynaflows: { enabled: true } }) }],
-				["edit", { path }], ["ast_edit", { paths: [path] }]] as const) {
-				const result = await h.call(tool, input);
-				assert.equal(result?.block, true, `${tool} ${path}`);
-				assert.ok(result?.reason?.includes("agents write records only for a repo whose owner asked for dynaflows"), result?.reason);
-				assert.ok(result?.reason?.includes(path), result?.reason);
-			}
-		}
-		assert.equal(readFileSync(gate, "utf8"), before, "checks.commit, pathCheck and dynaflows.enabled stay the owner's");
-		for (const path of [join(h.records, "repos"), join(h.records, "repos", "..", "draft.json"), join(h.records, "repos-other", "gate.json")]) {
-			assert.equal(await h.call("write", { path, content: "{}" }), undefined, `${path} is not under the records root`);
-		}
-		assert.equal(await h.call("write", { path: join(h.root, "profile.md"), content: "x" }), undefined,
-			"a repo file named like a record file is not a record");
-		assert.equal(await h.call("write", { path: join(h.records, "draft", "gate.json"), content: "{}" }), undefined,
-			"a draft outside repos/ is the agent's");
-		// The check is lexical (accepted for one owner): a symlink alias is not followed, and bash is not guarded.
-		symlinkSync(gate, join(aliases, "alias.json"));
-		assert.equal(await h.call("write", { path: join(aliases, "alias.json"), content: "{}" }), undefined);
-	} finally { h.cleanup(); rmSync(aliases, { recursive: true, force: true }); }
-});
-
-test("the owner's enable ask lets the main agent write that repo's record, greenfield included; disable revokes it", async () => {
+test("agents can write records before enabling dynaflows and after disabling it", async () => {
 	const h = harness();
 	try {
 		await h.read(integrity, structure, naming);
 		const gate = join(h.recordDir(), "gate.json");
 		const draft = JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: true } });
-		const blocked = await h.call("write", { path: gate, content: draft });
-		assert.equal(blocked?.block, true, "no ask: the record stays the owner's");
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
 		const kickoff = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows" }));
-		assert.ok(kickoff.includes("from Step 0") && kickoff.includes("write the record yourself") && kickoff.includes("Never ask the owner to save"), kickoff);
-		assert.ok(!kickoff.includes("ask the owner to save it"), kickoff);
+		assert.ok(kickoff.includes("from Step 0") && kickoff.includes("Write the record yourself") && kickoff.includes("Never ask the owner to save"), kickoff);
 		for (const path of [gate, join(h.recordDir(), "profile.md")]) {
-			assert.equal((await h.call("write", { path, content: draft }))?.block, undefined, `granted: ${path}`);
+			assert.equal((await h.call("write", { path, content: draft }))?.block, undefined);
 		}
 		const other = await h.call("write", { path: join(h.records, "repos", "owner", "other", "gate.json"), content: draft });
-		assert.equal(other?.block, true, "the grant covers only this repo's record");
+		assert.equal(other?.block, undefined);
 		h.context.agent.kind = "sub";
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, true, "subagents never write records");
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
 		h.context.agent.kind = "main";
 		mkdirSync(h.recordDir(), { recursive: true });
 		writeFileSync(gate, draft);
 		await h.emit("before_agent_start", { reason: "prompt", prompt: "disable $dynaflows" });
 		assert.deepEqual(h.record().dynaflows, { enabled: false });
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, true, "disable revokes the grant");
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
 		h.setSession("other");
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, true, "the grant is per session");
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
 	} finally { h.cleanup(); }
 });
 

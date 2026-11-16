@@ -62,9 +62,9 @@ verification surface. Budget limits are per machine, selected by a deterministic
 probe and based on at least five baseline runs. Budgets apply to the local commit gate only: CI
 never measures or reports test timing.
 
-Approvals and exceptions live only in the record's `profile.md`. Agents write records when the owner
-asked for dynaflows in the chat; otherwise records stay owner-edited, and rails refuse every agent
-write under the records root. The Step 5 approval remains the boundary before any repository fix.
+Approvals and exceptions live only in the record's `profile.md`. Agents write records directly,
+with approval fields only as the owner stated them in the chat. Records are never committed or part
+of a PR. The Step 5 approval remains the boundary before any repository fix.
 
 ## Reference implementation and `init`
 
@@ -72,15 +72,13 @@ A stack gets a skill reference once two repositories need it (the rule of two). 
 the `omp-guardrails` package in `assets/python-reference/`. The harness runs it from this
 checkout; repositories never install, pin or copy it, and it writes nothing into the repo tree.
 
-- `omp-guardrails init --repo <clone> --record <draft dir>` drafts the record for owner
-  confirmation into a draft directory outside the live `repos/` root (it refuses the live record;
-  to extend one, copy it to the draft first). With `--enable-dynaflows`, used when the owner asked
-  for dynaflows in the chat, it writes the live record `repos/<owner>/<name>/` directly with
-  dynaflows on. It discovers make targets, hook managers, CI job
+- `omp-guardrails init --repo <clone> --record <record dir>` drafts the record for owner
+  confirmation directly in `repos/<owner>/<name>/` or in a draft directory.
+  With `--enable-dynaflows`, it drafts dynaflows on. It discovers make targets, hook managers, CI job
   names and, through `gh`, the default branch's required checks. It writes `gate.json` and
-  `profile.md` into the draft and ends by naming where the owner saves it, and writes
-  proposed native-tool configs (Ruff, mypy, import-linter) into the draft's `proposed/` folder
-  for the owner to apply to the repo as a fix. It proves language-server readiness with a canary
+  `profile.md` into the record, and writes proposed native-tool configs (Ruff, mypy, import-linter)
+  into its `proposed/` folder for application to the repo as approved fixes.
+  It proves language-server readiness with a canary
   `references` query. It never overwrites a recorded value and never writes an approval; it
   drafts `dynaflows.enabled` true only with `--enable-dynaflows`.
 - Per-repo settings live in the front matter of the record's `profile.md`. Shared style rules
