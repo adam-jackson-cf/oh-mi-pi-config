@@ -148,7 +148,7 @@ applicable `structure-and-grouping.md` and `naming.md` under that prefix,
 Both briefs include worktree, criteria, manifest, scope and task-specific references.
 Sweep briefs supply the base and head, the record's feature-map path and
 `skill://test-guidance/references/verification-surface.md` and `outcome-tests.md` under that prefix.
-Require `skill://coding-guidance/references/verification.md` before writer handoff.
+Rails require `skill://test-guidance/references/before-commit.md` before any writer handoff.
 
 ### 5. Verify
 
