@@ -37,6 +37,33 @@ dependencies. The pytest adapter's `tiers` and `conformance` actions need the
 `pytest` extra (`requirements-pytest.lock` pins it with hashes for the
 container). The T3 mutation run adds the `mutation` extra.
 
+The Vitest adapter uses the inspected repository's locked, installed Vitest;
+it never downloads a runner or adds files to that repository. Set `adapter` to
+`vitest` in the record. Tier `selector` values are native Vitest CLI arguments,
+for example `--config config/vitest.config.ts --testNamePattern totals`;
+`location` values are Vitest file filters. Prose descriptions are not selectors.
+`guardrails.adapter_vitest.command` may supply an argv list instead of the
+default `node <repo>/node_modules/vitest/vitest.mjs`.
+`guardrails.adapter_vitest.collect_timeout_s` bounds collection (120 seconds
+unless recorded otherwise). Each `tiers --out` listing uses
+`<relative-file>::<full test name>` IDs and rejects empty or duplicate collections.
+
+`adapter junit-args --tier t1 --out <external report>` emits the arguments for
+a guarded Vitest run and creates its reporter shim beside that external report.
+Pass those arguments to the repository's Vitest command together with its tier
+selector. `guard-evidence <report> --tier t1` verifies the recorded guard evidence.
+The harness setup covers setup, call and teardown, including swallowed guard
+errors; collection, reports and reporter shims remain outside the checkout.
+`adapter conformance` runs the canonical cases using the installed native runner;
+missing dependencies fail rather than silently skipping a case.
+
+Vitest mutation evidence uses `@stryker-mutator/core@9.4.0` JSON reports.
+`adapter mutation-report --input <stryker.json> --out <external report>` converts
+them to the shared schema. The input defaults to `reports/mutation/mutation.json`
+and can be recorded in `guardrails.adapter_vitest.mutation_report`.
+Unknown Stryker statuses and malformed locations fail; ignored, pending and
+tool-error mutants remain incomplete, never counted as killed.
+
 Each finding prints as `path: RULE: message; fix`. A finding about the record
 names it `record:profile.md` or `record:gate.json`. The exit code is `0` with
 no findings, `1` with findings and `2` for a usage error.
