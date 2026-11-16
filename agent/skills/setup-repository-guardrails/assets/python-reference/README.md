@@ -101,7 +101,10 @@ values.
 
 `omp-guardrails init --repo DIR --record DRAFT` drafts the record for owner
 confirmation into a draft directory; it refuses the live records root, and the
-owner saves the reviewed draft as the live record by hand. It discovers make
+owner saves the reviewed draft as the live record. Agents write records when the
+owner asked for dynaflows in the chat; otherwise records stay owner-edited. With
+that ask, `--enable-dynaflows` writes the live record `repos/<owner>/<name>/`
+directly with dynaflows on. It discovers make
 targets, hook managers, CI jobs and, through `gh`, the required checks; it
 writes `gate.json`, `profile.md` and proposed native-tool configs under
 `proposed/` in the draft, and nothing into the

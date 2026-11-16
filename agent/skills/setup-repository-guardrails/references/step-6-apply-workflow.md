@@ -15,8 +15,8 @@ intact.
    omp-specific files instead of retaining duplicate authorities; where
    nothing can be removed, record why the added contract has no predecessor.
    A repo checker named in `guardrails.check.repo` is the authority for its
-   step; never remove it in favour of the harness step. The owner saves the
-   approved record before the `grow` PRs are committed, so stale harness
+   step; never remove it in favour of the harness step. The approved record
+   is saved before the `grow` PRs are committed, so stale harness
    settings never block the commits that replace them. It gives every step
    whose checker files the repo already lists to the repo. A `grow` step whose
    checker the PR creates stays a harness step until that PR merges, because
@@ -25,10 +25,12 @@ intact.
    merged with green checks and the record names every repo checker.
    Repo changes land through a normal PR and never name omp, dynaflows or the
    record.
-3. Draft the confirmed record in a directory outside the live records root
-   and ask the owner to save it by hand as `repos/<owner>/<name>/` under the
-   oh-mi-pi-config root (Step 0's path). Agents never write the live record:
-   rails refuse every agent edit-tool write there.
+3. Save the confirmed record as `repos/<owner>/<name>/` under the
+   oh-mi-pi-config root (Step 0's path). Agents write records when the owner
+   asked for dynaflows in the chat; otherwise records stay owner-edited. With
+   that ask, write the live record yourself and never ask the owner to save a
+   file. Without it, draft the record outside the live records root and ask the
+   owner to save it: rails refuse every agent edit-tool write there.
    `/repos/` is gitignored: never commit a record, stage it or copy it into
    the target. The device rollout copies records to every device. Where the
    stack has a skill reference, run `omp-guardrails init --repo <worktree>
@@ -101,9 +103,8 @@ intact.
    proofs.
 
    `dynaflows.enabled` is the repo's dynaflows switch; no `origin` remote or
-   no record means off. Write `false` at setup, or `true` when the owner
-   enabled dynaflows with the `$dynaflows` directive; otherwise the owner
-   turns it on once the harness checks report zero findings over the whole repo.
+   no record means off. Write `true` when the owner asked for dynaflows in
+   the chat, else `false`; an owner's later ask turns it on.
 
    Optional `ci` declares the merge-time CI requirement: `requiredContext` is
    the commit status context or check-run name that must be `success` on the
@@ -130,9 +131,10 @@ intact.
 5. The record holds every approval and exception. Approval fields
    (`approved_skips`, any `approval`, `approved_*` or `*_approval` field,
    `user_approval`, `house_style.exceptions`, `fast_tier_budget` machine
-   approvals and `coverage_ratchet` approvals) are the owner's: the owner
-   writes them by hand, and that edit is the approval. Rails refuse every
-   agent edit-tool write to the record. Draft them for the owner; never write them.
+   approvals and `coverage_ratchet` approvals) are the owner's decisions. With
+   the owner's dynaflows ask, write each approval only as the owner stated it
+   in the chat. Without it, the owner's edit is the approval: draft them for
+   the owner and never write them.
 6. A repo hook is the repo's own control. When the project wants one, run
    `checks.commit` through the repo's tracked hook manager or a native
    `.githooks/pre-commit` enabled with `git config core.hooksPath .githooks`,

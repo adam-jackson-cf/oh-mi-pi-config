@@ -1,10 +1,11 @@
-"""``omp-guardrails init --repo DIR --record DRAFT [options]``: draft the repo's personal record.
+"""``omp-guardrails init --repo DIR --record DIR [options]``: draft the repo's personal record.
 
-Init reads the repository and writes only into the draft record directory ``--record``, never
-the live record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and
-never committed): only the owner writes the live record, by hand. Init refuses a ``--record``
-under the live records root; its report names the draft and where the owner saves it. To extend
-an existing record, copy it to a draft directory outside ``repos/`` first. Into the draft, init:
+Init reads the repository and writes only into the record directory ``--record``. The live
+record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and never
+committed) is written by agents only when the owner asked for dynaflows in the chat: then init
+runs with ``--enable-dynaflows``, writes the live record directly and drafts dynaflows on.
+Without that flag, init refuses a ``--record`` under the live records root, and its report names
+the draft and where the owner saves it. Into the record directory, init:
 
 1. discovers the repository's own controls (``discovery``): make targets, hook managers, CI
    jobs and, through ``gh``, the default branch's required checks;
@@ -18,8 +19,8 @@ an existing record, copy it to a draft directory outside ``repos/`` first. Into 
    ``--allow-missing-lsp`` is given; a server that fails the canary always is.
 
 The report lists what was discovered and every value the owner must confirm. Init never
-overwrites a recorded value, never writes an approval and never turns dynaflows on, so a second
-run changes nothing.
+overwrites a recorded value and never writes an approval, so a second run changes nothing. It
+drafts dynaflows on only with ``--enable-dynaflows``.
 """
 
 from __future__ import annotations
@@ -60,6 +61,12 @@ def parser() -> argparse.ArgumentParser:
         "--offline", action="store_true", help="do not ask gh for the required checks"
     )
     command.add_argument("--allow-missing-lsp", action="store_true")
+    command.add_argument(
+        "--enable-dynaflows",
+        action="store_true",
+        help="the owner asked for dynaflows in the chat: write the live record "
+        "(repos/<owner>/<name>/) directly and draft dynaflows on",
+    )
     command.add_argument(
         "--lsp-timeout",
         type=float,
@@ -114,6 +121,7 @@ def apply_gate(
         path_command=options.path_command,
         required_context=options.required_context,
         runner=options.runner,
+        dynaflows=options.enable_dynaflows,
     )
     if planned != gate:
         write_if_changed(
@@ -160,8 +168,10 @@ def initialise(
     )
     summary = [f"init: {line}" for line in changes or ["no changes"]]
     handoff = [
-        f"init: draft record at {record}. Agents never write the live record: ask the owner to "
-        f"review this draft and save it by hand as {harness.RECORDS}/<owner>/<name>/ "
+        f"init: live record at {record}; the owner asked for dynaflows, so it is in use as written."
+        if options.enable_dynaflows and is_live(record)
+        else f"init: draft record at {record}. Without the owner's dynaflows ask, agents never write the "
+        f"live record: ask the owner to review this draft and save it as {harness.RECORDS}/<owner>/<name>/ "
         "(the repository's origin owner/name, lowercase)."
     ]
     return summary + report + lsp_lines + handoff, lsp_findings
@@ -171,20 +181,31 @@ def usage_finding(message: str) -> Finding:
     return Finding(USAGE_RULE, "omp-guardrails init", message, "fix the init arguments")
 
 
+def is_live(record: Path) -> bool:
+    live = harness.RECORDS.resolve()
+    return record.resolve() == live or record.resolve().is_relative_to(live)
+
+
 def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     """CLI entry: print the report and return the setup gaps that remain."""
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
-    live = harness.RECORDS.resolve()
-    if record.resolve() == live or record.resolve().is_relative_to(live):
-        return [usage_finding(
-            f"--record {record} is under the live records root {live}; agents never write records. "
-            "Pass a draft directory outside it (to extend a record, copy it there first); the owner "
-            "saves the reviewed draft as the live record by hand"
-        )]
     try:
-        lines, findings = initialise(repo, record, parse(argv))
+        options = parse(argv)
+    except UsageError as error:
+        return [usage_finding(str(error))]
+    live = harness.RECORDS.resolve()
+    if is_live(record) and not options.enable_dynaflows:
+        return [usage_finding(
+            f"--record {record} is under the live records root {live}; agents write records only when "
+            "the owner asked for dynaflows in the chat (pass --enable-dynaflows then). Otherwise pass a "
+            "draft directory outside it; the owner saves the reviewed draft as the live record"
+        )]
+    if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
+        return [usage_finding(f"--record {record} must be a repo's record, {live}/<owner>/<name>")]
+    try:
+        lines, findings = initialise(repo, record, options)
     except UsageError as error:
         return [usage_finding(str(error))]
     except record_gate.GateError as error:

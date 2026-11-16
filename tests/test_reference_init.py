@@ -195,7 +195,7 @@ class DraftRecordTests(InitCase):
         self.assertIn("discovered: CI jobs: gate (.github/workflows/gate.yml), Build docs", output)
         self.assertIn("required checks not read (--offline)", output)
         self.assertIn("confirm: dynaflows is off", output)
-        self.assertIn("enable $dynaflows", output)
+        self.assertIn("turns on when the owner asks for it in a session", output)
         self.assertIn("confirm: agentMerge is the owner's to set", output)
         self.assertIn("required: ownerOnlyPaths is the owner's to set", output)
         self.assertNotIn("ownerOnlyPaths", self.gate(), "init never drafts the owner-only paths")
@@ -297,7 +297,7 @@ class DraftRecordTests(InitCase):
                 self.assertIn(named, output)
                 self.assertEqual(self.gate(), gate)
 
-    def test_live_record_is_refused_and_the_draft_names_where_the_owner_saves_it(self) -> None:
+    def test_live_record_without_the_dynaflows_ask_is_refused_and_the_draft_names_where_it_goes(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         with mock.patch.object(harness, "RECORDS", live):
             draft = self.record
@@ -305,14 +305,29 @@ class DraftRecordTests(InitCase):
             code, output = self.init()
             self.assertNotEqual(code, 0)
             self.assertIn("is under the live records root", output)
-            self.assertIn("agents never write records", output)
+            self.assertIn("agents write records only when the owner asked for dynaflows", output)
             self.assertFalse(self.record.exists(), "init writes nothing into the live record")
             self.record = draft
             code, output = self.init()
         self.assertEqual(code, 0, output)
         self.assertTrue((draft / "gate.json").is_file())
-        self.assertIn(f"init: draft record at {draft}. Agents never write the live record", output)
-        self.assertIn(f"save it by hand as {live}/<owner>/<name>/", output)
+        self.assertIn(f"init: draft record at {draft}. Without the owner's dynaflows ask", output)
+        self.assertIn(f"save it as {live}/<owner>/<name>/", output)
+
+    def test_dynaflows_ask_writes_the_live_record_with_dynaflows_on(self) -> None:
+        live = Path(self.temporary.name).resolve() / "harness/repos"
+        with mock.patch.object(harness, "RECORDS", live):
+            self.record = live / "owner/target"
+            code, output = self.init("--enable-dynaflows", "--commit-command", "make check", "--path-command", "make paths")
+            self.assertEqual(code, 0, output)
+            self.assertEqual(self.gate()["dynaflows"], {"enabled": True})
+            self.assertIn(f"init: live record at {self.record}", output)
+            self.assertNotIn("confirm: dynaflows is off", output)
+            self.record = live / "owner"
+            code, output = self.init("--enable-dynaflows")
+            self.assertNotEqual(code, 0)
+            self.assertIn("must be a repo's record", output)
+            self.assertFalse((live / "owner/gate.json").exists())
 
     def test_record_inside_the_repo_is_refused(self) -> None:
         self.record = self.repo / "record"
