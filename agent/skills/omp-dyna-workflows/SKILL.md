@@ -108,8 +108,9 @@ never apply before approval.
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the
 resolved default and create the dedicated `agent/<slug>` branch/worktree, never
 from spike code. Delegate edits, including small fixes, to sequential non-isolated tasks in that
-worktree using absolute paths. Confinement is a brief invariant; rails reject enclosing-root
-symlink escapes, not another worktree. Outside-repo scratch and internal URIs remain allowed.
+worktree using absolute paths. Rails reject enclosing-root symlink escapes and refuse
+`git worktree add` outside `<worktree.base>/<repo>/<slug>`; the assigned worktree for edit-tool
+writes stays an instruction boundary. Outside-repo scratch and internal URIs remain allowed.
 
 1. Proof `task` writes proof files and the feature-map entries that link them, and stops
    uncommitted: no staging, push or PR.

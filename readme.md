@@ -100,8 +100,10 @@ share their main checkout's record. No `origin` remote or no record means off, a
 `~/.omp/dynaflows.json` of `{"enabled": false}` turns it off for every repo. With dynaflows on,
 rails inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as
 above. Subagent filesystem edit paths must be absolute and cannot escape enclosing Git roots through
-symlinks; outside-repo scratch paths and internal URIs are allowed. Selecting the assigned worktree
-remains an instruction, not a path-rail guarantee. Proofs are outcome tests tied to the repo's
+symlinks; outside-repo scratch paths and internal URIs are allowed. Rails require `git worktree add`
+targets at `<worktree.base>/<repo>/<slug>`, using the lowercase `origin` repo name; `OMP_WORKTREE_DIR`
+overrides the base. Selecting the assigned worktree for edit-tool writes remains an instruction,
+not a path-rail guarantee. Proofs are outcome tests tied to the repo's
 feature map (the record profile's `verification_surface.feature_map_path`): `freeze()` refuses a
 proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
 proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
