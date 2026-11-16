@@ -794,35 +794,22 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("an ask inside a sentence sets the switch; a negated or bare mention does not", async () => {
+	test("only a standalone directive line sets the switch; asks inside sentences are left to the agent", async () => {
 		const h = harness();
 		try {
 			h.gate({ schemaVersion: 2 });
-			const on = ["I want to enable dynaflows", "please turn on $dynaflows for this repo", "Can you set up dynaflows here?",
-				"let's activate the dynaflows", "turn dynaflows on", "Dynaflows enable please", "ok, $dynaflows on now"];
-			const off = ["disable dynaflows", "please turn off dynaflows for now", "turn the dynaflows off", "I'd like to stop dynaflows.",
-				"ok $dynaflows off"];
-			for (const prompt of on) {
+			h.dynaflows(false);
+			for (const prompt of ["I want to enable dynaflows", "please enable $dynaflows", "what does `$dynaflows init` do?",
+				"don't enable dynaflows", "type enable $dynaflows to start", "$dynaflows on."]) {
+				await h.emit("before_agent_start", { reason: "prompt", prompt });
+				assert.deepEqual(h.record().dynaflows, { enabled: false }, prompt);
+			}
+			for (const prompt of ["enable $dynaflows", "  Turn On   $dynaflows ", "$dynaflows init"]) {
 				h.dynaflows(false);
 				await h.emit("before_agent_start", { reason: "prompt", prompt });
 				assert.deepEqual(h.record().dynaflows, { enabled: true }, prompt);
 			}
-			for (const prompt of off) {
-				h.dynaflows(true);
-				const result = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
-				assert.deepEqual(h.record().dynaflows, { enabled: false }, prompt);
-				assert.ok(result.includes("Dynaflows off"), prompt);
-			}
-			h.dynaflows(false);
-			for (const prompt of ["don't enable dynaflows", "how does dynaflows work?", "I worked with dynaflows on the NUC",
-				"enable the login form so the dynaflows docs build", "read skill://omp-dyna-workflows"]) {
-				await h.emit("before_agent_start", { reason: "prompt", prompt });
-				assert.deepEqual(h.record().dynaflows, { enabled: false }, prompt);
-			}
-			// An in-sentence ask with nothing else kicks off; a separate task line is routed.
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "I want to enable dynaflows" }))
-				.includes("Report the stage you found"));
-			const route = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "please enable dynaflows\nfix the login bug" }));
+			const route = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows\nfix the login bug" }));
 			assert.ok(route.includes("Route this work with") && !route.includes("Report the stage"), route);
 		} finally { h.cleanup(); }
 	});
@@ -831,12 +818,12 @@ describe("agent rails", () => {
 		const h = harness();
 		try {
 			h.gate({ schemaVersion: 2 });
-			for (const prompt of ["enable dynaflows\ndisable dynaflows", "enable dynaflows, no wait, disable dynaflows"]) {
+			for (const prompt of ["enable $dynaflows\ndisable $dynaflows", "$dynaflows on\n$dynaflows off"]) {
 				const result = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
 				assert.ok(result.includes("both enable and disable dynaflows") && result.includes("Ask the owner"), result);
 				assert.deepEqual(h.record().dynaflows, { enabled: false }, prompt);
 			}
-			assert.ok(h.errors.some(error => error.includes("contradictory dynaflows asks")), h.errors.join("; "));
+			assert.ok(h.errors.some(error => error.includes("contradictory dynaflows directives")), h.errors.join("; "));
 		} finally { h.cleanup(); }
 	});
 
@@ -1239,7 +1226,7 @@ test("the owner's enable ask lets the main agent write that repo's record, green
 		const draft = JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] }, pathCheck: ["true"], ownerOnlyPaths: [], dynaflows: { enabled: true } });
 		const blocked = await h.call("write", { path: gate, content: draft });
 		assert.equal(blocked?.block, true, "no ask: the record stays the owner's");
-		const kickoff = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "I want to enable dynaflows" }));
+		const kickoff = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows" }));
 		assert.ok(kickoff.includes("from Step 0") && kickoff.includes("write the record yourself") && kickoff.includes("Never ask the owner to save"), kickoff);
 		assert.ok(!kickoff.includes("ask the owner to save it"), kickoff);
 		for (const path of [gate, join(h.recordDir(), "profile.md")]) {
@@ -1252,7 +1239,7 @@ test("the owner's enable ask lets the main agent write that repo's record, green
 		h.context.agent.kind = "main";
 		mkdirSync(h.recordDir(), { recursive: true });
 		writeFileSync(gate, draft);
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "disable dynaflows" });
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "disable $dynaflows" });
 		assert.deepEqual(h.record().dynaflows, { enabled: false });
 		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, true, "disable revokes the grant");
 		h.setSession("other");
@@ -1523,13 +1510,12 @@ test("toggle asks ignore mentions without a verb and reject contradictions and n
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
 			assert.deepEqual(h.record(), record, prompt);
 		}
-		// Asks inside prose count, whatever surrounds them.
+		// Prose around a directive makes it a sentence, which the agent judges instead.
 		for (const prompt of ["please $dynaflows on", "please enable $dynaflows", "`$dynaflows init`", "$dynaflows on."]) {
-			h.dynaflows(false);
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
-			assert.deepEqual(h.record().dynaflows, { enabled: true }, prompt);
+			assert.deepEqual(h.record(), record, prompt);
 		}
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows turn off" });
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "turn off $dynaflows" });
 		assert.deepEqual(h.record().dynaflows, { enabled: false });
 		assert.equal(existsSync(join(h.root, ".omp")), false, "the repo tree is never written");
 		h.context.cwd = scratch;
