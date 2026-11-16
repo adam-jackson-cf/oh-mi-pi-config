@@ -1,0 +1,2 @@
+import { test, expect } from 'vitest';
+test('retry', { retry: 2 }, () => { expect(1).toBe(1); });
