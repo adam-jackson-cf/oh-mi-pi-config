@@ -1,5 +1,5 @@
 ---
-name: "setup-repository-guardrails"
+name: "setup-repo-proofs"
 description: "USE WHEN establishing or extending enforceable repository guardrails for a selected language and runtime stack."
 hide: true
 disable-model-invocation: true

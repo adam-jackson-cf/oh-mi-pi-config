@@ -12,7 +12,7 @@ The agent rails run it at the agent's commit, after the repository's own
 commit command:
 
 ```text
-uv run --project <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference \
+uv run --project <omp root>/agent/skills/setup-repo-proofs/assets/python-reference \
   omp-guardrails check --repo <worktree> --record <record dir>
 ```
 

@@ -68,8 +68,8 @@ agent/skills/*
 !agent/skills/omp-dyna-workflows/**
 !agent/skills/jev-actions/
 !agent/skills/jev-actions/**
-!agent/skills/setup-repository-guardrails/
-!agent/skills/setup-repository-guardrails/**
+!agent/skills/setup-repo-proofs/
+!agent/skills/setup-repo-proofs/**
 !agent/skills/coding-guidance/
 !agent/skills/coding-guidance/**
 !agent/skills/test-guidance/
@@ -144,7 +144,7 @@ orca-plugins/chat-section-style/terminal-palette
 **/.pytest_cache/
 **/.ruff_cache/
 **/*.egg-info/
-agent/skills/setup-repository-guardrails/assets/python-reference/build/
+agent/skills/setup-repo-proofs/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/
 

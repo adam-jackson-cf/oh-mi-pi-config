@@ -15,7 +15,7 @@ This skill applies only with dynaflows on. Each repo's settings live in its **re
 `repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's `origin` remote
 (lowercase; worktrees resolve like their main checkout), gitignored and never committed. It holds
 `gate.json` and `profile.md`; see
-`skill://setup-repository-guardrails/assets/example-record/README.md`. The repo itself holds nothing
+`skill://setup-repo-proofs/assets/example-record/README.md`. The repo itself holds nothing
 about omp or dynaflows. The record's `dynaflows.enabled` is the switch; no `origin` remote or no
 record means off, and a machine default `~/.omp/dynaflows.json` of `{"enabled": false}` turns it off
 for every repo on that machine. The owner turns it on or off in the main chat. A standalone
@@ -26,7 +26,7 @@ contradictory lines change nothing and the agent asks which. Any other wording, 
 enable dynaflows", is yours to judge: when the owner is asking (not asking about it, quoting it or
 negating it), call the `dynaflows` tool; never call it on your own initiative. Agents write records
 when the owner asked for dynaflows in the chat; otherwise records stay owner-edited. Turning it on
-with no record starts `skill://setup-repository-guardrails`, and the agent writes the record,
+with no record starts `skill://setup-repo-proofs`, and the agent writes the record,
 `dynaflows.enabled` true, itself; a refused record resumes setup and the agent repairs it; a prompt
 that is only the ask asks for this selection: report the stage found and start it, or, with setup
 complete, ask the owner for the task.
@@ -102,7 +102,7 @@ workflow with a report to the owner, and low or medium ones are upgraded in the 
 Agents never edit the record's `ownerOnlyPaths`, such as the exception file; rails refuse the
 commit.
 Missing controls or the lazy surface trigger above require owner-approved project setup. Read
-`skill://setup-repository-guardrails` for the record draft, Minimal/Full approval and application;
+`skill://setup-repo-proofs` for the record draft, Minimal/Full approval and application;
 never apply before approval.
 
 Main follows `skill://git-tool/references/branch-and-integrate.md` to fetch the

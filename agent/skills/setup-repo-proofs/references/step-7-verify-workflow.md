@@ -9,7 +9,7 @@ execution.
 
 1. Run the harness checks from the harness over the whole repository with the
    record, as rails do at commit: `uv run --project
-   <omp root>/agent/skills/setup-repository-guardrails/assets/python-reference
+   <omp root>/agent/skills/setup-repo-proofs/assets/python-reference
    omp-guardrails check --repo <worktree> --record <record dir>`. Expected exit
    0: zero findings outside the record's
    scope exclusions, with JUnit and temporary output outside the worktree and

@@ -3,7 +3,7 @@
 ## Design directive
 
 Every change to dynaflows follows these principles. That covers this skill, its playbooks and
-templates, `skill://setup-repository-guardrails`, `omp-guardrails`, the agent rails and the
+templates, `skill://setup-repo-proofs`, `omp-guardrails`, the agent rails and the
 record schema. A change that conflicts with one of them needs the owner's explicit decision
 first.
 

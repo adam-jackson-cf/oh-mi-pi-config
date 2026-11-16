@@ -12,7 +12,7 @@ A file's path shows its owner and dependency direction.
   - Add an automated import check where the toolchain allows one.
 - Code two siblings both need moves down to the lowest tier both may read; never import one sibling from the other to reach it.
 - A part one owner uses lives under that owner; once a second owner uses it, move it to the lowest tier both may read.
-- Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repository-guardrails/assets/python-reference/omp_guardrails/data/house-style.json));
+- Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json));
   shared code goes in the lowest tier, in a folder named for what it holds.
   Sibling files sharing a name prefix (`audit_*`) that change together are a candidate folder named for that prefix.
 - Merge units with overlapping responsibilities into one owner; no near-duplicates.
