@@ -165,15 +165,42 @@ class DependencyAuditContractTests(unittest.TestCase):
             [token.split("=", 1)[0] for token in failure[1:4]], ["failure", "path", "reason"]
         )
 
-    def test_exceptions_are_owner_only_dated_and_for_no_fix_advisories(self) -> None:
+    def test_exceptions_are_owner_only_dated_and_only_for_unavailable_fixes(self) -> None:
         exceptions = self.contract["exceptions"]
-        self.assertEqual(exceptions["allowed_only_for"], "advisory_with_no_fix_version")
+        self.assertEqual(
+            exceptions["allowed_only_for"],
+            ["advisory_with_no_fix_version", "fixed_release_blocked_by_pinned_dependent"],
+        )
         self.assertEqual(
             exceptions["entry_fields"],
             ["advisory", "package", "version", "lock", "reason", "exposure", "expires"],
         )
+        self.assertEqual(
+            exceptions["blocked_fix_fields"], ["blocked_by", "constraint", "constraint_source"]
+        )
+        for rule in (
+            "suppresses_only_the_exact_advisory_package_version_and_lock",
+            "expired_entry_reports_the_advisory_again_and_a_failure",
+            "entry_matching_no_reported_advisory_is_failure",
+            "entry_for_an_advisory_with_an_unblocked_fix_is_failure",
+            "malformed_entry_is_failure",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIs(exceptions[rule], True)
+        for requirement in (
+            "same lock", "constraint must parse", "target the advisory package",
+            "exclude every reported fixed version", "absolute HTTPS URL",
+            "missing blocking fields", "missing or changed blocker", "any compatible fixed version",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, exceptions["blocked_fix_validation"])
+        self.assertIn("never fetch", exceptions["upstream_evidence_attestation"])
+        self.assertIn("unknown or missing fields fail", exceptions["entry_validation"])
+        self.assertEqual(exceptions["expires_format"], "YYYY-MM-DD")
+        self.assertIn("today's UTC date", exceptions["expires_validation"])
         self.assertIs(exceptions["agents_never_add_or_edit"], True)
         self.assertIn("owner_only_paths", exceptions["file"])
+
 
 
 def module_sources(module: str) -> list[Path]:

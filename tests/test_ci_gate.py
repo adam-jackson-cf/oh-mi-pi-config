@@ -75,7 +75,15 @@ if args[0] == 'run':
         while not (root / ('release-' + src.parent.name)).exists():
             time.sleep(.01)
     print('container gate output', flush=True)
-    sys.exit(int(os.environ.get('GATE_EXIT', '0')))
+    if int(os.environ.get('GATE_EXIT', '0')) in (125, 126, 127):
+        sys.exit(int(os.environ['GATE_EXIT']))
+    # Execute the real shell boundary; only Podman's bind mounts are translated.
+    command = args[-1]
+    for index, value in enumerate(args):
+        if value == '-v':
+            host, container, mode = args[index + 1].rsplit(':', 2)
+            command = command.replace(container, host)
+    sys.exit(subprocess.call(['bash', '-c', command], cwd=src))
 sys.exit(0)
 '''
 
@@ -99,6 +107,7 @@ class CiGateTests(unittest.TestCase):
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
             'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': ['echo', 'setup words']}))
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
+        (self.source / 'gate script.sh').write_text('exit "${GATE_EXIT:-0}"\n')
         self.sha = self.commit()
         self.requests = []
         requests = self.requests
@@ -222,7 +231,8 @@ class CiGateTests(unittest.TestCase):
         self.assertNotIn('--runtime', build)
         self.assertFalse(any(arg.startswith('--runtime') for arg in build))
         self.assertNotIn('/usr/local/bin/runsc', build)
-        self.assertIn("echo 'setup words' && bash 'gate script.sh' 'a'\"'\"'b'", args)
+        self.assertIn("echo 'setup words'", args[-1])
+        self.assertIn("exec bash 'gate script.sh' 'a'\"'\"'b'", args[-1])
         self.assertNotIn('commit only.sh', json.dumps(args))
         self.assertNotIn('-e', args)
         self.assertNotIn('--env-host', args)
@@ -315,25 +325,38 @@ class CiGateTests(unittest.TestCase):
         self.assertEqual(len(self.calls('systemd-run')), 1)
 
     def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self):
-        self.submit()
-        self.cli('run', self.job(), expected=1, env={**self.env, 'FAIL_BUILD': '1'})
-        self.assertEqual(json.loads((self.job() / 'result.json').read_text())['state'], 'error')
-        self.assertFalse((self.job() / 'src').exists())
-        retried = json.loads(self.submit().stdout)
-        self.assertEqual(retried['state'], 'running')
-        self.assertFalse((self.job() / 'result.json').exists())
-        self.assertTrue((self.job() / 'src/.git').is_dir())
-        self.assertEqual(len(self.calls('systemd-run')), 2)
-        units = [argv[argv.index('--unit') + 1] for argv in self.calls('systemd-run')]
-        self.assertNotEqual(units[0], units[1])
-        self.cli('run', self.job())
-        result = json.loads(self.cli('wait', REPO, self.sha).stdout)
-        self.assertEqual((result['state'], result['sha']), ('success', self.sha))
-        self.assertEqual([request['body']['state'] for request in self.requests],
-                         ['pending', 'error', 'pending', 'success'])
+        for stage in ('build', 'bootstrap'):
+            with self.subTest(stage=stage):
+                (self.source / 'retry-stage').write_text(stage)
+                if stage == 'bootstrap':
+                    (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
+                        'build': {'dockerfile': 'Containerfile'},
+                        'postCreateCommand': 'test -f bootstrap-ready',
+                    }))
+                sha = self.commit()
+                self.submit(sha)
+                launches = len(self.calls('systemd-run'))
+                environment = {**self.env, **({'FAIL_BUILD': '1'} if stage == 'build' else {})}
+                self.cli('run', self.job(sha), expected=1, env=environment)
+                self.assertEqual(json.loads((self.job(sha) / 'result.json').read_text())['state'], 'error')
+                self.assertFalse((self.job(sha) / 'src').exists())
+                retried = json.loads(self.submit(sha).stdout)
+                self.assertEqual(retried['state'], 'running')
+                self.assertFalse((self.job(sha) / 'result.json').exists())
+                self.assertTrue((self.job(sha) / 'src/.git').is_dir())
+                self.assertEqual(len(self.calls('systemd-run')), launches + 1)
+                units = [argv[argv.index('--unit') + 1] for argv in self.calls('systemd-run')]
+                self.assertNotEqual(units[-2], units[-1])
+                if stage == 'bootstrap':
+                    (self.job(sha) / 'src/bootstrap-ready').touch()
+                self.cli('run', self.job(sha))
+                result = json.loads(self.cli('wait', REPO, sha).stdout)
+                self.assertEqual((result['state'], result['sha']), ('success', sha))
+                self.assertEqual([request['body']['state'] for request in self.requests][-4:],
+                                 ['pending', 'error', 'pending', 'success'])
 
     def test_infrastructure_failures_are_errors(self):
-        for failure in ('missing-ci', 'build', 'podman'):
+        for failure in ('missing-ci', 'build', 'podman', 'bootstrap-string', 'bootstrap-array'):
             with self.subTest(failure=failure):
                 gate = self.gate(checks={'commit': ['true']} if failure == 'missing-ci'
                                  else {'commit': ['true'], 'ci': ['true', failure]})
@@ -342,6 +365,12 @@ class CiGateTests(unittest.TestCase):
                 else:
                     self.write_gate(gate)
                 sha = self.commit()
+                if failure.startswith('bootstrap-'):
+                    post = 'exit 7' if failure.endswith('string') else ['bash', '-c', 'exit 9']
+                    (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({
+                        'build': {'dockerfile': 'Containerfile'}, 'postCreateCommand': post,
+                    }))
+                    sha = self.commit()
                 self.submit(sha)
                 environment = {**self.env}
                 if failure == 'build':
@@ -353,6 +382,9 @@ class CiGateTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'error')
                 self.assertEqual(self.requests[-1]['body']['state'], 'error')
                 self.assertEqual(self.requests[-1]['body']['context'], CONTEXT)
+                if failure.startswith('bootstrap-'):
+                    self.assertIn('Container bootstrap failed', result['error'])
+                self.assertEqual(list(self.job(sha).glob('execute-*')), [])
 
     def test_gate_without_required_context_is_an_unpublished_error(self):
         for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'unknownField',

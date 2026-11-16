@@ -235,6 +235,12 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
      owned code as `{location, line}`.
    - `fix_options`: a replacement package or mitigation. It is required when the finding lists
      no fix version.
+   - `blocked_fix`: `null` when no pinned dependent blocks the fix, otherwise exactly
+     `{blocked_by, constraint, constraint_source}` with the catalogue exception-field meanings.
+     Gather the exact blocker version from the same lock, its declared constraint and the upstream
+     HTTPS evidence URL; verify that the constraint excludes every reported fixed version.
+     A fix that merely needs an upgrade is not blocked. This evidence routes the finding; it
+     neither suppresses it nor authorizes an agent to write an exception.
 3. A malicious package is decided in code first: an advisory whose ID or an alias starts with
    `MAL-` (an OSV malicious-package record, or the auditor's own malicious mark as the catalogue
    contract states) is critical and goes to the owner, whatever its scope, reachability or fix.
@@ -257,15 +263,26 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
 5. Act on the result:
    - `halt` true: stop the workflow and give the owner `report`. It names the advisory, severity,
      per-dimension evidence and suggested fix of every malicious package, every high or critical
-     advisory, every advisory with no fixed release (blocked until the owner approves a dated
-     exception), and every exception-file failure. Do not upgrade, replace or mitigate these in
-     the flow.
+     advisory, every advisory with no fixed release or with fixed releases blocked by a pinned
+     dependent (blocked until the owner approves a dated exception), and every exception-file
+     failure. The report includes the blocker, exact constraint and source URL. Do not upgrade,
+     replace or mitigate these in the flow.
    - Otherwise upgrade each `fix` entry to a listed fixed version, and fix `failures` (an
      unknown lock format, a manifest without a lock, an auditor error) as any failing check.
      Then commit again.
 
 Agents never add or edit exceptions. The exception file is in the record's `ownerOnlyPaths`, and
 the rails refuse any agent commit that changes it.
+
+The catalogue's `SECURITY.dependency-audit.exceptions` is the exception-file contract.
+No-fix entries retain `advisory`, `package`, `version`, `lock`, `reason`, `exposure`, `expires`.
+Fixed-but-blocked entries additionally require `blocked_by` (`package@exact-version`),
+`constraint` (the exact upstream declaration, including blocker and requirement), and
+`constraint_source` (an absolute HTTPS URL). Repo checkers deterministically verify the blocker
+in the same lock and parse the constraint to exclude every reported fixed release; they never
+fetch the URL. The owner attests the upstream evidence when writing the entry. Expired,
+malformed, stale, unmatched and unblocked-fix entries still fail. Nothing changes the owner-only
+path or the exact advisory/package/version/lock match.
 
 ## Failure handling
 
