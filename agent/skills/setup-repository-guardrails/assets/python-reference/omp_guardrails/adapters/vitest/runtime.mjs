@@ -87,6 +87,11 @@ export function install(settings) {
     for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) patch(childProcess, name, block(`child_process.${name}`));
     // Calling the prototype directly must not bypass the public spawn wrappers.
     patch(childProcess.ChildProcess.prototype, 'spawn', block('ChildProcess.spawn'));
+    // Bun's Node compatibility exports keep pre-imported spawnSync bindings even
+    // after syncBuiltinESMExports; those bindings delegate to this native boundary.
+    if (globalThis.Bun) {
+      for (const name of ['spawn', 'spawnSync']) patch(globalThis.Bun, name, block(`Bun.${name}`));
+    }
     for (const [owner, names] of [
       [net, ['connect', 'createConnection']], [net.Socket.prototype, ['connect']],
       [net.Server.prototype, ['listen']], [tls, ['connect']],
