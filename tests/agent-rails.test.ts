@@ -3,7 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import { promisify } from "node:util";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import agentRails from "../agent/extensions/agent-rails";
@@ -438,7 +438,7 @@ describe("agent rails", () => {
 		mkdirSync(join(caseProbe, "MixedCase"));
 		caseInsensitive = existsSync(join(caseProbe, "mixedcase"));
 	} finally { rmSync(caseProbe, { recursive: true, force: true }); }
-	test("worktree paths canonicalize mixed case on case-insensitive filesystems", { skip: !caseInsensitive }, async () => {
+	test.skipIf(!caseInsensitive)("worktree paths canonicalize mixed case on case-insensitive filesystems", async () => {
 		const h = harness();
 		const previous = process.env.OMP_WORKTREE_DIR;
 		delete process.env.OMP_WORKTREE_DIR;
