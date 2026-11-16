@@ -99,15 +99,13 @@ every maintained root. Unconfigured repositories therefore fail with findings
 instead of passing silently. Numeric defaults are the catalogue contract
 values.
 
-`omp-guardrails init --repo DIR --record DRAFT` drafts the record for owner
-confirmation into a draft directory; it refuses the live records root, and the
-owner saves the reviewed draft as the live record. Agents write records when the
-owner asked for dynaflows in the chat; otherwise records stay owner-edited. With
-that ask, `--enable-dynaflows` writes the live record `repos/<owner>/<name>/`
-directly with dynaflows on. It discovers make
-targets, hook managers, CI jobs and, through `gh`, the required checks; it
+`omp-guardrails init --repo DIR --record DIR` drafts the record for owner
+confirmation directly in the live record or a draft directory. Agents write records directly,
+with approval fields only as the owner stated them in the chat. Records are never committed or
+part of a PR. `--enable-dynaflows` drafts dynaflows on when the owner asked for it in the chat.
+It discovers make targets, hook managers, CI jobs and, through `gh`, the required checks; it
 writes `gate.json`, `profile.md` and proposed native-tool configs under
-`proposed/` in the draft, and nothing into the
+`proposed/` in the record, and nothing into the
 repository.
 
 For TypeScript 7 and newer, init uses the repository's installed native compiler

@@ -82,13 +82,10 @@ evade bootstrap. Unknown host state or commands block.
 
 The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
 checks, `pathCheck`, `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
-committed and never part of a PR. Agents write records when the owner asked for dynaflows in the chat; otherwise
-records stay owner-edited. The ask (a prompt asking to enable dynaflows, or the `dynaflows` tool called on it) lets
-the session's main agent write that repo's record directory, and a disable ask withdraws it. Write an approval field
-only as the owner stated it in the chat. Without the ask, rails refuse every agent edit-tool write under the records
-root (a lexical check on the resolved path). On that refusal, do not retry through another tool or split the change
-to evade it: print the drafted change (or write it to a draft outside `repos/`), ask the owner to save it, and
-continue with unrelated work.
+committed and never part of a PR. Agents write records directly. Write approval fields only as the owner
+stated them in the chat. This does not change `ownerOnlyPaths`: rails still refuse agent commits that
+touch those owner-only repository paths. Setup Step 5 owner approval remains required before applying
+repository fixes.
 
 ## Recover a red default branch
 

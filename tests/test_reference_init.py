@@ -297,22 +297,14 @@ class DraftRecordTests(InitCase):
                 self.assertIn(named, output)
                 self.assertEqual(self.gate(), gate)
 
-    def test_live_record_without_the_dynaflows_ask_is_refused_and_the_draft_names_where_it_goes(self) -> None:
+    def test_live_record_can_be_written_with_dynaflows_off(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         with mock.patch.object(harness, "RECORDS", live):
-            draft = self.record
             self.record = live / "owner/target"
             code, output = self.init()
-            self.assertNotEqual(code, 0)
-            self.assertIn("is under the live records root", output)
-            self.assertIn("agents write records only when the owner asked for dynaflows", output)
-            self.assertFalse(self.record.exists(), "init writes nothing into the live record")
-            self.record = draft
-            code, output = self.init()
         self.assertEqual(code, 0, output)
-        self.assertTrue((draft / "gate.json").is_file())
-        self.assertIn(f"init: draft record at {draft}. Without the owner's dynaflows ask", output)
-        self.assertIn(f"save it as {live}/<owner>/<name>/", output)
+        self.assertTrue((self.record / "gate.json").is_file())
+        self.assertEqual(self.gate()["dynaflows"], {"enabled": False})
 
     def test_dynaflows_ask_writes_the_live_record_with_dynaflows_on(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
@@ -321,7 +313,7 @@ class DraftRecordTests(InitCase):
             code, output = self.init("--enable-dynaflows", "--commit-command", "make check", "--path-command", "make paths")
             self.assertEqual(code, 0, output)
             self.assertEqual(self.gate()["dynaflows"], {"enabled": True})
-            self.assertIn(f"init: live record at {self.record}", output)
+            self.assertIn(f"init: record at {self.record}", output)
             self.assertNotIn("confirm: dynaflows is off", output)
             self.record = live / "owner"
             code, output = self.init("--enable-dynaflows")

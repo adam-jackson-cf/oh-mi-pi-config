@@ -63,10 +63,11 @@
     "src/orders/contract/__init__.py": "",
     "src/orders/contract/model.py": "class OrderTotal:\n    pass\n",
     "src/orders/engine/__init__.py": "",
-    "src/orders/engine/runner.py": "from orders.contract.model import OrderTotal\nfrom . import pricing\n\n\ndef run_order(total: OrderTotal) -> OrderTotal:\n    return total\n",
+    "src/orders/engine/runner.py": "from orders.contract.model import OrderTotal\n\n\ndef run_order(total: OrderTotal) -> OrderTotal:\n    return total\n",
     "src/orders/engine/pricing.py": "def price_order() -> int:\n    return 1\n",
     "src/orders/cli/__init__.py": "",
-    "src/orders/cli/main.py": "from orders.engine import runner\n\n\ndef main() -> None:\n    runner.run_order(None)\n",
+    "src/orders/cli/main.py": "from orders.engine import runner\nfrom orders.contract.model import OrderTotal\n\n\ndef main() -> None:\n    runner.run_order(None)\n",
+    "src/orders/cli/audit.py": "from orders.engine import runner\n",
     "tests/unit/test_order_totals.py": "import unittest\n\n\nclass OrderTotalTests(unittest.TestCase):\n    def setUp(self) -> None:\n        self.total = 1\n\n    def test_total_is_kept(self) -> None:\n        self.assertEqual(self.total, 1)\n",
     "tests/boundary/test_orders_export.py": "def test_export_writes_one_row() -> None:\n    assert True\n"
   }

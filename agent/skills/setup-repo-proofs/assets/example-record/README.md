@@ -26,17 +26,17 @@ hook config and CI jobs for the owner to confirm. Rules for the record:
 - `dynaflows.enabled` is the on/off switch. No origin remote or no record means dynaflows is off.
 - Paths in a record setting are repo-relative when they name repo files and record-relative when
   they name record files. No setting names a harness directory inside the repo.
-- Agents write records when the owner asked for dynaflows in the chat; otherwise records stay
-  owner-edited, and rails refuse every agent write to them.
+- Agents write records directly, with approval fields only as the owner stated them in the chat.
+  Records are never committed or part of a PR.
 - `ownerOnlyPaths` lists the repo paths only the owner changes, such as the dependency-audit
   exception file. Each entry is a repo-relative POSIX path; a trailing `/` covers a directory.
   Write `[]` when the repo has none. Rails refuse every agent commit whose staged or unstaged
   changes touch one, whether dynaflows is on or off, and tell the agent to raise it to the owner.
 
-`omp-guardrails init --repo <clone> --record <draft dir>` drafts both files into a draft outside
-the live `repos/` root for owner confirmation and writes nothing into the repo; the owner saves
-the draft as the live record. With `--enable-dynaflows` (the owner asked for dynaflows in the chat)
-it writes the live record itself. At the agent's commit the rails run
+`omp-guardrails init --repo <clone> --record <record dir>` drafts both files directly in the live
+record or a draft directory for owner confirmation, and writes nothing into the repo.
+`--enable-dynaflows` drafts dynaflows on when the owner asked for it in the chat.
+At the agent's commit the rails run
 `checks.commit`, then `omp-guardrails check --repo <worktree> --record <record dir>` over the whole
 repo. The profile's `guardrails.check.run` picks the check steps, `guardrails.check.repo` maps each
 step the repo already enforces to the list of repo checker files that carry its rules

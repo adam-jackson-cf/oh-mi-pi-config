@@ -14,8 +14,8 @@ Every module exposes ``run(repo: Path, profile: dict, argv: list[str]) -> list[F
 Exit codes: 0 no findings, 1 findings, 2 usage error (including a missing ``--record``).
 ``omp-guardrails <subcommand> --help`` prints the subcommand's module documentation without
 reading the profile; ``init`` and ``adapter`` parse their own options and print their own help.
-``init`` drafts the record itself, so it is the one subcommand that writes: into a draft record
-directory, or into the live record when the owner asked for dynaflows (``--enable-dynaflows``).
+``init`` drafts the record itself, so it is the one subcommand that writes: directly into a live
+record or a draft directory. ``--enable-dynaflows`` drafts dynaflows on.
 """
 
 from __future__ import annotations
