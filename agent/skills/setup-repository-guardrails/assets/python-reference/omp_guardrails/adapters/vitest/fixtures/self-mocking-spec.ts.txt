@@ -1,0 +1,3 @@
+import { test, vi } from 'vitest';
+import { Basket } from '../shop/core';
+test('owned typed mock', () => { vi.mocked(new Basket()); });
