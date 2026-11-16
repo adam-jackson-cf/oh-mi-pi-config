@@ -13,6 +13,7 @@ PACKAGE = Path(__file__).resolve().parent
 # omp_guardrails/ -> python-reference/ -> assets/ -> setup-repository-guardrails/ -> skills/
 SKILLS = PACKAGE.parents[3]
 AGENT = SKILLS.parent
-# The live per-repo records (<harness>/repos/<owner>/<name>/). Only the owner writes them, by hand.
+# The live per-repo records (<harness>/repos/<owner>/<name>/). Agents write one only when the owner
+# asked for dynaflows in the chat; otherwise the owner edits them.
 RECORDS = AGENT.parent / "repos"
 PROFILE_TEMPLATE = SKILLS / "test-guidance/assets/templates/test-profile.md"

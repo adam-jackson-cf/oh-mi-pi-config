@@ -18,7 +18,8 @@ Init fills only absent fields and never replaces a recorded value:
 - ``ci`` from ``--required-context`` and ``--runner``, else the single required check on the
   default branch (or a CI job named ``gate``), with ``github-actions`` as the runner when a
   GitHub workflow job reports that context;
-- ``dynaflows`` as ``{"enabled": false}``: the owner turns dynaflows on after confirming.
+- ``dynaflows`` as ``{"enabled": true}`` when the owner asked for dynaflows in the chat
+  (``--enable-dynaflows``), else ``{"enabled": false}``.
 
 When init finds no ``checks.commit`` or ``pathCheck``, it reports each as required: the record
 does not load without both. ``ownerOnlyPaths`` is never drafted: the owner writes it (an empty
@@ -119,6 +120,7 @@ def planned_gate(
     path_command: str | None,
     required_context: str | None,
     runner: str | None,
+    dynaflows: bool = False,
 ) -> tuple[dict, list[str]]:
     """The gate with absent fields drafted, and the values the owner still has to confirm."""
     planned = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
@@ -134,7 +136,7 @@ def planned_gate(
     ci = drafted_ci(found, required_context, runner)
     if ci:
         planned.setdefault("ci", ci)
-    planned.setdefault("dynaflows", {"enabled": False})
+    planned.setdefault("dynaflows", {"enabled": dynaflows})
     return planned, confirmations(planned)
 
 
@@ -162,8 +164,8 @@ def confirmations(gate: dict) -> list[str]:
         lines.append(f"confirm: agentMerge is the owner's to set in {GATE_PATH}")
     if gate.get("dynaflows") == {"enabled": False}:
         lines.append(
-            f"confirm: dynaflows is off in {GATE_PATH}; the owner turns it on with an "
-            "`enable $dynaflows` line in a session, or by setting dynaflows.enabled to true"
+            f"confirm: dynaflows is off in {GATE_PATH}; it turns on when the owner asks for it in a "
+            "session (for example `enable $dynaflows`)"
         )
     return lines
 
