@@ -86,8 +86,13 @@ This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
 with `git config core.hooksPath .githooks`.
 
 Dynaflows switches on the [canonical six-stage workflow](agent/skills/omp-dyna-workflows/SKILL.md).
-Use an entire standalone main-prompt line `$dynaflows`, `$dynaflows on` or
-`$dynaflows off`; prose/quoted mentions do not toggle it. The switch is the record's
+Use an entire standalone main-prompt line: `$dynaflows`, `$dynaflows <verb>` or
+`<verb> $dynaflows` turns it on (`on`, `enable`, `init`, `initialise`, `start`, `setup`,
+`set up`, `turn on`), and `$dynaflows off|disable|stop` or `disable|stop|turn off $dynaflows`
+turns it off; prose/quoted mentions do not toggle it. Turning it on starts from the repo's stage:
+with no record the agent starts repository setup, drafting the record with the switch on for the
+owner to save; with a refused record it resumes setup; with a directive-only prompt it assesses
+the repo against the workflow's Start here and starts that stage. The switch is the record's
 `dynaflows.enabled`; linked worktrees share their main checkout's record. No `origin`
 remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
 `{"enabled": false}` turns it off for every repo. With dynaflows on, rails inject the

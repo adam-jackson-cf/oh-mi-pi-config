@@ -80,7 +80,8 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
   proposed native-tool configs (Ruff, mypy, import-linter) into the draft's `proposed/` folder
   for the owner to apply to the repo as a fix. It proves language-server readiness with a canary
   `references` query. It never overwrites a recorded value, never writes an approval and never
-  turns dynaflows on.
+  turns dynaflows on; when the owner enables dynaflows with the `$dynaflows` directive, the agent
+  sets `dynaflows.enabled` true in the draft.
 - Per-repo settings live in the front matter of the record's `profile.md`. Shared style rules
   live in the reference's `omp_guardrails/data/house-style.json`.
 - The rule catalogue ships inside the package (`omp_guardrails/data/guardrail-rules.json`).

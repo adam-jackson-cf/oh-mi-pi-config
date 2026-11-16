@@ -18,9 +18,14 @@ committed. It holds `gate.json` and `profile.md`; see
 `skill://setup-repository-guardrails/assets/example-record/README.md`. The repo itself
 holds nothing about omp or dynaflows. The record's `dynaflows.enabled` is the switch;
 no `origin` remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
-`{"enabled": false}` turns it off for every repo on that machine. Use a standalone prompt line exactly
-`$dynaflows`, `$dynaflows on` or `$dynaflows off` (case-insensitive) to set it; quoted
-mentions and prose are not commands. Contradictory directive lines fail without writing.
+`{"enabled": false}` turns it off for every repo on that machine. A standalone prompt line
+(case-insensitive) sets it: `$dynaflows`, `$dynaflows <verb>` or `<verb> $dynaflows` for `on`,
+`enable`, `init`, `initialise`, `start`, `setup`, `set up` or `turn on`; `$dynaflows off|disable|stop`
+or `disable|stop|turn off $dynaflows` for off. Quoted mentions and prose are not commands.
+Contradictory directive lines fail without writing. Turning it on with no record starts
+`skill://setup-repository-guardrails`, whose draft sets `dynaflows.enabled` true for the owner to
+save; a refused record resumes setup; a prompt that is only the directive asks for this
+selection: report the stage found and start it, or, with setup complete, ask the owner for the task.
 
 Choose exactly one active playbook:
 
