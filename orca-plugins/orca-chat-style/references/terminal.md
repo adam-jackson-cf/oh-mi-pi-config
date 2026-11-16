@@ -3,7 +3,7 @@
 Orca's terminal is a text-cell surface: chat CSS cannot style it. Two generated layers share the
 chat's mode and palette, unless `terminal-mode` or `terminal-palette` overrides that choice:
 
-1. `orca-plugins/terminal-sections/terminal/{dark,light}.json`: background, foreground, cursor,
+1. `terminal-sections/terminal/{dark,light}.json`: background, foreground, cursor,
    selection and 16 ANSI colours. The data-only dev plugin contributes **Sections Dark** and
    **Sections Light**; backgrounds and foregrounds match the paired app themes.
 2. `~/.omp/agent/themes/orca-sections-{dark,light}.json`: omp TUI colours and single-cell mode
@@ -54,11 +54,12 @@ adjusted to ≥3.5:1 contrast, strictly below secondary `muted` ink. Borders kee
 
 ## One-time setup
 
-From the installed checkout, generate the files first:
+Run `sh install.sh` from the checkout root (the folder holding `install.sh`, this skill's parent).
+It generates the files, loads the plugin and selects the omp themes. By hand:
 
 ```sh
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --if-needed
-orca plugin dev load <absolute-checkout>/orca-plugins/terminal-sections
+node chat-section-style/inject.mjs --if-needed
+orca plugin dev load "$PWD/terminal-sections"
 ```
 
 In Settings → Appearance → Terminal, set **Dark theme: Sections Dark**, **Light theme: Sections
@@ -70,12 +71,12 @@ The line-height field ignores `set-value`: click it, select all and type through
 
 ```sh
 # Both surfaces; also remove both terminal overrides.
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --mode gutter --palette auto
+node chat-section-style/inject.mjs --mode gutter --palette auto
 # Only terminal choices; leave chat files unchanged.
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs \
+node chat-section-style/inject.mjs \
   --surface terminal --mode editorial --palette github
 # Only chat choices; pin both effective terminal choices before changing chat.
-node ~/.omp/orca-plugins/chat-section-style/inject.mjs --surface chat --mode document
+node chat-section-style/inject.mjs --surface chat --mode document
 ```
 
 `--surface` requires a mode or palette flag; omitted means `both`. A `both` switch removes both
@@ -108,7 +109,7 @@ dark/light colours. Changing the palette never selects an Orca app theme for you
 From the checkout root:
 
 ```sh
-bun orca-plugins/chat-section-style/harness/terminal-themes.mjs
+bun chat-section-style/harness/terminal-themes.mjs
 ```
 
 The harness checks every palette/variant/mode/slot: required omp tokens and contrast, Orca theme
@@ -117,14 +118,14 @@ generator idempotence, non-empty tool titles and ≥0.05 pairwise OKLab area sep
 secondary ink must have lower contrast than gutter while retaining ≥4.5:1.
 `dim` must retain ≥3.0:1 contrast and stay quieter than `muted`; decorative borders are exempt.
 Validate the data plugin after generation with
-`orca plugin validate <absolute-checkout>/orca-plugins/terminal-sections`.
+`orca plugin validate "$PWD/terminal-sections"`.
 
 Review generated themes without switching Orca or touching a live session:
 
 ```sh
-bun orca-plugins/chat-section-style/harness/terminal-shoot-check.mjs
-bun orca-plugins/chat-section-style/harness/terminal-shoot.mjs \
-  orca-plugins/chat-section-style/harness/fixtures/terminal-shoot-session.jsonl \
+bun chat-section-style/harness/terminal-shoot-check.mjs
+bun chat-section-style/harness/terminal-shoot.mjs \
+  chat-section-style/harness/fixtures/terminal-shoot-session.jsonl \
   /tmp/terminal-preview --palette catppuccin --all
 ```
 

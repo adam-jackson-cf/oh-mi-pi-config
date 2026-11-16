@@ -1,14 +1,13 @@
 #!/usr/bin/env bun
-// Usage: bun orca-plugins/chat-section-style/harness/choice-files.mjs
+// Usage: bun chat-section-style/harness/choice-files.mjs
 // Git state checks plus isolated injector conformance; never runs against the real style directory.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const harnessDir = dirname(fileURLToPath(import.meta.url))
-const root = resolve(harnessDir, '../../..')
 const styleDir = dirname(harnessDir)
 const choiceFiles = ['mode', 'palette', 'terminal-mode', 'terminal-palette']
 let failures = 0
@@ -26,14 +25,14 @@ const run = (command, args, cwd) => {
   return result
 }
 
+// Paths relative to the style directory, so the check holds wherever the enclosing Git repository starts.
 for (const name of choiceFiles) {
-  const path = `orca-plugins/chat-section-style/${name}`
   try {
-    const ignored = run('git', ['check-ignore', '-q', path], root)
-    if (ignored.status !== 0) fail(path, `unignored (git check-ignore exited ${ignored.status})`)
-    const tracked = run('git', ['ls-files', '--error-unmatch', path], root)
-    if (tracked.status === 0) fail(path, 'tracked (git ls-files --error-unmatch exited 0)')
-  } catch (error) { fail(path, error.message) }
+    const ignored = run('git', ['check-ignore', '-q', name], styleDir)
+    if (ignored.status !== 0) fail(name, `unignored (git check-ignore exited ${ignored.status})`)
+    const tracked = run('git', ['ls-files', '--error-unmatch', name], styleDir)
+    if (tracked.status === 0) fail(name, 'tracked (git ls-files --error-unmatch exited 0)')
+  } catch (error) { fail(name, error.message) }
 }
 
 let temporary

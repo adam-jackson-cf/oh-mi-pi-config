@@ -1,16 +1,14 @@
 #!/usr/bin/env bun
-// Usage: bun orca-plugins/chat-section-style/harness/terminal-themes.mjs
+// Usage: bun chat-section-style/harness/terminal-themes.mjs
 // Pure theme checks plus one isolated filesystem conformance case; never opens Orca's DB.
 import fs from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { TERMINAL_MODES, TERMINAL_PALETTES, VARIANTS, appThemeFor, buildOmpTheme,
   buildOrcaTerminalTheme, resolveSlots, syncTerminalThemes } from '../terminal/build.mjs'
 import { LOCAL_THEME_DIRS, PLUGIN_PALETTES, THEME_PLUGINS_DIR, readThemes } from '../theme-palettes.mjs'
 import { PALETTES } from '../terminal/palettes.mjs'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const required = new Set(`accent border borderAccent borderMuted success error warning muted dim text thinkingText
 selectedBg userMessageBg customMessageBg toolPendingBg toolSuccessBg toolErrorBg statusLineBg userMessageText
 customMessageText customMessageLabel toolTitle toolOutput mdHeading mdLink mdLinkUrl mdCode mdCodeBlock
@@ -312,7 +310,9 @@ function parseThemeBlock(source) {
   }
   return { theme }
 }
-const config = attempt('all/all/config/both', 'agent/config.yml', () => parseThemeBlock(fs.readFileSync(join(root, 'agent/config.yml'), 'utf8')))
+// omp's default agent directory; install.sh selects these themes there.
+const configPath = join(homedir(), '.omp/agent/config.yml')
+const config = attempt('all/all/config/both', configPath, () => parseThemeBlock(fs.readFileSync(configPath, 'utf8')))
 for (const slot of ['dark', 'light']) equal(`all/all/config/${slot}`, 'theme', config?.theme?.[slot], `orca-sections-${slot}`)
 
 let temporary

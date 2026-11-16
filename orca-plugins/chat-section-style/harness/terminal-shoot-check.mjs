@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Usage: bun orca-plugins/chat-section-style/harness/terminal-shoot-check.mjs
+// Usage: bun chat-section-style/harness/terminal-shoot-check.mjs
 // P1 boundary proof: real omp PTYs and Chrome, isolated from the live agent directory.
 import fs from 'node:fs'
 import { tmpdir } from 'node:os'
