@@ -1194,6 +1194,17 @@ class SeverityRubricTests(unittest.TestCase):
         self.assertEqual(json.loads((workflow._severity_dir() / "thresholds.json").read_text())["version_key"],
                          workflow.severity_version_key("typesafe/jev-1.14"))
         self.assertEqual(set(self.decisions), {"impact", *workflow.PRECONDITIONS, "reached"})
+        thresholds = json.loads((workflow._severity_dir() / "thresholds.json").read_text())
+        provenance = thresholds["score_provenance"]
+        questions, state = workflow.severity_questions()
+        source_questions = copy.deepcopy(questions)
+        for ident in (*workflow.PRECONDITIONS, "reached"):
+            source_questions[ident]["type"] = "noul"
+        source_payload = json.dumps({"questions": source_questions, "state": state, "model": thresholds["model"]},
+                                    sort_keys=True, separators=(",", ":"))
+        self.assertEqual(hashlib.sha256(source_payload.encode()).hexdigest(), provenance["source_version_key"])
+        self.assertEqual(hashlib.sha256((workflow._severity_dir() / "scores.csv").read_bytes()).hexdigest(),
+                         provenance["scores_sha256"])
 
     def test_the_rubric_spans_every_level_and_both_exposures(self):
         cases = [
@@ -1300,6 +1311,23 @@ class TriageTests(unittest.TestCase):
 
     def run_triage(self, replies, evidence_map):
         async def judge(state, questions):
+            # Exercise the real frozen questions at the judge() boundary, not just the rubric.
+            # Contract: xd://eval/judge; TypeSafe's wire name 'noul' is not accepted here.
+            frozen = json.loads((workflow._severity_dir() / "questions.json").read_text())["questions"]
+            self.assertEqual(questions, frozen)
+            for ident, question in questions.items():
+                self.assertIn(question["type"], ("choice", "bool", "score"), ident)
+                self.assertIsInstance(question["instructions"], str, ident)
+                self.assertTrue(question["instructions"].strip(), ident)
+                if question["type"] == "choice":
+                    self.assertIsInstance(question["criteria"], dict, ident)
+                    self.assertGreaterEqual(len(question["criteria"]), 2, ident)
+                elif question["type"] == "score":
+                    self.assertIsInstance(question["criteria"], list, ident)
+                    self.assertGreaterEqual(len(question["criteria"]), 2, ident)
+                elif "criteria" in question:
+                    self.assertIsInstance(question["criteria"], dict, ident)
+                    self.assertLessEqual(set(question["criteria"]), {"true", "false"}, ident)
             self.calls.append((state, questions))
             reply = replies[state["advisory"]["package"]]
             if isinstance(reply, Exception):
