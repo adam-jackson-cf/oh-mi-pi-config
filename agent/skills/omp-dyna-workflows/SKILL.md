@@ -12,25 +12,24 @@ disable-model-invocation: true
 ## Start here
 
 This skill applies only with dynaflows on. Each repo's settings live in its **record**:
-`repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's `origin`
-remote (lowercase; worktrees resolve like their main checkout), gitignored and never
-committed. It holds `gate.json` and `profile.md`; see
-`skill://setup-repository-guardrails/assets/example-record/README.md`. The repo itself
-holds nothing about omp or dynaflows. The record's `dynaflows.enabled` is the switch;
-no `origin` remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
-`{"enabled": false}` turns it off for every repo on that machine. The owner's ask in the main
-chat sets it, in any sentence (case-insensitive, `$` optional): an on verb (`enable`, `init`,
-`initialise`, `start`, `set up`, `turn on`, `switch on`, `activate`) up to two words before
-`dynaflows` or right after it, `turn dynaflows on` or `$dynaflows on`, and a standalone
-`$dynaflows` line; `disable`, `stop`, `turn off`, `switch off`, `deactivate` or `$dynaflows off`
-for off. A negated verb or a mention without a verb is not an ask; an ask for both changes nothing
-and the agent asks which. When the owner asks in words the parser misses, call the `dynaflows`
-tool; call it only on the owner's ask. Agents write records when the owner asked for dynaflows in
-the chat; otherwise records stay owner-edited. Turning it on with no record starts
-`skill://setup-repository-guardrails`, and the agent writes the record, `dynaflows.enabled` true,
-itself; a refused record resumes setup and the agent repairs it; a prompt that is only the ask
-asks for this selection: report the stage found and start it, or, with setup complete, ask the
-owner for the task.
+`repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's `origin` remote
+(lowercase; worktrees resolve like their main checkout), gitignored and never committed. It holds
+`gate.json` and `profile.md`; see
+`skill://setup-repository-guardrails/assets/example-record/README.md`. The repo itself holds nothing
+about omp or dynaflows. The record's `dynaflows.enabled` is the switch; no `origin` remote or no
+record means off, and a machine default `~/.omp/dynaflows.json` of `{"enabled": false}` turns it off
+for every repo on that machine. The owner turns it on or off in the main chat. A standalone
+directive line (case-insensitive) sets it at once: `$dynaflows`, `$dynaflows` followed by an on verb
+(`on`, `enable`, `init`, `initialise`, `start`, `set up`, `turn on`) or an on verb before
+`$dynaflows`; `$dynaflows off|disable|stop` or `disable|stop|turn off $dynaflows` for off. Two
+contradictory lines change nothing and the agent asks which. Any other wording, such as "I want to
+enable dynaflows", is yours to judge: when the owner is asking (not asking about it, quoting it or
+negating it), call the `dynaflows` tool; never call it on your own initiative. Agents write records
+when the owner asked for dynaflows in the chat; otherwise records stay owner-edited. Turning it on
+with no record starts `skill://setup-repository-guardrails`, and the agent writes the record,
+`dynaflows.enabled` true, itself; a refused record resumes setup and the agent repairs it; a prompt
+that is only the ask asks for this selection: report the stage found and start it, or, with setup
+complete, ask the owner for the task.
 
 Choose exactly one active playbook:
 

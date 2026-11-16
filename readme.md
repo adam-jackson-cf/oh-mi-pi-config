@@ -86,31 +86,28 @@ This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
 with `git config core.hooksPath .githooks`.
 
 Dynaflows switches on the [canonical six-stage workflow](agent/skills/omp-dyna-workflows/SKILL.md).
-Ask for it in the main chat in any sentence: an on verb (`enable`, `init`, `initialise`, `start`,
-`set up`, `turn on`, `switch on`, `activate`) up to two words before `dynaflows` (the `$` is
-optional) or right after it, `turn dynaflows on`, or `$dynaflows on`; a standalone `$dynaflows`
-line also turns it on. `disable`, `stop`, `turn off`, `switch off`, `deactivate` or
-`$dynaflows off` turn it off. A negated verb ("don't enable dynaflows") or a mention without a
-verb does not toggle it, and an ask for both changes nothing. For wording the parser misses, the
-main agent calls the `dynaflows` tool. The ask lets the session's main agent write that repo's
-record (agents write records when the owner asked for dynaflows in the chat; otherwise records
-stay owner-edited). Turning it on starts from the repo's stage: with no record the agent starts
+Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `init $dynaflows`,
+`$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
+`$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
+as "I want to enable dynaflows", the main agent judges whether you are asking (rather than asking about
+it or quoting it) and calls the `dynaflows` tool. The ask lets the session's main agent write that repo's
+record (agents write records when the owner asked for dynaflows in the chat; otherwise records stay
+owner-edited). Turning it on starts from the repo's stage: with no record the agent starts
 repository setup and writes the record, switch on, itself; with a refused record it resumes setup
 and repairs it; with a prompt that holds only the ask it assesses the repo against the workflow's
-Start here and starts that stage. The switch is the record's
-`dynaflows.enabled`; linked worktrees share their main checkout's record. No `origin`
-remote or no record means off, and a machine default `~/.omp/dynaflows.json` of
-`{"enabled": false}` turns it off for every repo. With dynaflows on, rails inject the
-workflow pointer, require guardrail owner approval and guard `gh pr merge` as above.
-Subagent filesystem edit paths must be absolute and cannot escape enclosing Git
-roots through symlinks; outside-repo scratch paths and internal URIs are allowed.
-Selecting the assigned worktree remains an instruction, not a path-rail guarantee.
-Proofs are outcome tests tied to the repo's feature map (the record profile's
-`verification_surface.feature_map_path`): `freeze()` refuses a proof file no map doc links, and
-`prove()` blocks a map doc changed in the PR that links no frozen proof. Behaviour found during
-implementation, or by the map sweep before the PR, gets a map entry and a test, then a re-freeze.
-Helper contracts live in [patterns](agent/skills/omp-dyna-workflows/references/patterns.md);
-Git/PR/CI/merge authority lives in `skill://git-tool`.
+Start here and starts that stage. The switch is the record's `dynaflows.enabled`; linked worktrees
+share their main checkout's record. No `origin` remote or no record means off, and a machine default
+`~/.omp/dynaflows.json` of `{"enabled": false}` turns it off for every repo. With dynaflows on,
+rails inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as
+above. Subagent filesystem edit paths must be absolute and cannot escape enclosing Git roots through
+symlinks; outside-repo scratch paths and internal URIs are allowed. Selecting the assigned worktree
+remains an instruction, not a path-rail guarantee. Proofs are outcome tests tied to the repo's
+feature map (the record profile's `verification_surface.feature_map_path`): `freeze()` refuses a
+proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
+proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
+and a test, then a re-freeze. Helper contracts live in
+[patterns](agent/skills/omp-dyna-workflows/references/patterns.md); Git/PR/CI/merge authority lives
+in `skill://git-tool`.
 
 omp auto-discovers every module in `agent/extensions/`. To disable one, add
 `disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove
