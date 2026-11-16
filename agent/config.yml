@@ -46,6 +46,8 @@ lsp:
   diagnosticsOnEdit: true
 bash:
   gitGuard: true
+worktree:
+  base: ~/worktrees
 task:
   isolation:
     enabled: true

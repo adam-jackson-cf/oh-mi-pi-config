@@ -21,6 +21,8 @@ Authority and safety belong to [git-tool](../SKILL.md).
    Bootstrap may propose the record and repo fixes without already having the completed gate.
    Complete that prerequisite before resuming ordinary work. No-CI is not a bootstrap waiver.
 6. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default or a spike).
+   Create it at `<worktree.base>/<repo>/<slug>` (`~/worktrees/<repo>/<slug>`), where `<repo>` is the
+   `origin` remote's repo name in lowercase and `<slug>` is the branch slug from `agent/<slug>`; rails refuse any other `git worktree add` target.
    Supply each task the absolute worktree and assigned file paths. Keep one writer per branch.
    The [stage-4 contract](skill://omp-dyna-workflows/SKILL.md) owns task ordering, proof freezing and atomic proof/fix history;
    do not run isolated patch-return modes or have main apply implementation patches.
