@@ -92,6 +92,10 @@ Every per-repository value lives in the record's `profile.md` front matter:
   ignored.
 - Approvals (for example `guardrails.coverage_ratchet.approvals`) are the
   owner's hand edits of the record.
+- `structure.import_direction.native` runs the repository's import-contract
+  command for paths matching `scan` (or `source_root`), regardless of extension,
+  in both `path-check` and `structure`. Without path arguments, repository
+  inventory selects the sources. Python AST direction checks remain Python-only.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers

@@ -216,6 +216,8 @@ def skipped(path: str, config: dict) -> bool:
 
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+    from omp_guardrails.structure.paths import native_findings
+
     config = settings(profile, "structure")
     try:
         paths = [path for path in selected_paths(repo, argv) if not skipped(path, config)]
@@ -227,4 +229,5 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         found.extend(path_findings(path, config))
     found.extend(instance_findings(paths, config))
     found.extend(forbidden_import_findings(repo, paths, config))
+    found.extend(native_findings(repo, paths, profile))
     return apply_exceptions(sorted(set(found), key=lambda item: (item.path, item.message)), profile)
