@@ -28,6 +28,8 @@ CONTRACT_SUBCOMMANDS = {
     "init",
     "path-check",
     "structure",
+    "rename-residue",
+    "prefix-candidates",
     "naming",
     "python-quality",
     "python-fanout",

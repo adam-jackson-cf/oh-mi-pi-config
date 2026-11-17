@@ -809,6 +809,48 @@ class RepositoryTests(unittest.TestCase):
         result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
         self.assert_block(result, f"link no frozen proof: {MAP_PATH}/value.md")
 
+    def test_zero_proof_rename_residue_blocks_after_green_ci(self):
+        self.gate()
+        self.write("oracle/grader.py", "def run_oracle():\n    return 1\n")
+        self.write("oracle/runtime.py", "class OraclePlugin:\n    pass\n")
+        self.rebase_parent("oracle owner")
+        path, digest = self.freeze([], base=self.parent)
+        (self.repo / "oracle").rename(self.repo / "verifier")
+        self.head = self.commit("rename oracle to verifier")
+        with patch.object(workflow, "deterministic_checks", side_effect=AssertionError("no frozen proofs")):
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+                                    "rename oracle to verifier", target_ref=self.parent)
+        self.assertEqual(result["manifest"]["proofs"], [])
+        self.assertEqual(result["deterministic"], {})
+        self.assert_block(result, "RENAME.residue")
+        self.assertTrue(any("run_oracle" in line for line in result["blocking"]), result)
+        self.assertTrue(any("OraclePlugin" in line for line in result["blocking"]), result)
+        self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
+        self.assertEqual(self.comment.call_args.args[2]["status"], "fail")
+
+    def test_zero_proof_clean_rename_passes_after_green_ci(self):
+        self.gate()
+        # The moved files keep enough unchanged bytes for Git to detect both renames.
+        padding = "".join(f"# owner implementation detail {n}\n" for n in range(20))
+        self.write("oracle/grader.py", padding + "def run_oracle():\n    return 1\n")
+        self.write("oracle/runtime.py", padding + "class OraclePlugin:\n    pass\n")
+        self.rebase_parent("oracle owner")
+        path, digest = self.freeze([], base=self.parent)
+        (self.repo / "oracle").rename(self.repo / "verifier")
+        self.write("verifier/grader.py", padding + "def run_verifier():\n    return 1\n")
+        self.write("verifier/runtime.py", padding + "class VerifierPlugin:\n    pass\n")
+        self.head = self.commit("rename all oracle owner definitions")
+        with patch.object(workflow, "deterministic_checks", side_effect=AssertionError("no frozen proofs")):
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+                                    "rename oracle to verifier", target_ref=self.parent)
+        self.assertEqual(result["manifest"]["proofs"], [])
+        self.assertEqual(result["deterministic"], {})
+        self.assertEqual(result["status"], "pass", result)
+        self.assertEqual(result["blocking"], [])
+        self.assertEqual(self.stored_status(), "pass")
+        self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
+        self.assertEqual(self.comment.call_args.args[2]["status"], "pass")
+
     def journey(self, counter):
         code = ("import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
                 "n = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\n"

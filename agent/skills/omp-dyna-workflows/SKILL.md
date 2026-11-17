@@ -79,7 +79,8 @@ feature-map entry, under the record profile's `verification_surface.feature_map_
 link its proof file. A repo whose record declares no feature map gets one through Project setup
 before any proof is frozen.
 A PR with no behaviour change (refactor, docs, project setup without new controls) maps no
-proofs, changes no feature-map doc and freezes an empty manifest; its PR check is CI green only.
+proofs, changes no feature-map doc and freezes an empty manifest;
+its PR check still checks CI and rename residue.
 Read `skill://test-guidance/references/tiers.md`, `case-selection.md` and `suite-budget.md`
 under that reference prefix, plus the record's `profile.md`. Missing surfaces follow Start here.
 Plan review is optional unless requested.
@@ -157,14 +158,19 @@ Rails require `skill://test-guidance/references/before-commit.md` before any wri
 ### 5. Verify
 
 Main confirms the writer has no pending edits, then calls `prove()` against the PR's current
-head ([patterns](references/patterns.md#prove)). `prove()` checks three things:
+head ([patterns](references/patterns.md#prove)). `prove()` checks four things:
 
 1. The record's declared required CI context is green on the exact head.
-2. Every feature-map doc changed in `parent..head` links at least one proof file in the manifest;
+2. Harness `omp-guardrails rename-residue --base <parent> --head <head>` finds no retired
+   names left in renamed folders or files, after CI is green and before proofs. Every finding
+   blocks, including with an empty manifest. This diff-scoped structure pre-check is the
+   principles 5/7 exception in [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+3. Every feature-map doc changed in `parent..head` links at least one proof file in the manifest;
    otherwise it blocks with those doc paths (add an outcome test, link it, re-freeze).
-3. The frozen proof bytes are unchanged and every proof passes at head (twice; journeys 3 times).
+4. The frozen proof bytes are unchanged and every proof passes at head (twice; journeys 3 times).
 
-With an empty manifest and no changed map doc it checks CI green only. It writes its result to
+With an empty manifest and no changed map doc it checks CI and rename residue.
+It writes its result to
 `<git-common-dir>/omp-prove/<head>.result.json` and posts it on the PR. That file with
 `status: pass` for the exact head is the one pass signal: with dynaflows on, rails' `gh pr merge`
 guard requires it and CI green on that head. A rebase or other branch update needs nothing extra:
