@@ -19,6 +19,8 @@ from urllib.parse import quote, urlsplit
 MAX_AGENTS = 16
 MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
+# Harness prechecks have their own budget, independent of repo proof execution.
+HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
     "missing per-repo record; follow skill://omp-dyna-workflows/SKILL.md "
     "owner-approval prerequisite (skill://setup-repo-proofs)")
@@ -135,14 +137,14 @@ def _is_argv(value):
         isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value)
 
 
-def run_check(cmd, cwd):
+def run_check(cmd, cwd, *, timeout=None):
     """Run an argv proof or repo command without harness variables, retaining complete, replacement-decoded diagnostics."""
     if not _is_argv(cmd):
         raise WorkflowError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
         p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                           errors="replace", timeout=CHECK_TIMEOUT)
+                           errors="replace", timeout=CHECK_TIMEOUT if timeout is None else timeout)
     except subprocess.TimeoutExpired as exc:
         def decode(value):
             return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
@@ -863,8 +865,8 @@ def _publish_result(result, repo, head):
 
 
 def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, target_ref, max_checks=MAX_PROOFS):
-    """At the PR event: refuse unless the record's required CI context is green on head, then run the
-    frozen proofs at head (unchanged bytes, every run passing). A manifest with zero proofs checks CI only.
+    """At the PR event: refuse unless the record's required CI context is green on head, then check
+    rename residue and frozen proofs at head (unchanged bytes, every run passing).
 
     The result is written to result_path(repo, head), the merge signal rails reads, and posted on the PR at head.
     """
@@ -896,6 +898,17 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             if state != "success":
                 raise ProveBlocked(f'required CI context "{context}" is {state} for {head}; '
                                    "prove() runs only after CI is green on this exact head")
+        ok, output = run_check(
+            [sys.executable, "-I", "-S", "-c",
+             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+             "from omp_guardrails.cli import main; raise SystemExit(main())",
+             str(_harness_root() / GUARDRAILS_REFERENCE),
+             "rename-residue", "--repo", str(repo), "--record", str(record),
+             "--base", parent, "--head", head], repo, timeout=HARNESS_CHECK_TIMEOUT)
+        if not ok:
+            result["blocking"].extend(line for line in output.splitlines() if line.strip())
+            if not output.strip():
+                result["blocking"].append("rename-residue failed without diagnostics")
         unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
         if unproven:
             raise ProveBlocked(f"feature-map documents changed in {parent}..{head} link no frozen proof: "

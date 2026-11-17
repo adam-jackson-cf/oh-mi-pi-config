@@ -2,6 +2,38 @@
   "schema_version": 1,
   "rules": [
     {
+      "id": "RENAME.residue",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "diff_scoped_renamed_folders_and_files": true,
+        "whole_segment_retired_names": true,
+        "head_owned_directory_or_module_preserves_term": true,
+        "no_exemption_list": true
+      },
+      "summary": "Reject retired path and defined names left in a renamed folder or file.",
+      "reference": [
+        {"subcommand": "rename-residue", "module": "omp_guardrails.structure.rename_residue"}
+      ]
+    },
+    {
+      "id": "PREFIX.candidates",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "added_or_moved_member_required": true,
+        "candidate_only_owner_judgment_required": true
+      },
+      "summary": "Extract sibling prefix clusters for concept-owner judgment, not a blocking check.",
+      "reference": [
+        {"subcommand": "prefix-candidates", "module": "omp_guardrails.structure.prefix_candidates"}
+      ]
+    },
+    {
       "id": "STRUCT.dependency-direction",
       "kind": "bespoke",
       "applicability": "always",

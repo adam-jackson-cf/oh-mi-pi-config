@@ -64,6 +64,15 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "structure": Subcommand(
         ("omp_guardrails.structure.layout",), "STRUCT.* repository layout allowlists"
     ),
+    "rename-residue": Subcommand(
+        ("omp_guardrails.structure.rename_residue",),
+        "RENAME.residue over --base SHA --head SHA at PR time",
+    ),
+    "prefix-candidates": Subcommand(
+        ("omp_guardrails.structure.prefix_candidates",),
+        "PREFIX.candidates JSON for --base SHA --head SHA owner judgment",
+        prints_data=True,
+    ),
     "naming": Subcommand(
         ("omp_guardrails.structure.naming",), "NAME.conventions and NAME.test-files"
     ),
