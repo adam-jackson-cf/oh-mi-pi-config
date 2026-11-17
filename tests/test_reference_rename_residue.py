@@ -220,8 +220,10 @@ class RenameResidueCommandTests(unittest.TestCase):
     def command(self, base: str, head: str = "HEAD") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
-                sys.executable, "-c",
+                sys.executable, "-I", "-S", "-c",
+                "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from omp_guardrails.cli import main; raise SystemExit(main())",
+                str(REFERENCE),
                 "rename-residue", "--repo", str(self.repo), "--record", str(self.record),
                 "--base", base, "--head", head,
             ],
