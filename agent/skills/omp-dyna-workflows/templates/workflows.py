@@ -899,8 +899,11 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
                 raise ProveBlocked(f'required CI context "{context}" is {state} for {head}; '
                                    "prove() runs only after CI is green on this exact head")
         ok, output = run_check(
-            ["uv", "run", "--project", str(_harness_root() / GUARDRAILS_REFERENCE),
-             "omp-guardrails", "rename-residue", "--repo", str(repo), "--record", str(record),
+            [sys.executable, "-I", "-S", "-c",
+             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+             "from omp_guardrails.cli import main; raise SystemExit(main())",
+             str(_harness_root() / GUARDRAILS_REFERENCE),
+             "rename-residue", "--repo", str(repo), "--record", str(record),
              "--base", parent, "--head", head], repo, timeout=HARNESS_CHECK_TIMEOUT)
         if not ok:
             result["blocking"].extend(line for line in output.splitlines() if line.strip())

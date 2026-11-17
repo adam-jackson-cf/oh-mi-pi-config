@@ -851,6 +851,46 @@ class RepositoryTests(unittest.TestCase):
         self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
         self.assertEqual(self.comment.call_args.args[2]["status"], "pass")
 
+    def test_zero_proof_precheck_launch_failure_blocks(self):
+        self.gate()
+        path, digest = self.freeze([], base=self.parent)
+        self.write("docs.md", "Documentation-only change.\n")
+        self.head = self.commit("docs")
+        missing_python = str(self.tmp / "missing-harness-python")
+        with patch.object(workflow.sys, "executable", missing_python):
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+                                    "update docs", target_ref=self.parent)
+        self.assert_block(result, "infrastructure: launch error")
+        self.assertEqual(result["deterministic"], {})
+        self.assertEqual(self.stored_status(), "fail")
+        self.assertEqual(self.comment.call_args.args[2]["status"], "fail")
+
+    def test_precheck_launches_without_site_or_repo_imports(self):
+        self.gate()
+        path, digest = self.freeze([], base=self.parent)
+        # A repository module must never shadow the harness's stdlib imports.
+        self.write("json.py", "raise AssertionError('repository json imported by harness')\n")
+        self.head = self.commit("repo module named like stdlib")
+        original = subprocess.run
+        launches = []
+
+        def inspect_launch(cmd, **kwargs):
+            if "rename-residue" in cmd:
+                self.assertEqual(cmd[:4], [sys.executable, "-I", "-S", "-c"])
+                self.assertEqual(Path(cmd[5]), workflow._harness_root() / workflow.GUARDRAILS_REFERENCE)
+                launches.append(list(cmd))
+                cmd = list(cmd)
+                cmd[4] = ("import sys; assert 'site' not in sys.modules; "
+                          "assert sys.flags.isolated; assert sys.flags.no_site; " + cmd[4])
+            return original(cmd, **kwargs)
+
+        with patch.object(workflow.subprocess, "run", side_effect=inspect_launch):
+            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+                                    "add repo module", target_ref=self.parent)
+        self.assertEqual(len(launches), 1)
+        self.assertEqual(result["status"], "pass", result)
+        self.assertEqual(result["blocking"], [])
+
     def journey(self, counter):
         code = ("import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"
                 "n = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\n"
