@@ -25,8 +25,8 @@ freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
 
 `proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.
 An empty list is valid: a PR with no behaviour change (refactor, docs, project setup
-without new controls) freezes no proofs, and `prove()` then checks CI green only, unless the
-PR changes a feature-map doc (which then needs a linked proof).
+without new controls) freezes no proofs, and `prove()` still checks CI and rename residue.
+A changed feature-map doc also needs a linked proof.
 Store the manifest at `<git-common-dir>/omp-manifests/<slug>.json`, outside tracked
 repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`;
 `previous=` may still read a manifest from a temporary location.
@@ -146,21 +146,28 @@ checkout. Resolve the actual fetched PR target and require
 `parent == git merge-base(target_ref, head)` with strict ancestry, not `HEAD~1`. The helper
 checks consistency; git-tool owns confirming actual GitHub target metadata.
 
-Prove checks only:
+Prove checks four things:
 
 1. CI green on head: the record's `ci.requiredContext` (a commit status or check run, whoever
    posts it) must be success on the exact head before any proof runs.
-2. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in
+2. Rename residue: after CI is green and before proofs, harness `omp-guardrails rename-residue
+   --repo <worktree> --record <record dir> --base <parent> --head <head>` rejects leftover
+   retired names in renamed folders or files. Every finding blocks, even with no frozen proofs.
+   This PR-diff-scoped structure pre-check is the principles 5/7 exception in
+   [ADR 0003](../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   A term still naming an owned directory or module stem at head is not retired (a concept split
+   can preserve its old owner); this compares whole word sequences, not individual words.
+3. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in
    `parent..head` (`git diff --name-only`, deletions and the profile's map index files excluded)
    must link at least one proof file in the manifest. Otherwise prove blocks and names the docs.
    A record with no feature map skips this check.
-3. The frozen proofs: manifest and file hashes match, the head bytes are unchanged, and every
+4. The frozen proofs: manifest and file hashes match, the head bytes are unchanged, and every
    proof passes at head (twice; `journey: true` proofs 3 times, all of which must pass).
 
-With an empty manifest and no changed map doc prove checks CI green only. It runs no
-repository suites, no harness
-checks and no `checks.profile`: rails ran the harness checks at each commit and CI ran the
-repo's gates. Red at base was shown at freeze; prove does not rerun base. Partial proofs,
+With an empty manifest and no changed map doc prove checks CI and rename residue. It runs no
+repository suites, other harness checks or `checks.profile`: rails ran the other harness checks
+at each commit and CI ran the repo's gates. Red at base was shown at freeze; prove does not
+rerun base. Partial proofs,
 tracked mutation and changed frozen head bytes fail. Launch, timeout, IO, setup and cleanup
 errors are attributed infrastructure failures (`ok: null`, error/output/location), not failed
 assertions. Cleanup failure prevents pass.

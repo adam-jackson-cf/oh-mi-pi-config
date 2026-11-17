@@ -44,6 +44,9 @@ first.
 5. **Whole repo, always blocking.** Commit checks cover the whole repository, with no baselines
    (harness-owned or repo-owned) and no diff scope. Per-edit path checks cover edited paths and
    outstanding changed-path failures. Drift introduced without the harness blocks the next agent commit.
+   Exception: PR-time structure judgment and its deterministic pre-checks are scoped to folders
+   the PR adds, renames or moves files into; existing debt is fixed when a PR touches it.
+   See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 6. **Events trigger checks, with no ceremony.**
    - After edits and before commit, rails run harness `omp-guardrails path-check` with record config.
      At commit it is followed by `checks.commit`, then the whole-repo harness checks.
@@ -61,6 +64,8 @@ first.
    - Quality checkers run at commit, never inside `prove()`, and there is no separate proof
      command for them. The repo's own tests prove the repo's checkers, and `omp-guardrails`' tests
      prove the harness checkers.
+   - Exception: structure judgment and its deterministic pre-checks run inside `prove()` at PR
+     time under [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 8. **Deterministic first.** Use deterministic checks wherever possible, a calibrated jev-actions
    judgment where they cannot work, and LLM instructions only as a last resort.
 9. **Never version code to keep results comparable.** A code change that invalidates an

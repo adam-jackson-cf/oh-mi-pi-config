@@ -17,7 +17,8 @@ A file's path shows its owner and dependency direction.
   Enforced by STRUCT.single-owner-placement (omp-guardrails structure, path-check).
 - Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json));
   shared code goes in the lowest tier, in a folder named for what it holds.
-  Sibling files sharing a name prefix (`audit_*`) that change together are a candidate folder named for that prefix.
+  Two or more sibling files whose shared name prefix names one concept they jointly implement (`audit_*`) belong in a folder named for that concept (`audit/`).
+  Enforced by PREFIX.candidates (omp-guardrails prefix-candidates) for candidate extraction; concept ownership requires structure judgment.
 - Merge units with overlapping responsibilities into one owner; no near-duplicates.
 - Data loaded at run time (definitions, configuration, templates): outside the code package, in a root folder named for what it holds.
 - Tests: one root test folder, each file named for the behaviour it checks, unless the ecosystem places tests beside code.
