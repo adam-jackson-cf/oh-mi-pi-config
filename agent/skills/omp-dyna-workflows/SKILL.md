@@ -87,6 +87,8 @@ Plan review is optional unless requested.
 
 ### 4. Implement
 
+Read [proofs](references/proofs.md) for proof/freezing and record-binding requirements.
+
 Before ordinary implementation, main requires a valid pathCheck-free schema-v2 record:
 `gate.json` has `checks.commit`, and `profile.md` supplies complete path-check settings.
 No record or missing controls requires the owner-approved Project setup prerequisite; bootstrap may
@@ -154,8 +156,8 @@ and `tiers.md` under that reference prefix; add `property-tests.md`, `determinis
 Proofs use outcome tests or lever journeys. Freeze required lever changes with runner-invoked
 journey files. Implementation changes product code and feature-map docs, never frozen
 lever/proof bytes; a new proof comes only through a discovery re-freeze.
-Implementation briefs supply `skill://coding-guidance/references/implementation-integrity.md`,
-applicable `structure-and-grouping.md` and `naming.md` under that prefix,
+Implementation briefs supply `skill://omp-dyna-workflows/references/delivery-principles.md`,
+applicable `structure-and-naming.md` and `proofs.md` under that prefix,
 `skill://test-guidance/references/before-commit.md`, `verification-surface.md` and
 `outcome-tests.md` (map entries and discovery tests). Also supply `skill://git-tool`,
 `skill://git-tool/references/branch-and-integrate.md` and `pr-description.md` under that prefix.
@@ -215,8 +217,8 @@ The durable fix gets its own PR with proofs reproducing the failure.
 
 ## References and evals
 
-- Refactors: `skill://coding-guidance/references/clean-cutovers.md`.
-- Bugs: `skill://coding-guidance/references/regression-coverage.md`.
+- Refactors: `skill://omp-dyna-workflows/references/delivery-principles.md`.
+- Bugs: `skill://omp-dyna-workflows/references/delivery-principles.md`.
 - Intermittent failures: `skill://test-guidance/references/flakes.md`.
 - Owner correction: `skill://codify-omp-workflow-corrections`.
 - Changing dynaflows itself: the design directive in [AGENTS.md](AGENTS.md).

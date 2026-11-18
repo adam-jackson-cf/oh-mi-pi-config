@@ -40,7 +40,8 @@ first.
 4. **Required means required.** No optional checks, defaults that skip a check, fallbacks,
    compatibility shims or tolerance of old formats. Records are strict: `checks.commit` is
    required and unknown fields, including the obsolete path command field, fail to load.
-   Cutovers are clean: delete the superseded skill, field or code.
+   Cutovers migrate every caller and delete superseded fields and code. Deprecated skills stay
+   on disk untouched until a final owner-signed-off cleanup PR; this is not a compatibility path.
    When the harness surfaces many failures in a repository, the
    job is to clean them up, never to soften the check.
 5. **Whole repo, always blocking.** Commit checks cover the whole repository, with no baselines

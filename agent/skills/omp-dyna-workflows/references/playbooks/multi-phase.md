@@ -19,6 +19,8 @@ Resolve unanswered cross-unit questions before committing to interfaces.
 
 ## 3. Plan
 
+For implementation, read [proofs](../proofs.md) for freezing and profile binding.
+
 One manifest/slug `<epic>-<unit>` per unit PR. Each unit's proofs fail at base and pass
 at head; a unit with no behaviour change freezes none. Name a final flag-removal/cutover
 unit with its own end-to-end proofs, not an unverified closing edit.

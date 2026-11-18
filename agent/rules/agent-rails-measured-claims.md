@@ -1,5 +1,6 @@
 ---
-agents: [main]
+agents: [main, task]
+repeatMode: once
 question: >-
   Does this reply state a measured performance or quality conclusion from this session's own
   runs, such as a speedup, latency, rate or accuracy figure, without labelling it provisional

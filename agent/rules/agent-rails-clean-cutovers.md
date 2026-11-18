@@ -1,5 +1,6 @@
 ---
-agents: [main]
+agents: [main, task]
+repeatMode: once
 question: >-
   Does this reply announce that the assistant is replacing, renaming or migrating existing code
   now or next, as its own work? Answer no for instructions to another agent, reviews, questions,
@@ -9,4 +10,4 @@ scope: text
 ---
 # Clean cutover
 
-Read skill://coding-guidance/references/clean-cutovers.md before changing the existing design.
+Read skill://omp-dyna-workflows/references/delivery-principles.md before changing the existing design.

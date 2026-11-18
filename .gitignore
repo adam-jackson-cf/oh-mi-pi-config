@@ -72,8 +72,6 @@ agent/skills/*
 !agent/skills/jev-actions/**
 !agent/skills/setup-repo-proofs/
 !agent/skills/setup-repo-proofs/**
-!agent/skills/coding-guidance/
-!agent/skills/coding-guidance/**
 !agent/skills/test-guidance/
 !agent/skills/test-guidance/**
 !agent/skills/git-tool/
@@ -150,3 +148,4 @@ orca-plugins/chat-section-style/terminal-palette
 agent/skills/setup-repo-proofs/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/
+!tests/test_delivery_policy.py

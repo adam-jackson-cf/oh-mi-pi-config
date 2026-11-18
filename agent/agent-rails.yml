@@ -6,12 +6,12 @@ dynaflowsRules:
   - agent-rails-regression-coverage
 references:
   firstEdit:
-    - skill://coding-guidance/references/implementation-integrity.md
+    - skill://omp-dyna-workflows/references/delivery-principles.md
   newFile:
-    - skill://coding-guidance/references/structure-and-grouping.md
-    - skill://coding-guidance/references/naming.md
+    - skill://omp-dyna-workflows/references/structure-and-naming.md
   test:
     - skill://test-guidance/references/tiers.md
+    - skill://omp-dyna-workflows/references/test-enforcement.md
   verification:
     - skill://test-guidance/references/before-commit.md
   workflow:

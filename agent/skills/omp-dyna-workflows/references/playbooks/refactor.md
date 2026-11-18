@@ -10,13 +10,15 @@ and [verify-loop](../verify-loop.md); Git mechanics live in `skill://git-tool`.
 
 ## 1. Frame
 
-Inventory callers and preserved behaviours. Read `skill://coding-guidance/references/clean-cutovers.md`.
+Inventory callers and preserved behaviours. Read `skill://omp-dyna-workflows/references/delivery-principles.md`.
 
 ## 2. Spike
 
 Resolve design uncertainty only when inspection cannot settle it.
 
 ## 3. Plan
+
+Read [proofs](../proofs.md) for freezing and profile binding.
 
 A behaviour-preserving refactor maps no proofs: freeze an empty manifest, and `prove()`
 checks CI green and rename residue. The repo's existing tests and CI carry the preserved behaviour.
