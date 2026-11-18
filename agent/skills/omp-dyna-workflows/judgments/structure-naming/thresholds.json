@@ -1,0 +1,387 @@
+{
+  "version_key": "e0c5310847b42478cd06c202f90760d465da51d35e4f2c7ffc444b17f358a85f",
+  "question_version": "structure-naming-candidates@2",
+  "model": "openrouter/typesafe/jev-1.14-20261014",
+  "model_reported": "openrouter/typesafe/jev-1.14-20261014",
+  "score_space": "raw",
+  "status": "provisional",
+  "mode": "shadow",
+  "decisions": {
+    "technical_kind_grouping": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "28df2a3324a0c313d04a50aa7ed50f97b8bca2f900eec7c713d457d60714f55c",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 2,
+        "no": 5,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 7,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "reword",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 5,
+        "cases": 7,
+        "accuracy": 0.7142857142857143,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 28 more owner-confirmed yes and 25 more owner-confirmed no cases for technical_kind_grouping to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "folder_name_coverage": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "1bfebbf78318174fccea29011c868734d54fba666ed2dc18084b22eec50bc9c2",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 3,
+        "no": 5,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 8,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "retain",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 5,
+        "cases": 8,
+        "accuracy": 0.625,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 27 more owner-confirmed yes and 25 more owner-confirmed no cases for folder_name_coverage to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "overlapping_responsibilities": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "992c336354237a24189a3428ef51ca3b842edbc35d8cfeb17719d239377307b4",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 2,
+        "no": 6,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 8,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "drop",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 6,
+        "cases": 8,
+        "accuracy": 0.75,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 28 more owner-confirmed yes and 24 more owner-confirmed no cases for overlapping_responsibilities to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "one_name_per_concept": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "f11827ee10c56ef185fde98b879de89419d1bf6f8fd769600ca807c6a5f1a766",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 3,
+        "no": 5,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 8,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "retain",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 5,
+        "cases": 8,
+        "accuracy": 0.625,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 27 more owner-confirmed yes and 25 more owner-confirmed no cases for one_name_per_concept to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "sibling_naming_pattern": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "16a17d90e3f7d5573003b75f223dab482e1b0c03693274564a195c00c1ca64f0",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 0,
+        "no": 6,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 6,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "reword",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 6,
+        "cases": 6,
+        "accuracy": 1.0,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 30 more owner-confirmed yes and 24 more owner-confirmed no cases for sibling_naming_pattern to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "prefix_should_be_folder": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "6354af070ed06df4f903e4f66e6d33a455d5ad74d3e61f0a8e9be0a94297ec77",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 4,
+        "no": 0,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 4,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "retain",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 4,
+        "cases": 4,
+        "accuracy": 1.0,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 26 more owner-confirmed yes and 30 more owner-confirmed no cases for prefix_should_be_folder to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "runtime_data_in_code": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "8aebd0bb1935a9f890e775c95d3d599e133869ada7d81a0b379a5ab5431273af",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 5,
+        "no": 3,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 8,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "reword",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 5,
+        "cases": 8,
+        "accuracy": 0.625,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 25 more owner-confirmed yes and 27 more owner-confirmed no cases for runtime_data_in_code to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    },
+    "entry_point_placement": {
+      "threshold": 0.7,
+      "status": "provisional",
+      "version_key": "4c717010ae05cb5636dbd2eb40a909865e9d30759b68e4f1098ec485e43ab6f7",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner did not supply minimums; assumed per threshold-tuning; not verified."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 0.5
+      },
+      "cost_rule": "A false action costs more than a miss: once out of shadow a wrong finding blocks a PR. Use provisional 0.7; do not tune fewer than about 30 cases per label.",
+      "label_set": {
+        "yes": 1,
+        "no": 6,
+        "provenance": "human: owner-confirmed bulk chat decisions",
+        "dev": 7,
+        "test": 0
+      },
+      "review_recommendation": {
+        "recommendation": "drop",
+        "source": "v1 review",
+        "decision": "Ship unchanged in shadow; collect production labels before deciding whether to drop/reword."
+      },
+      "descriptive_at_0_7": {
+        "correct": 6,
+        "cases": 7,
+        "accuracy": 0.8571428571428571,
+        "warning": "Dev-only descriptive accuracy, not threshold tuning or held-out performance."
+      },
+      "todo": "Collect 29 more owner-confirmed yes and 24 more owner-confirmed no cases for entry_point_placement to reach about 30 per label; then establish independent dev/test groups and tune. No ready status until held-out minimums and stability pass."
+    }
+  },
+  "label_set": {
+    "cases": 61,
+    "scored": 56,
+    "excluded_abstain": [
+      "SN005"
+    ],
+    "excluded_decided_in_code": [
+      "SN038",
+      "SN040",
+      "SN042",
+      "SN044"
+    ],
+    "dev": 61,
+    "test": 0,
+    "synthetic": 0,
+    "provenance": "Adam Jackson, 2026-11-18, bulk chat confirmation \"go with the latest decisions\"; six unchanged main-pass questions and two Proposed v2 columns."
+  },
+  "assumptions": [
+    "Minimum precision 0.8 and recall 0.8 are assumed, not achieved or owner-confirmed.",
+    "All rows are dev; historical pairs share leakage groups, no held-out evaluation.",
+    "Review recommendations are deferred, not silently applied.",
+    "Raw probabilities are not calibrated confidence.",
+    "Eval host selects model; runtime judge() does not expose model pinning or metadata. The batch-reported scoring model is preserved here."
+  ],
+  "results": {
+    "descriptive_only": true,
+    "threshold": 0.7,
+    "per_question": {
+      "technical_kind_grouping": {
+        "yes": 2,
+        "no": 5,
+        "right": 5,
+        "total": 7,
+        "accuracy": 0.7142857142857143
+      },
+      "folder_name_coverage": {
+        "yes": 3,
+        "no": 5,
+        "right": 5,
+        "total": 8,
+        "accuracy": 0.625
+      },
+      "overlapping_responsibilities": {
+        "yes": 2,
+        "no": 6,
+        "right": 6,
+        "total": 8,
+        "accuracy": 0.75
+      },
+      "one_name_per_concept": {
+        "yes": 3,
+        "no": 5,
+        "right": 5,
+        "total": 8,
+        "accuracy": 0.625
+      },
+      "sibling_naming_pattern": {
+        "yes": 0,
+        "no": 6,
+        "right": 6,
+        "total": 6,
+        "accuracy": 1.0
+      },
+      "prefix_should_be_folder": {
+        "yes": 4,
+        "no": 0,
+        "right": 4,
+        "total": 4,
+        "accuracy": 1.0
+      },
+      "runtime_data_in_code": {
+        "yes": 5,
+        "no": 3,
+        "right": 5,
+        "total": 8,
+        "accuracy": 0.625
+      },
+      "entry_point_placement": {
+        "yes": 1,
+        "no": 6,
+        "right": 6,
+        "total": 7,
+        "accuracy": 0.8571428571428571
+      }
+    },
+    "cost_usd": 0.031987074,
+    "scoring": "Each labelled judge-asked case scored once on its own question for the final frozen extractor/state version. A superseded preliminary extractor version was scored before final extraction changed; those probabilities were discarded, never mixed or used to tune."
+  }
+}

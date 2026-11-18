@@ -178,6 +178,15 @@ run `prove()` on the new head before merge. No review agent or status posting; r
 for a discovery or a changed proof file.
 Mechanics live in `skill://git-tool/references/verify-loop.md`.
 
+After `prove()`, main calls `await structure_review(repo, parent, head, target_ref=target_ref)`
+on that same PR range ([contract](references/patterns.md#structure_review)). It extracts affected
+folder states from Git objects, asks the eight structure/naming questions (prefix only for
+eligible clusters), saves raw scores and updates one shadow findings comment. Provisional
+decisions and infrastructure errors never affect `prove()` or merge. A `ready` decision with
+a finding sets `halt`: main must include `not structure_result["halt"]` beside the prove-pass
+condition in its merge guard. This does not change rails' prove file.
+See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+
 ### 6. Integrate
 
 Main follows `skill://git-tool/references/merge-and-recover.md` for merge method,
@@ -200,10 +209,11 @@ approval. Do not copy merge mechanics into playbooks.
 
 Load in a standalone Python eval cell:
 `%load ~/.omp/agent/skills/omp-dyna-workflows/templates/workflows.py`.
-Only `freeze`, `prove`, `blind_label`, `dependency_audit_findings` and `triage_advisories` are
-supported orchestration APIs.
-`blind_label` requires eval's `agent()`/`wait()` globals and `triage_advisories` its `judge()`;
-`freeze`, `prove` and `dependency_audit_findings` also run in plain Python. Other functions are
-internal helpers, even when plain-Python callable.
+Only `freeze`, `prove`, `structure_review`, `blind_label`, `dependency_audit_findings` and
+`triage_advisories` are supported orchestration APIs.
+`blind_label` requires eval's `agent()`/`wait()` globals; `triage_advisories` needs `judge()`,
+and async `structure_review` needs `judge()`/`judge_batch()`.
+`freeze`, `prove` and `dependency_audit_findings` also run in plain Python. Other functions
+are internal helpers, even when plain-Python callable.
 Signatures, schemas, caps and failure handling have one home:
 [Pattern contracts](references/patterns.md).

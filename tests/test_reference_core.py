@@ -30,6 +30,7 @@ CONTRACT_SUBCOMMANDS = {
     "structure",
     "rename-residue",
     "prefix-candidates",
+    "structure-state",
     "naming",
     "python-quality",
     "python-fanout",
