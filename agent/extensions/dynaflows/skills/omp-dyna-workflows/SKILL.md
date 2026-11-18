@@ -158,6 +158,7 @@ Each brief requires reads before editing. Proof briefs supply the record's `prof
 `skill://test-guidance/references/case-selection.md`, `naming-and-layout.md`, `outcome-tests.md`
 and `tiers.md` under that reference prefix; add `property-tests.md`, `determinism.md`,
 `behaviour-and-statistics.md` and `verification-surface.md` when applicable.
+Proof briefs also supply `skill://omp-dyna-workflows/references/proofs.md`.
 Proofs use outcome tests or lever journeys. Freeze required lever changes with runner-invoked
 journey files. Implementation changes product code and feature-map docs, never frozen
 lever/proof bytes; a new proof comes only through a discovery re-freeze.
@@ -168,6 +169,7 @@ applicable `structure-and-naming.md` and `proofs.md` under that prefix,
 `skill://git-tool/references/branch-and-integrate.md` and `pr-description.md` under that prefix.
 Both briefs include worktree, criteria, manifest, scope and task-specific references.
 Sweep briefs supply the base and head, the record's feature-map path and
+`skill://omp-dyna-workflows/references/proofs.md`,
 `skill://test-guidance/references/verification-surface.md` and `outcome-tests.md` under that prefix.
 Rails require `skill://test-guidance/references/before-commit.md` before any writer handoff.
 
