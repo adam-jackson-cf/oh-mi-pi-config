@@ -191,9 +191,7 @@ file by hand.
 ```python
 proof = prove(repo, parent, head, manifest_path, digest, objective, target_ref=target_ref)
 structure = await structure_review(repo, parent, head, target_ref=target_ref)
-if proof["status"] != "pass" or structure["halt"]:
-    raise RuntimeError("PR verification blocked")
-# Only then follow git-tool's merge contract.
+# Rails require both exact-head files before git-tool's merge contract.
 ```
 
 Main calls this after prove on the same exact head and merge-base range. The extractor runs
@@ -211,18 +209,22 @@ configuration is an infrastructure error, not a clean review. Eval currently sel
 runtime model and does not expose its reported model in `judge` answers; results explicitly
 record this limitation rather than claiming a pinned model or calibrated confidence.
 
-The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains unit-state digests,
-raw scores, findings, full thresholds and version key, `halt`, and infrastructure `errors`.
+The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains `head`, `status`,
+unit-state digests, raw scores, findings, full thresholds and version key, `halt`, and
+infrastructure `errors`.
 One marked PR comment is updated across reruns/heads. Provisional findings (initial threshold
 0.7 for every question) are shadow-only: no prove file, proof status or merge signal changes.
 Infrastructure failures are reported in the result/comment and never block shadow operation.
 An incomplete review has `status: incomplete`, not a clean result.
 
 A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`.
-The caller **must** include that result branch alongside prove pass before merge; rails'
-existing prove-file guard does not consume this separate file. Promoting thresholds requires
-the jev-actions labeling, tuning and calibration evidence; raw probabilities are not calibrated
-confidence. No automatic promotion or infrastructure-to-finding conversion occurs.
+With dynaflows on, rails require this exact-head file alongside prove pass and CI green.
+A missing, corrupt or wrong-head file blocks even when all decisions are provisional.
+`halt: true` blocks via rails: fix the named ready findings and rerun `prove()` and
+`structure_review()` on the new head. Never write or edit a result file by hand.
+Promoting thresholds requires jev-actions labeling, tuning and calibration evidence; raw
+probabilities are not calibrated confidence. No automatic promotion or infrastructure-to-finding
+conversion occurs.
 
 ## Rails command parsing
 

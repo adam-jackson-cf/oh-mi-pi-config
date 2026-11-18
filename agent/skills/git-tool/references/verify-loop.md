@@ -13,7 +13,7 @@ proof tasks do not publish PRs.
 
 ## The PR check
 
-With dynaflows off, the PR check is required CI green on the exact head. With dynaflows on, it is `prove()`:
+With dynaflows off, the PR check is required CI green on the exact head. With dynaflows on, run both helpers:
 
 1. Main obtains the actual PR base branch and exact 40-hex head from GitHub, using the primary remote/default already
    resolved by [branch-and-integrate](branch-and-integrate.md). Fetch the actual target and record its remote-tracking
@@ -28,15 +28,21 @@ With dynaflows off, the PR check is required CI green on the exact head. With dy
    `<git-common-dir>/omp-prove/<head>.result.json` and posts the result as a PR comment; main never copies it by hand.
 5. On `fail`, return the blocking evidence (commands, output, expected outcome) to the assigned writer.
    Infrastructure failures fail closed; they are not red proof assertions.
+6. Main calls `await structure_review(repo, parent, head, target_ref=target_ref)` on the same range.
+   It writes `<git-common-dir>/omp-structure/<head>.json`. Rails require both exact-head files:
+   prove `status: pass` and structure `halt: false`, plus CI green. Missing, corrupt or wrong-head
+   files block even with all decisions provisional. Ready findings block via rails; fix them and
+   rerun both helpers on the new head. Provisional findings and recorded infrastructure errors
+   remain shadow-only.
 
 Never write or edit a result file by hand. Main proceeds to [merge-and-recover](merge-and-recover.md).
 
 ## Changed heads and fix rounds
 
 The result file is bound to its head. After a fix, a rebase or a merge of the target, the writer pushes and waits for
-exact-head CI; main then calls `prove()` once on the new head. That is the only extra step: no re-freeze (unless a proof
-file changed or a discovery added a proof), no other check. A map-coverage block returns to the writer: add the
-outcome test, link it from the changed map doc, and main re-freezes.
+exact-head CI; main then calls `prove()` and `structure_review()` on the new head.
+No re-freeze is needed unless a proof file changed or a discovery added a proof.
+A map-coverage block returns to the writer: add the outcome test, link it from the changed map doc, and main re-freezes.
 
 A fix round is one writer repair cycle returning a new head after a failed `prove()` or red CI. After three rounds,
 unresolved failures stop the unit: escalate with PR/head, failed checks, attempted fixes and decisions needed.
