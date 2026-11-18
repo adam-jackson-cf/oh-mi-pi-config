@@ -1,7 +1,8 @@
 # Test enforcement
 
-These dynaflows checks implement the linked generic guidance. The rule catalogue defines diagnostics
-and subcommands; generic test-guidance does not depend on these tools.
+These dynaflows checks implement the linked generic guidance. The rule catalogue at
+`agent/extensions/dynaflows/guardrails/omp_guardrails/data/guardrail-rules.json` defines contracts,
+diagnostics and subcommands; generic test-guidance does not depend on these tools.
 
 - PROFILE.complete (omp-guardrails profile-check) → skill://test-guidance/references/tiers.md#start-here
 - TEST.fast-tier-isolation (omp-guardrails guard-run) → skill://test-guidance/references/tiers.md#membership
@@ -30,3 +31,8 @@ and subcommands; generic test-guidance does not depend on these tools.
 
 TEST.growth.justified uses descriptive test names stating the behaviour, not inline behaviour comments.
 Test files follow the same comment ban as product code.
+
+The dynaflows review task owns test-name truthfulness outside the presence-only check
+(`truthfulness_sampled_by_jev_judge_batch_outside_check`). Use `judge_batch()` to sample up to 20
+new test names against their assertions. If more than 2 are vacuous, run `judge_batch()` over every
+new test name; rename, rewrite or remove each mismatch before delivery.

@@ -12,6 +12,7 @@ references:
   test:
     - skill://test-guidance/references/tiers.md
     - skill://omp-dyna-workflows/references/test-enforcement.md
+    - skill://omp-dyna-workflows/references/proofs.md
   verification:
     - skill://test-guidance/references/before-commit.md
   workflow:

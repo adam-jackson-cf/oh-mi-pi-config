@@ -15,8 +15,10 @@ Complete applicable verification without weakening assertions or hiding failures
   Follow [tiers.md](tiers.md) for event membership: CI runs all T1 and T2; nightly adds T3 on active branches.
   Do not default every local iteration to the whole suite; local green never replaces the CI merge gate.
 - Retain comparable counts and timing evidence as [suite-budget.md](suite-budget.md) requires.
-- Preserve identity-bearing artefacts according to the repo test profile.
-  Report a blocked required check as blocked, not green.
+- In a test-only change, where no production file changed, leave every identity-bearing artefact
+  listed in the profile byte-identical.
+  A required check that is missing, skipped, timed out, failed for infrastructure reasons, or
+  collected zero tests is a failure, not a pass; report it as blocked.
   Name commands, events and outcomes actually exercised.
 - Only the repo's authorized fix command, recorded in Command notes, may write authorized check fixes.
   If none is designated, stay check-only. Do not use write mode to conceal failures.
@@ -24,5 +26,7 @@ Complete applicable verification without weakening assertions or hiding failures
   never by private-state mutation or runtime patching.
   Never mock, stub or fake the repo's own code.
 - Never loosen expectations, thresholds or owned coverage rules to hide failures.
+  Never add unapproved skip, xfail, focus/only or flaky/retry markers, rerun until green,
+  or raise a timeout in a changed test to get a pass.
   Owner-approved measured timing-limit changes follow [suite-budget.md](suite-budget.md).
   Follow the repo's PR and review process.

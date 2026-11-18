@@ -19,11 +19,17 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
 - Clock, randomness, ID generation, process runner and external-service client must be production inputs/adapters
   justified by production use. Supply deterministic values through those same inputs.
   Adding an input is a production design change, justified in the PR.
+- Never add test-only flags, environment variables, hooks or marker names to production code,
+  or a production symbol that only tests reference; supply test values through production inputs.
 - Use recorded or local external-service substitutes behind the production adapter.
   Live paid or LLM calls belong only in T3.
 - Assert fixed-step time: after N steps, X. Cover before, at and reset for thresholds.
   Put timeouts on the actual waiting object, not merely the test wrapper.
+  Give every synchronous subprocess call and every process wait or communicate call a positive timeout,
+  and bound every async process wait, including in shared fixtures.
 - Isolate in-process storage in a unique temporary directory.
+  Run tests with HOME and XDG directories pointed at a temporary directory; any change to a file
+  under the real user home outside that temporary directory is a failure.
 - Use only the steps the assertion needs.
   Without a per-test limit, over 100 ms is an investigation hint for I/O or excess steps, not an invented blocking cap.
 
@@ -36,4 +42,6 @@ Prove caller-visible outcomes through the public entry point with realistic inpu
   "What requirement or product change should resolve this unmet coverage floor?" Include floor, scope and evidence.
   Resume coverage work only on that decision; rejection or no answer leaves the floor unmet and delivery blocked.
   Never test internals.
+- Add no coverage exclusions or no-cover pragmas (e.g. `# pragma: no cover`, `/* istanbul ignore */`);
+  lowering a floor or changing exclusion configuration needs a recorded owner approval.
 - Record an uncovered known defect with its issue ID rather than executing it without an assertion.
