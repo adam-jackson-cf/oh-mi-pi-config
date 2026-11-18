@@ -85,6 +85,13 @@ class CheckerTests(unittest.TestCase):
         self.profile = copy.deepcopy(CLEAN["profile"])
         for path, text in CLEAN["files"].items():
             self.write(path, text)
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repo), "-c", "user.name=Fixture",
+             "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+             "commit", "-qm", "baseline"],
+            check=True,
+        )
 
     def write(self, path: str, text: str = "") -> None:
         target = self.repo / path

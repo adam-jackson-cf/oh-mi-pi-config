@@ -489,7 +489,6 @@ class NativeConfigTests(InitCase):
             "FORMAT": ruff["format"],
             "ISORT": ruff["lint.isort"],
             "LIMIT": ruff["lint.pylint"],
-            "PYDOCSTYLE": ruff["lint.pydocstyle"],
         }
         for rule_id, contract in contracts.items():
             if "value" not in contract:

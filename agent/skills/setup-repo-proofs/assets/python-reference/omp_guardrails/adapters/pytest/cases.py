@@ -1,39 +1,16 @@
-"""Static pytest test cases with behaviour fingerprints, for TEST.growth.justified and
-TEST.duplicate-path (shared checker ``omp_guardrails.diffs.growth``).
-
-The adapter reads test source without importing or running it. ``collect(path, text)`` returns
-each case's pytest node ID (``path::Class::test[row-id]``) with its fingerprint, and each test
-function's inline behaviour comment. Static ``pytest.mark.parametrize`` rows on functions and
-``Test*`` classes expand into cases with pytest's own row IDs.
-
-A behaviour comment is a ``# behaviour: <text>`` comment inside the test function, between its
-first decorator and its last line, or in the comment block directly above it. One comment
-covers the function and all its parameter rows; the first one found is the function's.
-
-A fingerprint is the test body after normalisation: imports resolved to qualified names,
-arguments and locals renamed by position, single-use temporaries inlined, docstrings and
-imports dropped, and parameter rows substituted. Two tests with the same calls in the same
-order and the same assertions share a fingerprint whatever their names. A test whose rows
-cannot be read statically raises ``CollectionError``.
-
-Standard library only: it needs no ``pytest`` extra.
-"""
 
 from __future__ import annotations
 
 import ast
 import copy
-import io
 import itertools
 import re
-import tokenize
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
 
 TestFunction: TypeAlias = ast.FunctionDef | ast.AsyncFunctionDef
 Bindings: TypeAlias = dict[str, ast.expr]
-BEHAVIOUR = re.compile(r"#\s*behaviour:(.*)")
 ParameterRow: TypeAlias = tuple[str, Bindings]
 Dimension: TypeAlias = list[ParameterRow]
 
@@ -52,7 +29,6 @@ class Case:
 
 @dataclass(frozen=True)
 class Collected:
-    """A file's cases, and each test function's behaviour comment text (None when absent)."""
 
     cases: tuple[Case, ...]
     behaviours: Mapping[str, str | None]
@@ -425,31 +401,6 @@ def _expanded_cases(
     return cases
 
 
-def _comments(text: str) -> tuple[dict[int, str], set[int]]:
-    """``{line: comment}`` for every comment, and the lines holding only a comment."""
-    comments: dict[int, str] = {}
-    standalone: set[int] = set()
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type == tokenize.COMMENT:
-            line = token.start[0]
-            comments[line] = token.string
-            if token.line.lstrip().startswith("#"):
-                standalone.add(line)
-    return comments, standalone
-
-
-def _behaviour(
-    function: TestFunction, comments: Mapping[int, str], standalone: set[int]
-) -> str | None:
-    """The function's first ``# behaviour:`` text, from the comment block above to its end."""
-    start = min([function.lineno, *(node.lineno for node in function.decorator_list)])
-    while start - 1 in standalone:
-        start -= 1
-    for line in range(start, (function.end_lineno or function.lineno) + 1):
-        match = BEHAVIOUR.match(comments.get(line, ""))
-        if match:
-            return match.group(1).strip()
-    return None
 
 
 def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
@@ -465,7 +416,6 @@ def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
             value = constants.visit(statement.value)
             if isinstance(value, ast.expr):
                 constants.values[statement.targets[0].id] = value
-    comments, standalone = _comments(text)
     cases: list[Case] = []
     functions: dict[str, str | None] = {}
 
@@ -483,7 +433,7 @@ def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
                 node, (ast.FunctionDef, ast.AsyncFunctionDef)
             ) and node.name.startswith("test"):
                 selector = f"{path}::{prefix}{node.name}"
-                functions[selector] = _behaviour(node, comments, standalone)
+                functions[selector] = node.name.removeprefix("test_").replace("_", " ")
                 dimensions = (
                     _dimensions(node.decorator_list, constants, aliases) + inherited
                 )
@@ -497,6 +447,6 @@ def collect(path: str, text: str) -> Collected:
     """Statically collect ``text`` (the file at ``path``); raise CollectionError when it cannot."""
     try:
         cases, behaviours = _cases(path, text)
-    except (SyntaxError, ValueError, TypeError, tokenize.TokenError) as error:
+    except (SyntaxError, ValueError, TypeError) as error:
         raise CollectionError(" ".join(str(error).split())) from error
     return Collected(tuple(cases), behaviours)

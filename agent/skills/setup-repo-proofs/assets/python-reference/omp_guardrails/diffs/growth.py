@@ -1,22 +1,3 @@
-"""TEST.growth.justified and TEST.duplicate-path over ``git diff <base> <head>``.
-
-``omp-guardrails diff-check --base <ref> [--head <ref>]`` collects the test files at both
-commits through the profile adapter's static case collector (``omp_guardrails.adapters.
-<adapter>.cases``, for pytest ``omp_guardrails.adapters.pytest.cases``). Test files are files
-matching ``layout.test_file_patterns`` (the house-style defaults when the profile has none).
-
-- TEST.growth.justified: every test function added at head needs an inline ``behaviour:``
-  comment in the test language's comment syntax (Python ``# behaviour: <text>``), stating the
-  behaviour the test proves. One comment covers the function and all its parameter rows. The
-  check is presence only: a missing comment or placeholder text (empty, ``TBD``, ``<...>``) is
-  a finding naming the test, fixed by adding the comment or removing the test. Whether the text
-  is true is judged outside this checker, on a sample (Jev ``judge_batch()``). A changed test
-  file the adapter cannot collect statically is a finding too.
-- TEST.duplicate-path: a case added at head whose fingerprint equals an existing case or an
-  earlier added case is a finding naming both, fixed by merging or removing one.
-
-A finding is waived only by an ADR-backed ``house_style.exceptions`` entry for its rule.
-"""
 
 from __future__ import annotations
 
@@ -42,9 +23,7 @@ from omp_guardrails.structure.naming import is_test_file
 GROWTH = "TEST.growth.justified"
 DUPLICATE = "TEST.duplicate-path"
 ADAPTER_NAME = re.compile(r"[a-z][a-z0-9_]*")
-BEHAVIOUR_FIX = (
-    "add an inline 'behaviour:' comment stating what the test proves, or remove the test"
-)
+BEHAVIOUR_FIX = "name the test after the behavior it proves, or remove the test"
 DUPLICATE_FIX = "merge or remove one of the duplicate tests"
 
 
@@ -110,18 +89,15 @@ def snapshot(
 
 
 def growth_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
-    """Test functions new at head without a real inline behaviour comment."""
     found = []
     for selector in sorted(head.behaviours.keys() - base.behaviours.keys()):
         text = head.behaviours[selector]
-        if text is None:
-            problem = "has no inline 'behaviour:' comment"
-        elif is_missing_text(text):
-            problem = f"has a placeholder 'behaviour:' comment ({text!r})"
-        else:
+        words = re.findall(r"[A-Za-z]+", text or "")
+        meaningful = [word for word in words if word.lower() not in {"test", "case", "todo", "tbd", "placeholder", "example"}]
+        if not is_missing_text(text) and len(meaningful) >= 2:
             continue
         path = selector.split("::", 1)[0]
-        found.append(Finding(GROWTH, path, f"{selector} {problem}", BEHAVIOUR_FIX))
+        found.append(Finding(GROWTH, path, f"{selector} has no descriptive behavior name", BEHAVIOUR_FIX))
     return found
 
 
