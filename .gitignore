@@ -147,6 +147,7 @@ orca-plugins/chat-section-style/terminal-palette
 # Generated state inside owned source trees remains runtime-only.
 **/.DS_Store
 **/__pycache__/
+**/.venv/
 **/*.py[cod]
 **/.pytest_cache/
 **/.ruff_cache/
