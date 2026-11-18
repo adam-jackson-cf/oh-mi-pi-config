@@ -12,7 +12,7 @@ Authority and safety belong to [git-tool](../SKILL.md).
 3. Resolve the default once with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`,
    or the primary remote's symbolic HEAD (for origin, `git symbolic-ref refs/remotes/origin/HEAD`).
    Record `<remote>` and `<default>`; never assume `main`. Use this resolution for comparisons, PR targets and recovery.
-4. Read the repo's record `gate.json` when present ([git-tool](../SKILL.md#task) defines the record).
+4. Read the repo's record `gate.json` when present ([record contract](../../../lib/record/README.md)).
    Invalid declared policy fails closed; an absent record does not require setup.
    `agentMerge: disabled` requires owner approval to merge; absent field defaults to allowed, not permission to skip CI.
 5. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default).

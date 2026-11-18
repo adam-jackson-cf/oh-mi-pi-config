@@ -5,9 +5,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
-POLICY = SKILLS / "omp-dyna-workflows/references"
-CATALOGUE = SKILLS / "setup-repo-proofs/assets/python-reference/omp_guardrails/data/guardrail-rules.json"
-THRESHOLDS = SKILLS / "omp-dyna-workflows/judgments/structure-naming/thresholds.json"
+POLICY = ROOT / "agent/extensions/dynaflows/skills/omp-dyna-workflows/references"
+CATALOGUE = SKILLS / "../extensions/dynaflows/guardrails/omp_guardrails/data/guardrail-rules.json"
+THRESHOLDS = ROOT / "agent/extensions/dynaflows/skills/omp-dyna-workflows/judgments/structure-naming/thresholds.json"
 ENFORCED = re.compile(r"Enforced by ([A-Z]+\.[A-Za-z0-9.-]+) \(omp-guardrails ([a-z-]+(?:, [a-z-]+)*)\)\.")
 JUDGED = re.compile(r"Judged by ([a-z-]+)/([a-z_-]+)\.")
 
@@ -49,8 +49,8 @@ class DeliveryPolicyTests(unittest.TestCase):
                         else:
                             self.assertIn((judgment, decision), {
                                 ("main", "implementation-integrity"),
-                                ("agent-rails", "clean-cutovers"),
-                                ("agent-rails", "regression-coverage"),
+                                ("dynaflows", "clean-cutovers"),
+                                ("dynaflows", "regression-coverage"),
                             })
                         self.assertEqual(match.end(), len(line))
 

@@ -125,9 +125,10 @@ your response:
 Git: agents own branch → PR → review → merge without asking, unless the repo's record `gate.json` sets
 `"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
 
-Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or its git-tool
-and test-guidance skills, or to other skills in skills-directory, are not finished at merge:
+Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/extensions/dynaflows/**`,
+`agent/extensions/agent-rails.ts`, `agent/lib/rails-runtime.ts`, `agent/agent-rails.yml`,
+`agent/agents/**`, rules), or its git-tool and test-guidance skills, or to other skills in
+skills-directory, are not finished at merge:
 roll out to every device in the same task.
 Run `python3 ~/.omp/scripts/device-rollout.py` from the Mac; it fast-forwards remote `~/.agents`
 and starts the NUC deploy service. Done only when every row is `current` and it exits 0.

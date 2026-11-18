@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
-INDEX = SKILLS / "omp-dyna-workflows/references/test-enforcement.md"
+INDEX = ROOT / "agent/extensions/dynaflows/skills/omp-dyna-workflows/references/test-enforcement.md"
 POINTER = re.compile(
     r"^- ([A-Z]+\.[A-Za-z0-9.-]+) \(omp-guardrails ([a-z-]+(?:, [a-z-]+)*)\)"
     r" → skill://test-guidance/references/([a-z-]+\.md)#([a-z0-9-]+)$",
@@ -16,7 +16,7 @@ POINTER = re.compile(
 
 class TestEnforcementTests(unittest.TestCase):
     def test_every_enforcement_pointer_resolves_to_a_catalogue_rule_command_and_guidance_anchor(self):
-        catalogue = json.loads((SKILLS / "setup-repo-proofs/assets/python-reference/omp_guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
+        catalogue = json.loads((SKILLS / "../extensions/dynaflows/guardrails/omp_guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
         commands = {
             row["id"]: {item["subcommand"] for item in row.get("reference", [])}
             for row in catalogue["rules"]

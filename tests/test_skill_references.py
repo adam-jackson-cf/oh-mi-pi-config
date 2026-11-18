@@ -6,18 +6,35 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
+PACKAGE = ROOT / "agent/extensions/dynaflows"
+WORKFLOW = PACKAGE / "skills/omp-dyna-workflows"
 CORE_SKILLS = ("omp-dyna-workflows", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
+def skill_directory(name):
+    return WORKFLOW if name == "omp-dyna-workflows" else SKILLS / name
+
 
 class SkillReferenceTests(unittest.TestCase):
+    def test_repository_setup_is_independent_of_the_assistant(self):
+        directory = SKILLS / "setup-repo-proofs"
+        forbidden = re.compile(r"\b(?:omp|dynaflows|harness|freeze)\b", re.IGNORECASE)
+        for source in sorted(directory.rglob("*.md")):
+            with self.subTest(source=source.relative_to(ROOT)):
+                self.assertIsNone(forbidden.search(source.read_text(encoding="utf-8")))
+        entry = (directory / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("hide: true", entry)
+        self.assertIn("disable-model-invocation: true", entry)
+
     def test_core_skill_references_resolve_locally(self):
         sources = {
             ROOT / "agent/agent-rails.yml",
             ROOT / "agent/extensions/agent-rails.ts",
+            PACKAGE / "index.ts",
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
-            *(path for path in (SKILLS / "omp-dyna-workflows").rglob("*")
+            *(PACKAGE / "rules").glob("*.md"),
+            *(path for path in WORKFLOW.rglob("*")
               if path.suffix in {".md", ".py", ".html"} and path.is_file()),
         }
         references = defaultdict(set)
@@ -36,7 +53,7 @@ class SkillReferenceTests(unittest.TestCase):
 
         unresolved = []
         for (name, relative), sources in sorted(references.items()):
-            directory = (SKILLS / name).resolve()
+            directory = skill_directory(name).resolve()
             target = (directory / relative).resolve() if relative else directory / "SKILL.md"
             if (not directory.is_relative_to(ROOT)
                     or not (directory / "SKILL.md").resolve().is_relative_to(directory)
@@ -53,7 +70,7 @@ class SkillReferenceTests(unittest.TestCase):
     def test_core_skill_relative_markdown_links_resolve_locally(self):
         unresolved = []
         for name in CORE_SKILLS:
-            for source in sorted((SKILLS / name).rglob("*.md")):
+            for source in sorted(skill_directory(name).rglob("*.md")):
                 text = source.read_text(encoding="utf-8")
                 for match in re.finditer(r"\[[^\]\n]*\]\(([^)\s]+)\)", text):
                     target = match.group(1)
@@ -71,7 +88,7 @@ class SkillReferenceTests(unittest.TestCase):
     def test_core_skill_frontmatter_names_match_directories(self):
         for name in CORE_SKILLS:
             with self.subTest(skill=name):
-                entry = SKILLS / name / "SKILL.md"
+                entry = skill_directory(name) / "SKILL.md"
                 # Missing entry points are diagnosed with their citations above.
                 if not entry.is_file():
                     continue

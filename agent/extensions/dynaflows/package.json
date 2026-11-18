@@ -1,0 +1,8 @@
+{
+  "name": "dynaflows",
+  "private": true,
+  "type": "module",
+  "omp": {
+    "extensions": ["./index.ts"]
+  }
+}

@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
+REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
 LOCK = REFERENCE / "requirements-pytest.lock"
 MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
 CONTAINERFILE = ROOT / ".devcontainer/Containerfile"
