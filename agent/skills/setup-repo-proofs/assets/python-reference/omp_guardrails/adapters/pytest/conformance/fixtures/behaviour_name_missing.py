@@ -1,6 +1,5 @@
 from shop.core import Basket
 
 
-def test_basket_totals_three_units():
-    # behaviour: TBD
+def test_basket():
     assert Basket().total() == 6

@@ -205,9 +205,12 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
             )
         ]
     steps, findings = configured_steps(profile)
+    from omp_guardrails.diffs.integrity import commit_findings
+
+    integrity_findings = commit_findings(repo, profile)
     if not findings:
         findings = missing_checkers(repo, profile)
     for step in [] if findings else steps:
         findings.extend(run_step(repo, profile, step))
     patterns = as_list(settings(profile, CHECKER).get("exclude"))
-    return [finding for finding in findings if not excluded(finding, patterns)]
+    return integrity_findings + [finding for finding in findings if not excluded(finding, patterns)]

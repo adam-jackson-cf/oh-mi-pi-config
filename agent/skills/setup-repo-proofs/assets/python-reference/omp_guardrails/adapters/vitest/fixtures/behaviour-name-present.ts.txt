@@ -1,0 +1,5 @@
+import { test, expect } from 'vitest';
+test.each([1, 2])('addition preserves total %i', value => { expect(value + 0).toBe(value); });
+test('multiplication preserves identity', () => {
+  expect(3 * 1).toBe(3);
+});

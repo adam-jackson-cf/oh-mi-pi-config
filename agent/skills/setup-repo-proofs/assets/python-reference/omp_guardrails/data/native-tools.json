@@ -37,7 +37,9 @@
         "PT",
         "PGH",
         "A",
-        "D",
+        "S110",
+        "BLE001",
+        "SIM105",
         "N",
         "PLR0904",
         "PLR0911",
@@ -47,14 +49,12 @@
         "PLR0915",
         "PLR0917"
       ],
-      "ignore": ["E501", "D100", "D101", "D102", "D103", "D104", "D105", "D107", "B006", "B008", "A005"]
+      "ignore": ["E501", "B006", "B008", "A005"]
     },
     "lint.per-file-ignores": {
-      "__init__.py": ["F401", "F403", "D104"],
-      "test_*.py": ["D", "S101", "PLR2004"],
-      "**/tests/**": ["D", "S101", "PLR2004"],
-      "conftest.py": ["D"],
-      "setup.py": ["D"]
+      "__init__.py": ["F401", "F403"],
+      "test_*.py": ["S101", "PLR2004"],
+      "**/tests/**": ["S101", "PLR2004"]
     },
     "lint.isort": {
       "force-single-line": false,
@@ -71,12 +71,10 @@
       "max-returns": 6,
       "max-statements": 50
     },
-    "lint.pydocstyle": {"convention": "numpy"},
     "format": {
       "quote-style": "double",
       "indent-style": "space",
-      "line-ending": "auto",
-      "docstring-code-format": true
+      "line-ending": "auto"
     }
   },
   "mypy": {

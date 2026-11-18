@@ -25,6 +25,7 @@ from omp_guardrails.diffs import (  # noqa: E402
     growth,
     identity_artefacts,
     timeouts,
+    integrity,
 )
 
 GIT_ENV = {
@@ -524,66 +525,41 @@ class TestGrowthTests(unittest.TestCase):
         self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n\n" + source})
         return self.check()
 
-    def test_new_test_with_a_behaviour_comment_passes(self) -> None:
-        placements = {
-            "in body": SUMMED.format(comment="    # behaviour: totals sum the items\n"),
-            "above def": "# behaviour: totals sum the items\n" + SUMMED.format(comment=""),
-            "trailing def": SUMMED.format(comment="").replace(
-                "():", "():  # behaviour: totals sum the items"
-            ),
-        }
-        for name, source in placements.items():
+    def test_new_descriptive_behavior_name_passes_without_comments(self) -> None:
+        self.assertEqual(self.add_test(SUMMED.format(comment="")), [])
+
+    def test_placeholder_or_generic_names_are_reported(self) -> None:
+        for name in ("test_case", "test_TBD", "test_123", "test_total"):
             with self.subTest(name=name):
                 self.setUp()
-                self.assertEqual(self.add_test(source), [])
+                source = SUMMED.format(comment="").replace("test_items_are_summed", name)
+                findings = self.add_test(source)
+                self.assertEqual(rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")])
+                self.assertIn(name, findings[0].message)
+                self.assertIn("name the test", findings[0].fix)
 
-    def test_missing_or_placeholder_behaviour_comment_is_reported(self) -> None:
-        for name, comment in {
-            "missing": "",
-            "not a behaviour comment": "    # sums the items\n",
-            "empty": "    # behaviour:\n",
-            "placeholder": "    # behaviour: <what it proves>\n",
-            "tbd": "    # behaviour: TBD\n",
-        }.items():
-            with self.subTest(name=name):
-                self.setUp()
-                findings = self.add_test(SUMMED.format(comment=comment))
-                self.assertEqual(
-                    rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")]
-                )
-                self.assertIn("tests/unit/test_cart.py::test_items_are_summed", findings[0].message)
-                self.assertIn("'behaviour:' comment", findings[0].fix)
+    def test_behavior_comments_do_not_rescue_placeholder_names(self) -> None:
+        findings = self.add_test("def test_case():\n    # behaviour: totals sum the items\n    assert total([1, 2]) == 3\n")
+        self.assertEqual(rules(findings), [("TEST.growth.justified", "tests/unit/test_cart.py")])
 
-    def test_a_comment_belongs_only_to_its_own_function(self) -> None:
-        source = (
-            SUMMED.format(comment="    # behaviour: totals sum the items\n")
-            + "\n\ndef test_one_item():\n    assert total([4]) == 4\n"
-        )
-        findings = self.add_test(source)
-        self.assertEqual(len(findings), 1)
-        self.assertIn("::test_one_item has no inline", findings[0].message)
-
-    def test_existing_tests_need_no_comment(self) -> None:
-        self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "# a trailing edit\n"})
+    def test_existing_test_names_are_not_rejudged(self) -> None:
+        self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
         self.assertEqual(self.check(), [])
 
-    def test_one_comment_covers_every_parameter_row(self) -> None:
+    def test_one_descriptive_name_covers_every_parameter_row(self) -> None:
         rows = (
             "import pytest\nfrom shop.cart import total\n\n\n"
             "class TestTotals:\n"
-            "    # behaviour: a cart totals the sum of its items\n"
             "    @pytest.mark.parametrize('items, expected', [([1], 1), ([2], 2)])\n"
-            "    def test_total(self, items, expected):\n        assert total(items) == expected\n"
+            "    def test_cart_totals_items(self, items, expected):\n        assert total(items) == expected\n"
             "\n"
             "    @pytest.mark.parametrize('items', [[1], [2]])\n"
-            "    def test_positive(self, items):\n        assert total(items) > 0\n"
+            "    def test_case(self, items):\n        assert total(items) > 0\n"
         )
         self.repo.commit({"tests/unit/test_rows.py": rows})
         findings = self.check()
         self.assertEqual(len(findings), 1)
-        self.assertIn(
-            "tests/unit/test_rows.py::TestTotals::test_positive has no", findings[0].message
-        )
+        self.assertIn("TestTotals::test_case has no descriptive", findings[0].message)
 
     def test_duplicate_call_path_and_assertion_is_reported_with_both_names(self) -> None:
         renamed = (
@@ -642,6 +618,121 @@ class DiffCheckCliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("TEST.golden-change-record", printed)
         self.assertIn("TEST.coverage-ratchet", printed)
+
+
+class IntegrityTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = FixtureRepo(self)
+        self.base = self.repo.commit({"src/existing.py": "# existing\nx = 1\n"}, BASE_PROFILE)
+
+    def check(self, files):
+        self.repo.commit(files)
+        return integrity.run(self.repo.path, BASE_PROFILE, ["--base", self.base])
+
+    def test_added_comments_block_in_common_file_syntaxes(self):
+        files = {
+            "src/a.py": "x = 1 # explanation\n",
+            "src/a.ts": "const x = 1; // explanation\n/* block\n * detail */\n",
+            "src/a.sql": "SELECT 1; -- explanation\n",
+            "src/block.sql": "SELECT 1;\n/* explanation */\n",
+            "src/a.css": "/* explanation */\nbody { color: red; }\n",
+            "src/a.graphql": "# explanation\ntype Item { id: ID }\n",
+            "docs/a.tex": "% explanation\ntext\n",
+            "config/a.properties": "! explanation\nvalue=1\n",
+            "config/a.ini": "; explanation\nvalue = 1\n",
+            "docs/a.md": "text\n<!-- explanation -->\n",
+            "a.toml": "# explanation\nvalue = 1\n",
+            "Dockerfile": "# explanation\nFROM scratch\n",
+        }
+        findings = self.check(files)
+        self.assertEqual({item.path for item in findings}, set(files))
+        self.assertEqual({item.rule_id for item in findings}, {"CODE.no-comments"})
+
+    def test_string_literals_and_rust_attributes_are_not_comments(self):
+        self.assertEqual(self.check({
+            "src/a.py": "value = '# not a comment // either'\n",
+            "src/a.ts": "const value = 'https://host/#fragment';\nconst template = `// not a comment`;\n",
+            "a.toml": 'value = "# not a comment"\n',
+            "src/a.sql": "SELECT '-- text', 'it''s -- text';\n",
+            "src/a.rs": '#[allow(dead_code)]\nfn main() {}\n',
+        }), [])
+
+    def test_python_module_class_function_docstrings_block_but_data_strings_pass(self):
+        findings = self.check({"src/docs.py": '\"\"\"module\"\"\"\nclass Real:\n    \"\"\"class\"\"\"\n    def run(self):\n        \"\"\"function\"\"\"\n        return "data"\nvalue = "data"\n'})
+        self.assertEqual([(item.rule_id, item.message.split(":")[0]) for item in findings], [("CODE.no-comments", "line 1"), ("CODE.no-comments", "line 3"), ("CODE.no-comments", "line 5")])
+
+    def test_unchanged_comments_ignored_and_touched_comment_lines_block(self):
+        self.assertEqual(self.check({"src/existing.py": "# existing\nx = 2\n"}), [])
+        findings = self.check({"src/existing.py": "# updated\nx = 2\n"})
+        self.assertEqual([item.rule_id for item in findings], ["CODE.no-comments"])
+
+    def test_tool_directives_are_exempt(self):
+        python = ["#!/usr/bin/env python3", "# noqa: E402", "# type: ignore", "# pyright: strict", "# fmt: off", "# fmt: on", "# ruff: noqa", "# isort: skip_file", "# pylint: disable=all", "# SPDX-License-Identifier: MIT", "# coding: utf-8", "# -*- mode: python -*-", "# vim: set ft=python:"]
+        javascript = ["// eslint-disable-next-line", "// @ts-expect-error", "// @ts-ignore", "// @ts-nocheck", "// prettier-ignore", "// biome-ignore lint/all: directive", "//go:build linux", "//nolint:all"]
+        self.assertEqual(self.check({"src/directives.py": "\n".join(python) + "\nx = 1\n", "src/directives.ts": "\n".join(javascript) + "\nconst x = 1;\n", "docs/directives.md": "<!-- markdownlint-disable MD013 -->\n"}), [])
+
+    def test_placeholder_bodies_block_and_real_implementations_pass(self):
+        findings = self.check({"src/placeholders.py": "def empty():\n    pass\nasync def missing():\n    ...\ndef unsupported():\n    raise NotImplementedError()\ndef real():\n    return 1\n"})
+        self.assertEqual([item.rule_id for item in findings], ["CODE.no-placeholder-bodies"] * 3)
+
+    def test_protocol_abstract_overload_and_stub_declarations_are_allowed(self):
+        self.assertEqual(self.check({"src/api.py": "from typing import Protocol, overload\nfrom abc import abstractmethod\nclass API(Protocol):\n    def read(self):\n        ...\nclass Base:\n    @abstractmethod\n    def read(self):\n        raise NotImplementedError\n@overload\ndef read(value: int) -> int:\n    ...\n", "src/api.pyi": "def read(): ...\n"}), [])
+
+    def test_product_mock_imports_and_calls_block_but_tests_support_and_fixtures_pass(self):
+        sources = {"src/a.py": "from unittest import mock\nimport pytest_mock\n", "src/a.ts": "import sinon from 'sinon';\nconst mock = require('jest-mock');\nvi.mock('service');\njest.mock('other');\n"}
+        findings = self.check({**sources, "tests/unit/test_mock.py": "from unittest.mock import Mock\n", "tests/support/mock.ts": "import sinon from 'sinon';\n", "tests/fixtures/mock.py": "import mock\n"})
+        self.assertEqual({item.path for item in findings}, set(sources))
+        self.assertEqual([item.rule_id for item in findings], ["CODE.no-product-mocks"] * 6)
+
+    def test_mock_words_in_strings_and_comments_do_not_count_as_imports(self):
+        findings = self.check({"src/a.ts": 'const text = "import sinon from \'sinon\'; vi.mock(\'x\')";\n'})
+        self.assertEqual(findings, [])
+
+    def test_commit_check_blocks_uncommitted_comments_even_when_other_checks_excluded(self):
+        profile = {**BASE_PROFILE, "guardrails": {"check": {"run": ["structure"], "exclude": ["**"]}}}
+        (self.repo.record / "profile.md").write_text(profile_text(profile))
+        (self.repo.path / "src/existing.py").write_text("# existing\nx = 1 # new\n")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = cli.main(["check", "--repo", str(self.repo.path), "--record", str(self.repo.record)])
+        self.assertEqual(result, 1)
+        self.assertIn("CODE.no-comments", output.getvalue())
+
+    def test_staged_comments_cannot_hide_behind_clean_worktree_content(self):
+        target = self.repo.path / "src/existing.py"
+        target.write_text("# existing\nx = 1 # staged\n")
+        self.repo.git("add", "src/existing.py")
+        target.write_text("# existing\nx = 1\n")
+        findings = integrity.commit_findings(self.repo.path, BASE_PROFILE)
+        self.assertEqual([item.rule_id for item in findings], ["CODE.no-comments"])
+
+    def test_new_untracked_files_are_checked_before_staging(self):
+        target = self.repo.path / "src/new.py"
+        target.write_text("value = 1 # new\n")
+        self.assertEqual([item.rule_id for item in integrity.commit_findings(self.repo.path, BASE_PROFILE)], ["CODE.no-comments"])
+
+    def test_declaration_import_aliases_keep_their_exemptions(self):
+        self.assertEqual(self.check({"src/aliases.py": "from typing import Protocol as P, overload as variant\nfrom abc import abstractmethod as abstract\nclass API(P):\n    def read(self): ...\nclass Base:\n    @abstract\n    def read(self): pass\n@variant\ndef read(value: int): ...\n"}), [])
+
+    def test_unchanged_docstrings_remain_while_added_body_comments_block(self):
+        self.base = self.repo.commit({"src/docs.py": '"""Existing."""\ndef run():\n    """Existing function."""\n    return 1\n'})
+        findings = self.check({"src/docs.py": '"""Existing."""\ndef run():\n    """Existing function."""\n    return 2 # added\n'})
+        self.assertEqual([(item.rule_id, item.message) for item in findings], [("CODE.no-comments", "line 4: added comment")])
+
+    def test_initial_commit_checks_added_lines_against_empty_tree(self):
+        fresh = FixtureRepo(self)
+        target = fresh.path / "initial.py"
+        target.write_text("value = 1 # initial\n")
+        findings = integrity.commit_findings(fresh.path, BASE_PROFILE)
+        self.assertEqual([item.rule_id for item in findings], ["CODE.no-comments"])
+
+    def test_explicit_diff_command_blocks_integrity_failures(self):
+        self.repo.commit({"src/app.py": "def run():\n    pass\n"})
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = cli.main(["diff-check", "--repo", str(self.repo.path), "--record", str(self.repo.record), "--base", self.base])
+        self.assertEqual(result, 1)
+        self.assertIn("CODE.no-placeholder-bodies", output.getvalue())
 
 
 if __name__ == "__main__":

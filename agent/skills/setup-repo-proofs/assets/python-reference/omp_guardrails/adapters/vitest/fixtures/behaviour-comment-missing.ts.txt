@@ -1,3 +1,0 @@
-import { test, expect } from 'vitest';
-// A comment without the required explanation
-test('sum', () => { expect(1 + 1).toBe(2); });

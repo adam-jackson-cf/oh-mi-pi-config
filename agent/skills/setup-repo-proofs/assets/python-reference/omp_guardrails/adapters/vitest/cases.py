@@ -232,20 +232,6 @@ def fingerprint(callback, aliases, bindings):
     return json.dumps([calls, normalized(body)], separators=(",", ":"), ensure_ascii=False)
 
 
-def behaviour(call, source: str) -> str | None:
-    lines = source.splitlines()
-    start, end = call.range().start.line, call.range().end.line
-    while start > 0 and lines[start - 1].lstrip().startswith("//"):
-        start -= 1
-    # Read real comment nodes only, so strings containing // behaviour never count.
-    from ast_grep_py import SgRoot
-    root = SgRoot(source, "tsx").root()
-    for node in root.find_all({"rule": {"kind": "comment"}}):
-        if start <= node.range().start.line <= end:
-            match = re.match(r"//\s*behaviour:(.*)", node.text())
-            if match:
-                return match.group(1).strip()
-    return None
 
 
 def collect(path: str, text: str) -> Collected:
@@ -302,7 +288,7 @@ def collect(path: str, text: str) -> Collected:
                 if base in {"test", "it"}:
                     if selector in behaviours:
                         raise CollectionError(f"duplicate test title: {selector}")
-                    behaviours[selector] = behaviour(node, text)
+                    behaviours[selector] = title
                 params = callback.field("parameters") or callback.field("parameter")
                 parameter_nodes = children(params) if params is not None and params.kind() == "formal_parameters" else ([params] if params is not None else [])
                 names = []

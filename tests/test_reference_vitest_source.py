@@ -35,26 +35,21 @@ class StaticCases(unittest.TestCase):
     def collect(self, source, path="tests/case.test.ts"):
         return cases.collect(path, source)
 
-    def test_nested_suite_and_behaviour(self):
+    def test_nested_suite_collects_behavior_titles_without_comments(self):
         result = self.collect('''import { describe as suite, it as example, expect } from 'vitest';
         suite('basket', () => {
-          // behaviour: totals prices
-          example('adds', () => { expect(1 + 2).toBe(3); });
-          example('empty', () => {
-            // behaviour: starts empty
-            expect([]).toHaveLength(0);
-          });
+          example('totals prices', () => { expect(1 + 2).toBe(3); });
+          example('starts empty', () => { expect([]).toHaveLength(0); });
         });''')
-        self.assertEqual([item.selector for item in result.cases], ["tests/case.test.ts::basket > adds", "tests/case.test.ts::basket > empty"])
+        self.assertEqual([item.selector for item in result.cases], ["tests/case.test.ts::basket > totals prices", "tests/case.test.ts::basket > starts empty"])
         self.assertEqual(list(result.behaviours.values()), ["totals prices", "starts empty"])
 
-    def test_comments_must_be_real_and_adjacent(self):
+    def test_comments_do_not_replace_behavior_titles(self):
         result = self.collect('''// behaviour: unrelated
-        const name = 'x';
-        test('first', () => { const text = '// behaviour: fake'; expect(text).toBeTruthy(); });
+        test('first', () => { expect(true).toBeTruthy(); });
         // behaviour: second only
         test('second', () => { expect(true).toBe(true); });''')
-        self.assertEqual(list(result.behaviours.values()), [None, "second only"])
+        self.assertEqual(list(result.behaviours.values()), ["first", "second"])
 
     def test_each_expands_static_rows_and_binds_values(self):
         result = self.collect('''const rows = [[1, 2], [2, 3], [1, 2]];
