@@ -22,6 +22,8 @@ incidentally. The report is the deliverable; stop here.
 
 ## 3. Plan
 
+For implementation, read [proofs](../proofs.md) for freezing and profile binding.
+
 Not executed. A separately requested implementation starts Frame in its own
 playbook, using the report as evidence.
 

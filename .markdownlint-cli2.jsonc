@@ -7,8 +7,9 @@
   "overrides": [
     {
       "filter": [
-        "agent/skills/coding-guidance/**",
-        "agent/skills/test-guidance/**",
+        "agent/skills/omp-dyna-workflows/references/*-principles.md",
+        "agent/skills/omp-dyna-workflows/references/structure-and-naming.md",
+        "agent/skills/*-guidance/**",
         "agent/skills/git-tool/**"
       ],
       "config": {

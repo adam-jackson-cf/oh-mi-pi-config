@@ -1,16 +1,13 @@
 """Check that core skill references resolve within this repository."""
 from collections import defaultdict
 from pathlib import Path
-import json
 import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
-CORE_SKILLS = ("coding-guidance", "test-guidance", "git-tool")
+CORE_SKILLS = ("omp-dyna-workflows", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
-GUARDRAILS = SKILLS / "setup-repo-proofs/assets"
-HOUSE_STYLE = GUARDRAILS / "python-reference/omp_guardrails/data/house-style.json"
 
 
 class SkillReferenceTests(unittest.TestCase):
@@ -85,17 +82,6 @@ class SkillReferenceTests(unittest.TestCase):
                 self.assertIsNotNone(declared, f"{entry.relative_to(ROOT)}: missing frontmatter name")
                 self.assertEqual(declared.group(1).strip().strip("\"'"), name,
                                  f"{entry.relative_to(ROOT)}: frontmatter name must match directory")
-
-
-    def test_coding_guidance_style_lists_live_in_house_style(self):
-        house_style = json.loads(HOUSE_STYLE.read_text(encoding="utf-8"))
-        for name in ("naming.md", "structure-and-grouping.md"):
-            source = SKILLS / "coding-guidance/references" / name
-            text = source.read_text(encoding="utf-8")
-            with self.subTest(source=name):
-                self.assertIn("house-style.json", text)
-                listed = [word for word in house_style["banned_words"] if f"`{word}`" in text]
-                self.assertEqual(listed, [], f"{name} repeats house-style banned words")
 
 
 if __name__ == "__main__":

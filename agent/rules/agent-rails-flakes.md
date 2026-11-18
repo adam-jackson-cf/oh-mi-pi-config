@@ -1,5 +1,6 @@
 ---
-agents: [main]
+agents: [main, task]
+repeatMode: once
 question: >-
   Is this reply diagnosing, retrying, quarantining or fixing a test that fails only some of
   the time (flaky, intermittent or order-dependent)? Answer no for deterministic failures,

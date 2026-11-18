@@ -18,6 +18,8 @@ Resolve only remaining questions on the real feature surface.
 
 ## 3. Plan
 
+For implementation, read [proofs](../proofs.md) for freezing and profile binding.
+
 Each proof encodes requested behaviour: it fails at base, where the feature is absent,
 and passes at head. Reject doctor/environment failures as red.
 Each proof is an outcome test or journey linked from the feature's map entry; the proof task
