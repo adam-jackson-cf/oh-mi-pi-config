@@ -1,29 +1,29 @@
 # Harness setup deltas
 
-Run [the generic setup workflow](../../setup-repo-proofs/SKILL.md) in order. This reference adds
+Run [generic setup](../../../../../skills/setup-repo-proofs/SKILL.md) in order. This reference adds
 only the DynaFlows-specific policy, engine commands, adapter and approval mechanics. The generic
 workflow remains usable without these additions; do not copy these mechanics into target repos.
 Use [the project setup playbook](playbooks/project-setup.md) for the six-stage delivery sequence.
 
 ## Ownership and authoritative references
 
-- [Record format and lifecycle](../../../lib/record/README.md) owns origin resolution, gate schema,
+- [Record format and lifecycle](../../../../../lib/record/README.md) owns origin resolution, gate schema,
   strict loading, command arrays, owner-only paths, merge policy, CI runner roles, device rollout,
   proposal storage and write authority.
-- [Record profile](../../../lib/record/profile.md) owns profile layout, settings, approvals,
+- [Record profile](../../../../../lib/record/profile.md) owns profile layout, settings, approvals,
   per-machine budgets, exclusions, ownership and verification-surface configuration.
 - [Adapter authoring](adapter-authoring.md) owns the six-part evidence interface and conformance.
 - The engine lives at `agent/extensions/dynaflows/guardrails/`; run it from oh-mi-pi-config, never
   install, pin, copy or fork it into a target repository. Its catalogue is
 `uv run --project` with `agent/extensions/dynaflows/guardrails/`. It covers the whole repo
 - [The design directive](../AGENTS.md) governs ownership. Harness-owned per-edit path checks are the
-  explicit [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md) exception.
+  explicit [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md) exception.
 
 The stage-specific instructions below preserve the existing setup obligations. Record field
 mentions are consumers of the linked record documentation, not a second schema definition.
 All `<omp root>` paths refer to the oh-mi-pi-config checkout, not the target.
 Harness process events below apply only when DynaFlows is enabled for the target repository,
-as required by [ADR 0004](../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
+as required by [ADR 0004](../../../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
 Off means ordinary Git safety and repo-native checks, not these process additions.
 
 ## Boundary
@@ -54,7 +54,7 @@ after edits and before commit. Its required profile settings are `guardrails.str
 Rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>` after edits
 and before commit, using required profile `guardrails.structure`, `guardrails.naming` and
 `guardrails.paths` settings. This consistent per-edit contract is the explicit principles 1–2
-exception in [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md).
+exception in [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md).
 At each agent commit, rails then run the record's `checks.commit` in the worktree, then the harness
 checks: `omp-guardrails check --repo <worktree> --record <record dir>`, run with
 `uv run --project` with `agent/extensions/dynaflows/guardrails/`. It covers the whole repo
@@ -221,7 +221,7 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
      checker capability yet (a greenfield repo).
    Harness-owned per-edit `path-check` is outside this delegation: it always runs with the
    required profile settings, even where repo checks overlap. See
-   [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md), the principles 1–2 exception.
+   [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md), the principles 1–2 exception.
 
    `SECURITY.dependency-audit` has no check step and never the `harness`
    outcome, even in a greenfield repo: any repo can hold an audit without the
@@ -266,7 +266,7 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
 
 1. Draft the record from the harness; author an adapter if the framework has
    none. Where the stack has a skill reference (Python:
-   [`omp-guardrails`](../../../extensions/dynaflows/guardrails/README.md)), never copy,
+   [`omp-guardrails`](../../../guardrails/README.md)), never copy,
    adapt or edit its code, and never install it into the target's environment
    or lockfile. Run it from the harness against a temporary clone of the
    target under the candidate root: `uv run --project <omp

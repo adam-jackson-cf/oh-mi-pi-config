@@ -1,8 +1,8 @@
 # Structure and naming: shadow judgment
 
 All eight decisions ship with `structure-naming-candidates@2`, under [ADR
-0003](../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md). `questions.json` is the
-exact `judge()` payload wrapper: pass its `questions`, with `{"unit_state": state}`. The frozen v2
+0003](../../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md). The
+`questions.json` wrapper passes `questions` to `judge()` with `{"unit_state": state}`. Frozen v2
 instructions and criteria are unchanged; only Jev's `noul` spelling becomes OMP's `bool` (raw
 P(yes)). A yes means the named violation is present, not that the folder is good.
 

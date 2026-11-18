@@ -19,15 +19,15 @@ Read before the first implementation edit; apply clean cutovers to refactors and
 
 ## Clean cutovers
 
-- Never implement backward compatibility or refactor code to support both new and legacy objectives. Judged by agent-rails/clean-cutovers.
-- Remove references to legacy functionality, version suffixes in file or module names such as `parser-v2.py`, and items that exist only for legacy behavior; `<name>/v<N>` folders or files follow [structure and naming](structure-and-naming.md). Judged by agent-rails/clean-cutovers.
+- Never implement backward compatibility or refactor code to support both new and legacy objectives. Judged by dynaflows/clean-cutovers.
+- Remove references to legacy functionality, version suffixes in file or module names such as `parser-v2.py`, and items that exist only for legacy behavior; `<name>/v<N>` folders or files follow [structure and naming](structure-and-naming.md). Judged by dynaflows/clean-cutovers.
 - Preserve exact wording and styling when reusing concepts, constraints, labels, or user-specified phrases across related edits. Guidance only.
 - Never introduce semantically equivalent rewrites of canonical wording, labels, limits, or instructions within the same project. Guidance only.
 - Deprecated skills in this policy migration stay on disk untouched until a final owner-signed-off cleanup PR; migrate every caller now, rather than keeping compatibility callers. Guidance only.
 
 ## Regression fixes
 
-- Before fixing, name the failing behaviour: the rule the code broke, stated beyond the one input that exposed it; repair the root cause, not a special case of that input. Judged by agent-rails/regression-coverage.
+- Before fixing, name the failing behaviour: the rule the code broke, stated beyond the one input that exposed it; repair the root cause, not a special case of that input. Judged by dynaflows/regression-coverage.
 - Check and report whether behavioral coverage protected that rule, and select coverage using `skill://test-guidance/references/case-selection.md`; test-design rules live there rather than here. Guidance only.
 
 ## Verification scaling

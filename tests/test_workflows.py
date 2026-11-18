@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-MODULE = Path(__file__).resolve().parents[1] / "agent/skills/omp-dyna-workflows/templates/workflows.py"
+MODULE = Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/skills/omp-dyna-workflows/templates/workflows.py"
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
 workflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workflow)
@@ -1139,7 +1139,7 @@ class SchemaTests(unittest.TestCase):
         kernel = {"__name__": "kernel", "__file__": str(MODULE)}
         exec(compile(MODULE.read_text(), str(MODULE), "exec"), kernel)
         kernel["__file__"] = "/elsewhere/other.py"
-        self.assertEqual(kernel["_harness_root"](), MODULE.resolve().parents[4])
+        self.assertEqual(kernel["_harness_root"](), Path(__file__).resolve().parents[1])
 
     def test_workflow_code_holds_no_model_ids_or_hosts(self):
         text = MODULE.read_text()

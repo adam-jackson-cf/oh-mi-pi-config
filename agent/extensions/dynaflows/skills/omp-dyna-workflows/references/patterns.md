@@ -154,7 +154,7 @@ Prove checks four things:
    --repo <worktree> --record <record dir> --base <parent> --head <head>` rejects leftover
    retired names in renamed folders or files. Every finding blocks, even with no frozen proofs.
    This PR-diff-scoped structure pre-check is the principles 5/7 exception in
-   [ADR 0003](../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   [ADR 0003](../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
    A term still naming an owned directory or module stem at head is not retired (a concept split
    can preserve its old owner); this compares whole word sequences, not individual words.
 3. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in
@@ -198,7 +198,7 @@ Main calls this after prove on the same exact head and merge-base range. The ext
 isolated Python (`-I -S`) from the harness reference:
 `structure-state --repo R --base SHA --head SHA`. It reads Git objects only, never imports
 or executes target-repository code, and emits `{unit_path: unit_state}` for affected units.
-See [ADR 0003](../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+See [ADR 0003](../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 
 The frozen questions and per-question thresholds live in
 `judgments/structure-naming/{questions,thresholds}.json`. Ask all seven general questions
