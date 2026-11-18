@@ -12,6 +12,7 @@ Read before the first implementation edit; apply clean cutovers to refactors and
 - Never add fallback modes or temporary strategies to meet task requirements. Judged by main/implementation-integrity.
 - After a failure, never change or abandon the task without the user's permission. Judged by main/implementation-integrity.
 - Do not add comments of any kind, including docstrings, in any file type with comment syntax; scope is added diff lines, including touched lines carrying a comment. Tool directives are exempt: shebangs, `noqa`, `type: ignore`, `pyright:`, `fmt: off/on`, `ruff:`, `isort:`, `pylint:`, `eslint-*`, `@ts-expect-error`, `@ts-ignore`, `@ts-nocheck`, `prettier-ignore`, `biome-ignore`, `//go:build`, `//nolint`, `SPDX-License-Identifier`, `markdownlint-*`, vim/emacs modelines and `coding: utf-8` cookies (`#[allow]` is not a comment). Enforced by CODE.no-comments (omp-guardrails diff-check).
+- In multiline directive comments, only directive lines and empty delimiters are exempt; added prose lines still block. Enforced by CODE.no-comments (omp-guardrails diff-check).
 - Never silently swallow exceptions with a `try`/`except`/`pass`. Enforced by RUFF.SELECT.S110 (omp-guardrails toolchain-parity).
 - Do not catch overly broad exceptions. Enforced by RUFF.SELECT.BLE001 (omp-guardrails toolchain-parity).
 - Use `contextlib.suppress` rather than a `try`/`except`/`pass` for intentional suppression; this is not permission to hide a failure. Enforced by RUFF.SELECT.SIM105 (omp-guardrails toolchain-parity).

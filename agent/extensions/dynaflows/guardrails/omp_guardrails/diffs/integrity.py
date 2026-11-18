@@ -71,7 +71,7 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
                 comments.append((
                     text.count("\n", 0, at) + 1,
                     text.count("\n", 0, max(at, stop - 1)) + 1,
-                    text[at + len(start):content_end].strip(),
+                    text[at + len(start):content_end],
                 ))
         elif text[at] in "\"'`" and suffix not in HTML:
             quote = text[at] * (3 if text.startswith(text[at] * 3, at) else 1)
@@ -162,7 +162,14 @@ def inspect(text: str, path: str, added: set[int], profile: dict) -> list[Findin
     if path.endswith((".py", ".pyi")):
         return python_findings(text, path, added, profile)
     comments, code = lex(text, path)
-    findings = [finding(COMMENTS, path, line, "added comment") for start, end, content in comments if not DIRECTIVE.match(content) for line in sorted(added.intersection(range(start, end + 1)))]
+    findings = []
+    for start, end, content in comments:
+        lines = [line.strip().lstrip("*").strip() for line in content.split("\n")]
+        has_directive = any(DIRECTIVE.match(line) for line in lines)
+        for line in sorted(added.intersection(range(start, end + 1))):
+            value = lines[line - start]
+            if not DIRECTIVE.match(value) and (value or not has_directive):
+                findings.append(finding(COMMENTS, path, line, "added comment"))
     if not is_test(path, profile):
         pattern = re.compile(r"\b(?:jest|vi)\s*\.\s*(?:mock|doMock|unstable_mockModule)\s*\(")
         for match in pattern.finditer(code):
