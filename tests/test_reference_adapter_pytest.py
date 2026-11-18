@@ -468,6 +468,50 @@ class ExtraTests(unittest.TestCase):
             self.assertIn("tests/test_shop.py: TEST.no-self-mocking: line 17", out)
 
     @needs_extra
+    def test_cli_lint_reports_environment_and_loaded_module_marker_reads(self):
+        reads = (
+            'os.environ.get("SHOP_TESTING")',
+            'os.getenv("TEST_MODE")',
+            'os.environ["PYTEST_CURRENT_TEST"]',
+            '"TESTING" in os.environ',
+            '"pytest" in sys.modules',
+            'environ.get("UNDER_TEST")',
+            'os.environ.pop("TEST_MODE", None)',
+            'os.environ.setdefault("UNDER_TEST", "0")',
+            'sys.modules.get("pytest")',
+            'sys.modules["unittest"]',
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch))
+            for expression in reads:
+                with self.subTest(expression=expression):
+                    (repo / "shop/core.py").write_text(
+                        "import os\nimport sys\nfrom os import environ\n\n"
+                        f"marker = {expression}\n"
+                    )
+                    code, out = run_cli("adapter", "--repo", str(repo), "lint", "shop/core.py")
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("shop/core.py: TEST.no-test-hooks: line 5", out)
+                    self.assertIn("reads a test marker from the environment or loaded modules", out)
+
+    @needs_extra
+    def test_cli_lint_allows_marker_words_in_data_and_real_configuration_reads(self):
+        sources = (
+            'RUNNERS = ("pytest", "unittest", "jest", "vitest")\n'
+            'def is_runner(text):\n    return text in RUNNERS\n',
+            'ARTIFACT = ("TESTS_INVENTORY", "tests-inventory.json")\n',
+            'import os\nrate = os.environ.get("SHOP_DISCOUNT_RATE")\n',
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch))
+            for source in sources:
+                with self.subTest(source=source):
+                    (repo / "shop/core.py").write_text(source)
+                    code, out = run_cli("adapter", "--repo", str(repo), "lint", "shop/core.py")
+                    self.assertEqual(code, 0, out)
+                    self.assertNotIn("TEST.no-test-hooks", out)
+
+    @needs_extra
     def test_tier_listing_feeds_the_shared_collection_check(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))

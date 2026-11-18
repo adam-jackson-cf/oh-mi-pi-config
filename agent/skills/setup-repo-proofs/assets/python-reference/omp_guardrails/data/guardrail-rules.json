@@ -1248,11 +1248,11 @@
       "evidence_kind": "local_ci",
       "contract": {
         "reject_production_symbols_referenced_only_from_tests": true,
-        "reject_test_marker_env_or_flag_names_in_production_code": true,
+        "reject_test_marker_reads_from_environment_or_loaded_modules_in_production_code": true,
         "mechanism": "adapter_source_patterns",
         "diagnostic_names_symbol_and_production_input_fix": true
       },
-      "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
+      "summary": "Reject production reads of test markers, test-only hooks and production symbols that only tests use.",
       "reference": [
         {"subcommand": "adapter", "module": "omp_guardrails.adapters.pytest"}
       ]
