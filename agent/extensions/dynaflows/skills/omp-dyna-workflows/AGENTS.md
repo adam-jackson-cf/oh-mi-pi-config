@@ -1,5 +1,8 @@
 # Dynaflows
 
+Keep [workflow.html](workflow.html) aligned with the canonical skill and extension implementation;
+the page explains them and does not define another contract.
+
 ## Design directive
 
 Every change to dynaflows follows these principles. That covers this skill, its playbooks and

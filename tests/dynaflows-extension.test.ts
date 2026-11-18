@@ -10,6 +10,7 @@ import { harness as createHarness, execute, repoCommand, defaultOrigin, integrit
 
 // Most cases exercise the co-registered extensions; isolated package cases select dynaflows only.
 const harness = (options: Parameters<typeof createHarness>[0] = {}) => createHarness({ extensions: "both", ...options });
+const proofs = "skill://omp-dyna-workflows/references/proofs.md";
 
 describe("dynaflows extension", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
@@ -19,11 +20,11 @@ describe("dynaflows extension", () => {
 			const input = { path: "tests/new.test.ts", content: "test('behaviour', () => {});" };
 			const blocked = await h.call("write", input);
 			assert.equal(blocked?.block, true);
-			for (const url of [integrity, structure, tiers, enforcement]) assert.ok(blocked?.reason?.includes(url));
+			for (const url of [integrity, structure, tiers, enforcement, proofs]) assert.ok(blocked?.reason?.includes(url));
 			await h.emit("tool_result", { toolName: "read", input: { path: tiers }, isError: true });
 			await h.read(integrity, structure);
 			assert.ok((await h.call("write", input))?.reason?.includes(tiers));
-			await h.read(`${tiers}:1-40:raw`, enforcement);
+			await h.read(`${tiers}:1-40:raw`, enforcement, proofs);
 			assert.equal(await h.call("write", input), undefined);
 		} finally { h.cleanup(); }
 	});
@@ -36,7 +37,7 @@ describe("dynaflows extension", () => {
 			await h.read(integrity, structure);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.ok((await h.call("write", { path: "tests/contract.test.ts" }))?.reason?.includes(tiers));
-			await h.read(tiers, enforcement);
+			await h.read(tiers, enforcement, proofs);
 			assert.equal(await h.call("write", { path: "tests/contract.test.ts" }), undefined);
 		} finally { h.cleanup(); }
 	});
@@ -1272,7 +1273,7 @@ test("delivery policy references and native reminder scope use the targeted home
 	}).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
 	assert.deepEqual(config.references, {
 		firstEdit: [integrity], newFile: [structure],
-		test: [tiers, enforcement], verification: [verification],
+		test: [tiers, enforcement, proofs], verification: [verification],
 	});
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));

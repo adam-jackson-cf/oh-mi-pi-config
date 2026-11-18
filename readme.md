@@ -15,6 +15,10 @@ when a design changes, and remove obsolete paths rather than carry them forward.
 [delivery principles](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md);
 `test-guidance` remains generic test practice, usable without dynaflows.
+Retired delivery-guidance copies and the disabled standalone workflow entry have been removed;
+Git history retains them. The extension package is the only workflow skill source.
+The [workflow page](agent/extensions/dynaflows/skills/omp-dyna-workflows/workflow.html)
+is an explanatory view of the canonical skill contracts.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults

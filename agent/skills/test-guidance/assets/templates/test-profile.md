@@ -16,7 +16,7 @@
     "duration_report_command": "<command>",
     "machines": [
       {
-        "id": "<machine id>",
+        "id": "<machine id: platform, CPU model and runtime version>",
         "platform": "<platform>",
         "runtime": "<runtime>",
         "wall_limit_s": "<wall limit in seconds>",
@@ -104,11 +104,11 @@ reads as ordinary front matter. Keep it and the sections below in step.
 
 ## Fast-tier budget
 
-- Per machine: `<machine id>`, platform `<platform>`, runtime `<runtime>`.
+- Per machine: `<machine id: platform, CPU model and runtime version>`, platform `<platform>`, runtime `<runtime>`.
 - Per machine limits: wall `<wall limit>`, per-test `<per-test limit>`.
 - Per machine owner approval reference: `<approval reference>`.
 - Duration-report command: `<command>`.
-- Budgets apply only at the agent's commit; CI never measures or reports test timing.
+- Run timing budgets locally at commit; CI does not measure or report test timing.
 
 ## Coverage
 
