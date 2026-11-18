@@ -4,7 +4,8 @@ Establish the approved verification surface and the repo's record before guardra
 repo fixes in a prerequisite PR. The record (`repos/<owner>/<name>/` under the oh-mi-pi-config
 root) is local and never committed; the PR holds only repo changes that never mention omp.
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order.
-Helper mechanics live in [patterns](../patterns.md); Git mechanics in `skill://git-tool`.
+Helper mechanics live in [patterns](../patterns.md) and [verify-loop](../verify-loop.md);
+Git mechanics in `skill://git-tool`.
 
 ## 1. Frame
 
@@ -57,6 +58,12 @@ Keep the Step 5 STOP; existing controls are not permission to skip approval.
 
 ## 4. Implement
 
+Bootstrap may propose controls before a record exists; before ordinary implementation resumes,
+save a valid pathCheck-free schema-v2 `gate.json` with `checks.commit` and a complete path-check
+profile. Obsolete `checks.pathCheck` is invalid. When setup has proofs, complete the proof task
+and main's red-at-base freeze before the separate implementation task; otherwise main freezes
+the empty bootstrap manifest first. Main never commits.
+
 Implementation writes or completes the feature map in the repo: one document per feature under
 `feature_map_path`, each linking the outcome tests or journeys that prove it
 (`skill://test-guidance/references/verification-surface.md`). The confirmed record's
@@ -78,9 +85,15 @@ Bootstrap permits proposing controls before they exist, not bypassing approval.
 
 ## 5. Verify
 
-When proofs were frozen, `prove()` shows frozen journeys and canaries green at head and every map
-doc the PR changed links one of them; doctor failures are never proof assertions.
+With dynaflows enabled, the completed valid pathCheck-free schema-v2 record remains required:
+main runs `prove()` then `structure_review()` on the exact PR head. Frozen journeys and canaries
+must pass and every changed map doc must link one; doctor failures are never proof assertions.
+The no-behaviour bootstrap PR described in Plan leaves dynaflows off and uses git-tool's
+exact-head CI gate instead; this does not authorize ordinary implementation before setup completes.
 
 ## 6. Integrate
 
+With dynaflows enabled, require the valid stage-4 record, exact-head CI green, prove `status: pass`
+and structure `halt: false`; missing, invalid or wrong-head results block, even for empty manifests.
+Rerun both helpers after every head change. Main never commits.
 Complete this prerequisite PR before returning to Frame of the original request.

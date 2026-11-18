@@ -265,6 +265,7 @@ describe("agent rails", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
 		const h = harness();
 		try {
+			h.dynaflows(true);
 			const input = { path: "tests/new.test.ts", content: "test('behaviour', () => {});" };
 			const blocked = await h.call("write", input);
 			assert.equal(blocked?.block, true);
@@ -277,14 +278,15 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("enforces first edit for existing code; a repo with a record gets the harness path check instead", async () => {
+	test("dynaflows gates both existing code and new tests on their mapped reads", async () => {
 		const h = harness();
 		try {
+			h.dynaflows(true);
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.reason?.includes(integrity));
 			await h.read(integrity, structure, naming);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.ok((await h.call("write", { path: "tests/contract.test.ts" }))?.reason?.includes(tiers));
-			h.gate({ schemaVersion: 2 });
+			await h.read(tiers);
 			assert.equal(await h.call("write", { path: "tests/contract.test.ts" }), undefined);
 		} finally { h.cleanup(); }
 	});
@@ -294,6 +296,8 @@ describe("agent rails", () => {
 		try {
 			h.pathFailure("use feature ownership");
 			h.gate({ schemaVersion: 2 });
+			h.dynaflows(true);
+			await h.read(integrity, structure, naming);
 			writeFileSync(join(h.root, "another.ts"), "export {};\n");
 			const result = await h.call("edit", { paths: ["existing.ts", "another.ts"] });
 			assert.ok(result?.additionalContext?.includes(join(h.root, "existing.ts")));
@@ -303,16 +307,16 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("absent and invalid records fall back to reference enforcement without throwing", async () => {
+	test("absent and invalid records leave edit reads off without throwing", async () => {
 		const h = harness();
 		try {
-			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
-			assert.deepEqual(h.notes, [], "a repo without a record is normal, not noteworthy");
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			assert.equal(h.notes.length, 0, "a repo without a record is normal, not noteworthy");
 			h.rawGate("{broken");
-			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.ok(h.notes.some(note => note.includes(join(h.recordDir(), "gate.json"))));
 			h.rawGate(JSON.stringify({ schemaVersion: 2, checks: { commit: "not an argv array" } }));
-			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.ok(h.notes.some(note => note.includes("invalid")));
 			await h.read(integrity);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
@@ -329,12 +333,14 @@ describe("agent rails", () => {
 				writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
 				writeFileSync(join(h.root, "session.log"), "growing log\n");
 				assert.equal(await h.emit("session_stop"), undefined, "tree changes outside this session's edits never block");
-				await h.read(integrity);
+				await h.read(integrity, structure, naming);
 				await h.call("edit", { path: "existing.ts" });
 				const blocked = await h.emit("session_stop");
-				assert.equal(blocked?.decision, "block");
-				assert.ok(blocked?.reason?.includes(verification));
-				assert.ok(!blocked?.reason?.includes("bun"), "no repository check is demanded at handoff");
+				if (dynaflows) {
+					assert.equal(blocked?.decision, "block");
+					assert.ok(blocked?.reason?.includes(verification));
+					assert.ok(!blocked?.reason?.includes("bun"), "no repository check is demanded at handoff");
+				} else assert.equal(blocked, undefined);
 				await h.read(verification);
 				writeFileSync(join(h.root, "session.log"), "grew again\n");
 				assert.equal(await h.emit("session_stop"), undefined);
@@ -359,6 +365,7 @@ describe("agent rails", () => {
 		const h = harness();
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-scratch-")));
 		try {
+			h.dynaflows(true);
 			assert.equal(await h.call("write", { path: join(scratch, "notes.md"), content: "# notes\n" }), undefined,
 				"a new file outside any repository needs no reads");
 			await h.read(integrity);
@@ -674,7 +681,7 @@ describe("agent rails", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("an agent commit that changes an owner-only path is refused, dynaflows on or off, and tells the agent to raise it", async () => {
+	test("owner-only commit refusal belongs only to dynaflows-on repos", async () => {
 		const h = harness();
 		const owned = "scripts/checks/dependency-audit-exceptions.json";
 		const git = (...args: string[]) => execFileSync("git", args, { cwd: h.root });
@@ -696,12 +703,14 @@ describe("agent rails", () => {
 				writeFileSync(join(h.root, owned), '[{"advisory": "GHSA-x"}]\n');
 				git("add", owned);
 				const staged = await commit();
-				assert.equal(staged?.block, true, `staged exception edit, dynaflows ${dynaflows}`);
-				assert.ok(staged?.reason?.includes(`owner-only path ${owned}`), staged?.reason);
-				assert.ok(staged?.reason?.includes("raise the change to the owner"), staged?.reason);
-				assert.ok(staged?.reason?.includes(join(h.recordDir(), "gate.json")), "the refusal names the record that declares the path");
+				if (dynaflows) {
+					assert.equal(staged?.block, true);
+					assert.ok(staged?.reason?.includes(`owner-only path ${owned}`), staged?.reason);
+					assert.ok(staged?.reason?.includes("raise the change to the owner"), staged?.reason);
+					assert.ok(staged?.reason?.includes(join(h.recordDir(), "gate.json")));
+				} else assert.equal(staged, undefined);
 				git("reset", "-q", owned);
-				assert.equal((await commit())?.block, true, "an unstaged change a commit -a could take is refused too");
+				assert.equal((await commit())?.block, dynaflows ? true : undefined, "unstaged owner-only changes follow the same switch");
 				git("checkout", "--", owned);
 				assert.equal(await commit(), undefined, "restored: the commit passes");
 			}
@@ -781,6 +790,8 @@ describe("agent rails", () => {
 		try {
 			h.pathFailure("bad path");
 			h.gate({ schemaVersion: 2 });
+			h.dynaflows(true);
+			await h.read(integrity, structure, naming);
 			await h.read(verification);
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
@@ -798,6 +809,7 @@ describe("agent rails", () => {
 	test("isolates sessions, restores successful branch reads, and forgets compacted reads", async () => {
 		const h = harness();
 		try {
+			h.dynaflows(true);
 			await h.read(integrity);
 			h.setSession("second");
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
@@ -1073,6 +1085,8 @@ describe("agent rails", () => {
 		try {
 			h.pathFailure("bad path");
 			h.gate({ schemaVersion: 2 });
+			h.dynaflows(true);
+			await h.read(integrity, structure, naming);
 			assert.equal(await h.call("ast_edit", { paths: ["existing.ts"] }, {
 				applied: false, files: ["existing.ts"], totalReplacements: 1,
 			}), undefined);
@@ -1100,6 +1114,8 @@ test("path checks forget deleted and ignored failures without skipping live repo
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		await h.call("edit", { paths: ["existing.ts", "ignored.ts", "deleted.ts"] });
 		assert.deepEqual(checked, [[join(h.root, "existing.ts")]]);
 		rmSync(join(h.root, "existing.ts"));
@@ -1125,6 +1141,8 @@ test("path checks exclude Git directory internals while checking live files", as
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		await h.call("edit", { paths: [internal, live] });
 		assert.deepEqual(checked, [[live]], "git directory paths must not reach the path check");
 	} finally { h.cleanup(); }
@@ -1146,6 +1164,8 @@ test("path checks forget failures for files restored to HEAD", async () => {
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		const failure = await h.call("edit", { path });
 		assert.ok(failure?.additionalContext?.includes("bad tracked path"));
 		assert.deepEqual(checked, [[path]]);
@@ -1175,6 +1195,8 @@ test("path checks keep ignored files excluded when a path crosses a symlink", as
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		await h.call("edit", { paths: [ignored, join(h.root, "link/file")] });
 		assert.ok(!checked.some(args => args.some(path => path.includes("node_modules/"))),
 			"ignored paths must not reach the path check when another path breaks git check-ignore");
@@ -1540,6 +1562,8 @@ test("path checks canonicalize a symlinked repository root before executing", as
 		symlinkSync(h.root, alias);
 		h.context.cwd = alias;
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		const exec = h.api.exec.bind(h.api);
 		let checked = false;
 		h.api.exec = async (command, args, options) => {
@@ -1586,6 +1610,8 @@ test("path check runs under the one fixed rails timeout; a killed checker is sur
 			return exec(command, args, options);
 		};
 		h.gate({ schemaVersion: 2 });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
 		assert.deepEqual(timeouts, [20000]);
 	} finally { h.cleanup(); }
@@ -1598,6 +1624,8 @@ test("child handoff requires its own verification read and repaired path checks"
 		assert.equal(await h.emit("session_stop"), undefined);
 		h.pathFailure("bad path");
 		h.gate({ schemaVersion: 2, checks: { commit: ["not-run"], ci: ["not-run"] } });
+		h.dynaflows(true);
+		await h.read(integrity, structure, naming);
 		await h.call("edit", { path: join(h.root, "existing.ts") });
 		assert.equal((await h.emit("session_stop"))?.decision, "block");
 		h.pathFailure();
@@ -1880,4 +1908,52 @@ test("an invalid agent-rails.yml mapping fails the load", async () => {
 			assert.ok(h.notes.some(note => note.includes("cannot load agent-rails.yml")), h.notes.join("; "));
 		} finally { h.cleanup(); }
 	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+for (const record of ["absent", "off", "on"] as const) {
+	test(`repo-scoped harness process follows dynaflows (${record}) while Git reads always apply`, async () => {
+		const h = harness();
+		try {
+			if (record !== "absent") h.dynaflows(record === "on");
+			h.pathFailure("path policy violation");
+			const edit = await h.call("write", { path: "tests/new.test.ts" });
+			if (record === "on") {
+				assert.equal(edit?.block, true);
+				for (const url of [integrity, structure, naming, tiers]) assert.ok(edit?.reason?.includes(url));
+				await h.read(integrity, structure, naming, tiers);
+				writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
+				assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path policy violation"));
+				assert.equal((await h.emit("session_stop"))?.decision, "block");
+				h.pathFailure();
+				assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
+				await h.read(verification);
+			} else {
+				assert.equal(edit, undefined);
+				assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			}
+			assert.equal(await h.emit("session_stop"), undefined);
+			const git = await h.call("bash", { command: "git push" });
+			assert.equal(git?.block, true);
+			assert.ok(git?.reason?.includes("skill://git-tool"));
+		} finally { h.cleanup(); }
+	});
+}
+
+test("edit and handoff policy follows each edited repo, not the session cwd", async () => {
+	const h = harness();
+	const other = harness({ configRoot: h.records, remote: "git@github.com:owner/other.git" });
+	try {
+		h.dynaflows(true);
+		other.dynaflows(false);
+		h.pathFailure("enabled repo violation");
+		assert.equal(await h.call("edit", { path: join(other.root, "existing.ts") }), undefined);
+		assert.equal(await h.emit("session_stop"), undefined, "editing only an off repo does not require a handoff read");
+		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.reason?.includes(integrity));
+		await h.read(integrity, structure, naming);
+		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.additionalContext?.includes("enabled repo violation"));
+		assert.equal((await h.emit("session_stop"))?.decision, "block");
+		h.dynaflows(false);
+		assert.equal(await h.emit("session_stop"), undefined, "turning off suppresses both outstanding retries and handoff reads");
+		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+	} finally { h.cleanup(); other.cleanup(); }
 });

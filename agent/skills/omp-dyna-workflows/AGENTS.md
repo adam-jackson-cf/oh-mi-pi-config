@@ -31,8 +31,10 @@ first.
      [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md), even when repo checks overlap.
 3. **Per-repo configuration lives in the harness.** Each repository's settings are a record in
    oh-mi-pi-config, keyed by the clone's `origin` owner and name. Records are gitignored, never
-   committed or part of a PR. Agents write records directly, with approval fields only as the owner
-   stated them in the chat. oh-mi-pi-config is the bespoke harness. Setup for one
+   committed or part of a PR. A record is harness config: git-tool may read its `ci`
+   and `agentMerge` settings independently of dynaflows. Agents write records directly,
+   with approval fields only as the owner stated them in the chat. oh-mi-pi-config is the bespoke
+   harness. Setup for one
    machine or host belongs in its deploy branches, not in AGENTS.md or workflow code. Workflow code
    holds no environment values, except configuration that a skill sets on purpose.
 4. **Required means required.** No optional checks, defaults that skip a check, fallbacks,
@@ -54,6 +56,11 @@ first.
    - Pulling or merging commits into a branch needs no proof. A commit that results from it runs
      the normal checks.
    - Behaviour is the same on any CI host that has the harness deployed.
+   - Harness process additions run only with dynaflows on for the path's repo:
+     targeted edit reads, path checks, verification handoff reads, owner-only commit
+     refusal, commit checks and PR verification. Off means plain omp + git-tool +
+     generic Git safety rails. Native judged-rule disabling via `ttsr.disabledRules`
+     is pending its spike. See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
    - Approvals work for a single owner.
 7. **Proof means outcome tests.**
    - A proof is an outcome test or lever journey linked from the feature map. It is frozen red at
