@@ -117,6 +117,7 @@ tests/fixtures/*
 !tests/repo-record.test.ts
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
+!tests/test_delivery_policy.py
 
 !.omp/
 .omp/*
@@ -148,4 +149,3 @@ orca-plugins/chat-section-style/terminal-palette
 agent/skills/setup-repo-proofs/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/
-!tests/test_delivery_policy.py
