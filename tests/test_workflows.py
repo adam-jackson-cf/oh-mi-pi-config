@@ -1531,6 +1531,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         result = await self.review()
         self.assertEqual(result["status"], "shadow")
         self.assertFalse(result["halt"])
+        self.assertEqual(result["head"], self.head)
         self.assertEqual(len(result["findings"]), 7)
         self.assertEqual(len(result["units"]["src/orders"]["digest"]), 64)
         self.assertEqual(signal.read_text(), '{"status":"pass"}')
@@ -1538,15 +1539,15 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["thresholds"], self.thresholds)
         self.assertIn("raw judgment probabilities", workflow._structure_comment(result))
 
-    async def test_ready_finding_blocks_explicit_caller_guard(self):
+    async def test_ready_finding_sets_persisted_merge_halt(self):
         ident = "folder_name_coverage"
         self.thresholds["decisions"][ident]["status"] = "ready"
         result = await self.review(score=0.7)
         self.assertTrue(result["halt"])
         self.assertEqual(result["status"], "blocked")
-        prove_result = {"status": "pass"}
-        allowed = prove_result["status"] == "pass" and not result["halt"]
-        self.assertFalse(allowed)
+        self.assertEqual(result["head"], self.head)
+        self.assertTrue(any(item["question"] == ident and item["status"] == "ready"
+                            for item in result["findings"]))
         below = await self.review(score=0.69)
         self.assertFalse(below["halt"])
 

@@ -1384,8 +1384,8 @@ def _structure_comment(result):
         lines.append("- No findings recorded." if not result["errors"] else "- Review incomplete.")
     lines.extend(f"- Infrastructure: {error}" for error in result["errors"])
     if result["halt"]:
-        lines.append("**Blocked:** ready decisions have findings; include `not result['halt']` "
-                     "in the caller's prove/merge guard.")
+        lines.append("**Blocked:** ready decisions have findings; rails refuse merge. "
+                     "Fix them and rerun prove() and structure_review() on the new head.")
     lines.append(f"Full result: `<git-common-dir>/omp-structure/{result['head']}.json`.")
     body = "\n".join(lines)
     if len(body) > COMMENT_LIMIT:
@@ -1408,11 +1408,11 @@ def _post_structure_comment(repo, head, result):
 
 
 async def structure_review(repo, parent, head, *, target_ref):
-    """PR-time structure judgment, separate from prove(). Callers must guard merge with
-    ``prove_result['status'] == 'pass' and not structure_result['halt']``.
+    """PR-time structure judgment, separate from prove().
 
-    Only ready decisions can halt. Infrastructure is reported, never turned into a shadow
-    blocker or a clean evaluation. No proof result or merge-signal file is modified.
+    Rails require this exact-head result and refuse merge when halt is true.
+    Only ready decisions can halt; infrastructure errors remain shadow-only.
+    No proof result file is modified.
     """
     result = {"head": None, "parent": None, "status": "shadow", "halt": False,
               "units": {}, "findings": [], "errors": [], "thresholds": None,
@@ -1449,8 +1449,6 @@ async def structure_review(repo, parent, head, *, target_ref):
                     finding = {"unit": unit, "question": ident, "score": score,
                                "threshold": decision["threshold"], "status": decision["status"]}
                     result["findings"].append(finding)
-                    if decision["status"] == "ready":
-                        result["halt"] = True
 
         for has_clusters, group in groups.items():
             if not group:
@@ -1477,6 +1475,7 @@ async def structure_review(repo, parent, head, *, target_ref):
                     batch.close()
     except Exception as exc:
         result["errors"].append(f"infrastructure: {exc}")
+    result["halt"] = any(item["status"] == "ready" for item in result["findings"])
     result["status"] = "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
     if published is not None:
         try:

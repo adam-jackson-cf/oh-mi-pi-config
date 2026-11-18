@@ -61,7 +61,10 @@ Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a fail
 
 With dynaflows on, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
-must say `status: pass` for that head. That file is the one pass signal. The repo's
+must say `status: pass` for that head. Rails also require
+`<git-common-dir>/omp-structure/<head>.json` with that head and `halt: false`; ready
+structure findings block, while provisional findings and recorded infrastructure errors do not.
+Missing or invalid files block even when all decisions are provisional. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
 check run, whoever posts it.

@@ -8,13 +8,15 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
 
 1. Main re-reads the repo's record `gate.json`; invalid policy fails closed and `agentMerge: disabled` requires owner approval.
 2. Confirm the actual PR target, the current exact head and required CI green on it under the table below.
-   With dynaflows on, also confirm `prove()`'s result file for that exact head has `status: pass`
-   ([verify-loop](verify-loop.md)). Rails' `gh pr merge` guard (dynaflows on) checks the same two things.
+   With dynaflows on, rails require both exact-head files: `prove()` with `status: pass` and
+   `structure_review()` with `halt: false`, plus exact-head CI green ([verify-loop](verify-loop.md)).
+   Missing, invalid or wrong-head results block; ready findings block via rails. Fix them and rerun
+   both helpers on the new head. Provisional findings and recorded infrastructure errors do not halt structure review.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. Delegate the rebase to the assigned writer; main never authors commits.
    The writer fetches the target, rebases, then pushes self-created `agent/*` history with `git push --force-with-lease`.
    Rewriting other history requires owner approval. A rebased head needs exact-head CI and, with dynaflows on, one
-   `prove()` run on it; nothing else.
+   `prove()` and `structure_review()` run on it; no re-freeze unless proof bytes changed or a discovery added a proof.
 4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`; add `--auto` when required protection
    supports it. Never use `--admin` or bypass protection.
 5. After every attempt, including errors or auto-merge requests, run `gh pr view <number> --json state,mergeCommit`.
