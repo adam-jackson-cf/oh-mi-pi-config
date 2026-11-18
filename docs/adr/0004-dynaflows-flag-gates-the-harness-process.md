@@ -1,6 +1,6 @@
 # ADR 0004: Dynaflows flag gates the harness process
 
-- Status: accepted, 2026-11-18; native judged-rule toggle pending spike
+- Status: accepted, 2026-11-18
 
 ## Decision
 
@@ -25,10 +25,12 @@ committing, and `prove()` plus `structure_review()` before exact-head merge. Its
 with that workflow.
 
 Native omp judged reply rules (`clean-cutovers`, `flakes`, `measured-claims`, `regression-coverage`)
-stay native. Rails must disable them through the session setting override `ttsr.disabledRules` when
-the session repo has dynaflows off. The API and lifecycle need a separate spike; this change does
-not implement that toggle. Tool-trigger policy disclosure remains deterministic and targeted in
-rails, only with dynaflows on.
+stay native. At `session_start`, when the session cwd's repo has dynaflows off, rails append the
+explicit `dynaflowsRules` names from `agent-rails.yml` to the session setting override
+`ttsr.disabledRules`, preserving existing user exclusions. On leaves the setting untouched.
+The omp 18.22.2 spike established that an awaited lifecycle override suppresses matching without
+a prompt rebuild and is inherited by task children. Already delivered reminders are not retracted.
+Tool-trigger policy disclosure remains deterministic and targeted in rails, only with dynaflows on.
 
 ## Consequences
 
