@@ -1489,5 +1489,141 @@ class TriageTests(unittest.TestCase):
                             {key: evidence() for key in self.keys})
 
 
+class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory(prefix="omp-structure-test-")
+        self.addCleanup(scratch.cleanup)
+        self.repo = Path(scratch.name)
+        git(self.repo, "init", "-q")
+        git(self.repo, "config", "user.email", "structure@example.test")
+        git(self.repo, "config", "user.name", "Structure Test")
+        git(self.repo, "commit", "--allow-empty", "-qm", "base")
+        self.parent = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "commit", "--allow-empty", "-qm", "head")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.questions, self.thresholds = workflow._structure_config()
+        self.states = {"src/orders": {"folder_path": "src/orders", "files": ["src/orders/api.py"],
+                                      "cluster": []}}
+        self.calls = []
+
+    async def review(self, *, score=0.9, error=None, post_error=None):
+        async def judge(state, questions):
+            self.calls.append((state, questions))
+            if error:
+                raise error
+            return {ident: {"bool": score} for ident in questions}
+        with patch.object(workflow, "_structure_config", return_value=(self.questions, self.thresholds)), \
+                patch.object(workflow, "_structure_states", return_value=self.states), \
+                patch.object(workflow, "judge", judge, create=True), \
+                patch.object(workflow, "_post_structure_comment",
+                             side_effect=post_error, return_value="https://example.test/comment") as post:
+            result = await workflow.structure_review(self.repo, self.parent, self.head,
+                                                       target_ref=self.parent)
+        post.assert_called_once()
+        saved = json.loads((workflow._common(self.repo) / "omp-structure" / f"{self.head}.json").read_text())
+        self.assertEqual(saved, result)
+        return result
+
+    async def test_provisional_findings_never_block_or_change_prove_signal(self):
+        signal = workflow.result_path(self.repo, self.head)
+        signal.parent.mkdir()
+        signal.write_text('{"status":"pass"}')
+        result = await self.review()
+        self.assertEqual(result["status"], "shadow")
+        self.assertFalse(result["halt"])
+        self.assertEqual(len(result["findings"]), 7)
+        self.assertEqual(len(result["units"]["src/orders"]["digest"]), 64)
+        self.assertEqual(signal.read_text(), '{"status":"pass"}')
+        self.assertEqual(set(self.calls[0][1]), set(self.questions) - {"prefix_should_be_folder"})
+        self.assertEqual(result["thresholds"], self.thresholds)
+        self.assertIn("raw judgment probabilities", workflow._structure_comment(result))
+
+    async def test_ready_finding_blocks_explicit_caller_guard(self):
+        ident = "folder_name_coverage"
+        self.thresholds["decisions"][ident]["status"] = "ready"
+        result = await self.review(score=0.7)
+        self.assertTrue(result["halt"])
+        self.assertEqual(result["status"], "blocked")
+        prove_result = {"status": "pass"}
+        allowed = prove_result["status"] == "pass" and not result["halt"]
+        self.assertFalse(allowed)
+        below = await self.review(score=0.69)
+        self.assertFalse(below["halt"])
+
+    async def test_prefix_question_only_sees_eligible_clusters(self):
+        eligible = {"prefix": "order", "eligible": True}
+        self.states["src/orders"]["cluster"] = [eligible, {"prefix": "base", "eligible": False}]
+        result = await self.review()
+        self.assertEqual(set(self.calls[0][1]), set(self.questions))
+        self.assertEqual(self.calls[0][0]["unit_state"]["cluster"], [eligible])
+        self.assertEqual(len(result["findings"]), 8)
+
+    async def test_judge_and_publication_errors_report_without_shadow_blocking(self):
+        result = await self.review(error=RuntimeError("judge offline"),
+                                   post_error=RuntimeError("comment offline"))
+        self.assertFalse(result["halt"])
+        self.assertEqual(result["status"], "incomplete")
+        self.assertFalse(result["findings"])
+        self.assertTrue(any("judge offline" in error for error in result["errors"]))
+        self.assertTrue(any("comment offline" in error for error in result["errors"]))
+
+    async def test_invalid_answer_is_incomplete_not_clean(self):
+        result = await self.review(score=float("nan"))
+        self.assertEqual(result["status"], "incomplete")
+        self.assertFalse(result["halt"])
+        self.assertFalse(result["findings"])
+
+    async def test_shared_question_sets_use_batch(self):
+        from types import SimpleNamespace
+        self.states["src/billing"] = {"folder_path": "src/billing", "cluster": []}
+        calls = []
+
+        class Batch:
+            closed = False
+
+            async def drain_iter(batch):
+                for unit in self.states:
+                    yield unit, SimpleNamespace(ok=True, answers={
+                        ident: {"bool": 0.9} for ident in self.questions
+                        if ident != "prefix_should_be_folder"})
+
+            def close(batch):
+                batch.closed = True
+
+        batch = Batch()
+
+        def judge_batch(states, questions, **kwargs):
+            calls.append((states, questions))
+            return batch
+
+        with patch.object(workflow, "judge_batch", judge_batch, create=True):
+            result = await self.review()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0][0]), 2)
+        self.assertEqual(len(result["findings"]), 14)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(batch.closed)
+
+    def test_extractor_uses_isolated_harness_cli_and_exact_commit_range(self):
+        with patch.object(workflow, "run_check", return_value=(True, json.dumps(self.states))) as run:
+            self.assertEqual(workflow._structure_states(self.repo, self.parent, self.head), self.states)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:3], [sys.executable, "-I", "-S"])
+        self.assertEqual(argv[-7:], ["structure-state", "--repo", str(self.repo),
+                                    "--base", self.parent, "--head", self.head])
+
+    def test_shadow_comment_updates_existing_marker_instead_of_posting_again(self):
+        with patch.object(workflow, "_pr_at_head", return_value={"number": 12}), \
+                patch.object(workflow, "_github_repo", return_value="owner/repo"), \
+                patch.object(workflow, "_github", side_effect=[
+                    [{"id": 7, "body": workflow.STRUCTURE_MARKER}],
+                    {"html_url": "https://example.test/comment"}]) as github:
+            result = {"head": self.head, "halt": False, "findings": [], "errors": []}
+            self.assertEqual(workflow._post_structure_comment(self.repo, self.head, result),
+                             "https://example.test/comment")
+        self.assertIn("repos/owner/repo/issues/comments/7", github.call_args.args)
+        self.assertIn("PATCH", github.call_args.args)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1320,3 +1320,176 @@ async def triage_advisories(found, evidence):
     return {"halt": halt, "owner": owner, "fix": [item for item in assessed if item["route"] == "fix"],
             "failures": [f for f in found["failures"] if f["kind"] != "exception"],
             "report": owner_report(owner, exceptions) if halt else ""}
+
+
+STRUCTURE_JUDGMENT = "agent/skills/omp-dyna-workflows/judgments/structure-naming"
+STRUCTURE_MARKER = "<!-- omp-structure-review -->"
+
+
+def _structure_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def _structure_config():
+    directory = _harness_root() / STRUCTURE_JUDGMENT
+    document = json.loads((directory / "questions.json").read_text())
+    thresholds = json.loads((directory / "thresholds.json").read_text())
+    questions = document["questions"]
+    if len(questions) != 8 or any(q.get("type") != "bool" for q in questions.values()):
+        raise WorkflowError("structure questions must contain eight eval bool questions")
+    version = _structure_digest({"questions": questions, "state": document["state"],
+                                 "model": thresholds["model"]})
+    if thresholds["version_key"] != version or thresholds["score_space"] != "raw":
+        raise WorkflowError("structure thresholds are stale or not in raw score space")
+    if set(thresholds["decisions"]) != set(questions):
+        raise WorkflowError("structure thresholds must cover every question")
+    for ident, question in questions.items():
+        decision = thresholds["decisions"][ident]
+        expected = _structure_digest({"question": question, "state": document["state"],
+                                      "model": thresholds["model"]})
+        threshold = decision["threshold"]
+        if (decision["version_key"] != expected or decision["status"] not in ("provisional", "ready")
+                or isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+                or not 0 <= threshold <= 1):
+            raise WorkflowError(f"invalid or stale structure decision: {ident}")
+    return questions, thresholds
+
+
+def _structure_states(repo, parent, head):
+    # Only the harness reference is importable; never import or execute repository code.
+    ok, output = run_check(
+        [sys.executable, "-I", "-S", "-c",
+         "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+         "from omp_guardrails.cli import main; raise SystemExit(main())",
+         str(_harness_root() / GUARDRAILS_REFERENCE),
+         "structure-state", "--repo", str(repo), "--base", parent, "--head", head],
+        repo, timeout=HARNESS_CHECK_TIMEOUT)
+    if not ok:
+        raise WorkflowError(f"structure-state failed: {output}")
+    states = json.loads(output)
+    if not isinstance(states, dict) or any(not isinstance(v, dict) for v in states.values()):
+        raise WorkflowError("structure-state must emit {unit_path: unit_state}")
+    return states
+
+
+def _structure_comment(result):
+    lines = [STRUCTURE_MARKER, f"**Structure/naming shadow review** for `{result['head']}`.",
+             "Scores are raw judgment probabilities, not calibrated confidence. "
+             "Provisional findings never affect prove or merge."]
+    for item in result["findings"]:
+        lines.append(f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
+                     f"≥ {item['threshold']:.3f} ({item['status']})")
+    if not result["findings"]:
+        lines.append("- No findings recorded." if not result["errors"] else "- Review incomplete.")
+    lines.extend(f"- Infrastructure: {error}" for error in result["errors"])
+    if result["halt"]:
+        lines.append("**Blocked:** ready decisions have findings; include `not result['halt']` "
+                     "in the caller's prove/merge guard.")
+    lines.append(f"Full result: `<git-common-dir>/omp-structure/{result['head']}.json`.")
+    body = "\n".join(lines)
+    if len(body) > COMMENT_LIMIT:
+        body = body[:COMMENT_LIMIT - 200] + "\n[Truncated; read the full result file.]"
+    return body
+
+
+def _post_structure_comment(repo, head, result):
+    pr = _pr_at_head(repo, head, ("number",))
+    endpoint = f"repos/{_github_repo(repo)}/issues/{pr['number']}/comments"
+    comments = _github(repo, "api", endpoint, "--paginate")
+    previous = [c for c in comments if STRUCTURE_MARKER in (c.get("body") or "")]
+    endpoint = f"repos/{_github_repo(repo)}/issues/comments/{previous[-1]['id']}" if previous else endpoint
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json") as stream:
+        json.dump({"body": _structure_comment(result)}, stream)
+        stream.flush()
+        response = _github(repo, "api", endpoint, "--method", "PATCH" if previous else "POST",
+                           "--input", stream.name)
+    return response["html_url"]
+
+
+async def structure_review(repo, parent, head, *, target_ref):
+    """PR-time structure judgment, separate from prove(). Callers must guard merge with
+    ``prove_result['status'] == 'pass' and not structure_result['halt']``.
+
+    Only ready decisions can halt. Infrastructure is reported, never turned into a shadow
+    blocker or a clean evaluation. No proof result or merge-signal file is modified.
+    """
+    result = {"head": None, "parent": None, "status": "shadow", "halt": False,
+              "units": {}, "findings": [], "errors": [], "thresholds": None,
+              "version_key": None, "model_reported": None}
+    published = None
+    try:
+        repo = Path(repo).resolve()
+        head = _commit(repo, head)
+        result["head"] = head
+        published = _common(repo) / "omp-structure" / f"{head}.json"
+        parent, _ = _range(repo, parent, head, target_ref)
+        result["parent"] = parent
+        questions, thresholds = _structure_config()
+        result["thresholds"] = thresholds
+        result["version_key"] = thresholds["version_key"]
+        # eval's judge API exposes answers, not a pinned/reported model. Do not invent one.
+        result["model_note"] = "eval judge selects the runtime model; response model metadata unavailable"
+        states = _structure_states(repo, parent, head)
+        groups = {False: {}, True: {}}
+        for unit, state in sorted(states.items()):
+            digest = _structure_digest(state)
+            clusters = [c for c in state.get("cluster", []) if c.get("eligible")]
+            state = {**state, "cluster": clusters}
+            result["units"][unit] = {"digest": digest, "judgment_digest": _structure_digest(state),
+                                     "scores": {}}
+            groups[bool(clusters)][unit] = {"unit_state": state}
+
+        def consume(unit, answers, selected):
+            scores = {ident: _probability(answers, ident, "bool") for ident in selected}
+            result["units"][unit]["scores"] = scores
+            for ident, score in scores.items():
+                decision = thresholds["decisions"][ident]
+                if score >= decision["threshold"]:
+                    finding = {"unit": unit, "question": ident, "score": score,
+                               "threshold": decision["threshold"], "status": decision["status"]}
+                    result["findings"].append(finding)
+                    if decision["status"] == "ready":
+                        result["halt"] = True
+
+        for has_clusters, group in groups.items():
+            if not group:
+                continue
+            selected = {k: q for k, q in questions.items()
+                        if has_clusters or k != "prefix_should_be_folder"}
+            if len(group) == 1:
+                unit, state = next(iter(group.items()))
+                try:
+                    consume(unit, await judge(state, selected), selected)
+                except Exception as exc:
+                    result["errors"].append(f"{unit}: judgment: {exc}")
+            else:
+                batch = judge_batch(group, selected, intent="Structure/naming shadow review")
+                try:
+                    async for unit, item in batch.drain_iter():
+                        try:
+                            if not item.ok:
+                                raise WorkflowError(item.error)
+                            consume(unit, item.answers, selected)
+                        except Exception as exc:
+                            result["errors"].append(f"{unit}: judgment: {exc}")
+                finally:
+                    batch.close()
+    except Exception as exc:
+        result["errors"].append(f"infrastructure: {exc}")
+    result["status"] = "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+    if published is not None:
+        try:
+            _atomic_json(published, result)
+        except Exception as exc:
+            result["errors"].append(f"writing structure result: {exc}")
+        try:
+            result["prComment"] = _post_structure_comment(repo, head, result)
+        except Exception as exc:
+            result["errors"].append(f"posting structure result: {exc}")
+        result["status"] = "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+        try:
+            _atomic_json(published, result)
+        except Exception as exc:
+            result["errors"].append(f"writing structure result: {exc}")
+    return result

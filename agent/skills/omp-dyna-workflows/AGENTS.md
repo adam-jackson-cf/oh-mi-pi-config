@@ -64,8 +64,12 @@ first.
    - Quality checkers run at commit, never inside `prove()`, and there is no separate proof
      command for them. The repo's own tests prove the repo's checkers, and `omp-guardrails`' tests
      prove the harness checkers.
-   - Exception: structure judgment and its deterministic pre-checks run inside `prove()` at PR
-     time under [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   - Exception: deterministic structure pre-checks run inside `prove()` at PR time under
+     [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+     Main then calls `structure_review()` on that PR range. Provisional structure/naming
+     findings and infrastructure errors are shadow-only, never proof or merge blockers.
+     A finding from an explicitly `ready` decision sets `halt`; callers must include
+     `not structure_result["halt"]` alongside prove pass in their merge guard.
 8. **Deterministic first.** Use deterministic checks wherever possible, a calibrated jev-actions
    judgment where they cannot work, and LLM instructions only as a last resort.
 9. **Never version code to keep results comparable.** A code change that invalidates an
