@@ -59,8 +59,9 @@ first.
    - Harness process additions run only with dynaflows on for the path's repo:
      targeted edit reads, path checks, verification handoff reads, owner-only commit
      refusal, commit checks and PR verification. Off means plain omp + git-tool +
-     generic Git safety rails. Native judged-rule disabling via `ttsr.disabledRules`
-     is pending its spike. See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
+     generic Git safety rails. At session start, off appends the configured native judged-rule
+     names to `ttsr.disabledRules`, preserving user exclusions; on leaves it untouched.
+     See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
    - Approvals work for a single owner.
 7. **Proof means outcome tests.**
    - A proof is an outcome test or lever journey linked from the feature map. It is frozen red at

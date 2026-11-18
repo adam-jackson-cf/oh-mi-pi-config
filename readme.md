@@ -123,9 +123,9 @@ and a test, then a re-freeze. Helper contracts live in
 [patterns](agent/skills/omp-dyna-workflows/references/patterns.md); Git/PR/CI/merge authority lives
 in `skill://git-tool`.
 
-Native judged reply rules remain registered for now; disabling them with
-`ttsr.disabledRules` when dynaflows is off awaits the toggle spike. This is a known
-gap in the plain-omp boundary, not an implemented toggle
+Native judged reply rules stay registered, but at session start rails append the configured
+`dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
+Existing user exclusions are preserved; on leaves the setting untouched
 ([ADR 0004](docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)).
 
 omp auto-discovers every module in `agent/extensions/`. To disable one, add

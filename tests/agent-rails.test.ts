@@ -5,7 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { promisify } from "node:util";
-import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { Settings, z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import agentRails from "../agent/extensions/agent-rails";
 import { parseOrigin } from "../agent/lib/repo-record.ts";
 
@@ -104,6 +105,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		},
 	};
 	const api = {
+		pi: { settings: Settings.isolated() },
 		on(name: string, handler: Handler) { handlers.set(name, handler); },
 		registerCommand() {},
 		registerTool(tool: Tool) { tools.set(tool.name, tool); },
@@ -1957,3 +1959,27 @@ test("edit and handoff policy follows each edited repo, not the session cwd", as
 		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
 	} finally { h.cleanup(); other.cleanup(); }
 });
+
+for (const enabled of [undefined, false, true]) {
+	test(`native judged rules follow session dynaflows (${enabled ?? "no record"}) and preserve user exclusions`, async () => {
+		const h = harness();
+		try {
+			if (enabled !== undefined) h.dynaflows(enabled);
+			const rules = lookup("ttsr.disabledRules");
+			assert.ok(rules);
+			rules.override(h.api.pi.settings, ["user-disabled-rule"]);
+			const config = z.object({ dynaflowsRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+			for (const name of config.dynaflowsRules) {
+				assert.ok(existsSync(join(import.meta.dir, "../agent/rules", `${name}.md`)), `configured native rule exists: ${name}`);
+			}
+			await h.emit("session_start");
+			assert.deepEqual(rules.get(h.api.pi.settings), enabled
+				? ["user-disabled-rule"]
+				: ["user-disabled-rule", ...config.dynaflowsRules]);
+			await h.emit("session_start");
+			assert.deepEqual(rules.get(h.api.pi.settings), enabled
+				? ["user-disabled-rule"]
+				: ["user-disabled-rule", ...config.dynaflowsRules], "restarting the session does not duplicate exclusions");
+		} finally { h.cleanup(); }
+	});
+}

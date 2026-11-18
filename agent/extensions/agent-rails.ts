@@ -8,6 +8,7 @@ import {
 	z, type ExtensionAPI, type ExtensionContext, type ToolCallEvent, type ToolResultEvent,
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
+import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import {
 	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, parseOrigin, RECORDS_DIR, readGateText, recordDir, resolveRecord,
 } from "../lib/repo-record.ts";
@@ -28,6 +29,7 @@ const mappingSchema = z.object({
 		}
 	}),
 	testGlobs: stringList,
+	dynaflowsRules: stringList,
 	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
@@ -940,6 +942,11 @@ export default function agentRails(
 		await rebuild(event, ctx);
 		if (loadError) return;
 		const at = await dynaflowsAt(ctx).catch(error => ({ on: false, off: offText(null, String(error)) }));
+		if (!at.on) {
+			const rules = lookup("ttsr.disabledRules");
+			if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
+			rules.override(pi.pi.settings, [...new Set([...stringList.parse(rules.get(pi.pi.settings)), ...map.dynaflowsRules])]);
+		}
 		if (!at.on && at.off) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.off}`));
 	});
 	pi.on("session_switch", rebuild);
