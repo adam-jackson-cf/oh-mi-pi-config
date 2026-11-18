@@ -149,3 +149,10 @@ agent/skills/setup-repo-proofs/assets/python-reference/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/
 !tests/test_delivery_policy.py
+
+# Versioned Linux NUC deployment tooling.
+!scripts/omp-config-sync.py
+!scripts/systemd/
+!scripts/systemd/omp-config-pull.service
+!scripts/systemd/omp-config-pull.timer
+!tests/test_omp_config_sync.py

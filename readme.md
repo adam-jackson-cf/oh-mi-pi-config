@@ -187,6 +187,97 @@ strip the harness's `AGENT` variable from every repo command they run.
    registration checks alone are not behavioral proof.
 5. Keep the durable source concise and leave generated runtime state untracked.
 
+## NUC branch (`nuc-config`)
+
+This branch is the configuration for the Linux NUC (`adam-ai@omarchy.tailf3b31b.ts.net`).
+Merge `main` into `nuc-config` to
+take upstream changes while retaining these Linux settings:
+
+- `agent/AGENTS.md` — the `~/Projects/` folder-structure rule, so work started
+  remotely on the NUC (worktrees included) lands in the right category folder.
+- `agent/lsp.json` and `.omp/lsp.json` — language servers are bare command names
+  resolved on `PATH`, not macOS install paths. `pyright` and
+  `typescript-language-server` are installed with the mise Node
+  (`npm install -g pyright typescript-language-server typescript`).
+  `rust-analyzer` is not installed; the server stays inactive until it is.
+
+### Managed NUC source and runtime
+
+`~/Projects/tools/omp-nuc-config` is the clean `nuc-config` Git checkout.
+`~/.omp` is the deployed runtime, containing private authentication, sessions,
+and generated telemetry configuration. Never run Git or mirror with deletion in
+`~/.omp`. The source checkout stays clean; agent-introspection applies its managed
+telemetry overlay only to the runtime.
+
+`scripts/omp-config-sync.py` replaces the copy-only `~/.local/bin/omp-config-pull`
+script. It locks syncs, requires a clean `nuc-config` checkout, and pulls with
+`--ff-only`. It refuses local edits to tracked runtime files using stored SHA-256 hashes, then
+copies source changes without `.git` and removes retired tracked
+files only when their bytes match the previous deployed source revision. A locally
+modified retired file stops deployment before runtime changes; preserve or resolve
+that file before retrying. Untracked authentication, sessions, and local skills
+remain in place. Private backups, expected runtime hashes, and the deployed revision live under
+`~/.local/state/omp-config-sync` with directory mode `0700` and backup files `0600`.
+Backups contain only files changed by deployment; unchanged daily runs create none.
+The helper records hashes after deployment and after the managed telemetry command,
+including command failure, so retries preserve expected overlay changes. Unknown
+local edits stop sync; preserve them and reconcile with canonical source before retrying.
+Before writing runtime files, the helper saves a private `pending.json` journal.
+An interrupted deployment resumes only bytes matching the known old or intended new
+source hashes. Unknown edits still stop recovery. Recovery runs before any pull and
+requires source HEAD to match the journal target; restore that revision if HEAD moved.
+After deployment state is saved, the journal is removed. SIGTERM permits the
+managed-overlay cleanup to record hashes. SIGKILL or power loss during the external
+overlay can leave unknown bytes; inspect and reconcile those files before retrying.
+Corrupt state or unavailable history stops with an explicit recovery message; restore
+the last deployed revision rather than adopting unknown runtime bytes.
+On first use, run before updating the source manually: the pre-pull source revision
+provides the retirement baseline. For an already updated source, seed
+`deployment.json` in that private state directory with `{"revision":"<old-commit>"}`
+using the last deployed source commit, before running the helper. Bootstrap expects
+tracked runtime files to match that source commit. Inspect and reconcile any
+mismatch first; only seed reviewed expected hashes for an explicitly approved
+managed overlay. Never adopt unknown runtime bytes automatically.
+
+The CLI deploys only to `~/.omp`; it is not a staging command because telemetry
+configuration targets the home runtime.
+
+Requirements: Python 3, Git, Bun **1.3.0** at
+`~/.local/share/mise/installs/bun/1.3.0/bin/bun`, and
+`~/.local/bin/agent-introspection`. Dependency installation uses the explicit Bun
+path, adds it to `PATH`, and sets `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. The repository's
+OMP development dependency is **18.16.0**; keep the separately installed NUC OMP
+binary at or above that version. Check with `omp --version` and update with
+`mise upgrade github:can1357/oh-my-pi`. The helper does not update the OMP binary.
+Restart existing OMP sessions after a successful deployment.
+
+Install the templates from `scripts/systemd/` into `~/.config/systemd/user/`,
+replace the old copy-only service if present, then run `systemctl --user daemon-reload`
+and `systemctl --user enable --now omp-config-pull.timer`. The service is restricted
+to Linux hostname `omarchy` and runs the versioned helper directly. Run
+`systemctl --user start omp-config-pull.service` for an immediate sync and inspect
+`systemctl --user status omp-config-pull.service` for completion. These are user
+services. Check `loginctl show-user adam-ai -p Linger` returns `Linger=yes` so
+the user manager runs after logout and reboot. Linger is already enabled on the
+NUC; enable it with `loginctl enable-linger adam-ai` only if the check fails.
+The service bounds subprocess runtimes and its total runtime, and retries failures
+after one minute, up to three starts per hour, before the next daily timer run.
+After correcting a failure that exhausted this limit, run
+`systemctl --user reset-failed omp-config-pull.service`, then start the service again.
+
+Not carried by this repository, so set up on the NUC separately:
+
+- `~/.agents` is a Git clone of the private `adam-jackson-cf/skills-directory`
+  repository, managed by the owner. It uses the read-only deploy key
+  `~/.ssh/id_ed25519_skills_directory_ro` through the SSH config alias
+  `github-skills-directory` (`git@github-skills-directory:adam-jackson-cf/skills-directory.git`).
+  Skills not tracked there, including the NUC-only `skills/omarchy` and
+  `skills/diagnose-crash` links, remain local to the NUC.
+- The OpenRouter credential: `omp` resolves to the mise shim, with no wrapper.
+  The key is omp's stored credential, imported from Infisical (project `dev`,
+  environment dev) with `omp auth import -`; `omp token openrouter` confirms it.
+  Agent Vault is retired.
+
 ## Device rollout
 
 Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
