@@ -75,7 +75,7 @@ the empty bootstrap manifest first. Main never commits.
 Implementation writes or completes the feature map in the repo: one document per feature under
 `feature_map_path`, each linking the outcome tests or journeys that prove it
 (`skill://test-guidance/references/verification-surface.md`). The confirmed record's
-`profile.md` starts from `skill://test-guidance/assets/templates/test-profile.md`, with its
+`profile.md` starts from `<harness>/agent/lib/record/profile.md`, with its
 machine-readable front matter and prose filled; `omp-guardrails init`, run from the harness with
 `--record <harness>/repos/<owner>/<name>`, drafts the same template and the record's `gate.json`.
 `omp-guardrails profile-check` must pass (PROFILE.complete).

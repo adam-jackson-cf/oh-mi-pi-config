@@ -671,6 +671,33 @@ class IntegrityTests(unittest.TestCase):
         javascript = ["// eslint-disable-next-line", "// @ts-expect-error", "// @ts-ignore", "// @ts-nocheck", "// prettier-ignore", "// biome-ignore lint/all: directive", "//go:build linux", "//nolint:all"]
         self.assertEqual(self.check({"src/directives.py": "\n".join(python) + "\nx = 1\n", "src/directives.ts": "\n".join(javascript) + "\nconst x = 1;\n", "docs/directives.md": "<!-- markdownlint-disable MD013 -->\n"}), [])
 
+    def test_directive_only_blocks_allow_delimiters_and_decorated_directive_lines(self):
+        self.assertEqual(self.check({
+            "src/directives.ts": "/*\n * eslint-disable\n * @ts-ignore\n */\n",
+            "docs/directives.md": "<!--\nmarkdownlint-disable MD013\n-->\n",
+            "src/single.ts": "/* eslint-disable */\n",
+        }), [])
+
+    def test_directive_blocks_report_only_added_prose_lines(self):
+        findings = self.check({
+            "src/directives.ts": "/* eslint-disable\n explanation */\n",
+            "docs/directives.md": "<!-- markdownlint-disable\n prose -->\n",
+            "src/directives.py": "# noqa: E402\n# explanation\n",
+        })
+        self.assertEqual(
+            sorted((item.path, item.rule_id, item.message) for item in findings),
+            [(path, "CODE.no-comments", "line 2: added comment") for path in
+             ["docs/directives.md", "src/directives.py", "src/directives.ts"]],
+        )
+
+    def test_prose_added_inside_existing_directive_blocks_is_reported(self):
+        self.base = self.repo.commit({"src/directives.ts": "/* eslint-disable\n */\n"})
+        findings = self.check({"src/directives.ts": "/* eslint-disable\n * explanation\n */\n"})
+        self.assertEqual(
+            [(item.rule_id, item.message) for item in findings],
+            [("CODE.no-comments", "line 2: added comment")],
+        )
+
     def test_placeholder_bodies_block_and_real_implementations_pass(self):
         findings = self.check({"src/placeholders.py": "def empty():\n    pass\nasync def missing():\n    ...\ndef unsupported():\n    raise NotImplementedError()\ndef real():\n    return 1\n"})
         self.assertEqual([item.rule_id for item in findings], ["CODE.no-placeholder-bodies"] * 3)
