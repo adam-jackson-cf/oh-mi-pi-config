@@ -12,8 +12,8 @@ risk, and clean cutovers over compatibility layers. Changes should solve the
 underlying problem, preserve canonical wording where it matters, migrate callers
 when a design changes, and remove obsolete paths rather than carry them forward.
 `agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
-[delivery principles](agent/skills/omp-dyna-workflows/references/delivery-principles.md)
-and [structure and naming](agent/skills/omp-dyna-workflows/references/structure-and-naming.md);
+[delivery principles](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/delivery-principles.md)
+and [structure and naming](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md);
 `test-guidance` remains generic test practice, usable without dynaflows.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
@@ -100,7 +100,10 @@ This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
 (`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
 with `git config core.hooksPath .githooks`.
 
-Dynaflows switches on the [canonical six-stage workflow](agent/skills/omp-dyna-workflows/SKILL.md).
+Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
+bundled workflow guidance and judged rules. Its
+[canonical six-stage workflow](agent/extensions/dynaflows/skills/omp-dyna-workflows/SKILL.md)
+is available as `skill://omp-dyna-workflows`.
 Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `init $dynaflows`,
 `$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
 `$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
@@ -123,17 +126,21 @@ feature map (the record profile's `verification_surface.feature_map_path`): `fre
 proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
 proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
 and a test, then a re-freeze. Helper contracts live in
-[patterns](agent/skills/omp-dyna-workflows/references/patterns.md); Git/PR/CI/merge authority lives
-in `skill://git-tool`.
+[patterns](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/patterns.md).
+`skill://git-tool` owns Git/PR/CI/merge authority.
 
-Native judged reply rules stay registered, but at session start rails append the configured
-`dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
+Native judged reply rules live inside the package. At session start its extension appends the
+configured `dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
 Existing user exclusions are preserved; on leaves the setting untouched
 ([ADR 0004](docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)).
 
-omp auto-discovers every module in `agent/extensions/`. To disable one, add
-`disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove
-its path from `extensions:`; an explicitly listed path loads even when disabled.
+omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Dynaflows is also
+listed as a directory in `extensions:` so its sibling skills and rules load. Both routes resolve
+the same entry file and omp de-duplicates it. A package skill keeps its bare name without a
+collision; the deprecated original is disabled to avoid one. See
+[ADR 0009](docs/adr/0009-dynaflows-is-an-extension-package.md).
+To disable a module, add `disabledExtensions: [extension-module:<name>]`; explicitly configured
+files bypass that filter, while modules expanded from configured package directories do not.
 
 `.gitignore` is an allowlist for the canonical source kept here. Runtime and
 update-managed state is ignored by default, including state that may appear
@@ -166,7 +173,7 @@ Worktrees resolve to the same record as their main checkout.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. Dynaflows [harness setup](agent/skills/omp-dyna-workflows/references/harness-setup.md)
+devices. Dynaflows [harness setup](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/harness-setup.md)
 adds record configuration to the generic `skill://setup-repo-proofs` workflow.
 Agents write records directly, with approval fields only as the owner stated them in the chat;
 records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit

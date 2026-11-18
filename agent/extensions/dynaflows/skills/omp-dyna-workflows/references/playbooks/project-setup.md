@@ -1,10 +1,10 @@
 # Project setup playbook
 
-Use [the generic repository setup workflow](../../../setup-repo-proofs/SKILL.md) for inventory,
+Use [generic setup](../../../../../../skills/setup-repo-proofs/SKILL.md) for inventory,
 rule mapping, candidate preparation, dry run, owner approval, application and verification.
 Apply [harness setup deltas](../harness-setup.md) at the corresponding steps, not as a second
-setup system. [Record documentation](../../../../lib/record/README.md) owns the local gate and
-[profile documentation](../../../../lib/record/profile.md) owns settings and approvals.
+setup system. [Record documentation](../../../../../../lib/record/README.md) owns the local gate and
+[profile documentation](../../../../../../lib/record/profile.md) owns settings and approvals.
 
 Establish the approved verification surface and the repo's record before guardrails, with any
 repo fixes in a prerequisite PR. Records are local and never committed; the PR holds only
@@ -30,8 +30,8 @@ Pick the setup skill's Step 0 modes from the starting point; more than one can a
 
 Never build a second guardrail system beside the repo's own; the
 [design directive](../../AGENTS.md) holds the principles.
-The harness-owned per-edit `path-check` is the explicit exception in
-[ADR 0002](../../../../../docs/adr/0002-harness-owns-path-checks.md); it is not delegated through `guardrails.check.repo`.
+Harness per-edit `path-check` is not delegated through `guardrails.check.repo`; see the exception in
+[ADR 0002](../../../../../../../docs/adr/0002-harness-owns-path-checks.md).
 
 ## 2. Spike
 

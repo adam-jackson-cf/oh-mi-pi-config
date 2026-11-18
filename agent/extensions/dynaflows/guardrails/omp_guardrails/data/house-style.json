@@ -137,11 +137,11 @@
   },
   "sources": [
     {
-      "source": "oh-mi-pi-config agent/skills/omp-dyna-workflows/references/structure-and-naming.md",
+      "source": "oh-mi-pi-config agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md",
       "contributed": "banned words utils, helpers, manager, misc, common, new, old, legacy, compat, fallback; v<N> only as <name>/v<N>; child never repeats parent; plural only for catalogues (skills, references, commands, tests); snake_case Python, kebab-case asset ids; no version, date or ticket names"
     },
     {
-      "source": "oh-mi-pi-config agent/skills/omp-dyna-workflows/references/structure-and-naming.md",
+      "source": "oh-mi-pi-config agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md",
       "contributed": "grab-bag folders common, utils, misc, helpers; one root test folder with fixtures beside the tests"
     },
     {

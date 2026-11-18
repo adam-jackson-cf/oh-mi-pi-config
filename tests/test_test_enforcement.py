@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
-INDEX = SKILLS / "omp-dyna-workflows/references/test-enforcement.md"
+INDEX = ROOT / "agent/extensions/dynaflows/skills/omp-dyna-workflows/references/test-enforcement.md"
 POINTER = re.compile(
     r"^- ([A-Z]+\.[A-Za-z0-9.-]+) \(omp-guardrails ([a-z-]+(?:, [a-z-]+)*)\)"
     r" → skill://test-guidance/references/([a-z-]+\.md)#([a-z0-9-]+)$",

@@ -54,10 +54,10 @@ _LOADED_FROM = globals().get("__file__")
 
 
 def _harness_root():
-    """The oh-mi-pi-config checkout this file belongs to (<root>/agent/skills/omp-dyna-workflows/templates/)."""
+    """The oh-mi-pi-config checkout containing agent/extensions/dynaflows/skills/omp-dyna-workflows/templates/."""
     if not _LOADED_FROM:
         raise WorkflowError("cannot locate the harness: workflows.py was loaded without __file__")
-    return Path(_LOADED_FROM).resolve().parents[4]
+    return Path(_LOADED_FROM).resolve().parents[6]
 
 
 def _records_root():
@@ -1017,7 +1017,7 @@ _ADVISORY_LINE = re.compile(
         rf" {field}=(?P<{field}>\S*)" if field in ADVISORY_LISTS else rf" {field}=(?P<{field}>\S+)"
         for field in ADVISORY_FIELDS))
 _FAILURE_LINE = re.compile(re.escape(DEPENDENCY_AUDIT) + r" failure=(?P<kind>\S+) path=(?P<path>\S+) reason=(?P<reason>\S.*)")
-SEVERITY_JUDGMENT = "agent/skills/omp-dyna-workflows/judgments/dependency-severity"
+SEVERITY_JUDGMENT = "agent/extensions/dynaflows/skills/omp-dyna-workflows/judgments/dependency-severity"
 SEVERITIES = ("low", "medium", "high", "critical")
 OWNER_SEVERITIES = ("high", "critical")
 # The fixed rubric: an impact class sets the base level; each mitigating dimension that the
@@ -1322,7 +1322,7 @@ async def triage_advisories(found, evidence):
             "report": owner_report(owner, exceptions) if halt else ""}
 
 
-STRUCTURE_JUDGMENT = "agent/skills/omp-dyna-workflows/judgments/structure-naming"
+STRUCTURE_JUDGMENT = "agent/extensions/dynaflows/skills/omp-dyna-workflows/judgments/structure-naming"
 STRUCTURE_MARKER = "<!-- omp-structure-review -->"
 
 

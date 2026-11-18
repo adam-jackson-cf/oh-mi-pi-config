@@ -59,17 +59,17 @@ agent/*
 agent/lib/*
 !agent/lib/repo_record.py
 !agent/lib/repo-record.ts
+!agent/lib/rails-runtime.ts
 !agent/lib/record/
 !agent/lib/record/**
 !agent/rules/
 agent/rules/*
-!agent/rules/agent-rails-*.md
 !agent/skills/
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
 !agent/skills/omp-dyna-workflows/
-!agent/skills/omp-dyna-workflows/**
+!agent/skills/omp-dyna-workflows/SKILL.md
 !agent/skills/jev-actions/
 !agent/skills/jev-actions/**
 !agent/skills/setup-repo-proofs/
@@ -108,6 +108,7 @@ tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
 !tests/agent-rails.test.ts
+!tests/dynaflows-extension.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
 !tests/test_ci_runner.py

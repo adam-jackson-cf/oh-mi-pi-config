@@ -51,7 +51,7 @@ selector in `tiers`. Per-repo values go in the record, never in adapter code.
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the pytest
 adapter's
-[`conformance/cases.json`](../../../extensions/dynaflows/guardrails/omp_guardrails/adapters/pytest/conformance/cases.json).
+[`conformance/cases.json`](../../../guardrails/omp_guardrails/adapters/pytest/conformance/cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;

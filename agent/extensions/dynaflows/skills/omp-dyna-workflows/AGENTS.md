@@ -12,7 +12,7 @@ first.
    History is exempt: ADRs, and frozen study or evaluation records pinned by digest, keep their
    wording.
    Exception to principles 1–2: harness-owned per-edit path checks provide one consistent contract;
-   repo build, tests and CI remain independent. See [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
+   repo build, tests and CI remain independent. See [ADR 0002](../../../../../docs/adr/0002-harness-owns-path-checks.md).
 2. **Grow the repo's controls; the harness covers only the rest.** Where a repository already has
    the capability for a control (its own checkers, linters, test runner or CI gate), grow that
    control by adding the missing rules to it. The harness enforces a rule only when the repo could
@@ -28,7 +28,7 @@ first.
      or the harness setting is stale (remove it).
    - A repo-owned control obeys principle 5: it carries no baseline.
    - Harness `omp-guardrails path-check` is the explicit principles 1–2 exception in
-     [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md), even when repo checks overlap.
+     [ADR 0002](../../../../../docs/adr/0002-harness-owns-path-checks.md), even when repo checks overlap.
 3. **Per-repo configuration lives in the harness.** Each repository's settings are a record in
    oh-mi-pi-config, keyed by the clone's `origin` owner and name. Records are gitignored, never
    committed or part of a PR. A record is harness config: git-tool may read its `ci`
@@ -49,7 +49,7 @@ first.
    outstanding changed-path failures. Drift introduced without the harness blocks the next agent commit.
    Exception: PR-time structure judgment and its deterministic pre-checks are scoped to folders
    the PR adds, renames or moves files into; existing debt is fixed when a PR touches it.
-   See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   See [ADR 0003](../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 6. **Events trigger checks, with no ceremony.**
    - After edits and before commit, rails run harness `omp-guardrails path-check` with record config.
      At commit it is followed by `checks.commit`, then the whole-repo harness checks.
@@ -62,7 +62,7 @@ first.
      refusal, commit checks and PR verification. Off means plain omp + git-tool +
      generic Git safety rails. At session start, off appends the configured native judged-rule
      names to `ttsr.disabledRules`, preserving user exclusions; on leaves it untouched.
-     See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
+     See [ADR 0004](../../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
    - Approvals work for a single owner.
 7. **Proof means outcome tests.**
    - A proof is an outcome test or lever journey linked from the feature map. It is frozen red at
@@ -74,7 +74,7 @@ first.
      command for them. The repo's own tests prove the repo's checkers, and `omp-guardrails`' tests
      prove the harness checkers.
    - Exception: deterministic structure pre-checks run inside `prove()` at PR time under
-     [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+     [ADR 0003](../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
      Main then calls `structure_review()` on that PR range. Provisional structure/naming
      findings and infrastructure errors are shadow-only, never proof or merge blockers.
      A finding from an explicitly `ready` decision sets `halt`; callers must include
