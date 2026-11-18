@@ -118,6 +118,7 @@ tests/fixtures/*
 !tests/test_repo_record.py
 !tests/repo-record.test.ts
 !tests/test_skill_references.py
+!tests/test_test_enforcement.py
 
 !.omp/
 .omp/*

@@ -17,9 +17,10 @@ Select realistic cases that distinguish required behaviour without duplicating a
 - Exclude wiring-only cases, fake echoes, single bug-value pins, private implementation details and prose no caller reads.
 - Stop at one case per behaviour and distinct input class that changes the outcome; map every case to its behaviour.
   Prefer no new test over a bad test.
-- Extend an existing scenario unless the active DynaFlows playbook's freezing rules require a dedicated proof file.
-  The Bug fix playbook's small-dedicated-file rule wins for bugs; other playbooks use the extension default
-  unless their proof-file scope requires isolation. Whole frozen files must remain immutable during implementation.
-- For a regression, cover representative members of the failure class rather than only the reported input;
-  apply the calling workflow's regression-coverage guidance.
+- Extend an existing scenario rather than duplicating it.
+- For a regression, cover representative members of the failure class rather than only the reported input.
+  Check whether existing behavioural tests cover the broken rule; report the failing behaviour and whether coverage protected it.
+  When coverage is missing, expand the relevant existing scenario to protect the intended outcome, not the incidental value.
+  If no behavioural scenario covers the area, report the coverage gap rather than adding a test for the fixed case.
+  Never add duplicate or narrowly tailored cases that pin only one bug-fix value, example or changed text.
 - Apply [outcome-tests.md](outcome-tests.md) to kept cases and [property-tests.md](property-tests.md) to pure cores.
