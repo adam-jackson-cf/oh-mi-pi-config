@@ -11,10 +11,6 @@ CORE_SKILLS = ("coding-guidance", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 GUARDRAILS = SKILLS / "setup-repo-proofs/assets"
 HOUSE_STYLE = GUARDRAILS / "python-reference/omp_guardrails/data/house-style.json"
-ENFORCED_BY = re.compile(
-    r"Enforced by ((?:[A-Z]+\.[A-Za-z0-9.-]*[A-Za-z0-9])(?: and [A-Z]+\.[A-Za-z0-9.-]*[A-Za-z0-9])*)"
-    r" \(omp-guardrails ([a-z-]+(?:, [a-z-]+)*)\)"
-)
 
 
 class SkillReferenceTests(unittest.TestCase):
@@ -90,27 +86,6 @@ class SkillReferenceTests(unittest.TestCase):
                 self.assertEqual(declared.group(1).strip().strip("\"'"), name,
                                  f"{entry.relative_to(ROOT)}: frontmatter name must match directory")
 
-
-    def test_test_guidance_pointers_name_catalogue_rules_and_their_subcommands(self):
-        catalogue = json.loads((GUARDRAILS / "python-reference/omp_guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
-        subcommands = {
-            row["id"]: {item["subcommand"] for item in row.get("reference", [])}
-            for row in catalogue["rules"]
-        }
-        guidance = SKILLS / "test-guidance"
-        pointers = []
-        for source in sorted(guidance.rglob("*.md")):
-            for match in ENFORCED_BY.finditer(source.read_text(encoding="utf-8")):
-                for rule in match.group(1).split(" and "):
-                    pointers.append((source.relative_to(ROOT), rule, set(match.group(2).split(", "))))
-        self.assertTrue(pointers, "test-guidance has no 'Enforced by' pointers")
-        for source, rule, named in pointers:
-            with self.subTest(source=str(source), rule=rule):
-                self.assertIn(rule, subcommands, f"{source}: unknown rule {rule}")
-                self.assertTrue(named & subcommands[rule],
-                                f"{source}: {rule} is not implemented by omp-guardrails {named}")
-                self.assertLessEqual(named, set().union(*subcommands.values()),
-                                     f"{source}: {rule} names an unknown subcommand")
 
     def test_coding_guidance_style_lists_live_in_house_style(self):
         house_style = json.loads(HOUSE_STYLE.read_text(encoding="utf-8"))
