@@ -3,10 +3,9 @@
 ## Audience
 
 - Write for a reviewer arriving cold: no session history, no knowledge of the plan, limited time.
-- The description exists to direct review attention, not to prove every claim. Evidence is a summary; the diff and linked docs hold the detail.
+- The description directs review attention. Evidence is a summary; the diff and linked docs hold the detail.
 - Target 400–650 words. If you are over, cut evidence before cutting the risk table.
-- The implementation writer owns the body and later corrections. With dynaflows on, `prove()` posts its result as a
-  separate PR comment ([verify-loop](verify-loop.md#the-pr-check)), outside this word budget.
+- The assigned writer owns the body and later corrections.
 
 ## Template
 
@@ -64,7 +63,7 @@ Closes #<n>. <Depends on <repo>#<n>, if any.>
 - Use existing CI-reported measurements only. Include test count/time comparisons only for comparable head/default runs of the same tier;
   otherwise say `baseline unavailable`. Never invent a budget, fabricate measurements or run extra suites/benchmarks solely to fill the body.
 - One line per check. Link long analysis rather than pasting tables of per-item results.
-- Full proof evidence belongs in `prove()`'s result comment, not this summary.
+- Link detailed check evidence rather than repeating it in this summary.
 - Always include `Not tested:`; an empty answer must be earned.
 - When a comparison is confounded, say what the numbers do not show in bold, before the reader draws the wrong conclusion.
 
@@ -75,7 +74,7 @@ Closes #<n>. <Depends on <repo>#<n>, if any.>
 
 ## Avoid
 
-- Pasting gate or CI command strings, per-hook or per-stage tables, and transcripts.
+- Pasting gate or CI command strings, per-hook process tables, and transcripts.
 - File-by-file changelogs; the diff already shows them.
 - Repeating the issue body or restating `Done when` lines one by one.
 - Unexplained internal jargon; name the thing plainly on first use.

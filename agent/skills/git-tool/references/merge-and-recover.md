@@ -6,17 +6,13 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
 
 ## Merge one pull request
 
-1. Main re-reads the repo's record `gate.json`; invalid policy fails closed and `agentMerge: disabled` requires owner approval.
+1. Main re-reads the repo's record `gate.json` when present; invalid declared policy fails closed and
+   `agentMerge: disabled` requires owner approval. No record is required for ordinary Git work.
 2. Confirm the actual PR target, the current exact head and required CI green on it under the table below.
-   With dynaflows on, rails require both exact-head files: `prove()` with `status: pass` and
-   `structure_review()` with `halt: false`, plus exact-head CI green ([verify-loop](verify-loop.md)).
-   Missing, invalid or wrong-head results block; ready findings block via rails. Fix them and rerun
-   both helpers on the new head. Provisional findings and recorded infrastructure errors do not halt structure review.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
-   or `BEHIND` when protection requires up-to-date. Delegate the rebase to the assigned writer; main never authors commits.
-   The writer fetches the target, rebases, then pushes self-created `agent/*` history with `git push --force-with-lease`.
-   Rewriting other history requires owner approval. A rebased head needs exact-head CI and, with dynaflows on, one
-   `prove()` and `structure_review()` run on it; no re-freeze unless proof bytes changed or a discovery added a proof.
+   or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,
+   then pushes self-created `agent/*` history with `git push --force-with-lease`.
+   Rewriting other history requires owner approval. A rebased head needs exact-head CI again.
 4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`; add `--auto` when required protection
    supports it. Never use `--admin` or bypass protection.
 5. After every attempt, including errors or auto-merge requests, run `gh pr view <number> --json state,mergeCommit`.
@@ -29,7 +25,7 @@ Authority and approval boundaries remain in [git-tool](../SKILL.md).
 
 The writer submits and waits for PR-head CI. Every dispatch, status and log refers to an exact SHA; a run for an old
 head cannot approve a new one. With `ci` declared, the required context decides; otherwise inspect all reported/required
-GitHub checks. Missing protection or a protection API error never waives an existing gate. CI must run `checks.ci`.
+GitHub checks. Missing protection or a protection API error never waives an existing gate. Use `checks.ci` when declared.
 
 | Observed state on the PR head | Action |
 | --- | --- |
@@ -41,7 +37,7 @@ GitHub checks. Missing protection or a protection API error never waives an exis
 | Genuine failed/cancelled CI | Return logs to the assigned writer for repair |
 | Missing / unknown required state | Stop and resolve/escalate |
 
-Infrastructure failures are not red proof or red CI assertion evidence. Never waive a required gate.
+Infrastructure failures are not failed CI assertion evidence. Never waive a required gate.
 
 ### Declared CI contract
 
@@ -77,17 +73,15 @@ alone is insufficient. Repository-specific fallbacks live in that repository's p
 Repositories whose record declares `ci` never qualify for the no-CI exception. Otherwise, only when host queries establish
 **no checks at all** and the repository has **no CI workflow** may exact-head local `checks.ci` replace CI.
 Record commands, outputs, SHA, host-query evidence and `no CI / no protection` in a PR comment.
-With dynaflows on, a record with valid schema-v2 controls remains a prerequisite to `prove()`; this exception cannot
-evade bootstrap. Unknown host state or commands block.
+Without a declared local CI command, or with unknown host state, stop and resolve/escalate.
 
 ### Who writes records
 
 The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
-checks, profile `guardrails.structure`, `guardrails.naming`, `guardrails.paths` and `guardrails.check` settings, the `dynaflows` switch, exceptions and approvals. It is never
-committed and never part of a PR. Agents write records directly. Write approval fields only as the owner
-stated them in the chat. This does not change `ownerOnlyPaths`: rails still refuse agent commits that
-touch those owner-only repository paths. Setup Step 5 owner approval remains required before applying
-repository fixes.
+checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
+Agents write records directly. Write approval fields only as the owner stated them in the chat.
+Record-write authority grants no permission to change repository owner-only paths.
+Record-write authority does not approve repository fixes that separately require owner approval.
 
 ## Recover a red default branch
 
@@ -95,8 +89,6 @@ repository fixes.
 2. Delegate a revert to an implementation task on a fresh `agent/revert-<slug>` branch from the fetched current target.
    Revert the landed range; never reset or rewrite default. Unsafe attribution or dependent changes require owner
    escalation with evidence.
-3. The revert is an ordinary PR with no behaviour proofs: exact-head CI green and, with dynaflows on, `prove()` on an
-   empty manifest. `agentMerge: disabled` still applies. `prove()` blocks a revert that changes a feature-map doc,
-   because that doc links no frozen proof; escalate that revert to the owner with the blocking doc paths.
-4. Implement the durable fix as a separate PR whose proofs reproduce the failure. Use `skill://codify-omp-workflow-corrections`
+3. The revert is an ordinary PR requiring exact-head CI green. `agentMerge: disabled` still applies.
+4. Implement the durable fix as a separate PR with regression coverage. Use `skill://codify-omp-workflow-corrections`
    when the incident exposes a repeated class. Owner authority never permits unrelated changes or check bypasses.

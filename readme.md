@@ -51,11 +51,17 @@ not trigger the check. Arbitrary interpreter, xargs/find and shell-write detecti
 are not promised.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
-closed for those actions. All-session handoff, including subagents, stays blocked
-until verification references are read after that session's code edits and failed
-harness `path-check` paths pass on retry. Rails run `omp-guardrails path-check --repo <worktree>
---record <record dir>` from the harness. It covers edited paths plus prior failures
-that `git status` reports as changed or untracked, not every repository file.
+closed for those actions. The record is harness config that git-tool may read for
+`agentMerge` and `ci`, independently of dynaflows. With dynaflows off (including no
+record), sessions get plain omp + git-tool + generic Git safety rails: no edit
+read gates, path checks, verification handoff reads or owner-only commit refusal.
+With dynaflows on for the edited path's repo, targeted integrity/new-code/test reads
+fire before edits. All-session handoff, including subagents, stays blocked until
+verification references are read after that session's code edits in an enabled repo
+and failed harness `path-check` paths pass on retry. Rails run
+`omp-guardrails path-check --repo <worktree> --record <record dir>` from the harness.
+It covers edited paths plus prior failures that `git status` reports as changed or
+untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
 
@@ -71,8 +77,9 @@ check run, whoever posts it.
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
-`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. At each agent
-commit, rails run harness `omp-guardrails path-check` with repo and record arguments,
+`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. With
+dynaflows on, each agent commit refuses changes to record `ownerOnlyPaths` and
+runs harness `omp-guardrails path-check` with repo and record arguments,
 then `checks.commit`, and then `omp-guardrails check`, also run from this checkout with
 `--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the record.
@@ -115,6 +122,11 @@ proof. Behaviour found during implementation, or by the map sweep before the PR,
 and a test, then a re-freeze. Helper contracts live in
 [patterns](agent/skills/omp-dyna-workflows/references/patterns.md); Git/PR/CI/merge authority lives
 in `skill://git-tool`.
+
+Native judged reply rules remain registered for now; disabling them with
+`ttsr.disabledRules` when dynaflows is off awaits the toggle spike. This is a known
+gap in the plain-omp boundary, not an implemented toggle
+([ADR 0004](docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)).
 
 omp auto-discovers every module in `agent/extensions/`. To disable one, add
 `disabledExtensions: [extension-module:<name>]` to `agent/config.yml` and remove

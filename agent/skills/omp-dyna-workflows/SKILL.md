@@ -87,8 +87,11 @@ Plan review is optional unless requested.
 
 ### 4. Implement
 
-Main requires a record whose schema-v2 `gate.json` has `checks.commit`;
-a record missing it, or carrying a field outside the schema (including the obsolete path command field),
+Before ordinary implementation, main requires a valid pathCheck-free schema-v2 record:
+`gate.json` has `checks.commit`, and `profile.md` supplies complete path-check settings.
+No record or missing controls requires the owner-approved Project setup prerequisite; bootstrap may
+propose the record and repository fixes before controls exist, never bypass approval.
+A missing required field or a field outside the schema (including obsolete `checks.pathCheck`)
 fails to load with an error naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns
 accepted schema fields/types; its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves
 `prove()` and CI. Rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>`
@@ -117,6 +120,9 @@ worktree using absolute paths. Rails reject enclosing-root symlink escapes and r
 `git worktree add` outside `<worktree.base>/<repo>/<slug>`; the assigned worktree for edit-tool
 writes stays an instruction boundary. Outside-repo scratch and internal URIs remain allowed.
 
+Proof precedes implementation; main never commits, patches implementation or writes the PR body.
+Use sequential non-isolated tasks, not isolated patch-return modes:
+
 1. Proof `task` writes proof files and the feature-map entries that link them, and stops
    uncommitted: no staging, push or PR.
 2. Main calls `freeze()` on those bytes; freeze refuses a proof file no feature-map doc links
@@ -138,6 +144,9 @@ writes stays an instruction boundary. Outside-repo scratch and internal URIs rem
 6. Main never commits. The writer pushes, writes the PR description, opens the PR
    and waits for exact-head green CI under git-tool's mechanics.
 
+The writer owns the PR body and later corrections, using existing reported evidence only.
+Full proof evidence belongs in `prove()`'s separate result comment, outside the PR body's word budget.
+
 Each brief requires reads before editing. Proof briefs supply the record's `profile.md` path and
 `skill://test-guidance/references/case-selection.md`, `naming-and-layout.md`, `outcome-tests.md`
 and `tiers.md` under that reference prefix; add `property-tests.md`, `determinism.md`,
@@ -157,6 +166,7 @@ Rails require `skill://test-guidance/references/before-commit.md` before any wri
 
 ### 5. Verify
 
+The valid pathCheck-free schema-v2 record from stage 4 remains required for verification.
 Main confirms the writer has no pending edits, then calls `prove()` against the PR's current
 head ([patterns](references/patterns.md#prove)). `prove()` checks four things:
 
@@ -176,7 +186,7 @@ It writes its result to
 guard requires it, the structure result below and CI green on that head. A rebase or other branch
 update requires both `prove()` and `structure_review()` on the new head before merge.
 No review agent or status posting; re-freeze only for a discovery or a changed proof file.
-Mechanics live in `skill://git-tool/references/verify-loop.md`.
+Mechanics live in [verify-loop](references/verify-loop.md).
 
 After `prove()`, main calls `await structure_review(repo, parent, head, target_ref=target_ref)`
 on that same PR range ([contract](references/patterns.md#structure_review)). It extracts affected
@@ -189,11 +199,19 @@ See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 
 ### 6. Integrate
 
-Main follows `skill://git-tool/references/merge-and-recover.md` for merge method,
-confirmation and recovery. Git-tool owns Git authority: `agentMerge: disabled` requires owner
-approval. Do not copy merge mechanics into playbooks.
-With dynaflows on, rails require exact-head CI green, prove pass and the structure result with
-`halt: false`; fix ready findings and rerun both helpers on the new head before merging.
+The valid pathCheck-free schema-v2 record from stage 4 remains required; the Git no-CI exception
+does not waive setup. Main never commits. Main follows
+`skill://git-tool/references/merge-and-recover.md` for merge method, confirmation and recovery.
+Git-tool owns Git authority: `agentMerge: disabled` requires owner approval.
+Do not copy merge mechanics into playbooks. Before merge, main must have run both `prove()` and
+`structure_review()` on the current exact PR head, with CI green, prove `status: pass` and structure
+`halt: false`. Missing, invalid or wrong-head results block, even with an empty manifest.
+Fix ready findings and rerun both helpers and CI on every new head before merging.
+
+Recovery uses git-tool's revert mechanics, with an empty manifest when the revert changes no
+behaviour. A revert still needs both exact-head helpers; if it changes a feature-map doc without
+a linked frozen proof, `prove()` blocks. Escalate with those doc paths rather than waive the gate.
+The durable fix gets its own PR with proofs reproducing the failure.
 
 ## References and evals
 
