@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 # Task
 
+The [workflow page](workflow.html) explains this contract; it is not a second contract.
+
 ## Start here
 
 This skill applies only with dynaflows on. Each repo's settings live in its **record**:
