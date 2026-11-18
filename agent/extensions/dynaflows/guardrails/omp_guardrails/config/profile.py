@@ -3,6 +3,8 @@
 The profile lives in the harness, never in the repository: ``<record>/profile.md``, where the
 record is ``<oh-mi-pi-config root>/repos/<owner>/<name>/`` and the caller passes it as
 ``--record DIR``. Findings about the profile name it ``record:profile.md``.
+The harness schema and template live at ``agent/lib/record/profile.md``; the generic
+test-guidance template does not define harness adapter, structure or guardrail settings.
 
 Format choice: ``profile.md`` starts with a front-matter block between two ``---``
 lines that holds one JSON object. JSON is valid YAML flow syntax, so Markdown and YAML tools

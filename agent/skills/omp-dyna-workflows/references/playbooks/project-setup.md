@@ -1,8 +1,14 @@
 # Project setup playbook
 
+Use [the generic repository setup workflow](../../../setup-repo-proofs/SKILL.md) for inventory,
+rule mapping, candidate preparation, dry run, owner approval, application and verification.
+Apply [harness setup deltas](../harness-setup.md) at the corresponding steps, not as a second
+setup system. [Record documentation](../../../../lib/record/README.md) owns the local gate and
+[profile documentation](../../../../lib/record/profile.md) owns settings and approvals.
+
 Establish the approved verification surface and the repo's record before guardrails, with any
-repo fixes in a prerequisite PR. The record (`repos/<owner>/<name>/` under the oh-mi-pi-config
-root) is local and never committed; the PR holds only repo changes that never mention omp.
+repo fixes in a prerequisite PR. Records are local and never committed; the PR holds only
+independent repo changes that never mention omp.
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order.
 Helper mechanics live in [patterns](../patterns.md) and [verify-loop](../verify-loop.md);
 Git mechanics in `skill://git-tool`.

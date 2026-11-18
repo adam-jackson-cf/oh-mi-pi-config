@@ -166,8 +166,8 @@ Worktrees resolve to the same record as their main checkout.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. `skill://setup-repo-proofs` drafts a record for owner
-confirmation and writes nothing into the target repo except approved fixes.
+devices. Dynaflows [harness setup](agent/skills/omp-dyna-workflows/references/harness-setup.md)
+adds record configuration to the generic `skill://setup-repo-proofs` workflow.
 Agents write records directly, with approval fields only as the owner stated them in the chat;
 records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit
 block remain unchanged. When dynaflows resolves off, rails say why
@@ -320,12 +320,12 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/skills/setup-repo-proofs/` — repository guardrail setup. Its
-  `omp-guardrails` Python reference ships the rule catalogue
-  (`omp_guardrails/data/guardrail-rules.json`). The harness runs it from this
-  checkout over each repository from outside its tree. Its own tests prove every rule
-  it implements.
-  `assets/example-record/` is the tracked generic per-repo record.
+- `agent/skills/setup-repo-proofs/` — generic repository verification setup, independent
+  of any assistant or harness.
+- `agent/extensions/dynaflows/guardrails/` — harness-side checkers and the rule catalogue
+  (`omp_guardrails/data/guardrail-rules.json`), run outside inspected repositories.
+  Its own tests prove every rule it implements.
+- `agent/lib/record/` — per-repo harness configuration documentation, schema and examples.
 - `agent/lib/repo_record.py` and `agent/lib/repo-record.ts` — the origin-to-record
   resolver for Python and TypeScript callers.
 - `repos/<owner>/<name>/` — personal per-repo records; gitignored, never committed.

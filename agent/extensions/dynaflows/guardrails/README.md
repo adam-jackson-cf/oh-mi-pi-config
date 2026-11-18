@@ -12,7 +12,7 @@ The agent rails run it at the agent's commit, after the repository's own
 commit command:
 
 ```text
-uv run --project <omp root>/agent/skills/setup-repo-proofs/assets/python-reference \
+uv run --project <omp root>/agent/extensions/dynaflows/guardrails \
   omp-guardrails check --repo <worktree> --record <record dir>
 ```
 
@@ -70,32 +70,10 @@ no findings, `1` with findings and `2` for a usage error.
 
 ## Configure
 
-Every per-repository value lives in the record's `profile.md` front matter:
-
-- The test-guidance keys (tiers, layout, `public_entry_points`, budgets and
-  others) feed the test-evidence, diff, environment and surface checkers.
-- `guardrails.<checker>` holds checker settings, such as `guardrails.python`
-  for `python-quality`, `python-scalability` and `python-fanout`, or
-  `guardrails.structure` and `guardrails.naming`. A section name outside
-  `GUARDRAILS_SECTIONS` in `omp_guardrails/config/profile.py` fails
-  `profile-check`.
-- `guardrails.check.run` picks the `check` steps (default: every step in
-  `omp_guardrails/whole_repo.py` `DEFAULT_STEPS`), and `guardrails.check.exclude`
-  lists generated, vendored and fixture paths whose findings are dropped.
-- `guardrails.check.repo` maps a step to the repo checker files that between
-  them already enforce every rule it reports, for example
-  `{"python-quality": ["scripts/checks/check-python-quality.py"]}`. The repo's
-  `checks.commit` runs those checkers, so `check` leaves the step out.
-- `house_style.version` records the shipped
-  `omp_guardrails/data/house-style.json` version. `house_style.exceptions`
-  lists exceptions as `{rule, path, adr}`; an exception without an ADR is
-  ignored.
-- Approvals (for example `guardrails.coverage_ratchet.approvals`) are the
-  owner's hand edits of the record.
-- `structure.import_direction.native` runs the repository's import-contract
-  command for paths matching `scan` (or `source_root`), regardless of extension,
-  in both `path-check` and `structure`. Without path arguments, repository
-  inventory selects the sources. Python AST direction checks remain Python-only.
+Per-repository values, field contracts, approvals and examples live in
+[the record documentation](../../../lib/record/README.md). The harness profile template
+is [`profile.md`](../../../lib/record/profile.md); generic test planning uses the separate
+test-guidance template.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers
@@ -103,14 +81,9 @@ every maintained root. Unconfigured repositories therefore fail with findings
 instead of passing silently. Numeric defaults are the catalogue contract
 values.
 
-`omp-guardrails init --repo DIR --record DIR` drafts the record for owner
-confirmation directly in the live record or a draft directory. Agents write records directly,
-with approval fields only as the owner stated them in the chat. Records are never committed or
-part of a PR. `--enable-dynaflows` drafts dynaflows on when the owner asked for it in the chat.
-It discovers make targets, hook managers, CI jobs and, through `gh`, the required checks; it
-writes `gate.json`, `profile.md` and proposed native-tool configs under
-`proposed/` in the record, and nothing into the
-repository.
+`omp-guardrails init --repo DIR --record DIR` drafts the configuration described in
+[record setup](../../../lib/record/README.md), discovering make targets, hook managers,
+CI jobs and required checks through `gh`, without writing into the repository.
 
 For TypeScript 7 and newer, init uses the repository's installed native compiler
 (`node_modules/typescript/bin/tsc --lsp --stdio`) for its references readiness

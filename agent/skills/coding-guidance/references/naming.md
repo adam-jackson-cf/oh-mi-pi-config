@@ -2,7 +2,7 @@
 
 Name for what it holds or does; one name per concept.
 The word lists, casing per ecosystem, `v<N>` patterns and plural allowlist are data in
-[house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json); `omp-guardrails naming` enforces them.
+[house-style.json](../../../extensions/dynaflows/guardrails/omp_guardrails/data/house-style.json); `omp-guardrails naming` enforces them.
 
 - Folder/module: singular lowercase noun for its concept or tier (`capability`, `harness`, `engine`).
   Plural only for a catalogue of independent same-kind items addressed by name (house-style `catalogue_plurals`).

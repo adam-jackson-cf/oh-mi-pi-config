@@ -15,8 +15,8 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
-SKILL_TEMPLATE = ROOT / "agent/skills/test-guidance/assets/templates/test-profile.md"
+REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+SKILL_TEMPLATE = ROOT / "agent/lib/record/profile.md"
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails import cli, harness  # noqa: E402

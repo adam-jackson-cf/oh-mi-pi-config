@@ -7,8 +7,8 @@ conformance run rather than by review.
 
 ## When this applies
 
-Step 3 reaches this reference when the target's test framework has no adapter
-in the stack's skill reference. The shared test-evidence checkers stay
+The harness setup's Step 3 reaches this reference when the target's test framework has no adapter
+in the engine. The shared test-evidence checkers stay
 framework-agnostic: they read only normalised evidence. An adapter is the thin
 framework-specific part that produces that evidence.
 
@@ -51,7 +51,7 @@ selector in `tiers`. Per-repo values go in the record, never in adapter code.
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the pytest
 adapter's
-[`conformance/cases.json`](../assets/python-reference/omp_guardrails/adapters/pytest/conformance/cases.json).
+[`conformance/cases.json`](../../../extensions/dynaflows/guardrails/omp_guardrails/adapters/pytest/conformance/cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -76,10 +76,10 @@ depend on any framework.
 
 ## Where the adapter lives
 
-- The adapter lives in the harness from its first repo: under the stack's
-  skill reference at `adapters/<framework>/` in oh-mi-pi-config, with its
-  conformance fixtures as that reference's own tests. The harness owns the
-  adapter; the target repository has no awareness of it.
+- The adapter lives in the harness from its first repo: under
+  `agent/extensions/dynaflows/guardrails/omp_guardrails/adapters/<framework>/`
+  in oh-mi-pi-config, with conformance fixtures as the engine's own tests.
+  The harness owns the adapter; the target repository has no awareness of it.
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only

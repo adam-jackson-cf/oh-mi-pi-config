@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
+REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
 FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text())
 sys.path.insert(0, str(REFERENCE))
 

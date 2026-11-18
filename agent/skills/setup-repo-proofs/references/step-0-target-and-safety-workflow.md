@@ -2,43 +2,28 @@
 
 ## Objective
 
-Establish a safe, reproducible target, its record path and the setup mode before analysis.
+Establish a safe, reproducible target and the setup modes before analysis.
 
 ## Required actions
 
-1. Run `git rev-parse --show-toplevel` and `git status --porcelain=v1` in the target. Exit with a
+1. Run `git rev-parse --show-toplevel` and `git status --porcelain=v1` in the target. Stop with a
    clear reason if it is not a Git repository.
-2. Resolve the record path from `git remote get-url origin`: `https://github.com/<owner>/<name>(.git)`,
-   `git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)` gives
-   `repos/<owner>/<name>/` (lowercase) under the oh-mi-pi-config root: the checkout whose
-   `agent/skills/` directory holds this skill, the same root the rails use. A worktree resolves to
-   its main checkout's record. No GitHub `origin` remote means no record; report it and stop.
-   Record whether that record already exists.
-3. Record the base ref, tracked and untracked work, protected paths, chosen language/runtime stack,
-   operating system, and CI provider. Verify user-supplied stack choices against source and lockfile
-   evidence.
-4. The harness checks cover the whole repository. There are no baselines and no new/changed-code
-   scope. Record candidate scope exclusions only for generated, vendored and fixture paths, with
-   evidence; they become record config after approval. Third-party code is excluded at the
-   boundary (design directive principle 10); Step 1 maps that boundary.
-5. Identify agent instructions and access restrictions before reading files. Never inspect secret
-   files or protected paths without their required authorization; verify environment variables by
-   presence only.
-6. Select a temporary candidate root outside the target checkout and outside the records directory.
-   No target writes, record writes, package installation, formatter fixes, Git staging, or CI
-   changes occur in Steps 0–5.
-7. Record whether the target has an existing hook, gate runner, test suite, type checker, linter, or
-   documentation ownership rule. Existing files remain owned by the target until the user chooses
-   keep, merge, or replace.
-8. Record every setup mode that applies: `greenfield` when no record exists and the target
-   has no guardrail checks; `adopt` when the repo has its own checkers or configurable tools
-   that enforce, or could hold, harness rule families that the record, if one exists, does not
-   give them in `guardrails.check.repo` (Step 2's `repo` and `grow` outcomes); and `extend`
-   when a record exists and only a missing part is added, such as a verification surface.
-   An existing record does not rule out `adopt`.
+2. Capture the base ref or its absence, tracked and untracked work, protected paths, language/runtime,
+   operating system and CI provider. Verify supplied stack choices against source and lock files.
+3. Checks cover the whole repository, without waived-finding baselines or new/changed-code scope.
+   List proposed generated, vendored and fixture exclusions with origin evidence. Third-party code
+   is outside the owned-code boundary; an edited vendored copy is owned code.
+4. Identify instructions and access restrictions before reading files. Never inspect secrets or
+   protected paths without authorization. Check environment variables by presence only.
+5. Select a temporary candidate root outside the target. Steps 0–5 make no target changes,
+   package installations, formatter fixes, staging changes or CI changes.
+6. Identify existing hooks, gate runners, tests, type checkers, linters and documentation ownership.
+   Existing files retain their owner until an explicit keep, merge or replace decision.
+7. Select every applicable mode: `greenfield` for a project without guardrail checks; `adopt` when
+   existing checkers or configurable tools can carry the selected rules; `extend` when adding only
+   a missing part to established controls. Modes can overlap.
 
 ## Done when
 
-- Git root, record path, stack evidence, CI provider, base ref or its absence, scope exclusion
-  candidates, protected paths, and unrelated work are recorded.
-- Candidate work has a separate temporary root, and the target checkout and records are unchanged.
+The Git root, stack evidence, CI provider, base ref, exclusions, protected paths and unrelated work
+are known. Candidate work has a separate temporary root; the target is unchanged.

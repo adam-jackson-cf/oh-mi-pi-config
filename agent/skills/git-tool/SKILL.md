@@ -12,7 +12,9 @@ disable-model-invocation: true
 
 A repo's **record**, when present, is its personal harness config: `repos/<owner>/<name>/` under the oh-mi-pi-config root,
 named by the clone's `origin` remote, gitignored and never committed. It holds `gate.json` (commands, `ci`, `agentMerge`)
-and `profile.md`. A record is not a prerequisite for ordinary Git work; its declared policy still applies.
+and `profile.md`. [The record contract](../../lib/record/README.md) defines its schema, resolution,
+[`ci` and `agentMerge`](../../lib/record/README.md#merge-and-ci-policy) policy.
+A record is not a prerequisite for ordinary Git work; its declared policy still applies.
 
 The orchestrating (main) agent owns each change from branch to merge; the owner reviews merged PRs afterwards when he chooses.
 The assigned writer commits, pushes, writes the description, opens the PR and waits for exact-head green CI before handing off.

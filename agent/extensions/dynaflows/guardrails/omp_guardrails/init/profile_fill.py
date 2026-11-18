@@ -1,7 +1,7 @@
 """Write the record's ``profile.md`` from the template without overwriting recorded values.
 
-The template is the test-guidance skill's ``assets/templates/test-profile.md``, read from the
-harness (``omp_guardrails.harness.PROFILE_TEMPLATE``).
+The template is ``agent/lib/record/profile.md``, read from the harness
+(``omp_guardrails.harness.PROFILE_TEMPLATE``), not the generic test-guidance template.
 
 Merge rule: a key the profile already holds keeps its value. Missing keys come from the
 template, recursively through nested sections. Two kinds of template object are taken whole
@@ -37,7 +37,7 @@ def template_text() -> str:
         return harness.PROFILE_TEMPLATE.read_text(encoding="utf-8")
     except OSError as error:
         raise ProfileError(
-            f"cannot read the test-profile template {harness.PROFILE_TEMPLATE}: {error}"
+            f"cannot read the record-profile template {harness.PROFILE_TEMPLATE}: {error}"
         ) from error
 
 

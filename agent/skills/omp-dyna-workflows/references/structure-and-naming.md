@@ -1,6 +1,6 @@
 # Structure and naming
 
-A file's path shows its owner and dependency direction; names describe what things hold or do, with one name per concept. Word lists, ecosystem casing, `v<N>` patterns and the plural allowlist are canonical data in [house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json). Judgment decisions live in `judgments/structure-naming/thresholds.json`; their provisional status remains shadow-only.
+A file's path shows its owner and dependency direction; names describe what things hold or do, with one name per concept. Word lists, ecosystem casing, `v<N>` patterns and the plural allowlist are canonical data in [house-style.json](../../../extensions/dynaflows/guardrails/omp_guardrails/data/house-style.json). Judgment decisions live in `judgments/structure-naming/thresholds.json`; their provisional status remains shadow-only.
 
 ## Structure and grouping
 

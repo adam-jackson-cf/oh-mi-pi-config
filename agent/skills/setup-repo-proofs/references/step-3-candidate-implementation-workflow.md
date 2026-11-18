@@ -2,118 +2,32 @@
 
 ## Objective
 
-Draft the record and the candidate repo fixes outside the target checkout.
+Prepare candidate controls and repository fixes outside the target checkout.
 
 ## Guidance
 
-1. Draft the record from the harness; author an adapter if the framework has
-   none. Where the stack has a skill reference (Python:
-   [`omp-guardrails`](../assets/python-reference/README.md)), never copy,
-   adapt or edit its code, and never install it into the target's environment
-   or lockfile. Run it from the harness against a temporary clone of the
-   target under the candidate root: `uv run --project <omp
-   root>/agent/skills/setup-repo-proofs/assets/python-reference
-   omp-guardrails init --repo <temporary clone> --record <draft record dir>`.
-   `<draft record dir>` sits under the candidate root, never under the records
-   directory; in extend mode, start it as a copy of the existing record.
-   `init` discovers the repo's make targets, hook managers, CI jobs and
-   (through `gh`) required checks, and drafts the record's `gate.json` and
-   `profile.md` from them. It writes nothing into the clone, never overwrites
-   a recorded value, never writes an approval and never turns dynaflows on, so
-   a second run changes nothing. It writes proposed native-tool configs to the
-   record's `proposed/` directory for the owner to apply to the repo as a fix,
-   and proves language-server readiness with a canary `references` query.
-   `--commit-command` and `--ci-command` name the repo's own gate commands;
-   `--runner` and `--required-context` set the record's `ci` object.
-   Init reports a missing `checks.commit` as `required:`, because a record without it
-   does not load. There is no path-command option or record field. In adopt mode,
-   shadow-run each `repo` or `grow` step on the same clone: `omp-guardrails
-   <step> --repo <temporary clone> --record <draft record dir>` and the
-   record's `checks.commit`. Sort every finding the harness reports and
-   `checks.commit` passes:
-   - the repo checker lacks the rule, scopes it narrower, baselines it or
-     misses files: add the fix to the step's `grow` PR;
-   - the repo checker's own exception or setting accepts code that a stale
-     record setting rejects: the repo checker is the authority, so drop the
-     record setting;
-   - never change repo code only to satisfy the harness copy.
-
-   Zero findings on both sides shows no gap but not coverage; coverage comes
-   from Step 2's rule-ID evidence. Draft each `grow` PR as candidate repo
-   changes, with tests for every added rule. Give `repo` and `grow` steps to
-   the repo in the draft record with `omp-guardrails init --settings`
-   (`check` itself takes no options), for example `{"check": {"repo":
-   {"python-quality": ["scripts/checks/check-python-quality.py"]}}}`, and leave
-   out settings only owned steps read (`check` rejects `guardrails.python`
-   once every configured Python step is the repo's). Then fill every per-repo
-   value in the front matter of the draft `profile.md`: tiers, layout,
-   `structure`, scope exclusions, `house_style.exceptions` (each with an ADR)
-   and `guardrails.<checker>` settings. A behaviour the settings cannot
-   express is a change to the reference itself, never a local fork. If the
-   target's test framework has no adapter, follow [adapter
-   authoring](adapter-authoring.md). For a stack without a reference, the
-   missing checkers are a change to the harness, not to the target (Step 2).
-2. Draft required profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths`
-   settings for harness `omp-guardrails path-check --repo <temporary clone> --record <draft record dir>`.
-   It covers `STRUCT.dependency-direction`, `STRUCT.folder-placement`, `NAME.conventions`
-   and `TEST.placement`. Rails supply changed paths as separate arguments; clean exits 0,
-   failures exit nonzero with one error per line naming the file, rule ID and concrete fix.
-   Do not add a repo path-check script for the harness or remove settings because whole-repo
-   checks are repo-owned. Preserve the repo's own commit and CI commands.
-3. The test-evidence checks read normalised evidence (the adapter's JUnit run
-   report and per-tier collect-only test IDs), not console text. The harness
-   runs `omp-guardrails report-check` and `collection-check`, and
-   `budget-check` at the agent's commit only, with JUnit and temporary output
-   outside the worktree. Budgets select approved per-machine limits from the
-   record's `profile.md` by a deterministic local machine probe, block
-   overruns at the agent's commit, treat an unknown machine as report-only
-   with a prompt to record a baseline, and fail a missing, invalid or stale
-   report. CI never measures or reports test timing. Name overrunning tests
-   with a speed-up fix; never propose a tier move because a test is slow.
-4. `omp-guardrails diff-check` implements `TEST.growth.justified` and
-   `TEST.duplicate-path`. It requires a descriptive behavior name per new
-   test function (Python function name or JS/TS test title); parameter rows
-   share it. It checks presence with at least two non-generic alphabetic words,
-   and rejects duplicates by normalised call-path
-   and assertion fingerprints, naming both cases and the merge-or-remove fix.
-   The remaining test-guidance rules follow each catalogue row's `reference`:
-   `diff-check` (coverage ratchet, golden change record, identity artefacts,
-   timeout increases, test growth and duplicate paths), `python-test-hygiene`
-   (subprocess timeouts), `guard-run` (user-data guard, fast-tier isolation),
-   `surface-lint` and `lever-selftest` (verification surface),
-   `profile-check` (`PROFILE.complete`), `adapter` (source patterns for
-   self-mocking, test hooks, evasion markers and property seeds) and, in T3
-   only, `mutation-check` after the adapter's `mutation-report`. Affected T2
-   selection uses `omp-guardrails adapter affected --base <ref>`, which reads
-   the record's Ownership areas. These run from the harness; none is wired
-   into the target.
-5. Draft the repo-side controls the project wants without the harness: a
-   check-only full runner for `GATE.local-ci-parity` with tier selectors, and
-   CI wiring that runs `checks.ci` (full T1 and T2) on every push and pull
-   request, either as one job named by the record's `ci.requiredContext`
-   (default `gate`) or as parallel jobs that call the same runner with tier
-   selectors whose union equals `checks.ci`. Parallel CI must include an
-   aggregate job and status named by `ci.requiredContext`, depending on every
-   tier job. It must run even after dependency failure (for GitHub Actions,
-   `if: ${{ always() }}`) and succeed only if every tier's result is
-   `success`; failed, cancelled, or skipped tiers must make the required
-   context fail. A commit target (`checks.commit`: static checks, every T1,
-   affected T2 boundary tests) serves `GATE.pre-commit`; the repo may run it
-   from its own hook manager. Do not add a pre-push hook; remove an existing
-   one by the approved decision. None of these files names omp, dynaflows or
-   the record.
-6. Prepare candidate fixes for every Step 4 finding in the temporary clone.
-   Never weaken the real repository's protection to clear a finding; a scope
-   exclusion covers only generated, vendored or fixture paths. Draft
-   contributor commands separately from application-user guidance. Keep all
-   candidates and the draft record outside the target and outside the
-   records directory until Step 5 approval; identify the superseded
-   checks/config to remove, including any omp-specific files the repo holds.
-   History is exempt: never rewrite an ADR or a frozen, digest-pinned study or
-   evaluation record to remove an omp mention.
+1. Work in a temporary clone under the candidate root. Reuse project tools and settings; propose
+   native-tool configuration separately from live configuration. Never overwrite established values
+   or invent approvals. An unsupported rule stays blocked until its implementation and tests exist.
+2. Draft missing-rule changes in the existing checker's style, with tests for every added rule.
+   Resolve discrepancies using the owning control's source evidence, not by changing product code
+   to satisfy a duplicate checker. Clean output alone does not establish rule coverage.
+3. Make test evidence machine-readable: normalized run reports and collect-only test IDs per tier,
+   not console text. Keep temporary reports outside the worktree. Validate missing, invalid and
+   stale reports; diagnostic failures identify the test and concrete corrective action.
+4. Draft a check-only full runner with tier selectors and push/PR CI wiring. CI runs the full fast
+   and boundary suites as one required job or parallel jobs of the same runner whose union equals
+   the full suite. An aggregate required status depends on every tier, runs even after dependency
+   failure, and succeeds only if every tier succeeds; failed, cancelled or skipped tiers fail it.
+5. Preserve the project's commit and CI commands. The commit gate includes static checks, every
+   fast-tier test and affected boundary tests. A project may invoke it through its own hook manager.
+   Do not add a pre-push hook; propose removal of an existing one for approval.
+6. Prepare fixes for every dry-run finding without weakening protection. Exclude only evidenced
+   generated, vendored or fixture paths. Keep contributor commands distinct from application-user
+   guidance. Identify superseded checks/configuration for removal. Preserve historical ADRs and
+   digest-pinned study/evaluation artifacts unchanged.
 
 ## Done when
 
-- The draft record holds every applicable setting, and every applicable ID has
-  a harness check or a repo control.
-- No target file and no record has been written, staged, or replaced.
+Every applicable ID has a candidate implementation or explicit blocker. All candidates remain
+outside the target; no target file has been written, staged or replaced.

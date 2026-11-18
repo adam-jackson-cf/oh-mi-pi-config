@@ -11,6 +11,16 @@ REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 
 class SkillReferenceTests(unittest.TestCase):
+    def test_repository_setup_is_independent_of_the_assistant(self):
+        directory = SKILLS / "setup-repo-proofs"
+        forbidden = re.compile(r"\b(?:omp|dynaflows|harness|freeze)\b", re.IGNORECASE)
+        for source in sorted(directory.rglob("*.md")):
+            with self.subTest(source=source.relative_to(ROOT)):
+                self.assertIsNone(forbidden.search(source.read_text(encoding="utf-8")))
+        entry = (directory / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("hide: true", entry)
+        self.assertIn("disable-model-invocation: true", entry)
+
     def test_core_skill_references_resolve_locally(self):
         sources = {
             ROOT / "agent/agent-rails.yml",

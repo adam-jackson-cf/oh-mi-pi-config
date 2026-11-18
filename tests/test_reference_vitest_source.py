@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
+REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
 sys.path.insert(0, str(REFERENCE))
 
 from omp_guardrails.adapters.vitest import cases, lint  # noqa: E402

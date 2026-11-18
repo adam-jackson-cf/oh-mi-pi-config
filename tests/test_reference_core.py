@@ -13,8 +13,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/skills/setup-repo-proofs/assets/python-reference"
-TEMPLATE = ROOT / "agent/skills/test-guidance/assets/templates/test-profile.md"
+REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+TEMPLATE = ROOT / "agent/lib/record/profile.md"
 FIXTURES = ROOT / "tests/fixtures/reference/core"
 sys.path.insert(0, str(REFERENCE))
 

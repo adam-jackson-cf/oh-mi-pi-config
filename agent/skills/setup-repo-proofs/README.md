@@ -1,101 +1,30 @@
-# setup-repo-proofs
+# Repository guardrail setup
 
-## Overview
-
-Apply the bundled guardrail rules to a selected Git repository. The skill
-inventories existing practice, drafts the repo's local record for the harness
-checkers (or prepares runnable target-stack checks where none exists), measures
-whole-repo impact without target edits, and applies only approved fixes.
-A rule is enforced only after its implementation and proof pass.
+Use this workflow to establish or extend enforceable controls for any language/runtime stack.
+It inventories existing practice, maps a selected rule contract to the project's own tools,
+measures whole-repository impact without target edits, and applies only approved changes.
+A rule is enforced only after its implementation, invocation and outcome tests succeed.
 
 ## When to use it
 
-- A new Git repository needs a developer guardrail baseline.
-- An existing repository needs full coverage without replacing its lint, test,
-  or CI practice.
-- User-facing application guidance and contributor guidance need distinct
-  owners.
+- A new Git repository needs developer guardrails.
+- An existing repository needs complete coverage without replacing working lint, test or CI practice.
+- Application-user guidance and contributor guidance need distinct owners.
 
-## Example prompts
+## Getting started
 
-- "Assess this Python repository and show the complete guardrail dry run before
-  editing."
-- "Set up guardrails for this TypeScript repository and list every finding to
-  clear first."
-- "Merge equivalent checks with existing CI; show rules that cannot be
-  enforced."
+Read [the workflow](SKILL.md), select the project's authoritative rule contract, and follow Steps
+0–7 in order. Existing controls retain ownership: add missing rules to them, remove superseded
+authorities only with approval, and keep build, tests, checks, hooks and CI independently runnable.
 
-## Harness/repo boundary
+Example requests:
 
-The target repository never depends on, contains or mentions omp or dynaflows. It keeps
-conforming code and the controls the project wants without the harness: build, tests, its own
-linters and checks, gate targets, hook config and CI job. Harness settings live in the repo's
-personal **record**, `repos/<owner>/<name>/` under the oh-mi-pi-config root, resolved from the
-clone's `origin` remote. `/repos/` is gitignored, so records are never committed; the device
-rollout copies them to every device. The [example record](assets/example-record/README.md)
-defines the layout.
+- "Assess this Python repository and show the complete guardrail dry run before editing."
+- "Set up guardrails for this TypeScript repository and list every finding to clear first."
+- "Merge equivalent checks with existing CI; show rules that cannot be enforced."
 
-## Record gate
+## Completion
 
-The record's `gate.json` (schema version 2) names the repo's own commands: `checks.commit` (static
-checks, every T1, affected T2 boundary tests), `checks.ci` (the full T1 and T2 suite),
-optional `checks.profile`, and `ci` (`requiredContext`,
-normally `gate`: the status or check run that must be green on the exact head; `runner`: a role
-each machine's runner config resolves to commands). It also holds `agentMerge` and
-`dynaflows.enabled`. `checks.commit` is required; missing required or unknown fields fail to load
-with an error naming the field. The obsolete path command field is rejected, not ignored.
-
-Rails run harness `omp-guardrails path-check --repo <worktree> --record <record dir>` after edits
-and before commit, using required profile `guardrails.structure`, `guardrails.naming` and
-`guardrails.paths` settings. This consistent per-edit contract is the explicit principles 1–2
-exception in [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
-At each agent commit, rails then run the record's `checks.commit` in the worktree, then the harness
-checks: `omp-guardrails check --repo <worktree> --record <record dir>`, run with
-`uv run --project` on this skill's `assets/python-reference`. The check covers the whole repo
-and blocks on any finding. There are no baselines and no diff scoping; generated, vendored and
-fixture exclusions come from the record. The repo's required CI context stays its own `gate`.
-
-New rules enforce dependency direction, folder ownership, naming, test placement, fast-tier and
-per-test budgets, justified test growth and duplicate call-path/assertion detection.
-Test-guidance v2 rules add profile completeness, test-file names, tier selectors, no
-self-mocking, no test hooks, no evasion, fast-tier isolation, the user-data guard, the coverage
-ratchet, golden change records, identity artefacts, property seeds, mutation sensitivity and the
-verification surface. Budget limits are per machine, selected by a deterministic local machine
-probe and based on at least five baseline runs. Budgets apply to the local commit gate only: CI
-never measures or reports test timing.
-
-Approvals and exceptions live only in the record's `profile.md`. Agents write records directly,
-with approval fields only as the owner stated them in the chat. Records are never committed or part
-of a PR. The Step 5 approval remains the boundary before any repository fix.
-
-## Reference implementation and `init`
-
-A stack gets a skill reference once two repositories need it (the rule of two). Python has one:
-the `omp-guardrails` package in `assets/python-reference/`. The harness runs it from this
-checkout; repositories never install, pin or copy it, and it writes nothing into the repo tree.
-
-- `omp-guardrails init --repo <clone> --record <record dir>` drafts the record for owner
-  confirmation directly in `repos/<owner>/<name>/` or in a draft directory.
-  With `--enable-dynaflows`, it drafts dynaflows on. It discovers make targets, hook managers, CI job
-  names and, through `gh`, the default branch's required checks. It writes `gate.json` and
-  `profile.md` into the record, and writes proposed native-tool configs (Ruff, mypy, import-linter)
-  into its `proposed/` folder for application to the repo as approved fixes.
-  It proves language-server readiness with a canary
-  `references` query. It never overwrites a recorded value and never writes an approval; it
-  drafts `dynaflows.enabled` true only with `--enable-dynaflows`.
-- Per-repo settings live in the front matter of the record's `profile.md`. Shared style rules
-  live in the reference's `omp_guardrails/data/house-style.json`.
-- The rule catalogue ships inside the package (`omp_guardrails/data/guardrail-rules.json`).
-  Each catalogue row the reference implements has a `reference` field naming the
-  `omp-guardrails` subcommand and module. The package's own tests in oh-mi-pi-config prove
-  every rule the package implements, once for every repository.
-- A test framework without an adapter gets one through
-  [adapter authoring](references/adapter-authoring.md), accepted by a deterministic conformance
-  run.
-
-## References
-
-- [Bundled rule contract](assets/python-reference/omp_guardrails/data/guardrail-rules.json)
-- [Python reference implementation](assets/python-reference/README.md)
-- [Example record](assets/example-record/README.md)
-- [Adapter authoring](references/adapter-authoring.md)
+Every applicable rule has an effective check and outcome tests. Whole-repository findings,
+local/CI parity, exact approved paths and unresolved blockers are visible in the terminal result.
+Nothing is applied before the owner's explicit approval.
