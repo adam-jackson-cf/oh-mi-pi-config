@@ -642,6 +642,30 @@ export default function agentRails(
 		} catch { /* A missing or corrupt result is not a pass. */ }
 		return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 	}
+	// Structure review must run even while all decisions remain provisional.
+	async function structureResultReason(cwd: string, head: string): Promise<string | undefined> {
+		const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+		if (common.code !== 0 || common.killed || !common.stdout.trim()) throw new Error("cannot resolve Git common directory for the structure_review() result");
+		const path = resolve(cwd, common.stdout.trim(), "omp-structure", `${head}.json`);
+		const finding = z.object({
+			unit: z.string(), question: z.string(), status: z.enum(["ready", "provisional"]),
+			score: z.number().min(0).max(1), threshold: z.number().min(0).max(1),
+		}).strict();
+		const schema = z.object({
+			head: z.literal(head), halt: z.boolean(), status: z.enum(["shadow", "incomplete", "blocked"]),
+			findings: z.array(finding), parent: z.string().nullable().optional(),
+			units: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
+			thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
+			model_reported: z.string().nullable().optional(), model_note: z.string().optional(),
+			prComment: z.string().optional(),
+		}).strict();
+		let result;
+		try { result = schema.parse(JSON.parse(await readFile(path, "utf8"))); }
+		catch { return `Agent rails: no valid structure_review() result for ${head} at ${path}; run structure_review() for this head, then merge.`; }
+		if (!result.halt) return;
+		const ready = result.findings.filter(item => item.status === "ready").map(item => `${item.unit}: ${item.question}`);
+		return `Agent rails: ready structure findings block ${head}: ${ready.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+	}
 	type PrCi = { head?: string; repository?: string; reason?: string };
 	// Reads the PR's exact head and whether its CI is green there.
 	async function prCi(cwd: string | undefined, selector: string | undefined, state: State, ctx: ExtensionContext): Promise<PrCi> {
@@ -977,7 +1001,7 @@ export default function agentRails(
 						if (gate?.agentMerge === "disabled") return {
 							block: true, reason: "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.",
 						};
-						// With dynaflows on, a merge needs CI green on the PR head and prove()'s pass for that head.
+						// Dynaflows merges require exact-head CI, prove pass and a non-halting structure result.
 						if (/^gh pr merge\b/.test(action.command) && await dynaflowsOn(ctx, action.cwd)) {
 							const args = action.args;
 							const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
@@ -989,6 +1013,8 @@ export default function agentRails(
 							if (!/^[0-9a-f]{40}$/.test(head)) return { block: true, reason: `Agent rails: --match-head-commit must be a lowercase 40-hex SHA, got ${head}` };
 							const proved = await proveResultReason(action.cwd, head);
 							if (proved) return { block: true, reason: proved };
+							const structure = await structureResultReason(action.cwd, head);
+							if (structure) return { block: true, reason: structure };
 							const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
 							if (pr.head && pr.head !== head) return {
 								block: true, reason: `Agent rails: PR head is ${pr.head}, not ${head}; prove() the current head`,

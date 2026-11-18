@@ -172,10 +172,10 @@ head ([patterns](references/patterns.md#prove)). `prove()` checks four things:
 With an empty manifest and no changed map doc it checks CI and rename residue.
 It writes its result to
 `<git-common-dir>/omp-prove/<head>.result.json` and posts it on the PR. That file with
-`status: pass` for the exact head is the one pass signal: with dynaflows on, rails' `gh pr merge`
-guard requires it and CI green on that head. A rebase or other branch update needs nothing extra:
-run `prove()` on the new head before merge. No review agent or status posting; re-freeze only
-for a discovery or a changed proof file.
+`status: pass` for the exact head is the prove pass signal. With dynaflows on, rails' `gh pr merge`
+guard requires it, the structure result below and CI green on that head. A rebase or other branch
+update requires both `prove()` and `structure_review()` on the new head before merge.
+No review agent or status posting; re-freeze only for a discovery or a changed proof file.
 Mechanics live in `skill://git-tool/references/verify-loop.md`.
 
 After `prove()`, main calls `await structure_review(repo, parent, head, target_ref=target_ref)`
@@ -183,8 +183,8 @@ on that same PR range ([contract](references/patterns.md#structure_review)). It 
 folder states from Git objects, asks the eight structure/naming questions (prefix only for
 eligible clusters), saves raw scores and updates one shadow findings comment. Provisional
 decisions and infrastructure errors never affect `prove()` or merge. A `ready` decision with
-a finding sets `halt`: main must include `not structure_result["halt"]` beside the prove-pass
-condition in its merge guard. This does not change rails' prove file.
+a finding sets `halt`: rails refuse merge when this exact-head structure result is missing,
+invalid or has `halt: true`. Both result files are required even with all decisions provisional.
 See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 
 ### 6. Integrate
@@ -192,6 +192,8 @@ See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 Main follows `skill://git-tool/references/merge-and-recover.md` for merge method,
 confirmation and recovery. Git-tool owns Git authority: `agentMerge: disabled` requires owner
 approval. Do not copy merge mechanics into playbooks.
+With dynaflows on, rails require exact-head CI green, prove pass and the structure result with
+`halt: false`; fix ready findings and rerun both helpers on the new head before merging.
 
 ## References and evals
 

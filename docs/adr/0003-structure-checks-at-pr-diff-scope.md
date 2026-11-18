@@ -46,6 +46,13 @@ Prefix extraction is deterministic; deciding whether the cluster jointly impleme
 remains a judgment rather than a count-only rule. No glossary or exemption artifact is required
 in the repository.
 
+Structure/naming judgment runs separately after `prove()` through `structure_review()`.
+With dynaflows on, rails require both result files for the PR's exact head plus green CI.
+Ready-decision findings set `halt: true` and hard-block merge via rails, not an instruction
+to main. Provisional findings and recorded infrastructure errors remain shadow-only.
+A missing, corrupt or wrong-head structure result blocks even with all thresholds provisional:
+the review must run on that head. Fix ready findings and rerun both helpers on the new head.
+
 ## Deciders
 
 Adam Jackson (owner, in chat 2026-11-17).

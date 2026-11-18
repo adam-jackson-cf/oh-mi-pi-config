@@ -255,6 +255,12 @@ function proveResult(h: { root: string }, head = ciHead, status = "pass") {
 	writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
 }
 
+function structureResult(h: { root: string }, head = ciHead) {
+	mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
+	writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
+		JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+}
+
 describe("agent rails", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
 		const h = harness();
@@ -1202,8 +1208,49 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 			assert.ok((await h.call("bash", { command }))?.reason?.includes(`no prove() pass for ${head}`), name);
 		}
 		proveResult(h, head);
+		structureResult(h, head);
 		assert.equal(await h.call("bash", { command }), undefined);
 		assert.equal(await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${head}` }), undefined);
+	} finally { h.cleanup(); }
+});
+
+test("dynaflows merge requires a valid exact-head structure result and blocks ready findings", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		proveResult(h);
+		mockPrCi(h, greenCi, ciHead, "3");
+		const command = `gh pr merge 3 --match-head-commit ${ciHead}`;
+		assert.equal(await h.call("bash", { command }), undefined, "dynaflows off needs no structure file");
+		h.dynaflows(true);
+		const missing = await h.call("bash", { command });
+		assert.equal(missing?.block, true);
+		assert.ok(missing?.reason?.includes(`no valid structure_review() result for ${ciHead}`));
+		structureResult(h);
+		const path = join(h.root, ".git/omp-structure", `${ciHead}.json`);
+		for (const content of [
+			"{broken",
+			JSON.stringify({ head: "b".repeat(40), halt: false, status: "shadow", findings: [] }),
+			JSON.stringify({ head: ciHead, halt: "false", status: "shadow", findings: [] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [] }),
+		]) {
+			writeFileSync(path, content);
+			assert.equal((await h.call("bash", { command }))?.block, true);
+		}
+		const finding = { unit: "src/orders", question: "folder_name_coverage", status: "ready", score: 0.9, threshold: 0.7 };
+		writeFileSync(path, JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [finding] }));
+		const blocked = await h.call("bash", { command });
+		assert.equal(blocked?.block, true);
+		assert.ok(blocked?.reason?.includes("src/orders: folder_name_coverage"));
+		assert.ok(blocked?.reason?.includes("fix them and rerun prove() and structure_review() on the new head"));
+		h.dynaflows(false);
+		assert.equal(await h.call("bash", { command }), undefined, "dynaflows off ignores halt");
+		h.dynaflows(true);
+		writeFileSync(path, JSON.stringify({ head: ciHead, halt: false, status: "incomplete",
+			findings: [{ ...finding, status: "provisional" }], errors: ["judge offline"] }));
+		assert.equal(await h.call("bash", { command }), undefined, "provisional findings and infrastructure errors stay shadow-only");
+		structureResult(h);
+		assert.equal(await h.call("bash", { command }), undefined);
 	} finally { h.cleanup(); }
 });
 
@@ -1227,6 +1274,7 @@ for (const scenario of [
 			if ("boundary" in scenario && scenario.boundary === "workflows") mkdirSync(join(h.root, ".github/workflows"), { recursive: true });
 			h.dynaflows(true);
 			proveResult(h);
+			structureResult(h);
 			mockPrCi(h, [...scenario.rollup], ciHead, "3");
 			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 			if ("fragment" in scenario) {
@@ -1267,6 +1315,7 @@ for (const scenario of [
 			h.gate({ schemaVersion: 2, ci: ciGate });
 			h.dynaflows(true);
 			proveResult(h);
+			structureResult(h);
 			mockPrCi(h, [...scenario.rollup], ciHead, "3", undefined, "https://github.com/base-owner/base-repo/pull/3");
 			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 			if ("state" in scenario) {
@@ -1283,6 +1332,7 @@ test("without a ci block every reported check still decides the merge", async ()
 		await h.read("skill://git-tool");
 		h.dynaflows(true);
 		proveResult(h);
+		structureResult(h);
 		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
 			{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }], ciHead, "3");
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
@@ -1355,6 +1405,7 @@ for (const remote of ["git@github.com:OWNER/REPO.git", "https://github.com/owner
 			h.gate({ schemaVersion: 2, ci: ciGate });
 			h.dynaflows(true);
 			proveResult(h);
+			structureResult(h);
 			const url = "https://github.com/other/checkout/pull/3";
 			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url, undefined, url);
 			const result = await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` });
@@ -1372,6 +1423,7 @@ test("PR URL selector accepts the checkout repository case-insensitively", async
 		h.gate({ schemaVersion: 2, ci: ciGate });
 		h.dynaflows(true);
 		proveResult(h);
+		structureResult(h);
 		const url = "https://github.com/owner/repo/pull/3";
 		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url);
 		assert.equal(await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` }), undefined);
@@ -1385,6 +1437,7 @@ test("required context blocks merge despite a prove() pass", async () => {
 		h.dynaflows(true);
 		h.gate({ schemaVersion: 2, ci: ciGate });
 		proveResult(h);
+		structureResult(h);
 		mockPrCi(h, [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], ciHead, "3");
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 		assert.equal(result?.block, true, "the required context must block merge despite a prove() pass");
@@ -1399,6 +1452,7 @@ test("PR query contract: requests the PR URL", async () => {
 		await originRemote(h);
 		h.dynaflows(true);
 		proveResult(h);
+		structureResult(h);
 		mockPrCi(h, greenCi, ciHead, "3");
 		const exec = h.api.exec.bind(h.api);
 		let fields: string | undefined;
@@ -1417,6 +1471,7 @@ test("a merge reports a gh failure while reading the PR", async () => {
 		await h.read("skill://git-tool");
 		h.dynaflows(true);
 		proveResult(h);
+		structureResult(h);
 		mockPrCi(h, [], ciHead, "3", "not authenticated");
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 		assert.ok(result?.reason?.includes("cannot read PR head/CI via gh: not authenticated"), result?.reason);
@@ -1430,6 +1485,7 @@ for (const scenario of ["head mismatch", "red CI", "green CI"] as const) {
 			await h.read("skill://git-tool");
 			h.dynaflows(true);
 			proveResult(h);
+			structureResult(h);
 			const head = scenario === "head mismatch" ? "b".repeat(40) : ciHead;
 			mockPrCi(h, scenario === "red CI"
 				? [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }] : greenCi, head, "3");
