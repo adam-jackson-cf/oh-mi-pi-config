@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "omp-guardrails"
 version = "3.0.0"
-description = "Harness-side guardrail checkers for the setup-repo-proofs rule catalogue."
+description = "Harness-side checkers for the dynaflows rule catalogue."
 requires-python = ">=3.11"
 # The harness runs this project with `uv run --project <this folder>`; repositories never install
 # it. `check` needs ast-grep for the adapter lint step, so it is a base dependency.

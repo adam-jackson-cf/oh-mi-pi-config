@@ -15,7 +15,7 @@ A file's path shows its owner and dependency direction.
   Enforced by STRUCT.sibling-isolation (omp-guardrails structure, path-check).
 - A part one owner uses lives under that owner; once a second owner uses it, move it to the lowest tier both may read.
   Enforced by STRUCT.single-owner-placement (omp-guardrails structure, path-check).
-- Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../setup-repo-proofs/assets/python-reference/omp_guardrails/data/house-style.json));
+- Never create grab-bag folders (house-style `banned_words` in [house-style.json](../../../extensions/dynaflows/guardrails/omp_guardrails/data/house-style.json));
   shared code goes in the lowest tier, in a folder named for what it holds.
   Two or more sibling files whose shared name prefix names one concept they jointly implement (`audit_*`) belong in a folder named for that concept (`audit/`).
   Enforced by PREFIX.candidates (omp-guardrails prefix-candidates) for candidate extraction; concept ownership requires structure judgment.

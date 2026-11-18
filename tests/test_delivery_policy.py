@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
 POLICY = SKILLS / "omp-dyna-workflows/references"
-CATALOGUE = SKILLS / "setup-repo-proofs/assets/python-reference/omp_guardrails/data/guardrail-rules.json"
+CATALOGUE = SKILLS / "../extensions/dynaflows/guardrails/omp_guardrails/data/guardrail-rules.json"
 THRESHOLDS = SKILLS / "omp-dyna-workflows/judgments/structure-naming/thresholds.json"
 ENFORCED = re.compile(r"Enforced by ([A-Z]+\.[A-Za-z0-9.-]+) \(omp-guardrails ([a-z-]+(?:, [a-z-]+)*)\)\.")
 JUDGED = re.compile(r"Judged by ([a-z-]+)/([a-z_-]+)\.")

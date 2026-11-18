@@ -41,7 +41,8 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The record's `gate.json` `ci` declares `requiredContext` (the commit-status context or check-run name that must be `success`
+The record's [`gate.json` CI policy](../../../lib/record/README.md#merge-and-ci-policy) declares
+`requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device-rollout.py` writes it per device.
 Drive CI through `scripts/ci-runner.py` in the omp base directory with the gate's runner role, the repository and the exact 40-hex SHA:
@@ -77,7 +78,8 @@ Without a declared local CI command, or with unknown host state, stop and resolv
 
 ### Who writes records
 
-The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
+The [repo's record](../../../lib/record/README.md) (`<harness>/repos/<owner>/<name>/`:
+`gate.json`, `profile.md` and anything else there) holds its
 checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
 Agents write records directly. Write approval fields only as the owner stated them in the chat.
 Record-write authority grants no permission to change repository owner-only paths.

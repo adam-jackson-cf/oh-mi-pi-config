@@ -1,8 +1,8 @@
 """Single entry point: ``omp-guardrails <subcommand> [--repo DIR] [--record DIR] [args...]``.
 
 omp-guardrails runs from the harness, never from the repository's environment: the agent rails
-call ``uv run --project <omp root>/agent/skills/setup-repo-proofs/assets/
-python-reference omp-guardrails check --repo <worktree> --record <record dir>``. ``--repo`` is the
+call ``uv run --project <omp root>/agent/extensions/dynaflows/guardrails
+omp-guardrails check --repo <worktree> --record <record dir>``. ``--repo`` is the
 checkout to inspect (default: the working directory). ``--record`` is the repo's personal
 per-repo record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``); its ``profile.md`` is the
 only configuration. A record inside the repository is refused: the repository holds nothing of
@@ -293,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     except ModuleNotFoundError as error:
         print(
             f"{name}: cannot import {error.name}; run omp-guardrails with the extra this "
-            "subcommand needs (uv run --project <python-reference> --extra pytest ...)",
+            "subcommand needs (uv run --project <guardrails> --extra pytest ...)",
             file=sys.stderr,
         )
         return 2

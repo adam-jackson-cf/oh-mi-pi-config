@@ -59,6 +59,8 @@ agent/*
 agent/lib/*
 !agent/lib/repo_record.py
 !agent/lib/repo-record.ts
+!agent/lib/record/
+!agent/lib/record/**
 !agent/rules/
 agent/rules/*
 !agent/rules/agent-rails-*.md
@@ -98,6 +100,8 @@ agent/extensions/*
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
 !agent/extensions/agent-rails.ts
+!agent/extensions/dynaflows/
+!agent/extensions/dynaflows/**
 
 !tests/
 tests/*
@@ -146,6 +150,6 @@ orca-plugins/chat-section-style/terminal-palette
 **/.pytest_cache/
 **/.ruff_cache/
 **/*.egg-info/
-agent/skills/setup-repo-proofs/assets/python-reference/build/
+agent/extensions/dynaflows/guardrails/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/

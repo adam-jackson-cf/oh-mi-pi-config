@@ -7,125 +7,72 @@ disable-model-invocation: true
 
 # Workflow
 
-The harness/repo boundary governs every step. The target repository never depends on, contains
-or mentions omp or dynaflows. It keeps only conforming code and the controls the project would
-want without the harness: build, tests, its own linters and checks, gate targets, hook config and
-CI job. Harness opinions and their checks live in oh-mi-pi-config. Per-repo settings live in the
-repo's **record**: `repos/<owner>/<name>/` under the oh-mi-pi-config root, resolved from the
-clone's `origin` remote, gitignored and never committed. The
-[example record](assets/example-record/README.md) defines its layout and rules.
-
-The repo's own controls come first. Where the repo already has the capability for a control
-(its own checker scripts, a configurable linter, its test runner), the rule lives there: a rule
-the repo's checkers already enforce stays with them, and a missing rule is added to them by a
-repo PR. The record's `guardrails.check.repo` lists the checker files that enforce each step's
-rules, and `omp-guardrails check` leaves that step out. The harness runs a step only when the
-repo cannot hold its rules without depending on omp or dynaflows. It never runs a step beside a
-repo checker. Step 2 defines the three outcomes; the
-[design directive](../omp-dyna-workflows/AGENTS.md) holds the principles behind them.
-Exception: rails always run harness `omp-guardrails path-check --repo <worktree> --record <record dir>`
-after edits and before commit. Its required profile settings are `guardrails.structure`,
-`guardrails.naming` and `guardrails.paths`; `guardrails.check.repo` does not delegate this check.
-This principles 1–2 exception is recorded in [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
-`gate.json` has no path-check command field; repo `checks.commit` and `checks.ci` stay repo-owned.
+Establish repository-owned controls using the project's selected rule contract and language/runtime
+stack. Reuse existing tools, commands and ownership policies; add missing rules to those controls
+rather than installing a second authority. Keep local checks and CI runnable by any contributor.
+Every applicability or coverage claim needs source evidence for the individual rule.
 
 ## Step 0: Set target and safety boundary
 
-- Purpose: Establish the Git checkout, its record path, chosen stack, setup mode, and protected work.
-- Action: Check repository state, resolve `origin` to the record path, and record the setup
-  mode: greenfield, adopt, or extend.
-- Workflow: [Target and safety boundary](references/step-0-target-and-safety-workflow.md).
+Identify the Git checkout, base ref, protected work, stack and setup modes. Keep analysis and
+candidate changes outside the target until approval.
+[Target and safety boundary](references/step-0-target-and-safety-workflow.md).
 
 ## Step 1: Inventory existing controls
 
-- Purpose: Distinguish active checks, behavioral guidance, user documentation, and developer practice.
-- Action: Record sources, triggers, ownership, make targets, hook config, CI job names and
-  required checks with evidence; map every rule ID of every step to a repo checker source line or
-  `absent`, map every lock file and manifest from `git ls-files` to the audit that covers it with
-  a source line or `absent`, and record each baseline.
-- Workflow: [Existing guardrail inventory](references/step-1-inventory-workflow.md).
+Distinguish active checks, instructions, user documentation and developer practice. Map every rule,
+lock file and manifest to its enforcing source line or an explicit gap.
+[Existing guardrail inventory](references/step-1-inventory-workflow.md).
 
 ## Step 2: Map the complete rule contract
 
-- Purpose: Establish which bundled guardrail rules the harness enforces and which the repo's own
-  controls carry on the target stack.
-- Action: Resolve every bundled rule ID to implemented, conditional, or blocked with evidence.
-- Workflow: [Rule contract mapping](references/step-2-rule-mapping-workflow.md).
+Map every selected rule ID, semantic and threshold to an implementation, evidence-backed conditional
+exclusion or blocker. Never substitute a tool name for demonstrated enforcement.
+[Rule contract mapping](references/step-2-rule-mapping-workflow.md).
 
-## Step 3: Draft the record and candidate fixes
+## Step 3: Prepare candidate changes
 
-- Purpose: Draft the record and the repo changes the harness checks need.
-- Action: Run `omp-guardrails init --repo <clone> --record <draft record dir>` from the harness
-  to draft the record outside the target checkout; author an adapter if the framework has none.
-  Prepare candidate repo fixes in a temporary clone.
-- Workflow: [Candidate implementation](references/step-3-candidate-implementation-workflow.md).
-- Adapter: [Adapter authoring](references/adapter-authoring.md) when the test framework has none.
+Prepare controls, tests and fixes in a temporary checkout. Preserve project commands and make local
+and CI failure propagation explicit.
+[Candidate implementation](references/step-3-candidate-implementation-workflow.md).
 
 ## Step 4: Measure the dry-run impact
 
-- Purpose: Show every finding the harness checks report over the whole repository.
-- Action: Count findings by rule and path, candidate file and line changes, and check costs.
-- Workflow: [Dry-run impact](references/step-4-dry-run-workflow.md).
+Report whole-repository findings, candidate file and line changes, measured costs and unknowns.
+[Dry-run impact](references/step-4-dry-run-workflow.md).
 
-## Step 5: Approve the record and fixes
+## Step 5: Approve changes
 
-- Purpose: Let the owner confirm the record and the treatment of every existing practice.
-- Action: Present the action matrix and **STOP** before applying until decisions are explicit.
-- Workflow: [Record and fix approval](references/step-5-approval-workflow.md).
+Present the action matrix and complete rule mapping. **STOP** until the owner approves the exact
+paths, rules and merge/replace decisions.
+[Change approval](references/step-5-approval-workflow.md).
 
 ## Step 6: Apply approved changes
 
-- Purpose: Write the confirmed record and only the approved repo fixes.
-- Action: Write the record locally; land repo fixes in an isolated checkout through a normal PR.
-- Workflow: [Approved application](references/step-6-apply-workflow.md).
+Apply only approved changes in a reversible checkout and deliver repository changes through the
+normal authorized PR process.
+[Approved application](references/step-6-apply-workflow.md).
 
-## Step 7: Prove every applicable rule
+## Step 7: Verify every applicable rule
 
-- Purpose: Reject missing, uninvoked, or ineffective guardrails before completion.
-- Action: Run the harness checks over the whole repo with the record, then the record's
-  `checks.commit` and `checks.ci`.
-- Workflow: [Rule verification](references/step-7-verify-workflow.md).
+Demonstrate effective checks, accepted valid inputs, rejected violations and local/CI parity.
+[Rule verification](references/step-7-verify-workflow.md).
 
-## Output
+## Result format
 
-### Result Format
+Return these sections in the terminal; do not save a retained summary artifact:
 
-```md
-# RESULT
+- **Target and audience:** repository, stack, base ref, CI provider and required status, exclusions,
+  protected paths and setup modes.
+- **Existing controls:** active versus manual/proposed instructions, checks, tests and documentation,
+  their owners, source lines and triggers.
+- **Rule coverage:** every selected ID, implementation, conditional exclusion with evidence or blocker;
+  every lock file and manifest's audit source or required fix.
+- **Proposed actions:** keep/merge/replace/add/defer, paths, rule IDs and verification.
+- **Dry-run impact:** whole-repository findings by rule/path, file and line counts, measured costs,
+  estimates and unknowns.
+- **Decisions:** explicit owner choices or approval still pending.
+- **Verification:** commands/results, local/CI parity, documentation changes and unresolved gaps.
 
-## Target and audience
-
-- Repository, record path, stack, CI runner role and required context (`ci.runner`,
-  `ci.requiredContext`), base ref, scope exclusions, and protected paths.
-
-## Existing controls
-
-- Active versus optional/proposed instructions, checks, tests, and documentation by owner.
-
-## Rule coverage
-
-- Every bundled rule ID: applicable, implemented (by a harness step, or by a repo checker named in
-  `guardrails.check.repo`), not applicable with evidence, or blocked.
-- Every lock file and manifest: the audit that covers it, with a source line, or the `grow` fix.
-
-## Proposed actions
-
-- For each action: keep/merge/replace/add/defer, target paths, rule IDs, and validation.
-
-## Dry-run impact
-
-- Whole-repo findings by rule and path, candidate file counts, added/deleted lines, check costs,
-  and unknowns.
-
-## Decisions
-
-- Explicit user choices or a statement that approval remains pending.
-
-## Verification
-
-- Commands and results, harness-check status over the whole repo, local/CI parity, and
-  unresolved gaps.
-```
-
-Do not save a retained summary artifact. Keep the draft record and candidate files temporary until the
-owner approves application.
+Keep candidate files temporary until approval. A narrower selection changes enabled rules, never
+the whole-repository scope of a retained rule. A blocker is never a pass.

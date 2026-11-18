@@ -16,7 +16,7 @@
     "duration_report_command": "<command>",
     "machines": [
       {
-        "id": "<machine id from the budget checker's probe>",
+        "id": "<machine id>",
         "platform": "<platform>",
         "runtime": "<runtime>",
         "wall_limit_s": "<wall limit in seconds>",
@@ -62,24 +62,14 @@
   "command_notes": {
     "working_directory": "<directory and prerequisites>",
     "interpretation": "<flags, exit codes, and interpretation>"
-  },
-  "adapter": "<test-framework adapter, e.g. pytest>",
-  "structure": {
-    "owners": {"files": {"<path>": "<owner>"}, "directories": {"<directory>/": "<owner>"}},
-    "tiers": ["<lowest tier package>", "<higher tier package>"],
-    "import_direction": {"package": "<import name>", "source_root": "<directory>"}
-  },
-  "house_style": {
-    "version": "<installed house-style version>",
-    "exceptions": [{"rule": "<rule id>", "path": "<path>", "adr": "<ADR reference>"}]
-  },
-  "guardrails": {}
+  }
 }
 ---
 
 # Repo test profile
 
 The calling workflow supplies this profile's location. Repo paths in its settings are repo-relative.
+This generic template describes the repo's testing contract, not harness configuration.
 
 Fill every section with values. `none: <owner-approved reason>` is allowed only in Verification
 surface, Nightly scheduler (a Run events field), and Identity-bearing artefacts; elsewhere a
@@ -96,9 +86,6 @@ reads as ordinary front matter. Keep it and the sections below in step.
 - Write limits and floors as numbers: `wall_limit_s` and `per_test_limit_s` in seconds,
   `line_floor` and `branch_floor` in percent.
 - Approval = the owner's decision. Document approval fields only as the owner stated them.
-- `structure.tiers` may be empty for a flat package; `house_style.exceptions` may be empty.
-  Each style exception needs an ADR reference.
-- `guardrails` holds the calling workflow's per-checker settings.
 
 ## Tiers
 
@@ -165,12 +152,6 @@ reads as ordinary front matter. Keep it and the sections below in step.
 - Support directory: `<directory>`.
 - Fixtures directory: `<directory>`.
 - Test file patterns: `<patterns>`.
-
-## Structure and house style
-
-- Capability owners: `<files and directories with their owners>`.
-- Tiers, lowest first, and import direction: `<tier packages and source root>`.
-- House-style version and ADR-backed exceptions: `<version and exceptions>`.
 
 ## Command notes
 

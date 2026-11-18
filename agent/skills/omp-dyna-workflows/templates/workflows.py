@@ -23,7 +23,7 @@ CHECK_TIMEOUT = 900
 HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
     "missing per-repo record; follow skill://omp-dyna-workflows/SKILL.md "
-    "owner-approval prerequisite (skill://setup-repo-proofs)")
+    "owner-approval prerequisite (skill://omp-dyna-workflows/references/harness-setup.md)")
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 # Every current manifest and proof field; any other field is rejected by name.
@@ -85,7 +85,7 @@ def _resolver():
 
 
 _SURFACE = []
-GUARDRAILS_REFERENCE = "agent/skills/setup-repo-proofs/assets/python-reference"
+GUARDRAILS_REFERENCE = "agent/extensions/dynaflows/guardrails"
 
 
 def _surface():
