@@ -73,6 +73,12 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "PREFIX.candidates JSON for --base SHA --head SHA owner judgment",
         prints_data=True,
     ),
+    "structure-state": Subcommand(
+        ("omp_guardrails.structure.state",),
+        "bounded structure/naming unit-state JSON for --base SHA --head SHA",
+        needs_profile=False,
+        prints_data=True,
+    ),
     "naming": Subcommand(
         ("omp_guardrails.structure.naming",), "NAME.conventions and NAME.test-files"
     ),
@@ -231,6 +237,8 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
 
         assert target.record is not None
         return run_init(target.repo, target.record, argv)
+    if name == "structure-state" and target.record is None:
+        return run_modules(module_names(name, {}), target.repo, {}, argv)
     assert target.record is not None
     try:
         profile = load_profile(target.record)
@@ -269,11 +277,13 @@ def main(argv: list[str] | None = None) -> int:
     if name not in SUBCOMMANDS:
         print(f"unknown subcommand: {name}\n\n{usage()}", file=sys.stderr)
         return 2
-    if wants_help(rest) and SUBCOMMANDS[name].needs_profile and name != "adapter":
+    if wants_help(rest) and name != "adapter" and (
+        SUBCOMMANDS[name].needs_profile or name == "structure-state"
+    ):
         print(subcommand_help(name))
         return 0
     try:
-        target, rest = resolve_target(rest, needs_record=True)
+        target, rest = resolve_target(rest, needs_record=name != "structure-state")
     except UsageError as error:
         print(f"{name}: {error}", file=sys.stderr)
         return 2
