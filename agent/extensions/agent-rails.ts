@@ -8,6 +8,7 @@ import {
 	z, type ExtensionAPI, type ExtensionContext, type ToolCallEvent, type ToolResultEvent,
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
+import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import {
 	configRoot as defaultConfigRoot, findRecord, GATE_FILE, type Gate, loadGate, offText, ownerOnly, parseOrigin, RECORDS_DIR, readGateText, recordDir, resolveRecord,
 } from "../lib/repo-record.ts";
@@ -28,6 +29,7 @@ const mappingSchema = z.object({
 		}
 	}),
 	testGlobs: stringList,
+	dynaflowsRules: stringList,
 	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
@@ -906,8 +908,7 @@ export default function agentRails(
 		}
 		const errors: string[] = [];
 		if (runCheck) for (const [root, changedPaths] of groups) {
-			const gate = await gateAt(root, state, ctx);
-			if (!gate) continue;
+			if (!await dynaflowsOn(ctx, root)) continue;
 			const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
 			const error = await checkPaths(root, changed, state);
 			if (error) errors.push(error);
@@ -941,6 +942,11 @@ export default function agentRails(
 		await rebuild(event, ctx);
 		if (loadError) return;
 		const at = await dynaflowsAt(ctx).catch(error => ({ on: false, off: offText(null, String(error)) }));
+		if (!at.on) {
+			const rules = lookup("ttsr.disabledRules");
+			if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
+			rules.override(pi.pi.settings, [...new Set([...stringList.parse(rules.get(pi.pi.settings)), ...map.dynaflowsRules])]);
+		}
 		if (!at.on && at.off) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.off}`));
 	});
 	pi.on("session_switch", rebuild);
@@ -981,9 +987,9 @@ export default function agentRails(
 							block: true, reason: "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.",
 						};
 						const root = await repoRoot(action.cwd);
-						const owned = root ? await ownerOnlyReason(root) : undefined;
-						if (owned) return { block: true, reason: owned };
 						const at = root ? await dynaflowsAt(ctx, root, true) : await dynaflowsAt(ctx, action.cwd);
+						const owned = root && at.on ? await ownerOnlyReason(root) : undefined;
+						if (owned) return { block: true, reason: owned };
 						// Fail-open is never silent: every commit outside dynaflows says why.
 						if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");
 						if (root && at.on) {
@@ -1036,11 +1042,11 @@ export default function agentRails(
 			const required = new Set<string>();
 			for (const path of targets) {
 				const root = await repoRoot(path);
-				// A repo with a valid record gets the harness path check after each edit instead of read gates.
-				if (root && await gateAt(root, state, ctx)) continue;
+				// Targeted policy reads belong only to this path's dynaflows-on repository.
+				if (!root || !await dynaflowsOn(ctx, root)) continue;
 				const rel = relative(root ?? ctx.cwd, path);
 				const triggers: string[] = [];
-				if (!state.edits.size && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
+				if (!state.edits.has(root) && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
 				// New-file reads apply only to code files inside a repository, not scratch paths.
 				if (root && matches(rel, map.codeGlobs) && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
 				if (matches(rel, map.testGlobs)) triggers.push("test");
@@ -1061,16 +1067,18 @@ export default function agentRails(
 		try {
 			const reasons: string[] = [];
 			const roots = new Set([...state.edits, ...state.pathFailures.keys()]);
+			let editedDynaflowsRepo = false;
 			for (const root of roots) {
-				const gate = await gateAt(root, state, ctx);
+				if (!await dynaflowsOn(ctx, root)) continue;
+				if (state.edits.has(root)) editedDynaflowsRepo = true;
 				const failedPaths = state.pathFailures.get(root);
-				if (failedPaths && gate) {
+				if (failedPaths) {
 					const error = await checkPaths(root, failedPaths, state);
 					if (error) reasons.push(error);
 				}
 			}
 			// Repository checks run at commit (pre-commit hook) and in CI, never at handoff.
-			const urls = state.edits.size ? missing(state, map, ["verification"]) : [];
+			const urls = editedDynaflowsRepo ? missing(state, map, ["verification"]) : [];
 			if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 			if (reasons.length) {
 				return { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` };

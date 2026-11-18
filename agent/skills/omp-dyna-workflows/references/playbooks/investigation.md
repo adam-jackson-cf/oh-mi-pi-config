@@ -3,9 +3,11 @@
 Deliver traceable scratch-only evidence, not repository implementation.
 
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
-only the deltas below belong here. Ordinary implementation cannot skip its
-owner-approved project-setup prerequisite. Helper mechanics live in
-[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
+only the deltas below belong here. Evidence-only investigation needs no implementation record.
+A separately requested implementation requires the valid pathCheck-free schema-v2 record,
+proof-before-implementation ordering, main-never-commits boundary, and exact-head `prove()` /
+`structure_review()` / CI merge gates in stages 4–6. Helper mechanics live in
+[patterns](../patterns.md) and [verify-loop](../verify-loop.md); Git mechanics live in `skill://git-tool`.
 
 ## 1. Frame
 

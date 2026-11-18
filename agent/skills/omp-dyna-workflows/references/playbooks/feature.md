@@ -3,9 +3,10 @@
 Deliver the requested feature with frozen acceptance evidence.
 
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
-only the deltas below belong here. Ordinary implementation cannot skip its
-owner-approved project-setup prerequisite. Helper mechanics live in
-[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
+only the deltas below belong here. Ordinary implementation requires a valid pathCheck-free
+schema-v2 record with `checks.commit` and a complete path-check profile; missing controls
+require owner-approved Project setup. Helper mechanics live in [patterns](../patterns.md)
+and [verify-loop](../verify-loop.md); Git mechanics live in `skill://git-tool`.
 
 ## 1. Frame
 
@@ -27,7 +28,8 @@ plus a discovery's map entry and outcome test (see Discoveries); never frozen pr
 
 ## 4. Implement
 
-Implement the feature within the framed scope.
+Complete the proof task and main's red-at-base freeze before the separate implementation task
+implements the feature within the framed scope. Main never commits.
 
 **Discoveries.** User-facing behaviour the plan did not name (a new error, option, output or
 state the caller can see) is not left to review. The implementation task adds or updates its
@@ -43,9 +45,12 @@ writes entries and tests, never review findings.
 
 ## 5. Verify
 
-Frozen proofs pass at head, every changed feature-map doc links a frozen proof, and CI is green
-on the exact head.
+With the stage-4 record still valid, main runs `prove()` and then `structure_review()` on the
+exact PR head. Frozen proofs pass, every changed feature-map doc links a frozen proof,
+and CI is green on that same head.
 
 ## 6. Integrate
 
-No feature-specific integration delta.
+Merge only with the valid stage-4 record, exact-head CI green, prove `status: pass` and structure
+`halt: false`; missing, invalid or wrong-head results block. Rerun both helpers after any head
+change. Main never commits.

@@ -3,9 +3,10 @@
 Land independent verified units behind a flag, not long-lived or stacked branches.
 
 Follow [the six-stage contract](../../SKILL.md#six-stage-contract) in order;
-only the deltas below belong here. Ordinary implementation cannot skip its
-owner-approved project-setup prerequisite. Helper mechanics live in
-[patterns](../patterns.md); Git mechanics live in `skill://git-tool`.
+only the deltas below belong here. Ordinary implementation requires a valid pathCheck-free
+schema-v2 record with `checks.commit` and a complete path-check profile; missing controls
+require owner-approved Project setup. Helper mechanics live in [patterns](../patterns.md)
+and [verify-loop](../verify-loop.md); Git mechanics live in `skill://git-tool`.
 
 ## 1. Frame
 
@@ -32,15 +33,20 @@ units report status in their PR bodies.
 
 ## 4. Implement
 
-Run shared stage 4 for every unit with a separate implementation task. Main
-coordinates independent units; the final unit writer removes the flag and obsolete paths.
+For every unit, complete its proof task and main's red-at-base freeze (empty for no behaviour
+change) before its separate implementation task. Main never commits; it coordinates independent
+units. The final unit writer removes the flag and obsolete paths.
 
 ## 5. Verify
 
-Each unit, including final flag removal, gets its own prove and exact-head CI.
+With the stage-4 record still valid, each unit, including final flag removal, gets main's
+`prove()` then `structure_review()` and CI green on its exact PR head.
 Final proofs cover combined end-to-end behaviour.
 Land decision/ADR units before proving their dependent units.
 
 ## 6. Integrate
 
-Integrate units in dependency order; no long-lived or stacked branches.
+Integrate units in dependency order; no long-lived or stacked branches. Require the valid stage-4
+record, exact-head CI green, prove `status: pass` and structure `halt: false` for each unit.
+Missing, invalid or wrong-head results block; rerun both helpers after any head change.
+Main never commits.

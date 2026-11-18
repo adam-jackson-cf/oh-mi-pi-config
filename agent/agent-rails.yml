@@ -1,3 +1,9 @@
+# Native judged rules suppressed for sessions whose repository has dynaflows off.
+dynaflowsRules:
+  - agent-rails-clean-cutovers
+  - agent-rails-flakes
+  - agent-rails-measured-claims
+  - agent-rails-regression-coverage
 references:
   firstEdit:
     - skill://coding-guidance/references/implementation-integrity.md
