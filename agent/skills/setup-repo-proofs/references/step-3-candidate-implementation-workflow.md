@@ -71,10 +71,10 @@ Draft the record and the candidate repo fixes outside the target checkout.
    report. CI never measures or reports test timing. Name overrunning tests
    with a speed-up fix; never propose a tier move because a test is slow.
 4. `omp-guardrails diff-check` implements `TEST.growth.justified` and
-   `TEST.duplicate-path`. It requires one inline `behaviour:` comment per new
-   test function in the language's comment syntax (Python `# behaviour:`,
-   JS/TS `// behaviour:`); parameter rows share it. It checks presence and
-   non-placeholder text only, and rejects duplicates by normalised call-path
+   `TEST.duplicate-path`. It requires a descriptive behavior name per new
+   test function (Python function name or JS/TS test title); parameter rows
+   share it. It checks presence with at least two non-generic alphabetic words,
+   and rejects duplicates by normalised call-path
    and assertion fingerprints, naming both cases and the merge-or-remove fix.
    The remaining test-guidance rules follow each catalogue row's `reference`:
    `diff-check` (coverage ratchet, golden change record, identity artefacts,

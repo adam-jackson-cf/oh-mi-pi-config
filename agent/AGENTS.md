@@ -126,7 +126,7 @@ Git: agents own branch → PR → review → merge without asking, unless the re
 `"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
 
 Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/skills/omp-dyna-workflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or its git-tool, coding-guidance
+`agent/extensions/agent-rails.ts`, `agent/agents/**`, rules), or its git-tool
 and test-guidance skills, or to other skills in skills-directory, are not finished at merge:
 roll out to every device in the same task.
 Run `python3 ~/.omp/scripts/device-rollout.py` from the Mac; it fast-forwards remote `~/.agents`

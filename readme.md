@@ -11,7 +11,10 @@ The configuration favors evidence before assertion, verification proportional to
 risk, and clean cutovers over compatibility layers. Changes should solve the
 underlying problem, preserve canonical wording where it matters, migrate callers
 when a design changes, and remove obsolete paths rather than carry them forward.
-`agent/AGENTS.md` holds the durable operating policy.
+`agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
+[delivery principles](agent/skills/omp-dyna-workflows/references/delivery-principles.md)
+and [structure and naming](agent/skills/omp-dyna-workflows/references/structure-and-naming.md);
+`test-guidance` remains generic test practice, usable without dynaflows.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults

@@ -116,9 +116,10 @@ SUBCOMMANDS: dict[str, Subcommand] = {
             "omp_guardrails.diffs.identity_artefacts",
             "omp_guardrails.diffs.timeouts",
             "omp_guardrails.diffs.growth",
+            "omp_guardrails.diffs.integrity",
         ),
         "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts, "
-        "TEST.no-evasion timeout increases, TEST.growth.justified and TEST.duplicate-path",
+        "TEST.no-evasion timeout increases, TEST.growth.justified, TEST.duplicate-path and CODE.* integrity",
     ),
     "affected": Subcommand(
         ("omp_guardrails.diffs.affected",),

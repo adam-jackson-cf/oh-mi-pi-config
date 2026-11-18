@@ -11,8 +11,7 @@ Prove pure-core properties against an independent oracle over generated realisti
   Include domain edges, overflow and invalid-input boundaries. Round trips complement independent references;
   paired encode/decode bugs can preserve a round trip.
 - For order-insensitivity, shuffle generated inputs and compare semantic results.
-- Enforced by TEST.property-seed (omp-guardrails adapter).
-  Report the input sequence. Reproduce failures from seed and shrink path.
+- Report the input sequence. Reproduce failures from seed and shrink path.
   Retain the shrunk counterexample as a named example.
-- Enforced by TEST.mutation-sensitivity (omp-guardrails adapter, mutation-check).
+- Check that plausible defects in the claimed property make the test fail.
 - Use bounded model checking in T3 for races or state machines; do not turn a pure-core property into a live-service test.

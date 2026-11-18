@@ -72,8 +72,6 @@ agent/skills/*
 !agent/skills/jev-actions/**
 !agent/skills/setup-repo-proofs/
 !agent/skills/setup-repo-proofs/**
-!agent/skills/coding-guidance/
-!agent/skills/coding-guidance/**
 !agent/skills/test-guidance/
 !agent/skills/test-guidance/**
 !agent/skills/git-tool/
@@ -118,6 +116,8 @@ tests/fixtures/*
 !tests/test_repo_record.py
 !tests/repo-record.test.ts
 !tests/test_skill_references.py
+!tests/test_test_enforcement.py
+!tests/test_delivery_policy.py
 
 !.omp/
 .omp/*

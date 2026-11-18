@@ -10,7 +10,7 @@ and [verify-loop](../verify-loop.md); Git mechanics live in `skill://git-tool`.
 
 ## 1. Frame
 
-Record actual versus expected behaviour and representative failure-class criteria. Read `skill://coding-guidance/references/regression-coverage.md`.
+Record actual versus expected behaviour and representative failure-class criteria. Read `skill://omp-dyna-workflows/references/delivery-principles.md`.
 
 ## 2. Spike
 
@@ -18,6 +18,8 @@ Reproduction is mandatory. For intermittent failures read
 `skill://test-guidance/references/flakes.md`; control causes, never suppress evidence.
 
 ## 3. Plan
+
+Read [proofs](../proofs.md) and `skill://test-guidance/references/case-selection.md`.
 
 Each proof reproduces the failure: it fails at base and passes at head. Extend an existing
 scenario only in a small dedicated file; otherwise add a dedicated proof file and list every

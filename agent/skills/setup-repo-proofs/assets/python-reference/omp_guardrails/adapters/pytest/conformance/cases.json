@@ -25,9 +25,9 @@
     {"id": "user-data-temporary-home", "rule": "TEST.user-data-guard", "evidence": "run-report", "situation": "a test writes under its temporary directory and the redirected home", "expect": "clean"},
     {"id": "runtime-skip-recorded", "rule": "TEST.no-evasion", "evidence": "run-report", "situation": "a test skips at runtime; the normalised record keeps the outcome and reason for the shared report check", "expect": {"outcome": "skipped", "reason": "waiting on vendor fix"}},
     {"id": "expected-failure-recorded", "rule": "TEST.no-evasion", "evidence": "run-report", "situation": "an expected failure is normalised as xfail with its reason", "expect": {"outcome": "xfail", "reason": "known defect"}},
-    {"id": "behaviour-comment-present", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "each test function carries an inline behaviour comment, above it or in its body; one comment covers all parameter rows", "expect": "clean"},
-    {"id": "behaviour-comment-missing", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "a test function has comments but no behaviour comment", "expect": "finding"},
-    {"id": "behaviour-comment-placeholder", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "a test function's behaviour comment holds only placeholder text", "expect": "finding"},
+    {"id": "behaviour-name-present", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "each test function has a descriptive behavior name; one name covers all parameter rows", "expect": "clean"},
+    {"id": "behaviour-name-missing", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "a test function has only a generic single-word name", "expect": "finding"},
+    {"id": "behaviour-name-placeholder", "rule": "TEST.growth.justified", "evidence": "static-cases", "situation": "a test function's name holds only placeholder text", "expect": "finding"},
     {"id": "empty-collection", "rule": "TEST.failure-propagation", "evidence": "collection", "situation": "a tier selector collects no tests", "expect": "finding"},
     {"id": "tier-selection", "rule": "TEST.tier-selectors", "evidence": "collection", "situation": "a tier selector lists exactly the tests it selects", "expect": {"ids": ["tests/test_case.py::test_fast_total"]}}
   ]

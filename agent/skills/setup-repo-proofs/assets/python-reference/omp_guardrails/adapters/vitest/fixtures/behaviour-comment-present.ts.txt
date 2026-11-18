@@ -1,7 +1,0 @@
-import { test, expect } from 'vitest';
-// behaviour: addition preserves the total for every parameter row
-test.each([1, 2])('sum %i', value => { expect(value + 0).toBe(value); });
-test('identity', () => {
-  // behaviour: multiplying by one preserves the supplied integer
-  expect(3 * 1).toBe(3);
-});

@@ -36,6 +36,8 @@ Step 4. Scratch work prepares Step 5 approval; never apply controls during inven
 
 ## 3. Plan
 
+Read [proofs](../proofs.md) for freezing and profile binding.
+
 The feature map must exist before any TDD proof: `freeze()` refuses every proof when the record
 profile declares no `verification_surface.feature_map_path`, and refuses a proof file no map doc
 links. Setup therefore establishes the map first.

@@ -203,15 +203,15 @@
       "evidence_kind": "local_ci",
       "contract": {
         "scope": "new_test_functions_relative_to_base_ref",
-        "inline_behaviour_comment_required": true,
-        "comment_uses_language_comment_syntax": true,
-        "one_comment_per_function_covers_parameter_rows": true,
-        "presence_only_placeholder_text_is_failure": true,
+        "descriptive_behavior_name_required": true,
+        "input": "Python test function name without test_ and underscores; JS/TS test title",
+        "one_name_per_function_covers_parameter_rows": true,
+        "presence_only_requires_two_words_other_than_test_case_todo_tbd_placeholder_example": true,
         "uncollectable_changed_test_file_is_failure": true,
         "truthfulness_sampled_by_jev_judge_batch_outside_check": true,
-        "diagnostic_names_test_and_comment_or_remove_fix": true
+        "diagnostic_names_test_and_rename_or_remove_fix": true
       },
-      "summary": "Require every added test function to carry an inline behaviour comment.",
+      "summary": "Require every added test function to name the behavior it proves.",
       "reference": [
         {"subcommand": "diff-check", "module": "omp_guardrails.diffs.growth"}
       ]
@@ -756,15 +756,6 @@
       ]
     },
     {
-      "id": "RUFF.FORMAT.docstring-code-format",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "value": true
-      },
-      "summary": "Enforce the docstring-code-format formatting behavior or equivalent."
-    },
-    {
       "id": "RUFF.FORMAT.indent-style",
       "kind": "tool",
       "applicability": "conditional",
@@ -798,23 +789,14 @@
       "contract": {
         "ignore": [
           "E501",
-          "D100",
-          "D101",
-          "D102",
-          "D103",
-          "D104",
-          "D105",
-          "D107",
           "B006",
           "B008",
           "A005"
         ],
         "per_file": {
-          "__init__.py": ["F401", "F403", "D104"],
-          "test_*.py": ["D", "S101", "PLR2004"],
-          "**/tests/**": ["D", "S101", "PLR2004"],
-          "conftest.py": ["D"],
-          "setup.py": ["D"]
+          "__init__.py": ["F401", "F403"],
+          "test_*.py": ["S101", "PLR2004"],
+          "**/tests/**": ["S101", "PLR2004"]
         }
       },
       "summary": "Carry only justified lint exceptions; detect added suppressions."
@@ -926,15 +908,6 @@
       "summary": "Enable the Ruff PLR0915 rule with the max-statements limit or target-language equivalent."
     },
     {
-      "id": "RUFF.PYDOCSTYLE.convention",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "value": "numpy"
-      },
-      "summary": "Apply the configured docstring convention or equivalent."
-    },
-    {
       "id": "RUFF.ROOT.exclude",
       "kind": "tool",
       "applicability": "conditional",
@@ -1023,13 +996,65 @@
       "summary": "Enable the Ruff C4 rule selector or target-language equivalent."
     },
     {
-      "id": "RUFF.SELECT.D",
+      "id": "CODE.no-comments",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added diff lines, including touched comment lines; existing unchanged comments remain",
+        "python": "tokenize comments and AST module/class/function docstrings",
+        "other_languages": "quote-aware lexer: hash, slash/block, SQL/Lua double-dash, Haskell/Elm block, HTML/XML/Markdown block, TeX/Erlang percent, Lisp semicolon and INI/properties comments; common extensions and Dockerfile/Makefile/CMakeLists/dotfiles",
+        "limits": "lexical, not a full non-Python parser; embedded languages, heredocs, regex literals and language-specific raw strings are not interpreted",
+        "exemptions": "shebang; noqa; type: ignore; pyright; fmt; ruff; isort; pylint; eslint-*; @ts-expect-error/ignore/nocheck; prettier-ignore; biome-ignore; go:build; nolint; SPDX-License-Identifier; markdownlint-*; vim/emacs modelines; encoding cookies; Rust #[allow] is syntax, not a comment"
+      },
+      "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives.",
+      "reference": [{"subcommand": "diff-check", "module": "omp_guardrails.diffs.integrity"}, {"subcommand": "check", "module": "omp_guardrails.whole_repo"}]
+    },
+    {
+      "id": "CODE.no-placeholder-bodies",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added Python function-body lines",
+        "bodies": ["pass", "...", "raise NotImplementedError"],
+        "exemptions": ["Protocol methods", "abstract methods", "@overload", ".pyi"],
+        "limits": "Python AST only; non-Python placeholder bodies are not checked"
+      },
+      "summary": "Block whole-function placeholder bodies, excluding declarations.",
+      "reference": [{"subcommand": "diff-check", "module": "omp_guardrails.diffs.integrity"}, {"subcommand": "check", "module": "omp_guardrails.whole_repo"}]
+    },
+    {
+      "id": "CODE.no-product-mocks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added import/call lines outside profile tiers, support and fixtures locations, using TEST.placement path matching",
+        "libraries": ["unittest.mock", "mock", "pytest_mock", "sinon", "jest-mock", "ts-mockito", "testdouble", "mock-require", "proxyquire"],
+        "calls": ["jest.mock", "jest.doMock", "jest.unstable_mockModule", "vi.mock", "vi.doMock"],
+        "limits": "Python static imports and JS/TS static imports/requires plus jest/vi calls; dynamic computed names and aliases are not resolved"
+      },
+      "summary": "Keep mock libraries and mock calls out of product code.",
+      "reference": [{"subcommand": "diff-check", "module": "omp_guardrails.diffs.integrity"}, {"subcommand": "check", "module": "omp_guardrails.whole_repo"}]
+    },
+    {
+      "id": "RUFF.SELECT.S110",
       "kind": "tool",
       "applicability": "conditional",
-      "contract": {
-        "selector": "D"
-      },
-      "summary": "Enable the Ruff D rule selector or target-language equivalent."
+      "contract": {"selector": "S110"},
+      "summary": "Enable Ruff S110 (try-except-pass) or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.BLE001",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {"selector": "BLE001"},
+      "summary": "Enable Ruff BLE001 (blind-except) or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.SIM105",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {"selector": "SIM105"},
+      "summary": "Enable Ruff SIM105 (suppressible-exception) or target-language equivalent."
     },
     {
       "id": "RUFF.SELECT.E",

@@ -1,5 +1,6 @@
 ---
-agents: [main]
+agents: [main, task]
+repeatMode: once
 question: >-
   Is this reply announcing or making a change to correct incorrect runtime behaviour (a bug
   or regression)? Answer no for type, compile, lint or formatting errors, new features,
@@ -9,4 +10,5 @@ scope: text
 ---
 # Regression coverage
 
-Read skill://coding-guidance/references/regression-coverage.md before implementing the fix.
+Read skill://omp-dyna-workflows/references/delivery-principles.md and
+skill://test-guidance/references/case-selection.md before implementing the fix.
