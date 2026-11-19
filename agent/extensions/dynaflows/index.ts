@@ -108,6 +108,8 @@ function headFormatReason(head: string | undefined): string | undefined {
 	if (!/^[0-9a-f]{40}$/.test(head)) return `Agent rails: --match-head-commit must be a lowercase 40-hex SHA, got ${head}`;
 	return undefined;
 }
+type ExecApi = Pick<ExtensionAPI, "exec">;
+type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
 type Applied = { notice: string; content?: string | undefined };
 function missingRecordOutcome(notify: (notice: string) => string, slug: string, recordPath: string, enabled: boolean): Applied {
 	if (!enabled) return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`) };
@@ -176,12 +178,12 @@ function dynaflowsSetting(line: string): boolean | undefined {
 // is the machine default: {"enabled": false} turns dynaflows off for every repo on this machine;
 // absent or true defers to the record. No origin or no record means off. `configPath` is the rails
 // mapping file (agent/rails.yml shared with generic rails).
-async function gitValue(pi: ExtensionAPI, cwd: string, args: string[]): Promise<string> {
+async function gitValue(pi: ExecApi, cwd: string, args: string[]): Promise<string> {
 	const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
 	return result.stdout.trim();
 }
-async function primaryGithubRepository(pi: ExtensionAPI, cwd: string): Promise<string> {
+async function primaryGithubRepository(pi: ExecApi, cwd: string): Promise<string> {
 	const remotes = (await gitValue(pi, cwd, ["remote"])).split("\n");
 	const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
 	if (!remote) throw new Error("cannot resolve primary GitHub remote");
@@ -190,10 +192,10 @@ async function primaryGithubRepository(pi: ExtensionAPI, cwd: string): Promise<s
 	if (!match?.[1]) throw new Error("primary remote is not a validated GitHub repository");
 	return match[1];
 }
-function repoExec(pi: ExtensionAPI, argv: string[], cwd: string, timeout?: number) {
+function repoExec(pi: ExecApi, argv: string[], cwd: string, timeout?: number) {
 	return pi.exec("env", [...harnessVariables.flatMap(name => ["-u", name]), "--", ...argv], timeout === undefined ? { cwd } : { cwd, timeout });
 }
-async function proveResultReason(pi: ExtensionAPI, cwd: string, head: string): Promise<string | undefined> {
+async function proveResultReason(pi: ExecApi, cwd: string, head: string): Promise<string | undefined> {
 	const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for the prove() result");
 	const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.result.json`);
@@ -203,7 +205,7 @@ async function proveResultReason(pi: ExtensionAPI, cwd: string, head: string): P
 	} catch { /* A missing or corrupt result is not a pass. */ }
 	return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 }
-async function structureResultReason(pi: ExtensionAPI, cwd: string, head: string): Promise<string | undefined> {
+async function structureResultReason(pi: ExecApi, cwd: string, head: string): Promise<string | undefined> {
 	const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (common.code !== 0 || common.killed || !common.stdout.trim()) throw new Error("cannot resolve Git common directory for the structure_review() result");
 	const path = resolve(cwd, common.stdout.trim(), "omp-structure", `${head}.json`);
@@ -228,7 +230,7 @@ async function structureResultReason(pi: ExtensionAPI, cwd: string, head: string
 }
 type PrCi = { head?: string; repository?: string; reason?: string | undefined };
 type PrIdentity = { head: string; repository: string };
-async function foreignRepository(pi: ExtensionAPI, root: string, selector: string | undefined, repository: string): Promise<boolean> {
+async function foreignRepository(pi: ExecApi, root: string, selector: string | undefined, repository: string): Promise<boolean> {
 	if (!selector || !/^https?:\/\//i.test(selector)) return false;
 	return (await primaryGithubRepository(pi, root)).toLowerCase() !== repository.toLowerCase();
 }
@@ -253,14 +255,14 @@ async function ciReason(root: string, checks: CheckReport[], gate: Gate | undefi
 		? `Agent rails: CI is not green for ${pr.head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined;
 }
 type DynaflowsAt = { on: boolean; off?: string; invalid?: boolean };
-async function statusAdditions(pi: ExtensionAPI, canonicalRoot: string): Promise<Set<string>> {
+async function statusAdditions(pi: ExecApi, canonicalRoot: string): Promise<Set<string>> {
 	const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (status.code !== 0 || status.killed) {
 		throw new Error(`git status failed${status.killed ? " (killed)" : ` (exit ${status.code})`}: ${status.stderr || status.stdout}`.trim());
 	}
 	return porcelainAdditions(status.stdout);
 }
-async function touchedOwnerPaths(pi: ExtensionAPI, root: string, owned: string[]): Promise<string[]> {
+async function touchedOwnerPaths(pi: ExecApi, root: string, owned: string[]): Promise<string[]> {
 	const touched = new Set<string>();
 	for (const args of [["diff", "--cached", "--name-only", "--no-renames", "-z"], ["diff", "--name-only", "--no-renames", "-z"]]) {
 		const result = await pi.exec("git", args, { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -300,7 +302,7 @@ type Notify = (notice: string, level?: "info" | "error") => string;
 type EnabledRequest = { notice: string; slug: string; dir: string; task: boolean };
 
 export default function dynaflows(
-	pi: ExtensionAPI,
+	pi: DynaflowsApi,
 	{
 		machineDynaflowsPath = fileURLToPath(new URL("../../../dynaflows.json", import.meta.url)),
 		configPath = fileURLToPath(new URL("../../rails.yml", import.meta.url)),

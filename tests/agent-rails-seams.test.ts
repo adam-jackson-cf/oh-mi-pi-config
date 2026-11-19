@@ -4,8 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { test } from "bun:test";
-import { promisify } from "node:util";
-import { Settings, z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import agentRails from "../agent/extensions/agent-rails";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
 import { parseOrigin } from "../agent/lib/repo-record.ts";
@@ -23,12 +22,12 @@ type GateFixture = {
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
-	type: string; toolName?: string; toolCallId?: string; input?: Input;
+	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
 	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string; prompt?: string;
 };
 type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object; model?: string[] };
-type Handler = (event: Event, ctx: ExtensionContext) => Result | void | Promise<Result | void>;
+type Handler = Function;
 type Tool = { name: string; execute(id: string, params: { enabled: boolean }, signal: undefined, onUpdate: undefined, ctx: ExtensionContext): Promise<{ content: { text: string }[] }> };
 const execFailureSchema = z.object({
 	code: z.number().optional().catch(undefined),
@@ -36,7 +35,15 @@ const execFailureSchema = z.object({
 	stdout: z.string().optional(),
 	stderr: z.string().optional(),
 });
-const execute = promisify(execFile);
+type ExecuteOptions = { cwd?: string; timeout?: number };
+function execute(command: string, args: string[], options: ExecuteOptions = {}): Promise<{ stdout: string; stderr: string }> {
+	return new Promise((done, fail) => {
+		execFile(command, args, { ...options, encoding: "utf8" }, (error, stdout, stderr) => {
+			if (error) fail(Object.assign(error, { stdout, stderr }));
+			else done({ stdout, stderr });
+		});
+	});
+}
 
 const wrappedPublishing = [
 	"sudo git push", "sudo -u root git push", "env git push", "env -i git push", "env FOO=x git push",
@@ -57,13 +64,15 @@ const recordGateSchema = z.object({ dynaflows: z.object({ enabled: z.boolean() }
 function repoCommand(command: string, args: string[]): [string, string[]] {
 	if (command === "env") {
 		assert.deepEqual(args.slice(0, 3), ["-u", "AGENT", "--"], "repo commands run without the harness variables");
-		[command, ...args] = args.slice(3);
+		const [inner, ...rest] = args.slice(3);
+		assert.ok(inner, "env runs a command");
+		[command, args] = [inner, rest];
 	}
 	if (command === "uv" && args[4] === "path-check") {
 		assert.deepEqual(args.slice(0, 6), ["run", "--project",
 			resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"), "guardrails", "path-check", "--repo"]);
 		assert.equal(args[7], "--record");
-		assert.match(args[8], /\/repos\/[^/]+\/[^/]+$/);
+		assert.match(args[8] ?? "", /\/repos\/[^/]+\/[^/]+$/);
 		return ["path-check", args.slice(9)];
 	}
 	return [command, args];
@@ -72,6 +81,19 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 // A temp repo whose origin names a per-repo record under a temp config root (never the real one).
 // `configRoot` shares another harness's records; `guardrailsCommand: "default"` keeps the real
 // guardrails invocation, otherwise the harness checks are `true`.
+type ExtensionOptions = NonNullable<Parameters<typeof agentRails>[1]> & NonNullable<Parameters<typeof dynaflowsExtension>[1]>;
+type CommandChoices = { configPath: string | undefined; ompCommand: string[] | undefined; guardrailsCommand: string[] | "default" };
+
+function extensionOptions(machine: string, records: string, choices: CommandChoices): ExtensionOptions {
+	const options: ExtensionOptions = {
+		machineDynaflowsPath: join(machine, "dynaflows.json"), configRoot: records,
+		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
+	};
+	if (choices.configPath !== undefined) options.configPath = choices.configPath;
+	if (choices.guardrailsCommand !== "default") options.guardrailsCommand = choices.guardrailsCommand;
+	return options;
+}
+
 function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, extensions = "generic" }: {
 	extensions?: "generic" | "dynaflows" | "both";
 	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
@@ -96,14 +118,6 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		agent: identity,
 		ui: { notify(message: string, level?: string) { notes.push(message); if (level === "error") errors.push(message); } },
 		sessionManager: { getSessionId: () => sessionId, getBranch: () => branch },
-		models: {
-			current: () => ({ provider: "openai", id: "gpt" }),
-			resolve: (pattern: string) => {
-				const [provider, id] = pattern.split("/");
-				return id ? { provider, id } : undefined;
-			},
-			family: (model: { provider: string }) => model.provider,
-		},
 	};
 	// SAFETY: this fixture supplies every context surface consumed by the registered policies.
 	const extensionContext = context as ExtensionContext;
@@ -136,12 +150,10 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			}
 		},
 	};
-	const options: NonNullable<Parameters<typeof agentRails>[1]> & NonNullable<Parameters<typeof dynaflowsExtension>[1]> = { machineDynaflowsPath: join(machine, "dynaflows.json"), configPath, configRoot: records };
-	options.ompCommand = ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")];
+	const options = extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand });
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
-	if (guardrailsCommand !== "default") options.guardrailsCommand = guardrailsCommand;
 	// SAFETY: this fixture supplies the API surfaces consumed by both extension registrations.
-	const extensionApi = api as ExtensionAPI;
+	const extensionApi = api as Parameters<typeof dynaflowsExtension>[0] & Parameters<typeof agentRails>[0];
 	if (extensions !== "dynaflows") agentRails(extensionApi, options);
 	if (extensions !== "generic") dynaflowsExtension(extensionApi, options);
 	// The record's gate.json: the fixture over a dynaflows-off default; `dynaflows()` wins.
@@ -169,15 +181,9 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
 		let combined: Result | undefined;
 		for (const handler of handlers.get(name) ?? []) {
-			const result = await handler({ type: name, ...event }, extensionContext);
+			const result: Result | void = await handler({ type: name, ...event }, extensionContext);
 			if (result?.block || result?.decision === "block") return result;
-			if (result) {
-				const previousContext = combined?.additionalContext;
-				combined = { ...combined, ...result };
-				if (previousContext && result.additionalContext) {
-					combined.additionalContext = `${previousContext}\n${result.additionalContext}`;
-				}
-			}
+			if (result) combined = mergeResults(combined, result);
 		}
 		return combined;
 	}
@@ -223,6 +229,63 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	};
 }
 
+type Harness = ReturnType<typeof harness>;
+
+
+async function checkDestinationRepository(h: Harness, other: Harness, action: string): Promise<void> {
+	h.gate({ schemaVersion: 2 });
+	for (const prefix of [`cd '${other.root}'`, `pushd '${other.root}'`, `cd '${relative(h.root, other.root)}' && cd .`]) {
+		assert.equal(await bashBlocked(h, `${prefix} && ${action}`), true, prefix);
+	}
+	for (const launcher of ["env -C", "sudo -D"]) {
+		assert.equal(await bashBlocked(h, `${launcher} '${other.root}' ${action}`), true, launcher);
+	}
+	h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+	other.gate({ schemaVersion: 2 });
+	assert.equal(await h.call("bash", { command: `cd '${other.root}' && ${action}` }), undefined);
+	for (const launcher of ["env -C", "sudo -D"]) {
+		assert.equal(await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }), undefined, launcher);
+	}
+	other.gate({ schemaVersion: 2, agentMerge: "disabled" });
+	for (const prefix of ["cd", "cd -", "cd missing-dir", 'cd "$TARGET"']) {
+		assertBlocked(await h.call("bash", { command: `${prefix} && ${action}` }), "effective cwd", prefix);
+	}
+}
+
+function reasonOf(result: Result | undefined): string {
+	return result?.reason ?? "";
+}
+
+function isBlocked(result: Result | undefined): boolean {
+	return result?.block === true;
+}
+
+function mergeResults(combined: Result | undefined, result: Result): Result {
+	const merged = { ...combined, ...result };
+	const previousContext = combined?.additionalContext;
+	if (previousContext && result.additionalContext) merged.additionalContext = `${previousContext}\n${result.additionalContext}`;
+	return merged;
+}
+
+function assertBlocked(result: Result | undefined, fragment: string, label?: string): string {
+	assert.equal(isBlocked(result), true, label ?? fragment);
+	assert.ok(reasonOf(result).includes(fragment), String(label ?? result?.reason));
+	return result?.reason ?? "";
+}
+
+async function bashReason(h: Harness, command: string): Promise<string> {
+	return (await h.call("bash", { command }))?.reason ?? "";
+}
+
+async function bashBlocked(h: Harness, command: string): Promise<boolean> {
+	return (await h.call("bash", { command }))?.block === true;
+}
+
+function restoreEnvironment(name: string, previous: string | undefined): void {
+	if (previous === undefined) delete process.env[name];
+	else process.env[name] = previous;
+}
+
 const ciHead = "a".repeat(40);
 const greenCi = [
 	{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
@@ -240,8 +303,10 @@ type PrCiHarness = {
 };
 
 // Fakes `gh pr view`; every other command runs for real.
-function mockPrCi(h: PrCiHarness, rollup: object[], head = ciHead, selector?: string, failure?: string,
-	url = "https://github.com/owner/repo/pull/3") {
+type PrView = { head?: string; selector?: string; failure?: string; url?: string };
+
+function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
+	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3" } = view;
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
@@ -283,7 +348,7 @@ function structureResult(h: { root: string }, head = ciHead) {
 		JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
 }
 
-export { harness, execute, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult };
+export { harness, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult };
 export { repoCommand };
 export type { Input };
 
@@ -311,17 +376,15 @@ export type { Input };
 				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
 				...wrappedPublishing,
 			]) {
-				const blocked = await h.call("bash", { command });
-				assert.equal(blocked?.block, true, command);
-				assert.ok(blocked?.reason?.includes("skill://git-tool"), blocked?.reason ?? command);
+				assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
 			}
 		} finally { h.cleanup(); }
 	});
 
 	test("worktree creation uses the configured base and lowercase origin name", async () => {
 		const h = harness({ remote: "git@github.com:Owner/RePo.git" });
-		const previous = process.env.OMP_WORKTREE_DIR;
-		delete process.env.OMP_WORKTREE_DIR;
+		const previous = process.env["OMP_WORKTREE_DIR"];
+		delete process.env["OMP_WORKTREE_DIR"];
 		try {
 			await h.read("skill://git-tool");
 			const base = join(h.root, "Worktrees");
@@ -335,47 +398,47 @@ export type { Input };
 			]) assert.equal(await h.call("bash", { command: `git worktree add ${args}` }), undefined, args);
 			for (const target of ["../repo-x", `${base}/x`, `${base}/other/x`, `${base}/repo/x/nested`]) {
 				const blocked = await h.call("bash", { command: `git worktree add '${target}'` });
-				assert.equal(blocked?.block, true, target);
+				assert.equal(isBlocked(blocked), true, target);
 				assert.equal(blocked?.reason, `Agent rails: create worktrees at ${base}/repo/<slug>; got ${resolve(h.root, target)}.`);
 			}
 			for (const target of ["$HOME/worktrees/repo/x", "`pwd`/x"]) {
-				assert.match((await h.call("bash", { command: `git worktree add '${target}'` }))?.reason ?? "", /unexpanded shell text/);
+				assert.match(await bashReason(h, `git worktree add '${target}'`), /unexpanded shell text/);
 			}
 			h.worktreeBase("(not set)");
 			assert.equal((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason,
 				"Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.");
 			h.worktreeBase(base);
 			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
-			assert.match((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason ?? "", /no origin remote/);
+			assert.match(await bashReason(h, `git worktree add '${base}/repo/x'`), /no origin remote/);
 			await execute("git", ["remote", "add", "origin", "https://example.com/owner/repo.git"], { cwd: h.root });
-			assert.match((await h.call("bash", { command: `git worktree add '${base}/repo/x'` }))?.reason ?? "", /not a GitHub/);
+			assert.match(await bashReason(h, `git worktree add '${base}/repo/x'`), /not a GitHub/);
 		} finally {
-			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			restoreEnvironment("OMP_WORKTREE_DIR", previous);
 			h.cleanup();
 		}
 	});
 
 	test("worktree environment base overrides the setting and invalid env defers to it", async () => {
 		const h = harness();
-		const previous = process.env.OMP_WORKTREE_DIR;
+		const previous = process.env["OMP_WORKTREE_DIR"];
 		try {
 			await h.read("skill://git-tool");
 			h.worktreeBase(join(h.root, "setting"));
-			process.env.OMP_WORKTREE_DIR = join(h.root, "override");
+			process.env["OMP_WORKTREE_DIR"] = join(h.root, "override");
 			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/override/repo/x'` }), undefined);
-			assert.equal((await h.call("bash", { command: `git worktree add '${h.root}/setting/repo/x'` }))?.block, true);
-			process.env.OMP_WORKTREE_DIR = "relative";
+			assert.equal(await bashBlocked(h, `git worktree add '${h.root}/setting/repo/x'`), true);
+			process.env["OMP_WORKTREE_DIR"] = "relative";
 			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/setting/repo/x'` }), undefined);
 		} finally {
-			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			restoreEnvironment("OMP_WORKTREE_DIR", previous);
 			h.cleanup();
 		}
 	});
 
 	test("worktree paths canonicalize through the filesystem's own spelling of the base", async () => {
 		const h = harness();
-		const previous = process.env.OMP_WORKTREE_DIR;
-		delete process.env.OMP_WORKTREE_DIR;
+		const previous = process.env["OMP_WORKTREE_DIR"];
+		delete process.env["OMP_WORKTREE_DIR"];
 		try {
 			const base = join(h.root, "Worktrees");
 			mkdirSync(join(base, "repo"), { recursive: true });
@@ -384,21 +447,21 @@ export type { Input };
 			h.worktreeBase(base);
 			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/alias/repo/x'` }), undefined);
 		} finally {
-			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			restoreEnvironment("OMP_WORKTREE_DIR", previous);
 			h.cleanup();
 		}
 	});
 
 	test("worktree setting command errors fail closed", async () => {
 		const h = harness({ ompCommand: ["sh", "-c", "exit 7"] });
-		const previous = process.env.OMP_WORKTREE_DIR;
-		delete process.env.OMP_WORKTREE_DIR;
+		const previous = process.env["OMP_WORKTREE_DIR"];
+		delete process.env["OMP_WORKTREE_DIR"];
 		try {
 			await h.read("skill://git-tool");
-			assert.match((await h.call("bash", { command: `git worktree add '${h.root}/repo/x'` }))?.reason ?? "",
+			assert.match(await bashReason(h, `git worktree add '${h.root}/repo/x'`),
 				/policy could not be evaluated.*cannot read worktree.base/);
 		} finally {
-			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
+			restoreEnvironment("OMP_WORKTREE_DIR", previous);
 			h.cleanup();
 		}
 	});
@@ -415,43 +478,19 @@ export type { Input };
 			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined);
 			h.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			for (const command of commands) {
-				const blocked = await h.call("bash", { command });
-				assert.equal(blocked?.block, true, command);
-				assert.ok(blocked?.reason?.includes("ask the owner"));
+				assertBlocked(await h.call("bash", { command }), "ask the owner", command);
 			}
 			assert.equal(await h.call("bash", { command: "git commit -m fix" }), undefined);
 			assert.equal(await h.call("bash", { command: `git -C '${other.root}' push` }), undefined);
 			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
-			assert.equal((await h.call("bash", { command: `git -C '${other.root}' push` }))?.block, true);
+			assert.equal(await bashBlocked(h, `git -C '${other.root}' push`), true);
 			// cwd-changing commands must select the destination repo, not the session repo.
-			for (const action of ["git push", "gh pr create", "gh pr merge 7"]) {
-				h.gate({ schemaVersion: 2 });
-				for (const prefix of [`cd '${other.root}'`, `pushd '${other.root}'`, `cd '${relative(h.root, other.root)}' && cd .`]) {
-					assert.equal((await h.call("bash", { command: `${prefix} && ${action}` }))?.block, true, prefix);
-				}
-				for (const launcher of ["env -C", "sudo -D"]) {
-					assert.equal((await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }))?.block, true, launcher);
-				}
-				h.gate({ schemaVersion: 2, agentMerge: "disabled" });
-				other.gate({ schemaVersion: 2 });
-				assert.equal(await h.call("bash", { command: `cd '${other.root}' && ${action}` }), undefined);
-				for (const launcher of ["env -C", "sudo -D"]) {
-					assert.equal(await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }), undefined, launcher);
-				}
-				other.gate({ schemaVersion: 2, agentMerge: "disabled" });
-				for (const prefix of ["cd", "cd -", "cd missing-dir", 'cd "$TARGET"']) {
-					const blocked = await h.call("bash", { command: `${prefix} && ${action}` });
-					assert.equal(blocked?.block, true, prefix);
-					assert.ok(blocked?.reason?.includes("effective cwd"));
-				}
-			}
+			for (const action of ["git push", "gh pr create", "gh pr merge 7"]) await checkDestinationRepository(h, other, action);
 			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
 				h.rawGate(invalid);
 				for (const command of commands) {
-					const blocked = await h.call("bash", { command });
-					assert.equal(blocked?.block, true, command);
-					assert.ok(blocked?.reason?.includes("gate.json"));
-					assert.ok(blocked?.reason?.includes("Error"));
+					const reason = assertBlocked(await h.call("bash", { command }), "gate.json", command);
+					assert.ok(reason.includes("Error"));
 				}
 			}
 		} finally { h.cleanup(); other.cleanup(); }
@@ -477,9 +516,7 @@ export type { Input };
 				"env 'HUSKY'=0 git commit -m x", `env HUS"KY"=0 git commit -m x`, `export HUS"KY"=0; git commit -m x`,
 				"declare -x HUSKY=0; git commit -m x", "env --unset=HUSKY git commit -m x", "env -uHUSKY git commit -m x",
 			]) {
-				const blocked = await h.call("bash", { command });
-				assert.equal(blocked?.block, true, command);
-				assert.ok(blocked?.reason?.includes("pre-commit hook"), command);
+				assertBlocked(await h.call("bash", { command }), "pre-commit hook", command);
 			}
 			for (const command of [
 				"git commit -m 'no -n here'", "git commit -m -n", "git commit -F -n", "git commit --message -n",
@@ -507,8 +544,8 @@ export type { Input };
 			];
 			for (const [tool, input] of calls) {
 				const result = await h.call(tool, input);
-				assert.equal(result?.block, true, `${tool}: ${JSON.stringify(input)}`);
-				assert.ok(result?.reason?.includes("absolute path inside your assigned worktree"));
+				assert.equal(isBlocked(result), true, `${tool}: ${JSON.stringify(input)}`);
+				assert.ok(reasonOf(result).includes("absolute path inside your assigned worktree"));
 			}
 			for (const path of ["local://brief.txt", "agent://Main", "xd://report_issue", "proc://job/kill", "memory://root/note", "skill://example"]) {
 				assert.equal(await h.call("write", { path }), undefined, path);
@@ -534,10 +571,8 @@ export type { Input };
 			for (const suffix of ["escape/existing.ts", "escape/new/deep/file.ts", "escape-file.ts"]) {
 				const path = join(h.root, suffix);
 				for (const tool of ["write", "edit", "ast_edit"]) {
-					const result = await h.call(tool, tool === "write" ? { path } : { paths: [path] });
-					assert.equal(result?.block, true, `${tool}: ${suffix}`);
-					assert.ok(result?.reason?.includes(path));
-					assert.ok(result?.reason?.includes(realpathSync(outside)));
+					const reason = assertBlocked(await h.call(tool, tool === "write" ? { path } : { paths: [path] }), path, `${tool}: ${suffix}`);
+					assert.ok(reason.includes(realpathSync(outside)));
 				}
 			}
 			for (const suffix of ["inside-file.ts", "inside/new/deep/file.ts"]) {
@@ -563,7 +598,7 @@ test("pulling commits in needs no read and no check beyond hook-bypass flags", a
 		}
 		for (const command of ["git merge --no-verify branch", "git pull --no-verify", "git rebase --no-ver main", "git -c core.hooksPath=/dev/null merge x"]) {
 			const blocked = await h.call("bash", { command });
-			assert.ok(blocked?.reason?.includes("drop hook bypass"), `${command}: ${blocked?.reason}`);
+			assert.ok(reasonOf(blocked).includes("drop hook bypass"), `${command}: ${blocked?.reason}`);
 		}
 		assert.ok((await h.call("bash", { command: "HUSKY=0 git merge x" }))?.reason?.includes("hook environment mutation"));
 	} finally { h.cleanup(); }
@@ -600,20 +635,12 @@ test("tool-runner launchers cannot bypass commit hooks or publishing checks", as
 			"bunx --package git git commit --no-verify", "pnpm dlx --package git git commit --no-verify",
 			"uv run --python 3.12 git commit --no-verify", "poetry run git commit --no-verify",
 		]) {
-			const result = await h.emit("tool_call", { toolName: "bash", input: { command } });
-			assert.equal(result?.block, true, command);
-			assert.ok(result?.reason?.includes("commits must run the pre-commit hook"), command);
+			assertBlocked(await h.emit("tool_call", { toolName: "bash", input: { command } }), "commits must run the pre-commit hook", command);
 		}
-		const remote = await h.call("bash", { command: "mise exec -- gh pr create --repo x/y" });
-		assert.equal(remote?.block, true);
-		assert.ok(remote?.reason?.includes("remote repository overrides"));
-		const environment = await h.call("bash", { command: "LEFTHOOK=0 mise exec -- git commit -m x" });
-		assert.equal(environment?.block, true);
-		assert.ok(environment?.reason?.includes("hook environment mutation"));
+		assertBlocked(await h.call("bash", { command: "mise exec -- gh pr create --repo x/y" }), "remote repository overrides");
+		assertBlocked(await h.call("bash", { command: "LEFTHOOK=0 mise exec -- git commit -m x" }), "hook environment mutation");
 		for (const command of ["mise exec node@20 git commit", "mise x git commit"]) {
-			const result = await h.call("bash", { command });
-			assert.equal(result?.block, true);
-			assert.ok(result?.reason?.includes("requires --"));
+			assertBlocked(await h.call("bash", { command }), "requires --");
 		}
 		for (const command of [
 			"pnpm exec --filter web git commit --no-verify -m x",
@@ -621,9 +648,7 @@ test("tool-runner launchers cannot bypass commit hooks or publishing checks", as
 			"npx --yes --unknown value git commit --no-verify",
 			"env FOO=x mise exec -- pnpm exec git commit --no-verify",
 		]) {
-			const result = await h.call("bash", { command });
-			assert.equal(result?.block, true, command);
-			assert.ok(result?.reason?.includes("wrapped command could not be parsed safely"), command);
+			assertBlocked(await h.call("bash", { command }), "wrapped command could not be parsed safely", command);
 		}
 		assert.equal(await h.call("bash", { command: "pnpm exec eslint ." }), undefined);
 	} finally { h.cleanup(); }
@@ -645,9 +670,7 @@ test("command substitutions enforce hook checks without executing shell expansio
 			"echo $(printf ')'; git commit --no-verify -m x)",
 			"echo $(export HUSKY=0); git commit -m x",
 		]) {
-			const result = await h.call("bash", { command });
-			assert.equal(result?.block, true, command);
-			assert.ok(result?.reason?.includes("pre-commit hook"), command);
+			assertBlocked(await h.call("bash", { command }), "pre-commit hook", command);
 		}
 		for (const command of [
 			"echo $(date)", "echo `date`", 'echo "$(date)"',
@@ -673,10 +696,8 @@ test("persistent aliases and functions containing git or gh fail closed", async 
 			"ci() { echo $(git status); }",
 			'ci() { g"it" status; }', "alias ci='g\"it\" status'",
 		]) {
-			const result = await h.call("bash", { command });
-			assert.equal(result?.block, true, command);
-			assert.ok(result?.reason?.includes("definition contains a git/gh word"), command);
-			assert.ok(result?.reason?.includes("cannot be parsed safely"), command);
+			const reason = assertBlocked(await h.call("bash", { command }), "definition contains a git/gh word", command);
+			assert.ok(reason.includes("cannot be parsed safely"), command);
 		}
 		for (const command of [
 			"alias ll='ls -l'", "ll() { ls -l; }", "function ll { ls -l; }",
@@ -696,9 +717,7 @@ test("uv and poetry separators disambiguate unknown launcher options without con
 				"-- git commit --no-verify", "git commit --no-verify -- file",
 			]) {
 				const command = `${launcher} ${args}`;
-				const result = await h.call("bash", { command });
-				assert.equal(result?.block, true, command);
-				assert.ok(result?.reason?.includes("commits must run the pre-commit hook"), command);
+				assertBlocked(await h.call("bash", { command }), "commits must run the pre-commit hook", command);
 			}
 			assert.equal(await h.call("bash", { command: `${launcher} -- date` }), undefined);
 		}

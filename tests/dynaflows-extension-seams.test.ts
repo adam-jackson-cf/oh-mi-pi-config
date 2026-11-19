@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
-import { harness as createHarness, execute, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig } from "./agent-rails-seams.test";
+import { harness as createHarness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig } from "./agent-rails-seams.test";
 
 // Most cases exercise the co-registered extensions; isolated package cases select dynaflows only.
 const harness = (options: Parameters<typeof createHarness>[0] = {}) => createHarness({ extensions: "both", ...options });
@@ -19,8 +19,8 @@ describe("dynaflows extension", () => {
 			h.dynaflows(true);
 			const input = { path: "tests/new.test.ts", content: "test('behaviour', () => {});" };
 			const blocked = await h.call("write", input);
-			assert.equal(blocked?.block, true);
-			for (const url of [integrity, structure, tiers, enforcement, proofs]) assert.ok(blocked?.reason?.includes(url));
+			assert.equal(isBlocked(blocked), true);
+			for (const url of [integrity, structure, tiers, enforcement, proofs]) assert.ok(reasonOf(blocked).includes(url));
 			await h.emit("tool_result", { toolName: "read", input: { path: tiers }, isError: true });
 			await h.read(integrity, structure);
 			assert.ok((await h.call("write", input))?.reason?.includes(tiers));
@@ -89,8 +89,8 @@ describe("dynaflows extension", () => {
 				const blocked = await h.emit("session_stop");
 				if (dynaflows) {
 					assert.equal(blocked?.decision, "block");
-					assert.ok(blocked?.reason?.includes(verification));
-					assert.ok(!blocked?.reason?.includes("bun"), "no repository check is demanded at handoff");
+					assert.ok(reasonOf(blocked).includes(verification));
+					assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
 				} else assert.equal(blocked, undefined);
 				await h.read(verification);
 				writeFileSync(join(h.root, "session.log"), "grew again\n");
@@ -125,8 +125,8 @@ describe("dynaflows extension", () => {
 			assert.equal(await h.call("write", { path: "notes.md", content: "# notes\n" }), undefined,
 				"a new non-code file inside a repository needs no reads");
 			const blocked = await h.call("write", { path: "src/new.ts", content: "export {};\n" });
-			assert.equal(blocked?.block, true);
-			for (const url of [structure]) assert.ok(blocked?.reason?.includes(url));
+			assert.equal(isBlocked(blocked), true);
+			for (const url of [structure]) assert.ok(reasonOf(blocked).includes(url));
 		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 	});
 
@@ -137,8 +137,8 @@ describe("dynaflows extension", () => {
 		const script = join(scratch, "check.sh");
 		writeFileSync(script, `#!/bin/sh\nlabel=$1; shift\necho "$label $* AGENT=\${AGENT-unset}" >> '${log}'\necho "$label finding: src/x.py" >&2\neval "exit \\\${FAIL_$label:-0}"\n`, { mode: 0o755 });
 		const h = harness({ guardrailsCommand: [script, "harness"] });
-		const previous = process.env.AGENT;
-		process.env.AGENT = "1";
+		const previous = process.env["AGENT"];
+		process.env["AGENT"] = "1";
 		try {
 			await h.read("skill://git-tool");
 			const commit = () => h.call("bash", { command: "git commit -m x" });
@@ -151,34 +151,34 @@ describe("dynaflows extension", () => {
 			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`],
 				"the repo command first, then the harness over the whole repo with the record; AGENT never reaches either");
 			rmSync(log);
-			process.env.FAIL_commit = "3";
+			process.env["FAIL_commit"] = "3";
 			let blocked = await commit();
-			assert.equal(blocked?.block, true);
-			assert.ok(blocked?.reason?.includes(`checks.commit (${script} commit) failed in ${h.root} (exit 3)`), blocked?.reason);
-			assert.ok(blocked?.reason?.includes("commit finding: src/x.py"), "the agent sees the repo command's output");
-			assert.ok(!blocked?.reason?.includes("adopt mode"), "a repo command failure is fixed in the repo");
+			assert.equal(isBlocked(blocked), true);
+			assert.ok(reasonOf(blocked).includes(`checks.commit (${script} commit) failed in ${h.root} (exit 3)`), String(blocked?.reason));
+			assert.ok(reasonOf(blocked).includes("commit finding: src/x.py"), "the agent sees the repo command's output");
+			assert.ok(!reasonOf(blocked).includes("adopt mode"), "a repo command failure is fixed in the repo");
 			assert.deepEqual(runs(), ["commit  AGENT=unset"], "a failed repo command stops before the harness checks");
 			rmSync(log);
-			delete process.env.FAIL_commit;
-			process.env.FAIL_harness = "1";
+			delete process.env["FAIL_commit"];
+			process.env["FAIL_harness"] = "1";
 			blocked = await commit();
-			assert.equal(blocked?.block, true);
-			assert.ok(blocked?.reason?.includes(`harness checks (guardrails) failed in ${h.root} (exit 1)`), blocked?.reason);
-			assert.ok(blocked?.reason?.includes("harness finding: src/x.py"), blocked?.reason);
-			assert.ok(blocked?.reason?.includes("checks.commit passed. If a repo checker already enforces a failing step's rules"),
+			assert.equal(isBlocked(blocked), true);
+			assert.ok(reasonOf(blocked).includes(`harness checks (guardrails) failed in ${h.root} (exit 1)`), String(blocked?.reason));
+			assert.ok(reasonOf(blocked).includes("harness finding: src/x.py"), String(blocked?.reason));
+			assert.ok(reasonOf(blocked).includes("checks.commit passed. If a repo checker already enforces a failing step's rules"),
 				"a harness-only finding points at adopt mode before the agent reshapes repo code");
 			h.gate({ schemaVersion: 2 });
 			rmSync(log);
 			assert.equal((await commit())?.block, true, "harness checks run even when the record declares no checks.commit");
 			assert.deepEqual(runs(), [`harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`]);
-			delete process.env.FAIL_harness;
+			delete process.env["FAIL_harness"];
 			h.machineDynaflows(false);
 			rmSync(log);
 			assert.equal(await commit(), undefined);
 			assert.deepEqual(runs(), [], "the machine default off turns enforcement off with dynaflows");
 		} finally {
-			if (previous === undefined) delete process.env.AGENT; else process.env.AGENT = previous;
-			delete process.env.FAIL_commit; delete process.env.FAIL_harness;
+			if (previous === undefined) delete process.env["AGENT"]; else process.env["AGENT"] = previous;
+			delete process.env["FAIL_commit"]; delete process.env["FAIL_harness"];
 			h.cleanup(); rmSync(scratch, { recursive: true, force: true });
 		}
 	});
@@ -216,8 +216,8 @@ describe("dynaflows extension", () => {
 			pathFails = true;
 			order.length = 0;
 			const blocked = await h.call("bash", { command: "git commit -am x" });
-			assert.equal(blocked?.block, true);
-			assert.ok(blocked?.reason?.includes("path check failed") && blocked?.reason?.includes("bad path"), blocked?.reason);
+			assert.equal(isBlocked(blocked), true);
+			assert.ok(reasonOf(blocked).includes("path check failed") && reasonOf(blocked).includes("bad path"), String(blocked?.reason));
 			assert.deepEqual(order, ["path check"], "a path check failure stops before checks.commit");
 		} finally { h.cleanup(); }
 	});
@@ -245,10 +245,10 @@ describe("dynaflows extension", () => {
 				git("add", owned);
 				const staged = await commit();
 				if (dynaflows) {
-					assert.equal(staged?.block, true);
-					assert.ok(staged?.reason?.includes(`owner-only path ${owned}`), staged?.reason);
-					assert.ok(staged?.reason?.includes("raise the change to the owner"), staged?.reason);
-					assert.ok(staged?.reason?.includes(join(h.recordDir(), "gate.json")));
+					assert.equal(isBlocked(staged), true);
+					assert.ok(reasonOf(staged).includes(`owner-only path ${owned}`), String(staged?.reason));
+					assert.ok(reasonOf(staged).includes("raise the change to the owner"), String(staged?.reason));
+					assert.ok(reasonOf(staged).includes(join(h.recordDir(), "gate.json")));
 				} else assert.equal(staged, undefined);
 				git("reset", "-q", owned);
 				assert.equal((await commit())?.block, dynaflows ? true : undefined, "unstaged owner-only changes follow the same switch");
@@ -258,12 +258,12 @@ describe("dynaflows extension", () => {
 			writeFileSync(join(h.root, "security/new.json"), "{}\n");
 			git("add", "security/new.json");
 			const added = await commit();
-			assert.ok(added?.reason?.includes("owner-only path security/new.json"), "a directory entry covers new files under it");
+			assert.ok(reasonOf(added).includes("owner-only path security/new.json"), "a directory entry covers new files under it");
 			git("rm", "-q", "--cached", "security/new.json");
 			rmSync(join(h.root, "security/new.json"));
 			git("mv", owned, "scripts/checks/moved.json");
 			const moved = await commit();
-			assert.ok(moved?.reason?.includes(owned), `moving an owner-only file away is refused: ${moved?.reason}`);
+			assert.ok(reasonOf(moved).includes(owned), `moving an owner-only file away is refused: ${moved?.reason}`);
 		} finally { h.cleanup(); }
 	});
 
@@ -317,8 +317,8 @@ describe("dynaflows extension", () => {
 				h.rawGate(JSON.stringify(gate));
 				for (const command of ["git commit -m x", "git push"]) {
 					const refused = await h.call("bash", { command });
-					assert.equal(refused?.block, true, `${named}: ${command}`);
-					assert.ok(refused?.reason?.includes(named), refused?.reason);
+					assert.equal(isBlocked(refused), true, `${named}: ${command}`);
+					assert.ok(reasonOf(refused).includes(named), String(refused?.reason));
 				}
 			}
 			h.rawGate(JSON.stringify(complete));
@@ -693,13 +693,13 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 		await h.read("skill://git-tool");
 		const head = "a".repeat(40);
 		const command = `env gh pr merge 3 --match-head-commit=${head}`;
-		mockPrCi(h, greenCi, head, "3");
+		mockPrCi(h, greenCi, { head, selector: "3" });
 		assert.equal(await h.call("bash", { command }), undefined, "dynaflows off: no merge guard");
 		h.dynaflows(true);
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("--match-head-commit"));
 		const missing = await h.call("bash", { command });
-		assert.ok(missing?.reason?.includes(`no prove() pass for ${head}`), missing?.reason);
-		assert.ok(missing?.reason?.includes(join(".git", "omp-prove", `${head}.result.json`)), missing?.reason);
+		assert.ok(reasonOf(missing).includes(`no prove() pass for ${head}`), String(missing?.reason));
+		assert.ok(reasonOf(missing).includes(join(".git", "omp-prove", `${head}.result.json`)), String(missing?.reason));
 		const result = join(h.root, ".git/omp-prove", `${head}.result.json`);
 		mkdirSync(dirname(result), { recursive: true });
 		const cases: [string, string][] = [
@@ -724,13 +724,13 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 	try {
 		await h.read("skill://git-tool");
 		proveResult(h);
-		mockPrCi(h, greenCi, ciHead, "3");
+		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const command = `gh pr merge 3 --match-head-commit ${ciHead}`;
 		assert.equal(await h.call("bash", { command }), undefined, "dynaflows off needs no structure file");
 		h.dynaflows(true);
 		const missing = await h.call("bash", { command });
-		assert.equal(missing?.block, true);
-		assert.ok(missing?.reason?.includes(`no valid structure_review() result for ${ciHead}`));
+		assert.equal(isBlocked(missing), true);
+		assert.ok(reasonOf(missing).includes(`no valid structure_review() result for ${ciHead}`));
 		structureResult(h);
 		const path = join(h.root, ".git/omp-structure", `${ciHead}.json`);
 		for (const content of [
@@ -745,9 +745,9 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 		const finding = { unit: "src/orders", question: "folder_name_coverage", status: "ready", score: 0.9, threshold: 0.7 };
 		writeFileSync(path, JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [finding] }));
 		const blocked = await h.call("bash", { command });
-		assert.equal(blocked?.block, true);
-		assert.ok(blocked?.reason?.includes("src/orders: folder_name_coverage"));
-		assert.ok(blocked?.reason?.includes("fix them and rerun prove() and structure_review() on the new head"));
+		assert.equal(isBlocked(blocked), true);
+		assert.ok(reasonOf(blocked).includes("src/orders: folder_name_coverage"));
+		assert.ok(reasonOf(blocked).includes("fix them and rerun prove() and structure_review() on the new head"));
 		h.dynaflows(false);
 		assert.equal(await h.call("bash", { command }), undefined, "dynaflows off ignores halt");
 		h.dynaflows(true);
@@ -780,12 +780,12 @@ for (const scenario of [
 			h.dynaflows(true);
 			proveResult(h);
 			structureResult(h);
-			mockPrCi(h, [...scenario.rollup], ciHead, "3");
+			mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3" });
 			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 			if ("fragment" in scenario) {
-				assert.equal(result?.block, true);
-				assert.equal(result?.reason?.includes(scenario.fragment), true, scenario.fragment);
-				assert.equal(result?.reason?.includes(ciHead), true, "diagnostic identifies the PR head");
+				assert.equal(isBlocked(result), true);
+				assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
+				assert.equal(reasonOf(result).includes(ciHead), true, "diagnostic identifies the PR head");
 			} else assert.equal(result, undefined);
 		} finally { h.cleanup(); }
 	});
@@ -821,10 +821,10 @@ for (const scenario of [
 			h.dynaflows(true);
 			proveResult(h);
 			structureResult(h);
-			mockPrCi(h, [...scenario.rollup], ciHead, "3", undefined, "https://github.com/base-owner/base-repo/pull/3");
+			mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3", url: "https://github.com/base-owner/base-repo/pull/3" });
 			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 			if ("state" in scenario) {
-				assert.equal(result?.block, true, "the required context must block");
+				assert.equal(isBlocked(result), true, "the required context must block");
 				assert.equal(result?.reason, requiredRefusal(scenario.state));
 			} else assert.equal(result, undefined);
 		} finally { h.cleanup(); }
@@ -839,10 +839,10 @@ test("without a ci block every reported check still decides the merge", async ()
 		proveResult(h);
 		structureResult(h);
 		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
-			{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }], ciHead, "3");
+			{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }], { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-		assert.equal(result?.block, true);
-		assert.ok(result?.reason?.includes(`CI is not green for ${ciHead}: lint: COMPLETED/FAILURE`), result?.reason);
+		assert.equal(isBlocked(result), true);
+		assert.ok(reasonOf(result).includes(`CI is not green for ${ciHead}: lint: COMPLETED/FAILURE`), String(result?.reason));
 	} finally { h.cleanup(); }
 });
 
@@ -903,10 +903,10 @@ for (const remote of ["git@github.com:OWNER/REPO.git", "https://github.com/owner
 			proveResult(h);
 			structureResult(h);
 			const url = "https://github.com/other/checkout/pull/3";
-			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url, undefined, url);
+			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], { head: ciHead, selector: url, url });
 			const result = await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` });
-			assert.equal(result?.block, true, "cross-repo URL must not use checkout policy");
-			assert.ok(result?.reason?.includes("run from a checkout of other/checkout"), result?.reason ?? "missing refusal reason");
+			assert.equal(isBlocked(result), true, "cross-repo URL must not use checkout policy");
+			assert.ok(reasonOf(result).includes("run from a checkout of other/checkout"), result?.reason ?? "missing refusal reason");
 		} finally { h.cleanup(); }
 	});
 }
@@ -921,7 +921,7 @@ test("PR URL selector accepts the checkout repository case-insensitively", async
 		proveResult(h);
 		structureResult(h);
 		const url = "https://github.com/owner/repo/pull/3";
-		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], ciHead, url);
+		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], { head: ciHead, selector: url });
 		assert.equal(await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` }), undefined);
 	} finally { h.cleanup(); }
 });
@@ -934,10 +934,10 @@ test("required context blocks merge despite a prove() pass", async () => {
 		h.gate({ schemaVersion: 2, ci: ciGate });
 		proveResult(h);
 		structureResult(h);
-		mockPrCi(h, [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], ciHead, "3");
+		mockPrCi(h, [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-		assert.equal(result?.block, true, "the required context must block merge despite a prove() pass");
-		assert.ok(result?.reason?.includes(`required CI context "gate" is missing for ${ciHead} in owner/repo`), result?.reason ?? "missing refusal reason");
+		assert.equal(isBlocked(result), true, "the required context must block merge despite a prove() pass");
+		assert.ok(reasonOf(result).includes(`required CI context "gate" is missing for ${ciHead} in owner/repo`), result?.reason ?? "missing refusal reason");
 	} finally { h.cleanup(); }
 });
 
@@ -949,7 +949,7 @@ test("PR query contract: requests the PR URL", async () => {
 		h.dynaflows(true);
 		proveResult(h);
 		structureResult(h);
-		mockPrCi(h, greenCi, ciHead, "3");
+		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const exec = h.api.exec.bind(h.api);
 		let fields: string | undefined;
 		h.api.exec = async (command, args, options) => {
@@ -968,9 +968,9 @@ test("a merge reports a gh failure while reading the PR", async () => {
 		h.dynaflows(true);
 		proveResult(h);
 		structureResult(h);
-		mockPrCi(h, [], ciHead, "3", "not authenticated");
+		mockPrCi(h, [], { head: ciHead, selector: "3", failure: "not authenticated" });
 		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-		assert.ok(result?.reason?.includes("cannot read PR head/CI via gh: not authenticated"), result?.reason);
+		assert.ok(reasonOf(result).includes("cannot read PR head/CI via gh: not authenticated"), String(result?.reason));
 	} finally { h.cleanup(); }
 });
 
@@ -984,13 +984,13 @@ for (const scenario of ["head mismatch", "red CI", "green CI"] as const) {
 			structureResult(h);
 			const head = scenario === "head mismatch" ? "b".repeat(40) : ciHead;
 			mockPrCi(h, scenario === "red CI"
-				? [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }] : greenCi, head, "3");
+				? [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }] : greenCi, { head, selector: "3" });
 			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
 			if (scenario === "green CI") assert.equal(result, undefined);
 			else {
-				assert.equal(result?.block, true);
+				assert.equal(isBlocked(result), true);
 				const fragment = scenario === "head mismatch" ? `PR head is ${head}, not ${ciHead}; prove() the current head` : "test: COMPLETED/FAILURE";
-				assert.equal(result?.reason?.includes(fragment), true, fragment);
+				assert.equal(reasonOf(result).includes(fragment), true, fragment);
 			}
 		} finally { h.cleanup(); }
 	});
@@ -1020,10 +1020,10 @@ for (const scenario of [
 		try {
 			await h.read("skill://git-tool");
 			h.dynaflows(true);
-			mockPrCi(h, greenCi, ciHead, "3");
+			mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 			const result = await h.call("bash", { command: `gh pr merge 3 ${scenario.args}` });
-			assert.equal(result?.block, true);
-			assert.equal(result?.reason?.includes(scenario.fragment), true, scenario.fragment);
+			assert.equal(isBlocked(result), true);
+			assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
 		} finally { h.cleanup(); }
 	});
 }
@@ -1132,7 +1132,7 @@ test("linked worktrees resolve the main checkout's record", async () => {
 		const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: linked })).stdout.trim();
 		await h.read("skill://git-tool");
 		const blocked = await h.call("bash", { command: `gh pr merge 3 --match-head-commit=${head}` });
-		assert.ok(blocked?.reason?.includes(join(realpathSync(h.root), ".git", "omp-prove", `${head}.result.json`)),
+		assert.ok(reasonOf(blocked).includes(join(realpathSync(h.root), ".git", "omp-prove", `${head}.result.json`)),
 			`the result file lives in the shared Git common directory: ${blocked?.reason}`);
 	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
 });
@@ -1197,11 +1197,11 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 			`mise exec --cd='${target.root}' node@20 -- git commit -m x`,
 		]) {
 			const enforced = await h.call("bash", { command });
-			assert.ok(enforced?.reason?.includes(`checks.commit (false) failed in ${target.root}`), `the wrapped repo's record is enforced: ${command}`);
+			assert.ok(reasonOf(enforced).includes(`checks.commit (false) failed in ${target.root}`), `the wrapped repo's record is enforced: ${command}`);
 		}
 		const unresolved = await h.call("bash", { command: "mise x -C /nonexistent-rails-directory -- git commit -m x" });
-		assert.equal(unresolved?.block, true);
-		assert.ok(unresolved?.reason?.includes("effective cwd"));
+		assert.equal(isBlocked(unresolved), true);
+		assert.ok(reasonOf(unresolved).includes("effective cwd"));
 	} finally { h.cleanup(); target.cleanup(); }
 });
 
@@ -1213,8 +1213,8 @@ for (const record of ["absent", "off", "on"] as const) {
 			h.pathFailure("path policy violation");
 			const edit = await h.call("write", { path: "tests/new.test.ts" });
 			if (record === "on") {
-				assert.equal(edit?.block, true);
-				for (const url of [integrity, structure, tiers, enforcement]) assert.ok(edit?.reason?.includes(url));
+				assert.equal(isBlocked(edit), true);
+				for (const url of [integrity, structure, tiers, enforcement]) assert.ok(reasonOf(edit).includes(url));
 				await h.read(integrity, structure, tiers, enforcement);
 				writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
 				assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path policy violation"));
@@ -1228,8 +1228,8 @@ for (const record of ["absent", "off", "on"] as const) {
 			}
 			assert.equal(await h.emit("session_stop"), undefined);
 			const git = await h.call("bash", { command: "git push" });
-			assert.equal(git?.block, true);
-			assert.ok(git?.reason?.includes("skill://git-tool"));
+			assert.equal(isBlocked(git), true);
+			assert.ok(reasonOf(git).includes("skill://git-tool"));
 		} finally { h.cleanup(); }
 	});
 }
