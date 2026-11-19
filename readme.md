@@ -284,6 +284,20 @@ Dispatch manually from Actions → CI quality gates → Run workflow, or:
 gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main
 ```
 
+## Python checks
+
+Root `pyproject.toml` and `uv.lock` pin ruff, mypy and pytest for every owned Python file. The
+ruff and mypy settings mirror the harness catalogue,
+`agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
+
+```bash
+uv sync
+uv run ruff check     # fix = true applies safe fixes; add --no-fix to report only
+uv run ruff format --check
+uv run mypy
+uv run pytest
+```
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.

@@ -5,7 +5,7 @@ Every table is computed per toolset label (`find` availability plus a config has
 ../toolset.py). Unlabelled records form a `pre-find` group; mixing labels prints a warning
 because arms then ran with different tools.
 
-Usage: python3 analyze.py <out-dir>
+Usage: python3 aggregate.py <out-dir>
 """
 from __future__ import annotations
 

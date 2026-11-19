@@ -35,7 +35,7 @@ python3 validate_fixtures.py
 python3 run_trials.py --model openai-codex/<new-model> \
   --arm A-low=low --arm B-medium=medium --arm C-high=high \
   --reps 3 --out <output-dir>
-python3 analyze.py <output-dir>
+python3 aggregate.py <output-dir>
 ```
 
 Add `--arm F-fast=low@priority --reps 1` for a Fast-tier latency check. Probe

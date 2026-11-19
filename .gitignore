@@ -11,6 +11,8 @@
 !package.json
 !bun.lock
 !bunfig.toml
+!pyproject.toml
+!uv.lock
 !tsconfig.json
 !.githooks/
 .githooks/*
@@ -117,6 +119,7 @@ tests/fixtures/*
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
+!tests/test_workflows.py
 
 !.omp/
 .omp/*
