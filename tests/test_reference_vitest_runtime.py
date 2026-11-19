@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
-RUNTIME = REFERENCE / "guardrails/commands/adapters/vitest/runtime.mjs"
+RUNTIME = REFERENCE / "guardrails/commands/adapters/vitest/runtime.ts"
 
 
 class VitestRuntimeCase(unittest.TestCase):

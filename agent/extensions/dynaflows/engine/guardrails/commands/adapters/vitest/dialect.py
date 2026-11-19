@@ -36,7 +36,7 @@ def junit_arguments(tier: str, report_path: str) -> list[str]:
     report = Path(report_path).resolve()
     report.parent.mkdir(parents=True, exist_ok=True)
     entry = report.with_name(report.name + ".reporter.mjs")
-    reporter = Path(__file__).with_name("reporter.mjs").resolve().as_uri()
+    reporter = Path(__file__).with_name("reporter.ts").resolve().as_uri()
     options = json.dumps({"tier": tier, "report": str(report)})
     entry.write_text(
         f"import Reporter from {json.dumps(reporter)};\n"

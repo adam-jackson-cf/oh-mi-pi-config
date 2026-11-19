@@ -51,7 +51,7 @@ from guardrails.toolkit.test_report.junit import (
 
 JOURNAL_SUFFIX = ".journal.jsonl"
 ENTRY_SUFFIX = ".preload.mjs"
-PRELOAD = Path(__file__).with_name("preload.mjs")
+PRELOAD = Path(__file__).with_name("preload.ts")
 GUARDS_PROPERTY = "omp.guards"
 TIER_GUARDS = {
     "t1": ("fast-tier", "user-data"),

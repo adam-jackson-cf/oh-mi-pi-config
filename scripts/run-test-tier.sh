@@ -67,7 +67,7 @@ cd "$repo_root"
 unset "${!GIT_@}"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapters/bun_test/preload.mjs"
+preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapters/bun_test/preload.ts"
 
 run_bun() {
   local args=() file file_tier

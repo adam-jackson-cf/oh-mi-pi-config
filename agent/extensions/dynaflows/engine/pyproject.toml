@@ -24,4 +24,4 @@ guardrails = "guardrails.commands.cli:main"
 include = ["guardrails*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yml", "*.md", "*.mjs", "*.txt"]
+"*" = ["*.json", "*.yml", "*.md", "*.ts", "*.txt"]
