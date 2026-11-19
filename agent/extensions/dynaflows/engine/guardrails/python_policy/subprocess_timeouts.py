@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import house_style
 from guardrails.diffs.timeouts import tier_locations
@@ -164,7 +165,7 @@ class ProcessWaits(ast.NodeVisitor):
         return positive_timeout(timeout)
 
 
-def is_test_source(path: str, profile: dict) -> bool:
+def is_test_source(path: str, profile: dict[str, Any]) -> bool:
     if PurePosixPath(path).name == "conftest.py":
         return True
     return is_test_file(path, profile) or matches_any(path, tier_locations(profile))
@@ -176,7 +177,7 @@ def unbounded_lines(tree: ast.AST) -> list[int]:
     return visitor.lines
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails python-test-hygiene [path ...]``."""
     selected = parse_paths("python-test-hygiene", argv)
     try:

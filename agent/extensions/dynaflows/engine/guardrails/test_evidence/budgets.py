@@ -42,6 +42,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.test_evidence.junit import (
@@ -185,7 +186,7 @@ def validity_findings(report: Report, expected_revision: str | None) -> list[Fin
     return found
 
 
-def approved_limits(profile: dict, machine: Machine) -> dict | None:
+def approved_limits(profile: dict[str, Any], machine: Machine) -> dict[str, Any] | None:
     budget = profile.get("fast_tier_budget")
     machines = budget.get("machines") if isinstance(budget, dict) else None
     for record in machines if isinstance(machines, list) else []:
@@ -241,7 +242,7 @@ def baseline_prompt(report: Report, machine: Machine) -> str:
 
 def evaluate(
     report: Report,
-    profile: dict,
+    profile: dict[str, Any],
     expected_revision: str | None,
     machine: Machine | None = None,
 ) -> BudgetResult:
@@ -265,7 +266,7 @@ def report_tier(report: Report, options: ReportOptions) -> str:
     return options.tier or report.properties.get("omp.tier", "").strip() or "t1"
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails budget-check --junit PATH [--tier T] [--revision SHA]``."""
     try:
         options = report_options(repo, argv)

@@ -5,21 +5,23 @@ import json
 from functools import cache
 from importlib import resources
 from pathlib import PurePosixPath
+from typing import Any
 
 
 @cache
-def load_pack(name: str) -> dict:
-    return json.loads(
+def load_pack(name: str) -> dict[str, Any]:
+    pack: dict[str, Any] = json.loads(
         resources.files("guardrails.data").joinpath("conventions", f"{name}.json").read_bytes()
     )
+    return pack
 
 
 @cache
-def packs() -> tuple[dict, ...]:
+def packs() -> tuple[dict[str, Any], ...]:
     return tuple(load_pack(name) for name in ("python", "typescript", "go", "shell", "tooling"))
 
 
-def for_path(path: str) -> dict:
+def for_path(path: str) -> dict[str, Any]:
     return next(
         (pack for pack in packs() if any(path.endswith(ext) for ext in pack["extensions"])),
         load_pack("tooling"),
@@ -50,14 +52,22 @@ def fixed_folder(path: str, name: str) -> bool:
     return any(name in pack["fixed_folders"] for pack in (for_path(path), load_pack("tooling")))
 
 
-def test_patterns(path: str | None = None) -> list[str]:
-    selected = packs() if path is None else (for_path(path),)
-    return [pattern for pack in selected for pattern in pack["test_patterns"]]
+def all_test_patterns() -> list[str]:
+    """Every language pack's test-file patterns."""
+    return [pattern for pack in packs() for pattern in pack["test_patterns"]]
+
+
+def test_patterns(path: str) -> list[str]:
+    """The test-file patterns of the language pack that owns ``path``."""
+    patterns: list[str] = for_path(path)["test_patterns"]
+    return patterns
 
 
 def test_like_patterns(path: str) -> list[str]:
-    return for_path(path)["test_like_patterns"]
+    patterns: list[str] = for_path(path)["test_like_patterns"]
+    return patterns
 
 
-def placement(path: str) -> dict:
-    return for_path(path)["placement"]
+def placement(path: str) -> dict[str, Any]:
+    rules: dict[str, Any] = for_path(path)["placement"]
+    return rules

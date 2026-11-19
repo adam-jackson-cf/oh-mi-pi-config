@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import guardrails
 from guardrails.child_env import repo_environment
@@ -75,7 +76,7 @@ def package_environment() -> dict[str, str]:
     return environment
 
 
-def collect_tier(repo: Path, profile: dict, tier: str, out_dir: Path) -> list[Finding]:
+def collect_tier(repo: Path, profile: dict[str, Any], tier: str, out_dir: Path) -> list[Finding]:
     spec = profile.get("tiers", {}).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
         return [Finding(PROPAGATION, PROFILE_PATH, f"tiers.{tier} has no selector", "record it")]
@@ -114,7 +115,7 @@ def test_id(repo: Path, file: str, node_id: str) -> str:
     return f"{path}{separator}{rest}"
 
 
-def collection_findings(tier: str, result: subprocess.CompletedProcess) -> list[Finding]:
+def collection_findings(tier: str, result: subprocess.CompletedProcess[str]) -> list[Finding]:
     if result.returncode == 0:
         return []
     if result.returncode == NO_TESTS_COLLECTED:
@@ -136,7 +137,7 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
     )
 
 
-def list_tiers(repo: Path, profile: dict, tiers: list[str], out_dir: Path) -> list[Finding]:
+def list_tiers(repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path) -> list[Finding]:
     """List the named tiers, or every tier the profile declares."""
     findings: list[Finding] = []
     declared = profile.get("tiers")

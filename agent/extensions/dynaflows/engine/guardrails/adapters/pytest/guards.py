@@ -1,7 +1,7 @@
 """In-process guards for TEST.fast-tier-isolation and TEST.user-data-guard (standard library only).
 
 Mechanism: one ``sys.addaudithook`` hook, installed once per process and inert until a guard is
-armed. While armed it raises :class:`GuardViolation` before the audited operation runs and records
+armed. While armed it raises :class:`GuardViolationError` before the audited operation runs and records
 the violation, so a test that swallows the exception still fails (the pytest plugin reads the
 record after each phase).
 
@@ -24,6 +24,7 @@ import socket
 import sys
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 FAST_TIER = "fast-tier"
 USER_DATA = "user-data"
@@ -65,7 +66,7 @@ WRITE_EVENTS = {
 WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 
 
-class GuardViolation(RuntimeError):
+class GuardViolationError(RuntimeError):
     """An armed guard blocked an operation the active test tier forbids."""
 
 
@@ -113,7 +114,7 @@ def canonical(path: str) -> str:
     return os.path.realpath(os.path.abspath(path))
 
 
-def audit(event: str, args: tuple) -> None:
+def audit(event: str, args: tuple[Any, ...]) -> None:
     if not STATE.armed or getattr(LOCAL, "busy", False):
         return
     LOCAL.busy = True
@@ -123,10 +124,10 @@ def audit(event: str, args: tuple) -> None:
         LOCAL.busy = False
     if reason:
         STATE.violations.append(reason)
-        raise GuardViolation(reason)
+        raise GuardViolationError(reason)
 
 
-def violation(event: str, args: tuple) -> str | None:
+def violation(event: str, args: tuple[Any, ...]) -> str | None:
     if FAST_TIER in STATE.armed:
         reason = fast_tier_violation(event, args)
         if reason:
@@ -136,7 +137,7 @@ def violation(event: str, args: tuple) -> str | None:
     return None
 
 
-def fast_tier_violation(event: str, args: tuple) -> str | None:
+def fast_tier_violation(event: str, args: tuple[Any, ...]) -> str | None:
     rule = RULES[FAST_TIER]
     if event in PROCESS_EVENTS:
         return f"{rule}: the fast tier may not start a process ({event} {describe(args)})"
@@ -146,7 +147,7 @@ def fast_tier_violation(event: str, args: tuple) -> str | None:
     return None
 
 
-def describe(args: tuple) -> str:
+def describe(args: tuple[Any, ...]) -> str:
     for item in args:
         if isinstance(item, (str, bytes, os.PathLike)):
             return repr(os.fsdecode(item))
@@ -155,7 +156,7 @@ def describe(args: tuple) -> str:
     return ""
 
 
-def user_data_violation(event: str, args: tuple) -> str | None:
+def user_data_violation(event: str, args: tuple[Any, ...]) -> str | None:
     for path in written_paths(event, args):
         if is_protected(path):
             return (
@@ -165,7 +166,7 @@ def user_data_violation(event: str, args: tuple) -> str | None:
     return None
 
 
-def written_paths(event: str, args: tuple) -> list[str]:
+def written_paths(event: str, args: tuple[Any, ...]) -> list[str]:
     if event == "open":
         return [os.fsdecode(args[0])] if opens_for_write(args) else []
     positions = WRITE_EVENTS.get(event, ())
@@ -176,7 +177,7 @@ def written_paths(event: str, args: tuple) -> list[str]:
     ]
 
 
-def opens_for_write(args: tuple) -> bool:
+def opens_for_write(args: tuple[Any, ...]) -> bool:
     path, mode, flags = (list(args) + [None, None, None])[:3]
     if not isinstance(path, (str, bytes, os.PathLike)):
         return False

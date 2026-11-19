@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from guardrails.child_env import repo_environment
 from guardrails.findings import Finding
@@ -20,7 +21,7 @@ def selector_arguments(selector: str) -> list[str]:
     return shlex.split(selector)
 
 
-def command(repo: Path, profile: dict) -> list[str]:
+def command(repo: Path, profile: dict[str, Any]) -> list[str]:
     configured = settings(profile, "adapter_vitest").get("command")
     if configured is not None:
         if not isinstance(configured, list) or not configured or not all(isinstance(part, str) for part in configured):
@@ -46,7 +47,7 @@ def collected_ids(repo: Path, entries: object) -> list[str]:
     return sorted(ids)
 
 
-def collect_tier(repo: Path, profile: dict, tier: str, out: Path) -> list[Finding]:
+def collect_tier(repo: Path, profile: dict[str, Any], tier: str, out: Path) -> list[Finding]:
     spec = profile.get("tiers", {}).get(tier)
     try:
         if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
@@ -71,7 +72,7 @@ def collect_tier(repo: Path, profile: dict, tier: str, out: Path) -> list[Findin
     return []
 
 
-def list_tiers(repo: Path, profile: dict, tiers: list[str], out: Path) -> list[Finding]:
+def list_tiers(repo: Path, profile: dict[str, Any], tiers: list[str], out: Path) -> list[Finding]:
     findings = []
     for tier in tiers or sorted(profile.get("tiers", {})):
         findings.extend(collect_tier(repo, profile, tier, out))

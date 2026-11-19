@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import shlex
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
@@ -41,7 +42,7 @@ RULE = "SURFACE.journeys"
 CHECKER = "journeys"
 
 
-def lever_references(lever: str, profile: dict) -> list[str]:
+def lever_references(lever: str, profile: dict[str, Any]) -> list[str]:
     configured = as_list(settings(profile, CHECKER).get("lever_references"))
     if configured:
         return configured
@@ -82,7 +83,7 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
     return linked, "\n".join(texts)
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails surface-lint``."""
     del argv
     values = surface(profile)

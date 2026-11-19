@@ -16,6 +16,7 @@ import ast
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
@@ -50,7 +51,7 @@ BUNDLED_EXCLUSIONS = (
 class PythonSettings:
     """The ``guardrails.python`` section with typed accessors and fail-closed defaults."""
 
-    raw: dict
+    raw: dict[str, Any]
 
     def paths(self, key: str) -> list[str]:
         return [item.strip("/") for item in as_list(self.raw.get(key)) if item.strip("/")]
@@ -59,7 +60,7 @@ class PythonSettings:
         """A rule scope; unset means every maintained root."""
         return self.paths(key) if key in self.raw else self.paths("maintained_roots")
 
-    def mapping(self, key: str) -> dict:
+    def mapping(self, key: str) -> dict[str, Any]:
         value = self.raw.get(key)
         return value if isinstance(value, dict) else {}
 
@@ -68,7 +69,7 @@ class PythonSettings:
         return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
-def load_settings(profile: dict) -> PythonSettings:
+def load_settings(profile: dict[str, Any]) -> PythonSettings:
     return PythonSettings(settings(profile, CHECKER))
 
 
@@ -109,7 +110,8 @@ def is_excluded(relpath: str, config: PythonSettings) -> bool:
 def parse_paths(command: str, argv: list[str]) -> list[str]:
     parser = argparse.ArgumentParser(prog=f"guardrails {command}")
     parser.add_argument("paths", nargs="*", help="limit the check to these files or directories")
-    return parser.parse_args(argv).paths
+    paths: list[str] = parser.parse_args(argv).paths
+    return paths
 
 
 def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> list[str]:

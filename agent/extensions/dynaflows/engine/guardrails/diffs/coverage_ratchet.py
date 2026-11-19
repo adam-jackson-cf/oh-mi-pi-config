@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from guardrails.config.profile import is_missing_text
 from guardrails.diffs.changes import (
@@ -141,7 +142,7 @@ def floors(lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]) -> dic
 
 
 def config_findings(
-    repo: Path, diff: DiffRange, paths: tuple[str, ...], head_path: str | None, config: dict
+    repo: Path, diff: DiffRange, paths: tuple[str, ...], head_path: str | None, config: dict[str, Any]
 ) -> list[Finding]:
     """Floors removed or lowered across ``paths``, then exclusions added to ``head_path``.
 
@@ -179,7 +180,7 @@ def config_findings(
 
 
 def change_config_findings(
-    repo: Path, diff: DiffRange, change: Change, config_files: list[str], config: dict
+    repo: Path, diff: DiffRange, change: Change, config_files: list[str], config: dict[str, Any]
 ) -> list[Finding]:
     paths = tuple(name for name in change.paths if is_config(name, config_files))
     if not paths:
@@ -206,7 +207,7 @@ def pragma_findings(
     ]
 
 
-def approvals(profile: dict) -> set[tuple[str, str]]:
+def approvals(profile: dict[str, Any]) -> set[tuple[str, str]]:
     entries = settings(profile, CHECKER).get("approvals")
     found = set()
     for entry in entries if isinstance(entries, list) else []:
@@ -222,7 +223,7 @@ def is_config(path: str, patterns: list[str]) -> bool:
     return any(name_matches(path, pattern) for pattern in patterns)
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     try:

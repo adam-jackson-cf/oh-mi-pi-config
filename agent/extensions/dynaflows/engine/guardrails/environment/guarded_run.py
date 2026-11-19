@@ -31,6 +31,7 @@ import shlex
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from guardrails.child_env import repo_environment
 from guardrails.config.profile import PROFILE_PATH
@@ -69,7 +70,7 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     return options, command
 
 
-def resolve_command(options: argparse.Namespace, command: list[str], profile: dict) -> list[str]:
+def resolve_command(options: argparse.Namespace, command: list[str], profile: dict[str, Any]) -> list[str]:
     if command:
         return command
     if not options.tier:
@@ -82,7 +83,7 @@ def resolve_command(options: argparse.Namespace, command: list[str], profile: di
     return shlex.split(text)
 
 
-def network_prefix(config: dict, home: Path) -> list[str] | None:
+def network_prefix(config: dict[str, Any], home: Path) -> list[str] | None:
     value = config.get("network_none_command")
     prefix = shlex.split(value) if isinstance(value, str) else as_list(value)
     return [part.replace("{home}", str(home)) for part in prefix] or None
@@ -149,7 +150,7 @@ def user_data_finding(changed: list[str]) -> Finding:
     )
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails guard-run [--tier <tier>] [--network-none] [-- <command> ...]``."""
     config = settings(profile, CHECKER)
     options, command = parse(argv)

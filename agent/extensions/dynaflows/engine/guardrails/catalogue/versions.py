@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 NAME = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(\[[^\]]*\])?\s*")
 CLAUSE = re.compile(r"^\s*(===|==|!=|<=|>=|~=|<|>)\s*([^\s,]+)\s*$")
@@ -67,7 +68,7 @@ def release_of(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group("release").split("."))
 
 
-def version_key(version: str) -> tuple:
+def version_key(version: str) -> tuple[Any, ...]:
     match = VERSION.match(version.strip())
     if match is None:
         raise VersionError(f"unsupported version {version!r}")

@@ -15,12 +15,13 @@ import tempfile
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 
 CASE_TIMEOUT_S = 300
 FIXTURES = Path(__file__).with_name("fixtures")
-BASE_PROFILE = {
+BASE_PROFILE: dict[str, Any] = {
     "adapter": "vitest",
     "public_entry_points": {"shop/core.ts": ["publicApi"]},
     "tiers": {"t1": {"location": "tests", "selector": "--testNamePattern test_fast_total"}},
@@ -38,16 +39,17 @@ class CaseResult:
     detail: str
 
 
-def load_cases() -> list[dict]:
+def load_cases() -> list[dict[str, Any]]:
     canonical = resources.files("guardrails.adapters.pytest.conformance").joinpath("cases.json")
-    return json.loads(canonical.read_text(encoding="utf-8"))["cases"]
+    cases: list[dict[str, Any]] = json.loads(canonical.read_text(encoding="utf-8"))["cases"]
+    return cases
 
 
 def fixture_source(case_id: str) -> str:
     return (FIXTURES / f"{case_id}.ts.txt").read_text(encoding="utf-8")
 
 
-def native_installation(repo: Path | None, profile: dict | None) -> tuple[list[str], Path]:
+def native_installation(repo: Path | None, profile: dict[str, Any] | None) -> tuple[list[str], Path]:
     """Use only a local installation, including an explicitly configured command."""
     root = (repo or Path.cwd()).resolve()
     modules = next((path / "node_modules" for path in [root, *root.parents]
@@ -68,7 +70,7 @@ def native_installation(repo: Path | None, profile: dict | None) -> tuple[list[s
     return argv, modules
 
 
-def build_project(root: Path, case: dict, modules: Path | None) -> tuple[Path, str, dict]:
+def build_project(root: Path, case: dict[str, Any], modules: Path | None) -> tuple[Path, str, dict[str, Any]]:
     project = root / "project"
     (project / "shop").mkdir(parents=True)
     (project / "tests").mkdir()
@@ -90,14 +92,14 @@ def build_project(root: Path, case: dict, modules: Path | None) -> tuple[Path, s
     return project, placed, profile
 
 
-def check_source(project: Path, profile: dict, placed: str, case: dict) -> tuple[bool, str]:
+def check_source(project: Path, profile: dict[str, Any], placed: str, case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.vitest.lint import lint
 
     rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
     return (case["rule"] in rules) == (case["expect"] == "finding"), f"rules reported: {rules}"
 
 
-def check_static_cases(project: Path, placed: str, case: dict) -> tuple[bool, str]:
+def check_static_cases(project: Path, placed: str, case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.vitest.cases import collect
     from guardrails.diffs.growth import Snapshot, growth_findings
 
@@ -107,8 +109,12 @@ def check_static_cases(project: Path, placed: str, case: dict) -> tuple[bool, st
     return reported == (case["expect"] == "finding"), f"behaviours: {dict(collected.behaviours)}"
 
 
-def check_run(root: Path, project: Path, case: dict, command: list[str]) -> tuple[bool, str]:
-    from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments
+def check_run(root: Path, project: Path, case: dict[str, Any], command: list[str]) -> tuple[bool, str]:
+    from guardrails.adapters.vitest.dialect import (
+        DIALECT,
+        guard_evidence,
+        junit_arguments,
+    )
     from guardrails.test_evidence.junit import ReportError, parse_report
 
     tier = "t2" if case["id"].startswith("user-data-") else "t1"
@@ -136,7 +142,7 @@ def check_run(root: Path, project: Path, case: dict, command: list[str]) -> tupl
     return len(parsed.cases) == 1 and all(getattr(parsed.cases[0], key) == value for key, value in expected.items()), detail
 
 
-def check_collection(root: Path, project: Path, profile: dict, case: dict, command: list[str]) -> tuple[bool, str]:
+def check_collection(root: Path, project: Path, profile: dict[str, Any], case: dict[str, Any], command: list[str]) -> tuple[bool, str]:
     from guardrails.adapters.vitest.tiers import list_tiers
     from guardrails.test_evidence.collection import read_ids
 
@@ -152,7 +158,7 @@ def check_collection(root: Path, project: Path, profile: dict, case: dict, comma
     return not findings and ids == expected, f"rules: {rules}; ids: {ids}"
 
 
-def run_conformance(case_ids: list[str] | None = None, *, repo: Path | None = None, profile: dict | None = None) -> list[CaseResult]:
+def run_conformance(case_ids: list[str] | None = None, *, repo: Path | None = None, profile: dict[str, Any] | None = None) -> list[CaseResult]:
     cases = load_cases()
     unknown = sorted(set(case_ids or []) - {case["id"] for case in cases})
     if unknown:
@@ -185,7 +191,7 @@ def run_conformance(case_ids: list[str] | None = None, *, repo: Path | None = No
     return results
 
 
-def run_cases(case_ids: list[str], *, repo: Path | None = None, profile: dict | None = None) -> list[Finding]:
+def run_cases(case_ids: list[str], *, repo: Path | None = None, profile: dict[str, Any] | None = None) -> list[Finding]:
     return [Finding(result.rule, f"conformance/{result.case_id}",
                     f"the Vitest adapter misclassifies this case ({result.detail})",
                     "fix the Vitest adapter until every canonical case passes")

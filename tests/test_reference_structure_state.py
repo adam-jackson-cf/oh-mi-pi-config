@@ -124,14 +124,14 @@ def gate_cost():
         self.write("src/shop/coverage_offline.py", "from .coverage_store import RECORD\n")
         head = self.commit("Introduce producer and store")
         empty_tree = self.git("rev-parse", empty + "^{tree}")
-        unit = state.extract_unit(self.repo, head, head, "src/shop", self.profile, candidate_base=empty_tree)
+        unit = state.extract_unit(self.repo, state.CommitWindow(head, head, empty_tree), "src/shop", self.profile)
         self.assertEqual(unit["change"], {"renames": [], "retired_terms": [], "residue": []})
         cluster, = unit["cluster"]
         self.assertEqual(cluster["prefix"], "coverage")
         self.assertEqual(cluster["co_change"], [{"members": ["src/shop/coverage_offline.py", "src/shop/coverage_store.py"], "count": 1}])
         self.assertEqual(len(cluster["internal_edges"]), 1)
         self.assertTrue(cluster["eligible"])
-        self.assertEqual(state.extract_unit(self.repo, head, head, "src/shop", self.profile)["cluster"], [])
+        self.assertEqual(state.extract_unit(self.repo, state.CommitWindow(head, head), "src/shop", self.profile)["cluster"], [])
         self.assertEqual(state.extract(self.repo, head, head), {})
 
     def test_limits_record_omissions_and_parse_failures(self) -> None:
@@ -157,11 +157,11 @@ def gate_cost():
         self.write("src/shop/cross_mode_metrics.py", "B = 1\n")
         head = self.commit("Pair")
         with patch.dict(state.CAPS, unit_files=1, history_commits=0):
-            unit = state.extract_unit(self.repo, base, head, "src/shop")
+            unit = state.extract_unit(self.repo, state.CommitWindow(base, head), "src/shop")
         self.assertEqual(len(unit["files"]), 1)
         self.assertTrue(unit["evidence_limits"]["truncations"])
         with patch.dict(state.CAPS, tree_files=1):
-            unit = state.extract_unit(self.repo, base, head, "src/shop")
+            unit = state.extract_unit(self.repo, state.CommitWindow(base, head), "src/shop")
         self.assertTrue(any(row["field"] == "tree" for row in unit["evidence_limits"]["truncations"]))
 
     def test_exclusions_and_non_python_files(self) -> None:

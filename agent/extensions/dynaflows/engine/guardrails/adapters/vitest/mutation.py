@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 
@@ -11,7 +12,7 @@ VERSION = "9.4.0"
 STATUSES = {"Killed": "killed", "Survived": "survived", "NoCoverage": "no_tests", "Timeout": "timeout", "CompileError": "incomplete", "RuntimeError": "incomplete", "Ignored": "incomplete", "Pending": "incomplete"}
 
 
-def normalise(repo: Path, source: Path) -> dict:
+def normalise(repo: Path, source: Path) -> dict[str, Any]:
     data = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("files"), dict):
         raise ValueError("Stryker report requires a files object")

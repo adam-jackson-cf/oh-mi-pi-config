@@ -18,6 +18,7 @@ the commit and CI gates both run it, and only the commit gate runs ``budget-chec
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.test_evidence.collection import report_findings
@@ -27,8 +28,8 @@ from guardrails.test_evidence.junit import (
     Report,
     ReportError,
     UsageError,
-    display_path,
     as_int,
+    display_path,
     load_run_report,
     report_options,
 )
@@ -99,7 +100,7 @@ def exit_findings(report: Report, exit_code: int | None) -> list[Finding]:
     return []
 
 
-def evaluate(report: Report, profile: dict, exit_code: int | None) -> list[Finding]:
+def evaluate(report: Report, profile: dict[str, Any], exit_code: int | None) -> list[Finding]:
     if exit_code is None:
         exit_code = as_int(report.properties.get("omp.exit_code"))
     return [
@@ -110,7 +111,7 @@ def evaluate(report: Report, profile: dict, exit_code: int | None) -> list[Findi
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         options = report_options(repo, argv)
         report = load_run_report(repo, profile, options)

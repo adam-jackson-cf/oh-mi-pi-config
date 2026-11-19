@@ -14,6 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.profile import ProfileError, load_profile
 from guardrails.findings import Finding, exit_code, format_findings
@@ -61,30 +62,8 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
             *PurePosixPath(raw_path).parts[:-1], PurePosixPath(raw_path).stem
         )
     }
-    found = []
-    for rename in renames:
-        old = PurePosixPath(rename.old)
-        new = PurePosixPath(rename.new)
-        old_dirs, new_dirs = old.parts[:-1], new.parts[:-1]
-        shared = 0
-        while shared < min(len(old_dirs), len(new_dirs)):
-            if old_dirs[shared] != new_dirs[shared]:
-                break
-            shared += 1
-        remaining_dirs = new_dirs[shared:]
-        directory_words = tuple(word for part in remaining_dirs for word in words(part))
-        new_parts = (*new_dirs, new.stem)
-        for depth in range(shared, len(old_dirs)):
-            segment = old_dirs[depth]
-            if contains(directory_words, words(segment)):
-                continue
-            replacement = new_parts[min(depth, len(new_parts) - 1)]
-            directory = depth < len(new_dirs)
-            scope = "/".join(new.parts[: depth + 1]) if directory else rename.new
-            found.append(RetiredTerm(segment, replacement, scope, directory, rename))
-        if not contains((*directory_words, *words(new.stem)), words(old.stem)):
-            found.append(RetiredTerm(old.stem, new.stem, rename.new, False, rename))
-    unique = {}
+    found = [term for rename in renames for term in rename_terms(rename)]
+    unique: dict[tuple[tuple[str, ...], tuple[str, ...], str, bool], RetiredTerm] = {}
     for term in found:
         if words(term.old) in retained:
             continue
@@ -93,8 +72,38 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
     return list(unique.values())
 
 
+def rename_terms(rename: Rename) -> list[RetiredTerm]:
+    """Old directory segments and the old stem that the new path no longer names."""
+    found = []
+
+    old = PurePosixPath(rename.old)
+    new = PurePosixPath(rename.new)
+    old_dirs, new_dirs = old.parts[:-1], new.parts[:-1]
+    shared = 0
+    while shared < min(len(old_dirs), len(new_dirs)):
+        if old_dirs[shared] != new_dirs[shared]:
+            break
+        shared += 1
+    remaining_dirs = new_dirs[shared:]
+    directory_words = tuple(word for part in remaining_dirs for word in words(part))
+    new_parts = (*new_dirs, new.stem)
+    for depth in range(shared, len(old_dirs)):
+        segment = old_dirs[depth]
+        if contains(directory_words, words(segment)):
+            continue
+        replacement = new_parts[min(depth, len(new_parts) - 1)]
+        directory = depth < len(new_dirs)
+        scope = "/".join(new.parts[: depth + 1]) if directory else rename.new
+        found.append(RetiredTerm(segment, replacement, scope, directory, rename))
+    if not contains((*directory_words, *words(new.stem)), words(old.stem)):
+        found.append(RetiredTerm(old.stem, new.stem, rename.new, False, rename))
+    return found
+
+
 class DefinedNames(ast.NodeVisitor):
     """Collect module/class bindings, stopping before function-local scopes."""
+
+    descend_classes = True
 
     def __init__(self) -> None:
         self.names: list[str] = []
@@ -102,12 +111,14 @@ class DefinedNames(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.names.append(node.name)
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.names.append(node.name)
-        for statement in node.body:
-            self.visit(statement)
+        if self.descend_classes:
+            for statement in node.body:
+                self.visit(statement)
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Store):
@@ -122,14 +133,17 @@ class DefinedNames(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         pass
 
-    def visit_ListComp(
-        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
-    ) -> None:
+    def visit_ListComp(self, node: ast.ListComp) -> None:
         pass
 
-    visit_SetComp = visit_ListComp
-    visit_DictComp = visit_ListComp
-    visit_GeneratorExp = visit_ListComp
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        pass
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        pass
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        pass
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
@@ -194,7 +208,7 @@ def git(repo: Path, *args: str) -> bytes:
     return result.stdout
 
 
-def commit_snapshot(repo: Path, profile: dict, base: str, head: str) -> tuple[list[Rename], dict[str, bytes]]:
+def commit_snapshot(repo: Path, profile: dict[str, Any], base: str, head: str) -> tuple[list[Rename], dict[str, bytes]]:
     base_id = git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
     head_id = git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}").decode().strip()
     rows = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z",
@@ -215,7 +229,7 @@ def commit_snapshot(repo: Path, profile: dict, base: str, head: str) -> tuple[li
     return renames, files
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)

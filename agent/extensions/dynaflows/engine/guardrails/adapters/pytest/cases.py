@@ -4,7 +4,6 @@ from __future__ import annotations
 import ast
 import copy
 import itertools
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
@@ -32,6 +31,8 @@ class Collected:
 
     cases: tuple[Case, ...]
     behaviours: Mapping[str, str | None]
+
+
 def _expression(node: ast.AST) -> str:
     return ast.dump(node, include_attributes=False)
 
@@ -399,8 +400,6 @@ def _expanded_cases(
             )
         )
     return cases
-
-
 
 
 def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:

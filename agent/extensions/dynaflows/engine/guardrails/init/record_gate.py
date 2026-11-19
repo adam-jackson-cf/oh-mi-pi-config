@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import json
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.init.discovery import Discovery
@@ -56,7 +58,7 @@ class GateError(Exception):
     """The record's gate cannot be extended safely."""
 
 
-def load_gate(record: Path) -> dict | None:
+def load_gate(record: Path) -> dict[str, Any] | None:
     path = record / GATE_FILE
     if not path.exists():
         return None
@@ -95,7 +97,7 @@ def drafted_checks(
     return checks
 
 
-def drafted_ci(found: Discovery, required_context: str | None, runner: str | None) -> dict | None:
+def drafted_ci(found: Discovery, required_context: str | None, runner: str | None) -> dict[str, Any] | None:
     context = required_context
     if context is None and found.required_checks and len(found.required_checks) == 1:
         context = found.required_checks[0]
@@ -109,33 +111,37 @@ def drafted_ci(found: Discovery, required_context: str | None, runner: str | Non
     return {"requiredContext": context, "runner": runner}
 
 
+@dataclass(frozen=True)
+class GateAnswers:
+    """The owner's command-line values for the gate fields init drafts."""
+
+    commit: str | None
+    ci_command: str | None
+    required_context: str | None
+    runner: str | None
+    dynaflows: bool = False
+
+
 def planned_gate(
-    gate: dict | None,
-    found: Discovery,
-    *,
-    commit: str | None,
-    ci_command: str | None,
-    required_context: str | None,
-    runner: str | None,
-    dynaflows: bool = False,
-) -> tuple[dict, list[str]]:
+    gate: dict[str, Any] | None, found: Discovery, answers: GateAnswers
+) -> tuple[dict[str, Any], list[str]]:
     """The gate with absent fields drafted, and the values the owner still has to confirm."""
-    planned = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
+    planned: dict[str, Any] = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
     declared = planned.get("checks")
     checks = dict(declared) if isinstance(declared, dict) else {}
-    for event, argv in drafted_checks(found, commit, ci_command).items():
+    for event, argv in drafted_checks(found, answers.commit, answers.ci_command).items():
         checks.setdefault(event, argv)
     planned["checks"] = checks
-    ci = drafted_ci(found, required_context, runner)
+    ci = drafted_ci(found, answers.required_context, answers.runner)
     if ci:
         planned.setdefault("ci", ci)
-    planned.setdefault("dynaflows", {"enabled": dynaflows})
+    planned.setdefault("dynaflows", {"enabled": answers.dynaflows})
     return planned, confirmations(planned)
 
 
-def confirmations(gate: dict) -> list[str]:
+def confirmations(gate: dict[str, Any]) -> list[str]:
     lines = []
-    checks = gate.get("checks") if isinstance(gate.get("checks"), dict) else {}
+    checks: dict[str, Any] = gate["checks"] if isinstance(gate.get("checks"), dict) else {}
     if "commit" not in checks:
         lines.append(
             f"required: no checks.commit found; pass --commit-command or edit {GATE_PATH}"
@@ -161,7 +167,7 @@ def confirmations(gate: dict) -> list[str]:
     return lines
 
 
-def render(gate: dict) -> str:
+def render(gate: dict[str, Any]) -> str:
     return json.dumps(gate, indent=2) + "\n"
 
 

@@ -19,6 +19,7 @@ import ast
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 
@@ -72,7 +73,7 @@ def spans(source: str) -> dict[tuple[str | None, str], tuple[int, int]]:
     return found
 
 
-def span(node: ast.AST) -> tuple[int, int]:
+def span(node: ast.stmt) -> tuple[int, int]:
     decorators = getattr(node, "decorator_list", [])
     start = min([node.lineno, *(item.lineno for item in decorators)])
     return start, node.end_lineno or node.lineno
@@ -87,7 +88,7 @@ def unit(name: str) -> tuple[str | None, str]:
     return match.group("cls"), match.group("method")
 
 
-def file_mutants(repo: Path, meta: Path) -> list[dict]:
+def file_mutants(repo: Path, meta: Path) -> list[dict[str, Any]]:
     results = repo / RESULTS_DIR
     source_path = meta.relative_to(results).as_posix().removesuffix(META_SUFFIX)
     try:
@@ -115,7 +116,7 @@ def file_mutants(repo: Path, meta: Path) -> list[dict]:
     return mutants
 
 
-def normalise(repo: Path) -> dict:
+def normalise(repo: Path) -> dict[str, Any]:
     results = repo / RESULTS_DIR
     metas = sorted(results.rglob(f"*.py{META_SUFFIX}")) if results.is_dir() else []
     if not metas:

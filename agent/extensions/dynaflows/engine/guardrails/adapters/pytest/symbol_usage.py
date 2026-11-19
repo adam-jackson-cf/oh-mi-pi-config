@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from typing import Any
 
 from guardrails.findings import Finding
 
@@ -68,7 +69,7 @@ def used_names(tree: ast.Module, *, skip: frozenset[int] = frozenset()) -> set[s
     return names
 
 
-def entry_point_symbols(profile: dict) -> set[str]:
+def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
     entries = profile.get("public_entry_points")
     symbols = set()
     for value in entries.values() if isinstance(entries, dict) else []:
@@ -81,7 +82,7 @@ def entry_point_symbols(profile: dict) -> set[str]:
 
 
 def test_only_findings(
-    production: dict[str, str], tests: dict[str, str], profile: dict, reported: set[str]
+    production: dict[str, str], tests: dict[str, str], profile: dict[str, Any], reported: set[str]
 ) -> list[Finding]:
     """Findings for test-only symbols defined in the ``reported`` production paths."""
     defined: list[Definition] = []

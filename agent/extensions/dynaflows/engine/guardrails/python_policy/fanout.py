@@ -19,6 +19,7 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import house_style
 from guardrails.findings import Finding
@@ -143,7 +144,7 @@ def source_nloc(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#"))
 
 
-def root_packages(profile: dict, config: PythonSettings) -> set[str]:
+def root_packages(profile: dict[str, Any], config: PythonSettings) -> set[str]:
     section = config.mapping("fanout")
     if "root_packages" in section:
         return set(as_list(section["root_packages"]))
@@ -151,11 +152,11 @@ def root_packages(profile: dict, config: PythonSettings) -> set[str]:
     return set(entry_points) if isinstance(entry_points, dict) else set()
 
 
-def limits(config: PythonSettings) -> dict:
+def limits(config: PythonSettings) -> dict[str, Any]:
     return {key: config.number("fanout", key, value) for key, value in LIMIT_DEFAULTS.items()}
 
 
-def setting_findings(repo: Path, profile: dict, config: PythonSettings) -> list[Finding]:
+def setting_findings(repo: Path, profile: dict[str, Any], config: PythonSettings) -> list[Finding]:
     roots = config.paths("source_roots")
     if not roots:
         return [setting_finding(GENERAL, "source_roots", "is not configured")]
@@ -176,7 +177,7 @@ def setting_findings(repo: Path, profile: dict, config: PythonSettings) -> list[
     return found
 
 
-def module_findings(module: Module, imports: set[str], nloc: int, limit: dict) -> list[Finding]:
+def module_findings(module: Module, imports: set[str], nloc: int, limit: dict[str, Any]) -> list[Finding]:
     listed = ", ".join(sorted(imports))
     found = []
     if len(imports) > limit["architectural_max"]:
@@ -203,7 +204,7 @@ def module_findings(module: Module, imports: set[str], nloc: int, limit: dict) -
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-fanout", argv)
     config = load_settings(profile)
     problems = setting_findings(repo, profile, config)

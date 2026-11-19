@@ -38,6 +38,7 @@ import ast
 from collections.abc import Set
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import conventions, house_style
 from guardrails.findings import Finding
@@ -60,13 +61,13 @@ from guardrails.python_policy.scope import (
     root_depth,
     segments,
 )
+from guardrails.structure import scope as event_scope
 from guardrails.structure.inventory import (
     GLOB_CHARACTERS,
     InventoryError,
     as_list,
     matches_any,
 )
-from guardrails.structure import scope as event_scope
 
 CLASS_LIMIT_DEFAULTS = {
     "max_lines": 700,
@@ -292,7 +293,7 @@ def generic_name_findings(
 # Class shape (PYQ200-PYQ203) and analyzer boundaries (PYQ210, PYQ211) -------------------------
 
 
-def class_limits(config: PythonSettings) -> dict:
+def class_limits(config: PythonSettings) -> dict[str, Any]:
     return {key: config.number("class_limits", key, value) for key, value in CLASS_LIMIT_DEFAULTS.items()}
 
 
@@ -318,7 +319,7 @@ def methods(class_node: ast.ClassDef) -> list[ast.FunctionDef | ast.AsyncFunctio
     return [node for node in class_node.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
-def class_shape_findings(node: ast.ClassDef, relpath: str, limits: dict) -> list[Finding]:
+def class_shape_findings(node: ast.ClassDef, relpath: str, limits: dict[str, Any]) -> list[Finding]:
     measures = [
         (
             "PYQ200",
@@ -515,7 +516,7 @@ def collaborator_findings(
     annotation: ast.AST,
     binding: str,
     relpath: str,
-    context: tuple[dict[str, str], dict[str, ast.AST], dict],
+    context: tuple[dict[str, str], dict[str, ast.AST], dict[str, Any]],
 ) -> list[Finding]:
     names, aliases, pinned = context
     line = getattr(annotation, "lineno", 1)
@@ -590,7 +591,7 @@ def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Find
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     config = load_settings(profile)
     try:
         selected = event_scope.select(repo, argv)

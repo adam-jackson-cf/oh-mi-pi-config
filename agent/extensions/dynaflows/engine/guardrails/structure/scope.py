@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import subprocess
 import tempfile
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from guardrails.findings import Finding
 from guardrails.structure.inventory import InventoryError, normalized_path, repo_paths
 
 
@@ -77,9 +79,9 @@ def select(repo: Path, argv: list[str]) -> Scope:
     if args.all or (not args.paths and not args.event):
         inventory = repo_paths(repo)
         return Scope(_expand(repo, args.paths, inventory) if args.paths else inventory, None, inventory)
-    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "HEAD"],
-                          capture_output=True, check=False, timeout=60)
-    base = head.stdout.decode().strip() if head.returncode == 0 else git(repo, "mktree").decode().strip()
+    resolved = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "HEAD"],
+                              capture_output=True, check=False, timeout=60)
+    base = resolved.stdout.decode().strip() if resolved.returncode == 0 else git(repo, "mktree").decode().strip()
     existing = set(tree_paths(repo, base))
     if args.event == "staged":
         tree = git(repo, "write-tree").decode().strip()
@@ -97,7 +99,7 @@ def select(repo: Path, argv: list[str]) -> Scope:
 
 
 @contextmanager
-def checkout(repo: Path, scope: Scope):
+def checkout(repo: Path, scope: Scope) -> Generator[Path, None, None]:
     if scope.tree is None:
         yield repo
         return
@@ -135,7 +137,7 @@ def checkout(repo: Path, scope: Scope):
         yield root
 
 
-def restrict(findings, paths: list[str], existing_paths: set[str] | None):
+def restrict(findings: list[Finding], paths: list[str], existing_paths: set[str] | None) -> list[Finding]:
     if existing_paths is None:
         return findings
     existing = {parent.as_posix() for path in existing_paths for parent in Path(path).parents}
