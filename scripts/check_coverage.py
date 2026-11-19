@@ -1,30 +1,20 @@
-"""Coverage floors over T1 and T2 for the owned code the test runs load.
-
-Usage::
-
-    check_coverage.py --python-json FILE --lcov FILE [--lcov FILE ...]
-                      --line-floor PERCENT --branch-floor PERCENT
-
-- Python: coverage.py's JSON report (``coverage json``) over the combined data of both tiers.
-  pyproject.toml's ``[tool.coverage.run]`` names the owned roots and measures branches.
-- TypeScript: one Bun lcov report per tier run. A line counts as covered when any run hit it.
-  Only tracked files outside ``tests/`` count. Bun records no branch data.
-
-The line total joins Python statements and TypeScript lines; the branch total is Python's.
-A total below its floor exits 1; a missing or unreadable report exits 2.
-"""
-
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import subprocess
 import sys
+import tomllib
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 GIT_TIMEOUT_S = 30
 TEST_ROOT = "tests/"
+SCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
+COMMENT_STARTS = ("//", "/*", "*")
 
 
 @dataclass
@@ -37,8 +27,6 @@ class Totals:
 
 @dataclass
 class LineHits:
-    """Per file, every instrumented line and the lines any run hit."""
-
     lines: dict[str, set[int]] = field(default_factory=dict)
     hit: dict[str, set[int]] = field(default_factory=dict)
 
@@ -46,6 +34,49 @@ class LineHits:
         self.lines.setdefault(path, set()).add(line)
         if count > 0:
             self.hit.setdefault(path, set()).add(line)
+
+
+@dataclass(frozen=True)
+class OwnedScope:
+    python_roots: tuple[str, ...]
+    omit: tuple[str, ...]
+
+    def excludes(self, path: str) -> bool:
+        return path.startswith(TEST_ROOT) or any(
+            fnmatch.fnmatch(path, pattern) for pattern in self.omit
+        )
+
+    def python_files(self, tracked: Iterable[str]) -> set[str]:
+        return {
+            path
+            for path in tracked
+            if path.endswith(".py")
+            and any(path.startswith(f"{root}/") for root in self.python_roots)
+            and not self.excludes(path)
+        }
+
+    def script_files(self, tracked: Iterable[str]) -> set[str]:
+        return {
+            path
+            for path in tracked
+            if path.endswith(SCRIPT_SUFFIXES)
+            and not path.endswith(DECLARATION_SUFFIXES)
+            and not self.excludes(path)
+        }
+
+
+class UnmeasuredPythonError(ValueError):
+    def __init__(self, paths: list[str]) -> None:
+        super().__init__(
+            "owned Python files absent from the coverage report: " + ", ".join(paths)
+        )
+
+
+def read_scope(pyproject: Path) -> OwnedScope:
+    run = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["coverage"][
+        "run"
+    ]
+    return OwnedScope(tuple(run["source"]), tuple(run["omit"]))
 
 
 def tracked_files(root: Path) -> set[str]:
@@ -69,23 +100,41 @@ def read_lcov(path: Path, hits: LineHits) -> None:
             hits.add(current, int(number), int(count))
 
 
-def python_totals(report: Path) -> Totals:
-    totals = json.loads(report.read_text(encoding="utf-8"))["totals"]
-    return Totals(
-        int(totals["covered_lines"]),
-        int(totals["num_statements"]),
-        int(totals["covered_branches"]),
-        int(totals["num_branches"]),
+def python_totals(report: Path, owned: set[str]) -> Totals:
+    files = json.loads(report.read_text(encoding="utf-8"))["files"]
+    missing = sorted(owned - set(files))
+    if missing:
+        raise UnmeasuredPythonError(missing)
+    totals = Totals()
+    for path in owned:
+        summary = files[path]["summary"]
+        totals.covered_lines += int(summary["covered_lines"])
+        totals.lines += int(summary["num_statements"])
+        totals.covered_branches += int(summary["covered_branches"])
+        totals.branches += int(summary["num_branches"])
+    return totals
+
+
+def code_lines(text: str) -> int:
+    return sum(
+        1
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith(COMMENT_STARTS)
     )
 
 
-def typescript_totals(hits: LineHits, owned: set[str]) -> Totals:
-    files = [
-        path for path in hits.lines if path in owned and not path.startswith(TEST_ROOT)
-    ]
-    return Totals(
-        sum(len(hits.hit.get(path, set())) for path in files),
-        sum(len(hits.lines[path]) for path in files),
+def typescript_totals(
+    hits: LineHits, owned: set[str], read_text: Callable[[str], str]
+) -> tuple[Totals, list[str]]:
+    unloaded = sorted(owned - set(hits.lines))
+    loaded = owned & set(hits.lines)
+    return (
+        Totals(
+            sum(len(hits.hit.get(path, set())) for path in loaded),
+            sum(len(hits.lines[path]) for path in loaded)
+            + sum(code_lines(read_text(path)) for path in unloaded),
+        ),
+        unloaded,
     )
 
 
@@ -102,18 +151,21 @@ def parse(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str]) -> int:
-    options = parse(argv)
-    root = Path(__file__).resolve().parents[1]
+def check(options: argparse.Namespace, root: Path, tracked: set[str]) -> int:
+    scope = read_scope(root / "pyproject.toml")
     hits = LineHits()
     try:
-        python = python_totals(options.python_json)
+        python = python_totals(options.python_json, scope.python_files(tracked))
         for report in options.lcov:
             read_lcov(report, hits)
     except (OSError, ValueError, KeyError) as error:
         print(f"Coverage report missing or unreadable: {error}", file=sys.stderr)
         return 2
-    script = typescript_totals(hits, tracked_files(root))
+    script, unloaded = typescript_totals(
+        hits,
+        scope.script_files(tracked),
+        lambda path: (root / path).read_text(encoding="utf-8"),
+    )
     lines = percent(
         python.covered_lines + script.covered_lines, python.lines + script.lines
     )
@@ -124,10 +176,20 @@ def main(argv: list[str]) -> int:
         f"{percent(script.covered_lines, script.lines):.2f}%), "
         f"Python branches {branches:.2f}% (floor {options.branch_floor:g}%)."
     )
+    if unloaded:
+        print(
+            f"{len(unloaded)} owned TypeScript and JavaScript files no test loads "
+            f"count as uncovered: {', '.join(unloaded)}"
+        )
     if lines < options.line_floor or branches < options.branch_floor:
         print("Coverage is below its floor.", file=sys.stderr)
         return 1
     return 0
+
+
+def main(argv: list[str]) -> int:
+    root = Path(__file__).resolve().parents[1]
+    return check(parse(argv), root, tracked_files(root))
 
 
 if __name__ == "__main__":
