@@ -19,6 +19,8 @@ dev = [
   "mypy==2.4.1",
   "numpy==2.4.6",
   "pytest==9.1.1",
+  # Coverage of owned code over T1 and T2; the ci tier enforces the floors.
+  "pytest-cov==7.1.0",
   "ruff==0.17.5",
 ]
 
@@ -147,5 +149,26 @@ exclude = [
   '/node_modules/',
 ]
 
+[tool.coverage.run]
+branch = true
+# The owned Python roots, as mypy checks them; tests are measured code's callers, not its scope.
+source = [
+  "agent/extensions/dynaflows",
+  "agent/lib",
+  "agent/skills/omp-config-optimise",
+  "scripts",
+]
+omit = [
+  "agent/extensions/dynaflows/engine/build/*",
+  "agent/extensions/dynaflows/engine/guardrails/adapters/pytest/conformance/fixtures/*",
+  "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-markers"]
+# Every test takes exactly one tier marker; scripts/run-test-tier.sh enforces it.
+markers = [
+  "fast: T1: no process, network, real-home write or real Git, worktree or container",
+  "seam: T2: real processes, Git repositories, worktrees or containers",
+]

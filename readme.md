@@ -286,8 +286,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 
 ## Python checks
 
-Root `pyproject.toml` and `uv.lock` pin ruff, mypy and pytest for every owned Python file. The
-ruff and mypy settings mirror the harness catalogue,
+Root `pyproject.toml` and `uv.lock` pin ruff, mypy, pytest and pytest-cov for every owned Python
+file. The ruff and mypy settings mirror the harness catalogue,
 `agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
 
 ```bash
@@ -295,12 +295,28 @@ uv sync
 uv run ruff check     # fix = true applies safe fixes; add --no-fix to report only
 uv run ruff format --check
 uv run mypy
-uv run pytest
+bash scripts/run-test-tier.sh t1   # or t2
 ```
 
 `scripts/run-ci-quality-gates.sh` runs `ruff check`, `ruff format --check` and `mypy` over the
-whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the gate. It runs the
-Python suites with `uv run --locked python -m unittest`, so the suites can import pytest. The
+whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the gate.
+
+## Test tiers
+
+`scripts/run-test-tier.sh t1|t2` runs one tier with Bun and pytest:
+
+- T1 tests start no process, open no network, write no real home and drive no real Git,
+  worktree or container. Bun runs `tests/*.test.ts` except `*-seams.test.ts`; pytest runs
+  modules marked `fast`. In-process guards from `agent/extensions/dynaflows/engine/guardrails/adapters/`
+  (the Bun preload and the pytest plugin) fail any T1 test that starts a process, opens a
+  network connection or writes under the real home.
+- T2 tests are the seams: Bun runs `tests/*-seams.test.ts`; pytest runs modules marked `seam`.
+  The script fails when a pytest test lacks exactly one tier marker.
+
+The commit tier runs all T1, then T2 for each framework that a staged path can reach. The ci
+tier runs all T1 and T2 and fails when coverage of owned code falls below its floors:
+`scripts/check_coverage.py` joins coverage.py's Python statements with Bun's TypeScript lines
+for the line floor and uses Python branches for the branch floor. The
 CI-tier container installs uv by hash and syncs the locked environment in its `postCreateCommand`.
 
 ## Repository map

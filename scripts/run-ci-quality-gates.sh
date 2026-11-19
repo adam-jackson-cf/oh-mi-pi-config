@@ -110,27 +110,45 @@ else
   uv run --locked ruff format --check .
 fi
 uv run --locked mypy
-# A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
-# would otherwise write into this repository's index.
-(unset "${!GIT_@}"; bun test)
-# The Python suites drive real Git repositories, worktrees and container fakes (T2 seams).
-# The commit tier runs them only when staged paths reach them; the ci tier always runs them.
-run_seams=true
+# Tests run through scripts/run-test-tier.sh, one tier at a time, with every framework:
+# - commit: all T1, then T2 for each framework a staged path reaches;
+# - ci: all T1 and all T2, with coverage of owned code checked against its floors.
+# Line floor: Python statements and TypeScript lines together; branch floor: Python branches.
+line_floor=85
+branch_floor=80
 if [[ "$tier" == commit ]]; then
-  run_seams=false
+  bash scripts/run-test-tier.sh t1
+  # A staged path reaches a framework's T2 unless it is one that framework's seams never read;
+  # an unknown path always selects T2.
+  bun_seams=false
+  pytest_seams=false
   while IFS= read -r -d '' file; do
     case "$file" in
-      scripts/*|tests/test_*.py|tests/fixtures/*|.devcontainer/*|agent/extensions/dynaflows/*|agent/lib/record/*)
-        run_seams=true
-        ;;
+      orca-plugins/*|tools/*|docs/*|scripts/check_*.py|scripts/device_rollout.py|scripts/*.json|tests/*.py|.devcontainer/*|pyproject.toml|uv.lock) ;;
+      *) bun_seams=true ;;
+    esac
+    case "$file" in
+      orca-plugins/*|tools/*|oxlint.config.ts|.markdownlint-cli2.jsonc|package.json|bun.lock|bunfig.toml|tsconfig.json|tests/*.ts) ;;
+      *) pytest_seams=true ;;
     esac
   done < <(git diff --cached --name-only -z)
-fi
-if "$run_seams"; then
-  # The suites run in the locked environment, which provides pytest and the guardrails pytest extra.
-  (unset "${!GIT_@}"; uv run --locked python -m unittest discover -s tests -p 'test_*.py')
+  for framework in bun pytest; do
+    selected="${framework}_seams"
+    if "${!selected}"; then
+      bash scripts/run-test-tier.sh t2 --framework "$framework"
+    else
+      printf 'T2 %s seams skipped: no staged path reaches them.\n' "$framework"
+    fi
+  done
 else
-  printf 'Python seam suites skipped: no staged path reaches them.\n'
+  coverage="$(mktemp -d)"
+  trap 'rm -rf "$coverage"' EXIT
+  bash scripts/run-test-tier.sh t1 --coverage "$coverage"
+  bash scripts/run-test-tier.sh t2 --coverage "$coverage"
+  COVERAGE_FILE="$coverage/python.coverage" uv run --locked coverage json -q -o "$coverage/python.json"
+  uv run --locked python scripts/check_coverage.py --python-json "$coverage/python.json" \
+    --lcov "$coverage/bun-t1/lcov.info" --lcov "$coverage/bun-t2/lcov.info" \
+    --line-floor "$line_floor" --branch-floor "$branch_floor"
 fi
 (unset "${!GIT_@}"; python3 scripts/check_paths.py)
 
