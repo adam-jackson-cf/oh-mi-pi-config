@@ -110,6 +110,8 @@ tests/*
 !tests/dynaflows-extension-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
+!tests/analyse.test.ts
+!tests/extension-health.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
 !tests/test_ci_runner.py
