@@ -50,7 +50,8 @@ BASE_PROFILE: dict = {
         "fixtures_dir": "tests",
         "test_file_patterns": ["test_*.py"],
     },
-    "house_style": {"version": 1, "exceptions": []},
+    "house_style": {"version": 1},
+    "guardrails": {"exceptions": []},
 }
 FAILED_OUTCOMES = frozenset({"failed", "error"})
 

@@ -41,6 +41,7 @@
       "contract": {
         "target_layer_dependency_allowlist_required": true,
         "reject_unmapped_or_forbidden_dependency_edges": true,
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "diagnostic_names_file_edge_and_fix": true
       },
       "summary": "Reject dependencies outside the target's declared layer direction.",
@@ -57,6 +58,7 @@
       "contract": {
         "target_path_ownership_map_required": true,
         "reject_unmapped_or_misplaced_files": true,
+        "event_scope": "added and renamed paths only; only new path segments are checked, never legacy parent directories; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "diagnostic_names_file_and_destination": true,
         "grab_bag_folder_words_source": "house_style_banned_words"
       },
@@ -73,7 +75,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "configured_python_import_graph_required": true,
-        "whole_repository_no_baseline": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "shared_tier_minimum_distinct_readers": 2,
         "diagnostic_names_tier_and_fix": true
       },
@@ -90,7 +92,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "configured_python_import_graph_required": true,
-        "whole_repository_no_baseline": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "reject_shared_module_with_one_owner": true,
         "diagnostic_names_file_and_destination": true
       },
@@ -107,7 +109,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "configured_python_import_graph_required": true,
-        "whole_repository_no_baseline": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "reject_same_tier_cross_part_imports": true,
         "diagnostic_names_file_edge_and_fix": true
       },
@@ -126,10 +128,15 @@
         "target_path_and_symbol_naming_patterns_required": true,
         "reject_nonmatching_names": true,
         "diagnostic_names_file_and_correct_name": true,
+        "event_scope": "added and renamed paths only: edit uses worktree changes, commit uses staged changes, PR uses merge-base/head; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
+        "segment_scope": "only new path segments are checked, never unchanged legacy parent directories",
         "child_repeats_parent": {
-          "match": "for directories, the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child token sequence",
+          "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child directory name or file stem token sequence",
           "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
-          "files": "the final path segment retains exact case-sensitive equality between its house-style stem (before the first dot, except dotfiles) and its full parent name; token matching applies only to directory pairs",
+          "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
+          "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the record",
+          "check": "child-repeats-parent",
+          "exceptions": "record guardrails.exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
           "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
         }
       },
@@ -1443,7 +1450,8 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "pattern_sources": ["house_style_test_roots", "profile_layout_test_file_patterns"],
+        "pattern_sources": ["language_convention_packs", "profile_layout_test_file_patterns"],
+        "event_scope": "added and renamed paths only; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
         "reject_ticket_version_or_date_tokens": true,
         "nonmatching_test_file_is_failure": true,
         "diagnostic_names_file_and_correct_name": true
@@ -1475,6 +1483,16 @@
           "identity_artefacts"
         ],
         "exemption_requires": ["none_reason", "approval_reference"],
+        "guardrail_exceptions": {
+          "field": "guardrails.exceptions",
+          "required_fields": ["rule", "path", "reason"],
+          "optional_fields": ["check"],
+          "values": "nonempty strings without placeholders",
+          "unknown_fields_rejected": true,
+          "obsolete_style_exception_key": "rejected with migration instructions",
+          "path_matching": "fnmatchcase for globs; plain path or descendants",
+          "check_matching": "exact finding sub-check when present; whole rule when omitted"
+        },
         "prove_prerequisite": true
       },
       "summary": "Require every repo test profile value, allowing only three approved exemptions.",

@@ -182,7 +182,7 @@ def gate_cost():
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
             status = cli.main(["structure-state", "--repo", str(self.repo), "--base", base, "--head", head])
         self.assertEqual(status, 0)
-        self.assertEqual(list(json.loads(output.getvalue())), ["src/shop"])
+        self.assertEqual(list(json.loads(output.getvalue())), ["src", "src/shop"])
         self.assertIn("structure-state: ok", errors.getvalue())
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -198,7 +198,7 @@ def gate_cost():
         head = self.commit("Seventy destination owners")
         with patch.dict(state.CAPS, tree_files=1):
             result = state.extract(self.repo, base, head)
-        self.assertEqual(list(result), folders)
+        self.assertEqual(list(result), ["src", *folders])
         self.assertEqual(result[folders[-1]]["files"], [])
         self.assertTrue(any(row["field"] == "tree" for row in
                             result[folders[-1]]["evidence_limits"]["truncations"]))

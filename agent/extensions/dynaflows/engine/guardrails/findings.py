@@ -13,6 +13,7 @@ class Finding:
     path: str
     message: str
     fix: str
+    check: str | None = None
 
     def render(self) -> str:
         message = " ".join(self.message.split())

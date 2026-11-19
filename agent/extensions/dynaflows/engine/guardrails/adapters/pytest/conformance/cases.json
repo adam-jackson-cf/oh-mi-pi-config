@@ -8,7 +8,7 @@
     {"id": "self-mocking-spec", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test builds a mock specced on an owned class", "expect": "finding"},
     {"id": "boundary-fake-allowed", "rule": "TEST.no-self-mocking", "evidence": "source", "situation": "a test fakes only standard-library and third-party boundaries", "expect": "clean"},
     {"id": "unapproved-static-skip", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test carries a static skip marker with no recorded exception", "expect": "finding"},
-    {"id": "approved-static-skip", "rule": "TEST.no-evasion", "evidence": "source", "situation": "the same static skip is covered by an ADR-backed house-style exception for its path", "expect": "clean"},
+    {"id": "approved-static-skip", "rule": "TEST.no-evasion", "evidence": "source", "situation": "the same static skip is covered by a reason-backed guardrail exception for its path", "expect": "clean"},
     {"id": "retry-marker", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test is marked for automatic reruns until green", "expect": "finding"},
     {"id": "expected-failure-marker", "rule": "TEST.no-evasion", "evidence": "source", "situation": "a test is marked as an expected failure", "expect": "finding"},
     {"id": "property-without-seed", "rule": "TEST.property-seed", "evidence": "source", "situation": "a property test neither fixes nor reports its seed", "expect": "finding"},

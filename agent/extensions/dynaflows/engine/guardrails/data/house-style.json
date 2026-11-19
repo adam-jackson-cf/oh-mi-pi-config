@@ -19,37 +19,13 @@
     "snake_case": "^_*[a-z][a-z0-9_]*$",
     "kebab-case": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
     "PascalCase": "^_*[A-Z][A-Za-z0-9]*$",
+    "lowercase": "^[a-z][a-z0-9_]*$",
     "UPPER_CASE": "^[A-Z][A-Z0-9_-]*$"
   },
-  "casing": {
-    "python": {
-      "extensions": [".py"],
-      "file": ["snake_case"],
-      "directory": ["snake_case"],
-      "class": ["PascalCase"],
-      "function": ["snake_case"],
-      "framework_symbols": [
-        "^(setUp|tearDown)(Class|Module)?$",
-        "^async(SetUp|TearDown)$",
-        "^visit_[A-Za-z]+$"
-      ]
-    },
-    "typescript": {
-      "extensions": [".ts", ".tsx", ".mts", ".cts"],
-      "file": ["kebab-case"],
-      "directory": ["kebab-case"]
-    },
-    "markdown": {
-      "extensions": [".md"],
-      "file": ["kebab-case", "UPPER_CASE"],
-      "directory": ["kebab-case"]
-    },
-    "asset_id": {
-      "extensions": [],
-      "file": ["kebab-case"],
-      "directory": ["kebab-case"],
-      "applies_to": "Ids of non-code assets: skill, workflow and command names."
-    }
+  "asset_id": {
+    "file": ["kebab-case"],
+    "directory": ["kebab-case"],
+    "applies_to": "Ids of non-code assets: skill, workflow and command names."
   },
   "versioning": {
     "token": "(?<![A-Za-z0-9])v\\d+(?![A-Za-z0-9])",
@@ -78,38 +54,13 @@
     "tools",
     "workflows"
   ],
-  "test_roots": {
-    "single_root": true,
-    "root": "tests",
-    "fixtures_dir": "fixtures",
-    "support_dir": "support",
-    "file_patterns": {
-      "python": ["test_*.py"],
-      "typescript": ["*.test.ts"]
-    },
-    "test_like_patterns": [
-      "test_*.py",
-      "*_test.py",
-      "*.test.ts",
-      "*.spec.ts",
-      "*.test.tsx",
-      "*.spec.tsx",
-      "*.test.mts",
-      "*.spec.mts",
-      "*.test.js",
-      "*.spec.js",
-      "*.test.jsx",
-      "*.spec.jsx",
-      "*.test.mjs",
-      "*.spec.mjs"
-    ],
-    "name_tokens": {
-      "ignored": ["test", "tests", "spec"],
-      "ticket": "^(?:\\d+|(?:issue|bug|ticket|pr|gh|jira)\\d+)$",
-      "version": "^(?:v\\d+|[a-z]+v\\d+)$",
-      "date": "^(?:(?:19|20)\\d{2}(?:\\d{4})?)$",
-      "trailing_number": "^[a-z]+\\d+$",
-      "numbered_allowlist": [
+  "test_names": {
+    "ignored": ["test", "tests", "spec"],
+    "ticket": "^(?:\\d+|(?:issue|bug|ticket|pr|gh|jira)\\d+)$",
+    "version": "^(?:v\\d+|[a-z]+v\\d+)$",
+    "date": "^(?:(?:19|20)\\d{2}(?:\\d{4})?)$",
+    "trailing_number": "^[a-z]+\\d+$",
+    "numbered_allowlist": [
         "base32",
         "base64",
         "float32",
@@ -133,7 +84,6 @@
         "utf8",
         "x509"
       ]
-    }
   },
   "sources": [
     {
@@ -155,10 +105,6 @@
     {
       "source": "game-system tools/guardrails/src/checkers/path-policy.ts (owner decision G3) and paths.ts",
       "contributed": "forbidden names utils, manager, new, old, legacy, compat, fallback; generic names common, helpers, misc, stuff, temp; attached suffix pattern (?<=.)[-_]?v\\d+$ with standalone <name>/v<N> allowed"
-    },
-    {
-      "source": "game-system tools/guardrails/config/.ls-lint.yml and rules/path-policy.md",
-      "contributed": "kebab-case TypeScript files and directories; kebab-case or upper-case Markdown names; *.test.ts as the only runnable TypeScript test suffix, with .spec and other test-like suffixes rejected"
     },
     {
       "source": "oh-mi-pi-config agent/skills/test-guidance/references/naming-and-layout.md",

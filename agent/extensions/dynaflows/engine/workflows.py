@@ -899,17 +899,18 @@ def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, targ
             if state != "success":
                 raise ProveBlocked(f'required CI context "{context}" is {state} for {head}; '
                                    "prove() runs only after CI is green on this exact head")
-        ok, output = run_check(
-            [sys.executable, "-I", "-S", "-c",
-             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-             "from guardrails.cli import main; raise SystemExit(main())",
-             str(_harness_root() / GUARDRAILS_REFERENCE),
-             "rename-residue", "--repo", str(repo), "--record", str(record),
-             "--base", parent, "--head", head], repo, timeout=HARNESS_CHECK_TIMEOUT)
-        if not ok:
-            result["blocking"].extend(line for line in output.splitlines() if line.strip())
-            if not output.strip():
-                result["blocking"].append("rename-residue failed without diagnostics")
+        for checker in ("rename-residue", "path-check", "structure"):
+            ok, output = run_check(
+                [sys.executable, "-I", "-S", "-c",
+                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+                 "from guardrails.cli import main; raise SystemExit(main())",
+                 str(_harness_root() / GUARDRAILS_REFERENCE),
+                 checker, "--repo", str(repo), "--record", str(record),
+                 "--base", parent, "--head", head], repo, timeout=HARNESS_CHECK_TIMEOUT)
+            if not ok:
+                result["blocking"].extend(line for line in output.splitlines() if line.strip())
+                if not output.strip():
+                    result["blocking"].append(f"{checker} failed without diagnostics")
         unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
         if unproven:
             raise ProveBlocked(f"feature-map documents changed in {parent}..{head} link no frozen proof: "
@@ -1432,14 +1433,19 @@ async def structure_review(repo, parent, head, *, target_ref):
         # eval's judge API exposes answers, not a pinned/reported model. Do not invent one.
         result["model_note"] = "eval judge selects the runtime model; response model metadata unavailable"
         states = _structure_states(repo, parent, head)
-        groups = {False: {}, True: {}}
+        groups = {}
         for unit, state in sorted(states.items()):
-            digest = _structure_digest(state)
-            clusters = [c for c in state.get("cluster", []) if c.get("eligible")]
-            state = {**state, "cluster": clusters}
-            result["units"][unit] = {"digest": digest, "judgment_digest": _structure_digest(state),
-                                     "scores": {}}
-            groups[bool(clusters)][unit] = {"unit_state": state}
+            eligible = state.get("judgment_questions")
+            if not isinstance(eligible, list) or any(ident not in questions for ident in eligible):
+                raise WorkflowError(f"{unit}: invalid deterministic judgment scope")
+            result["units"][unit] = {
+                "digest": _structure_digest(state), "judgment_digest": _structure_digest(state),
+                "judged_paths": state["introduced_paths"],
+                "judged_directories": state["introduced_directories"],
+                "questions": eligible, "scores": {},
+            }
+            if eligible:
+                groups.setdefault(tuple(eligible), {})[unit] = {"unit_state": state}
 
         def consume(unit, answers, selected):
             scores = {ident: _probability(answers, ident, "bool") for ident in selected}
@@ -1451,11 +1457,8 @@ async def structure_review(repo, parent, head, *, target_ref):
                                "threshold": decision["threshold"], "status": decision["status"]}
                     result["findings"].append(finding)
 
-        for has_clusters, group in groups.items():
-            if not group:
-                continue
-            selected = {k: q for k, q in questions.items()
-                        if has_clusters or k != "prefix_should_be_folder"}
+        for eligible, group in groups.items():
+            selected = {ident: questions[ident] for ident in eligible}
             if len(group) == 1:
                 unit, state = next(iter(group.items()))
                 try:

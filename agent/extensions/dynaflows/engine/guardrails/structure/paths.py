@@ -22,8 +22,10 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from guardrails.child_env import repo_environment
+from guardrails.config import conventions
 from guardrails.config.house_style import apply_exceptions
 from guardrails.findings import Finding
+from guardrails.structure import scope
 from guardrails.structure import layout, naming
 from guardrails.structure.import_graph import import_config, imported_edges
 from guardrails.structure.import_graph import run as import_graph_findings
@@ -33,7 +35,6 @@ from guardrails.structure.inventory import (
     matches,
     matches_any,
     normalized_path,
-    selected_paths,
     settings,
 )
 
@@ -136,7 +137,7 @@ def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Findin
     """Runnable tests sit under a tier location, outside fixtures and support, and T2 files
     map to an ownership area. A file whose location several tiers share is left to the
     adapter's tier collection (TEST.tier-selectors)."""
-    layout_section = section(profile, "layout")
+    layout_section = {**conventions.placement(path), **section(profile, "layout")}
     holders = [
         d
         for d in (layout_section.get("fixtures_dir"), layout_section.get("support_dir"))
@@ -144,6 +145,8 @@ def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Findin
     ]
     in_holder = matches_any(path, holders)
     is_test = naming.is_test_file(path, profile)
+    if not tier_locations(profile) and layout_section.get("beside_code") and not in_holder:
+        return []
     if not is_test:
         if (
             not in_holder
@@ -270,7 +273,9 @@ def native_findings(repo: Path, paths: list[str], profile: dict) -> list[Finding
     ]
 
 
-def path_findings(repo: Path, raw: str, profile: dict) -> list[Finding]:
+def path_findings(
+    repo: Path, raw: str, profile: dict, *, existing_paths: set[str] | None = None,
+) -> list[Finding]:
     path = normalized_path(repo, raw)
     if path is None:
         return [
@@ -280,11 +285,29 @@ def path_findings(repo: Path, raw: str, profile: dict) -> list[Finding]:
         ]
     if matches_any(path, as_list(settings(profile, "paths").get("skip"))):
         return []
-    problems = layout.path_findings(path, settings(profile, "structure"))
+    problems = layout.path_findings(path, settings(profile, "structure"), existing_paths=existing_paths)
+    python_findings = []
+    if "python" in section(profile, "guardrails"):
+        from guardrails.python_policy import quality
+
+        config = quality.load_settings(profile)
+        existing_segments = {
+            "/".join(parts[:index])
+            for item in existing_paths or ()
+            for parts in (PurePosixPath(item).parts,)
+            for index in range(1, len(parts) + 1)
+        }
+        if not quality.is_excluded(path, config):
+            python_findings = (
+                quality.structure_findings(path, config, existing_segments)
+                if path.endswith(".py")
+                else quality.skill_findings(path, config, existing_segments)
+            )
     return [
         *problems,
         *([] if problems else ownership_findings(path, profile)),
-        *naming.path_findings(repo, path, profile),
+        *naming.path_findings(repo, path, profile, existing_paths=existing_paths),
+        *python_findings,
         *test_placement_findings(repo, path, profile),
         *direction_findings(repo, path, profile),
     ]
@@ -292,10 +315,29 @@ def path_findings(repo: Path, raw: str, profile: dict) -> list[Finding]:
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     try:
-        paths = selected_paths(repo, argv)
+        selected = scope.select(repo, argv)
     except InventoryError as error:
         return [Finding(PLACEMENT, ".", str(error), "run inside a Git work tree")]
-    found = [finding for raw in paths for finding in path_findings(repo, raw, profile)]
-    found.extend(native_findings(repo, paths, profile))
-    found.extend(import_graph_findings(repo, profile, []))
+    if not selected.paths:
+        return []
+    try:
+        with scope.checkout(repo, selected) as root:
+            found = [
+                finding for raw in selected.paths
+                for finding in path_findings(root, raw, profile, existing_paths=selected.existing_paths)
+            ]
+            found.extend(native_findings(root, selected.paths, profile))
+            found.extend(scope.restrict(
+                layout.instance_findings(selected.inventory, settings(profile, "structure")),
+                selected.paths, selected.existing_paths,
+            ))
+            found.extend(layout.forbidden_import_findings(
+                root, selected.paths, settings(profile, "structure"),
+            ))
+            found.extend(scope.restrict(
+                import_graph_findings(root, profile, [], inventory=selected.inventory),
+                selected.paths, selected.existing_paths,
+            ))
+    except InventoryError as error:
+        return [Finding(PLACEMENT, ".", str(error), "provide a readable Git snapshot")]
     return apply_exceptions(found, profile)

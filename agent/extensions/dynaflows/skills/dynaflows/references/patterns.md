@@ -153,8 +153,10 @@ Prove checks four things:
 2. Rename residue: after CI is green and before proofs, harness `guardrails rename-residue
    --repo <worktree> --record <record dir> --base <parent> --head <head>` rejects leftover
    retired names in renamed folders or files. Every finding blocks, even with no frozen proofs.
-   This PR-diff-scoped structure pre-check is the principles 5/7 exception in
-   [ADR 0003](../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   The same merge-base/head range runs naming, structure and path-check for added/renamed
+   paths and new segments only. Legacy paths and content-only edits are never findings.
+   These PR pre-checks are the principles 5/7 exception in
+   [ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
    A term still naming an owned directory or module stem at head is not retired (a concept split
    can preserve its old owner); this compares whole word sequences, not individual words.
 3. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in
@@ -164,10 +166,10 @@ Prove checks four things:
 4. The frozen proofs: manifest and file hashes match, the head bytes are unchanged, and every
    proof passes at head (twice; `journey: true` proofs 3 times, all of which must pass).
 
-With an empty manifest and no changed map doc prove checks CI and rename residue. It runs no
-repository suites, other harness checks or `checks.profile`: rails ran the other harness checks
-at each commit and CI ran the repo's gates. Red at base was shown at freeze; prove does not
-rerun base. Partial proofs,
+With an empty manifest and no changed map doc prove still checks CI, rename residue and
+new-path naming/structure. It runs no repository suites, whole-repo naming/structure scans
+or `checks.profile`: rails ran the other harness checks at commit and CI ran repo gates.
+Red at base was shown at freeze; prove does not rerun base. Partial proofs,
 tracked mutation and changed frozen head bytes fail. Launch, timeout, IO, setup and cleanup
 errors are attributed infrastructure failures (`ok: null`, error/output/location), not failed
 assertions. Cleanup failure prevents pass.

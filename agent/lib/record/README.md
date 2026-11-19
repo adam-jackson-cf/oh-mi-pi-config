@@ -89,9 +89,13 @@ after edits and before commit. Required `guardrails.structure`, `guardrails.nami
 `guardrails.paths` configure this harness-owned per-edit contract, even where repo checks
 overlap; see [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
 At commit, rails then run `checks.commit` in the worktree followed by
-`guardrails check --repo <worktree> --record <record dir>` over the whole repository.
+`guardrails check --repo <worktree> --record <record dir>`.
+Naming and structure checks cover only added or renamed paths: worktree changes at edit,
+staged changes at commit, and merge-base/head changes at PR. Only new path segments are
+checked, never unchanged legacy parent directories. Content edits do not trigger NAME/STRUCT.
+Explicit CLI paths select a diagnostic scope; no paths select a full scan.
+Other whole-repository checks remain blocking without baselines.
 Run the engine from `agent/extensions/dynaflows/engine` using `uv run --project`.
-Any finding blocks; no baselines or diff scope apply to whole-repo checks.
 CI retains the repo's own required context and gate. There is no pre-push hook or
 separate handoff check.
 
@@ -118,8 +122,9 @@ machine probe and at least five baseline runs. They apply only to the local comm
 CI never measures or reports test timing.
 
 - `guardrails.<checker>` holds per-checker settings; examples include `guardrails.python`,
-  `guardrails.structure` and `guardrails.naming`. Unknown section names outside
-  `GUARDRAILS_SECTIONS` in `guardrails/config/profile.py` fail `profile-check`.
+  `guardrails.structure` and `guardrails.naming`. Apart from `guardrails.exceptions`,
+  unknown section names outside `GUARDRAILS_SECTIONS` in `guardrails/config/profile.py`
+  fail `profile-check`.
 - `guardrails.check.run` selects whole-repo steps; absent selection means all
   `DEFAULT_STEPS` in `guardrails/whole_repo.py`.
 - `guardrails.check.exclude` lists generated, vendored and fixture paths to exclude.
@@ -130,7 +135,13 @@ CI never measures or reports test timing.
   Remove settings only delegated steps read; `guardrails.python` is rejected when every
   configured Python step belongs to the repo.
 - `house_style.version` records the shipped `guardrails/data/house-style.json` version.
-  Exceptions are `{rule, path, adr}` objects; an exception without an ADR is ignored.
+- `guardrails.exceptions` is an optional list of `{rule, path, reason}` objects with an
+  optional `check`. Every entry requires a nonempty owner-approved reason; no decision
+  record is required. Unknown fields are rejected.
+  `path` uses shared profile matching: glob patterns use `fnmatchcase`; plain paths
+  match themselves and descendants. Optional `check` limits suppression to the finding's
+  sub-check, for example `child-repeats-parent` within `NAME.conventions`; omitted `check`
+  suppresses the whole rule at matching paths. Other sub-checks remain enforced.
 - `structure.import_direction.native` runs the repo's import-contract command for paths
   matching `scan` or `source_root`, regardless of extension, in both `path-check` and
   `structure`. Without path arguments the repo inventory selects sources. Python AST
@@ -171,7 +182,7 @@ Compare the draft and confirmed profile with the approved matrix before applying
 
 All approvals and exceptions live only in the record's profile, never a PR. They include
 `approved_skips`, any `approval`, `approved_*` or `*_approval`, `user_approval`,
-`house_style.exceptions`, fast-tier machine approvals and coverage-ratchet approvals.
+`guardrails.exceptions`, fast-tier machine approvals and coverage-ratchet approvals.
 Write each only as the owner stated it in chat. Record-write authority neither changes
 `ownerOnlyPaths` nor approves repository fixes; the setup approval remains the boundary
 before applying them.

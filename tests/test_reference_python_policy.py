@@ -6,6 +6,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,7 @@ REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text())
 sys.path.insert(0, str(REFERENCE))
 
-from guardrails import cli  # noqa: E402
+from guardrails import cli, whole_repo  # noqa: E402
 from guardrails.python_policy import (  # noqa: E402
     fanout,
     quality,
@@ -81,6 +82,139 @@ class ConfiguredCleanRepoTests(unittest.TestCase):
                     self.assertTrue(item.fix, item)
 
 
+class PythonNameScopeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = ShopRepo(self, {
+            "lib/orphan.py": "VALUE = 1\n",
+            "scripts/BadCommand.py": "VALUE = 1\n",
+            "tests/nested/check.py": "VALUE = 1\n",
+            "src/shop/common/BadFolder/misc.py": "VALUE = 1\n",
+            "src/shop/BadModule.py": "VALUE = 1\n",
+            ".agents/skills/BadSkill/SKILL.md": "# Skill\n",
+        })
+        self.environment = dict(
+            os.environ, HOME=str(self.repo.path),
+            XDG_CONFIG_HOME=str(self.repo.path / ".config"),
+            XDG_CACHE_HOME=str(self.repo.path / ".cache"),
+            XDG_DATA_HOME=str(self.repo.path / ".local/share"),
+            GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+        )
+        self.repo.profile["guardrails"]["check"] = {"run": ["python-quality"]}
+        self.name_rules = {f"PYQ{number}" for number in range(100, 108)}
+        self.commit()
+
+    def git(self, *args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo.path), *args], text=True,
+            env=self.environment, timeout=30,
+        )
+
+    def commit(self) -> None:
+        self.git("add", "-A")
+        self.git("-c", "user.name=Python scope outcomes", "-c",
+                 "user.email=python-scope@example.invalid", "commit", "-qm", "fixture")
+
+    def write(self, path: str, source: str = "VALUE = 1\n") -> None:
+        target = self.repo.path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source)
+
+    def check(self) -> list:
+        return whole_repo.run(self.repo.path, self.repo.profile, [])
+
+    def test_automatic_commit_scope_preserves_legacy_names_but_explicit_scan_reports_them(self) -> None:
+        self.assertEqual(self.check(), [])
+        for argv in ([], ["--all"]):
+            found = self.repo.run("quality", *argv)
+            self.assertEqual(
+                {item.rule_id for item in found} & self.name_rules, self.name_rules,
+            )
+
+    def test_unchanged_legacy_content_quality_still_blocks_automatic_commit_check(self) -> None:
+        self.write(
+            "src/shop/contracts.py",
+            "from collections.abc import Callable\nfrom typing import Any\n\n"
+            "def price(pricer: Callable[[int], int], raw: Any) -> int:\n"
+            "    return pricer(raw)\n",
+        )
+        self.commit()
+        self.write("src/shop/cli.py", "VALUE = 2\n")
+        self.git("add", "src/shop/cli.py")
+        found = self.check()
+        self.assertIn(("PYQ230", "src/shop/contracts.py"), rules_at(found))
+        self.assertFalse({item.rule_id for item in found} & self.name_rules)
+
+    def test_unstaged_and_untracked_content_quality_blocks_with_new_clean_staged_path(self) -> None:
+        source = (
+            "from collections.abc import Callable\nfrom typing import Any\n\n"
+            "def price(pricer: Callable[[int], int], raw: Any) -> int:\n"
+            "    return pricer(raw)\n"
+        )
+        self.write("src/shop/contracts.py", source)
+        self.write("src/shop/receipt.py", source)
+        self.repo.profile["guardrails"]["python"]["contract_files"].append("src/shop/receipt.py")
+        self.write("src/shop/reader.py")
+        self.git("add", "src/shop/reader.py")
+        found = self.check()
+        self.assertIn(("PYQ230", "src/shop/contracts.py"), rules_at(found))
+        self.assertIn(("PYQ230", "src/shop/receipt.py"), rules_at(found))
+        self.assertFalse({item.rule_id for item in found} & self.name_rules)
+
+    def test_new_files_judge_only_new_segments_under_legacy_parent_directories(self) -> None:
+        self.write("src/shop/common/BadFolder/reader.py")
+        self.write(".agents/skills/BadSkill/reader.py")
+        self.git("add", "-A")
+        self.assertEqual(self.check(), [])
+        self.write("src/shop/common/BadFolder/helpers/reader.py")
+        self.write("src/shop/common/BadFolder/BadChild/reader.py")
+        self.write(".agents/skills/NewBadSkill/SKILL.md", "# Skill\n")
+        self.git("add", "-A")
+        found = self.check()
+        self.assertIn(
+            ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py"), rules_at(found),
+        )
+        self.assertIn(
+            ("PYQ105", "src/shop/common/BadFolder/BadChild/reader.py"), rules_at(found),
+        )
+        self.assertIn(("PYQ106", ".agents/skills/NewBadSkill"), rules_at(found))
+        self.assertFalse(any(
+            item.rule_id in self.name_rules
+            and ("'common'" in item.message or "'BadFolder'" in item.message
+                 or "'BadSkill'" in item.message)
+            for item in found
+        ))
+
+    def test_new_and_renamed_destinations_receive_file_naming_and_placement_checks(self) -> None:
+        self.git("mv", "src/shop/orders.py", "src/shop/utils.py")
+        paths = {
+            "src/shop/AnotherBad.py": "PYQ107",
+            "lib/reader.py": "PYQ100",
+            "scripts/BadNew.py": "PYQ101",
+            "tests/nested/reader.py": "PYQ102",
+        }
+        for path in paths:
+            self.write(path)
+        self.git("add", "-A")
+        found = rules_at(self.check())
+        self.assertIn(("PYQ104", "src/shop/utils.py"), found)
+        for path, rule in paths.items():
+            self.assertIn((rule, path), found)
+        self.assertNotIn(("PYQ107", "src/shop/BadModule.py"), found)
+
+    def test_explicit_edit_paths_ignore_legacy_names_and_check_new_destinations(self) -> None:
+        self.write("src/shop/BadModule.py", "VALUE = 2\n")
+        self.assertEqual(self.repo.run("quality", "src/shop/BadModule.py"), [])
+        self.write("src/shop/common/BadFolder/reader.py")
+        self.assertEqual(
+            self.repo.run("quality", "src/shop/common/BadFolder/reader.py"), [],
+        )
+        self.write("src/shop/common/BadFolder/helpers/reader.py")
+        found = self.repo.run("quality", "src/shop/common/BadFolder/helpers/reader.py")
+        self.assertIn(
+            ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py"), rules_at(found),
+        )
+
+
 class FailClosedDefaultTests(unittest.TestCase):
     def test_without_settings_every_file_is_unmapped_and_fanout_asks_for_roots(self) -> None:
         repo = ShopRepo(self)
@@ -122,11 +256,12 @@ class SettingsTests(unittest.TestCase):
         )
         self.assertEqual([], approved.run("quality"))
 
-    def test_house_style_exception_with_adr_drops_the_finding(self) -> None:
+    def test_guardrail_exception_with_reason_drops_the_finding(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        repo.profile["house_style"] = {
-            "exceptions": [{"rule": "PYQ104", "path": "src/shop/utils.py", "adr": "adr/0007.md"}]
-        }
+        repo.profile.setdefault("guardrails", {})["exceptions"] = [{
+            "rule": "PYQ104", "path": "src/shop/utils.py",
+            "reason": "Owner-approved upstream compatibility filename",
+        }]
         self.assertEqual([], repo.run("quality"))
 
     def test_glob_roots_and_data_label_directories(self) -> None:

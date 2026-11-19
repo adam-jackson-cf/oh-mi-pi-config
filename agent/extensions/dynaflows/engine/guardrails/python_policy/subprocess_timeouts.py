@@ -15,8 +15,8 @@ A finding is any of:
 
 Imports and aliases are resolved, so unrelated ``run`` or ``wait`` methods are not flagged.
 A timeout given as a name or expression counts as positive; only a literal zero or negative
-value does not. An unparsable test file is a finding too. A finding is waived only by an
-ADR-backed ``house_style.exceptions`` entry for this rule.
+value does not. An unparsable test file is a finding too. A finding is waived only by a
+reason-backed ``guardrails.exceptions`` entry for this rule.
 """
 
 from __future__ import annotations

@@ -16,10 +16,10 @@
   as the owner stated in chat. Git-tool's
   [record authority](skill://git-tool/references/merge-and-recover.md#who-writes-records)
   applies independently of dynaflows.
-- The template's `structure` supplies capability owners, tiers and import direction; `house_style`
-  supplies the installed version and ADR-backed exceptions; `guardrails` supplies per-checker
-  settings such as structure, naming and paths. `structure.tiers` may be empty for flat code;
-  `house_style.exceptions` may be empty. Each exception needs an ADR reference.
+- The template's `structure` supplies capability owners, tiers and import direction;
+  `house_style` supplies the installed version; `guardrails` supplies per-checker settings
+  and owner-approved `exceptions` (`rule`, `path` or glob, `reason`, optional `check`).
+  `structure.tiers` and `guardrails.exceptions` may be empty. No ADR is required.
   Checker module documentation defines per-checker settings.
 - During approved setup, implementation writes the feature map in the repo and profile/guardrail
   settings in the record. Hand mapping gaps to the approved setup extension. Owner-approved budget

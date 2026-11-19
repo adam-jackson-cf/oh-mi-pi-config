@@ -100,14 +100,14 @@ A missing required field or a field outside the schema (including obsolete `chec
 fails to load with an error naming the field. `agent/lib/repo-record.ts` (`gateSchema`) owns
 accepted schema fields/types; its Python twin `agent/lib/repo_record.py` (`gate_reason`) serves
 `prove()` and CI. Rails run harness `guardrails path-check --repo <worktree> --record <record
-dir>`
-after edits and before commit, configured by required profile `guardrails.structure`,
-`guardrails.naming` and `guardrails.paths`. At each agent commit, this is followed by the record's
-`checks.commit` (the repo's own command) and whole-repo harness checks (`guardrails check`),
-minus the steps `guardrails.check.repo` gives to repo checkers that `checks.commit` already runs.
-Any finding blocks the commit, with no baseline or diff scope for whole-repo checks.
-Per-edit path checks are the principles 1–2 exception in [ADR
-0002](../../../../../docs/adr/0002-harness-owns-path-checks.md).
+dir>` after edits and before commit, configured by profile `guardrails.structure`,
+`guardrails.naming` and `guardrails.paths`. Naming/structure/path checks judge worktree
+additions/renames (including untracked) after edits and staged additions/renames at commit;
+only new segments count. Content edits and legacy parent names never trigger them.
+At commit the record's `checks.commit` and other whole-repo `guardrails check` steps follow;
+naming, structure and path-check are excluded from those automatic whole-repo steps.
+Any finding blocks. PR/prove judges merge-base/head additions/renames; full naming/structure
+scans require an explicit request. See [ADR 0012](../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
 When the commit gate reports `SECURITY.dependency-audit` findings, main stops implementation and
 follows [dependency advisories](references/patterns.md#dependency-advisories): each advisory gets
 the calibrated severity judgment, except a malicious package (`MAL-`), which code routes to the
