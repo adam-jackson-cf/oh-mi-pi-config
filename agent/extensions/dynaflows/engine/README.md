@@ -92,6 +92,39 @@ query. TypeScript 6 and older keep `typescript-language-server --stdio`.
 than prescribing a formatter release; the lock must match, and tracked Markdown
 and YAML must invoke that pinned formatter.
 
+## Language coverage
+
+Convention packs (`guardrails/data/conventions/`) against the verification layers. The
+`tooling` pack holds no source code, so only its fixed names apply.
+
+| Layer       | python          | typescript                 | go           | shell                |
+| ----------- | --------------- | -------------------------- | ------------ | -------------------- |
+| Tool rules  | RUFF, MYPY      | TSC, OXLINT, PRETTIER      | GOLANGCI (1) | SHELLCHECK, SHFMT    |
+| Init config | ruff, mypy (2)  | tsconfig (3), oxlintrc     | golangci     | rc, editorconfig (3) |
+| Parity      | python_pins, uv | node_pins, package_manager | go           | gap (4)              |
+| Adapter     | pytest          | vitest                     | gap (5)      | n/a (6)              |
+| Timeouts    | subprocess      | gap (7)                    | repo (8)     | n/a (9)              |
+| Fan-out     | FANOUT          | repo (8)                   | gap (10)     | n/a (9)              |
+| Quality     | PYQ, PYS        | n/a (11)                   | n/a (11)     | n/a (11)             |
+| Fixed names | python, tooling | typescript, tooling        | go, tooling  | tooling              |
+
+1. gofmt and goimports are golangci-lint formatters; `standard` linters include govet.
+2. Plus `.importlinter` once the record names `structure.tiers`; shell `rc` is `.shellcheckrc`.
+3. An existing file is kept; init reports each `TSC.*` or `SHFMT.*` value it lacks.
+4. shellcheck and shfmt have no repo-native version pin file.
+5. Go has no in-process hook for the fast-tier guards and no expected-failure or retry marker,
+   so eight canonical cases (five fast-tier, two expected-failure, one retry) cannot be
+   expressed: an owner blocker under
+   [adapter authoring](../skills/dynaflows/references/adapter-authoring.md).
+   The CI image has no Go toolchain.
+6. The shell pack defines no test discovery.
+7. oxlint has no rule that bounds a child process.
+8. A repo-owned tool rule: `GOLANGCI.RULE.forbidigo.exec-command` (Go timeouts),
+   `OXLINT.LIMIT.max-dependencies` (TypeScript fan-out).
+9. Shell scripts run processes by design and have no imports.
+10. golangci-lint has no import-count linter.
+11. PYQ and PYS judge Python class and analyzer shapes; size limits are the `LIMIT` rows.
+
 ## Rule coverage
 
 The harness's package version decides which catalogue rules apply.
