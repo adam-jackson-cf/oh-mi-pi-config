@@ -1,31 +1,12 @@
-"""Single entry point: ``guardrails <subcommand> [--repo DIR] [--record DIR] [args...]``.
-
-guardrails runs from the harness, never from the repository's environment: the agent rails
-call ``uv run --project <omp root>/agent/extensions/dynaflows/engine
-guardrails check --repo <worktree> --record <record dir>``. ``--repo`` is the
-checkout to inspect (default: the working directory). ``--record`` is the repo's personal
-per-repo record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``); its ``profile.md`` is the
-only configuration. A record inside the repository is refused: the repository holds nothing of
-the harness. guardrails never writes into the repository tree; output files go outside it.
-
-Each subcommand names the checker modules it runs. Modules are imported only when their
-subcommand runs, so a missing optional extra (the pytest adapter's) fails only that subcommand.
-Every module exposes ``run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]``.
-Exit codes: 0 no findings, 1 findings, 2 usage error (including a missing ``--record``).
-``guardrails <subcommand> --help`` prints the subcommand's module documentation without
-reading the profile; ``init`` and ``adapter`` parse their own options and print their own help.
-``adapter`` takes the adapter's name first (``guardrails adapter pytest tiers --out DIR``): a
-profile may declare several frameworks, so the caller always names one.
-``init`` drafts the record itself, so it is the one subcommand that writes: directly into a live
-record or a draft directory. ``--enable-dynaflows`` drafts dynaflows on.
-"""
-
 from __future__ import annotations
 
-import inspect
+import json
 import sys
 from dataclasses import dataclass
+from functools import cache
+from importlib import resources
 from pathlib import Path
+from typing import Any
 
 from guardrails.context.config.profile import ProfileError, load_profile
 from guardrails.foundation.findings import Finding, exit_code, format_findings
@@ -37,6 +18,24 @@ from guardrails.toolkit.dispatch import (
     profile_finding,
     run_modules,
 )
+
+RULE_CATALOGUE = "guardrail-rules.json"
+
+
+@cache
+def catalogue_rules() -> tuple[dict[str, Any], ...]:
+    catalogue = json.loads(
+        resources.files("guardrails.data").joinpath(RULE_CATALOGUE).read_bytes()
+    )
+    return tuple(catalogue["rules"])
+
+
+def module_rules(module: str) -> list[tuple[str, str]]:
+    return [
+        (rule["id"], rule["summary"])
+        for rule in catalogue_rules()
+        if any(reference["module"] == module for reference in rule.get("reference", []))
+    ]
 
 
 def usage() -> str:
@@ -53,7 +52,6 @@ def usage() -> str:
 
 
 def wants_help(argv: list[str]) -> bool:
-    """True when -h/--help appears before a ``--`` that starts a wrapped command."""
     options = argv[: argv.index("--")] if "--" in argv else argv
     return any(arg in {"-h", "--help"} for arg in options)
 
@@ -66,19 +64,19 @@ def subcommand_help(name: str) -> str:
         command.summary,
     ]
     for module_name in command.modules:
-        doc = inspect.getdoc(checker_module(module_name)) or ""
-        lines.extend(["", f"{module_name}:", doc])
+        lines.extend(["", f"{module_name}:"])
+        lines.extend(
+            f"  {rule_id}: {summary}" for rule_id, summary in module_rules(module_name)
+        )
     return "\n".join(lines)
 
 
 class UsageError(Exception):
-    """The command line names no usable repository or record."""
+    pass
 
 
 @dataclass(frozen=True)
 class Target:
-    """The checkout a subcommand inspects and the record that configures it."""
-
     repo: Path
     record: Path | None
 
@@ -87,7 +85,6 @@ LOCATION_OPTIONS = ("--repo", "--record")
 
 
 def split_locations(argv: list[str]) -> tuple[dict[str, Path], list[str]]:
-    """Take leading ``--repo DIR`` and ``--record DIR`` options (either order) off the arguments."""
     found: dict[str, Path] = {}
     rest = list(argv)
     while rest:
