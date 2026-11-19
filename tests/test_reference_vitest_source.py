@@ -126,6 +126,15 @@ class StaticCases(unittest.TestCase):
         }
         assert len(fingerprints) == 3
 
+    def test_a_moved_test_duplicates_nothing_but_a_copy_beside_its_original_does(
+        self,
+    ) -> None:
+        base = {"tests/a.test.ts::adds": "same path and assertion"}
+        moved = {"tests/b.test.ts::adds": "same path and assertion"}
+        assert duplicate_findings(base, moved) == []
+        copied = duplicate_findings(base, {**base, **moved})
+        assert [finding.path for finding in copied] == ["tests/b.test.ts"]
+
     def test_shared_growth_protocol(self) -> None:
         result = self.collect("test('missing', () => { expect(1).toBe(1); });")
         head = Snapshot(
