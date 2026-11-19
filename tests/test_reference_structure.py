@@ -6,20 +6,24 @@ import contextlib
 import copy
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+
+from guardrails import cli
+from guardrails.config import conventions, house_style
+from guardrails.structure import layout, naming, paths
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURES = ROOT / "tests/fixtures/reference/structure"
-sys.path.insert(0, str(REFERENCE))
-
-from guardrails import cli  # noqa: E402
-from guardrails.config import conventions, house_style  # noqa: E402
-from guardrails.structure import layout, naming, paths  # noqa: E402
 
 CLEAN = json.loads((FIXTURES / "clean-repo.json").read_text())
 VERDICTS = json.loads((FIXTURES / "house-style-verdicts.json").read_text())
@@ -30,23 +34,21 @@ class HouseStyleVerdictTests(unittest.TestCase):
 
     def test_fixture_targets_the_shipped_version_and_sources_are_recorded(self) -> None:
         data = house_style.load_house_style()
-        self.assertEqual(VERDICTS["house_style_version"], data["version"])
-        self.assertGreaterEqual(len(data["sources"]), 5)
-        self.assertEqual(data["banned_words"], sorted(set(data["banned_words"])))
-        self.assertRegex(house_style.digest(), r"^[0-9a-f]{64}$")
+        assert VERDICTS["house_style_version"] == data["version"]
+        assert len(data["sources"]) >= 5
+        assert data["banned_words"] == sorted(set(data["banned_words"]))
+        assert re.search(r"^[0-9a-f]{64}$", house_style.digest())
 
     def test_banned_words(self) -> None:
         for word in VERDICTS["banned_words"]["banned"]:
-            self.assertTrue(house_style.is_banned_word(word), word)
+            assert house_style.is_banned_word(word), word
         for word in VERDICTS["banned_words"]["allowed"]:
-            self.assertFalse(house_style.is_banned_word(word), word)
+            assert not house_style.is_banned_word(word), word
 
     def test_casing(self) -> None:
         for case in VERDICTS["casing"]:
             with self.subTest(case=case):
-                self.assertEqual(
-                    house_style.matches_casing(case["name"], case["casing"]), case["matches"]
-                )
+                assert house_style.matches_casing(case["name"], case["casing"]) == case["matches"]
 
     def test_versions(self) -> None:
         for case in VERDICTS["versions"]:
@@ -56,13 +58,13 @@ class HouseStyleVerdictTests(unittest.TestCase):
                     last=case["last"],
                     standalone_allowed=case["standalone_allowed"],
                 )
-                self.assertEqual(problem is not None, case["violates"])
+                assert (problem is not None) == case["violates"]
 
     def test_test_names(self) -> None:
         for case in VERDICTS["test_names"]:
             with self.subTest(case=case):
                 problems = house_style.test_name_problems(case["name"])
-                self.assertEqual(bool(problems), case["violates"], problems)
+                assert bool(problems) == case["violates"], problems
 
     def test_children_repeat_parent_by_whole_token_sequence(self) -> None:
         repeated_paths = (
@@ -90,7 +92,7 @@ class HouseStyleVerdictTests(unittest.TestCase):
         )
         for path in repeated_paths:
             with self.subTest(path=path):
-                self.assertIsNotNone(house_style.child_repeats_parent(tuple(path.split("/"))))
+                assert house_style.child_repeats_parent(tuple(path.split("/"))) is not None
         allowed_paths = (
             "rail/guardrails/entry.py",
             "guardrails/guardrailsish/entry.py",
@@ -108,39 +110,35 @@ class HouseStyleVerdictTests(unittest.TestCase):
         )
         for path in allowed_paths:
             with self.subTest(path=path):
-                self.assertIsNone(house_style.child_repeats_parent(tuple(path.split("/"))))
-        self.assertEqual(
-            house_style.child_repeats_parent(("guardrails", "omp_guardrails", "guardrails.py")),
-            "omp_guardrails",
-        )
+                assert house_style.child_repeats_parent(tuple(path.split("/"))) is None
+        assert house_style.child_repeats_parent(("guardrails", "omp_guardrails", "guardrails.py")) == "omp_guardrails"
 
     def test_test_roots(self) -> None:
         expected = VERDICTS["test_roots"]
-        self.assertEqual(conventions.placement("test_sample.py")["root"], expected["root"])
-        self.assertEqual(
-            conventions.placement("test_sample.py")["fixtures_dir"], expected["fixtures_dir"]
-        )
-        self.assertIn(expected["python"], conventions.test_patterns("test_sample.py"))
-        self.assertIn(expected["typescript"], conventions.test_patterns("sample.test.ts"))
+        assert conventions.placement("test_sample.py")["root"] == expected["root"]
+        assert conventions.placement("test_sample.py")["fixtures_dir"] == expected["fixtures_dir"]
+        assert expected["python"] in conventions.test_patterns("test_sample.py")
+        assert expected["typescript"] in conventions.test_patterns("sample.test.ts")
 
 
-class CheckerTests(unittest.TestCase):
+class CheckerCase(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-structure-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve() / "repo"
         self.record = Path(scratch.name).resolve() / "record"
         self.record.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
         self.profile = copy.deepcopy(CLEAN["profile"])
         for path, text in CLEAN["files"].items():
             self.write(path, text)
-        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True, timeout=60)
         subprocess.run(
             ["git", "-C", str(self.repo), "-c", "user.name=Fixture",
              "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
              "commit", "-qm", "baseline"],
             check=True,
+            timeout=60,
         )
 
     def write(self, path: str, text: str = "") -> None:
@@ -148,7 +146,7 @@ class CheckerTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
 
-    def findings(self, module, argv: list[str] | None = None) -> set[tuple[str, str]]:
+    def findings(self, module: ModuleType, argv: list[str] | None = None) -> set[tuple[str, str]]:
         return {
             (item.rule_id, item.path) for item in module.run(self.repo, self.profile, argv or [])
         }
@@ -156,8 +154,12 @@ class CheckerTests(unittest.TestCase):
     def all_findings(self) -> set[tuple[str, str]]:
         return self.findings(layout) | self.findings(naming) | self.findings(paths)
 
+
+class CheckerTests(CheckerCase):
+    """Layout, naming and path checks over a planted repository."""
+
     def test_clean_repository_has_no_findings(self) -> None:
-        self.assertEqual(self.all_findings(), set())
+        assert self.all_findings() == set()
 
     def test_layout_allowlists_report_folder_placement(self) -> None:
         self.write("scratch/notes.txt")
@@ -167,26 +169,13 @@ class CheckerTests(unittest.TestCase):
         self.write("src/orders/engine/stages/deep/nested/step.py")
         self.write("lab/workflows/team/broken/run.yaml")
         self.write("lab/workflows/loose.yaml")
-        self.assertEqual(
-            self.findings(layout),
-            {
-                ("STRUCT.folder-placement", "scratch/"),
-                ("STRUCT.folder-placement", "lab/cache"),
-                ("STRUCT.folder-placement", "src/orders/extras/"),
-                ("STRUCT.folder-placement", "src/orders/engine/batching/"),
-                ("STRUCT.folder-placement", "src/orders/engine/stages/deep/nested"),
-                ("STRUCT.folder-placement", "lab/workflows/team/broken/"),
-                ("STRUCT.folder-placement", "lab/workflows/loose.yaml"),
-            },
-        )
+        assert self.findings(layout) == {("STRUCT.folder-placement", "scratch/"), ("STRUCT.folder-placement", "lab/cache"), ("STRUCT.folder-placement", "src/orders/extras/"), ("STRUCT.folder-placement", "src/orders/engine/batching/"), ("STRUCT.folder-placement", "src/orders/engine/stages/deep/nested"), ("STRUCT.folder-placement", "lab/workflows/team/broken/"), ("STRUCT.folder-placement", "lab/workflows/loose.yaml")}
 
     def test_layout_requires_a_root_allowlist_and_reports_forbidden_imports(self) -> None:
         self.write("src/orders/contract/fetch.py", "import requests.adapters\n")
-        self.assertEqual(
-            self.findings(layout), {("STRUCT.dependency-direction", "src/orders/contract/fetch.py")}
-        )
+        assert self.findings(layout) == {("STRUCT.dependency-direction", "src/orders/contract/fetch.py")}
         del self.profile["guardrails"]["structure"]["root_files"]
-        self.assertIn(("STRUCT.folder-placement", "record:profile.md"), self.findings(layout))
+        assert ("STRUCT.folder-placement", "record:profile.md") in self.findings(layout)
 
     def test_naming_reports_house_style_violations(self) -> None:
         planted = {
@@ -201,28 +190,20 @@ class CheckerTests(unittest.TestCase):
         for path, text in planted.items():
             self.write(path, text)
         self.write("docs/Design.md")
-        self.assertEqual(self.findings(naming), {("NAME.conventions", path) for path in planted})
+        assert self.findings(naming) == {("NAME.conventions", path) for path in planted}
 
     def test_naming_reports_test_file_names(self) -> None:
         self.write("tests/unit/test_issue_1234.py")
         self.write("tests/unit/order_totals_test.py")
         self.write("tests/unit/test_.py")
-        self.assertEqual(
-            self.findings(naming),
-            {
-                ("NAME.test-files", "tests/unit/test_issue_1234.py"),
-                ("NAME.test-files", "tests/unit/test_.py"),
-            },
-        )
+        assert self.findings(naming) == {("NAME.test-files", "tests/unit/test_issue_1234.py"), ("NAME.test-files", "tests/unit/test_.py")}
 
     def test_versions_are_allowed_in_exempt_paths_and_standalone_folders(self) -> None:
         self.write("docs/records/v2/review-v3.md")
         self.write("src/orders/engine/stages/v2.json")
-        self.assertEqual(self.findings(naming), set())
+        assert self.findings(naming) == set()
         self.profile["guardrails"]["naming"]["standalone_versions"] = False
-        self.assertEqual(
-            self.findings(naming), {("NAME.conventions", "src/orders/engine/stages/v2.json")}
-        )
+        assert self.findings(naming) == {("NAME.conventions", "src/orders/engine/stages/v2.json")}
 
     def test_path_check_reports_ownership_test_placement_and_direction(self) -> None:
         planted = {
@@ -236,19 +217,7 @@ class CheckerTests(unittest.TestCase):
         }
         for path, text in planted.items():
             self.write(path, text)
-        self.assertEqual(
-            self.findings(paths, list(planted)),
-            {
-                ("STRUCT.folder-placement", "lab/workflows/team/nightly/notes.md"),
-                ("TEST.placement", "tests/boundary/test_payments_retry.py"),
-                ("STRUCT.folder-placement", "tests/fixtures/test_sample_order.py"),
-                ("TEST.placement", "tests/fixtures/test_sample_order.py"),
-                ("STRUCT.folder-placement", "tests/scheduled/test_order_soak.py"),
-                ("TEST.placement", "src/orders/engine/checks.py"),
-                ("STRUCT.dependency-direction", "src/orders/engine/upward.py"),
-                ("STRUCT.dependency-direction", "src/orders/contract/reach.py"),
-            },
-        )
+        assert self.findings(paths, list(planted)) == {("STRUCT.folder-placement", "lab/workflows/team/nightly/notes.md"), ("TEST.placement", "tests/boundary/test_payments_retry.py"), ("STRUCT.folder-placement", "tests/fixtures/test_sample_order.py"), ("TEST.placement", "tests/fixtures/test_sample_order.py"), ("STRUCT.folder-placement", "tests/scheduled/test_order_soak.py"), ("TEST.placement", "src/orders/engine/checks.py"), ("STRUCT.dependency-direction", "src/orders/engine/upward.py"), ("STRUCT.dependency-direction", "src/orders/contract/reach.py")}
 
     def test_path_check_only_reports_framework_backed_collectable_tests(self) -> None:
         cases = {
@@ -302,16 +271,10 @@ class CheckerTests(unittest.TestCase):
             with self.subTest(case=name):
                 self.write(path, source)
                 expected = {("TEST.placement", path)} if collected else set()
-                self.assertEqual(self.findings(paths, [path]), expected)
+                assert self.findings(paths, [path]) == expected
 
     def test_path_check_refuses_paths_outside_the_repository(self) -> None:
-        self.assertEqual(
-            self.findings(paths, ["../outside.py", "/etc/hosts"]),
-            {
-                ("STRUCT.folder-placement", "../outside.py"),
-                ("STRUCT.folder-placement", "/etc/hosts"),
-            },
-        )
+        assert self.findings(paths, ["../outside.py", "/etc/hosts"]) == {("STRUCT.folder-placement", "../outside.py"), ("STRUCT.folder-placement", "/etc/hosts")}
 
     def test_record_exceptions_suppress_only_their_rule_and_path(self) -> None:
         self.write("src/orders/engine/utils.py")
@@ -319,7 +282,7 @@ class CheckerTests(unittest.TestCase):
         self.profile["guardrails"]["exceptions"] = [
             {"rule": "NAME.conventions", "path": "src/orders/engine", "reason": "owner approval"}
         ]
-        self.assertEqual(self.findings(naming), {("NAME.conventions", "src/orders/cli/helpers.py")})
+        assert self.findings(naming) == {("NAME.conventions", "src/orders/cli/helpers.py")}
 
     def test_glob_exception_suppresses_only_the_named_subcheck(self) -> None:
         path = "src/orders/engine/performance/test_performance_v2.py"
@@ -332,15 +295,15 @@ class CheckerTests(unittest.TestCase):
         for candidate in (path, other):
             self.write(candidate)
         found = naming.run(self.repo, self.profile, [path, other])
-        self.assertFalse(any(item.path == path and item.check == "child-repeats-parent"
-                             for item in found))
-        self.assertTrue(any(item.path == path and item.rule_id == "NAME.conventions"
-                            for item in found))
-        self.assertTrue(any(item.path == other and item.check == "child-repeats-parent"
-                            for item in found))
+        assert not any(item.path == path and item.check == "child-repeats-parent" for item in found)
+        assert any(item.path == path and item.rule_id == "NAME.conventions" for item in found)
+        assert any(item.path == other and item.check == "child-repeats-parent" for item in found)
         del exception["reason"]
-        self.assertTrue(any(item.check == "child-repeats-parent"
-                            for item in naming.run(self.repo, self.profile, [path])))
+        assert any(item.check == "child-repeats-parent" for item in naming.run(self.repo, self.profile, [path]))
+
+
+class CheckerCliTests(CheckerCase):
+    """The CLI runs the checkers against the record profile."""
 
     def write_profile(self) -> None:
         text = f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n"
@@ -350,11 +313,11 @@ class CheckerTests(unittest.TestCase):
         self.write_profile()
         for name in ("structure", "naming", "path-check"):
             with self.subTest(name=name):
-                self.assertEqual(self.run_cli(name), (0, f"{name}: ok\n"))
+                assert self.run_cli(name) == (0, f"{name}: ok\n")
         self.write("src/orders/engine/misc.py")
         code, out = self.run_cli("naming")
-        self.assertEqual(code, 1)
-        self.assertIn("src/orders/engine/misc.py: NAME.conventions:", out)
+        assert code == 1
+        assert "src/orders/engine/misc.py: NAME.conventions:" in out
 
     def run_cli(self, name: str, *paths: str) -> tuple[int, str]:
         out = io.StringIO()
@@ -366,11 +329,12 @@ class CheckerTests(unittest.TestCase):
         """GATE.path-check: changed paths as arguments, exit 0 clean, one error line per file."""
         self.write_profile()
         self.write("src/orders/engine/misc.py")
-        self.assertEqual(self.run_cli("path-check", "src/orders/engine/runner.py")[0], 0)
+        assert self.run_cli("path-check", "src/orders/engine/runner.py")[0] == 0
         code, out = self.run_cli("path-check", "src/orders/engine/misc.py")
-        self.assertEqual(code, 1)
+        assert code == 1
         lines = out.splitlines()
-        self.assertTrue(lines and all(line.startswith("src/orders/engine/misc.py: ") for line in lines))
+        assert lines
+        assert all(line.startswith("src/orders/engine/misc.py: ") for line in lines)
 
     def test_native_import_direction_checks_non_python_sources(self) -> None:
         source = "src/orders/engine/runner.ts"
@@ -389,11 +353,11 @@ class CheckerTests(unittest.TestCase):
                 for name in ("path-check", "structure"):
                     with self.subTest(scope=scope, exit_code=exit_code, command=name):
                         code, out = self.run_cli(name, source)
-                        self.assertEqual(code, exit_code)
+                        assert code == exit_code
                         if exit_code:
-                            self.assertIn(f"{source}: STRUCT.dependency-direction:", out)
+                            assert f"{source}: STRUCT.dependency-direction:" in out
                         else:
-                            self.assertEqual(out, f"{name}: ok\n")
+                            assert out == f"{name}: ok\n"
 
     def test_native_import_direction_ignores_paths_outside_scan(self) -> None:
         self.profile["structure"]["import_direction"] = {
@@ -406,9 +370,7 @@ class CheckerTests(unittest.TestCase):
         self.write_profile()
         for name in ("path-check", "structure"):
             with self.subTest(command=name):
-                self.assertEqual(
-                    self.run_cli(name, "src/orders/engine/runner.py"), (0, f"{name}: ok\n")
-                )
+                assert self.run_cli(name, "src/orders/engine/runner.py") == (0, f"{name}: ok\n")
 
     def test_native_import_direction_checks_inventory_without_arguments(self) -> None:
         source = "src/orders/engine/runner.ts"
@@ -424,12 +386,8 @@ class CheckerTests(unittest.TestCase):
         for name in ("path-check", "structure"):
             with self.subTest(command=name):
                 code, out = self.run_cli(name)
-                self.assertEqual(code, 1)
-                self.assertEqual(
-                    out.splitlines(),
-                    [f"{source}: STRUCT.dependency-direction: repository import contracts failed; "
-                     f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges"],
-                )
+                assert code == 1
+                assert out.splitlines() == [f"{source}: STRUCT.dependency-direction: repository import contracts failed; " f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges"]
 
     def test_check_rejects_automatic_whole_repo_naming_and_structure(self) -> None:
         for step in ("structure", "naming", "path-check"):
@@ -437,38 +395,37 @@ class CheckerTests(unittest.TestCase):
                 self.profile["guardrails"]["check"] = {"run": [step]}
                 self.write_profile()
                 code, out = self.run_cli("check")
-                self.assertEqual(code, 1)
-                self.assertIn("guardrails.check.run names unknown steps", out)
+                assert code == 1
+                assert "guardrails.check.run names unknown steps" in out
 
     def test_check_steps_come_from_a_fixed_list_and_record_findings_always_show(self) -> None:
         self.profile["guardrails"]["check"] = {"run": ["diff-check"], "exclude": ["**"]}
         self.write_profile()
         code, out = self.run_cli("check")
-        self.assertEqual(code, 1)
-        self.assertIn("record:profile.md: PROFILE.complete: guardrails.check.run names", out)
+        assert code == 1
+        assert "record:profile.md: PROFILE.complete: guardrails.check.run names" in out
         from guardrails import whole_repo
 
         steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
-        self.assertEqual((steps, problems), (list(whole_repo.DEFAULT_STEPS), []))
-        self.assertIn("adapter lint", steps)
+        assert (steps, problems) == (list(whole_repo.DEFAULT_STEPS), [])
+        assert "adapter lint" in steps
         code, out = self.run_cli("check", "src")
-        self.assertEqual(code, 1)
-        self.assertIn("check takes no paths or options", out)
-
+        assert code == 1
+        assert "check takes no paths or options" in out
 
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
         from guardrails import whole_repo
 
         owned = {"guardrails": {"check": {"repo": {"python-fanout": ["src/orders/cli/main.py"]}}}}
         steps, problems = whole_repo.configured_steps(owned)
-        self.assertEqual(problems, [])
-        self.assertEqual(steps, [step for step in whole_repo.DEFAULT_STEPS if step != "python-fanout"])
+        assert problems == []
+        assert steps == [step for step in whole_repo.DEFAULT_STEPS if step != "python-fanout"]
         self.profile["guardrails"]["check"] = {
             "run": ["python-test-hygiene"],
             "repo": {"naming": ["src/orders/cli/main.py"], "structure": ["src/orders/cli/main.py"]},
         }
         self.write_profile()
-        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
+        assert self.run_cli("check") == (0, "check: ok\n")
 
     def test_check_refuses_a_repo_owned_step_the_record_cannot_trust(self) -> None:
         cases = {
@@ -505,8 +462,8 @@ class CheckerTests(unittest.TestCase):
                 self.profile["guardrails"]["check"] = check
                 self.write_profile()
                 code, out = self.run_cli("check")
-                self.assertEqual(code, 1)
-                self.assertIn(f"record:profile.md: PROFILE.complete: {expected}", out)
+                assert code == 1
+                assert f"record:profile.md: PROFILE.complete: {expected}" in out
 
     def test_check_rejects_settings_only_repo_owned_steps_read(self) -> None:
         owned = {"python-quality": ["src/orders/cli/main.py"], "python-fanout": ["src/orders/cli/main.py"],
@@ -515,18 +472,18 @@ class CheckerTests(unittest.TestCase):
         self.profile["guardrails"]["check"] = {"run": ["profile-check"], "repo": owned}
         self.write_profile()
         code, out = self.run_cli("check")
-        self.assertEqual(code, 1)
-        self.assertIn("guardrails.python configures only repo-owned steps", out)
+        assert code == 1
+        assert "guardrails.python configures only repo-owned steps" in out
         self.profile["guardrails"]["check"]["run"].append("python-test-hygiene")
         self.write_profile()
-        self.assertNotIn("guardrails.python configures", self.run_cli("check")[1])
+        assert "guardrails.python configures" not in self.run_cli("check")[1]
         self.profile["guardrails"]["naming"] = {"skip": ["vendor/**"]}
         self.profile["guardrails"]["check"] = {
             "run": ["python-test-hygiene"],
             "repo": {"naming": ["src/orders/cli/main.py"]},
         }
         self.write_profile()
-        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
+        assert self.run_cli("check") == (0, "check: ok\n")
 
 
 class ImportGraphTests(unittest.TestCase):
@@ -537,11 +494,11 @@ class ImportGraphTests(unittest.TestCase):
     }
     FIXTURE = json.loads((FIXTURES / "import-graph.json").read_text())
 
-    def make_repo(self, files: dict[str, str], profile: dict) -> tuple[Path, Path]:
+    def make_repo(self, files: dict[str, str], profile: dict[str, Any]) -> tuple[Path, Path]:
         scratch = tempfile.TemporaryDirectory(prefix="omp-import-graph-")
         self.addCleanup(scratch.cleanup)
         repo, record = Path(scratch.name) / "repo", Path(scratch.name) / "record"
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=60)
         record.mkdir()
         (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
         for path, text in files.items():
@@ -559,9 +516,7 @@ class ImportGraphTests(unittest.TestCase):
                     expected = set(case["paths"]) if outcome == "violating" else set()
                     for checker in (layout, paths):
                         findings = checker.run(repo, profile, ["--all"])
-                        self.assertEqual(
-                            {f.path for f in findings if f.rule_id == case["rule"]}, expected
-                        )
+                        assert {f.path for f in findings if f.rule_id == case["rule"]} == expected
                     for command in ("structure", "path-check"):
                         output = io.StringIO()
                         with contextlib.redirect_stdout(output):
@@ -569,7 +524,7 @@ class ImportGraphTests(unittest.TestCase):
                                 command, "--repo", str(repo), "--record", str(record),
                                 "--all",
                             ])
-                        self.assertEqual(case["rule"] in output.getvalue(), bool(expected))
+                        assert (case["rule"] in output.getvalue()) == bool(expected)
 
     def test_no_import_settings_means_no_graph_findings(self) -> None:
         case = self.FIXTURE["cases"][0]
@@ -577,7 +532,7 @@ class ImportGraphTests(unittest.TestCase):
         del profile["structure"]["import_direction"]
         repo, _ = self.make_repo(case["violating"], profile)
         for checker in (layout, paths):
-            self.assertFalse({f.rule_id for f in checker.run(repo, profile, [])} & self.RULES)
+            assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_scan_excludes_python_outside_its_scope(self) -> None:
         profile = copy.deepcopy(self.FIXTURE["profile"])
@@ -586,7 +541,7 @@ class ImportGraphTests(unittest.TestCase):
         files["src/orders/shared/broken.py"] = "this is not Python!\n"
         repo, _ = self.make_repo(files, profile)
         for checker in (layout, paths):
-            self.assertFalse({f.rule_id for f in checker.run(repo, profile, [])} & self.RULES)
+            assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_unused_shared_tier_fails_but_driving_tier_does_not(self) -> None:
         profile = copy.deepcopy(self.FIXTURE["profile"])
@@ -596,10 +551,7 @@ class ImportGraphTests(unittest.TestCase):
         }, profile)
         for checker in (layout, paths):
             found = checker.run(repo, profile, [])
-            self.assertEqual(
-                {(f.rule_id, f.path) for f in found if f.rule_id in self.RULES},
-                {("STRUCT.tier-readership", "src/orders/shared")},
-            )
+            assert {(f.rule_id, f.path) for f in found if f.rule_id in self.RULES} == {("STRUCT.tier-readership", "src/orders/shared")}
 
 
 if __name__ == "__main__":
