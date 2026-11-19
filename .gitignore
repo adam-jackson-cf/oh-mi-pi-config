@@ -21,7 +21,7 @@
 .githooks/*
 !.githooks/pre-commit
 !.markdownlint-cli2.jsonc
-!oxlint.config.ts
+!.oxlintrc.json
 
 !.github/
 .github/*
