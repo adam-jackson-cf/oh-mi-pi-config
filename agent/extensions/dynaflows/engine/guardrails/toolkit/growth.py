@@ -164,8 +164,6 @@ def duplicate_findings(
     base: Mapping[str, str], head: Mapping[str, str]
 ) -> list[Finding]:
     seen: dict[str, str] = {}
-    for selector, fingerprint in sorted(base.items()):
-        seen.setdefault(fingerprint, selector)
     for selector in sorted(head.keys() & base.keys()):
         seen.setdefault(head[selector], selector)
     found = []
