@@ -32,6 +32,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from guardrails.config.profile import exempt_tiers
 from guardrails.findings import Finding
 from guardrails.structure.inventory import (
     InventoryError,
@@ -164,7 +165,9 @@ def id_file(test_id: str) -> str:
 
 def profile_tiers(profile: dict[str, Any]) -> list[str]:
     tiers = profile.get("tiers")
-    return sorted(tiers) if isinstance(tiers, dict) else []
+    if not isinstance(tiers, dict):
+        return []
+    return sorted(set(tiers) - exempt_tiers(profile))
 
 
 def collection_findings(

@@ -22,6 +22,7 @@ import pytest
 from guardrails import cli
 from guardrails.test_evidence import (
     budgets,
+    collection,
     junit,
     mutation,
     propagation,
@@ -374,6 +375,21 @@ class BudgetCommandTests(RepoTestCase):
         report = self.copy_fixture("pytest-clean.xml", 'value="t1"', 'value="t2"')
         argv = ["--junit", report, "--revision", "stale"]
         assert budgets.run(self.repo, profile(), argv) == []
+
+
+class TierCollectionTests(unittest.TestCase):
+    def test_an_exempt_t3_tier_needs_no_collect_only_list(self) -> None:
+        lists: dict[str, list[str] | None] = {
+            "t1": ["tests/unit/test_a.py::test_one"],
+            "t2": ["tests/flow/test_b.py::test_two"],
+        }
+        assert [
+            item.message
+            for item in collection.collection_findings(lists, profile(), [])
+        ] == ["tier t3 has no collect-only list"]
+        exempt = profile()
+        exempt["tiers"]["t3"] = {"none": "no exploratory suites", "approval": "ADR-9"}
+        assert collection.collection_findings(lists, exempt, []) == []
 
 
 class PropagationTests(unittest.TestCase):

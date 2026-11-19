@@ -204,6 +204,39 @@ class ProfileCompleteTests(unittest.TestCase):
                     for k in keys_of(profile_module.validate_profile(elsewhere))
                 }
 
+    def test_an_approved_t3_exemption_replaces_the_t3_tier_and_its_adapters(
+        self,
+    ) -> None:
+        exemption = {"none": "no exploratory suites yet", "approval": "ADR-0009"}
+        profile = complete_profile()
+        profile["tiers"]["t3"] = dict(exemption)
+        profile["adapters"][0]["tiers"].pop("t3")
+        assert profile_module.validate_profile(profile) == []
+        assert profile_module.exempt_tiers(profile) == {"t3"}
+
+    def test_a_t3_exemption_needs_an_approval_and_no_adapter_in_t3(self) -> None:
+        profile = complete_profile()
+        t3_selection = profile["adapters"][0]["tiers"].pop("t3")
+        profile["tiers"]["t3"] = {"none": "no exploratory suites yet"}
+        assert keys_of(profile_module.validate_profile(profile)) == {"tiers.t3"}
+        profile["tiers"]["t3"]["approval"] = "ADR-0009"
+        assert profile_module.validate_profile(profile) == []
+        profile["adapters"][0]["tiers"]["t3"] = t3_selection
+        assert keys_of(profile_module.validate_profile(profile)) == {
+            "adapters[0].tiers.t3"
+        }
+
+    def test_only_t3_may_be_exempted_among_the_tiers(self) -> None:
+        exemption = {"none": "no unit tests", "approval": "ADR-0009"}
+        for tier in ("t1", "t2"):
+            with self.subTest(tier=tier):
+                profile = complete_profile()
+                profile["tiers"][tier] = dict(exemption)
+                assert f"tiers.{tier}.command" in keys_of(
+                    profile_module.validate_profile(profile)
+                )
+                assert profile_module.exempt_tiers(profile) == set()
+
     def test_unapproved_or_malformed_exemptions_count_as_missing(self) -> None:
         cases = {
             "no approval": {"none": "no app"},

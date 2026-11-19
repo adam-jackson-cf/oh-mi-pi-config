@@ -80,8 +80,8 @@ reads as ordinary front matter. Keep it and the sections below in step.
 - Replace every `<...>` placeholder with a value. Placeholders, `n/a`, `TBD`, empty values and a
   bare `none` count as missing.
 - Write an allowed exemption as `{"none": "<reason>", "approval": "<reference>"}` in place of the
-  `verification_surface` section, the `run_events.nightly_scheduler` field or the
-  `identity_artefacts` section.
+  `tiers.t3` tier, the `verification_surface` section, the `run_events.nightly_scheduler` field
+  or the `identity_artefacts` section. No other tier may be exempt.
 - Write limits and floors as numbers: `wall_limit_s` and `per_test_limit_s` in seconds,
   `line_floor` and `branch_floor` in percent.
 - Approval = the owner's decision. Document approval fields only as the owner stated them.
