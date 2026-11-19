@@ -72,6 +72,11 @@
   "fixed_files": ["__init__.py", "__main__.py", "conftest.py"],
   "fixed_folders": ["__pycache__"],
   "ignored_folders": ["__pycache__"],
+  "test_frameworks": {
+    "modules": ["pytest", "unittest"],
+    "case_module": "unittest",
+    "case_class": "TestCase"
+  },
   "test_patterns": ["test_*.py", "*_test.py"],
   "test_like_patterns": ["test*.py"],
   "sources": [
