@@ -55,3 +55,5 @@ SN058,0,0.08,openrouter/typesafe/jev-1.14-20261014,entry_point_placement@4c71701
 SN059,0,0.32,openrouter/typesafe/jev-1.14-20261014,technical_kind_grouping@28df2a3324a0c313d04a50aa7ed50f97b8bca2f900eec7c713d457d60714f55c,dev,technical_kind_grouping
 SN060,0,0.22,openrouter/typesafe/jev-1.14-20261014,technical_kind_grouping@28df2a3324a0c313d04a50aa7ed50f97b8bca2f900eec7c713d457d60714f55c,dev,technical_kind_grouping
 SN061,0,0.3,openrouter/typesafe/jev-1.14-20261014,entry_point_placement@4c717010ae05cb5636dbd2eb40a909865e9d30759b68e4f1098ec485e43ab6f7,dev,entry_point_placement
+SN062,1,0.38,openrouter/typesafe/jev-1.14,one_name_per_concept@f11827ee10c56ef185fde98b879de89419d1bf6f8fd769600ca807c6a5f1a766,dev,one_name_per_concept
+SN063,1,0.3,openrouter/typesafe/jev-1.14,folder_name_coverage@1bfebbf78318174fccea29011c868734d54fba666ed2dc18084b22eec50bc9c2,dev,folder_name_coverage
