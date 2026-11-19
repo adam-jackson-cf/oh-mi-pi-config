@@ -124,7 +124,7 @@ installed, so a new palette file needs a full `node inject.mjs`.
   `inject.mjs --if-needed` with no other arguments at load and every 30 seconds, and stdout and
   stderr sent to `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the
   agent or touches the running Orca.
-- `harness-tokens.js` holds the installed themes' tokens; regenerate it with
+- `theme-tokens.js` holds the installed themes' tokens; regenerate it with
   `node harness/tokens.mjs` after a theme update.
 - Score screenshots against the rubric in `../orca-chat-style/references/chat.md`.
 
