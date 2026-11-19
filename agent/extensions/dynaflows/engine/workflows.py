@@ -18,6 +18,42 @@ from types import ModuleType
 from typing import Any, Required, TypedDict, TypeGuard, Unpack
 from urllib.parse import quote, urlsplit
 
+__all__ = [
+    "FreezeOptions",
+    "FreezeRequest",
+    "FreezeResult",
+    "Lineage",
+    "Placement",
+    "ProveBlockedError",
+    "ProveOptions",
+    "ProveRequest",
+    "StructureJudgment",
+    "WorkflowError",
+    "advisory_key",
+    "assess_advisory",
+    "blind_label",
+    "dependency_audit_findings",
+    "deterministic_checks",
+    "freeze",
+    "gate_policy",
+    "load_manifest",
+    "malicious_assessment",
+    "malicious_package",
+    "no_record_reason",
+    "owner_report",
+    "parse_dependency_audit",
+    "prove",
+    "rate_advisory",
+    "read_record",
+    "result_path",
+    "run_check",
+    "severity_questions",
+    "severity_thresholds",
+    "severity_version_key",
+    "structure_review",
+    "triage_advisories",
+]
+
 MAX_AGENTS = 16
 MAX_PROOFS = 16
 CHECK_TIMEOUT = 900

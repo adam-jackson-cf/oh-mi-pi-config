@@ -164,28 +164,5 @@ class GateReason(unittest.TestCase):
                 assert repo_record.gate_reason(invalid) == reason
 
 
-class OwnerOnly(unittest.TestCase):
-    def test_a_file_entry_matches_itself_and_a_directory_entry_matches_what_lies_under_it(
-        self,
-    ) -> None:
-        owned = ["scripts/checks/exceptions.json", "security/"]
-        for path in (
-            "scripts/checks/exceptions.json",
-            "security/a.json",
-            "security/deep/b.json",
-        ):
-            with self.subTest(path=path):
-                assert repo_record.owner_only(path, owned)
-        for path in (
-            "scripts/checks/exceptions.json.bak",
-            "scripts/checks",
-            "securityx/a.json",
-            "security",
-        ):
-            with self.subTest(path=path):
-                assert not repo_record.owner_only(path, owned)
-        assert not repo_record.owner_only("anything", [])
-
-
 if __name__ == "__main__":
     unittest.main()

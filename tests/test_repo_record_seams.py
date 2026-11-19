@@ -31,6 +31,14 @@ def git(*args: str) -> None:
     run_bytes(["git", *args], check=True, timeout=PROCESS_TIMEOUT)
 
 
+def dynaflows_on(repo: Path, config: Path) -> bool:
+    record = repo_record.find_record(repo, config)
+    return (
+        record is not None
+        and repo_record.load_gate(record)["dynaflows"]["enabled"] is True
+    )
+
+
 class Resolve(unittest.TestCase):
     def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory()
@@ -112,7 +120,7 @@ class Resolve(unittest.TestCase):
     def test_no_origin_means_no_record_and_dynaflows_off(self) -> None:
         assert repo_record.repo_slug(self.repo) is None
         assert repo_record.find_record(self.repo, self.config) is None
-        assert not repo_record.dynaflows_enabled(self.repo, self.config)
+        assert not dynaflows_on(self.repo, self.config)
 
     def test_origin_without_a_record_means_dynaflows_off(self) -> None:
         git(
@@ -125,7 +133,7 @@ class Resolve(unittest.TestCase):
         )
         assert repo_record.repo_slug(self.repo) == "owner/name"
         assert repo_record.find_record(self.repo, self.config) is None
-        assert not repo_record.dynaflows_enabled(self.repo, self.config)
+        assert not dynaflows_on(self.repo, self.config)
 
     def test_worktree_resolves_to_the_main_checkout_record(self) -> None:
         git(
@@ -151,7 +159,7 @@ class Resolve(unittest.TestCase):
         for clone in (self.repo, worktree):
             with self.subTest(clone=clone.name):
                 assert repo_record.find_record(clone, self.config) == record
-                assert repo_record.dynaflows_enabled(clone, self.config)
+                assert dynaflows_on(clone, self.config)
 
     def test_disabled_record_is_off_and_malformed_record_is_an_error(self) -> None:
         git(
@@ -163,13 +171,13 @@ class Resolve(unittest.TestCase):
             "https://github.com/owner/name",
         )
         record = self.write_record("owner/name", gate(dynaflows={"enabled": False}))
-        assert not repo_record.dynaflows_enabled(self.repo, self.config)
+        assert not dynaflows_on(self.repo, self.config)
         (record / "gate.json").write_text(json.dumps({"schemaVersion": 2}))
         with pytest.raises(repo_record.RecordError):
-            repo_record.dynaflows_enabled(self.repo, self.config)
+            dynaflows_on(self.repo, self.config)
         (record / "gate.json").write_text("{")
         with pytest.raises(repo_record.RecordError):
-            repo_record.dynaflows_enabled(self.repo, self.config)
+            dynaflows_on(self.repo, self.config)
 
     def test_a_record_missing_a_required_field_or_carrying_an_unknown_one_does_not_load(
         self,
@@ -198,7 +206,7 @@ class Resolve(unittest.TestCase):
                 with pytest.raises(repo_record.RecordError, match=named):
                     repo_record.load_gate(record)
                 with pytest.raises(repo_record.RecordError, match=named):
-                    repo_record.dynaflows_enabled(self.repo, self.config)
+                    dynaflows_on(self.repo, self.config)
 
     def test_default_root_is_the_checkout_holding_the_module(self) -> None:
         assert repo_record.config_root() == ROOT
