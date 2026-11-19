@@ -1,0 +1,9 @@
+package shop
+
+var Rate = 2
+
+type Basket struct{}
+
+func (Basket) Total() int { return 21 * Rate }
+
+func PublicAPI() int { return Basket{}.Total() }

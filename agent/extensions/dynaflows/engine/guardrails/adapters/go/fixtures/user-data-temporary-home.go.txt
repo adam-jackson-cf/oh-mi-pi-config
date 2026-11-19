@@ -1,0 +1,23 @@
+package tests
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestWritesRedirectedHomeAndTemp(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range []string{home, os.TempDir()} {
+		path := filepath.Join(folder, "allowed.txt")
+		if err := os.WriteFile(path, []byte("safe"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if text, err := os.ReadFile(path); err != nil || string(text) != "safe" {
+			t.Fatal("round trip failed")
+		}
+	}
+}

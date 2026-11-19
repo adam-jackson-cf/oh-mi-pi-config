@@ -1,0 +1,19 @@
+package tests
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"example.com/project/shop"
+)
+
+func TestTotalInMemory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "total.txt")
+	if err := os.WriteFile(path, []byte("42"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if shop.PublicAPI() != 42 {
+		t.Fatal("total differs")
+	}
+}

@@ -99,7 +99,7 @@ This template adds only the harness fields below, and splits the generic tiers b
 - `fast_tier_budget.machines[].id` is the machine id the budget checker's probe reports.
 - `adapters` lists one entry per test framework the repo uses: an adapter belongs to a
   framework, not a tier, and every tier may hold tests from every framework. Each entry's
-  `name` is an installed adapter (`pytest`, `vitest`, `bun_test`); its `tiers` give, for each
+  `name` is an installed adapter (`pytest`, `vitest`, `bun_test`, `go`); its `tiers` give, for each
   tier the framework takes part in, the generic tier's `selector` (in that framework's native
   syntax) and `location`. Names are unique, each entry takes part in at least one tier and each
   tier has at least one adapter. `tiers.<tier>` keeps only the `command` that runs the tier.

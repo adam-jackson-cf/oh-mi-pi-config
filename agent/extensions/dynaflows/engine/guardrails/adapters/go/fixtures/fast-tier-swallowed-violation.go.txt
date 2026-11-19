@@ -1,0 +1,14 @@
+package tests
+
+import (
+	"os"
+	"os/exec"
+	"testing"
+)
+
+func TestTotalSwallowsGuard(t *testing.T) {
+	func() {
+		defer func() { _ = recover() }()
+		_ = exec.Command(os.Args[0], "-test.list=^$").Run()
+	}()
+}

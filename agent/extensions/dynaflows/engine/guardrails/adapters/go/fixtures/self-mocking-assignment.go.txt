@@ -1,0 +1,14 @@
+package tests
+
+import (
+	"testing"
+
+	"example.com/project/shop"
+)
+
+func TestRebindsOwnedRate(t *testing.T) {
+	shop.Rate = 1
+	if shop.PublicAPI() != 21 {
+		t.Fatal("rate did not apply")
+	}
+}

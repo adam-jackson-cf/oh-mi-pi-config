@@ -1,0 +1,13 @@
+package tests
+
+import (
+	"net"
+	"testing"
+)
+
+func TestTotalFromNetwork(t *testing.T) {
+	connection, err := net.Dial("tcp", "127.0.0.1:9")
+	if err == nil {
+		connection.Close()
+	}
+}

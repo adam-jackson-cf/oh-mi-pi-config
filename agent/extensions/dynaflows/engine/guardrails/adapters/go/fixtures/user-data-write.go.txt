@@ -1,0 +1,12 @@
+package tests
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestWritesLiveHome(t *testing.T) {
+	path := filepath.Join(os.Getenv("OMP_CONFORMANCE_LIVE_HOME"), "forbidden.txt")
+	_ = os.WriteFile(path, []byte("not user data"), 0o600)
+}

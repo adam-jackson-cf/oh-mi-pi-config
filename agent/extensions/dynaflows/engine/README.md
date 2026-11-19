@@ -116,6 +116,31 @@ checkout, replaces `bun:test` with recording registrars:
 
 `adapter bun_test conformance` passes every canonical case.
 
+The Go adapter (`go`) drives `go test` with the repository's Go (or
+`guardrails.adapter_go.command`). Selectors are native `go test` arguments such
+as `-run ^TestFast` or `-tags integration`; locations are package directories
+or patterns such as `./cmd/...`.
+
+- `tiers` runs `go test -json -list` with the selector's `-run` pattern and
+  build flags, applies its `-skip` pattern, and lists `<file>::<TestName>` IDs.
+- `run --tier T --out FILE` runs the tier itself and writes the JUnit report:
+  the engine converts `go test -json` events, so no extra tool is pinned. It
+  builds the tests with `-overlay` over a patched copy of the toolchain's
+  `syscall` package. In T1 the patch blocks process starts and IP sockets; in
+  every tier it blocks writes under the real home. It redirects `HOME` and
+  `XDG_*` and keeps the user's Go caches and settings. A blocked call panics with the rule ID
+  and is journalled, so a test that recovers from it still fails the run.
+- The `go` dialect requires the exit code, which the report carries. A package
+  that fails outside its tests, such as a build failure, is an error case.
+- Go has no expected-failure marker: a skip whose reason starts with `xfail:`
+  is one, and `lint` reports it as `TEST.no-evasion`. Retry markers are the
+  HashiCorp `testutil/retry` and `avast/retry-go` packages.
+- Mutation uses `github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0`;
+  `mutation-report --input <gremlins.json>` converts its `--output` JSON.
+
+`adapter go conformance` passes every canonical case. It needs Go on `PATH`;
+without it every case fails.
+
 Each finding prints as `path: RULE: message; fix`. A finding about the record
 names it `record:profile.md` or `record:gate.json`. The exit code is `0` with
 no findings, `1` with findings and `2` for a usage error.
@@ -155,8 +180,8 @@ one adapter per framework it uses, so one stack can use several adapters.
 | Tool rules  | RUFF, MYPY      | TSC, OXLINT, PRETTIER      | GOLANGCI (1) | SHELLCHECK, SHFMT    |
 | Init config | ruff, mypy (2)  | tsconfig (3), oxlintrc     | golangci     | rc, editorconfig (3) |
 | Parity      | python_pins, uv | node_pins, package_manager | go           | gap (4)              |
-| Adapter     | pytest (12)     | vitest, bun_test           | gap (5)      | n/a (6)              |
-| Mutation    | mutmut          | Stryker (13)               | gap (5)      | n/a (6)              |
+| Adapter     | pytest (12)     | vitest, bun_test           | go (5)       | n/a (6)              |
+| Mutation    | mutmut          | Stryker (13)               | gremlins     | n/a (6)              |
 | Timeouts    | subprocess      | gap (7)                    | repo (8)     | n/a (9)              |
 | Fan-out     | FANOUT          | repo (8)                   | gap (10)     | n/a (9)              |
 | Quality     | PYQ, PYS        | n/a (11)                   | n/a (11)     | n/a (11)             |
@@ -166,11 +191,8 @@ one adapter per framework it uses, so one stack can use several adapters.
 2. Plus `.importlinter` once the record names `structure.tiers`; shell `rc` is `.shellcheckrc`.
 3. An existing file is kept; init reports each `TSC.*` or `SHFMT.*` value it lacks.
 4. shellcheck and shfmt have no repo-native version pin file.
-5. Go has no in-process hook for the fast-tier guards and no expected-failure or retry marker,
-   so eight canonical cases (five fast-tier, two expected-failure, one retry) cannot be
-   expressed: an owner blocker under
-   [adapter authoring](../skills/dynaflows/references/adapter-authoring.md).
-   The CI image has no Go toolchain.
+5. The Go guards patch the toolchain's `syscall` package through `go test -overlay`. An
+   `xfail:` skip reason is Go's expected-failure marker. The CI image pins Go 1.26.10.
 6. The shell pack defines no test discovery.
 7. oxlint has no rule that bounds a child process.
 8. A repo-owned tool rule: `GOLANGCI.RULE.forbidigo.exec-command` (Go timeouts),

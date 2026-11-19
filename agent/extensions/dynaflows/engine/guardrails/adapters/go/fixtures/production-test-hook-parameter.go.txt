@@ -1,0 +1,8 @@
+package shop
+
+func Region(testOnly bool) string {
+	if testOnly {
+		return "test"
+	}
+	return "eu"
+}
