@@ -13,6 +13,7 @@
     "@xterm/headless": "6.0.0",
     "markdownlint-cli2": "0.24.0",
     "oxlint": "1.91.0",
+    "prettier": "3.10.1",
     "typescript": "7.0.2"
   }
 }

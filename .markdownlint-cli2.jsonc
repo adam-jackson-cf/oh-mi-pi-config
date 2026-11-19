@@ -1,19 +1,19 @@
 {
   "config": {
     "MD013": {
-      "line_length": 100
-    }
+      "line_length": 100,
+    },
   },
   "overrides": [
     {
       "filter": [
         "agent/extensions/dynaflows/skills/**",
-        "agent/skills/git-tool/**"
+        "agent/skills/git-tool/**",
       ],
       "config": {
-        "MD013": false
+        "MD013": false,
       },
-      "combine": "merge"
-    }
-  ]
+      "combine": "merge",
+    },
+  ],
 }

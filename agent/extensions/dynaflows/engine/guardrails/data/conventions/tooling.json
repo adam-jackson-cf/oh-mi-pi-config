@@ -141,14 +141,8 @@
     "vitest.config.*",
     ".node-version"
   ],
-  "fixed_folders": [
-    ".devcontainer",
-    ".github",
-    ".git"
-  ],
-  "ignored_folders": [
-    ".git"
-  ],
+  "fixed_folders": [".devcontainer", ".github", ".git"],
+  "ignored_folders": [".git"],
   "test_patterns": [],
   "test_like_patterns": [],
   "sources": [

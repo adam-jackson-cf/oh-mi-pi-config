@@ -101,10 +101,23 @@ while IFS= read -r -d '' file; do
   esac
 done <"$scratch/all"
 
+# Owned data and markup files: Prettier formats YAML, JSON, JSONC, CSS and HTML. The fixture
+# trees are frozen test inputs, not owned code.
+data_files=()
+tracked "$scratch/data" "*.yml" "*.yaml" "*.json" "*.jsonc" "*.css" "*.html" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  data_files+=("$file")
+done <"$scratch/data"
+
 lint_files=("${code_files[@]}")
 for file in "${markdown_files[@]}"; do
   lint_files+=("$file")
 done
+if ((${#data_files[@]})); then
+  lint_files+=("${data_files[@]}")
+fi
 if ((${#shell_files[@]})); then
   lint_files+=("${shell_files[@]}")
 fi
@@ -132,11 +145,17 @@ if ((${#shell_files[@]})); then
   fi
 fi
 if "$fix"; then
+  if ((${#data_files[@]})); then
+    bunx prettier --write --log-level warn -- "${data_files[@]}"
+  fi
   bunx oxlint --fix "${code_files[@]}"
   if ((${#markdown_files[@]})); then
     bunx markdownlint-cli2 --fix "${markdown_files[@]}"
   fi
 else
+  if ((${#data_files[@]})); then
+    bunx prettier --check --log-level warn -- "${data_files[@]}"
+  fi
   bunx oxlint "${code_files[@]}"
   if ((${#markdown_files[@]})); then
     bunx markdownlint-cli2 "${markdown_files[@]}"

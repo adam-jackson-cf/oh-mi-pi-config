@@ -43,10 +43,7 @@
   "tokenColors": [
     {
       "name": "Comments",
-      "scope": [
-        "comment",
-        "punctuation.definition.comment"
-      ],
+      "scope": ["comment", "punctuation.definition.comment"],
       "settings": {
         "foreground": "#9399b2",
         "fontStyle": "italic"
@@ -54,21 +51,14 @@
     },
     {
       "name": "Keywords",
-      "scope": [
-        "keyword",
-        "storage.type",
-        "storage.modifier"
-      ],
+      "scope": ["keyword", "storage.type", "storage.modifier"],
       "settings": {
         "foreground": "#cba6f7"
       }
     },
     {
       "name": "Operators",
-      "scope": [
-        "keyword.operator",
-        "punctuation.accessor"
-      ],
+      "scope": ["keyword.operator", "punctuation.accessor"],
       "settings": {
         "foreground": "#89dceb"
       }
@@ -87,20 +77,14 @@
     },
     {
       "name": "Symbols and atoms",
-      "scope": [
-        "constant.other.symbol",
-        "constant.other.atom"
-      ],
+      "scope": ["constant.other.symbol", "constant.other.atom"],
       "settings": {
         "foreground": "#f38ba8"
       }
     },
     {
       "name": "Escapes and regular expressions",
-      "scope": [
-        "constant.character.escape",
-        "string.regexp"
-      ],
+      "scope": ["constant.character.escape", "string.regexp"],
       "settings": {
         "foreground": "#f5c2e7"
       }
@@ -131,9 +115,7 @@
     },
     {
       "name": "Parameters",
-      "scope": [
-        "variable.parameter"
-      ],
+      "scope": ["variable.parameter"],
       "settings": {
         "foreground": "#eba0ac",
         "fontStyle": "italic"
@@ -166,9 +148,7 @@
     },
     {
       "name": "Enum members",
-      "scope": [
-        "variable.other.enummember"
-      ],
+      "scope": ["variable.other.enummember"],
       "settings": {
         "foreground": "#94e2d5"
       }
@@ -186,9 +166,7 @@
     },
     {
       "name": "Attributes",
-      "scope": [
-        "entity.other.attribute-name"
-      ],
+      "scope": ["entity.other.attribute-name"],
       "settings": {
         "foreground": "#f9e2af",
         "fontStyle": "italic"
@@ -218,38 +196,28 @@
     },
     {
       "name": "Tags",
-      "scope": [
-        "entity.name.tag"
-      ],
+      "scope": ["entity.name.tag"],
       "settings": {
         "foreground": "#89b4fa"
       }
     },
     {
       "name": "Variables",
-      "scope": [
-        "variable"
-      ],
+      "scope": ["variable"],
       "settings": {
         "foreground": "#cdd6f4"
       }
     },
     {
       "name": "Punctuation",
-      "scope": [
-        "punctuation",
-        "meta.brace"
-      ],
+      "scope": ["punctuation", "meta.brace"],
       "settings": {
         "foreground": "#9399b2"
       }
     },
     {
       "name": "Headings",
-      "scope": [
-        "markup.heading",
-        "entity.name.section"
-      ],
+      "scope": ["markup.heading", "entity.name.section"],
       "settings": {
         "foreground": "#f38ba8",
         "fontStyle": "bold"
@@ -257,28 +225,21 @@
     },
     {
       "name": "Bold",
-      "scope": [
-        "markup.bold"
-      ],
+      "scope": ["markup.bold"],
       "settings": {
         "fontStyle": "bold"
       }
     },
     {
       "name": "Italic",
-      "scope": [
-        "markup.italic"
-      ],
+      "scope": ["markup.italic"],
       "settings": {
         "fontStyle": "italic"
       }
     },
     {
       "name": "Links",
-      "scope": [
-        "markup.underline.link",
-        "string.other.link"
-      ],
+      "scope": ["markup.underline.link", "string.other.link"],
       "settings": {
         "foreground": "#89b4fa",
         "fontStyle": "underline"
@@ -286,9 +247,7 @@
     },
     {
       "name": "Quotes",
-      "scope": [
-        "markup.quote"
-      ],
+      "scope": ["markup.quote"],
       "settings": {
         "foreground": "#9399b2",
         "fontStyle": "italic"
@@ -296,27 +255,21 @@
     },
     {
       "name": "Inserted",
-      "scope": [
-        "markup.inserted"
-      ],
+      "scope": ["markup.inserted"],
       "settings": {
         "foreground": "#a6e3a1"
       }
     },
     {
       "name": "Deleted",
-      "scope": [
-        "markup.deleted"
-      ],
+      "scope": ["markup.deleted"],
       "settings": {
         "foreground": "#f38ba8"
       }
     },
     {
       "name": "Invalid",
-      "scope": [
-        "invalid"
-      ],
+      "scope": ["invalid"],
       "settings": {
         "foreground": "#f38ba8"
       }

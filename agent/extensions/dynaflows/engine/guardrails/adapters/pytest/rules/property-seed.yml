@@ -6,7 +6,7 @@
   "fix": "add @seed(<n>), or @settings(print_blob=True) or @settings(derandomize=True), to the test",
   "rule": {
     "kind": "decorated_definition",
-    "has": {"kind": "decorator", "regex": "^@\\s*(hypothesis\\.)?given\\b"},
+    "has": { "kind": "decorator", "regex": "^@\\s*(hypothesis\\.)?given\\b" },
     "not": {
       "has": {
         "kind": "decorator",

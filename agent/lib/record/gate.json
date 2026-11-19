@@ -5,7 +5,7 @@
     "ci": ["make", "gate-ci"]
   },
   "ownerOnlyPaths": ["scripts/checks/dependency-audit-exceptions.json"],
-  "ci": {"requiredContext": "gate", "runner": "github-actions"},
+  "ci": { "requiredContext": "gate", "runner": "github-actions" },
   "agentMerge": "allowed",
-  "dynaflows": {"enabled": false}
+  "dynaflows": { "enabled": false }
 }

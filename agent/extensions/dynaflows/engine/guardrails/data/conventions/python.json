@@ -57,47 +57,23 @@
     "Test-like patterns identify near misses against the documented pytest discovery patterns, not additional pytest discovery rules.",
     "Test root, fixture and support names are harness defaults; pytest permits both separate and inline test layouts."
   ],
-  "extensions": [
-    ".py",
-    ".pyi"
-  ],
-  "file": [
-    "snake_case"
-  ],
-  "directory": [
-    "snake_case"
-  ],
+  "extensions": [".py", ".pyi"],
+  "file": ["snake_case"],
+  "directory": ["snake_case"],
   "package_marker": "__init__.py",
-  "class": [
-    "PascalCase"
-  ],
-  "function": [
-    "snake_case"
-  ],
+  "class": ["PascalCase"],
+  "function": ["snake_case"],
   "framework_symbols": [
     "^(setUp|tearDown)(Class|Module)?$",
     "^async(SetUp|TearDown)$",
     "^visit_[A-Za-z]+$",
     "^do_[A-Z]+$"
   ],
-  "fixed_files": [
-    "__init__.py",
-    "__main__.py",
-    "conftest.py"
-  ],
-  "fixed_folders": [
-    "__pycache__"
-  ],
-  "ignored_folders": [
-    "__pycache__"
-  ],
-  "test_patterns": [
-    "test_*.py",
-    "*_test.py"
-  ],
-  "test_like_patterns": [
-    "test*.py"
-  ],
+  "fixed_files": ["__init__.py", "__main__.py", "conftest.py"],
+  "fixed_folders": ["__pycache__"],
+  "ignored_folders": ["__pycache__"],
+  "test_patterns": ["test_*.py", "*_test.py"],
+  "test_like_patterns": ["test*.py"],
   "sources": [
     "https://peps.python.org/pep-0008/#package-and-module-names",
     "https://docs.python.org/3/reference/import.html#regular-packages",

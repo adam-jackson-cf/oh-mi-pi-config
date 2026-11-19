@@ -16,6 +16,7 @@
 !tsconfig.json
 !.editorconfig
 !.shellcheckrc
+!.prettierrc.json
 !.githooks/
 .githooks/*
 !.githooks/pre-commit

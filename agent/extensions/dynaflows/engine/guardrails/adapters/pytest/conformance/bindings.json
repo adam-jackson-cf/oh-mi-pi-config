@@ -5,14 +5,20 @@
       "fixture": "unapproved_static_skip.py",
       "profile": {
         "guardrails": {
-          "exceptions": [{"rule": "TEST.no-evasion", "path": "tests/test_case.py", "reason": "Upstream vendor outage"}]
+          "exceptions": [
+            {
+              "rule": "TEST.no-evasion",
+              "path": "tests/test_case.py",
+              "reason": "Upstream vendor outage"
+            }
+          ]
         }
       }
     },
-    "production-test-flag": {"place": "production"},
-    "production-test-hook-parameter": {"place": "production"},
-    "production-clean": {"place": "production"},
-    "user-data-write": {"tier": "t2"},
-    "user-data-temporary-home": {"tier": "t2"}
+    "production-test-flag": { "place": "production" },
+    "production-test-hook-parameter": { "place": "production" },
+    "production-clean": { "place": "production" },
+    "user-data-write": { "tier": "t2" },
+    "user-data-temporary-home": { "tier": "t2" }
   }
 }

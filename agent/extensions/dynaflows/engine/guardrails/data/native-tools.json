@@ -49,26 +49,12 @@
         "PLR0915",
         "PLR0917"
       ],
-      "ignore": [
-        "E501",
-        "B006",
-        "B008",
-        "A005"
-      ]
+      "ignore": ["E501", "B006", "B008", "A005"]
     },
     "lint.per-file-ignores": {
-      "__init__.py": [
-        "F401",
-        "F403"
-      ],
-      "test_*.py": [
-        "S101",
-        "PLR2004"
-      ],
-      "**/tests/**": [
-        "S101",
-        "PLR2004"
-      ]
+      "__init__.py": ["F401", "F403"],
+      "test_*.py": ["S101", "PLR2004"],
+      "**/tests/**": ["S101", "PLR2004"]
     },
     "lint.isort": {
       "force-single-line": false,
@@ -116,13 +102,7 @@
     }
   },
   "oxlint": {
-    "plugins": [
-      "eslint",
-      "typescript",
-      "unicorn",
-      "oxc",
-      "import"
-    ],
+    "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
     "categories": {
       "correctness": "error",
       "suspicious": "error"
@@ -169,13 +149,7 @@
     },
     "linters": {
       "default": "standard",
-      "enable": [
-        "gocyclo",
-        "funlen",
-        "revive",
-        "forbidigo",
-        "nolintlint"
-      ],
+      "enable": ["gocyclo", "funlen", "revive", "forbidigo", "nolintlint"],
       "settings": {
         "gocyclo": {
           "min-complexity": 10
@@ -188,9 +162,7 @@
           "rules": [
             {
               "name": "argument-limit",
-              "arguments": [
-                5
-              ]
+              "arguments": [5]
             }
           ]
         },
@@ -209,10 +181,7 @@
       }
     },
     "formatters": {
-      "enable": [
-        "gofmt",
-        "goimports"
-      ]
+      "enable": ["gofmt", "goimports"]
     }
   },
   "shellcheck": {
