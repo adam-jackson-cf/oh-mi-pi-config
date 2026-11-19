@@ -154,6 +154,7 @@ exclude = [
 
 [tool.coverage.run]
 branch = true
+patch = ["subprocess"]
 # The owned Python roots, as mypy checks them; tests are measured code's callers, not its scope.
 source = [
   "agent/extensions/dynaflows",
@@ -165,7 +166,12 @@ omit = [
   "agent/extensions/dynaflows/engine/build/*",
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
+  "*/.venv/*",
+  "tools/oxlint/anti-slop/*",
 ]
+
+[tool.coverage.report]
+include_namespace_packages = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
