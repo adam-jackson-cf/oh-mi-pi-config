@@ -1,8 +1,7 @@
-from pathlib import Path
 import json
 import re
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/extensions/dynaflows/skills"
@@ -48,7 +47,7 @@ RULE_FACTS = {
 
 
 class TestEnforcementTests(unittest.TestCase):
-    def test_every_enforcement_pointer_resolves_to_a_catalogue_rule_command_and_guidance_anchor(self):
+    def test_every_enforcement_pointer_resolves_to_a_catalogue_rule_command_and_guidance_anchor(self) -> None:
         catalogue = json.loads((ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
         commands = {
             row["id"]: {item["subcommand"] for item in row.get("reference", [])}
@@ -56,16 +55,16 @@ class TestEnforcementTests(unittest.TestCase):
         }
         text = INDEX.read_text(encoding="utf-8")
         pointers = POINTER.findall(text)
-        self.assertTrue(pointers)
-        self.assertEqual(len(pointers), len(re.findall(r"^- ", text, re.MULTILINE)))
-        self.assertEqual(len(pointers), len({row[0] for row in pointers}))
-        self.assertEqual(set(RULE_FACTS), {row[0] for row in pointers})
+        assert pointers
+        assert len(pointers) == len(re.findall(r"^- ", text, re.MULTILINE))
+        assert len(pointers) == len({row[0] for row in pointers})
+        assert set(RULE_FACTS) == {row[0] for row in pointers}
         for rule, subcommands, filename, anchor in pointers:
             with self.subTest(rule=rule, target=f"{filename}#{anchor}"):
-                self.assertIn(rule, commands)
-                self.assertLessEqual(set(subcommands.split(", ")), commands[rule])
+                assert rule in commands
+                assert set(subcommands.split(", ")) <= commands[rule]
                 target = SKILLS / "test-guidance/references" / filename
-                self.assertTrue(target.is_file())
+                assert target.is_file()
                 content = target.read_text(encoding="utf-8")
                 headings = list(re.finditer(r"^(#{1,6}) (.+)$", content, re.MULTILINE))
                 selected = next(
@@ -82,13 +81,13 @@ class TestEnforcementTests(unittest.TestCase):
                 )
                 section = " ".join(content[selected.end():end].split()).casefold()
                 for fact in RULE_FACTS[rule]:
-                    self.assertIn(fact.casefold(), section)
+                    assert fact.casefold() in section
 
-    def test_generic_guidance_has_no_workflow_mechanisms_or_enforcement_tags(self):
-        self.assertIsNone(PROHIBITED.search("freeze the clock with deterministic production inputs"))
+    def test_generic_guidance_has_no_workflow_mechanisms_or_enforcement_tags(self) -> None:
+        assert PROHIBITED.search("freeze the clock with deterministic production inputs") is None
         for source in (SKILLS / "test-guidance").rglob("*.md"):
             with self.subTest(source=str(source.relative_to(ROOT))):
-                self.assertIsNone(PROHIBITED.search(source.read_text(encoding="utf-8")))
+                assert PROHIBITED.search(source.read_text(encoding="utf-8")) is None
 
 
 if __name__ == "__main__":

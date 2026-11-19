@@ -11,25 +11,34 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+
+from guardrails import cli, whole_repo
+from guardrails.findings import Finding
+from guardrails.python_policy import (
+    fanout,
+    quality,
+    scalability,
+    scope,
+    subprocess_timeouts,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text())
-sys.path.insert(0, str(REFERENCE))
 
-from guardrails import cli, whole_repo  # noqa: E402
-from guardrails.python_policy import (  # noqa: E402
-    fanout,
-    quality,
-    scalability,
-    subprocess_timeouts,
-)
-
-CHECKERS = {"quality": quality, "scalability": scalability, "fanout": fanout}
+CHECKERS: dict[str, Callable[[Path, dict[str, Any], list[str]], list[Finding]]] = {
+    "quality": quality.run,
+    "scalability": scalability.run,
+    "fanout": fanout.run,
+}
 
 
-def merged_settings(base: dict, overrides: dict) -> dict:
+def merged_settings(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     """Override one level deep, so nested limit sections keep their other keys."""
     merged = copy.deepcopy(base)
     for key, value in overrides.items():
@@ -43,11 +52,11 @@ def merged_settings(base: dict, overrides: dict) -> dict:
 class ShopRepo:
     """A temporary Git work tree holding the fixture's files plus a case's changes."""
 
-    def __init__(self, test: unittest.TestCase, files: dict | None = None, settings: dict | None = None):
+    def __init__(self, test: unittest.TestCase, files: dict[str, Any] | None = None, settings: dict[str, Any] | None = None) -> None:
         directory = tempfile.TemporaryDirectory()
         test.addCleanup(directory.cleanup)
         self.path = Path(directory.name)
-        subprocess.run(["git", "init", "-q", str(self.path)], check=True)
+        subprocess.run(["git", "init", "-q", str(self.path)], check=True, timeout=60)
         for relpath, text in {**FIXTURE["files"], **(files or {})}.items():
             target = self.path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -56,11 +65,11 @@ class ShopRepo:
         python = self.profile["guardrails"]["python"]
         self.profile["guardrails"]["python"] = merged_settings(python, settings or {})
 
-    def run(self, checker: str, *argv: str) -> list:
-        return CHECKERS[checker].run(self.path, self.profile, list(argv))
+    def run(self, checker: str, *argv: str) -> list[Finding]:
+        return CHECKERS[checker](self.path, self.profile, list(argv))
 
 
-def rules_at(findings: list) -> set[tuple[str, str]]:
+def rules_at(findings: list[Any]) -> set[tuple[str, str]]:
     return {(item.rule_id, item.path) for item in findings}
 
 
@@ -69,7 +78,7 @@ class ConfiguredCleanRepoTests(unittest.TestCase):
         repo = ShopRepo(self)
         for checker in CHECKERS:
             with self.subTest(checker=checker):
-                self.assertEqual([], repo.run(checker))
+                assert repo.run(checker) == []
 
     def test_each_planted_violation_is_reported_at_its_path(self) -> None:
         for case in FIXTURE["violations"]:
@@ -77,9 +86,9 @@ class ConfiguredCleanRepoTests(unittest.TestCase):
             with self.subTest(label):
                 repo = ShopRepo(self, case["files"], case["settings"])
                 findings = repo.run(case["checker"])
-                self.assertIn((case["rule"], case["path"]), rules_at(findings), findings)
+                assert (case["rule"], case["path"]) in rules_at(findings), findings
                 for item in findings:
-                    self.assertTrue(item.fix, item)
+                    assert item.fix, item
 
 
 class PythonNameScopeTests(unittest.TestCase):
@@ -119,16 +128,14 @@ class PythonNameScopeTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(source)
 
-    def check(self) -> list:
+    def check(self) -> list[Any]:
         return whole_repo.run(self.repo.path, self.repo.profile, [])
 
     def test_automatic_commit_scope_preserves_legacy_names_but_explicit_scan_reports_them(self) -> None:
-        self.assertEqual(self.check(), [])
+        assert self.check() == []
         for argv in ([], ["--all"]):
             found = self.repo.run("quality", *argv)
-            self.assertEqual(
-                {item.rule_id for item in found} & self.name_rules, self.name_rules,
-            )
+            assert {item.rule_id for item in found} & self.name_rules == self.name_rules
 
     def test_unchanged_legacy_content_quality_still_blocks_automatic_commit_check(self) -> None:
         self.write(
@@ -141,8 +148,8 @@ class PythonNameScopeTests(unittest.TestCase):
         self.write("src/shop/cli.py", "VALUE = 2\n")
         self.git("add", "src/shop/cli.py")
         found = self.check()
-        self.assertIn(("PYQ230", "src/shop/contracts.py"), rules_at(found))
-        self.assertFalse({item.rule_id for item in found} & self.name_rules)
+        assert ("PYQ230", "src/shop/contracts.py") in rules_at(found)
+        assert not {item.rule_id for item in found} & self.name_rules
 
     def test_unstaged_and_untracked_content_quality_blocks_with_new_clean_staged_path(self) -> None:
         source = (
@@ -156,33 +163,24 @@ class PythonNameScopeTests(unittest.TestCase):
         self.write("src/shop/reader.py")
         self.git("add", "src/shop/reader.py")
         found = self.check()
-        self.assertIn(("PYQ230", "src/shop/contracts.py"), rules_at(found))
-        self.assertIn(("PYQ230", "src/shop/receipt.py"), rules_at(found))
-        self.assertFalse({item.rule_id for item in found} & self.name_rules)
+        assert ("PYQ230", "src/shop/contracts.py") in rules_at(found)
+        assert ("PYQ230", "src/shop/receipt.py") in rules_at(found)
+        assert not {item.rule_id for item in found} & self.name_rules
 
     def test_new_files_judge_only_new_segments_under_legacy_parent_directories(self) -> None:
         self.write("src/shop/common/BadFolder/reader.py")
         self.write(".agents/skills/BadSkill/reader.py")
         self.git("add", "-A")
-        self.assertEqual(self.check(), [])
+        assert self.check() == []
         self.write("src/shop/common/BadFolder/helpers/reader.py")
         self.write("src/shop/common/BadFolder/BadChild/reader.py")
         self.write(".agents/skills/NewBadSkill/SKILL.md", "# Skill\n")
         self.git("add", "-A")
         found = self.check()
-        self.assertIn(
-            ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py"), rules_at(found),
-        )
-        self.assertIn(
-            ("PYQ105", "src/shop/common/BadFolder/BadChild/reader.py"), rules_at(found),
-        )
-        self.assertIn(("PYQ106", ".agents/skills/NewBadSkill"), rules_at(found))
-        self.assertFalse(any(
-            item.rule_id in self.name_rules
-            and ("'common'" in item.message or "'BadFolder'" in item.message
-                 or "'BadSkill'" in item.message)
-            for item in found
-        ))
+        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(found)
+        assert ("PYQ105", "src/shop/common/BadFolder/BadChild/reader.py") in rules_at(found)
+        assert ("PYQ106", ".agents/skills/NewBadSkill") in rules_at(found)
+        assert not any(item.rule_id in self.name_rules and ("'common'" in item.message or "'BadFolder'" in item.message or "'BadSkill'" in item.message) for item in found)
 
     def test_new_and_renamed_destinations_receive_file_naming_and_placement_checks(self) -> None:
         self.git("mv", "src/shop/orders.py", "src/shop/utils.py")
@@ -196,23 +194,19 @@ class PythonNameScopeTests(unittest.TestCase):
             self.write(path)
         self.git("add", "-A")
         found = rules_at(self.check())
-        self.assertIn(("PYQ104", "src/shop/utils.py"), found)
+        assert ("PYQ104", "src/shop/utils.py") in found
         for path, rule in paths.items():
-            self.assertIn((rule, path), found)
-        self.assertNotIn(("PYQ107", "src/shop/BadModule.py"), found)
+            assert (rule, path) in found
+        assert ("PYQ107", "src/shop/BadModule.py") not in found
 
     def test_explicit_edit_paths_ignore_legacy_names_and_check_new_destinations(self) -> None:
         self.write("src/shop/BadModule.py", "VALUE = 2\n")
-        self.assertEqual(self.repo.run("quality", "src/shop/BadModule.py"), [])
+        assert self.repo.run("quality", "src/shop/BadModule.py") == []
         self.write("src/shop/common/BadFolder/reader.py")
-        self.assertEqual(
-            self.repo.run("quality", "src/shop/common/BadFolder/reader.py"), [],
-        )
+        assert self.repo.run("quality", "src/shop/common/BadFolder/reader.py") == []
         self.write("src/shop/common/BadFolder/helpers/reader.py")
         found = self.repo.run("quality", "src/shop/common/BadFolder/helpers/reader.py")
-        self.assertIn(
-            ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py"), rules_at(found),
-        )
+        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(found)
 
 
 class FailClosedDefaultTests(unittest.TestCase):
@@ -221,40 +215,34 @@ class FailClosedDefaultTests(unittest.TestCase):
         repo.profile = {"public_entry_points": {"shop": "shop.cli:main"}}
         unmapped = {item.path for item in repo.run("quality") if item.rule_id == "PYQ100"}
         expected = {path for path in FIXTURE["files"] if path.endswith(".py")}
-        self.assertEqual(expected, unmapped)
-        self.assertEqual(
-            [("FANOUT.general", "record:profile.md")], sorted(rules_at(repo.run("fanout")))
-        )
+        assert expected == unmapped
+        assert sorted(rules_at(repo.run("fanout"))) == [("FANOUT.general", "record:profile.md")]
 
     def test_empty_script_allowlist_rejects_every_command(self) -> None:
         repo = ShopRepo(self, settings={"script_names": []})
-        self.assertIn(("PYQ101", "scripts/build-catalogue.py"), rules_at(repo.run("quality")))
+        assert ("PYQ101", "scripts/build-catalogue.py") in rules_at(repo.run("quality"))
 
     def test_process_scope_defaults_to_every_maintained_root(self) -> None:
         repo = ShopRepo(self)
         del repo.profile["guardrails"]["python"]["subprocess_wrappers"]
         found = rules_at(repo.run("quality"))
-        self.assertIn(("PYQ220", "src/shop/process.py"), found)
-        self.assertIn(("PYQ220", "scripts/build-catalogue.py"), found)
+        assert ("PYQ220", "src/shop/process.py") in found
+        assert ("PYQ220", "scripts/build-catalogue.py") in found
 
     def test_unset_class_limits_use_the_catalogue_contract(self) -> None:
-        self.assertEqual(
-            {"max_lines": 700, "max_public_methods": None, "max_init_args": 8,
-             "max_instance_attributes": 12},
-            quality.class_limits(quality.load_settings({})),
-        )
+        assert quality.class_limits(scope.load_settings({})) == {"max_lines": 700, "max_public_methods": None, "max_init_args": 8, "max_instance_attributes": 12}
 
 
 class SettingsTests(unittest.TestCase):
     def test_banned_words_come_from_the_shipped_house_style(self) -> None:
         repo = ShopRepo(self, {"src/shop/legacy/pricing.py": "X = 1\n"})
-        self.assertIn(("PYQ103", "src/shop/legacy/pricing.py"), rules_at(repo.run("quality")))
+        assert ("PYQ103", "src/shop/legacy/pricing.py") in rules_at(repo.run("quality"))
         approved = ShopRepo(
             self,
             {"src/shop/legacy/pricing.py": "X = 1\n"},
             {"generic_name_allowlist": ["src/shop/legacy"]},
         )
-        self.assertEqual([], approved.run("quality"))
+        assert approved.run("quality") == []
 
     def test_guardrail_exception_with_reason_drops_the_finding(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
@@ -262,40 +250,40 @@ class SettingsTests(unittest.TestCase):
             "rule": "PYQ104", "path": "src/shop/utils.py",
             "reason": "Owner-approved upstream compatibility filename",
         }]
-        self.assertEqual([], repo.run("quality"))
+        assert repo.run("quality") == []
 
     def test_glob_roots_and_data_label_directories(self) -> None:
         files = {"lab/stages/EU-West/pricing/tool/src/run_stage.py": "X = 1\n"}
         settings = {"maintained_roots": ["src/shop", "scripts", "tests", ".agents/skills",
                                          "lab/stages/*/*/tool/src"]}
-        self.assertEqual([], ShopRepo(self, files, settings).run("quality"))
+        assert ShopRepo(self, files, settings).run("quality") == []
         files = {"src/shop/regions/EU-West/rates.py": "X = 1\n"}
         flagged = ShopRepo(self, files).run("quality")
-        self.assertIn(("PYQ105", "src/shop/regions/EU-West/rates.py"), rules_at(flagged))
+        assert ("PYQ105", "src/shop/regions/EU-West/rates.py") in rules_at(flagged)
         labelled = ShopRepo(self, files, {"data_label_dirs": ["src/shop/regions/*"]})
-        self.assertEqual([], labelled.run("quality"))
+        assert labelled.run("quality") == []
 
     def test_excluded_paths_and_tool_caches_are_not_maintained_source(self) -> None:
         files = {"vendor/upstream.py": "X = 1\n", ".venv/lib/site.py": "X = 1\n"}
         repo = ShopRepo(self, files, {"excluded_paths": ["vendor"]})
-        self.assertEqual([], repo.run("quality"))
+        assert repo.run("quality") == []
 
     def test_path_arguments_limit_the_scan(self) -> None:
         repo = ShopRepo(self, {"lib/orphan.py": "X = 1\n", "src/shop/utils.py": "X = 1\n"})
-        self.assertEqual({("PYQ104", "src/shop/utils.py")}, rules_at(repo.run("quality", "src/shop")))
+        assert {("PYQ104", "src/shop/utils.py")} == rules_at(repo.run("quality", "src/shop"))
 
     def test_contract_json_record_binding_must_match_exactly(self) -> None:
         source = "from typing import Any\n\n\ndef price(pricer: int, raw: dict[str, Any]) -> int:\n    return 1\n"
         repo = ShopRepo(self, {"src/shop/contracts.py": source})
-        self.assertIn(("PYQ231", "src/shop/contracts.py"), rules_at(repo.run("quality")))
+        assert ("PYQ231", "src/shop/contracts.py") in rules_at(repo.run("quality"))
 
     def test_loop_depth_limit_and_scope_are_configurable(self) -> None:
         nested = {"src/shop/pairs.py": "def pairs(rows):\n    for a in rows:\n        for b in a:\n            yield b\n"}
-        self.assertEqual([], ShopRepo(self, nested).run("scalability"))
+        assert ShopRepo(self, nested).run("scalability") == []
         strict = ShopRepo(self, nested, {"max_loop_depth": 1})
-        self.assertIn(("PYS250", "src/shop/pairs.py"), rules_at(strict.run("scalability")))
+        assert ("PYS250", "src/shop/pairs.py") in rules_at(strict.run("scalability"))
         unscoped = ShopRepo(self, nested, {"max_loop_depth": 1, "loop_roots": ["scripts"]})
-        self.assertEqual([], unscoped.run("scalability"))
+        assert unscoped.run("scalability") == []
 
     def test_function_bodies_reset_loop_depth(self) -> None:
         source = (
@@ -303,21 +291,21 @@ class SettingsTests(unittest.TestCase):
             "            def inner(items):\n                for item in items:\n"
             "                    yield item\n            yield from inner(cell)\n"
         )
-        self.assertEqual([], ShopRepo(self, {"src/shop/walk.py": source}).run("scalability"))
+        assert ShopRepo(self, {"src/shop/walk.py": source}).run("scalability") == []
 
     def test_fanout_counts_first_party_modules_and_ignores_stdlib(self) -> None:
         source = "import os\nimport json\nfrom shop import orders, process\nfrom . import cli\n"
         repo = ShopRepo(self, {"src/shop/hub.py": source}, {"fanout": {"architectural_max": 2}})
         findings = repo.run("fanout")
-        self.assertEqual({("FANOUT.general", "src/shop/hub.py")}, rules_at(findings))
-        self.assertIn("shop.cli, shop.orders, shop.process", findings[0].message)
+        assert {("FANOUT.general", "src/shop/hub.py")} == rules_at(findings)
+        assert "shop.cli, shop.orders, shop.process" in findings[0].message
 
     def test_fanout_root_packages_default_to_public_entry_point_packages(self) -> None:
         source = "import shop.orders\nimport shop.process\n"
         settings = {"fanout": {"architectural_max": 1}}
         repo = ShopRepo(self, {"src/shop/hub.py": source}, settings)
         repo.profile["public_entry_points"] = {}
-        self.assertIn("fanout.root_packages", repo.run("fanout")[0].message)
+        assert "fanout.root_packages" in repo.run("fanout")[0].message
 
 
 class CliTests(unittest.TestCase):
@@ -336,9 +324,9 @@ class CliTests(unittest.TestCase):
         for name, code in expected.items():
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()) as out:
                 argv = [name, "--repo", str(repo.path), "--record", str(record)]
-                self.assertEqual(code, cli.main(argv))
+                assert code == cli.main(argv)
             if code:
-                self.assertIn("src/shop/utils.py: PYQ104:", out.getvalue())
+                assert "src/shop/utils.py: PYQ104:" in out.getvalue()
 
 
 HYGIENE_PROFILE = {
@@ -354,14 +342,14 @@ class SubprocessTimeoutTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name)
-        subprocess.run(["git", "init", "-q", str(path)], check=True)
+        subprocess.run(["git", "init", "-q", str(path)], check=True, timeout=60)
         for relpath, text in files.items():
             target = path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
         return path
 
-    def check(self, files: dict[str, str], profile: dict = HYGIENE_PROFILE) -> list:
+    def check(self, files: dict[str, str], profile: dict[str, Any] = HYGIENE_PROFILE) -> list[Any]:
         return subprocess_timeouts.run(self.repo(files), profile, [])
 
     def test_bounded_process_calls_pass(self) -> None:
@@ -374,7 +362,7 @@ class SubprocessTimeoutTests(unittest.TestCase):
             "    await asyncio.wait_for(proc.wait(), timeout=5)\n\n\n"
             "def test_unrelated(client):\n    client.run()\n    client.wait()\n"
         )
-        self.assertEqual(self.check({"tests/unit/test_proc.py": bounded}), [])
+        assert self.check({"tests/unit/test_proc.py": bounded}) == []
 
     def test_unbounded_process_calls_are_reported_by_line(self) -> None:
         unbounded = (
@@ -386,23 +374,20 @@ class SubprocessTimeoutTests(unittest.TestCase):
             "    proc = await asyncio.create_subprocess_exec('true')\n    await proc.wait()\n"
         )
         findings = self.check({"tests/boundary/test_proc.py": unbounded})
-        self.assertEqual(
-            sorted(item.message.split(":", 1)[0] for item in findings),
-            ["line 10", "line 15", "line 20", "line 6"],
-        )
-        self.assertTrue(all(item.rule_id == "TEST.subprocess-timeouts" for item in findings))
-        self.assertIn("positive timeout", findings[0].fix)
+        assert sorted(item.message.split(":", 1)[0] for item in findings) == ["line 10", "line 15", "line 20", "line 6"]
+        assert all(item.rule_id == "TEST.subprocess-timeouts" for item in findings)
+        assert "positive timeout" in findings[0].fix
 
     def test_only_test_files_are_checked_and_conftest_counts(self) -> None:
         call = "import subprocess\nsubprocess.run(['true'])\n"
         findings = self.check(
             {"src/shop/process.py": call, "tests/conftest.py": call, "tests/unit/helper.py": call}
         )
-        self.assertEqual(rules_at(findings), {("TEST.subprocess-timeouts", "tests/conftest.py")})
+        assert rules_at(findings) == {("TEST.subprocess-timeouts", "tests/conftest.py")}
 
     def test_unparsable_test_file_is_reported(self) -> None:
         findings = self.check({"tests/unit/test_bad.py": "def test_x(:\n"})
-        self.assertEqual(rules_at(findings), {("TEST.subprocess-timeouts", "tests/unit/test_bad.py")})
+        assert rules_at(findings) == {("TEST.subprocess-timeouts", "tests/unit/test_bad.py")}
 
     def test_cli_runs_python_test_hygiene(self) -> None:
         path = self.repo({"tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"})
@@ -412,8 +397,8 @@ class SubprocessTimeoutTests(unittest.TestCase):
         (record / "profile.md").write_text(f"---\n{json.dumps(HYGIENE_PROFILE)}\n---\n")
         argv = ["python-test-hygiene", "--repo", str(path), "--record", str(record)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(1, cli.main(argv))
-        self.assertIn("tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:", out.getvalue())
+            assert cli.main(argv) == 1
+        assert "tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:" in out.getvalue()
 
 
 if __name__ == "__main__":
