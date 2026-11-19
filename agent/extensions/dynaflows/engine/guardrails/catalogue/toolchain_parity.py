@@ -354,20 +354,23 @@ def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding
     return findings
 
 
-def node_version(repo: Path) -> str:
-    result = subprocess.run(
-        ["node", "--version"],
-        cwd=repo,
-        env=repo_environment(),
-        capture_output=True,
-        text=True,
-        timeout=VERSION_TIMEOUT_S,
-        check=True,
-    )
+def node_version(repo: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["node", "--version"],
+            cwd=repo,
+            env=repo_environment(),
+            capture_output=True,
+            text=True,
+            timeout=VERSION_TIMEOUT_S,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
     return result.stdout.strip().removeprefix("v")
 
 
-def node_pin_findings(pins: Mapping[str, bytes | None], running: str) -> list[Finding]:
+def node_pin_findings(pins: Mapping[str, bytes | None], running: str | None) -> list[Finding]:
     fix = "keep every Node pin file byte-equal with one exact X.Y.Z and install that Node"
     findings = [
         Finding(LOCAL_CI, path, "Node pin file is missing", fix)
@@ -377,11 +380,15 @@ def node_pin_findings(pins: Mapping[str, bytes | None], running: str) -> list[Fi
     present = {path: value.decode(errors="replace").strip() for path, value in pins.items() if value}
     if len(set(present.values())) > 1:
         findings.append(Finding(LOCAL_CI, ", ".join(present), "Node pin files differ", fix))
+    if running is None and present:
+        findings.append(
+            Finding(LOCAL_CI, ", ".join(present), "node --version failed, so the pin is unverified", fix)
+        )
     for path, pinned in present.items():
         exact = EXACT.fullmatch(pinned)
         if exact is None:
             findings.append(Finding(LOCAL_CI, path, f"Node pin {pinned!r} is not one exact X.Y.Z", fix))
-        elif exact.group(1) != running:
+        elif running is not None and exact.group(1) != running:
             findings.append(Finding(LOCAL_CI, path, f"running Node {running} differs from {pinned}", fix))
     return findings
 

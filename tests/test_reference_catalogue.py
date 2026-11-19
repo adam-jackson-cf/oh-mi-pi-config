@@ -398,18 +398,22 @@ class ToolchainParityTests(RepoCase):
         self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
 
     def test_node_pins_must_be_exact_equal_and_match_the_running_node(self) -> None:
-        running = toolchain_parity.node_version(self.repo)
-        self.write(".nvmrc", f"v{running}\n")
-        self.write(".node-version", f"v{running}\n")
-        options = {"node_pins": [".nvmrc", ".node-version"]}
-        self.assertEqual(self.parity(options), [])
-        self.write(".node-version", "lts/*\n")
-        findings = self.parity(options)
+        pins = {".nvmrc": b"v22.11.0\n", ".node-version": b"v22.11.0\n"}
+        self.assertEqual(toolchain_parity.node_pin_findings(pins, "22.11.0"), [])
+        findings = toolchain_parity.node_pin_findings({**pins, ".node-version": b"lts/*\n"}, "22.11.0")
         self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"] * 2)
         self.assertIn("not one exact X.Y.Z", findings[1].message)
-        self.write(".nvmrc", "1.0.0\n")
-        self.write(".node-version", "1.0.0\n")
-        self.assertIn("running Node", self.parity(options)[0].message)
+        findings = toolchain_parity.node_pin_findings(pins, "20.1.0")
+        self.assertEqual([f.path for f in findings], [".nvmrc", ".node-version"])
+        self.assertIn("running Node 20.1.0", findings[0].message)
+        missing = toolchain_parity.node_pin_findings({".nvmrc": None}, "22.11.0")
+        self.assertIn("pin file is missing", missing[0].message)
+
+    def test_an_unrunnable_node_blocks_instead_of_passing_the_pin(self) -> None:
+        findings = toolchain_parity.node_pin_findings({".nvmrc": b"22.11.0\n"}, None)
+        self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"])
+        self.assertIn("node --version failed", findings[0].message)
+        self.assertIsNone(toolchain_parity.node_version(self.repo / "missing-directory"))
 
     def test_package_manager_pin_selects_the_only_lockfile(self) -> None:
         options = {"package_manager": {"package_json": "package.json"}}
