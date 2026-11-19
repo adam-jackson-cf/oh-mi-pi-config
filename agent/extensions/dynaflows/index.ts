@@ -316,7 +316,7 @@ export default function dynaflows(
 			for (let index = 0; index < records.length; index++) {
 				const record = records[index];
 				if (!record) continue;
-				changedPaths.add(record.slice(3));
+				if (record.slice(0, 2) === "??" || /[AR]/.test(record.slice(0, 2))) changedPaths.add(record.slice(3));
 				// In NUL-delimited porcelain, rename/copy destinations precede their source path.
 				if (record.slice(0, 2).includes("R") || record.slice(0, 2).includes("C")) index++;
 			}
@@ -324,23 +324,13 @@ export default function dynaflows(
 			if (!changed.length) { state.pathFailures.delete(root); return; }
 			const record = await recordAt(root);
 			if (!record) throw new Error("per-repo record disappeared during path check");
-			const result = await repoExec([...harnessPathCommand, "--repo", canonicalRoot, "--record", record.dir, ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
+			const result = await repoExec([...harnessPathCommand, "--repo", canonicalRoot, "--record", record.dir, "--event", "edit", ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
 			if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 			state.pathFailures.delete(root);
 		} catch (error) {
 			state.pathFailures.set(root, changed);
 			return `Agent rails: path check failed in ${root}: ${String(error)}`;
 		}
-	}
-	// Repo paths a commit can take: staged and unstaged tracked changes, as absolute paths.
-	async function commitPaths(root: string): Promise<string[]> {
-		const found = new Set<string>();
-		for (const args of [["diff", "--cached", "--name-only", "-z"], ["diff", "--name-only", "-z"]]) {
-			const result = await pi.exec("git", args, { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
-			if (result.code !== 0 || result.killed) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`.trim());
-			for (const path of result.stdout.split("\0")) if (path) found.add(resolve(root, path));
-		}
-		return [...found];
 	}
 	// The record's ownerOnlyPaths are the owner's alone (for example the dependency-audit exception
 	// file). At every agent commit in a dynaflows-on repo with a record, rails
@@ -362,16 +352,13 @@ export default function dynaflows(
 			"dependency-audit exception file. Restore them (git restore --staged --worktree -- <path>), then stop and raise " +
 			"the change to the owner: what you need changed, why, and the evidence. The owner makes the change.";
 	}
-	// At the agent's commit in a dynaflows-on repo: the harness path check over the paths the commit
-	// can take, the record's checks.commit (the repo's own command), then the harness checks over the
-	// whole repo with the record as config. Any failure or finding blocks the commit; there are no
-	// baselines and no diff scoping.
-	async function commitChecksReason(root: string, state: State): Promise<string | undefined> {
+	async function commitChecksReason(root: string): Promise<string | undefined> {
 		const record = await recordAt(root);
 		if (!record) return;
-		const changed = [...new Set([...(state.pathFailures.get(root) ?? []), ...await commitPaths(root)])];
-		const failed = await checkPaths(root, changed, state);
-		if (failed) return `${failed}\nFix the findings, then commit again.`;
+		const pathResult = await repoExec([...harnessPathCommand, "--repo", root, "--record", record.dir, "--event", "staged"], root, SUBPROCESS_TIMEOUT_MS);
+		if (pathResult.code !== 0 || pathResult.killed) {
+			return `Agent rails: staged path check failed in ${root}: ${pathResult.stdout}\n${pathResult.stderr}\nFix the findings, then commit again.`;
+		}
 		const runs: [string, string[]][] = [
 			[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit],
 			["harness checks (guardrails)", [...guardrailsCommand, "--repo", root, "--record", record.dir]],
@@ -488,7 +475,7 @@ export default function dynaflows(
 						// Fail-open is never silent: every commit outside dynaflows says why.
 						if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");
 						if (root && at.on) {
-							const reason = await commitChecksReason(root, state);
+							const reason = await commitChecksReason(root);
 							if (reason) return { block: true, reason };
 						}
 					}

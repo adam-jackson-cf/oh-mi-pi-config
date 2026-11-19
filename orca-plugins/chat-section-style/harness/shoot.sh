@@ -5,7 +5,6 @@
 # <mode>-narrow.png (760px, dark). Never touches the running Orca.
 #
 # First run per Orca version extracts the installed app.asar into $TMPDIR/orca-harness-<version> (read-only copy).
-# harness-tokens.js holds installed theme tokens; regenerate with node harness/tokens.mjs.
 set -eu
 mode="$1"
 out="$2"
@@ -26,7 +25,7 @@ for css in "$style_dir"/palettes/*.css; do
 done
 sed -e "s|__CLIENT_CSS__|$client_css|" -e "s|__ROW_CSS__|$row_css|" -e "s|__STYLE_DIR__|$style_dir|g" -e "s|__PALETTE_LINKS__|$palette_links|" \
   "$here/harness.html" > "$renderer/harness.html"
-cp "$here/harness-tokens.js" "$renderer/harness-tokens.js"
+cp "$here/theme-tokens.js" "$renderer/theme-tokens.js"
 
 mkdir -p "$out"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"

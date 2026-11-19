@@ -1,37 +1,20 @@
-"""NAME.conventions and NAME.test-files from the shipped house style plus profile settings.
-
-Every path gets the house-style verdicts: banned words, ``v<N>`` tokens and a child repeating
-its parent. Casing applies below the ecosystem roots the profile names. Test files match the
-profile's ``layout.test_file_patterns`` and carry no ticket, version or date tokens.
-
-Profile ``guardrails.naming`` settings (all optional):
-
-- ``ecosystems``: ``{"python": ["src", "tests"], "typescript": [...], "markdown": [...],
-  "asset_id": [".agents/skills"]}``: plain directory roots where each house-style casing applies
-  to file stems and to directory segments below the root.
-- ``skip``: path patterns excluded from naming (vendored or generated trees).
-- ``version_exempt``: path patterns where names may hold versions (dated design records).
-- ``standalone_versions``: overrides the house style's ``<name>/v<N>`` allowance.
-- ``symbol_exceptions``: ``{"<path>": ["<name>", ...]}`` for externally fixed callback names.
-- ``check_plurals``: also flag plural directory names outside the house-style catalogue list.
-"""
 
 from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Set
 from pathlib import Path, PurePosixPath
 
-from guardrails.config import house_style
+from guardrails.config import conventions, house_style
 from guardrails.findings import Finding
+from guardrails.structure import scope
 from guardrails.structure.inventory import (
     InventoryError,
     as_list,
-    matches,
     matches_any,
     name_matches,
     normalized_path,
-    selected_paths,
     settings,
 )
 
@@ -47,11 +30,17 @@ def convention(path: str, message: str, fix: str) -> Finding:
     return Finding(CONVENTIONS, path, message, fix)
 
 
-def word_findings(path: str) -> list[Finding]:
+def word_findings(path: str, existing_segments: Set[str] = frozenset()) -> list[Finding]:
     parts = PurePosixPath(path).parts
     found = []
     for index, part in enumerate(parts):
         last = index == len(parts) - 1
+        if "/".join(parts[: index + 1]) in existing_segments:
+            continue
+        if (last and conventions.fixed_file(path)) or (
+            not last and conventions.fixed_folder(path, part)
+        ):
+            continue
         name = house_style.stem(part) if last else part
         if house_style.is_banned_word(name):
             kind = "module" if last else "directory"
@@ -65,33 +54,45 @@ def word_findings(path: str) -> list[Finding]:
     return found
 
 
-def version_findings(path: str, config: dict) -> list[Finding]:
+def version_findings(
+    path: str, config: dict, existing_segments: Set[str] = frozenset()
+) -> list[Finding]:
     if matches_any(path, as_list(config.get("version_exempt"))):
         return []
     rules = house_style.load_house_style()["versioning"]
     standalone = config.get("standalone_versions", rules["standalone_allowed"])
     parts = PurePosixPath(path).parts
     for index, part in enumerate(parts):
+        if "/".join(parts[: index + 1]) in existing_segments:
+            continue
         problem = house_style.version_problem(
-            part, last=index == len(parts) - 1, standalone_allowed=bool(standalone)
+            part,
+            last=index == len(parts) - 1,
+            standalone_allowed=bool(standalone)
+            and not (index == len(parts) - 1 and conventions.for_path(path)["extensions"]),
         )
         if problem:
             return [convention(path, problem, "put versions in data or a <name>/v<N> folder")]
     return []
 
 
-def parent_findings(path: str) -> list[Finding]:
-    repeated = house_style.child_repeats_parent(PurePosixPath(path).parts)
+def parent_findings(path: str, existing_paths: set[str] | None = None) -> list[Finding]:
+    repeated = house_style.child_repeats_parent(
+        PurePosixPath(path).parts, existing_paths=existing_paths
+    )
     if repeated is None:
         return []
     return [
-        convention(
-            path, f"'{repeated}' repeats its parent folder's name", "name the child by its role"
+        Finding(
+            CONVENTIONS, path, f"'{repeated}' repeats its parent folder's name",
+            "name the child by its role", check="child-repeats-parent",
         )
     ]
 
 
-def plural_findings(path: str, config: dict) -> list[Finding]:
+def plural_findings(
+    path: str, config: dict, existing_segments: Set[str] = frozenset()
+) -> list[Finding]:
     if not config.get("check_plurals"):
         return []
     allowed = set(as_list(config.get("plural_allowlist")))
@@ -99,46 +100,43 @@ def plural_findings(path: str, config: dict) -> list[Finding]:
         convention(
             path, f"plural directory name '{part}'", "use a singular noun unless it is a catalogue"
         )
-        for part in PurePosixPath(path).parts[:-1]
-        if re.fullmatch(r"[a-z][a-z0-9_-]*[^s]s", part)
+        for index, part in enumerate(PurePosixPath(path).parts[:-1])
+        if "/".join(PurePosixPath(path).parts[: index + 1]) not in existing_segments
+        and not conventions.fixed_folder(path, part)
+        and re.fullmatch(r"[a-z][a-z0-9_-]*[^s]s", part)
         and not house_style.is_catalogue_plural(part)
         and part not in allowed
     ]
 
 
-def casing_findings(path: str, config: dict) -> list[Finding]:
-    found = []
-    ecosystems = config.get("ecosystems", {})
-    for name, roots in ecosystems.items() if isinstance(ecosystems, dict) else []:
-        rules = house_style.ecosystem(name)
-        extensions = rules["extensions"]
-        pure = PurePosixPath(path)
-        if extensions and not any(pure.name.endswith(ext) for ext in extensions):
-            continue
-        for root in as_list(roots):
-            if matches(path, root) and path != root.rstrip("/"):
-                below = pure.relative_to(root.rstrip("/")).parts
-                found.extend(segment_casing(path, name, rules, below, check_file=bool(extensions)))
-    return found
-
-
-def segment_casing(
-    path: str, name: str, rules: dict, below: tuple[str, ...], *, check_file: bool
+def casing_findings(
+    path: str, config: dict, existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
-    """Directory segments below an ecosystem root, then the file stem, against its casing."""
-    found = [
-        convention(path, f"{name} directory '{segment}' is not {label}", "rename the directory")
-        for segment in below[:-1]
-        if not segment.startswith(".")
-        and not house_style.matches_casing(segment, rules["directory"])
-        and (label := casing_label(rules["directory"]))
-    ]
-    file_name = below[-1]
-    if check_file and not house_style.matches_casing(house_style.stem(file_name), rules["file"]):
-        label = casing_label(rules["file"])
-        found.append(
-            convention(path, f"{name} file '{file_name}' is not {label}", "rename the file")
-        )
+    rules = conventions.for_path(path)
+    name = rules["name"]
+    parts = PurePosixPath(path).parts
+    found = []
+    for index, segment in enumerate(parts):
+        last = index == len(parts) - 1
+        if "/".join(parts[: index + 1]) in existing_segments:
+            continue
+        if (last and conventions.fixed_file(path)) or (
+            not last and conventions.fixed_folder(path, segment)
+        ):
+            continue
+        casings = rules["file"] if last else rules["directory"]
+        candidate = house_style.stem(segment) if last else segment
+        if casings and not segment.startswith(".") and not house_style.matches_casing(
+            candidate, casings
+        ):
+            kind = "file" if last else "directory"
+            found.append(
+                convention(
+                    path,
+                    f"{name} {kind} '{segment}' is not {casing_label(casings)}",
+                    f"rename the {kind}",
+                )
+            )
     return found
 
 
@@ -147,8 +145,7 @@ def test_patterns(profile: dict) -> list[str]:
     patterns = as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
     if patterns:
         return patterns
-    defaults = house_style.load_house_style()["test_roots"]["file_patterns"]
-    return [pattern for group in defaults.values() for pattern in group]
+    return conventions.test_patterns()
 
 
 def is_test_file(path: str, profile: dict) -> bool:
@@ -157,7 +154,7 @@ def is_test_file(path: str, profile: dict) -> bool:
 
 def test_file_findings(path: str, profile: dict) -> list[Finding]:
     patterns = test_patterns(profile)
-    test_like = house_style.load_house_style()["test_roots"]["test_like_patterns"]
+    test_like = conventions.test_like_patterns(path)
     if not any(name_matches(path, pattern) for pattern in patterns):
         if any(name_matches(path, pattern) for pattern in test_like):
             return [
@@ -181,12 +178,7 @@ def test_file_findings(path: str, profile: dict) -> list[Finding]:
 
 
 def symbol_findings(repo: Path, path: str, config: dict) -> list[Finding]:
-    roots = (
-        config.get("ecosystems", {}).get("python")
-        if isinstance(config.get("ecosystems"), dict)
-        else None
-    )
-    if not path.endswith(".py") or not matches_any(path, as_list(roots)):
+    if conventions.for_path(path)["name"] != "python":
         return []
     source = repo / path
     if not source.is_file():
@@ -199,7 +191,7 @@ def symbol_findings(repo: Path, path: str, config: dict) -> list[Finding]:
                 "PYS000", path, f"cannot parse Python source: {error}", "restore readable Python"
             )
         ]
-    rules = house_style.ecosystem("python")
+    rules = conventions.load_pack("python")
     allowed = set(as_list(config.get("symbol_exceptions", {}).get(path)))
     found = []
     for node in ast.walk(tree):
@@ -221,34 +213,47 @@ def symbol_findings(repo: Path, path: str, config: dict) -> list[Finding]:
     return found
 
 
-def path_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
-    """Every naming finding for one repository path, shared with the changed-path check."""
+def path_findings(
+    repo: Path, path: str, profile: dict, *, existing_paths: set[str] | None = None
+) -> list[Finding]:
     config = settings(profile, "naming")
-    if matches_any(path, as_list(config.get("skip"))):
+    if conventions.ignored_path(path) or matches_any(path, as_list(config.get("skip"))):
         return []
+    existing_segments = {
+        "/".join(parts[:index])
+        for item in existing_paths or ()
+        for parts in (PurePosixPath(item).parts,)
+        for index in range(1, len(parts) + 1)
+    }
+    new_file = path not in existing_segments
     return [
-        *word_findings(path),
-        *version_findings(path, config),
-        *parent_findings(path),
-        *plural_findings(path, config),
-        *casing_findings(path, config),
-        *test_file_findings(path, profile),
-        *symbol_findings(repo, path, config),
+        *word_findings(path, existing_segments),
+        *version_findings(path, config, existing_segments),
+        *parent_findings(path, existing_paths),
+        *plural_findings(path, config, existing_segments),
+        *casing_findings(path, config, existing_segments),
+        *(test_file_findings(path, profile) if new_file else []),
+        *(symbol_findings(repo, path, config) if new_file else []),
     ]
 
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     try:
-        raw_paths = selected_paths(repo, argv)
+        selected = scope.select(repo, argv)
+        if not selected.paths:
+            return []
+        found = []
+        with scope.checkout(repo, selected) as root:
+            for raw in selected.paths:
+                path = normalized_path(root, raw)
+                if path is None:
+                    found.append(
+                        convention(raw, "path is outside the repository", "name a repository path")
+                    )
+                else:
+                    found.extend(path_findings(
+                        root, path, profile, existing_paths=selected.existing_paths,
+                    ))
+        return house_style.apply_exceptions(found, profile)
     except InventoryError as error:
-        return [convention(".", str(error), "run inside a Git work tree")]
-    found = []
-    for raw in raw_paths:
-        path = normalized_path(repo, raw)
-        if path is None:
-            found.append(
-                convention(raw, "path is outside the repository", "name a repository path")
-            )
-        else:
-            found.extend(path_findings(repo, path, profile))
-    return house_style.apply_exceptions(found, profile)
+        return [convention(".", str(error), "provide a readable Git work tree or snapshot")]

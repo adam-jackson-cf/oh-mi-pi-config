@@ -122,7 +122,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 				assert.equal(command, "env");
 				assert.deepEqual(args, ["-u", "AGENT", "--", "uv", "run", "--project",
 					resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"),
-					"guardrails", "path-check", "--repo", options.cwd, "--record", recordDir(), ...paths]);
+					"guardrails", "path-check", "--repo", options.cwd, "--record", recordDir(options.cwd), ...paths]);
 				return { code: pathFailure ? 1 : 0, killed: false, stdout: "",
 					stderr: pathFailure ? `${paths.join("\n")}: ${pathFailure}` : "" };
 			}
@@ -148,9 +148,12 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	let fixture: GateFixture | undefined;
 	let enabled: boolean | undefined;
 	let slug = parseOrigin(remote);
-	const recordDir = () => {
-		assert.ok(slug, "the harness origin names a record");
-		return join(records, "repos", slug);
+	const recordDir = (cwd = root) => {
+		const currentSlug = cwd === root ? slug : parseOrigin(execFileSync(
+			"git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8", timeout: 20000 },
+		).trim());
+		assert.ok(currentSlug, "the harness origin names a record");
+		return join(records, "repos", currentSlug);
 	};
 	const writeRecord = (text: string) => {
 		mkdirSync(recordDir(), { recursive: true });

@@ -35,8 +35,9 @@
       "tiers": ["contract", "engine", "cli"],
       "import_direction": {"package": "orders", "source_root": "src/orders"}
     },
-    "house_style": {"version": 1, "exceptions": []},
+    "house_style": {"version": 1},
     "guardrails": {
+      "exceptions": [],
       "structure": {
         "root_directories": ["src", "tests", "lab", "docs"],
         "root_files": ["README.md", "pyproject.toml"],
@@ -48,7 +49,6 @@
         "forbidden_imports": [{"root": "src/orders/contract", "modules": ["requests"]}]
       },
       "naming": {
-        "ecosystems": {"python": ["src", "tests"], "markdown": ["docs"]},
         "version_exempt": ["docs/"]
       }
     }

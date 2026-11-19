@@ -25,7 +25,8 @@ BASE_PROFILE = {
     "public_entry_points": {"shop/core.ts": ["publicApi"]},
     "tiers": {"t1": {"location": "tests", "selector": "--testNamePattern test_fast_total"}},
     "layout": {"test_file_patterns": ["*.test.ts"], "support_dir": "tests", "fixtures_dir": "tests"},
-    "house_style": {"version": 1, "exceptions": []},
+    "house_style": {"version": 1},
+    "guardrails": {"exceptions": []},
 }
 
 
@@ -81,8 +82,8 @@ def build_project(root: Path, case: dict, modules: Path | None) -> tuple[Path, s
     (project / placed).write_text(fixture_source(case["id"]), encoding="utf-8")
     profile = copy.deepcopy(BASE_PROFILE)
     if case["id"] == "approved-static-skip":
-        profile["house_style"]["exceptions"] = [{
-            "rule": "TEST.no-evasion", "path": placed, "adr": "adr/0001-vendor-outage.md",
+        profile["guardrails"]["exceptions"] = [{
+            "rule": "TEST.no-evasion", "path": placed, "reason": "Upstream vendor outage",
         }]
     if production:
         profile["public_entry_points"][placed] = ["publicApi"]

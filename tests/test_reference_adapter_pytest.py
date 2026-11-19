@@ -409,7 +409,8 @@ SHOP_PROFILE = {
         "t2": {"selector": "slow", "location": "tests", "command": "pytest -m slow"},
     },
     "layout": {"test_file_patterns": ["test_*.py"]},
-    "house_style": {"version": 1, "exceptions": []},
+    "house_style": {"version": 1},
+    "guardrails": {"exceptions": []},
 }
 SHOP_TEST = """\
 import pytest

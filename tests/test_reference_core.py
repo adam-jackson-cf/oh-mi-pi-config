@@ -97,7 +97,7 @@ class ProfileCompleteTests(unittest.TestCase):
         self.assertEqual(set(template) - {"guardrails"}, required)
         findings = profile_module.validate_profile(template)
         reported = {key.split(".")[0].split("[")[0] for key in keys_of(findings)}
-        self.assertEqual(reported, required)
+        self.assertEqual(reported, required | {"guardrails"})
         self.assertTrue(all(item.rule_id == "PROFILE.complete" for item in findings))
 
     def test_placeholders_and_sentinels_count_as_missing(self) -> None:
@@ -221,13 +221,6 @@ class ProfileCompleteTests(unittest.TestCase):
             {"teirs", "guards.proces", "house_style.version"},
         )
 
-    def test_house_style_exceptions_need_an_adr(self) -> None:
-        profile = complete_profile()
-        profile["house_style"]["exceptions"] = [{"rule": "NAME.conventions", "path": "src/x"}]
-        self.assertEqual(
-            keys_of(profile_module.validate_profile(profile)), {"house_style.exceptions[0].adr"}
-        )
-
     def test_guardrails_sections_must_name_a_checker_and_hold_an_object(self) -> None:
         profile = complete_profile()
         profile["guardrails"]["namig"] = {"pattern": "x"}
@@ -325,6 +318,67 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         self.assertIn("record:profile.md: PROFILE.complete: adapter is missing", out)
+
+    def test_exception_records_reject_obsolete_location_with_migration_error(self) -> None:
+        profile = complete_profile()
+        profile["house_" + "style"]["exceptions"] = []
+        self.write_profile(profile)
+        code, out, _ = self.run_cli(*self.located("profile-check"))
+        self.assertEqual(code, 1)
+        self.assertIn("is obsolete; move entries to guardrails.exceptions", out)
+        self.assertIn("reason", out)
+
+    def test_exception_records_require_real_strings_and_reject_unknown_fields(self) -> None:
+        entry = {
+            "rule": "NAME.conventions",
+            "check": "child-repeats-parent",
+            "path": "internal/**/*_test.go",
+            "reason": "Go tests retain the package naming convention",
+        }
+        for field in ("rule", "check", "path", "reason"):
+            for value in ("", "TBD", "<value>", None, 42):
+                with self.subTest(field=field, value=value):
+                    profile = complete_profile()
+                    profile["guardrails"]["exceptions"] = [{**entry, field: value}]
+                    self.write_profile(profile)
+                    code, out, _ = self.run_cli(*self.located("profile-check"))
+                    self.assertEqual(code, 1)
+                    self.assertIn(f"guardrails.exceptions[0].{field}", out)
+        for field in ("rule", "path", "reason"):
+            with self.subTest(missing=field):
+                profile = complete_profile()
+                profile["guardrails"]["exceptions"] = [
+                    {key: value for key, value in entry.items() if key != field}
+                ]
+                self.write_profile(profile)
+                code, out, _ = self.run_cli(*self.located("profile-check"))
+                self.assertEqual(code, 1)
+                self.assertIn(f"guardrails.exceptions[0].{field}", out)
+        profile = complete_profile()
+        for field in ("unexpected", "a" + "dr"):
+            with self.subTest(unknown=field):
+                profile["guardrails"]["exceptions"] = [{**entry, field: "old decision reference"}]
+                self.write_profile(profile)
+                code, out, _ = self.run_cli(*self.located("profile-check"))
+                self.assertEqual(code, 1)
+                self.assertIn(f"guardrails.exceptions[0].{field} is not a profile key", out)
+
+    def test_exception_records_accept_globs_optional_checks_and_plain_reasons(self) -> None:
+        for entries in (
+            [],
+            [{"rule": "NAME.conventions", "path": "src/**", "reason": "Generated API names"}],
+            [{
+                "rule": "NAME.conventions", "check": "child-repeats-parent",
+                "path": "internal/**/*_test.go", "reason": "Go package naming convention",
+            }],
+        ):
+            with self.subTest(entries=entries):
+                profile = complete_profile()
+                profile["guardrails"]["exceptions"] = entries
+                self.write_profile(profile)
+                self.assertEqual(
+                    self.run_cli(*self.located("profile-check"))[:2], (0, "profile-check: ok\n")
+                )
 
     def test_missing_profile_is_a_profile_finding(self) -> None:
         code, out, _ = self.run_cli(*self.located("naming"))

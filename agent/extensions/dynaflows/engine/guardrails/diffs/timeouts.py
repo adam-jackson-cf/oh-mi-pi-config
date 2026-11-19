@@ -15,7 +15,7 @@ Profile ``guardrails.no_evasion`` settings (optional):
   default, which matches ``timeout=5``, ``timeout(5)``, ``timeout: 5000`` and keys such as
   ``testTimeout`` or ``read_timeout_s``.
 
-A finding is waived only by an ADR-backed ``house_style.exceptions`` entry for this rule.
+A finding is waived only by a reason-backed ``guardrails.exceptions`` entry for this rule.
 """
 
 from __future__ import annotations

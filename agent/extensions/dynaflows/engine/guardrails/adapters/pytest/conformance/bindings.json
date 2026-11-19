@@ -4,9 +4,8 @@
     "approved-static-skip": {
       "fixture": "unapproved_static_skip.py",
       "profile": {
-        "house_style": {
-          "version": 1,
-          "exceptions": [{"rule": "TEST.no-evasion", "path": "tests/test_case.py", "adr": "adr/0001-vendor-outage.md"}]
+        "guardrails": {
+          "exceptions": [{"rule": "TEST.no-evasion", "path": "tests/test_case.py", "reason": "Upstream vendor outage"}]
         }
       }
     },

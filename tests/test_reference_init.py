@@ -185,6 +185,10 @@ class DraftRecordTests(InitCase):
         )
         profile = load_profile(self.record)
         self.assertEqual(profile["house_style"]["version"], load_house_style()["version"])
+        self.assertEqual(set(profile["house_style"]), {"version"})
+        self.assertEqual(
+            set(profile["guardrails"]["exceptions"][0]), {"rule", "path", "reason"}
+        )
         self.assertEqual(
             profile["command_notes"]["lsp"],
             [{"stack": "python", "server": "pyright-langserver", "install": lsp.STACKS[0].install}],

@@ -3,7 +3,7 @@
   "language": "python",
   "scope": "tests",
   "message": "test skips, expects failure or retries instead of passing ({match})",
-  "fix": "make the test pass, or record an ADR-backed house_style exception for this path",
+  "fix": "make the test pass, or record a reason-backed guardrails.exceptions entry for this path",
   "rule": {
     "any": [
       {

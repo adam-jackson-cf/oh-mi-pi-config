@@ -181,7 +181,10 @@ class SourceLint(unittest.TestCase):
             with patch.object(lint, "repo_paths", return_value=paths):
                 found = lint.lint(repo, PROFILE, [])
                 self.assertEqual([item.rule_id for item in found], ["TEST.no-self-mocking"])
-                profile = {**PROFILE, "house_style": {"exceptions": [{"rule": "TEST.no-self-mocking", "path": "tests/*", "adr": "ADR-1"}]}}
+                profile = {**PROFILE, "guardrails": {"exceptions": [{
+                    "rule": "TEST.no-self-mocking", "path": "tests/*",
+                    "reason": "Owner-approved boundary replacement",
+                }]}}
                 self.assertEqual(lint.lint(repo, profile, []), [])
             self.assertEqual(before, {path: (repo / path).read_bytes() for path in paths})
 

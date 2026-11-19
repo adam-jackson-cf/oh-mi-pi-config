@@ -15,7 +15,7 @@ Use [the project setup playbook](playbooks/project-setup.md) for the six-stage d
 - [Adapter authoring](adapter-authoring.md) owns the six-part evidence interface and conformance.
 - The engine lives at `agent/extensions/dynaflows/engine/`; run it from oh-mi-pi-config, never
   install, pin, copy or fork it into a target repository. Its catalogue is
-`uv run --project` with `agent/extensions/dynaflows/engine/`. It covers the whole repo
+  accessed with `uv run --project agent/extensions/dynaflows/engine guardrails catalogue`.
 - [The design directive](../../../AGENTS.md) governs ownership. Harness-owned per-edit path checks
   are the
   explicit [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md) exception.
@@ -44,10 +44,10 @@ rules, and `guardrails check` leaves that step out. The harness runs a step only
 repo cannot hold its rules without depending on omp or dynaflows. It never runs a step beside a
 repo checker. Step 2 defines the three outcomes; the
 [design directive](../../../AGENTS.md) holds the principles behind them.
-`uv run --project` with `agent/extensions/dynaflows/engine/`. It covers the whole repo
-after edits and before commit. Its required profile settings are `guardrails.structure`,
-`guardrails.naming` and `guardrails.paths`; `guardrails.check.repo` does not delegate this check.
-`uv run --project` with `agent/extensions/dynaflows/engine/`. It covers the whole repo
+Harness path-check judges only new paths and path segments: worktree additions/renames
+(including untracked) after edits, staged additions/renames at commit. Its profile settings
+are `guardrails.structure`, `guardrails.naming` and `guardrails.paths`;
+`guardrails.check.repo` does not delegate this check.
 `gate.json` has no path-check command field; repo `checks.commit` and `checks.ci` stay repo-owned.
 
 ## Commit events and rule families
@@ -58,9 +58,11 @@ and before commit, using required profile `guardrails.structure`, `guardrails.na
 exception in [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md).
 At each agent commit, rails then run the record's `checks.commit` in the worktree, then the harness
 checks: `guardrails check --repo <worktree> --record <record dir>`, run with
-`uv run --project` with `agent/extensions/dynaflows/engine/`. It covers the whole repo
-and blocks on any finding. There are no baselines and no diff scoping; generated, vendored and
-fixture exclusions come from the record. The repo's required CI context stays its own `gate`.
+`uv run --project agent/extensions/dynaflows/engine guardrails check`. It covers the whole
+repo except naming, structure and path-check, which use the new-path event scope in
+[ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
+Other checks block without baselines; generated, vendored and fixture exclusions come from
+the record. The repo's required CI context stays its own `gate`.
 
 New rules enforce dependency direction, folder ownership, naming, test placement, fast-tier and
 per-test budgets, justified test growth and duplicate call-path/assertion detection.
@@ -306,7 +308,7 @@ checkout; repositories never install, pin or copy it, and it writes nothing into
    out settings only owned steps read (`check` rejects `guardrails.python`
    once every configured Python step is the repo's). Then fill every per-repo
    value in the front matter of the draft `profile.md`: tiers, layout,
-   `structure`, scope exclusions, `house_style.exceptions` (each with an ADR)
+   `structure`, scope exclusions, `guardrails.exceptions` (each with an owner-approved reason)
    and `guardrails.<checker>` settings. A behaviour the settings cannot
    express is a change to the engine itself, never a local fork. If the
    target's test framework has no adapter, follow [adapter

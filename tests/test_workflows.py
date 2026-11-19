@@ -716,7 +716,15 @@ class RepositoryTests(unittest.TestCase):
 
     def profile(self, marker, **surface):
         values = {"lever_command": "lever", "doctor_marker": marker, "feature_map_path": f"{MAP_PATH}/", **surface}
-        front = json.dumps({"verification_surface": {k: v for k, v in values.items() if v is not None}})
+        front = json.dumps({
+            "verification_surface": {k: v for k, v in values.items() if v is not None},
+            "structure": {"owners": {"patterns": {"**": "proof engine"}}},
+            "guardrails": {"structure": {
+                "root_directories": ["docs", "oracle", "verifier"],
+                "root_files": [*MAPPED, "value", "docs.md", "json.py", ".gitignore",
+                               "runner", "fmt.py", "other.txt", "other_test.py"],
+            }},
+        })
         self.write_profile(f"---\n{front}\n---\n\n# Repo test profile\n")
 
     def test_freeze_refuses_red_from_environment_doctor(self):
@@ -799,12 +807,13 @@ class RepositoryTests(unittest.TestCase):
         self.write(f"{MAP_PATH}/README.md", "# Features\n\n- [Value](value.md)\n")
         self.profile(None)
         front = json.loads((self.record / "profile.md").read_text().split("---")[1])
-        front["guardrails"] = {"feature_map": {"index_files": ["README.md"]}}
+        front["guardrails"]["feature_map"] = {"index_files": ["README.md"]}
         self.write_profile(f"---\n{json.dumps(front)}\n---\n")
         self.change()
         result = self.prove()
         self.assertEqual(result["status"], "pass", result)
-        (self.record / "profile.md").write_text("---\n" + json.dumps({"verification_surface": front["verification_surface"]}) + "\n---\n")
+        front["guardrails"].pop("feature_map")
+        (self.record / "profile.md").write_text("---\n" + json.dumps(front) + "\n---\n")
         self.assert_block(self.prove(), f"link no frozen proof: {MAP_PATH}/README.md")
 
     def test_zero_proof_pr_without_a_map_change_passes(self):
@@ -1507,13 +1516,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "init", "-q")
         git(self.repo, "config", "user.email", "structure@example.test")
         git(self.repo, "config", "user.name", "Structure Test")
+        (self.repo / "src").mkdir()
+        (self.repo / "src/__init__.py").write_text("")
+        git(self.repo, "add", ".")
         git(self.repo, "commit", "--allow-empty", "-qm", "base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
-        git(self.repo, "commit", "--allow-empty", "-qm", "head")
+        (self.repo / "src/orders").mkdir()
+        (self.repo / "src/orders/api.py").write_text("ORDER_LIMIT = 10\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "head")
         self.head = git(self.repo, "rev-parse", "HEAD")
         self.questions, self.thresholds = workflow._structure_config()
-        self.states = {"src/orders": {"folder_path": "src/orders", "files": ["src/orders/api.py"],
-                                      "cluster": []}}
+        self.states = workflow._structure_states(self.repo, self.parent, self.head)
         self.calls = []
 
     async def review(self, *, score=0.9, error=None, post_error=None):
@@ -1562,11 +1576,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(below["halt"])
 
     async def test_prefix_question_only_sees_eligible_clusters(self):
-        eligible = {"prefix": "order", "eligible": True}
-        self.states["src/orders"]["cluster"] = [eligible, {"prefix": "base", "eligible": False}]
+        (self.repo / "src/orders/order_reader.py").write_text("ORDER_LIMIT = 10\n")
+        (self.repo / "src/orders/order_writer.py").write_text("ORDER_LIMIT = 10\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "add order siblings")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.states = workflow._structure_states(self.repo, self.parent, self.head)
+        eligible = self.states["src/orders"]["cluster"]
         result = await self.review()
         self.assertEqual(set(self.calls[0][1]), set(self.questions))
-        self.assertEqual(self.calls[0][0]["unit_state"]["cluster"], [eligible])
+        self.assertTrue(eligible)
+        self.assertTrue(all(cluster["eligible"] for cluster in eligible))
+        self.assertEqual(self.calls[0][0]["unit_state"]["cluster"], eligible)
         self.assertEqual(len(result["findings"]), 8)
 
     async def test_judge_and_publication_errors_report_without_shadow_blocking(self):
@@ -1586,7 +1607,12 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_shared_question_sets_use_batch(self):
         from types import SimpleNamespace
-        self.states["src/billing"] = {"folder_path": "src/billing", "cluster": []}
+        (self.repo / "src/billing").mkdir()
+        (self.repo / "src/billing/api.py").write_text("BILLING_LIMIT = 10\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "add billing unit")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.states = workflow._structure_states(self.repo, self.parent, self.head)
         calls = []
 
         class Batch:
@@ -1626,7 +1652,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
 
     def test_extractor_parses_real_structure_state_stdout_without_status_line(self):
         source = self.repo / "src/orders/api.py"
-        source.parent.mkdir(parents=True)
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text('"""Order API."""\nORDER_LIMIT = 10\n')
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "add order unit")

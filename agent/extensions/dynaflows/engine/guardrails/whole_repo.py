@@ -48,8 +48,6 @@ RULE = "PROFILE.complete"
 RECORD_PREFIX = "record:"
 DEFAULT_STEPS = (
     "profile-check",
-    "structure",
-    "naming",
     "python-quality",
     "python-fanout",
     "python-scalability",
@@ -57,14 +55,11 @@ DEFAULT_STEPS = (
     "adapter lint",
 )
 # Every static whole-repo step a record may select.
-STEPS = (*DEFAULT_STEPS, "path-check", "python-test-hygiene")
-UNOWNABLE = ("profile-check", "path-check")
+STEPS = (*DEFAULT_STEPS, "python-test-hygiene")
+UNOWNABLE = ("profile-check",)
 # Settings sections that only check steps read; other sections also serve diff checks or prove().
 STEP_SETTINGS = {
     "python": ("python-quality", "python-fanout", "python-scalability", "python-test-hygiene"),
-    "paths": ("path-check",),
-    "naming": ("naming", "path-check"),
-    "structure": ("structure", "path-check"),
 }
 
 
@@ -92,7 +87,7 @@ def owned_steps(profile: dict) -> tuple[dict[str, list[str]], list[Finding]]:
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
         return {}, []
-    ownable = [step for step in STEPS if step not in UNOWNABLE]
+    ownable = [step for step in (*STEPS, "naming", "structure") if step not in UNOWNABLE]
     if not isinstance(declared, dict) or not declared:
         return {}, [
             record_finding(
@@ -181,6 +176,8 @@ def run_step(repo: Path, profile: dict, step: str) -> list[Finding]:
     from guardrails import cli
 
     name, *argv = step.split()
+    if name == "python-quality":
+        argv.extend(["--event", "staged"])
     try:
         modules = cli.module_names(name, profile)
     except cli.ProfileError as error:

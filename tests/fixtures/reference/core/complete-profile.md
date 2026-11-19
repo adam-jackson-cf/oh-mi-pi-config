@@ -53,8 +53,8 @@
     "tiers": [],
     "import_direction": {"package": "ledger", "source_root": "src/ledger"}
   },
-  "house_style": {"version": 1, "exceptions": []},
-  "guardrails": {"naming": {"version_exempt": ["docs/"]}}
+  "house_style": {"version": 1},
+  "guardrails": {"exceptions": [], "naming": {"version_exempt": ["docs/"]}}
 }
 ---
 

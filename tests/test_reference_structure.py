@@ -18,7 +18,7 @@ FIXTURES = ROOT / "tests/fixtures/reference/structure"
 sys.path.insert(0, str(REFERENCE))
 
 from guardrails import cli  # noqa: E402
-from guardrails.config import house_style  # noqa: E402
+from guardrails.config import conventions, house_style  # noqa: E402
 from guardrails.structure import layout, naming, paths  # noqa: E402
 
 CLEAN = json.loads((FIXTURES / "clean-repo.json").read_text())
@@ -64,7 +64,7 @@ class HouseStyleVerdictTests(unittest.TestCase):
                 problems = house_style.test_name_problems(case["name"])
                 self.assertEqual(bool(problems), case["violates"], problems)
 
-    def test_child_directories_repeat_parent_by_whole_token_sequence(self) -> None:
+    def test_children_repeat_parent_by_whole_token_sequence(self) -> None:
         repeated_paths = (
             "guardrails/guardrails.py",
             "guardrails/omp_guardrails/entry.py",
@@ -78,6 +78,15 @@ class HouseStyleVerdictTests(unittest.TestCase):
             "guardrails/_guardrails_/entry.py",
             "guardrails/guardrails.test.py",
             "guardrails/.guardrails/entry.py",
+            "guardrails/omp_guardrails.py",
+            "guardrails/guardrails-core.ts",
+            "guardrails/Guardrails.py",
+            "guardrails/.guardrails",
+            "harness/harness-tokens.js",
+            "performance/test_performance_x.py",
+            "base/analyzer_base.py",
+            "init/__init__.js",
+            "main/__main__.ts",
         )
         for path in repeated_paths:
             with self.subTest(path=path):
@@ -90,12 +99,10 @@ class HouseStyleVerdictTests(unittest.TestCase):
             "audit-log/audit_event_log/entry.py",
             "guardrails/role.guardrails.py",
             "audit.log/audit.py",
-            "guardrails/omp_guardrails.py",
-            "guardrails/guardrails-core.ts",
-            "guardrails/Guardrails.py",
-            "guardrails/.guardrails",
-            "foo/foo_test.go",
             "init/__init__.py",
+            "main/__main__.py",
+            "foo/foo.go",
+            "foo/foo_test.go",
             "___/role.py",
             "entry.py",
         )
@@ -108,13 +115,13 @@ class HouseStyleVerdictTests(unittest.TestCase):
         )
 
     def test_test_roots(self) -> None:
-        roots = house_style.load_house_style()["test_roots"]
         expected = VERDICTS["test_roots"]
+        self.assertEqual(conventions.placement("test_sample.py")["root"], expected["root"])
         self.assertEqual(
-            (roots["root"], roots["fixtures_dir"]), (expected["root"], expected["fixtures_dir"])
+            conventions.placement("test_sample.py")["fixtures_dir"], expected["fixtures_dir"]
         )
-        self.assertIn(expected["python"], roots["file_patterns"]["python"])
-        self.assertIn(expected["typescript"], roots["file_patterns"]["typescript"])
+        self.assertIn(expected["python"], conventions.test_patterns("test_sample.py"))
+        self.assertIn(expected["typescript"], conventions.test_patterns("sample.test.ts"))
 
 
 class CheckerTests(unittest.TestCase):
@@ -189,30 +196,32 @@ class CheckerTests(unittest.TestCase):
             "src/orders/engine/engine-core/entry.py": "",
             "src/orders/engine/BadName.py": "",
             "src/orders/engine/shapes.py": "class bad_shape: ...\n\n\ndef BuildShape(): ...\n",
-            "docs/Design.md": "",
+            "src/orders/engine/fallback.py": "",
         }
         for path, text in planted.items():
             self.write(path, text)
+        self.write("docs/Design.md")
         self.assertEqual(self.findings(naming), {("NAME.conventions", path) for path in planted})
 
     def test_naming_reports_test_file_names(self) -> None:
         self.write("tests/unit/test_issue_1234.py")
         self.write("tests/unit/order_totals_test.py")
+        self.write("tests/unit/test_.py")
         self.assertEqual(
             self.findings(naming),
             {
                 ("NAME.test-files", "tests/unit/test_issue_1234.py"),
-                ("NAME.test-files", "tests/unit/order_totals_test.py"),
+                ("NAME.test-files", "tests/unit/test_.py"),
             },
         )
 
     def test_versions_are_allowed_in_exempt_paths_and_standalone_folders(self) -> None:
         self.write("docs/records/v2/review-v3.md")
-        self.write("src/orders/engine/stages/v2.py")
+        self.write("src/orders/engine/stages/v2.json")
         self.assertEqual(self.findings(naming), set())
         self.profile["guardrails"]["naming"]["standalone_versions"] = False
         self.assertEqual(
-            self.findings(naming), {("NAME.conventions", "src/orders/engine/stages/v2.py")}
+            self.findings(naming), {("NAME.conventions", "src/orders/engine/stages/v2.json")}
         )
 
     def test_path_check_reports_ownership_test_placement_and_direction(self) -> None:
@@ -304,13 +313,34 @@ class CheckerTests(unittest.TestCase):
             },
         )
 
-    def test_adr_backed_exceptions_suppress_only_their_rule_and_path(self) -> None:
+    def test_record_exceptions_suppress_only_their_rule_and_path(self) -> None:
         self.write("src/orders/engine/utils.py")
         self.write("src/orders/cli/helpers.py")
-        self.profile["house_style"]["exceptions"] = [
-            {"rule": "NAME.conventions", "path": "src/orders/engine", "adr": "ADR-0004"}
+        self.profile["guardrails"]["exceptions"] = [
+            {"rule": "NAME.conventions", "path": "src/orders/engine", "reason": "owner approval"}
         ]
         self.assertEqual(self.findings(naming), {("NAME.conventions", "src/orders/cli/helpers.py")})
+
+    def test_glob_exception_suppresses_only_the_named_subcheck(self) -> None:
+        path = "src/orders/engine/performance/test_performance_v2.py"
+        other = "src/orders/engine/performance/test_performance_v3.py"
+        exception = {
+            "rule": "NAME.conventions", "check": "child-repeats-parent",
+            "path": "src/**/test_performance_v2.py", "reason": "owner approval",
+        }
+        self.profile["guardrails"]["exceptions"] = [exception]
+        for candidate in (path, other):
+            self.write(candidate)
+        found = naming.run(self.repo, self.profile, [path, other])
+        self.assertFalse(any(item.path == path and item.check == "child-repeats-parent"
+                             for item in found))
+        self.assertTrue(any(item.path == path and item.rule_id == "NAME.conventions"
+                            for item in found))
+        self.assertTrue(any(item.path == other and item.check == "child-repeats-parent"
+                            for item in found))
+        del exception["reason"]
+        self.assertTrue(any(item.check == "child-repeats-parent"
+                            for item in naming.run(self.repo, self.profile, [path])))
 
     def write_profile(self) -> None:
         text = f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n"
@@ -401,23 +431,14 @@ class CheckerTests(unittest.TestCase):
                      f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges"],
                 )
 
-    def test_check_runs_the_record_steps_over_the_whole_repo_and_writes_nothing(self) -> None:
-        self.profile["guardrails"]["check"] = {"run": ["structure", "naming", "path-check"]}
-        self.write_profile()
-        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
-        self.write("src/orders/engine/misc.py")
-        self.write("vendor/third/misc.py")
-        before = sorted(path for path in self.repo.rglob("*") if ".git" not in path.parts)
-        code, out = self.run_cli("check")
-        self.assertEqual(code, 1)
-        self.assertIn("src/orders/engine/misc.py: NAME.conventions:", out)
-        self.assertIn("vendor", out)
-        self.assertEqual(
-            sorted(path for path in self.repo.rglob("*") if ".git" not in path.parts), before
-        )
-        self.profile["guardrails"]["check"]["exclude"] = ["vendor/**", "src/orders/engine/misc.py"]
-        self.write_profile()
-        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
+    def test_check_rejects_automatic_whole_repo_naming_and_structure(self) -> None:
+        for step in ("structure", "naming", "path-check"):
+            with self.subTest(step=step):
+                self.profile["guardrails"]["check"] = {"run": [step]}
+                self.write_profile()
+                code, out = self.run_cli("check")
+                self.assertEqual(code, 1)
+                self.assertIn("guardrails.check.run names unknown steps", out)
 
     def test_check_steps_come_from_a_fixed_list_and_record_findings_always_show(self) -> None:
         self.profile["guardrails"]["check"] = {"run": ["diff-check"], "exclude": ["**"]}
@@ -438,21 +459,16 @@ class CheckerTests(unittest.TestCase):
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
         from guardrails import whole_repo
 
-        owned = {"guardrails": {"check": {"repo": {"naming": ["src/orders/cli/main.py"]}}}}
+        owned = {"guardrails": {"check": {"repo": {"python-fanout": ["src/orders/cli/main.py"]}}}}
         steps, problems = whole_repo.configured_steps(owned)
         self.assertEqual(problems, [])
-        self.assertEqual(steps, [step for step in whole_repo.DEFAULT_STEPS if step != "naming"])
-        self.write("src/orders/engine/misc.py")
-        self.profile["guardrails"].pop("naming", None)
-        self.profile["guardrails"]["check"] = {"run": ["structure"]}
-        self.profile["guardrails"]["check"]["repo"] = {"naming": ["src/orders/cli/main.py"]}
+        self.assertEqual(steps, [step for step in whole_repo.DEFAULT_STEPS if step != "python-fanout"])
+        self.profile["guardrails"]["check"] = {
+            "run": ["python-test-hygiene"],
+            "repo": {"naming": ["src/orders/cli/main.py"], "structure": ["src/orders/cli/main.py"]},
+        }
         self.write_profile()
         self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
-        self.write("scratch/notes.txt")
-        code, out = self.run_cli("check")
-        self.assertEqual(code, 1)
-        self.assertIn("scratch/: STRUCT.folder-placement", out)
-        self.assertNotIn("NAME.conventions", out)
 
     def test_check_refuses_a_repo_owned_step_the_record_cannot_trust(self) -> None:
         cases = {
@@ -469,8 +485,8 @@ class CheckerTests(unittest.TestCase):
                 "guardrails.check.repo names 'path-check', which the repo cannot own",
             ),
             "listed twice": (
-                {"run": ["naming"], "repo": {"naming": ["src/orders/cli/main.py"]}},
-                "guardrails.check.run lists repo-owned steps ['naming']",
+                {"run": ["python-fanout"], "repo": {"python-fanout": ["src/orders/cli/main.py"]}},
+                "guardrails.check.run lists repo-owned steps ['python-fanout']",
             ),
             "missing checker": (
                 {"repo": {"naming": ["src/orders/cli/main.py", "checks/absent.py"]}},
@@ -496,7 +512,7 @@ class CheckerTests(unittest.TestCase):
         owned = {"python-quality": ["src/orders/cli/main.py"], "python-fanout": ["src/orders/cli/main.py"],
                  "python-scalability": ["src/orders/cli/main.py"]}
         self.profile["guardrails"]["python"] = {"maintained_roots": ["src"]}
-        self.profile["guardrails"]["check"] = {"run": ["structure", "naming"], "repo": owned}
+        self.profile["guardrails"]["check"] = {"run": ["profile-check"], "repo": owned}
         self.write_profile()
         code, out = self.run_cli("check")
         self.assertEqual(code, 1)
@@ -506,14 +522,11 @@ class CheckerTests(unittest.TestCase):
         self.assertNotIn("guardrails.python configures", self.run_cli("check")[1])
         self.profile["guardrails"]["naming"] = {"skip": ["vendor/**"]}
         self.profile["guardrails"]["check"] = {
-            "run": ["profile-check"],
+            "run": ["python-test-hygiene"],
             "repo": {"naming": ["src/orders/cli/main.py"]},
         }
         self.write_profile()
-        self.assertIn("guardrails.naming configures only repo-owned steps ['naming']", self.run_cli("check")[1])
-        self.profile["guardrails"]["check"]["run"].append("path-check")
-        self.write_profile()
-        self.assertNotIn("guardrails.naming configures", self.run_cli("check")[1])
+        self.assertEqual(self.run_cli("check"), (0, "check: ok\n"))
 
 
 class ImportGraphTests(unittest.TestCase):
@@ -545,8 +558,7 @@ class ImportGraphTests(unittest.TestCase):
                     repo, record = self.make_repo(case[outcome], profile)
                     expected = set(case["paths"]) if outcome == "violating" else set()
                     for checker in (layout, paths):
-                        # A named, unrelated path must not narrow the import graph.
-                        findings = checker.run(repo, profile, ["src/orders/__init__.py"])
+                        findings = checker.run(repo, profile, ["--all"])
                         self.assertEqual(
                             {f.path for f in findings if f.rule_id == case["rule"]}, expected
                         )
@@ -555,7 +567,7 @@ class ImportGraphTests(unittest.TestCase):
                         with contextlib.redirect_stdout(output):
                             cli.main([
                                 command, "--repo", str(repo), "--record", str(record),
-                                "src/orders/__init__.py",
+                                "--all",
                             ])
                         self.assertEqual(case["rule"] in output.getvalue(), bool(expected))
 

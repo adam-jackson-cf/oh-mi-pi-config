@@ -111,6 +111,8 @@ tests/*
 !tests/test_ci_gate.py
 !tests/test_ci_runner.py
 !tests/test_reference_*.py
+!tests/test_naming_scope.py
+!tests/test_language_packs.py
 !tests/fixtures/
 tests/fixtures/*
 !tests/fixtures/reference/

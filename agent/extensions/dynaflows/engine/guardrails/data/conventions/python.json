@@ -1,0 +1,106 @@
+{
+  "name": "python",
+  "convention_sources": {
+    "extensions": {
+      ".py": "https://docs.python.org/3/tutorial/modules.html",
+      ".pyi": "https://typing.python.org/en/latest/spec/distributing.html#stub-files"
+    },
+    "file": {
+      "snake_case": "https://peps.python.org/pep-0008/#package-and-module-names"
+    },
+    "directory": {
+      "snake_case": "https://peps.python.org/pep-0008/#package-and-module-names"
+    },
+    "class": {
+      "PascalCase": "https://peps.python.org/pep-0008/#class-names"
+    },
+    "function": {
+      "snake_case": "https://peps.python.org/pep-0008/#function-and-variable-names"
+    },
+    "framework_symbols": {
+      "^(setUp|tearDown)(Class|Module)?$": "https://docs.python.org/3/library/unittest.html",
+      "^async(SetUp|TearDown)$": "https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase",
+      "^visit_[A-Za-z]+$": "https://docs.python.org/3/library/ast.html#ast.NodeVisitor"
+    },
+    "fixed_files": {
+      "__init__.py": "https://docs.python.org/3/reference/import.html#regular-packages",
+      "__main__.py": "https://docs.python.org/3/library/__main__.html",
+      "conftest.py": "https://docs.pytest.org/en/stable/reference/fixtures.html#conftest-py-sharing-fixtures-across-multiple-files"
+    },
+    "fixed_folders": {
+      "__pycache__": "https://docs.python.org/3/tutorial/modules.html#compiled-python-files"
+    },
+    "ignored_folders": {
+      "__pycache__": "https://docs.python.org/3/tutorial/modules.html#compiled-python-files"
+    },
+    "test_patterns": {
+      "test_*.py": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery",
+      "*_test.py": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+    },
+    "test_like_patterns": {
+      "test*.py": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+    },
+    "placement": {
+      "root": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
+      "fixtures_dir": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+    }
+  },
+  "convention_notes": [
+    "PEP 8 casing is a recommendation; Python does not require that spelling.",
+    "Test-like patterns identify near misses against the documented pytest discovery patterns, not additional pytest discovery rules.",
+    "Test root, fixture and support names are harness defaults; pytest permits both separate and inline test layouts."
+  ],
+  "extensions": [
+    ".py",
+    ".pyi"
+  ],
+  "file": [
+    "snake_case"
+  ],
+  "directory": [
+    "snake_case"
+  ],
+  "class": [
+    "PascalCase"
+  ],
+  "function": [
+    "snake_case"
+  ],
+  "framework_symbols": [
+    "^(setUp|tearDown)(Class|Module)?$",
+    "^async(SetUp|TearDown)$",
+    "^visit_[A-Za-z]+$"
+  ],
+  "fixed_files": [
+    "__init__.py",
+    "__main__.py",
+    "conftest.py"
+  ],
+  "fixed_folders": [
+    "__pycache__"
+  ],
+  "ignored_folders": [
+    "__pycache__"
+  ],
+  "test_patterns": [
+    "test_*.py",
+    "*_test.py"
+  ],
+  "test_like_patterns": [
+    "test*.py"
+  ],
+  "sources": [
+    "https://peps.python.org/pep-0008/#package-and-module-names",
+    "https://docs.python.org/3/reference/import.html#regular-packages",
+    "https://docs.python.org/3/library/__main__.html",
+    "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+  ],
+  "placement": {
+    "root": "tests",
+    "fixtures_dir": "fixtures",
+    "support_dir": "support",
+    "beside_code": true
+  }
+}
