@@ -29,4 +29,4 @@ const tokens = Object.fromEntries(sources.map(([id, path]) => {
   if (!['light', 'dark'].includes(theme.base) || !theme.tokens) throw new Error(`Invalid theme: ${path}`)
   return [id, theme.tokens]
 }))
-writeFileSync(join(here, 'harness-tokens.js'), `window.HARNESS_TOKENS = ${JSON.stringify(tokens)};\n`)
+writeFileSync(join(here, 'theme-tokens.js'), `window.HARNESS_TOKENS = ${JSON.stringify(tokens)};\n`)
