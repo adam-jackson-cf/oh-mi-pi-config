@@ -137,8 +137,8 @@ def _is_argv(value):
         isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value)
 
 
-def run_check(cmd, cwd, *, timeout=None):
-    """Run an argv proof or repo command without harness variables, retaining complete, replacement-decoded diagnostics."""
+def run_check(cmd, cwd, *, timeout=None, stdout_only=False):
+    """Run without harness variables; retain all diagnostics unless stdout_only selects successful stdout."""
     if not _is_argv(cmd):
         raise WorkflowError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
@@ -151,7 +151,8 @@ def run_check(cmd, cwd, *, timeout=None):
         raise WorkflowError(f"timeout: {exc}\n{decode(exc.stdout)}{decode(exc.stderr)}") from exc
     except (OSError, ValueError) as exc:
         raise WorkflowError(f"launch error: {exc}") from exc
-    return p.returncode == 0, p.stdout + p.stderr
+    ok = p.returncode == 0
+    return ok, p.stdout if ok and stdout_only else p.stdout + p.stderr
 
 
 def _git(repo, *args):
@@ -1364,7 +1365,7 @@ def _structure_states(repo, parent, head):
          "from omp_guardrails.cli import main; raise SystemExit(main())",
          str(_harness_root() / GUARDRAILS_REFERENCE),
          "structure-state", "--repo", str(repo), "--base", parent, "--head", head],
-        repo, timeout=HARNESS_CHECK_TIMEOUT)
+        repo, timeout=HARNESS_CHECK_TIMEOUT, stdout_only=True)
     if not ok:
         raise WorkflowError(f"structure-state failed: {output}")
     states = json.loads(output)
