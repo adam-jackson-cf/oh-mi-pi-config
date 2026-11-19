@@ -1,22 +1,3 @@
-"""Proposed native-tool configs for TypeScript, Go and shell repos, from the reference's data.
-
-Like ``native_config`` for Python, init writes each proposal to the record's ``proposed/`` folder
-and the owner applies it to the repository as an ordinary fix. A pack is present when the repo
-root holds its marker: ``package.json`` or ``tsconfig.json`` (TypeScript), ``go.mod`` (Go), or a
-tracked ``.sh``/``.bash`` file (shell). Proposals, all from ``data/native-tools.json``:
-
-- ``tsconfig.json`` with the TSC.* compiler options. An existing tsconfig is kept; init reads its
-  ``compilerOptions`` through every ``extends`` it can resolve and reports each TSC.* value it
-  lacks, rule by rule. A base it cannot read is reported, so nothing passes unread.
-- ``.oxlintrc.json`` with the OXLINT.* plugins, categories and rules. An existing oxlint, ESLint
-  or Biome configuration is kept and reported: the repo's own linter is the one to grow.
-- ``.golangci.json`` with the GOLANGCI.* linters, limits and formatters, and the goimports local
-  prefix from the ``module`` line of ``go.mod``.
-- ``.shellcheckrc`` with the SHELLCHECK.* directives.
-- ``.editorconfig`` with the SHFMT.* shell section. An existing ``.editorconfig`` is kept; init
-  reports each SHFMT.* value its sections do not give ``.sh`` and ``.bash`` files.
-"""
-
 from __future__ import annotations
 
 import json
@@ -53,11 +34,10 @@ SETTING = re.compile(r"^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$")
 
 
 class ConfigError(ValueError):
-    """A repository config file cannot be read as its tool reads it."""
+    pass
 
 
 def jsonc(text: str) -> object:
-    """JSON with comments and trailing commas, as tsconfig allows."""
     out: list[str] = []
     index, length = 0, len(text)
     while index < length:
@@ -100,7 +80,6 @@ def extends_target(repo: Path, folder: Path, base: str) -> Path:
 def compiler_options(
     repo: Path, path: Path, seen: frozenset[Path] = frozenset()
 ) -> dict[str, Any]:
-    """compilerOptions after every extends, bases first, as tsc merges them."""
     if path in seen:
         raise ConfigError(f"extends cycle at {path.name}")
     try:
@@ -134,7 +113,6 @@ def tsconfig_report(repo: Path, wanted: dict[str, Any]) -> list[str]:
 
 
 def glob_pattern(glob: str) -> re.Pattern[str]:
-    """An EditorConfig section glob; one without a slash matches the file name anywhere."""
     pattern, index = "", 0
     while index < len(glob):
         char = glob[index]
@@ -280,7 +258,6 @@ def shell_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], lis
 
 
 def planned_configs(repo: Path) -> tuple[dict[str, str], list[str]]:
-    """Files to write (path -> text) and report lines, for every pack the repo holds."""
     data = load_data()
     planned: dict[str, str] = {}
     report: list[str] = []

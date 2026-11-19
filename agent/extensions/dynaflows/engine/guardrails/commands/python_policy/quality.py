@@ -1,37 +1,3 @@
-"""PYQ rules: maintained Python structure, class shape, seams and collaborator contracts.
-
-``guardrails python-quality [path ...]`` checks every inventoried ``.py`` file, or the named
-files and directories. Banned words and casing come from the shipped house style; everything
-else comes from the profile's ``guardrails.python`` section (patterns as in ``scope``):
-
-- ``maintained_roots``: every maintained Python root. A file outside them is PYQ100, so an
-  empty list flags every file instead of approving it.
-- ``excluded_paths``: documented non-maintained paths (vendored bytes, canary inputs).
-- ``script_roots``, ``script_names``, ``script_name_exceptions``: command scripts must be
-  approved kebab-case basenames (PYQ101); the exceptions are importable support modules.
-- ``test_roots``, ``test_groups`` (``{"<group>": ["<glob>", ...]}``), ``test_root_files``:
-  every test path belongs to a canonical group (PYQ102); root files skip structure rules.
-- ``generic_name_allowlist``: exact approved paths for banned directory or module words
-  (PYQ103, PYQ104).
-- ``non_package_dirs``: directory names that are not import packages (skipped by PYQ105).
-- ``data_label_dirs``: directory patterns whose names are data labels, not packages or
-  modules (skipped by PYQ103 and PYQ105).
-- ``skill_roots``: skill directories must be kebab-case (PYQ106).
-- ``class_limits``: ``max_lines`` (700), ``max_init_args`` (8), ``max_instance_attributes``
-  (12) and ``max_public_methods`` (unset: PYQ201 off) for PYQ200-PYQ203.
-- ``analyzer_roots``, ``analyzer_bases``, ``analyzer_entrypoints`` (``{"<base>": "<method>"}``):
-  ``*Analyzer`` classes inherit an approved base and implement its entrypoint (PYQ210, PYQ211).
-- ``process_roots`` and ``subprocess_wrappers`` (``{"<path>": ["<function>", "<Class.method>"]}``):
-  process calls live only in exact approved wrapper functions (PYQ220). Nested functions do
-  not inherit approval.
-- ``dynamic_import_roots`` and ``dynamic_import_adapters`` (exact paths): PYQ221.
-- ``contract_files`` and ``contract_data_annotations``
-  (``{"<path>": {"<Owner.binding>": "<annotation>"}}``): collaborator annotations use named
-  callable aliases and no ``Any``, except pinned JSON-record bindings (PYQ230, PYQ231).
-
-``process_roots`` and ``dynamic_import_roots`` default to ``maintained_roots``.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -76,11 +42,7 @@ CLASS_LIMIT_DEFAULTS = {
 }
 CALLABLE_NAMES = {"typing.Callable", "collections.abc.Callable", "Callable"}
 ANY_NAMES = {"typing.Any", "Any"}
-# ``type X = ...`` statements (ast.TypeAlias) exist from Python 3.12; 3.11 cannot parse them.
 TYPE_ALIAS = getattr(ast, "TypeAlias", ())
-
-
-# Class shape (PYQ200-PYQ203) and analyzer boundaries (PYQ210, PYQ211) -------------------------
 
 
 def class_limits(config: PythonSettings) -> dict[str, Any]:
@@ -212,9 +174,6 @@ def analyzer_findings(
     return found
 
 
-# Seams (PYQ220, PYQ221) ----------------------------------------------------------------------
-
-
 def seam_findings(
     tree: ast.Module, relpath: str, config: PythonSettings
 ) -> list[Finding]:
@@ -261,9 +220,6 @@ def seam_findings(
 
     visit(tree, import_names(tree), "")
     return found
-
-
-# Collaborator contracts (PYQ230, PYQ231) -----------------------------------------------------
 
 
 def annotation_tree(annotation: ast.AST) -> ast.AST:
@@ -404,9 +360,6 @@ def contract_findings(
 
     visit(tree, "")
     return found
-
-
-# Entry point --------------------------------------------------------------------------------
 
 
 def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Finding]:

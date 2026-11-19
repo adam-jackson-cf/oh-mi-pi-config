@@ -1,8 +1,3 @@
-"""Whole-name retirement and scoped, defined-name residue reference fixtures: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import json

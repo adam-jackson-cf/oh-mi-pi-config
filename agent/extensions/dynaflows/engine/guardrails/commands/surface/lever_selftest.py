@@ -1,30 +1,3 @@
-"""SURFACE.lever-isolation: the lever's doctor runs isolated, fails visibly and cleans up.
-
-``guardrails lever-selftest`` runs the profile's ``lever_command`` twice from the repo root,
-each time in its own session (process group) with fresh temporary data and evidence paths passed
-through ``data_dir_arg`` and ``evidence_dir_arg`` (an argument ending in ``=`` is joined to its
-value):
-
-1. Healthy run, with an empty data directory: it must exit 0.
-2. Broken-environment run: by default the data-directory argument names a regular file, which no
-   usable instance can use, so doctor must fail. It must exit non-zero and print the profile's
-   ``doctor_marker`` on stdout or stderr.
-
-After each run the evidence directory must exist, and no process may remain in the lever's
-process group or carry the run's temporary path in its command line (read with ``ps``, or
-from ``/proc`` where ``ps`` is not installed). Leftovers are reported and then killed. Ports
-are not probed separately: a port is held by a process, so the process check covers it. POSIX
-only; elsewhere the self-test reports that it cannot run.
-
-Profile ``guardrails.lever_selftest`` settings (all optional):
-
-- ``doctor_args``: arguments placed after the lever command, e.g. ``["doctor"]`` (default none).
-- ``failure_env``: environment overrides that break a real dependency for run 2 instead of the
-  data-directory-is-a-file default, e.g. a database URL pointing at a closed port.
-- ``timeout_s``: per-run timeout in seconds (default 120).
-- ``settle_s``: how long to wait for exiting children before calling them leftovers (default 2).
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -82,7 +55,6 @@ def group_alive(pgid: int) -> bool:
 
 
 def process_table() -> list[tuple[int, str]]:
-    """(pid, command line) of every visible process: ``ps``, else Linux ``/proc``."""
     try:
         result = run_text(["ps", "-axo", "pid=,command="], check=False)
     except OSError:
@@ -110,7 +82,6 @@ def proc_table() -> list[tuple[int, str]]:
 
 
 def marked_processes(marker: str) -> list[tuple[int, str]]:
-    """Processes whose command line contains the run's temporary path."""
     return [
         (pid, command)
         for pid, command in process_table()
@@ -147,8 +118,6 @@ def run_lever(
     scratch: Path,
     config: dict[str, Any],
 ) -> LeverRun:
-    """Run the lever in its own session; output goes to a file so a child holding stdout
-    cannot block the wait (it is reported as a leftover instead)."""
     log = scratch / f"lever-output-{time.monotonic_ns()}.log"
     with log.open("wb") as output:
         try:
@@ -209,7 +178,6 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails lever-selftest``."""
     del argv
     values = surface(profile)
     if values is None:
@@ -255,8 +223,6 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
 
 @dataclass(frozen=True)
 class DoctorCommand:
-    """The doctor command and the flags that point it at a data and an evidence directory."""
-
     repo: Path
     base: list[str]
     data_flag: str

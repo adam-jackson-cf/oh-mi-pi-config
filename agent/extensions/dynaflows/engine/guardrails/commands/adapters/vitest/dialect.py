@@ -1,9 +1,3 @@
-"""External Vitest reporting and the shared evidence dialect.
-
-Only the external evidence directory is written. The reporter is added to the native
-configuration, rather than replacing it, so project selection and setup remain native.
-"""
-
 from __future__ import annotations
 
 import json
@@ -26,11 +20,6 @@ GUARD_RULES = {
 
 
 def junit_arguments(tier: str, report_path: str) -> list[str]:
-    """Return CLI arguments; materialise the reporter entry beside the external report.
-
-    Callers must supply a report outside the target tree, as for every evidence writer.
-    Native ``--config`` arguments are preserved. No installed package is modified.
-    """
     if tier not in TIER_GUARDS:
         raise ValueError(f"unknown Vitest tier {tier!r}")
     report = Path(report_path).resolve()
@@ -54,7 +43,6 @@ def junit_arguments(tier: str, report_path: str) -> list[str]:
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    """Reject absent evidence or a run which did not actually arm every tier guard."""
     if tier not in TIER_GUARDS:
         raise ValueError(f"unknown Vitest tier {tier!r}")
     try:

@@ -1,36 +1,3 @@
-"""Toolchain parity: interpreter and toolchain pins, installer extras, documented installs and locks.
-
-``guardrails toolchain-parity`` takes no arguments. Every section runs only when
-``guardrails.toolchain_parity`` configures it; a profile that configures none is itself a
-finding, so an unconfigured check never passes silently. The dependency audit
-(``SECURITY.dependency-audit``) is not here: the repository's own checker owns it, and the
-harness never runs a copy (see the catalogue row's contract).
-
-Settings (``guardrails.toolchain_parity``):
-
-- ``python_pins``: pin files (e.g. ``.python-version``) that must be byte-equal and match the
-  running interpreter (``GATE.local-ci-parity``: local and CI run one interpreter).
-- ``uv``: ``project`` (pyproject path), ``lock`` (``uv.lock`` path), ``lock_projects`` (pyprojects
-  whose requirements and own version must match the lock; default ``[project]``),
-  ``installer_sources`` (repo globs scanned for ``uv sync`` lines; Makefile recipes also name make
-  targets), ``guidance`` (Markdown files whose shell blocks document installs) and
-  ``exact_uv_pin`` (require one ``uv==X.Y.Z`` dependency equal to the locked uv).
-  Rules: ``PARITY.dependency-inventory``, ``PARITY.install-guidance``, ``PARITY.lock-version``.
-- ``prettier``: ``package_json``, ``package_lock`` and ``npx_sources`` (globs where an
-  ``npx prettier`` call would bypass the lock). The manifest owns the exact version pin;
-  the lock must contain only that version. Rule: ``PRETTIER.version``.
-- ``node_pins``: Node pin files (e.g. ``.nvmrc``, ``.node-version``) that must be byte-equal, hold
-  one exact ``X.Y.Z`` (an optional leading ``v``) and match ``node --version`` run in the repo
-  (``GATE.local-ci-parity``).
-- ``package_manager``: ``package_json`` (default ``package.json``). Its ``packageManager`` must be one
-  exact ``<npm|pnpm|yarn|bun>@X.Y.Z`` pin, that manager's lockfile must sit beside it, and no other
-  manager's lockfile may (``PARITY.package-manager``). Bun's lockfile is the text ``bun.lock``.
-- ``go``: ``go_mod`` (default ``go.mod``) and ``ci_sources`` (globs of CI files). go.mod must name
-  one exact toolchain: a ``toolchain goX.Y.Z`` directive, else an exact ``go X.Y.Z`` directive. Every
-  CI Go version (``go-version:``, a ``golang:`` image tag) must equal it, ``go-version-file`` must
-  name the go.mod, and CI sources that set no Go version are a finding (``GATE.local-ci-parity``).
-"""
-
 from __future__ import annotations
 
 import json
@@ -100,7 +67,6 @@ def project_dir(path: str) -> str:
 
 
 def sync_signature(command: str) -> tuple[str, frozenset[str], frozenset[str], bool]:
-    """Project, selected extras (``*`` for all), excluded extras and lock enforcement."""
     tokens = shlex.split(command, comments=True)
     extras = option_values(tokens, "--extra")
     if "--all-extras" in tokens:
@@ -114,7 +80,6 @@ def sync_signature(command: str) -> tuple[str, frozenset[str], frozenset[str], b
 
 
 def joined_lines(text: str) -> list[tuple[int, str]]:
-    """Lines with backslash continuations joined, numbered by their first physical line."""
     lines, pending, start = [], "", 0
     for number, line in enumerate(text.splitlines(), 1):
         if not pending:
@@ -130,7 +95,6 @@ def joined_lines(text: str) -> list[tuple[int, str]]:
 
 
 def make_targets(text: str) -> dict[str, str]:
-    """Each Makefile target whose recipe runs ``uv sync``, mapped to that command."""
     targets: dict[str, str] = {}
     current: str | None = None
     for _, line in joined_lines(text):
@@ -187,7 +151,6 @@ def guidance_commands(text: str) -> list[str]:
 
 
 def documented_install(command: str, targets: Mapping[str, str]) -> str | None:
-    """The install a documented line performs, ``""`` for an unknown setup target, else None."""
     tokens = shlex.split(command.lstrip("$ "), comments=True)
     if "make" in tokens:
         target = tokens[tokens.index("make") + 1 :]

@@ -1,30 +1,3 @@
-"""Collection evidence: run-report hygiene and TEST.tier-selectors over per-tier test lists.
-
-Run report (called by ``propagation`` under ``report-check``, on the commit and CI gates):
-
-- An empty report (no test cases) never passes: ``TEST.failure-propagation``.
-- A test ID reported more than once makes the evidence ambiguous: ``TEST.failure-propagation``.
-- A skipped or xfail case needs an approved entry: ``TEST.no-evasion``.
-- A case that passed only after retries (retry markers, or an earlier failing duplicate)
-  is a retry to green: ``TEST.no-evasion``.
-
-Tier collections (``guardrails collection-check --tier t1=PATH --tier t2=PATH ...``):
-each PATH is an adapter's collect-only list for that tier, one normalised test ID
-(``<repo-relative file>::<name>``) per line; blank lines and ``#`` comments are ignored. A tier
-that several adapters take part in gets one ``--tier`` per adapter; its lists are joined.
-
-- Every profile tier needs a list; a missing or unreadable list, or an empty one, is
-  ``TEST.failure-propagation`` (empty collection never passes).
-- ``TEST.tier-selectors``: an ID listed twice, a file selected by two tiers (one tier per
-  file), and a repository file matching ``layout.test_file_patterns`` that no tier selects.
-
-Profile ``guardrails.test_evidence`` settings (all optional):
-
-- ``approved_skips``: ``[{"id": "<glob over test IDs>", "reason": "...", "approval": "..."}]``;
-  an entry without a real reason and approval approves nothing.
-- ``unselected_exempt``: path patterns that are test-named but are not test files.
-"""
-
 from __future__ import annotations
 
 from collections import Counter
@@ -74,7 +47,6 @@ def approved(test_id: str, profile: dict[str, Any]) -> bool:
 
 
 def report_findings(report: Report, profile: dict[str, Any]) -> list[Finding]:
-    """Empty, duplicated, unapproved-skip and retried-to-green evidence in one run report."""
     if not report.cases:
         return [
             Finding(
@@ -149,7 +121,6 @@ def read_ids(path: Path) -> list[str] | None:
 
 
 def joined_ids(repo: Path, paths: list[str]) -> list[str] | None:
-    """One tier's IDs across its adapters' lists; None when any list is missing."""
     joined: list[str] = []
     for path in paths:
         ids = read_ids(repo / path)
@@ -175,7 +146,6 @@ def collection_findings(
     profile: dict[str, Any],
     test_files: list[str],
 ) -> list[Finding]:
-    """TEST.tier-selectors and empty-collection findings for per-tier ID lists."""
     tiers = profile_tiers(profile)
     found = [
         Finding(
@@ -220,7 +190,6 @@ def collection_findings(
 def tier_list_findings(
     tier: str, ids: list[str] | None, tiers: list[str]
 ) -> list[Finding]:
-    """Findings for one tier's collect-only list: unknown tier, missing, empty or duplicated IDs."""
     if tier not in tiers:
         return [
             Finding(
@@ -273,7 +242,6 @@ def repository_test_files(repo: Path, profile: dict[str, Any]) -> list[str]:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails collection-check --tier <tier>=<list> ...`` (one per profile tier)."""
     try:
         lists = tier_arguments(argv)
     except UsageError as error:

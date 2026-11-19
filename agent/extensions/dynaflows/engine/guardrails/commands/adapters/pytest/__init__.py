@@ -1,31 +1,3 @@
-"""The pytest adapter: evidence and source patterns for the shared test checkers (plan §1.12).
-
-``guardrails adapter pytest <action>`` when the profile's ``adapters`` include ``pytest``:
-
-- ``lint [PATH ...]`` (default): ast-grep rules for TEST.no-self-mocking, TEST.no-test-hooks,
-  TEST.no-evasion (static skip, xfail and retry markers) and TEST.property-seed.
-- ``tiers --out DIR [--tier T ...]``: collect-only test IDs per tier into ``DIR/<tier>.txt``.
-- ``junit-args --tier T --out FILE``: prints the pytest arguments a tier command adds to emit a
-  JUnit report with the run properties and arm the tier's guards. ``report-check`` (commit and
-  CI gates) and ``budget-check`` (local commit gate only) then read the report through this
-  adapter's ``dialect.DIALECT`` (the shared schema's pytest dialect).
-- ``guard-evidence REPORT --tier T``: the report's ``omp.guards`` property shows the tier's
-  guards were armed (T1: fast-tier and user-data; T2 and T3: user-data) and ``omp.tier`` names
-  the tier.
-- ``affected --base REF [--head REF]``: the pytest arguments that run the affected T2 tests
-  (shared selection in ``guardrails.commands.adapters.affected``, narrowed to the Python files this adapter
-  runs); prints nothing when none are affected, and the reason on standard error.
-- ``mutation-tool``: prints the mutation tool for TEST.mutation-sensitivity (mutmut, pinned by
-  the ``mutation`` extra). It runs only in T3 (nightly); the adapter never runs it in CI.
-- ``mutation-report --out FILE``: after ``mutmut run``, writes mutmut's results as the shared
-  mutation report that ``guardrails mutation-check`` reads.
-- ``conformance [--case ID ...]``: runs the framework-agnostic conformance cases.
-
-``lint``, ``tiers`` and ``conformance`` need the ``pytest`` extra; the others are stdlib-only.
-guardrails never writes into the repository tree, so every ``--out`` path (the tier listing,
-the JUnit report, the mutation report) must lie outside the checkout.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -37,6 +9,7 @@ from typing import Any
 from guardrails.commands.adapters.pytest.dialect import DIALECT, GUARDS_PROPERTY
 from guardrails.commands.adapters.pytest.invocation import TIER_GUARDS, tier_arguments
 from guardrails.foundation.findings import Finding
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 NAME = DIALECT.name
 SUFFIXES = (".py",)
@@ -52,10 +25,6 @@ WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
 
 
 def output_finding(repo: Path, out: object) -> Finding | None:
-    """A finding when ``out`` would put an output file inside the repository.
-
-    A relative path counts as repository-relative, so outputs always name an absolute path.
-    """
     target = Path(str(out)).expanduser()
     target = (target if target.is_absolute() else repo / target).resolve()
     if target != repo.resolve() and not target.is_relative_to(repo.resolve()):
@@ -70,7 +39,7 @@ def output_finding(repo: Path, out: object) -> Finding | None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="guardrails adapter pytest", description=__doc__
+        prog="guardrails adapter pytest", description=SUBCOMMANDS["adapter"].summary
     )
     actions = root.add_subparsers(dest="action")
     lint = actions.add_parser("lint")
@@ -109,7 +78,6 @@ def t2_arguments(selector: object, paths: list[str]) -> list[str]:
 def affected_arguments(
     repo: Path, profile: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
-    """Print the affected T2 files with the T2 marker selector as pytest arguments."""
     from guardrails.commands.adapters.affected import TierCommand, print_affected
 
     command = TierCommand(NAME, SUFFIXES, t2_arguments)

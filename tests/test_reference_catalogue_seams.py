@@ -1,8 +1,3 @@
-"""The packaged rule catalogue, its coverage by these tests, toolchain parity and versions: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import json
@@ -41,8 +36,6 @@ def rules_of(findings: list[Any]) -> list[str]:
 
 
 class RepoCase(unittest.TestCase):
-    """Each test gets a fresh git repository with a commit identity."""
-
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-catalogue-")
         self.addCleanup(scratch.cleanup)

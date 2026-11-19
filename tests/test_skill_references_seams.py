@@ -1,8 +1,3 @@
-"""Check that core skill references resolve within this repository: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 import re
 import unittest
 from pathlib import Path
@@ -22,7 +17,6 @@ LATITUDE = (
 )
 
 
-# Body heading -> (route, SKILL.md line cap, SKILL.md character cap); "# Task" splits on references/.
 ROUTES = {
     "# Workflow": ("multi-step-workflow", 120, 5000),
     "# Task": ("simple-task:inline", 120, 12000),
@@ -65,7 +59,6 @@ def frontmatter_description(text: str) -> str | None:
 
 
 def description_failures(entry: Path, text: str) -> list[str]:
-    """The SKILL.md description must be one 'Use when' sentence under the character cap."""
     description = frontmatter_description(text)
     if (
         description is None
@@ -80,7 +73,6 @@ def description_failures(entry: Path, text: str) -> list[str]:
 
 
 def width_failures(sources: list[Path]) -> list[str]:
-    """Lines wider than the cap in SKILL.md and its references."""
     failures = []
     for source in sources:
         wide = [
@@ -98,7 +90,6 @@ def width_failures(sources: list[Path]) -> list[str]:
 
 
 def reference_failures(directory: Path, text: str, references: list[Path]) -> list[str]:
-    """References sit one level deep, stay under the caps and are linked directly from SKILL.md."""
     failures = []
     linked = {
         match.split("#", 1)[0]
@@ -123,7 +114,6 @@ def reference_failures(directory: Path, text: str, references: list[Path]) -> li
 
 
 def latitude_failures(entry: Path, body: str) -> list[str]:
-    """The first step of a workflow or runbook index carries the latitude clause verbatim."""
     sections = re.split(r"^#{2,3} ", body, flags=re.MULTILINE)
     first = next(
         (section for section in sections[1:] if not section.startswith("Output")), ""
@@ -134,7 +124,6 @@ def latitude_failures(entry: Path, body: str) -> list[str]:
 
 
 def step_failures(entry: Path, body: str) -> list[str]:
-    """Workflow steps are numbered contiguously, each with one workflow link and at most one STOP."""
     failures = []
     steps = re.findall(
         r"^#{2,3} Step (\d+):[^\n]*\n(.*?)(?=^#{2,3} |\Z)",
@@ -161,7 +150,6 @@ def step_failures(entry: Path, body: str) -> list[str]:
 
 
 def skill_shape_failures(directory: Path) -> list[str]:
-    """Every breach of the create-skill route, size and linking rules for one skill directory."""
     entry = (directory / "SKILL.md").relative_to(ROOT)
     text = (ROOT / entry).read_text(encoding="utf-8")
     failures = description_failures(entry, text)

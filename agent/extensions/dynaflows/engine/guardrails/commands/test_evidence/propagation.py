@@ -1,22 +1,3 @@
-"""TEST.failure-propagation over a run report: missing, failed or infra-failed runs never pass.
-
-``guardrails report-check --junit PATH [--exit-code N]`` fails when:
-
-1. the report is missing, unreadable or not JUnit XML;
-2. a case failed or errored (an error is an infrastructure or collection failure);
-3. the report is truncated: its suites declare more tests, failures or errors than it holds;
-4. the runner exit code (``--exit-code``, else the ``omp.exit_code`` property) is non-zero
-   while every case passed, which is a failure outside the test cases (setup, collection,
-   empty selection such as pytest exit 5 or vitest "no tests", or a crashed runner);
-5. the exit code is zero while a case failed: the runner masked a failure;
-6. the report's dialect requires the exit code (its native report can omit a test file that
-   fails to load) and neither ``--exit-code`` nor ``omp.exit_code`` gives one.
-
-It also applies the run-report hygiene in ``collection.report_findings``: empty reports,
-duplicate IDs, unapproved skips or xfails, and retries to green. It never reads test timing:
-the commit and CI gates both run it, and only the commit gate runs ``budget-check``.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -45,7 +26,6 @@ EXIT_FIX = "fix the runner failure outside the test cases, then rerun the tier"
 
 
 def final_cases(report: Report) -> list[Case]:
-    """The last result per test ID; earlier attempts are judged as retries in collection."""
     return list({case.id: case for case in report.cases}.values())
 
 

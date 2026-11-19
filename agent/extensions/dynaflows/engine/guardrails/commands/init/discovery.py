@@ -1,20 +1,3 @@
-"""Discover a repository's own controls so init can draft its record for owner confirmation.
-
-Init reads, and never writes, the repository:
-
-- make targets in ``Makefile``, ``GNUmakefile`` or ``makefile`` at the root;
-- hook managers: ``.pre-commit-config.yaml`` (with its hook ids), ``.husky/pre-commit`` and
-  ``lefthook.yml``;
-- CI jobs in ``.github/workflows/*.yml`` and ``*.yaml``: each job's id and display name (the
-  name GitHub reports as its check run);
-- the default branch's required status checks, through ``gh`` (rulesets and classic branch
-  protection). ``--offline`` skips ``gh``; any ``gh`` failure is reported, never guessed.
-
-The YAML files are scanned line by line with the standard library, so only the plain block
-forms GitHub and pre-commit document are recognised; the report shows what was found, and the
-owner confirms the draft.
-"""
-
 from __future__ import annotations
 
 import json
@@ -105,7 +88,6 @@ def hook_managers(repo: Path) -> tuple[list[str], list[str]]:
 
 
 def workflow_jobs(workflow: str, text: str) -> list[CiJob]:
-    """Jobs under the top-level ``jobs:`` key, with the ``name:`` each one declares."""
     jobs: list[CiJob] = []
     in_jobs = False
     indent: int | None = None
@@ -148,7 +130,7 @@ def ci_jobs(repo: Path) -> list[CiJob]:
 
 
 class GhError(Exception):
-    """``gh`` could not answer."""
+    pass
 
 
 def gh_json(repo: Path, args: list[str], *, missing_ok: bool = False) -> object:
@@ -181,7 +163,6 @@ def gh_json(repo: Path, args: list[str], *, missing_ok: bool = False) -> object:
 
 
 def required_checks(repo: Path) -> list[str]:
-    """Contexts the default branch requires, from rulesets and classic branch protection."""
     view = gh_json(repo, ["repo", "view", "--json", "nameWithOwner,defaultBranchRef"])
     if not isinstance(view, dict):
         raise GhError("gh repo view returned no repository")

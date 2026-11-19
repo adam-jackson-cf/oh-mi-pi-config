@@ -1,33 +1,3 @@
-"""Bun's JUnit reporter, its guard journal and the shared evidence dialect (items 1 and 6).
-
-Emission: :func:`junit_arguments` writes a preload entry beside the external report and returns
-the ``bun test`` arguments that load it and write Bun's native JUnit report
-(``--reporter=junit --reporter-outfile``). The preload (``preload.mjs``) arms the tier's guards
-and appends a journal beside the report (``<report>.journal.jsonl``): the run identity, the guards
-it armed, every guard violation, every test registration with its modifiers and every attempt of
-a test body.
-
-Bun's native report alone loses evidence the shared checkers need: an expected failure
-(``test.failing``) that fails is reported as passed, a retry to green is invisible, tests a
-``--test-name-pattern`` filters out appear as skipped, nested suites carry their titles in reverse
-in ``classname`` and a test file that fails to load is missing altogether. ``DIALECT.complete``
-therefore rebuilds the cases from the report's suite nesting and the journal:
-
-- IDs are ``<file>::<suite> > ... > <title>``, the same IDs the tier listing writes;
-- a registered skip (``skip``, ``todo``, ``skipIf``, ``if``, ``xtest`` or a skipped suite) stays
-  skipped, its title as the reason (Bun records no skip reason); a skipped case with no skip
-  registration was filtered out by the selector and is dropped; when its file focuses tests with
-  ``only`` it stays skipped as an evasion;
-- an expected failure that failed is ``xfail``, its title as the reason;
-- extra attempts of a body are retries;
-- each guard violation is an error case, so a caught guard error still fails the report;
-- the run properties (``omp.tier``, ``omp.guards``, ``omp.runtime``, ``omp.revision``) come from the
-  journal.
-
-A missing journal is a report error, and the report requires the runner's exit code
-(``report-check --exit-code``), because only the exit code shows a test file that failed to load.
-"""
-
 from __future__ import annotations
 
 import json
@@ -62,7 +32,6 @@ GUARD_RULES = {
     "fast-tier": "TEST.fast-tier-isolation",
     "user-data": "TEST.user-data-guard",
 }
-# Bun's each-title placeholders: printf tokens and ``$key`` object-row fields.
 PLACEHOLDER = re.compile(r"%[sdifjoOp#%]|\$[A-Za-z_][\w.]*")
 FOCUS_REASON = "not run: its file focuses other tests with only"
 
@@ -72,7 +41,6 @@ def journal_path(report: Path) -> Path:
 
 
 def write_entry(entry: Path, settings: dict[str, str]) -> None:
-    """The preload entry Bun loads: it starts the adapter's preload with ``settings``."""
     entry.write_text(
         f"import {{ start }} from {json.dumps(PRELOAD.resolve().as_uri())};\n"
         f"start({json.dumps(settings)});\n",
@@ -81,11 +49,6 @@ def write_entry(entry: Path, settings: dict[str, str]) -> None:
 
 
 def junit_arguments(tier: str, report_path: str) -> list[str]:
-    """``bun test`` arguments for a guarded tier run; writes the preload entry beside the report.
-
-    The report must lie outside the target tree, as for every evidence writer. The journal
-    starts empty, so evidence from an earlier run never mixes in.
-    """
     if tier not in TIER_GUARDS:
         raise ValueError(f"unknown Bun tier {tier!r}")
     report = Path(report_path).resolve()
@@ -104,8 +67,6 @@ def junit_arguments(tier: str, report_path: str) -> list[str]:
 
 @dataclass(frozen=True)
 class NativeCase:
-    """One ``<testcase>`` of Bun's report with the suite titles that enclose it."""
-
     file: str
     suites: tuple[str, ...]
     name: str
@@ -117,7 +78,6 @@ class NativeCase:
 
 
 def native_cases(root: ElementTree.Element) -> list[NativeCase]:
-    """Cases in document order; a top-level suite is a file, nested suites are ``describe``s."""
     found: list[NativeCase] = []
 
     def visit(element: ElementTree.Element, file: str, suites: tuple[str, ...]) -> None:
@@ -159,8 +119,6 @@ def matches_title(template: str, each: bool, name: str) -> bool:
 
 @dataclass(frozen=True)
 class Registration:
-    """One journalled ``test`` registration."""
-
     file: str
     suites: tuple[str, ...]
     suite_each: tuple[bool, ...]
@@ -194,7 +152,6 @@ class Journal:
     guards: tuple[str, ...]
     violations: tuple[str, ...]
     registrations: tuple[Registration, ...]
-    # (file, suites, title) -> attempts per row, rows in first-attempt order.
     attempts: dict[tuple[str, tuple[str, ...], str], dict[str, int]]
 
 
@@ -262,7 +219,6 @@ def read_journal(path: Path) -> Journal:
 
 
 def retries_for(registration: Registration, journal: Journal, position: int) -> int:
-    """Extra attempts of the ``position``-th row (document order) of a registration."""
     rows = list(journal.attempts.get(registration.key, {}).values())
     if not rows:
         return 0
@@ -271,8 +227,6 @@ def retries_for(registration: Registration, journal: Journal, position: int) -> 
 
 
 class BunDialect(Dialect):
-    """Bun's native JUnit completed from the preload's journal (see the module docstring)."""
-
     def complete(self, path: Path, report: Report) -> Report:
         journal = read_journal(journal_path(path))
         try:
@@ -325,7 +279,6 @@ class BunDialect(Dialect):
             if revision:
                 properties["omp.revision"] = revision
         properties[GUARDS_PROPERTY] = ",".join(journal.guards)
-        # Bun's leaf suites leave out a file's top-level tests; its outer element counts them all.
         declared = {
             key: count - (dropped if key == "tests" else 0)
             for key in ("tests", "failures")
@@ -340,7 +293,6 @@ DIALECT = BunDialect(name="bun_test", source_suffix=".ts", requires_exit_code=Tr
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    """Reject absent evidence or a run that did not arm every guard of its tier."""
     if tier not in TIER_GUARDS:
         raise ValueError(f"unknown Bun tier {tier!r}")
     try:

@@ -1,18 +1,3 @@
-"""FANOUT rules: bound each module's distinct non-stdlib architectural imports.
-
-``guardrails python-fanout [path ...]`` reads profile ``guardrails.python`` settings:
-
-- ``source_roots`` (required): import roots, such as ``src``. A file's module name is its path
-  below the deepest matching root.
-- ``fanout.root_packages``: first-party packages, whose imports count at the deepest known
-  module. Default: the packages named by the profile's ``public_entry_points`` ("own code").
-- ``fanout.architectural_max`` (10): FANOUT.general limit.
-- ``fanout.large_module_nloc`` (800) and ``fanout.large_module_architectural_max`` (3):
-  FANOUT.large-module, the tighter limit for modules over that many non-comment lines.
-
-Literal ``importlib.import_module("...")`` calls count as imports; stdlib modules never count.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -82,8 +67,6 @@ def resolve_relative(current: Module, node: ast.ImportFrom) -> str | None:
 
 
 class ImportCollector:
-    """Normalises first-party imports to the deepest known module of the analysed tree."""
-
     def __init__(self, root_packages: set[str], known: set[str]) -> None:
         self.root_packages = root_packages
         self.known = known | root_packages

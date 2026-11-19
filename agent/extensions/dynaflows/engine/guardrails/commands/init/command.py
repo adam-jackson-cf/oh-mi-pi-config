@@ -1,26 +1,3 @@
-"""``guardrails init --repo DIR --record DIR [options]``: draft the repo's personal record.
-
-Init reads the repository and writes only into the record directory ``--record``. The live
-record (``<oh-mi-pi-config root>/repos/<owner>/<name>/``, gitignored in the harness and never
-committed) can be written directly by agents. ``--enable-dynaflows`` drafts dynaflows on.
-Into the record directory, init:
-
-1. discovers the repository's own controls (``discovery``): make targets, hook managers, CI
-   jobs and, through ``gh``, the default branch's required checks;
-2. writes ``profile.md`` from the test-guidance template, keeping every recorded value
-   (``profile_fill``); ``--settings FILE`` adds per-checker settings under ``guardrails``;
-3. writes ``gate.json`` with the absent fields drafted from the discovery (``record_gate``);
-4. writes proposed native-tool configs to ``proposed/`` (``native_config`` for Python,
-   ``native_languages`` for TypeScript, Go and shell); the owner applies them as a fix;
-5. records the detected language servers in ``command_notes.lsp`` and runs each server's canary
-   references query (``lsp``). A server missing from ``PATH`` is a setup gap unless
-   ``--allow-missing-lsp`` is given; a server that fails the canary always is.
-
-The report lists what was discovered and every value the owner must confirm. Init never
-overwrites a recorded value and never writes an approval, so a second run changes nothing. It
-drafts dynaflows on only with ``--enable-dynaflows``.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -44,17 +21,20 @@ from guardrails.context.config.profile import (
     load_profile,
 )
 from guardrails.foundation.findings import Finding
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 USAGE_RULE = "PROFILE.complete"
 PROPOSED_DIR = "proposed"
 
 
 class UsageError(Exception):
-    """The command line cannot be acted on."""
+    pass
 
 
 def parser() -> argparse.ArgumentParser:
-    command = argparse.ArgumentParser(prog="guardrails init", description=__doc__)
+    command = argparse.ArgumentParser(
+        prog="guardrails init", description=SUBCOMMANDS["init"].summary
+    )
     command.add_argument("--commit-command", help="the repo's own commit gate command")
     command.add_argument("--ci-command", help="the repo's own CI gate command")
     command.add_argument(
@@ -165,7 +145,6 @@ def optional_profile(record: Path) -> dict[str, Any]:
 def initialise(
     repo: Path, record: Path, options: argparse.Namespace
 ) -> tuple[list[str], list[Finding]]:
-    """Draft the record; return report lines and setup-gap findings."""
     gate = record_gate.load_gate(record)
     found = discovery.discover(repo, offline=options.offline)
     changes: list[str] = []
@@ -193,7 +172,6 @@ def is_live(record: Path) -> bool:
 
 
 def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
-    """CLI entry: print the report and return the setup gaps that remain."""
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []

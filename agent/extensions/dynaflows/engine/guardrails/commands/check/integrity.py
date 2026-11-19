@@ -135,7 +135,6 @@ HASH_NAMES = frozenset({
     ".gitattributes",
     ".env",
 })
-# Comment markers by file suffix, in the order they are tried at each position.
 SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] = (
     (
         frozenset({".sql", ".lua", ".hs", ".elm", ".vhd", ".vhdl", ".ada"}),
@@ -155,7 +154,6 @@ SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] =
 
 
 def comment_markers(path: str) -> list[tuple[str, str]]:
-    """The ``(start, end)`` comment delimiters of the file's language; ``\\n`` ends a line comment."""
     suffix = Path(path).suffix.lower()
     markers: list[tuple[str, str]] = []
     if suffix in HASH or Path(path).name.lower() in HASH_NAMES:
@@ -181,7 +179,6 @@ def comment_stop(text: str, at: int, marker: tuple[str, str]) -> int:
 def comment_span(
     text: str, at: int, stop: int, marker: tuple[str, str]
 ) -> tuple[int, int, str]:
-    """``(first line, last line, content)`` of the comment between ``at`` and ``stop``."""
     start, end = marker
     content_end = stop - len(end) if end != "\n" and text[:stop].endswith(end) else stop
     return (
@@ -192,7 +189,6 @@ def comment_span(
 
 
 def string_stop(text: str, at: int) -> int:
-    """The offset just past the string literal that opens at ``at``."""
     quote = text[at] * (3 if text.startswith(text[at] * 3, at) else 1)
     stop = at + len(quote)
     while stop < len(text):
@@ -248,7 +244,6 @@ def is_test(path: str, profile: dict[str, Any]) -> bool:
 def add_comment_findings(
     text: str, path: str, added: set[int], findings: list[Finding]
 ) -> None:
-    """Append a finding per added comment token; tokenize errors propagate with earlier findings kept."""
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
         if (
             token.type == tokenize.COMMENT
@@ -260,7 +255,6 @@ def add_comment_findings(
 
 
 def declaration_names(tree: ast.Module) -> dict[str, str]:
-    """Local name -> typing/abc name for ``Protocol``, ``abstractmethod`` and ``overload`` imports."""
     names = {
         "Protocol": "Protocol",
         "abstractmethod": "abstractmethod",
@@ -279,7 +273,6 @@ def declaration_names(tree: ast.Module) -> dict[str, str]:
 
 
 def protocol_members(tree: ast.Module, names: dict[str, str]) -> set[int]:
-    """Node ids of every statement in a Protocol class body."""
     members: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and any(
@@ -451,7 +444,6 @@ def comment_findings(
 def script_mock_findings(
     text: str, code: str, path: str, added: set[int]
 ) -> list[Finding]:
-    """Mock calls and mock-library imports added to JavaScript or TypeScript product code."""
     findings = []
     pattern = re.compile(
         r"\b(?:jest|vi)\s*\.\s*(?:mock|doMock|unstable_mockModule)\s*\("
@@ -494,8 +486,6 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
 
 @dataclass(frozen=True)
 class Revisions:
-    """What to compare: ``base`` against ``head``, the index (``staged``) or the working tree."""
-
     base: str
     head: str | None = None
     staged: bool = False

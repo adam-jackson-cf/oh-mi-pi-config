@@ -1,11 +1,3 @@
-"""Standard-library subset of PEP 508 requirements and PEP 440 version matching.
-
-The parity checks only ask "does every locked version satisfy the declared specifier?", so
-this module supports names, extras, URL requirements, environment markers (ignored) and the
-operators ``== != <= >= < > ~= ===``, including ``==X.*`` prefixes. Ordering follows PEP 440:
-epoch, release, pre-release, post-release, dev-release; local labels are ignored.
-"""
-
 from __future__ import annotations
 
 import re
@@ -37,7 +29,7 @@ PRE_RANK = {
 
 
 class VersionError(ValueError):
-    """A requirement or version is outside the supported subset."""
+    pass
 
 
 @dataclass(frozen=True)

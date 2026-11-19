@@ -3,7 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <title>Orca chat harness</title>
-    <!-- shoot.sh fills the __PLACEHOLDERS__ when it copies this page into the extracted Orca renderer. -->
     <link rel="stylesheet" href="assets/__CLIENT_CSS__" />
     <link rel="stylesheet" href="assets/__ROW_CSS__" />
     <link rel="stylesheet" href="file://__STYLE_DIR__/chat.css" />
@@ -76,7 +75,6 @@
             class="mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-5 px-[5px]"
           >
             <div data-native-chat-window="true" class="relative w-full">
-              <!-- Turn 1 (older): user message, status, short reply -->
               <div data-index="0" class="flow-root w-full">
                 <div class="flex flex-col gap-5 -mb-3">
                   <div
@@ -134,7 +132,6 @@
                 </div>
               </div>
 
-              <!-- Turn 2 (current): user message, active status, tool rows, long mixed-media reply -->
               <div data-index="2" class="flow-root w-full">
                 <div class="flex flex-col gap-5 -mb-3">
                   <div

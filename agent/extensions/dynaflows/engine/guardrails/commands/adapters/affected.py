@@ -1,23 +1,3 @@
-"""Affected T2 selection from the profile's Ownership areas (test-guidance v2, tiers).
-
-``guardrails affected --base <ref> [--head <ref>]`` prints the T2 test files the change
-affects, one per line, and a ``selection:`` line on standard error that says why.
-
-1. T2 files are the repo's test files under the t2 ``location`` paths of every adapter, plus files matching
-   ``verification_surface.journey_file_pattern`` (journeys are T2). Test files are files that
-   match ``layout.test_file_patterns``.
-2. Each T2 file's area is the area of the first ``ownership_areas.map`` pattern it matches.
-3. A changed file is production code when it lies under ``coverage.scope`` and is not a test,
-   fixture or support file. Its area is the owner ``structure.owners`` gives it: an exact
-   ``files`` entry first, then the longest matching ``directories`` prefix.
-4. The selection is every T2 file in an affected area, plus every changed T2 file.
-5. When any changed production file has no owner, the selection is all T2 files and the
-   ``selection:`` line names the unowned files. Unknown ownership never narrows the run.
-
-Changed files that are neither production code nor T2 files (docs, other tiers) select nothing.
-The command reports no findings; a bad diff range is a ``TEST.tier-selectors`` finding.
-"""
-
 from __future__ import annotations
 
 import shlex

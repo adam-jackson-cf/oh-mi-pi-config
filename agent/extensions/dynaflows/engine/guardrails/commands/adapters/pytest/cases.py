@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
 
-# The files this collector reads.
 SUFFIXES = (".py",)
 TestFunction: TypeAlias = ast.FunctionDef | ast.AsyncFunctionDef
 Bindings: TypeAlias = dict[str, ast.expr]
@@ -16,13 +15,11 @@ Dimension: TypeAlias = list[ParameterRow]
 
 
 class CollectionError(ValueError):
-    """The file's tests cannot be collected without running them."""
+    pass
 
 
 @dataclass(frozen=True)
 class Case:
-    """One collected test invocation with its normalised behaviour."""
-
     selector: str
     fingerprint: str
 
@@ -168,8 +165,6 @@ def _parameter_rows(decorator: ast.Call) -> Dimension:
 
 
 class Normalizer(ast.NodeTransformer):
-    """Resolve aliases and local bindings without evaluating test code."""
-
     def __init__(
         self, aliases: Mapping[str, str], bindings: Mapping[str, ast.expr]
     ) -> None:
@@ -282,15 +277,12 @@ def _fingerprint(
             for node in ast.walk(statement)
             if isinstance(node, ast.Call)
         )
-        # Calls retain execution order even when a single-use temporary is inlined.
         if not _inline_temporary(function, statement, normalizer):
             body.append(_expression(normalizer.visit(copy.deepcopy(statement))))
     return "|".join(calls) + "::" + "|".join(body)
 
 
 class Constants(ast.NodeTransformer):
-    """Resolve static module constants used in pytest row IDs."""
-
     def __init__(self) -> None:
         self.values: dict[str, ast.expr] = {}
 
@@ -409,8 +401,6 @@ UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCa
 def _is_test_class(
     node: ast.ClassDef, aliases: Mapping[str, str], test_classes: set[str]
 ) -> bool:
-    """pytest's rule: a ``Test*`` class, or a ``unittest.TestCase`` subclass (directly or
-    through a test class defined earlier in the same file), whatever its name."""
     if node.name.startswith("Test"):
         return True
     for base in node.bases:
@@ -467,7 +457,6 @@ def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
 
 
 def collect(path: str, text: str) -> Collected:
-    """Statically collect ``text`` (the file at ``path``); raise CollectionError when it cannot."""
     try:
         cases, behaviours = _cases(path, text)
     except (SyntaxError, ValueError, TypeError) as error:

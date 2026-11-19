@@ -1,8 +1,3 @@
-"""Shared test-evidence checkers of the guardrails reference over synthetic JUnit evidence: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -34,7 +29,6 @@ pytestmark = pytest.mark.seam
 
 
 def bun_profile() -> dict[str, Any]:
-    """The same tiers with a second framework's tests beside pytest's in t1."""
     base = profile()
     base["layout"]["test_file_patterns"] = ["test_*.py", "*.test.ts"]
     base["adapters"].append({

@@ -83,7 +83,6 @@ done
 
 if command -v omp >/dev/null 2>&1; then
   for slot in dark light; do
-    # An unset theme slot makes omp config get fail; it reads as no theme.
     theme=$(omp config get "theme.$slot" 2>/dev/null) || theme=''
     if [ "$theme" = "orca-sections-$slot" ]; then
       step "omp theme.$slot already orca-sections-$slot"

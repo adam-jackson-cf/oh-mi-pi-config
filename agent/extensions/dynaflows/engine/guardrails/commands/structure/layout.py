@@ -1,20 +1,3 @@
-"""STRUCT.folder-placement and STRUCT.dependency-direction from the repository layout.
-
-``guardrails structure`` checks the whole inventory against the profile's
-``guardrails.structure`` settings (all optional except the root allowlist):
-
-- ``root_directories`` / ``root_files``: the only entries allowed at the repository root.
-- ``areas``: ``{"<folder>": {"directories": [...], "files": [...]}}`` allowlists the direct
-  children of a data folder.
-- ``packages``: ``[{"root": "<dir>", "children": {"<pkg>": ["<subpkg>", ...]}, "max_depth": N}]``
-  allowlists the packages below a source root, each with its own subpackages, and bounds nesting.
-- ``instances``: ``[{"root": "<dir>", "depth": N, "marker": "<file>", "exempt": [...]}]``: every
-  file under ``root`` sits inside an instance folder ``N`` levels below it, and each instance
-  folder holds ``marker`` directly (one layout for every instance of a kind).
-- ``forbidden_imports``: ``[{"root": "<dir>", "modules": [...]}]``: Python files under ``root``
-  never import those top-level modules.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -202,7 +185,6 @@ def parse_python(repo: Path, path: str) -> ast.Module | Finding:
 
 
 def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
-    """Absolute imports as (line, module) pairs."""
     names: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -218,7 +200,6 @@ def path_findings(
     *,
     existing_paths: set[str] | None = None,
 ) -> list[Finding]:
-    """Per-path allowlist findings, shared with the changed-path check."""
     return scope.restrict(
         [
             *root_findings(path, config),

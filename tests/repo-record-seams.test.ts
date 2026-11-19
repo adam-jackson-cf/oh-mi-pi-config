@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { dynaflowsEnabled, findRecord, offText, RecordError, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
 
-// A complete gate.json; tests replace one field at a time (undefined drops it from the JSON).
 const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, ownerOnlyPaths: [], dynaflows: { enabled: true } };
 
 const git = (...args: string[]) => execFileSync("git", args, { stdio: "pipe" });
@@ -17,7 +16,6 @@ function fixture() {
 	const repo = join(temp, "clone");
 	git("init", "-q", "-b", "main", repo);
 	git("-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init");
-	// Gate text is written raw so a test can also store malformed JSON.
 	const writeRecord = (slug: string, gateText: string) => {
 		const record = join(config, "repos", slug);
 		mkdirSync(record, { recursive: true });

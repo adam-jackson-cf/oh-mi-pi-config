@@ -1,31 +1,3 @@
-"""TEST.coverage-ratchet: coverage only ratchets up unless the owner approves the change.
-
-Over ``git diff <base> <head>`` the checker reports:
-
-1. an added coverage pragma (``no cover``, ``no branch``, ``istanbul ignore``, ``c8 ignore``,
-   ``v8 ignore``) in any changed file;
-2. a lowered or removed floor in a coverage config file (``fail_under``, ``--cov-fail-under``,
-   ``lines``, ``branches``, ``statements``, ``functions``), including every floor of a config
-   file the diff deletes or renames to a non-config name;
-3. an added line inside a coverage exclusion setting (``omit``, ``exclude_lines``,
-   ``exclude_also``, ``coveragePathIgnorePatterns``, a vitest/c8 ``exclude`` list ...).
-
-A finding is cleared only by an owner approval in the record's profile:
-``guardrails.coverage_ratchet.approvals: [{"path": "<path or glob>", "approval": "<ref>"}]``.
-The record is not part of the repository diff, so the approval is the owner's hand edit of the
-record (the agent rails refuse every agent write to a record). The owner removes an
-approval once its change has merged, so no standing approval disables the ratchet. The record's
-own ``coverage`` floors are owner config outside the diff and are not compared here.
-
-Profile ``guardrails.coverage_ratchet`` settings (all optional):
-
-- ``config_files``: patterns for coverage config files (default: common Python and JS ones).
-- ``pragma_pattern``: one regular expression for pragmas (default above).
-- ``pragma_skip``: patterns of files whose added lines are prose, not code (default docs).
-- ``floor_keys`` and ``exclusion_keys``: key names replacing the defaults above.
-- ``approvals``: see above.
-"""
-
 from __future__ import annotations
 
 import re
@@ -106,7 +78,6 @@ def indent(text: str) -> int:
 
 
 def exclusion_line_numbers(text: str, key_re: re.Pattern[str]) -> set[int]:
-    """1-based line numbers that belong to an exclusion setting's value."""
     lines = text.splitlines()
     numbers: set[int] = set()
     index = 0
@@ -124,7 +95,6 @@ def exclusion_line_numbers(text: str, key_re: re.Pattern[str]) -> set[int]:
                 depth += bracket_delta(lines[follow])
                 follow += 1
         else:
-            # INI-style continuation: indented lines under a key with an empty value.
             key_indent = indent(lines[index])
             while (
                 follow < len(lines)
@@ -154,11 +124,6 @@ def config_findings(
     head_path: str | None,
     config: dict[str, Any],
 ) -> list[Finding]:
-    """Floors removed or lowered across ``paths``, then exclusions added to ``head_path``.
-
-    ``head_path`` is None when no config file remains at head (deleted, or renamed to a name
-    that is not a config file); every floor the base file held then counts as removed.
-    """
     path = head_path or paths[0]
     changes = line_changes(repo, diff, *paths)
     floor_re = key_pattern(
@@ -219,14 +184,12 @@ def change_config_findings(
 
 
 def entry_text(line: str) -> str:
-    """A list entry without layout: a re-indented or re-comma'd entry is not a new one."""
     return line.strip().rstrip(",").strip()
 
 
 def pragma_findings(
     repo: Path, diff: DiffRange, path: str, pragma: re.Pattern[str]
 ) -> list[Finding]:
-    """Added pragma lines; a pragma line that only moved within the file is not new."""
     changes = line_changes(repo, diff, path)
     moved = {text.strip() for _, text in changes.removed}
     return [
@@ -255,7 +218,6 @@ def is_config(path: str, patterns: list[str]) -> bool:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     try:
         diff = parse_range(argv)

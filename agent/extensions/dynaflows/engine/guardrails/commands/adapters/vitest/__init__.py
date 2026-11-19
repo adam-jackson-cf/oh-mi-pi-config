@@ -1,5 +1,3 @@
-"""Harness-side Vitest adapter; repository selectors and commands live in its record."""
-
 from __future__ import annotations
 
 import argparse
@@ -11,6 +9,7 @@ from typing import Any
 
 from guardrails.context.config.adapter_declarations import adapter_tiers, claimed
 from guardrails.foundation.findings import Finding
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 NAME = "vitest"
 TIER_GUARDS = {
@@ -34,7 +33,7 @@ def output_finding(repo: Path, out: object) -> Finding | None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="guardrails adapter vitest", description=__doc__
+        prog="guardrails adapter vitest", description=SUBCOMMANDS["adapter"].summary
     )
     actions = root.add_subparsers(dest="action")
     lint = actions.add_parser("lint")

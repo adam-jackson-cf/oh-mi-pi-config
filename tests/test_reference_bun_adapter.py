@@ -1,8 +1,3 @@
-"""The guardrails Bun adapter: conformance, dialect completion, collection and CLI wiring.
-
-Runtime and collection cases run the real ``bun test`` this repository already uses.
-"""
-
 from __future__ import annotations
 
 import contextlib

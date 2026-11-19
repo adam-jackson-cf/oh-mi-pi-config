@@ -9,7 +9,7 @@ usage() {
   printf 'Usage: %s [--tier commit|ci] [--fix] [--stage]\n' "$0"
 }
 
-while (($#)); do
+while [[ -n "${1+set}" ]]; do
   case "$1" in
     --tier)
       tier="${2:-}"
@@ -61,12 +61,9 @@ if [[ "$hooks_path" != .githooks ]]; then
 fi
 printf 'Commit hook check passed.\n'
 
-# File lists and coverage data live in one scratch directory, removed on exit.
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-# tracked OUT PATHSPEC...: writes the NUL-separated paths Git tracks under PATHSPEC to OUT, so a
-# Git failure stops the gate instead of reading as an empty list.
 tracked() {
   local out="$1"
   shift
@@ -89,8 +86,6 @@ while IFS= read -r -d '' file; do
   markdown_files+=("$file")
 done <"$scratch/markdown"
 
-# Owned shell scripts: *.sh and *.bash files, and extensionless files whose shebang names sh or
-# bash. The experiment fixture repositories are frozen inputs, not owned code.
 shell_files=()
 tracked "$scratch/all" . ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**'
 while IFS= read -r -d '' file; do
@@ -105,8 +100,6 @@ while IFS= read -r -d '' file; do
   esac
 done <"$scratch/all"
 
-# Owned data and markup files: Prettier formats YAML, JSON, JSONC, CSS and HTML. The fixture
-# trees are frozen test inputs, not owned code.
 data_files=()
 tracked "$scratch/data" "*.yml" "*.yaml" "*.json" "*.jsonc" "*.css" "*.html" \
   ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
@@ -122,10 +115,10 @@ fi
 for file in "${markdown_files[@]}"; do
   lint_files+=("$file")
 done
-if ((${#data_files[@]})); then
+if [[ -n "${data_files[*]-}" ]]; then
   lint_files+=("${data_files[@]}")
 fi
-if ((${#shell_files[@]})); then
+if [[ -n "${shell_files[*]-}" ]]; then
   lint_files+=("${shell_files[@]}")
 fi
 # ruff --fix may rewrite any owned Python file, so --stage tracks them all.
@@ -141,9 +134,7 @@ if "$fix" && "$stage"; then
   done
 fi
 
-# Owned shell scripts: ShellCheck with .shellcheckrc and shfmt with .editorconfig, both pinned
-# in pyproject.toml.
-if ((${#shell_files[@]})); then
+if [[ -n "${shell_files[*]-}" ]]; then
   uv run --locked shellcheck -- "${shell_files[@]}"
   if "$fix"; then
     uv run --locked shfmt -w -- "${shell_files[@]}"
@@ -152,23 +143,23 @@ if ((${#shell_files[@]})); then
   fi
 fi
 if "$fix"; then
-  if ((${#data_files[@]})); then
+  if [[ -n "${data_files[*]-}" ]]; then
     bunx prettier --write --log-level warn -- "${data_files[@]}"
   fi
   if [[ -n "${code_files[*]-}" ]]; then
     bunx oxlint --fix --deny-warnings "${code_files[@]}"
   fi
-  if ((${#markdown_files[@]})); then
+  if [[ -n "${markdown_files[*]-}" ]]; then
     bunx markdownlint-cli2 --fix "${markdown_files[@]}"
   fi
 else
-  if ((${#data_files[@]})); then
+  if [[ -n "${data_files[*]-}" ]]; then
     bunx prettier --check --log-level warn -- "${data_files[@]}"
   fi
   if [[ -n "${code_files[*]-}" ]]; then
     bunx oxlint --deny-warnings "${code_files[@]}"
   fi
-  if ((${#markdown_files[@]})); then
+  if [[ -n "${markdown_files[*]-}" ]]; then
     bunx markdownlint-cli2 "${markdown_files[@]}"
   fi
 fi
@@ -185,16 +176,10 @@ else
 fi
 uv run --locked mypy
 bash scripts/audit-dependencies.sh
-# Tests run through scripts/run-test-tier.sh, one tier at a time, with every framework:
-# - commit: all T1, then T2 for each framework a staged path reaches;
-# - ci: all T1 and all T2, with coverage of owned code checked against its floors.
-# Line floor: Python statements and TypeScript lines together; branch floor: Python branches.
 line_floor=82
 branch_floor=83
 if [[ "$tier" == commit ]]; then
   bash scripts/run-test-tier.sh t1
-  # A staged path reaches a framework's T2 unless it is one that framework's seams never read;
-  # an unknown path always selects T2.
   bun_seams=false
   pytest_seams=false
   git diff --cached --name-only -z >"$scratch/staged"

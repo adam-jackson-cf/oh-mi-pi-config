@@ -1,8 +1,3 @@
-"""The guardrails reference's pytest adapter: pinned extra, dialect, guards, rules, conformance: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import importlib.util
@@ -55,7 +50,6 @@ EXTRA_REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
 
 
 def needs_extra(test: TestMethod) -> TestMethod:
-    """Skip without the extra, except where the gate requires it (then the test runs and fails)."""
     if EXTRA_PRESENT or EXTRA_REQUIRED:
         return test
     return unittest.skip(
@@ -95,8 +89,6 @@ GIT_ENV = {
 
 
 class TestOnlySymbolTests(TestOnlySymbolCase):
-    """TEST.no-test-hooks: a production symbol only tests use is reported."""
-
     @needs_extra
     def test_lint_reports_test_only_symbols_in_linted_production_files(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
@@ -261,7 +253,6 @@ class ExtraTests(unittest.TestCase):
                 "--tier",
                 f"t2={out_dir / 't2.txt'}",
             )
-            # Both tiers select the same file, which TEST.tier-selectors forbids.
             assert code == 1
             assert "TEST.tier-selectors" in out
             assert "selected by tiers t1, t2" in out

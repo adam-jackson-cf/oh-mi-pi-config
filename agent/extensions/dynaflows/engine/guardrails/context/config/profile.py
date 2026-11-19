@@ -1,23 +1,3 @@
-"""Load a per-repo record's test profile and validate PROFILE.complete.
-
-The profile lives in the harness, never in the repository: ``<record>/profile.md``, where the
-record is ``<oh-mi-pi-config root>/repos/<owner>/<name>/`` and the caller passes it as
-``--record DIR``. Findings about the profile name it ``record:profile.md``.
-The harness schema and template live at ``agent/lib/record/profile.md``; the generic
-test-guidance template does not define harness adapter, structure or guardrail settings.
-
-Adapters: ``adapters`` lists one entry per test framework the repository uses (an adapter belongs
-to a framework, not a tier). Each entry names an installed adapter package and, for each tier it
-takes part in, its native ``selector`` and ``location``. Names are unique, every entry takes
-part in at least one tier and every tier has at least one adapter. A tier itself records only
-its run ``command``, which runs every framework the tier holds.
-
-Format choice: ``profile.md`` starts with a front-matter block between two ``---``
-lines that holds one JSON object. JSON is valid YAML flow syntax, so Markdown and YAML tools
-treat the block as ordinary front matter, while this package reads it with the standard
-library's ``json`` module and needs no YAML parser. The human sections follow the block.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,7 +11,6 @@ from guardrails.context.config.house_style import load_house_style
 from guardrails.foundation.findings import Finding
 
 PROFILE_FILE = "profile.md"
-# How findings name the record's profile; it is not a repository path.
 PROFILE_PATH = "record:profile.md"
 RULE = "PROFILE.complete"
 FENCE = "---"
@@ -59,11 +38,10 @@ PLACEHOLDER = re.compile(r"<[^<>\n]+>|\bTBD\b|\bTODO\b", re.IGNORECASE)
 
 
 class ProfileError(Exception):
-    """The profile file is absent or its front matter cannot be read."""
+    pass
 
 
 def load_profile(record: Path) -> dict[str, Any]:
-    """Return the JSON object in the front matter of ``<record>/profile.md``."""
     path = record / PROFILE_FILE
     try:
         text = path.read_text(encoding="utf-8")
@@ -97,11 +75,6 @@ def parse_front_matter(text: str) -> dict[str, Any]:
     return values
 
 
-# Leaf kinds: text (one real string), texts (a string or a non-empty list of strings),
-# percent (0..100), positive (> 0), integer, map (non-empty object), object (any object),
-# value (any non-empty value), list (a list, possibly empty). A tuple ("records", spec) is a
-# non-empty list of objects matching spec; ("optional_records", spec) may be empty. A section key
-# ending in OPTIONAL_MARK may be left out; when present its value is checked like any other.
 OPTIONAL_MARK = "?"
 MACHINE = {
     "id": "text",
@@ -158,7 +131,6 @@ SCHEMA: dict[str, Any] = {
         "fixtures_dir": "text",
         "test_file_patterns": "texts",
     },
-    # ``lsp`` is written by ``guardrails init``; the other two are the owner's notes.
     "command_notes": {
         "working_directory": "text",
         "interpretation": "text",
@@ -168,8 +140,6 @@ SCHEMA: dict[str, Any] = {
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer"},
 }
-# One settings section per checker that reads ``guardrails.<section>``. Settings may hold
-# regular expressions, so only their names and shape are checked here.
 GUARDRAILS_SECTIONS = (
     "adapter_bun_test",
     "adapter_go",
@@ -212,7 +182,6 @@ def is_missing_text(value: object) -> bool:
 
 
 def validate_profile(profile: dict[str, Any]) -> list[Finding]:
-    """PROFILE.complete findings for a parsed profile (empty when complete)."""
     problems: list[tuple[str, str]] = []
     for key in sorted(set(profile) - set(SCHEMA) - set(OPTIONAL)):
         problems.append((key, "is not a profile key; remove it or fix its spelling"))
@@ -262,7 +231,6 @@ def exempt_tiers(profile: dict[str, Any]) -> frozenset[str]:
 
 
 def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
-    """Cross-entry rules for ``adapters`` that the per-field schema cannot express."""
     entries = profile.get("adapters")
     if not isinstance(entries, list):
         return []
@@ -440,7 +408,6 @@ def number_problem(value: object, kind: str) -> str | None:
 
 
 def placeholder_problem(value: object) -> str | None:
-    """Nested free-form values may not carry nulls, placeholders or bare sentinels anywhere."""
     if value is None:
         return "holds a null value"
     if isinstance(value, dict):
@@ -457,6 +424,5 @@ def placeholder_problem(value: object) -> str | None:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails profile-check``: the CLI has already loaded the front matter."""
     del repo, argv
     return validate_profile(profile)

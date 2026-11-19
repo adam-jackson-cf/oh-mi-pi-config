@@ -1,10 +1,3 @@
-"""AST source checks for JavaScript test runners and fast-check, with shared repository inventory.
-
-The rules are shared by every runner with Vitest's ``test``/``describe`` API; a ``Vocabulary``
-holds one runner's mock, focus and skip names. Vitest uses ``VITEST``; the Bun adapter passes
-its own (``guardrails.commands.adapters.bun_test.lint``).
-"""
-
 from __future__ import annotations
 
 import json
@@ -85,12 +78,9 @@ def source_files(repo: Path, paths: list[str]) -> list[str]:
 
 @dataclass(frozen=True)
 class Vocabulary:
-    """One runner's names for the shared rules: its adapter, mock calls and evasion flags."""
-
     adapter: str
     mock_calls: frozenset[str]
     evasion_flags: frozenset[str]
-    # Registrars that skip by their own name, such as Bun's ``xtest``.
     skipping_registrars: frozenset[str] = frozenset()
 
 
@@ -209,8 +199,6 @@ def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
 
 @dataclass(frozen=True)
 class Site:
-    """Where a pattern matched: the file, its import aliases, the owned roots and seeding."""
-
     path: str
     aliases: Mapping[str, str]
     roots: tuple[str, ...]
@@ -253,7 +241,6 @@ def environment_violation(node: SgNode, site: Site) -> str | None:
 
 def hook_violation(node: SgNode, site: Site) -> str | None:
     parent = node.parent()
-    # Declaration names only; ordinary mentions and string values are not hooks.
     if parent is not None and parent.kind() in HOOK_DECLARATIONS:
         name = parent.field("name") or parent.field("pattern")
         if name is not None and name.range().start.index == node.range().start.index:
@@ -326,7 +313,6 @@ def violation(rule: Rule, node: SgNode, site: Site) -> str | None:
 
 
 def configured_seeds(root: SgNode, aliases: Mapping[str, str]) -> list[int]:
-    """End offsets of top-level ``fc.configureGlobal({seed: <int>})`` calls."""
     configured = []
     for node in root.find_all({"rule": {"kind": "call_expression"}}):
         if qualified(node.field("function"), aliases) in GLOBAL_CONFIGURATION:
@@ -353,7 +339,6 @@ def file_findings(
 ) -> list[Finding]:
     root = parse(path, source)
     aliases = imports(root)
-    # Global configuration must precede the property invocation, not merely occur in the file.
     configured = configured_seeds(root, aliases)
     site = Site(path, aliases, owned, False, vocabulary)
     findings = []
@@ -396,7 +381,6 @@ REFERENCE_KINDS = frozenset({
 
 
 def declarations(root: SgNode) -> Iterator[SgNode]:
-    """Top-level and exported function, class and variable declarations."""
     for statement in children(root):
         for node in (
             children(statement)
@@ -423,7 +407,6 @@ def production_definitions(
     roots: tuple[str, ...],
     adapter: str,
 ) -> Definitions:
-    """``(path, name) -> (declaration, name node)`` for owned production declarations."""
     definitions: Definitions = {}
     for path, root in trees.items():
         if is_test(path, profile, adapter) or not owned_path(path, roots):
@@ -447,7 +430,6 @@ def in_import(node: SgNode) -> bool:
 def referenced_keys(
     path: str, node: SgNode, aliases: Mapping[str, str]
 ) -> set[tuple[str, str]]:
-    """The ``(module file, symbol)`` keys an imported reference may resolve to."""
     origin = qualified(node, aliases)
     if "#" in origin:
         module, symbol = origin.split("#", 1)
@@ -471,9 +453,7 @@ def record_uses(
     definitions: Definitions,
     uses: dict[tuple[str, str], set[bool]],
 ) -> None:
-    """Add ``test`` to the uses of every definition this file references outside imports."""
     aliases = imports(root)
-    # Import declarations alone are not usage.
     for node in walk(root):
         if node.kind() not in REFERENCE_KINDS or in_import(node):
             continue
@@ -481,7 +461,6 @@ def record_uses(
         own_definition = definitions.get(local_key)
         if own_definition is not None:
             declaration, _ = own_definition
-            # Recursive implementation references do not establish production use.
             within = (
                 declaration.range().start.index
                 <= node.range().start.index
@@ -511,7 +490,6 @@ def hook_findings(
     roots: tuple[str, ...] | None = None,
     adapter: str = VITEST.adapter,
 ) -> list[Finding]:
-    """Resolve imported references to declarations; same-spelled unrelated symbols do not count."""
     roots = owned_roots(profile) if roots is None else roots
     trees = {path: parse(path, text) for path, text in sources.items()}
     definitions = production_definitions(trees, profile, roots, adapter)

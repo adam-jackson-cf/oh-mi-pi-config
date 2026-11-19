@@ -1,23 +1,3 @@
-"""TEST.no-evasion (diff part): a changed test never raises a timeout to get green.
-
-Over ``git diff <base> <head>`` the checker pairs each hunk's removed and added lines of every
-changed test file. Within one hunk, the n-th removed value of a timeout key and the n-th added
-value of the same key form a pair; an added value larger than its pair is a finding. A new
-timeout with no removed counterpart is not an increase (``TEST.subprocess-timeouts``, run by
-``python-test-hygiene``, asks for them), and a removed timeout is not an increase either.
-
-Test files are files under a tier ``location``, files matching ``layout.test_file_patterns``
-(the house-style defaults when the profile has none) and ``conftest.py`` files.
-
-Profile ``guardrails.no_evasion`` settings (optional):
-
-- ``timeout_pattern``: one regular expression with ``key`` and ``value`` groups replacing the
-  default, which matches ``timeout=5``, ``timeout(5)``, ``timeout: 5000`` and keys such as
-  ``testTimeout`` or ``read_timeout_s``.
-
-A finding is waived only by a reason-backed ``guardrails.exceptions`` entry for this rule.
-"""
-
 from __future__ import annotations
 
 import re
@@ -47,7 +27,6 @@ FIX = (
 
 
 def tier_locations(profile: dict[str, Any]) -> list[str]:
-    """Every adapter's test locations across the tiers."""
     return adapter_declarations.locations(profile)
 
 
@@ -60,7 +39,6 @@ def is_changed_test(path: str, profile: dict[str, Any]) -> bool:
 def timeouts(
     lines: tuple[tuple[int, str], ...], pattern: re.Pattern[str]
 ) -> list[tuple[int, str, float]]:
-    """``(line, key, value)`` for every timeout literal in the lines, in order."""
     found: list[tuple[int, str, float]] = []
     for number, text in lines:
         for match in pattern.finditer(text):
@@ -96,7 +74,6 @@ def increases(
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     pattern = re.compile(
         str(config.get("timeout_pattern") or DEFAULT_TIMEOUT_PATTERN), re.I

@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# Runs one test tier with every framework that takes part in it: bun test, then pytest.
-#
-# - t1: tests that start no process, open no network, write no real home and drive no real Git,
-#   worktree or container. In-process guards prove it: Bun loads the engine's Bun preload and
-#   pytest the engine's pytest plugin, both with the fast-tier and user-data guards armed, so a
-#   T1 test that starts git fails.
-# - t2: the seams: tests that start real processes or drive real Git repositories.
-#
-# Membership: Bun files named tests/*-seams.test.ts are T2 and every other tests/*.test.ts is T1;
-# pytest modules take the fast (T1) or seam (T2) marker, and a test without exactly one fails.
-# --coverage DIR writes Bun lcov reports to DIR/bun-<tier>/ and appends coverage.py data to
-# DIR/python.coverage.
 set -euo pipefail
 
 usage() {
@@ -31,7 +19,7 @@ case "$tier" in
 esac
 frameworks=(bun pytest)
 coverage=""
-while (($#)); do
+while [[ -n "${1+set}" ]]; do
   case "$1" in
     --framework)
       case "${2:-}" in
@@ -62,8 +50,6 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-# A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
-# would otherwise write into this repository's index.
 unset "${!GIT_@}"
 if [[ "$tier" == t2 ]] && command -v go >/dev/null; then
   PATH="$(go env GOROOT)/bin:$PATH"
@@ -86,7 +72,6 @@ print(f"import {{ start }} from {json.dumps(pathlib.Path(sys.argv[1]).as_uri())}
 print(f"start({json.dumps(settings)});")
 EOF
   args+=(--preload "$entry")
-  # The tier's Bun test files, tracked or new; Bun treats ./ arguments as paths.
   git ls-files -z -co --exclude-standard -- 'tests/*.test.ts' >"$scratch/bun-files"
   while IFS= read -r -d '' file; do
     case "$file" in
@@ -105,8 +90,6 @@ EOF
 
 run_pytest() {
   local args=(-p no:cacheprovider)
-  # Every test takes exactly one tier marker: a test outside both, or in both, would run in no
-  # tier or in two. pytest exits 5 when the expression collects nothing.
   local status=0
   uv run --locked pytest -p no:cacheprovider -q --collect-only \
     -m '(not fast and not seam) or (fast and seam)' >"$scratch/markers.txt" || status=$?

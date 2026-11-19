@@ -32,7 +32,7 @@ while IFS= read -r -d '' -u 3 lock; do
   fi
 done 3<"$locks"
 
-if ((${#failed[@]})); then
+if [[ -n "${failed[*]-}" ]]; then
   printf 'Dependency audit failed for: %s\n' "${failed[*]}" >&2
   exit 1
 fi

@@ -1,12 +1,3 @@
-"""Whole-repository Python import graph for the configured tier packages.
-
-The first component below a tier is a part (a module or an owning subpackage).
-Descendants of one subpackage are one owner. All populated tiers except the highest
-configured tier are shared tiers; the highest tier drives rather than serves others.
-Readers are distinct parts, not import statements or files. Only scanned Python
-files contribute edges, with the same package and source-root rules as path-check.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -41,7 +32,6 @@ def import_config(profile: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
 
 
 def imported_edges(tree: ast.Module, module: str, package: str) -> list[str]:
-    """Resolve package-local imports without importing authored code."""
     parent = (
         module.removesuffix(".__init__")
         if module.endswith(".__init__")
@@ -74,8 +64,6 @@ def part(module: str, package: str, tiers: list[str]) -> tuple[str, str] | None:
 
 @dataclass
 class Graph:
-    """Scanned modules of the import-direction package and their package-local imports."""
-
     package: str
     root: str
     tiers: list[str]
@@ -130,7 +118,6 @@ def resolved_module(edge: str, modules: dict[str, str]) -> str:
 def reader_sets(
     graph: Graph, found: list[Finding]
 ) -> tuple[dict[str, set[tuple[str, str]]], dict[str, set[tuple[str, str]]]]:
-    """Parts reading each module and each shared tier; sibling imports become findings."""
     readers: dict[str, set[tuple[str, str]]] = {
         module: set() for module in graph.modules
     }

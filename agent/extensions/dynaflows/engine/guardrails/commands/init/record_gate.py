@@ -1,32 +1,3 @@
-"""Draft the record's ``gate.json`` from what the repository already runs.
-
-The record's gate has today's gate schema (``schemaVersion`` 2): ``checks.commit``,
-``checks.ci``, ``ci`` (``requiredContext``: the status context or check run that must be green
-on the exact head; ``runner``: a role the machine's runner config resolves),
-``ownerOnlyPaths``, ``agentMerge`` and ``dynaflows`` (``{"enabled": bool}``).
-``checks.commit`` and ``ownerOnlyPaths`` are required: rails run the commit command at
-every agent commit and refuse an agent commit that changes an owner-only path.
-Every gate command is the repository's own, run in the checkout; the harness checks
-(``guardrails check`` and ``guardrails path-check``) run from the harness over record settings.
-
-Init fills only absent fields and never replaces a recorded value:
-
-- ``checks.commit`` and ``checks.ci`` from ``--commit-command`` and ``--ci-command``, else the
-  first make target in ``COMMIT_TARGETS`` or ``CI_TARGETS``; a repo with only a pre-commit
-  config gets ``pre-commit run --all-files`` for the commit;
-- ``ci`` from ``--required-context`` and ``--runner``, else the single required check on the
-  default branch (or a CI job named ``gate``), with ``github-actions`` as the runner when a
-  GitHub workflow job reports that context;
-- ``dynaflows`` as ``{"enabled": true}`` when the owner asked for dynaflows in the chat
-  (``--enable-dynaflows``), else ``{"enabled": false}``.
-
-When init finds no ``checks.commit``, it reports it as required: the record does not load
-without it. ``ownerOnlyPaths`` is never drafted: the owner writes it (an empty list when the
-repo has no owner-only path, such as a dependency-audit exception file), and init reports it
-as required until then. ``agentMerge`` and every approval are the owner's to write.
-A gate with a field outside today's schema is refused, naming the field.
-"""
-
 from __future__ import annotations
 
 import json
@@ -39,11 +10,9 @@ from guardrails.commands.init.discovery import Discovery
 from guardrails.foundation.findings import Finding
 
 GATE_FILE = "gate.json"
-# How findings and the report name the record's gate; it is not a repository path.
 GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
-# Every current gate field; any other field, at the top level or in ``checks``, is refused.
 GATE_FIELDS = frozenset({
     "schemaVersion",
     "checks",
@@ -60,7 +29,7 @@ DEFAULT_CONTEXT = "gate"
 
 
 class GateError(Exception):
-    """The record's gate cannot be extended safely."""
+    pass
 
 
 def load_gate(record: Path) -> dict[str, Any] | None:
@@ -126,8 +95,6 @@ def drafted_ci(
 
 @dataclass(frozen=True)
 class GateAnswers:
-    """The owner's command-line values for the gate fields init drafts."""
-
     commit: str | None
     ci_command: str | None
     required_context: str | None
@@ -138,7 +105,6 @@ class GateAnswers:
 def planned_gate(
     gate: dict[str, Any] | None, found: Discovery, answers: GateAnswers
 ) -> tuple[dict[str, Any], list[str]]:
-    """The gate with absent fields drafted, and the values the owner still has to confirm."""
     planned: dict[str, Any] = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
     declared = planned.get("checks")
     checks = dict(declared) if isinstance(declared, dict) else {}

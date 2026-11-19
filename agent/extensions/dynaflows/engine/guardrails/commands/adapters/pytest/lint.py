@@ -1,26 +1,3 @@
-"""Source-pattern rules for pytest suites, run with ``ast-grep-py`` (adapter item 4).
-
-Rules live in ``rules/*.yml``. Each file is one JSON object, which is valid YAML flow syntax, so
-the ``ast-grep`` CLI and editors read the files as YAML while this module reads them with the
-standard ``json`` module and needs no YAML parser. Keys beyond ast-grep's own:
-
-- ``scope``: ``tests`` (test files) or ``production`` (files of the owned packages).
-- ``target``: optional. When set, a match is a finding only if the named expression resolves
-  inside an owned package (TEST.no-self-mocking): ``first-argument``,
-  ``keyword:<name>,<name>`` or ``assigned-attribute-object``.
-- ``message`` and ``fix``: finding text; ``{target}`` and ``{match}`` are filled in.
-
-Besides the pattern rules, ``symbol_usage`` reports production symbols that only tests use
-(TEST.no-test-hooks). It reads every Python file in the repo for references and reports the
-symbols defined in the linted production files.
-
-Owned packages (D2) are the top-level packages that own the profile's ``public_entry_points``
-keys. Test files are files under a pytest adapter ``location``, files matching ``layout.test_file_patterns``
-and ``conftest.py`` files. Production files are the other Python files with an owned package
-in their path. A finding is waived where ``guardrails.exceptions`` holds a reason-backed entry
-whose ``rule`` and optional ``check`` match the finding and whose ``path`` matches the file.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -90,7 +67,6 @@ def load_rules() -> list[Rule]:
 
 
 def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
-    """D2: the top-level packages owning ``public_entry_points`` (``src/`` prefixes dropped)."""
     entries = profile.get("public_entry_points")
     names = set()
     for key in entries if isinstance(entries, dict) else {}:
@@ -103,7 +79,6 @@ def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
 
 
 def test_patterns(profile: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
-    """Adapter ``name``'s test locations and the profile's test-file name patterns."""
     locations = adapter_declarations.locations(profile, name)
     layout = profile.get("layout")
     patterns = (
@@ -135,7 +110,6 @@ def python_files(repo: Path, argv: list[str]) -> list[str]:
 
 
 def import_map(source: str) -> dict[str, str]:
-    """Local name -> dotted origin for absolute imports in one file."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -164,7 +138,6 @@ def string_value(text: str) -> str | None:
 
 
 def resolve(node: SgNode, imports: dict[str, str]) -> str | None:
-    """Dotted origin of a string target or an imported expression, else None."""
     kind = node.kind()
     text = node.text()
     if kind == "string":
@@ -294,7 +267,6 @@ def read_source(repo: Path, path: str) -> str | None:
 def test_only_symbol_findings(
     repo: Path, profile: dict[str, Any], reported: set[str]
 ) -> list[Finding]:
-    """TEST.no-test-hooks over the whole repo's references, reported for the linted files."""
     if not reported:
         return []
     owned = owned_packages(profile)

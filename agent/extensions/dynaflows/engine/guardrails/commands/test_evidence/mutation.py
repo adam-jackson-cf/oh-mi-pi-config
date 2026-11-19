@@ -1,27 +1,3 @@
-"""TEST.mutation-sensitivity over a normalised mutation report and the git diff.
-
-``guardrails mutation-check --report FILE --base <ref> [--head <ref>]`` runs in T3 (nightly)
-after the adapter's mutation tool has run and the adapter has normalised its results
-(``guardrails adapter <name> mutation-report``). The check never runs the mutation tool itself.
-
-Normalised report schema (framework-agnostic, version 1)::
-
-    {"version": 1, "tool": "<tool>",
-     "mutants": [{"id": "<id>", "path": "<repo path>", "start_line": 1, "end_line": 3,
-                  "status": "killed|survived|no_tests|timeout|incomplete"}]}
-
-``start_line`` and ``end_line`` bound the code the mutant changes, as head line numbers. A
-mutant is in scope when that span overlaps a line the diff adds. In scope:
-
-- ``survived`` (every test stayed green) and ``no_tests`` (no test ran the mutant) are findings;
-- ``incomplete`` (not checked, interrupted, skipped or suspicious) is a finding, because missing
-  evidence never passes;
-- ``killed`` and ``timeout`` pass.
-
-A missing or malformed report is a finding. Proofs already get mutation evidence from their
-red-at-parent run, so this check covers the wider suite only.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -51,7 +27,7 @@ FIX = {
 
 
 class ReportError(Exception):
-    """The mutation report is missing or does not follow the schema."""
+    pass
 
 
 @dataclass(frozen=True)

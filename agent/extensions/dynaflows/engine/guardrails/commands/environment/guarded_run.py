@@ -1,28 +1,3 @@
-"""TEST.user-data-guard and TEST.fast-tier-isolation (container mode) around one test command.
-
-``guardrails guard-run [--tier t1] [--network-none] [-- <command> ...]`` runs the command
-given after ``--``, or the profile's ``tiers.<tier>.command``, from the repo root:
-
-1. ``HOME``, ``USERPROFILE`` and ``XDG_{CONFIG,DATA,CACHE,STATE}_HOME``/``XDG_RUNTIME_DIR``
-   point at a fresh temporary directory, removed afterwards.
-2. The real home's watched paths are snapshotted (path, type, size, mtime) before and after the
-   command. Any added, removed or modified entry is a ``TEST.user-data-guard`` finding.
-3. With ``--network-none`` the command runs behind the configured network-none prefix (for
-   example a container runtime's ``run --network none`` invocation). In the prefix, ``{home}``
-   is replaced by the temporary home so the prefix can mount or forward it. Without a
-   configured prefix, ``--network-none`` is a ``TEST.fast-tier-isolation`` finding.
-4. A non-zero exit is a ``TEST.failure-propagation`` finding, so the guard never hides a failure.
-
-The fast-tier process guard and the local network guard are not here: they live in the
-profile's test-framework adapter (``guards.process``, ``guards.network``).
-
-Profile ``guardrails.guarded_run`` settings:
-
-- ``watch`` (required): paths relative to the real home to watch, e.g. ``[".config/<app>"]``.
-- ``ignore``: patterns, relative to the real home, of entries other processes change.
-- ``network_none_command``: the prefix as a list of arguments or one shell-quoted string.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -55,7 +30,7 @@ Snapshot = dict[str, tuple[str, int, int]]
 
 
 class GuardError(Exception):
-    """The guarded command cannot be resolved from the arguments and profile."""
+    pass
 
 
 def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
@@ -104,7 +79,6 @@ def guarded_env(root: Path) -> tuple[dict[str, str], Path]:
 
 
 def snapshot(real_home: Path, watched: list[str], ignore: list[str]) -> Snapshot:
-    """Every entry under the watched paths, keyed by its home-relative posix path."""
     entries: Snapshot = {}
     for relative in watched:
         root = real_home / relative
@@ -159,7 +133,6 @@ def user_data_finding(changed: list[str]) -> Finding:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails guard-run [--tier <tier>] [--network-none] [-- <command> ...]``."""
     config = settings(profile, CHECKER)
     options, command = parse(argv)
     try:

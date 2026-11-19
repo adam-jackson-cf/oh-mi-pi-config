@@ -1,26 +1,3 @@
-"""Run the framework-agnostic conformance cases against the pytest adapter.
-
-``cases.json`` is the spec every adapter must classify; ``bindings.json`` and ``fixtures/`` are
-this adapter's implementation of each case. Each case builds a throwaway project (an owned
-package ``shop``, a ``tests/`` folder and a ``pytest.ini``), places its fixture, produces the
-case's evidence through the adapter and compares the result with the case's ``expect``:
-
-- ``source``: ``lint`` over the placed file; ``finding`` means the case's rule is reported.
-- ``static-cases``: the static case collector (``cases.collect``) over the placed file, checked
-  by the shared ``diffs.growth`` rule as if every test function were new; ``finding`` means
-  ``TEST.growth.justified`` is reported.
-- ``run-report``: a guarded pytest run of the case's tier, parsed by the shared
-  ``test_evidence.junit`` parser with this adapter's dialect; ``finding`` means a failed or
-  errored case names the rule; ``clean`` means every case passed and the report's ``omp.guards``
-  and ``omp.tier`` show the tier's guards; an object names fields the single case must have.
-- ``collection``: ``tiers`` for T1; ``finding`` means the rule is reported; an object names the
-  collected IDs.
-
-Run-report cases point ``HOME`` at the case's ``home`` folder and ``TMPDIR`` at a sibling
-folder, so the user-data guard protects a throwaway home, never the real one.
-``run_conformance`` returns one pass or fail result per case.
-"""
-
 from __future__ import annotations
 
 import json
@@ -41,7 +18,6 @@ if TYPE_CHECKING:
     from guardrails.toolkit.test_report.junit import Report
 
 PACKAGE = "guardrails.commands.adapters.pytest.conformance"
-# A hang guard for one case's pytest run, not a tuned budget: every fixture finishes in seconds.
 CASE_TIMEOUT_S = 300
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
 BASE_PROFILE: dict[str, Any] = {
@@ -151,7 +127,6 @@ def check_static_cases(
 
 
 def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
-    """Run the project's tests as ``tier`` with the adapter's arguments; return the report."""
     from guardrails.commands.adapters.pytest.dialect import DIALECT
     from guardrails.commands.adapters.pytest.invocation import tier_arguments
     from guardrails.commands.adapters.pytest.tiers import package_environment
@@ -273,7 +248,6 @@ def run_case(case: dict[str, Any], binding: dict[str, Any]) -> CaseResult:
 
 
 def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
-    """Pass or fail per conformance case (all cases when ``case_ids`` is empty)."""
     bindings = data("bindings.json")["cases"]
     cases = load_cases()
     known = {case["id"] for case in cases}
@@ -285,7 +259,6 @@ def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
 
 
 def run_cases(case_ids: list[str]) -> list[Finding]:
-    """``guardrails adapter pytest conformance``: one finding per misclassified case."""
     return [
         Finding(
             result.rule,

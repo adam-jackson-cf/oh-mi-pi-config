@@ -1,16 +1,3 @@
-"""TEST.identity-artefacts: test-only work leaves identity-bearing artefacts untouched.
-
-The profile's ``identity_artefacts`` maps each artefact path or pattern to its preservation rule.
-Over ``git diff <base> <head>``, when no production file changed, any changed artefact is a
-finding. An approved ``{"none": ..., "approval": ...}`` exemption disables the rule.
-
-A changed file is non-production when it is an identity artefact itself, a test file
-(``layout.test_file_patterns`` or the house-style defaults), lies under a tier location,
-``layout.support_dir`` or ``layout.fixtures_dir``, or matches
-``guardrails.identity_artefacts.non_production`` (patterns such as docs). Every other changed
-file is production.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -50,7 +37,6 @@ def is_production(path: str, profile: dict[str, Any], artefacts: list[str]) -> b
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails diff-check --base <ref> [--head <ref>]``."""
     declared = profile.get("identity_artefacts")
     if not isinstance(declared, dict) or "none" in declared:
         return []

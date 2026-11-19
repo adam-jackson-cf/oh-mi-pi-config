@@ -128,11 +128,6 @@ def plural_findings(
 def casing_findings(
     repo: Path, path: str, existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
-    """Casing of each new segment; with a pack ``package_marker``, only marked directories are judged.
-
-    Python's directory casing is package naming (PEP 8), and a directory is an importable
-    regular package only when it holds ``__init__.py``; a directory of scripts is not a package.
-    """
     rules = conventions.for_path(path)
     name = rules["name"]
     marker = rules.get("package_marker")

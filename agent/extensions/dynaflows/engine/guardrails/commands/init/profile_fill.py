@@ -1,20 +1,3 @@
-"""Write the record's ``profile.md`` from the template without overwriting recorded values.
-
-The template is ``agent/lib/record/profile.md``, read from the harness
-(``guardrails.commands.init.harness.PROFILE_TEMPLATE``), not the generic test-guidance template.
-
-Merge rule: a key the profile already holds keeps its value. Missing keys come from the
-template, recursively through nested sections. Two kinds of template object are taken whole
-and never merged into an existing value:
-
-- a map whose template keys are placeholders (``{"<package>": "<entry>"}``), because adding a
-  placeholder key to a real map would corrupt it;
-- any section the profile records as an exemption (``{"none": ..., "approval": ...}``).
-
-``house_style.version`` is the one value init knows for certain, so it replaces a missing or
-placeholder value with the installed house-style version.
-"""
-
 from __future__ import annotations
 
 import json
@@ -43,7 +26,6 @@ def template_text() -> str:
 
 
 def split_document(text: str) -> tuple[dict[str, Any], str]:
-    """Return the front-matter values and the text after the closing fence."""
     values = parse_front_matter(text)
     lines = text.splitlines(keepends=True)
     end = next(
@@ -66,7 +48,6 @@ def is_whole_value(default: dict[str, Any]) -> bool:
 
 
 def fill_missing(existing: object, default: object) -> object:
-    """Existing values win; missing keys come from the default, section by section."""
     if not isinstance(existing, dict) or not isinstance(default, dict):
         return existing
     if "none" in existing or is_whole_value(default):
@@ -93,7 +74,6 @@ def with_house_style_version(values: dict[str, Any]) -> dict[str, Any]:
 def with_lsp_notes(
     values: dict[str, Any], notes: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], str | None]:
-    """Add ``command_notes.lsp`` when the profile has no LSP note yet."""
     if not notes:
         return values, None
     command_notes = values.get("command_notes")
@@ -122,7 +102,6 @@ def read_existing(record: Path) -> tuple[dict[str, Any], str] | None:
 def planned_profile(
     record: Path, settings: dict[str, Any], lsp_notes: list[dict[str, Any]]
 ) -> tuple[str | None, list[str]]:
-    """Return the new profile text (None when unchanged) and notes for the report."""
     template_values, template_body = split_document(template_text())
     existing = read_existing(record)
     current, body = existing if existing else ({}, template_body)
@@ -139,7 +118,6 @@ def planned_profile(
 
 
 def load_settings(path: Path | None) -> dict[str, Any]:
-    """Per-checker settings for ``guardrails`` from a JSON file (``--settings``)."""
     if path is None:
         return {}
     try:

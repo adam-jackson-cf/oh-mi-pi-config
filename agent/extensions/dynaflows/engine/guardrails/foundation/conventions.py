@@ -66,12 +66,10 @@ def fixed_folder(path: str, name: str) -> bool:
 
 
 def all_test_patterns() -> list[str]:
-    """Every language pack's test-file patterns."""
     return [pattern for pack in packs() for pattern in pack["test_patterns"]]
 
 
 def test_patterns(path: str) -> list[str]:
-    """The test-file patterns of the language pack that owns ``path``."""
     patterns: list[str] = for_path(path)["test_patterns"]
     return patterns
 

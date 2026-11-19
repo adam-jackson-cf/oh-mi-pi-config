@@ -300,8 +300,6 @@ class TestOnlySymbolCase(unittest.TestCase):
 
 
 class TestOnlySymbolTests(TestOnlySymbolCase):
-    """TEST.no-test-hooks: a production symbol only tests use is reported."""
-
     def test_symbol_only_tests_use_is_reported(self) -> None:
         found = self.findings()
         assert sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found) == [

@@ -20,10 +20,8 @@ dev = [
   "numpy==2.4.6",
   "pip-audit==2.10.1",
   "pytest==9.1.1",
-  # Coverage of owned code over T1 and T2; the ci tier enforces the floors.
   "pytest-cov==7.1.0",
   "ruff==0.17.5",
-  # Shell scripts: ShellCheck and shfmt, run by the gate over every owned shell script.
   "shellcheck-py==0.11.0.1",
   "shfmt-py==4.2.0",
 ]
@@ -156,7 +154,6 @@ exclude = [
 [tool.coverage.run]
 branch = true
 patch = ["subprocess"]
-# The owned Python roots, as mypy checks them; tests are measured code's callers, not its scope.
 source = [
   "agent/extensions/dynaflows",
   "agent/lib",
@@ -176,7 +173,6 @@ include_namespace_packages = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-markers"]
-# Every test takes exactly one tier marker; scripts/run-test-tier.sh enforces it.
 markers = [
   "fast: T1: no process, network, real-home write or real Git, worktree or container",
   "seam: T2: real processes, Git repositories, worktrees or containers",
