@@ -1,8 +1,3 @@
-"""The guardrails Bun adapter: conformance, dialect completion, collection and CLI wiring: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import contextlib

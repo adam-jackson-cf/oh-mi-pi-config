@@ -10,7 +10,6 @@ from guardrails.toolkit.growth import GROWTH, check
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails diff-check --base <ref> [--head <ref>]``."""
     try:
         found = check(repo, profile, parse_range(argv))
     except DiffError as error:

@@ -1,11 +1,3 @@
-"""Git diff evidence shared by the diff checkers.
-
-Every diff checker reads the change between two commits named on the command line:
-``guardrails diff-check --base <ref> [--head <ref>]``. ``--head`` defaults to ``HEAD``.
-There is no default base, because the right base (merge base, previous release, parent commit)
-belongs to the calling workflow, not to this package.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -20,7 +12,7 @@ HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
 class DiffError(Exception):
-    """The diff range is missing or git cannot produce the diff."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -31,8 +23,6 @@ class DiffRange:
 
 @dataclass(frozen=True)
 class Change:
-    """One changed file: git status letter, its head path and, for renames, its base path."""
-
     status: str
     path: str
     old_path: str | None = None
@@ -44,8 +34,6 @@ class Change:
 
 @dataclass(frozen=True)
 class LineChanges:
-    """Added lines (head line numbers) and removed lines (base line numbers) of one file."""
-
     added: tuple[tuple[int, str], ...]
     removed: tuple[tuple[int, str], ...]
 
@@ -74,7 +62,6 @@ def git(repo: Path, *args: str) -> str:
 
 
 def changed_files(repo: Path, diff: DiffRange) -> list[Change]:
-    """Files that differ between base and head, with renames detected."""
     output = git(repo, "diff", "--name-status", "-z", "-M", diff.base, diff.head, "--")
     tokens = [token for token in output.split("\0") if token]
     changes: list[Change] = []
@@ -91,11 +78,6 @@ def changed_files(repo: Path, diff: DiffRange) -> list[Change]:
 
 
 def hunks(repo: Path, diff: DiffRange, *paths: str) -> list[LineChanges]:
-    """The ``-U0`` hunks of the named paths, each with its removed and added lines.
-
-    Naming both paths of a rename diffs the renamed content against its base, not as one
-    whole-file deletion plus one whole-file addition.
-    """
     output = git(
         repo,
         "diff",
@@ -135,7 +117,6 @@ def hunks(repo: Path, diff: DiffRange, *paths: str) -> list[LineChanges]:
 
 
 def line_changes(repo: Path, diff: DiffRange, *paths: str) -> LineChanges:
-    """Added lines (head line numbers) and removed lines (base line numbers) of the paths."""
     parts = hunks(repo, diff, *paths)
     return LineChanges(
         tuple(line for part in parts for line in part.added),
@@ -144,7 +125,6 @@ def line_changes(repo: Path, diff: DiffRange, *paths: str) -> LineChanges:
 
 
 def file_at(repo: Path, ref: str, path: str) -> str | None:
-    """The file's text at a commit, or None when it does not exist there."""
     try:
         return git(repo, "show", f"{ref}:{path}")
     except DiffError:

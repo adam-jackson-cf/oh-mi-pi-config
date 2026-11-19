@@ -1,8 +1,3 @@
-"""Consumer boundaries for frozen proofs (red at base, green at head), isolated executions and the prove() result: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 import hashlib
 import json
 import os
@@ -36,7 +31,6 @@ RED_AT_BASE = "from pathlib import Path\nassert Path('value').read_text() == 'fi
 MAP_PATH = "docs/features"
 
 
-# Proof file names the tests freeze; the base feature map links them all, so proofs are mapped.
 MAPPED = [
     "proof.py",
     "-proof",
@@ -48,7 +42,6 @@ MAPPED = [
 
 
 def map_doc(*targets: str, title: str = "Value") -> str:
-    """A feature-map document whose 'Driving it with' section links `targets` (paths relative to docs/features/)."""
     links = "\n".join(f"- [{target}]({target})" for target in targets) or "- none yet"
     return (
         f"# {title}\n\n## Sub-features\n\n- value\n\n## How to get to it (user POV)\n\n- read value\n\n"
@@ -78,7 +71,6 @@ class RepositoryCase(unittest.TestCase):
         git(self.repo, "config", "user.email", "proof@example.test")
         git(self.repo, "config", "user.name", "Proof Test")
         git(self.repo, "remote", "add", "origin", ORIGIN)
-        # Records live under the harness, never in the repo: point the resolver at a temp harness root.
         self.config = self.tmp / "config"
         self.record = self.config / "repos/example-owner/example-repo"
         root_patch = patch.object(workflow, "_records_root", return_value=self.config)
@@ -122,8 +114,6 @@ class RepositoryCase(unittest.TestCase):
         return path
 
     def write_gate(self, text: str) -> None:
-        """Write the record's gate.json; a JSON object without a dynaflows switch gets it turned on,
-        and one without ownerOnlyPaths gets none."""
         try:
             gate = json.loads(text)
         except ValueError:
@@ -148,7 +138,6 @@ class RepositoryCase(unittest.TestCase):
     def proof(
         self, filename: str = "proof.py", code: str | None = None, ident: str = "P1"
     ) -> dict[str, Any]:
-        """A proof that is red at base (value is 'old') unless `code` says otherwise."""
         self.write(filename, code if code is not None else RED_AT_BASE)
         return {
             "id": ident,
@@ -259,8 +248,6 @@ class RepositoryCase(unittest.TestCase):
 
 
 class ProofRunTests(RepositoryCase):
-    """Red at base, green at head: proof runs, setup, cleanup and input validation."""
-
     def test_freeze_writes_only_the_slug_manifest_in_the_common_dir_but_reads_temporary_previous(
         self,
     ) -> None:
@@ -405,15 +392,13 @@ class ProofRunTests(RepositoryCase):
             for n in (1, 2, 3)
         ]
         self.freeze(proofs, setup=setup)
-        assert (
-            len(counter.read_text().splitlines()) == 1
-        )  # One baseline tree for all proofs.
+        assert len(counter.read_text().splitlines()) == 1
         data = self.change(proofs=proofs)
         data["setup"] = setup
         self.save(data)
         assert self.prove()["status"] == "pass"
         trees = counter.read_text().splitlines()
-        assert len(trees) == 2  # Every head run shares the one head tree's setup.
+        assert len(trees) == 2
         assert len(set(trees)) == 2
 
     def test_setup_outputs_survive_and_proof_artifacts_are_removed(self) -> None:
@@ -527,7 +512,7 @@ class ProofRunTests(RepositoryCase):
         def fail_cleanup(tree: Path) -> Any:
             nonlocal calls
             calls += 1
-            if calls == 3:  # Setup baseline, before execution, finally.
+            if calls == 3:
                 raise OSError("artifact cleanup failed")
             return entries(tree)
 
@@ -656,8 +641,6 @@ class ProofRunTests(RepositoryCase):
 
 
 class FreezeTests(RepositoryCase):
-    """freeze(): lineage, revisions, path guards, caps and the result signal."""
-
     def test_invalid_head_gate_precedes_tree_creation_and_setup(self) -> None:
         for text in (
             "null",
@@ -703,7 +686,6 @@ class FreezeTests(RepositoryCase):
                 "fix",
                 target_ref=self.parent,
             )
-        # TemporaryDirectory has removed test-owned scratch bytes; prune repairs its metadata.
         git(self.repo, "worktree", "prune")
         assert len(removed) == 1
         assert result["deterministic"]["proofs"]
@@ -940,8 +922,6 @@ class FreezeTests(RepositoryCase):
 
 
 class RecordGateTests(RepositoryCase):
-    """The record and gate checks freeze() and prove() require, and repo formatting."""
-
     def test_prove_without_a_record_is_the_guardrail_prerequisite(self) -> None:
         shutil.rmtree(self.record)
         self.change()
@@ -1125,8 +1105,6 @@ class RecordGateTests(RepositoryCase):
 
 
 class FeatureMapTests(RepositoryCase):
-    """The environment doctor, feature-map links and zero-proof prechecks."""
-
     def test_freeze_refuses_red_from_environment_doctor(self) -> None:
         self.profile("DOCTOR:")
         self.rebase_parent()
@@ -1175,7 +1153,6 @@ class FeatureMapTests(RepositoryCase):
         ):
             self.freeze([unmapped])
         assert not self.manifest_path.exists()
-        # Naming a file in prose is not a link; only a resolving link from a map document maps a proof.
         self.write(
             f"{MAP_PATH}/value.md", map_doc("../../journey.py") + "\nSee unmapped.py.\n"
         )
@@ -1323,7 +1300,6 @@ class FeatureMapTests(RepositoryCase):
 
     def test_zero_proof_clean_rename_passes_after_green_ci(self) -> None:
         self.gate()
-        # The moved files keep enough unchanged bytes for Git to detect both renames.
         padding = "".join(f"# owner implementation detail {n}\n" for n in range(20))
         self.write("oracle/grader.py", padding + "def run_oracle():\n    return 1\n")
         self.write("oracle/runtime.py", padding + "class OraclePlugin:\n    pass\n")
@@ -1401,7 +1377,6 @@ class FeatureMapTests(RepositoryCase):
     def test_precheck_launches_without_site_or_repo_imports(self) -> None:
         self.gate()
         path, digest = self.freeze([], base=self.parent)
-        # A repository module must never shadow the harness's stdlib imports.
         self.write(
             "json.py", "raise AssertionError('repository json imported by harness')\n"
         )
@@ -1439,8 +1414,6 @@ class FeatureMapTests(RepositoryCase):
 
 
 class JourneyAndResultTests(RepositoryCase):
-    """Journey proofs, the required CI context and the published prove result."""
-
     def journey(self, counter: Path) -> dict[str, Any]:
         code = (
             "import sys\nfrom pathlib import Path\ncount = Path(sys.argv[1])\n"

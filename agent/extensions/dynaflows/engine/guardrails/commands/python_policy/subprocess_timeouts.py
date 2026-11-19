@@ -1,24 +1,3 @@
-"""TEST.subprocess-timeouts: every process a test starts or waits on is bounded.
-
-``guardrails python-test-hygiene [path ...]`` checks the repository's Python test files:
-files matching ``layout.test_file_patterns`` (the house-style defaults when the profile has
-none), files under a tier ``location`` and ``conftest.py`` files. Paths excluded by
-``guardrails.python.excluded_paths`` and generated trees are skipped.
-
-A finding is any of:
-
-- ``subprocess.run``, ``call``, ``check_call`` or ``check_output`` without a positive
-  ``timeout=``;
-- ``wait()`` or ``communicate()`` on a ``subprocess.Popen`` without a positive timeout;
-- ``wait()`` or ``communicate()`` on an ``asyncio`` subprocess outside a positive
-  ``asyncio.wait_for``.
-
-Imports and aliases are resolved, so unrelated ``run`` or ``wait`` methods are not flagged.
-A timeout given as a name or expression counts as positive; only a literal zero or negative
-value does not. An unparsable test file is a finding too. A finding is waived only by a
-reason-backed ``guardrails.exceptions`` entry for this rule.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -52,7 +31,6 @@ PROCESS_ANNOTATIONS = frozenset({"subprocess.Popen", "asyncio.subprocess.Process
 
 
 def positive_timeout(node: ast.AST | None) -> bool:
-    """A literal timeout must be positive; a name or expression is trusted."""
     if node is None:
         return False
     if isinstance(node, ast.Constant):
@@ -74,8 +52,6 @@ def keyword_timeout(call: ast.Call) -> ast.AST | None:
 
 
 class ProcessWaits(ast.NodeVisitor):
-    """Collect the lines of unbounded process calls, resolving imports and process variables."""
-
     def __init__(self) -> None:
         self.imports: dict[str, str] = {}
         self.processes: dict[str, str] = {}
@@ -196,7 +172,6 @@ def unbounded_lines(tree: ast.AST) -> list[int]:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails python-test-hygiene [path ...]``."""
     selected = parse_paths("python-test-hygiene", argv)
     try:
         files = python_files(repo, load_settings(profile), selected)

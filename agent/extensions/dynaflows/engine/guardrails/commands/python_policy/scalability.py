@@ -1,21 +1,3 @@
-"""PYS rules: bounded loop depth and seam-only effects in analyzer-like code.
-
-``guardrails python-scalability [path ...]`` checks maintained Python files. Profile
-``guardrails.python`` settings (patterns as in ``scope``):
-
-- ``maintained_roots``: the files checked at all.
-- ``loop_roots`` (default ``maintained_roots``) and ``max_loop_depth`` (default 2): loops and
-  comprehension generators nest at most this deep; each function or lambda body starts at
-  zero (PYS250).
-- ``analyzer_like_roots``: code that must reach the filesystem (PYS251), processes and the
-  environment (PYS252) only through injected seams. Unset means no analyzer-like scope is
-  configured, not that the rules are inapplicable.
-- ``ownership_markers``: paths of which at least one must exist while analyzer-like roots are
-  configured (PYS253).
-
-An unparsable file is PYS000.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -49,8 +31,6 @@ SEAM_FIX = "inject the effect through a seam owned outside the analyzer-like roo
 
 
 class ScalabilityVisitor(ast.NodeVisitor):
-    """Walks one module, tracking loop depth per callable body and the enclosing function."""
-
     def __init__(
         self, relpath: str, *, max_depth: int | None, analyzer_like: bool
     ) -> None:

@@ -1,8 +1,3 @@
-"""SURFACE.feature-map, SURFACE.journeys and SURFACE.lever-isolation of the guardrails reference: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -202,8 +197,6 @@ class LeverSelftestTests(LeverSelftestCase):
         assert "did not leave the evidence directory" in self.messages(findings)
 
     def test_failure_env_replaces_the_unusable_data_directory(self) -> None:
-        # The fake lever ignores the environment, so a healthy data directory keeps doctor green
-        # and the self-test must report that the broken environment was not detected.
         findings = self.selftest(
             "good", failure_env={"OMP_FAKE_DEPENDENCY": "unreachable"}
         )

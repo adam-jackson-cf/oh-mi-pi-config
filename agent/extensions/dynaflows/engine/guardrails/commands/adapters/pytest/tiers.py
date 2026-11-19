@@ -1,23 +1,3 @@
-"""Collect-only test-ID listing per tier from the profile's tier selectors (adapter item 2).
-
-The pytest entry of the profile's ``adapters`` gives, per tier, ``location`` (one or more paths
-handed to pytest) and ``selector``. pytest collects ``unittest.TestCase`` classes as well, so a
-marker selector reaches them through a class decorator (``@pytest.mark.fast``) or a module
-``pytestmark``. A selector starting with ``-`` is a list of pytest arguments split by shell rules
-(for example ``-m "fast and not slow"``); any other selector is a marker expression passed as
-``-m <selector>``. The listing writes ``<out>/<tier>.txt``: one test ID per line in the shared
-form ``<repository-relative file>::<name>`` (pytest's node ID with its file part made
-repository-relative), which ``guardrails collection-check --tier <tier>=<out>/<tier>.txt``
-reads for TEST.tier-selectors. Give each adapter its own ``--out`` directory: every adapter
-writes ``<tier>.txt``.
-
-pytest's exit code 5 (no tests collected) and any other collection failure are
-TEST.failure-propagation findings here as well: an empty or broken collection never passes.
-
-Settings (``guardrails.adapter_pytest`` in the profile): ``collect_timeout_s``, an optional
-owner-chosen time limit in seconds for each collection run.
-"""
-
 from __future__ import annotations
 
 import json
@@ -70,10 +50,6 @@ def collect_command(locations: list[str], selector: str, out_file: Path) -> list
 
 
 def package_environment() -> dict[str, str]:
-    """The child pytest must import this package even when it runs from a source checkout.
-
-    It writes no bytecode caches: guardrails never writes into the repository tree.
-    """
     environment = repo_environment()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     root = str(ENGINE_ROOT)
@@ -119,7 +95,6 @@ def collect_tier(
 
 
 def test_id(repo: Path, file: str, node_id: str) -> str:
-    """``<repository-relative file>::<rest of the node ID>``."""
     try:
         path = Path(file).relative_to(repo.resolve()).as_posix()
     except ValueError:
@@ -157,7 +132,6 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
 def list_tiers(
     repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path
 ) -> list[Finding]:
-    """List the named tiers, or every tier the pytest adapter takes part in."""
     findings: list[Finding] = []
     for tier in tiers or sorted(adapter_tiers(profile, NAME)):
         findings.extend(collect_tier(repo, profile, tier, out_dir))

@@ -1,14 +1,3 @@
-"""Profile settings, maintained-file discovery and root matching for the Python policy checkers.
-
-Every per-repo value lives in the profile's ``guardrails.python`` section. Defaults grant no
-exceptions: an unset allowlist approves nothing, and an unset scope falls back to the
-maintained roots, so a missing setting fails closed instead of silently skipping a rule.
-
-Root and path patterns use one syntax. A plain pattern (``src/shop``) matches that path and
-everything below it. A pattern with ``*``, ``?`` or ``[`` matches segment by segment, so
-``lab/stages/*/*/tool/src`` names one source root per stage.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -31,7 +20,6 @@ from guardrails.foundation.inventory import (
 )
 
 CHECKER = "python"
-# Generated, cached and dependency trees are never maintained source, in any repository.
 BUNDLED_EXCLUSIONS = (
     ".build",
     ".git",
@@ -49,8 +37,6 @@ BUNDLED_EXCLUSIONS = (
 
 @dataclass(frozen=True)
 class PythonSettings:
-    """The ``guardrails.python`` section with typed accessors and fail-closed defaults."""
-
     raw: dict[str, Any]
 
     def paths(self, key: str) -> list[str]:
@@ -59,7 +45,6 @@ class PythonSettings:
         ]
 
     def scope(self, key: str) -> list[str]:
-        """A rule scope; unset means every maintained root."""
         return self.paths(key) if key in self.raw else self.paths("maintained_roots")
 
     def mapping(self, key: str) -> dict[str, Any]:
@@ -86,7 +71,6 @@ def segments(path: str) -> tuple[str, ...]:
 
 
 def root_depth(relpath: str, pattern: str) -> int | None:
-    """Number of leading segments ``pattern`` covers in ``relpath``, or None if it misses."""
     wanted = segments(pattern)
     parts = segments(relpath)
     if not wanted or len(parts) < len(wanted):
@@ -101,7 +85,6 @@ def root_depth(relpath: str, pattern: str) -> int | None:
 
 
 def matched_root(relpath: str, roots: list[str]) -> int | None:
-    """Depth of the deepest root containing ``relpath``, or None when no root does."""
     depths = [
         depth for root in roots if (depth := root_depth(relpath, root)) is not None
     ]
@@ -129,10 +112,6 @@ def parse_paths(command: str, argv: list[str]) -> list[str]:
 
 
 def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> list[str]:
-    """Inventory ``.py`` files outside the exclusions, limited to ``selected`` when given.
-
-    Raises InventoryError when the repository is not a Git work tree.
-    """
     scope = [
         path for raw in selected if (path := normalized_path(repo, raw)) is not None
     ]
@@ -148,8 +127,6 @@ def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> lis
 
 @dataclass(frozen=True)
 class Source:
-    """A parsed maintained file, or the reason it could not be read."""
-
     relpath: str
     text: str = ""
     tree: ast.Module | None = None
@@ -171,7 +148,6 @@ def read_source(repo: Path, relpath: str) -> Source:
 def finding(
     rule: str, relpath: str, line: int | None, message: str, fix: str
 ) -> Finding:
-    """Code findings name the line inside the message so the path stays a plain repo path."""
     prefix = f"line {line}: " if line is not None else ""
     return Finding(rule, relpath, f"{prefix}{message}", fix)
 

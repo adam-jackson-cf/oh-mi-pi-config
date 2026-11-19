@@ -1,10 +1,3 @@
-"""Bounded head-only structure evidence: --base SHA --head SHA.
-
-Reads Git objects, never checkout files or imports target code. Evidence limits
-explicitly report omissions; missing relationships are not evidence of absence.
-An optional record supplies documented exclusions and Python module roots.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -33,6 +26,7 @@ from guardrails.commands.structure.rename_residue import (
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 DIRECTORY_QUESTIONS = frozenset({
     "technical_kind_grouping",
@@ -80,8 +74,6 @@ def _names_words(names: list[str]) -> set[str]:
 
 
 class TopLevelNames(DefinedNames):
-    """Keep module control-flow bindings, but not class or function locals."""
-
     descend_classes = False
 
 
@@ -121,7 +113,6 @@ def _cut_candidates(state: dict[str, Any]) -> list[tuple[int, str, str | None]]:
 
 
 def _bounded(state: dict[str, Any]) -> dict[str, Any]:
-    """Keep the schema while dropping largest evidence collections to fit bytes."""
     limits = state["evidence_limits"]
     for field in ("truncations", "parse_errors", "excluded_paths"):
         rows = limits[field]
@@ -222,7 +213,6 @@ def _changes(repo: Path, base: str, head: str) -> tuple[list[Rename], set[str]]:
 
 
 def _owned_blobs(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
-    """``{path: blob id}`` of the regular files at ``head`` outside the excluded patterns."""
     objects = {}
     for entry in git(repo, "ls-tree", "-r", "-z", head).split(b"\0"):
         if not entry:
@@ -247,7 +237,6 @@ def _stored_names(targets: Sequence[ast.expr]) -> list[str]:
 
 
 def _string_constants(tree: ast.Module) -> dict[str, str]:
-    """Upper-case module bindings to short string literals."""
     constants: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -266,7 +255,6 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
 
 
 def _imports(tree: ast.Module, parent: str) -> list[str]:
-    """Imported modules and names; an unresolvable relative import keeps its dots."""
     imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -288,7 +276,6 @@ def _imports(tree: ast.Module, parent: str) -> list[str]:
 
 
 def _resolved(imported: str, modules: dict[str, list[str]], path: str) -> list[str]:
-    """The owned files an import names, found by its longest known module prefix."""
     target = imported
     while target:
         if target in modules:
@@ -377,7 +364,6 @@ class Snapshot:
         self.log.global_truncations = len(self.log.truncations)
 
     def index(self, path: str, source: bytes) -> None:
-        """Parse one source and record its top-level symbols, first docstring lines and constants."""
         try:
             tree = ast.parse(source, filename=path)
         except (SyntaxError, ValueError, UnicodeError) as error:
@@ -690,7 +676,6 @@ class Snapshot:
         return _bounded(state)
 
     def siblings(self, folder: str) -> list[str]:
-        """The other direct children of the folder's parent that hold owned files."""
         if folder == ".":
             return []
         parent = str(PurePosixPath(folder).parent)
@@ -703,7 +688,6 @@ class Snapshot:
         return [p for p in siblings if p != folder]
 
     def term_owners(self, folder: str, paths: list[str]) -> dict[str, set[str]]:
-        """Paths outside the unit whose names repeat a word of the unit's paths or symbols."""
         unit_words: set[str] = set()
         for p in paths:
             unit_words.update(_path_words(p))
@@ -783,7 +767,6 @@ class Snapshot:
 def extract_unit(
     repo: Path, window: CommitWindow, unit: str, profile: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Extract any head folder of the window's head."""
     folder = PurePosixPath(unit).as_posix()
     if PurePosixPath(folder).is_absolute() or ".." in PurePosixPath(folder).parts:
         raise ValueError("unit must be a repository-relative folder")
@@ -793,7 +776,6 @@ def extract_unit(
 def extract(
     repo: Path, base: str, head: str, profile: dict[str, Any] | None = None
 ) -> dict[str, dict[str, Any]]:
-    """Extract destination folders of added/renamed/moved owned files only."""
     snapshot = Snapshot(repo, CommitWindow(base, head), profile or {})
     introduced = snapshot.changes.added & snapshot.owned_paths
     folders = {str(PurePosixPath(path).parent) for path in introduced}
@@ -809,7 +791,7 @@ def extract(
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=SUBCOMMANDS["structure-state"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--unit")

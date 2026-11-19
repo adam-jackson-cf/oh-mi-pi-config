@@ -599,8 +599,6 @@ class RecordRolloutCase(unittest.TestCase):
 
 
 class RecordRolloutTests(RecordRolloutCase):
-    """Per-repo records go one way from the rollout source to remote omp devices."""
-
     def test_records_go_only_to_devices_that_run_omp(self) -> None:
         deployment, code = self.execute(Runner(records=self.target()))
         assert code == 0

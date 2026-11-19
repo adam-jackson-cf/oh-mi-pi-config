@@ -1,5 +1,3 @@
-"""Convert Stryker's mutation-testing-report-schema JSON to shared evidence."""
-
 from __future__ import annotations
 
 import json

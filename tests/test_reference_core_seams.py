@@ -1,8 +1,3 @@
-"""Record profile loading, PROFILE.complete, findings and CLI dispatch of the guardrails reference: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -27,7 +22,6 @@ REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
 class CliTests(CliCase):
     def test_subcommand_help_needs_no_profile_or_pytest_extra(self) -> None:
-        # The child blocks pytest and ast_grep_py imports, as an install without the extra would.
         entry = (
             "import sys; sys.modules['pytest'] = None; sys.modules['ast_grep_py'] = None; "
             "from guardrails.commands import cli; raise SystemExit(cli.main(sys.argv[1:]))"

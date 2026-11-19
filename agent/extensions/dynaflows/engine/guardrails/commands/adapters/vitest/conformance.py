@@ -1,9 +1,3 @@
-"""Run every canonical adapter case over frozen, real TypeScript fixtures.
-
-Runtime cases execute native Vitest, never a simulated runner. Dependencies are taken
-from the supplied target's installation; absent dependencies fail closed without fetching.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -72,7 +66,6 @@ def fixture_source(case_id: str) -> str:
 def native_installation(
     repo: Path | None, profile: dict[str, Any] | None
 ) -> tuple[list[str], Path]:
-    """Use only a local installation, including an explicitly configured command."""
     root = (repo or Path.cwd()).resolve()
     modules = next(
         (
@@ -229,7 +222,6 @@ def check_collection(
     ids = read_ids(out / "t1.txt")
     if case["expect"] == "finding":
         return case["rule"] in rules, f"rules: {rules}; ids: {ids}"
-    # Canonical IDs encode pytest's file spelling; bind the same case to the TS file.
     expected = [
         item.replace("tests/test_case.py", "tests/case.test.ts")
         for item in case["expect"]["ids"]

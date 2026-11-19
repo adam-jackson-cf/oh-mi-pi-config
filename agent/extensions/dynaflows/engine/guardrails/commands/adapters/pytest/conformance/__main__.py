@@ -1,9 +1,3 @@
-"""``python -m guardrails.commands.adapters.pytest.conformance [CASE ...]``: pass or fail per case.
-
-Runs without a repository profile, so the reference's own gate can prove the adapter. Exit 0
-when every selected case passes, 1 otherwise.
-"""
-
 from __future__ import annotations
 
 import sys

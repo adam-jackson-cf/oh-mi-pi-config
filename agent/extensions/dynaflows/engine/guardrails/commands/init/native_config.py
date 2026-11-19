@@ -1,27 +1,3 @@
-"""Proposed native-tool configs for Python repos, generated from the reference's data and the repo.
-
-TypeScript, Go and shell proposals live in ``native_languages``.
-
-Native engines stay native and their configs belong to the repository, so init never writes
-them there: it writes each proposed config to the record's ``proposed/`` folder and the report
-names it. The owner applies a proposal to the repository as an ordinary fix. Proposals:
-
-- ``ruff.toml`` from ``data/native-tools.json`` (the catalogue's RUFF.* values; the ``N``
-  selection enforces the house-style Python casing), with ``target-version`` from
-  ``project.requires-python`` and ``lint.isort.known-first-party`` from the repo's packages;
-- ``mypy.ini`` from the same data (MYPY.*), with ``python_version``, ``packages`` and
-  ``mypy_path`` from the repo;
-- ``.importlinter`` with one layers contract from the profile's ``structure.tiers`` (lowest
-  first) inside ``structure.import_direction.package``, once both are recorded.
-
-A repo's packages are the top-level folders holding ``__init__.py`` at the repo root or under
-``src/``. Init writes a config only where the tool has none: an existing ``ruff.toml``,
-``.ruff.toml``, ``[tool.ruff]``, ``mypy.ini``, ``.mypy.ini``, ``[tool.mypy]``, setup.cfg
-``[mypy]``, ``.importlinter`` or ``[tool.importlinter]`` is kept and reported, never replaced or proposed.
-A value init cannot derive (no ``requires-python``, no package yet) leaves that config unproposed
-and is reported, so a later run proposes it once the repo has the value.
-"""
-
 from __future__ import annotations
 
 import json
@@ -67,7 +43,6 @@ def python_version(project: dict[str, Any]) -> tuple[int, int] | None:
 
 
 def packages(repo: Path) -> tuple[list[str], list[str]]:
-    """Top-level package names and the source roots that hold them."""
     names: list[str] = []
     roots: list[str] = []
     for root_name in (".", "src"):
@@ -160,7 +135,6 @@ def ini_has_section(path: Path, section: str) -> bool:
 
 
 def existing(repo: Path, project: dict[str, Any], tool: str) -> str | None:
-    """Where the repo already configures ``tool``, or None."""
     files = {
         "ruff": ("ruff.toml", ".ruff.toml"),
         "mypy": ("mypy.ini", ".mypy.ini"),
@@ -185,7 +159,6 @@ def real_text(value: object) -> TypeGuard[str]:
 def planned_configs(
     repo: Path, profile: dict[str, Any]
 ) -> tuple[dict[str, str], list[str]]:
-    """Files to write (path -> text) and report lines for the configs init leaves alone."""
     project = pyproject(repo)
     data = load_data()
     version = python_version(project)

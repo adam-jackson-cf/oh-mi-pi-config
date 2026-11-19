@@ -1,8 +1,3 @@
-"""Native Vitest collect-only IDs using record selectors, never a test run.
-
-The Vitest entry of the profile's ``adapters`` gives each tier's selector and locations.
-"""
-
 from __future__ import annotations
 
 import json
@@ -24,7 +19,6 @@ RULE = "TEST.failure-propagation"
 
 
 def selector_arguments(selector: str) -> list[str]:
-    """Selectors are native Vitest CLI arguments, not prose or shell commands."""
     return shlex.split(selector)
 
 

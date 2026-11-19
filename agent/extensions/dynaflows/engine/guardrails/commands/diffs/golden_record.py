@@ -1,16 +1,3 @@
-"""TEST.golden-change-record: a golden file changes only with a recorded reason.
-
-Over ``git diff <base> <head>``, every modified, deleted, renamed or retyped golden file must be
-named (by its repo-relative path) on a line the same diff adds to a change-record file. New
-goldens are not changes to an approved output, so additions need no record.
-
-Profile ``guardrails.golden_record`` settings:
-
-- ``globs``: patterns of golden files (e.g. ``["tests/fixtures/golden/**"]``). Without globs the
-  repo declares no goldens and the rule has nothing to check.
-- ``change_record``: path or pattern of the change-record file(s), e.g. ``docs/golden-changes.md``.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,7 +29,6 @@ def changed_goldens(changes: list[Change], globs: list[str]) -> list[Change]:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     globs = as_list(config.get("globs"))
     if not globs:

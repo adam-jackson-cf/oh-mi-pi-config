@@ -1,19 +1,3 @@
-"""SURFACE.journeys: journeys follow the profile's pattern, call the lever and are mapped.
-
-Journey files are repo files matching ``verification_surface.journey_file_pattern`` (a pattern
-without ``/`` matches the file name; with ``/`` it matches the repo-relative path). Each one:
-
-1. references the lever: its text contains the profile's ``lever_command`` or one of the lever
-   references (default: the command's path-like tokens and their file names; override with
-   ``guardrails.journeys.lever_references`` when journeys reach the lever through a support
-   helper, e.g. ``["run_lever("]``);
-2. is linked or named (by repo-relative path) from a feature-map document.
-
-Test files inside the pattern's fixed directory prefix that do not match the pattern are
-misnamed journeys. A repo may have no journeys (a library maps T1 outcome tests instead).
-An approved ``verification_surface`` exemption disables the rule.
-"""
-
 from __future__ import annotations
 
 import shlex
@@ -59,7 +43,6 @@ def lever_references(lever: str, profile: dict[str, Any]) -> list[str]:
 
 
 def fixed_prefix(pattern: str) -> str | None:
-    """The directory part of a pattern before its first glob segment, if it has one."""
     parts = PurePosixPath(pattern).parts[:-1]
     fixed = []
     for part in parts:
@@ -70,7 +53,6 @@ def fixed_prefix(pattern: str) -> str | None:
 
 
 def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
-    """Files the feature map links to, and the map's combined text for path mentions."""
     linked: set[str] = set()
     texts = []
     root = repo / map_path
@@ -84,7 +66,6 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails surface-lint``."""
     del argv
     values = surface(profile)
     if values is None:

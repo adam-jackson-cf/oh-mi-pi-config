@@ -1,39 +1,3 @@
-"""TEST.budget.per-test-time and TEST.budget.fast-tier-time over a normalised run report.
-
-Policy (test-guidance ``suite-budget.md``):
-
-- Limits are per machine and owner-approved: the profile's ``fast_tier_budget.machines``
-  records ``id``, ``platform``, ``runtime``, ``wall_limit_s``, ``per_test_limit_s`` and
-  ``approval`` for each measuring machine.
-- Budgets run only on the local commit gate (``guardrails budget-check``). CI is an
-  offline process: it never measures or reports test timing and never runs this checker; the
-  CI gate runs ``report-check`` (TEST.failure-propagation) only.
-- A known, approved machine blocks on any breach.
-- An unknown or unapproved machine is report-only, and the checker prints the owner question
-  that records its baseline.
-- A missing, invalid or stale report is fatal, including on a report-only machine.
-
-Validity and freshness rules (what Command notes should cite):
-
-1. The report parses as JUnit XML and holds at least one test case.
-2. Every executed (not skipped) case has a finite non-negative ``time``, and the run has an
-   outer wall time (``omp.wall_s`` property or the root ``time``).
-3. The ``omp.revision`` property equals ``--revision`` or, when absent, ``git rev-parse HEAD``
-   of the repository: a report from another commit is stale.
-4. The ``omp.runtime`` property names the test runtime, so the machine can be identified.
-
-Machine id probe (deterministic, local, no host names): ``m-`` followed by the first 12 hex
-digits of SHA-256 over four newline-joined values: the operating system
-(``platform.system()``), the architecture (``platform.machine()``), the CPU model (macOS
-``sysctl -n machdep.cpu.brand_string``; Linux the first ``model name``, ``Hardware`` or
-``Processor`` line of ``/proc/cpuinfo``; otherwise ``platform.processor()``) and the report's
-``omp.runtime`` value with whitespace collapsed. A runtime upgrade therefore yields a new
-machine id, which runs report-only until the owner approves its baseline.
-
-Budgets apply to the fast tier only: the report's tier (``--tier``, else ``omp.tier``, else
-``t1``) must equal profile setting ``guardrails.commands.test_evidence.fast_tier`` (default ``t1``).
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -120,7 +84,6 @@ def machine_id(
     architecture: str | None = None,
     cpu: str | None = None,
 ) -> str:
-    """The deterministic machine id documented in the module docstring."""
     values = (
         system if system is not None else platform.system(),
         architecture if architecture is not None else platform.machine(),
@@ -263,7 +226,6 @@ def evaluate(
     expected_revision: str | None,
     machine: Machine | None = None,
 ) -> BudgetResult:
-    """Validity is always fatal; timing blocks only on an approved machine."""
     result = BudgetResult(validity_findings(report, expected_revision))
     runtime = report.properties.get("omp.runtime", "").strip()
     if result.findings or not runtime:
@@ -286,7 +248,6 @@ def report_tier(report: Report, options: ReportOptions) -> str:
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """``guardrails budget-check --junit PATH [--tier T] [--revision SHA]``."""
     try:
         options = report_options(repo, argv)
         report = load_run_report(repo, profile, options)

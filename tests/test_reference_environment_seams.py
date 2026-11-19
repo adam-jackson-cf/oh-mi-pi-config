@@ -1,8 +1,3 @@
-"""TEST.user-data-guard and TEST.fast-tier-isolation (network-none prefix) of guard-run: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import shlex

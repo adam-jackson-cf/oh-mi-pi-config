@@ -1,11 +1,3 @@
-"""Run every canonical adapter case over frozen, real ``bun:test`` fixtures.
-
-Runtime and collection cases execute native ``bun test``, never a simulated runner, using ``bun``
-on ``PATH`` or ``guardrails.adapter_bun_test.command``; a missing runner fails every case.
-Bun has no in-body skip, so ``runtime-skip-recorded`` skips through ``test.skipIf`` with a
-condition read at run time, and the normalised reason is the test's title.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -195,7 +187,6 @@ def check_collection(
     ids = read_ids(out / "t1.txt")
     if case["expect"] == "finding":
         return case["rule"] in rules, f"rules: {rules}; ids: {ids}"
-    # Canonical IDs encode pytest's file spelling; bind the same case to the TS file.
     expected = [
         item.replace("tests/test_case.py", "tests/case.test.ts")
         for item in case["expect"]["ids"]

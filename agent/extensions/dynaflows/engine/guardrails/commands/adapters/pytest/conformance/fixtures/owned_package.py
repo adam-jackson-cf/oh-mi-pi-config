@@ -1,5 +1,3 @@
-"""The conformance project's owned module, copied to ``shop/core.py``."""
-
 RATE = 2
 
 

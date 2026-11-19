@@ -17,22 +17,20 @@ check() { # <description> <command...>
     failed=1
   fi
 }
-# extract KEY: the plist value at KEY, or nothing when the key is missing; a check then fails.
-extract() { plutil -extract "$1" raw "$plist" 2>/dev/null || :; }
+plist_value() { plutil -extract "$1" raw "$plist" 2>/dev/null || :; }
 
 sh "$(dirname "$(dirname "$here")")/install.sh" --print-launchagent >"$plist"
 
 check 'plist passes plutil -lint' plutil -lint -s "$plist"
-label=$(extract Label)
-node_argument=$(extract ProgramArguments.0)
+label=$(plist_value Label)
+node_argument=$(plist_value ProgramArguments.0)
 node_path=$(command -v node) || node_path=''
-inject_argument=$(extract ProgramArguments.1)
-mode_argument=$(extract ProgramArguments.2)
-run_at_load=$(extract RunAtLoad)
-interval=$(extract StartInterval)
-stdout_path=$(extract StandardOutPath)
-stderr_path=$(extract StandardErrorPath)
-# Nothing may follow --if-needed in ProgramArguments.
+inject_argument=$(plist_value ProgramArguments.1)
+mode_argument=$(plist_value ProgramArguments.2)
+run_at_load=$(plist_value RunAtLoad)
+interval=$(plist_value StartInterval)
+stdout_path=$(plist_value StandardOutPath)
+stderr_path=$(plist_value StandardErrorPath)
 if plutil -extract ProgramArguments.3 raw "$plist" >/dev/null 2>&1; then trailing=present; else trailing=none; fi
 check 'Label is local.orca-chat-section-style' [ "$label" = local.orca-chat-section-style ]
 check 'ProgramArguments.0 is the node on PATH' [ "$node_argument" = "$node_path" ]

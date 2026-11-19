@@ -1,8 +1,3 @@
-"""Device rollout classification without SSH, Infisical, omp or checkout side effects: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 import json
 import sys
 import tempfile
@@ -20,8 +15,6 @@ PROCESS_TIMEOUT = 60
 
 
 class RunnerConfigTests(unittest.TestCase):
-    """ci-runners.json documents, their writer, and the judge key builder and pipeline."""
-
     def test_runners_writer_is_idempotent_and_feeds_ci_runner(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             machine = rollout.Machine(
@@ -170,8 +163,6 @@ class RunnerConfigTests(unittest.TestCase):
 
 
 class RecordRolloutTests(RecordRolloutCase):
-    """Per-repo records go one way from the rollout source to remote omp devices."""
-
     def test_bundler_writer_and_lister_round_trip_on_a_real_target(self) -> None:
         home = self.scratch / "home"
         (home / ".omp").mkdir(parents=True)

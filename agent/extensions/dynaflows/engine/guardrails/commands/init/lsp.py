@@ -1,21 +1,3 @@
-"""LSP readiness: detect the repo's stacks, find their language servers, run a canary query.
-
-Stacks are detected from root markers in the repo root only, the way omp's LSP client finds
-them. The server names follow omp's built-in defaults (``omp://lsp-config.md``). Init records
-each server and its install hint in the profile's ``command_notes.lsp``.
-
-Readiness means the server answers a real query, not only that it is on ``PATH``. For each
-detected server, init starts its stdio command and runs the canary over the Language Server
-Protocol: ``initialize``, open one file, one ``textDocument/references`` query on a known
-symbol, then ``shutdown``. The symbol is the first top-level definition in the repo's own
-source files; a repo with none yet gets a two-file canary module in a temporary workspace that
-copies the repo's root markers. The canary passes when the query returns at least one location.
-
-A server missing from ``PATH`` is a Project setup gap (``PROFILE.complete``) unless the caller
-passes ``--allow-missing-lsp``. A server that fails the canary is always a setup gap.
-``--lsp-timeout`` bounds each canary in seconds.
-"""
-
 from __future__ import annotations
 
 import json
@@ -108,7 +90,7 @@ class Symbol:
 
 
 class CanaryError(Exception):
-    """The language server did not answer the canary query."""
+    pass
 
 
 def detect(repo: Path) -> list[Stack]:
@@ -125,7 +107,6 @@ def detect(repo: Path) -> list[Stack]:
             continue
         metadata = json.loads(package.read_text(encoding="utf-8"))
         if re.match(r"^(?:[7-9]|\d{2,})\.", str(metadata.get("version", ""))):
-            # TS7 publishes the native tsgo compiler as tsc; it no longer has tsserver.js.
             stacks[index] = replace(
                 stack,
                 server=str((package.parent / "bin/tsc").resolve()),
@@ -174,7 +155,6 @@ def frame(message: dict[str, Any]) -> bytes:
 
 
 def read_messages(stream: IO[bytes], inbox: queue.Queue[dict[str, Any] | None]) -> None:
-    """Parse framed messages from the server into ``inbox``; ``None`` marks end of stream."""
     try:
         while True:
             length = None
@@ -198,8 +178,6 @@ def read_messages(stream: IO[bytes], inbox: queue.Queue[dict[str, Any] | None]) 
 
 
 class Session:
-    """A minimal LSP client over one server process's stdio."""
-
     def __init__(
         self, server: str, workspace: Path, timeout: float, arguments: tuple[str, ...]
     ) -> None:
@@ -256,7 +234,6 @@ class Session:
         return message
 
     def answer(self, message: dict[str, Any]) -> None:
-        """Reply to a server request so the server does not wait on the client."""
         result = None
         if message["method"] == "workspace/configuration":
             items = (message.get("params") or {}).get("items") or []
@@ -322,7 +299,6 @@ def query(
 
 
 def canary(repo: Path, stack: Stack, server: str, timeout: float) -> str:
-    """Run the canary; return its description or raise CanaryError."""
     symbol = find_symbol(repo, stack)
     if symbol is not None:
         count = query(server, repo, symbol, stack, timeout)
@@ -351,7 +327,6 @@ def readiness(
     allow_missing: bool,
     timeout: float = DEFAULT_TIMEOUT_S,
 ) -> tuple[list[Finding], list[str]]:
-    """Setup-gap findings and report lines for each detected stack's server."""
     findings: list[Finding] = []
     lines: list[str] = []
     for stack in stacks:

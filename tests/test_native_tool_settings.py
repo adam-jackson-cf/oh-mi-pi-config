@@ -1,10 +1,3 @@
-"""The repository's own tool settings carry every value of the harness catalogue's native tools.
-
-The catalogue, agent/extensions/dynaflows/engine/guardrails/data/native-tools.json, holds the
-RUFF.*, MYPY.*, SHELLCHECK.* and SHFMT.* values as data; these tests read the repository's
-pyproject.toml, .shellcheckrc and .editorconfig and fail on any missing or different value.
-"""
-
 import json
 import tomllib
 import unittest

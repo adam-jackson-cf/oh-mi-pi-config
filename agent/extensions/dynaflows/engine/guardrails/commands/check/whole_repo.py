@@ -1,37 +1,3 @@
-"""``guardrails check``: the harness checks the agent rails run at commit, over the whole repo.
-
-The rails first run the repo's own commit command (the record's ``checks.commit``), then this
-command from the harness with ``--repo <worktree> --record <record dir>``. Every step inspects
-the whole checkout: no baselines and no diff scoping, so drift from contributors who do not use
-the harness blocks too. Any finding blocks the commit until it is fixed. The command reads
-repository files and writes nothing anywhere.
-
-Steps are static: they read tracked files and need neither the repository's environment nor its
-test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``python-quality``,
-``python-fanout``, ``python-scalability``, ``surface-lint`` and ``adapter lint``, the ``lint`` of every adapter
-the profile declares;
-``python-test-hygiene`` runs only when ``run`` selects it. Structure and naming are not steps:
-they judge only added and renamed paths, through ``path-check`` and ``structure`` over a commit
-range. Diff, run-report, collection, mutation and lever checks need evidence from a test run or a
-commit range, so they are not steps either.
-
-Settings (``guardrails.check`` in the record's ``profile.md``):
-
-- ``run``: the steps to run, replacing the default, chosen from ``STEPS`` (a step is a
-  subcommand name, or ``"adapter lint"``). Every step that is configured runs in full.
-- ``repo``: the steps the repository's own checkers already enforce, each mapped to the list of
-  checker files that between them enforce every rule the step reports, for example
-  ``{"python-quality": ["scripts/checks/check-python-quality.py"]}``. The repo's checkers run at
-  commit through ``checks.commit``, so ``check`` leaves the step out. A step the repo owns cannot
-  also be in ``run``, every checker file must be in the repository's file list, and settings
-  sections read only by owned steps (``STEP_SETTINGS``) are rejected as dead.
-  ``profile-check`` checks the record itself and ``path-check`` is always harness-owned;
-  neither can be owned by the repository.
-- ``exclude``: repository path patterns (as in ``structure.inventory``) for generated, vendored
-  or fixture trees; findings at matching paths are dropped. Findings about the record itself
-  (``record:``) are never dropped.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -60,10 +26,8 @@ DEFAULT_STEPS = (
     "surface-lint",
     "adapter lint",
 )
-# Every static whole-repo step a record may select.
 STEPS = (*DEFAULT_STEPS, "python-test-hygiene")
 UNOWNABLE = ("profile-check",)
-# Settings sections that only check steps read; other sections also serve diff checks or prove().
 STEP_SETTINGS = {
     "python": (
         "python-quality",
@@ -94,7 +58,6 @@ def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
 
 
 def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Finding]]:
-    """``guardrails.check.repo``: step -> the repo checker files that enforce it."""
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
         return {}, []
@@ -132,7 +95,6 @@ def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Fin
 def dead_settings(
     profile: dict[str, Any], configured: list[str], owned: dict[str, list[str]]
 ) -> list[Finding]:
-    """Settings sections whose configured steps are all owned by the repo."""
     findings = []
     for section, readers in STEP_SETTINGS.items():
         if section not in (profile.get("guardrails") or {}):
@@ -149,7 +111,6 @@ def dead_settings(
 
 
 def configured_steps(profile: dict[str, Any]) -> tuple[list[str], list[Finding]]:
-    """The steps ``check`` runs: ``run`` (or the default) without the repo-owned steps."""
     declared = settings(profile, CHECKER).get("run")
     steps, findings = selected_steps(declared)
     owned, problems = owned_steps(profile)

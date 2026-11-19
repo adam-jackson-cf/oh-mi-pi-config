@@ -1,18 +1,3 @@
-"""Normalise mutmut results into the shared mutation report (adapter item 5).
-
-The pytest adapter's mutation tool is mutmut, pinned by this package's ``mutation`` extra. After
-``mutmut run`` in the repo root, ``guardrails adapter pytest mutation-report --out FILE`` reads
-mutmut's per-file results (``mutants/<source path>.meta``: ``exit_code_by_key`` maps each mutant
-name to its test-run exit code) and writes the version 1 report that
-``guardrails mutation-check`` reads.
-
-A mutant name is ``<module>.x_<function>__mutmut_<n>`` or
-``<module>.xǁ<class>ǁ<method>__mutmut_<n>``. Its span is the mutated function's lines in the
-source file, decorators included, found with ``ast``. Exit codes map as mutmut maps them:
-1 and 3 killed; 0 survived; 5 and 33 no tests; 24, 36, 152, 255 and -24 timeout; 37 (caught by
-type check), -9 and -11 killed; anything else, including no result yet, is incomplete.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -49,7 +34,7 @@ STATUS_BY_EXIT = {
 
 
 class MutmutError(Exception):
-    """mutmut's results cannot be read or matched to the source."""
+    pass
 
 
 def status(exit_code: object) -> str:
@@ -59,7 +44,6 @@ def status(exit_code: object) -> str:
 
 
 def spans(source: str) -> dict[tuple[str | None, str], tuple[int, int]]:
-    """``(class or None, function) -> (first line, last line)`` for mutmut's mutation units."""
     tree = ast.parse(source)
     found: dict[tuple[str | None, str], tuple[int, int]] = {}
     functions = (ast.FunctionDef, ast.AsyncFunctionDef)

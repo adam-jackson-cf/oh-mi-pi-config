@@ -1,8 +1,3 @@
-"""Per-repo record resolution against real git clones, worktrees and temp records: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 import json
 import sys
 import tempfile

@@ -1,11 +1,3 @@
-"""PREFIX.candidates: diff-scoped sibling clusters for owner-grouping judgment.
-
-Print a JSON array, not a violation: cohesion is judged separately. Each cluster
-contains repo-relative members, directed import edges, external importers and
-pairwise shared-commit counts through the supplied head. Only committed head
-sources are inspected; an unrelated working-tree edit cannot change the evidence.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -25,6 +17,7 @@ from guardrails.context.config.profile import ProfileError, load_profile
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "PREFIX.candidates"
 WORDS = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[^A-Za-z]|$)|[A-Z]?[a-z]+|[0-9]+")
@@ -122,10 +115,8 @@ def _longest_new_prefix(
     prefixes: dict[tuple[str, ...], list[str]],
     added: set[str],
 ) -> bool:
-    """A shared prefix of two or more files, one of them added, not the folder's own name."""
     if len(members) < 2 or not added.intersection(members):
         return False
-    # A prefix with exactly the same members as a longer one is not longest.
     if any(
         len(other) == len(words) + 1 and other[:-1] == words and group == members
         for other, group in prefixes.items()
@@ -152,7 +143,6 @@ def _module_names(path: str, profile: dict[str, Any]) -> list[str]:
 
 
 def _imported_names(tree: ast.Module, path: str, parent: str) -> list[str]:
-    """Every imported module and ``module.name``, with relative imports resolved against ``parent``."""
     imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -211,7 +201,6 @@ def _co_change(repo: Path, head: str, members: set[str]) -> Counter[tuple[str, s
 def candidates(
     repo: Path, profile: dict[str, Any], base: str, head: str = "HEAD"
 ) -> list[dict[str, Any]]:
-    """Return longest-prefix clusters with at least one added or moved member."""
     added = _added_or_moved(repo, base, head)
     if not added:
         return []
@@ -247,7 +236,6 @@ def candidates(
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    """Emit candidate evidence for the data-printing CLI subcommand."""
     try:
         diff = parse_range(argv)
         result = candidates(repo, profile, diff.base, diff.head)
@@ -258,7 +246,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=SUBCOMMANDS["prefix-candidates"].summary
+    )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--base", required=True)

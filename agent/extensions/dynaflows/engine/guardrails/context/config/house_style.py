@@ -25,12 +25,10 @@ def load_house_style() -> dict[str, Any]:
 
 
 def digest() -> str:
-    """SHA-256 of the shipped data, for stacks that pin a hashed copy."""
     return hashlib.sha256(data_bytes()).hexdigest()
 
 
 def stem(name: str) -> str:
-    """A file stem is the part before its first dot; ``.hidden`` names keep their dot."""
     if name.startswith("."):
         return name
     return name.split(".", 1)[0]
@@ -48,7 +46,6 @@ def matches_casing(name: str, casings: list[str]) -> bool:
 def version_problem(
     segment: str, *, last: bool, standalone_allowed: bool
 ) -> str | None:
-    """Why a path segment's version token breaks the rule, or None when it does not."""
     rules = load_house_style()["versioning"]
     name = stem(segment) if last else segment
     if re.fullmatch(rules["standalone"], name):
@@ -59,7 +56,6 @@ def version_problem(
 
 
 def _name_tokens(name: str) -> tuple[str, ...]:
-    """Split separators, lower-to-upper transitions and acronym-to-word transitions."""
     name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
     return tuple(token.lower() for token in re.split(r"[_\-.]+", name) if token)
@@ -99,7 +95,6 @@ def is_catalogue_plural(name: str) -> bool:
 
 
 def test_name_problems(file_name: str) -> list[str]:
-    """Ticket, version, date and generic-only problems in a test file's name."""
     rules = load_house_style()["test_names"]
     tokens = [token for token in re.split(r"[-_.]+", stem(file_name).lower()) if token]
     behaviour = [token for token in tokens if token not in rules["ignored"]]

@@ -1,18 +1,3 @@
-"""Collect-only ``bun test`` IDs per tier from the record's selectors (adapter item 2).
-
-Bun has no list mode, so the listing runs ``bun test`` with the adapter's preload in collect mode:
-every test body and hook is a no-op, so only module top level runs. The selector's tests pass
-without running; Bun's native JUnit report then names them, and the IDs are built from its suite
-nesting exactly as the run report builds them (``<file>::<suite> > ... > <title>``). Tests a
-registration skips (``skip``, ``todo``, a false ``if``) are not listed: they never run.
-
-Selectors are native ``bun test`` arguments (for example ``--test-name-pattern fast``); locations
-are ``bun test`` path filters. The runner is ``bun`` on ``PATH``, the repository's own toolchain,
-unless ``guardrails.adapter_bun_test.command`` records an argv list. ``collect_timeout_s`` bounds
-the listing (120 seconds unless recorded otherwise). A load error, an empty or a duplicated
-collection is a TEST.failure-propagation finding. Give each adapter its own ``--out`` directory.
-"""
-
 from __future__ import annotations
 
 import math
@@ -41,7 +26,6 @@ RULE = "TEST.failure-propagation"
 
 
 def selector_arguments(selector: str) -> list[str]:
-    """Selectors are native ``bun test`` arguments, not prose or shell commands."""
     return shlex.split(selector)
 
 
@@ -80,7 +64,6 @@ def collect_timeout(profile: dict[str, Any]) -> float:
 
 
 def selected_ids(report: Path) -> list[str]:
-    """The IDs whose no-op body passed; any failing case means the listing ran test code."""
     root = ElementTree.parse(report).getroot()
     ids = []
     for case in native_cases(root):

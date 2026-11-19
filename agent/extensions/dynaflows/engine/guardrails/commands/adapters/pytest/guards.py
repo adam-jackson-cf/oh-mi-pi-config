@@ -1,23 +1,3 @@
-"""In-process guards for TEST.fast-tier-isolation and TEST.user-data-guard (standard library only).
-
-Mechanism: one ``sys.addaudithook`` hook, installed once per process and inert until a guard is
-armed. While armed it raises :class:`GuardViolationError` before the audited operation runs and records
-the violation, so a test that swallows the exception still fails (the pytest plugin reads the
-record after each phase).
-
-- ``fast-tier`` blocks process creation (``subprocess.Popen``, ``os.system``, ``os.exec*``,
-  ``os.posix_spawn``, ``os.spawn*``, ``os.fork``, ``os.forkpty``) and IP network traffic
-  (``socket.connect``/``sendto``/``sendmsg`` on ``AF_INET``/``AF_INET6`` sockets), including host
-  name resolution (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyaddr``, ``getnameinfo``).
-  Unix-domain sockets stay allowed: they carry in-process IPC, not network traffic.
-- ``user-data`` blocks writes, deletes, renames and metadata changes under the user's real home
-  directory, except inside the allowed roots (the redirected temporary home, pytest's base temp
-  directory and the project root). Reads stay allowed.
-
-This is the adapter's best-effort local guard (plan §1.12 caveats). CI containers also deny the
-network (``--network none``) and run with ``HOME`` and ``XDG_*`` set to a temporary directory.
-"""
-
 from __future__ import annotations
 
 import os
@@ -42,7 +22,6 @@ PROCESS_EVENTS = frozenset({
     "os.forkpty",
 })
 NETWORK_EVENTS = frozenset({"socket.connect", "socket.sendto", "socket.sendmsg"})
-# Name resolution queries DNS (or another resolver service) before any socket opens.
 RESOLVER_EVENTS = frozenset({
     "socket.getaddrinfo",
     "socket.gethostbyname",
@@ -50,7 +29,6 @@ RESOLVER_EVENTS = frozenset({
     "socket.getnameinfo",
 })
 IP_FAMILIES = frozenset({socket.AF_INET, socket.AF_INET6})
-# Audit events that change the file system, mapped to the argument positions holding paths.
 WRITE_EVENTS = {
     "os.remove": (0,),
     "os.rmdir": (0,),
@@ -75,7 +53,7 @@ WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 
 
 class GuardViolationError(RuntimeError):
-    """An armed guard blocked an operation the active test tier forbids."""
+    pass
 
 
 @dataclass
@@ -93,7 +71,6 @@ HOOK_INSTALLED: list[bool] = []
 
 
 def install() -> None:
-    """Install the audit hook once; it stays inert until :func:`arm` names guards."""
     with HOOK_LOCK:
         if not HOOK_INSTALLED:
             sys.addaudithook(audit)
@@ -101,7 +78,6 @@ def install() -> None:
 
 
 def configure(protected_root: str | None, allowed_roots: list[str]) -> None:
-    """Set the user-data guard's protected home and the roots inside it that tests may write."""
     STATE.protected_root = canonical(protected_root) if protected_root else None
     STATE.allowed_roots = tuple(canonical(root) for root in allowed_roots if root)
 
@@ -112,7 +88,6 @@ def arm(guards: frozenset[str]) -> None:
 
 
 def disarm() -> list[str]:
-    """Stop guarding and return the violations recorded since :func:`arm`."""
     STATE.armed = frozenset()
     violations, STATE.violations = STATE.violations, []
     return violations

@@ -17,7 +17,6 @@ renderer="$work/out/renderer"
 if [ ! -d "$renderer/assets" ]; then
   npx -y @electron/asar extract /Applications/Orca.app/Contents/Resources/app.asar "$work"
 fi
-# The first match of each hashed asset name, in glob order.
 set -- "$renderer"/assets/client-*.css
 client_css="$(basename "$1")"
 set -- "$renderer"/assets/NativeChatUserMessageRow-*.css

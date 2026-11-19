@@ -1,52 +1,3 @@
-"""Parse a JUnit XML run report into the normalised report schema the shared checkers read.
-
-Normalised schema
------------------
-- ``Case``: ``id`` (``<repo-relative file>::<qualified name>``), ``file``, ``duration_s``,
-  ``outcome`` (one of ``passed``, ``failed``, ``skipped``, ``xfail``, ``error``), ``retries``
-  (re-runs recorded before the final outcome) and ``reason`` (skip, xfail or failure message).
-- ``Report``: the cases in document order, the run ``properties`` (every ``<property>`` under a
-  ``<testsuites>`` or ``<testsuite>`` element), the outer ``wall_s``, and the counts the
-  report's leaf suites declare (``tests``, ``failures``, ``errors``), used to detect truncation.
-
-Run properties
---------------
-Adapters write these ``<property>`` names into the report so a single file carries the run's
-identity. Checkers read them; none is framework-specific.
-
-- ``omp.revision``: the commit the run measured (``git rev-parse HEAD``); freshness check.
-- ``omp.runtime``: the test runtime and version, e.g. ``python 3.12.4`` or ``node 22.3.0``;
-  input to the budget checker's machine-id probe.
-- ``omp.tier``: the profile tier key the run selected, e.g. ``t1``.
-- ``omp.wall_s``: outer wall-clock seconds of the run; falls back to the root ``time``.
-- ``omp.exit_code``: the test runner's exit code.
-
-Dialects
---------
-JUnit dialects differ in where they put the file, how they mark xfail and how they record
-retries. ``Dialect`` holds those choices as data, so most frameworks are configured, not
-adapted: profile ``guardrails.commands.test_evidence.dialect`` may be an object with the ``Dialect``
-fields below. An adapter whose dialect needs code subclasses ``Dialect``, overrides a hook
-(``case_file``, ``case_name``, ``outcome``, ``retries``, ``complete``) and calls
-``register_dialect``, or exposes ``DIALECT`` from ``guardrails.commands.adapters.<name>.dialect``.
-``complete(path, report)`` receives the parsed report and its file, for a framework whose native
-JUnit needs evidence the run wrote beside it. A dialect whose native report can omit failures
-outside the test cases (a test file that fails to load) sets ``requires_exit_code``; the report
-then never passes without the runner's exit code.
-
-Which dialect: ``--dialect <name>``, else the profile's only adapter. A profile that declares
-several adapters needs ``--dialect`` naming the adapter that wrote the report.
-
-File resolution (``Dialect.case_file``), first match wins:
-
-1. a ``file`` attribute on the test case;
-2. a ``classname`` that contains ``/`` is a file path (vitest and jest style);
-3. a dotted ``classname`` is a module path when ``source_suffix`` is set: the trailing
-   segments that start with an upper-case letter are classes, the rest form
-   ``a/b/module<source_suffix>`` (pytest xunit2 and unittest style);
-4. otherwise the classname as written.
-"""
-
 from __future__ import annotations
 
 import math
@@ -62,11 +13,11 @@ FAILING = frozenset({"failed", "error"})
 
 
 class ReportError(Exception):
-    """The run report is absent, unreadable or not JUnit XML."""
+    pass
 
 
 class UsageError(Exception):
-    """A checker was called with arguments it cannot use."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -86,14 +37,11 @@ class Report:
     properties: dict[str, str] = field(default_factory=dict)
     wall_s: float | None = None
     declared: dict[str, int] = field(default_factory=dict)
-    # The dialect's native report can omit failures, so the runner's exit code is required.
     requires_exit_code: bool = False
 
 
 @dataclass(frozen=True)
 class Dialect:
-    """How one JUnit dialect maps onto the normalised schema. Subclass to override hooks."""
-
     name: str = "generic"
     source_suffix: str | None = None
     xfail_markers: tuple[str, ...] = ("xfail",)
@@ -119,7 +67,6 @@ class Dialect:
         return "/".join(modules) + self.source_suffix
 
     def case_name(self, case: ElementTree.Element, file: str) -> str:
-        """``Class::name`` for the classname segments below the file's module, else ``name``."""
         name = case.get("name", "").strip()
         classname = case.get("classname", "").strip()
         if not classname or "/" in classname or classname == file:
@@ -145,7 +92,6 @@ class Dialect:
         return "passed", ""
 
     def complete(self, path: Path, report: Report) -> Report:
-        """The finished report; a dialect adds evidence its runner wrote beside ``path``."""
         del path
         return report
 
@@ -170,7 +116,6 @@ def as_int(value: str | None) -> int | None:
 
 
 def as_seconds(value: str | None) -> float | None:
-    """A finite non-negative number of seconds, or None when absent or malformed."""
     if value is None:
         return None
     try:
@@ -189,7 +134,6 @@ def register_dialect(dialect: Dialect) -> None:
 
 
 def dialect_for(name: str | None, configured: object = None) -> Dialect:
-    """The registered or adapter-provided dialect, or the generic one configured by data."""
     if isinstance(configured, dict):
         unknown = sorted(set(configured) - set(DIALECT_FIELDS))
         if unknown:
@@ -276,7 +220,6 @@ def normalise(case: ElementTree.Element, dialect: Dialect) -> Case:
 
 
 def declared_counts(root: ElementTree.Element) -> dict[str, int]:
-    """Counts declared by leaf suites (or the root when it is the only suite)."""
     suites = [
         suite for suite in root.iter("testsuite") if suite.find("testsuite") is None
     ]
@@ -302,7 +245,6 @@ VALUED = {"--junit", "--tier", "--revision", "--exit-code", "--dialect"}
 
 
 def report_options(repo: Path, argv: list[str]) -> ReportOptions:
-    """Read the report and budget checkers' arguments; unknown ones belong to other checkers."""
     values: dict[str, str] = {}
     index = 0
     while index < len(argv):
@@ -339,7 +281,6 @@ def evidence_settings(profile: dict[str, Any]) -> dict[str, Any]:
 def load_run_report(
     repo: Path, profile: dict[str, Any], options: ReportOptions
 ) -> Report:
-    """Parse ``--junit`` with the dialect named by ``--dialect``, settings or the only adapter."""
     if options.junit is None:
         raise ReportError("no run report given; pass --junit <path>")
     settings = evidence_settings(profile)
@@ -352,7 +293,6 @@ def load_run_report(
 
 
 def report_adapter(profile: dict[str, Any]) -> str | None:
-    """The profile's only adapter; several adapters need ``--dialect`` to name the report's."""
     declared = adapter_declarations.names(profile)
     if len(declared) > 1:
         raise UsageError(
@@ -363,7 +303,6 @@ def report_adapter(profile: dict[str, Any]) -> str | None:
 
 
 def display_path(repo: Path, path: Path | None, subcommand: str) -> str:
-    """A report path relative to the repository when inside it; ``subcommand`` without one."""
     if path is None:
         return subcommand
     try:

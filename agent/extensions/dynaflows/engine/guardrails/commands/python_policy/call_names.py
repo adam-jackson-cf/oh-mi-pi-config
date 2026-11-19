@@ -1,5 +1,3 @@
-"""Resolve call targets through import aliases so ``sp.run`` is known as ``subprocess.run``."""
-
 from __future__ import annotations
 
 import ast
@@ -26,7 +24,6 @@ SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 
 def import_names(tree: ast.AST) -> dict[str, str]:
-    """Names bound by imports directly in this scope, not in nested functions or classes."""
     names: dict[str, str] = {}
     pending = list(ast.iter_child_nodes(tree))
     while pending:

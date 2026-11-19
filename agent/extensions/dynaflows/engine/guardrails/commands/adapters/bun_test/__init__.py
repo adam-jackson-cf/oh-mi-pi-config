@@ -1,23 +1,3 @@
-"""The Bun adapter: evidence for the shared test checkers from Bun's built-in ``bun test``.
-
-``guardrails adapter bun_test <action>`` when the profile's ``adapters`` include ``bun_test``:
-
-- ``lint [PATH ...]`` (default): source rules for ``bun:test`` suites (``lint``).
-- ``tiers --out DIR [--tier T ...]``: collect-only test IDs per tier into ``DIR/<tier>.txt``
-  (``tiers``).
-- ``junit-args --tier T --out FILE``: the ``bun test`` arguments a tier command adds: a preload
-  that arms the tier's guards in-process and journals the run, and Bun's JUnit reporter
-  (``dialect``). ``report-check --dialect bun_test --exit-code <bun's exit code>`` then reads the
-  report; the exit code is required.
-- ``guard-evidence REPORT --tier T``: the report's journal shows the tier's guards were armed.
-- ``affected --base REF [--head REF]``: the selector and T2 files this adapter runs.
-- ``mutation-tool``: StrykerJS with its command test runner (``mutation``), T3 only.
-- ``mutation-report --out FILE [--input FILE]``: Stryker's JSON as the shared mutation report.
-- ``conformance [--case ID ...]``: the canonical cases over this adapter's fixtures.
-
-Every ``--out`` path lies outside the checkout; guardrails never writes into the repository.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,6 +9,7 @@ from typing import Any
 
 from guardrails.context.config.adapter_declarations import adapter_tiers, claimed
 from guardrails.foundation.findings import Finding
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 NAME = "bun_test"
 TIER_GUARDS = {
@@ -54,7 +35,7 @@ def output_finding(repo: Path, out: object) -> Finding | None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="guardrails adapter bun_test", description=__doc__
+        prog="guardrails adapter bun_test", description=SUBCOMMANDS["adapter"].summary
     )
     actions = root.add_subparsers(dest="action")
     lint = actions.add_parser("lint")

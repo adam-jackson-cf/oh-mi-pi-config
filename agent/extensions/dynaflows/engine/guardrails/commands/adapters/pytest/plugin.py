@@ -1,27 +1,3 @@
-"""pytest plugin: tier guards, run-report properties and collect-only ID listing.
-
-Load it with ``-p guardrails.commands.adapters.pytest.plugin``. ``guardrails adapter pytest junit-args``
-prints the full argument list for a tier.
-
-- ``--omp-guard fast-tier`` (TEST.fast-tier-isolation): blocks process creation and IP network
-  traffic during every test's setup, call and teardown. The T1 command must pass it.
-- ``--omp-guard user-data`` (TEST.user-data-guard): points ``HOME`` and ``XDG_*`` at a fresh
-  temporary directory for the session and blocks writes under the real home directory outside
-  the allowed roots (the temporary home, the temporary-files directory, pytest's base temp
-  directory and the project root).
-- ``--omp-tier T``: the profile tier this run selects, written as the ``omp.tier`` property.
-- ``--omp-collect-out FILE``: after collection, writes ``[[absolute file, node ID], ...]`` as
-  JSON for the tier lister, which turns it into repository-relative test IDs.
-
-With ``--junitxml`` the plugin adds the run properties ``omp.tier``, ``omp.runtime``
-(``python <version>``), ``omp.revision`` (``git rev-parse HEAD`` in the rootdir, omitted outside
-Git), ``omp.wall_s``, ``omp.exit_code`` and ``omp.guards`` (the armed guards), so the report
-proves which tier ran, on which revision and runtime, and under which guards.
-
-A blocked operation raises ``GuardViolationError`` and fails the phase it ran in, even when the test
-catches the exception. The failure text starts with the rule ID.
-"""
-
 from __future__ import annotations
 
 import json
@@ -84,8 +60,6 @@ def armed_guards(config: pytest.Config) -> frozenset[str]:
 
 
 class GuardSession:
-    """Session-wide guard setup: the redirected home and the guard roots."""
-
     def __init__(self, config: pytest.Config, armed: frozenset[str]) -> None:
         self.config = config
         self.armed = armed
@@ -165,7 +139,6 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 @contextmanager
 def guarded_phase(item: pytest.Item, when: str) -> Generator[None, None, None]:
-    """Arm the session's guards for one test phase and record what they blocked."""
     session = item.config.stash.get(SESSION_KEY, None)
     if session is None:
         yield
@@ -238,7 +211,6 @@ def run_properties(config: pytest.Config, exit_status: int) -> dict[str, str]:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Add the run properties before the JUnit plugin writes the report."""
     xml = session.config.stash.get(xml_key, None)
     if xml is None:
         return

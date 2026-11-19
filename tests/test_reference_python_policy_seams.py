@@ -1,8 +1,3 @@
-"""PYQ, PYS and FANOUT checkers of the guardrails reference on small configured repositories: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -54,7 +49,6 @@ CHECKERS: dict[str, Callable[[Path, dict[str, Any], list[str]], list[Finding]]] 
 
 
 def merged_settings(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
-    """Override one level deep, so nested limit sections keep their other keys."""
     merged = copy.deepcopy(base)
     for key, value in overrides.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -65,8 +59,6 @@ def merged_settings(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str
 
 
 class ShopRepo:
-    """A temporary Git work tree holding the fixture's files plus a case's changes."""
-
     def __init__(
         self,
         test: unittest.TestCase,
@@ -421,8 +413,6 @@ HYGIENE_PROFILE = {
 
 
 class SubprocessTimeoutTests(unittest.TestCase):
-    """TEST.subprocess-timeouts over the profile's Python test files."""
-
     def repo(self, files: dict[str, str]) -> Path:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

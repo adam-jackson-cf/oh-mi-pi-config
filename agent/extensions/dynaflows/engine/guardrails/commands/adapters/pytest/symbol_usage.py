@@ -1,16 +1,3 @@
-"""TEST.no-test-hooks: production symbols that only tests use.
-
-A production symbol is a public (no leading underscore) top-level function or class defined in
-a production file of an owned package. It is a test-only symbol when at least one test file
-names it and no production file does, apart from its own definition. A name counts as used
-where it appears as a name, an attribute, an import or a string in ``__all__``. Matching is by
-name, not by resolved type, so a symbol whose name any production file mentions is never
-reported; the check errs towards silence.
-
-Symbols the profile's ``public_entry_points`` name (``package.module:symbol``) are the declared
-public interface and never count as test-only.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -52,7 +39,6 @@ def definitions(path: str, tree: ast.Module) -> list[Definition]:
 
 
 def used_names(tree: ast.Module, *, skip: frozenset[int] = frozenset()) -> set[str]:
-    """Names the module uses; ``skip`` holds ``id()`` of definition nodes to leave out."""
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
@@ -87,7 +73,6 @@ def test_only_findings(
     profile: dict[str, Any],
     reported: set[str],
 ) -> list[Finding]:
-    """Findings for test-only symbols defined in the ``reported`` production paths."""
     defined: list[Definition] = []
     production_uses: set[str] = set()
     for path, source in production.items():

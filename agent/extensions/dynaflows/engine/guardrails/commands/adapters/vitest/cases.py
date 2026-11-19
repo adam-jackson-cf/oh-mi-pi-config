@@ -1,11 +1,3 @@
-"""Static JavaScript/TypeScript test collection; never imports or executes the target's code.
-
-Selectors use the shared ``path::suite::test[row]`` convention. Dynamic registration
-is rejected rather than silently losing cases from growth and duplicate checks. The runner
-module (``vitest`` or Bun's ``bun:test``) is stripped from imported names, so both frameworks'
-``test``/``it``/``describe`` registrations collect alike.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -18,7 +10,6 @@ if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
 SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
-# The modules whose exports are the test runner's API.
 RUNNER_MODULES = ("vitest", "bun:test")
 REGISTRARS = frozenset({"test", "it", "describe", "suite"})
 TEST_REGISTRARS = frozenset({"test", "it"})
@@ -44,7 +35,7 @@ ELIDED_KINDS = frozenset({"comment", "type_annotation"})
 
 
 class CollectionError(ValueError):
-    """The source cannot be collected without executing JavaScript."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -96,7 +87,6 @@ def string(node: SgNode | None) -> str | None:
 
 
 def _import_bindings(node: SgNode, module: str) -> dict[str, str]:
-    """The local bindings one import specifier, namespace import or default import introduces."""
     kind = node.kind()
     if kind == "import_specifier":
         name, alias = node.field("name"), node.field("alias")
@@ -119,7 +109,6 @@ def _import_bindings(node: SgNode, module: str) -> dict[str, str]:
 
 
 def imports(root: SgNode) -> dict[str, str]:
-    """Local binding -> module#export, retaining namespace member resolution."""
     found: dict[str, str] = {}
     for statement in root.find_all({"rule": {"kind": "import_statement"}}):
         module = string(statement.field("source"))
@@ -149,7 +138,6 @@ def qualified(node: SgNode | None, aliases: Mapping[str, str]) -> str:
 
 
 def runner_api(name: str) -> str:
-    """``name`` without a leading runner module (``vitest#test`` or ``bun:test.test`` -> ``test``)."""
     for module in RUNNER_MODULES:
         for prefix in (f"{module}#", f"{module}."):
             if name.startswith(prefix):
@@ -192,7 +180,6 @@ def literal(
 
 
 def _local_names(callback: SgNode) -> dict[str, str]:
-    """Declared locals and parameters of a test callback, renamed by declaration order."""
     local: dict[str, str] = {}
     for node in walk(callback):
         if node.kind() == "variable_declarator":
@@ -208,7 +195,6 @@ def _local_names(callback: SgNode) -> dict[str, str]:
 
 
 def _temporary(node: SgNode, nodes: list[SgNode]) -> tuple[str, SgNode] | None:
-    """``(name, value)`` when ``node`` declares a single-use, never-reassigned local."""
     if node.kind() != "variable_declarator":
         return None
     name, value = node.field("name"), node.field("value")
@@ -251,8 +237,6 @@ def _constant(node: SgNode) -> list[Any] | None:
 
 
 class _Normalizer:
-    """Normalise AST structure, imported aliases, parameter values and local names."""
-
     def __init__(
         self, aliases: Mapping[str, str], bindings: Mapping[str, Any], callback: SgNode
     ) -> None:
@@ -339,7 +323,6 @@ def _body(callback: SgNode) -> SgNode:
 def fingerprint(
     callback: SgNode, aliases: Mapping[str, str], bindings: Mapping[str, Any]
 ) -> str:
-    """Normalise AST structure, imported aliases, parameter values and local names."""
     body = _body(callback)
     calls: list[str] = []
     _call_order(body, aliases, calls)
@@ -348,7 +331,6 @@ def fingerprint(
 
 
 def _constants(root: SgNode) -> dict[str, SgNode]:
-    """Top-level declarations a parameter table may name, up to the first function."""
     constants: dict[str, SgNode] = {}
     for statement in children(root):
         for node in walk(statement):
@@ -395,8 +377,6 @@ def _bind_row(names: list[SgNode], row: Any, bindings: dict[str, Any]) -> None:
 
 @dataclass(frozen=True)
 class _Registration:
-    """One static ``test``/``it``/``describe``/``suite`` call and its parameter table."""
-
     base: str
     selector: str
     callback: SgNode
@@ -427,7 +407,6 @@ class _Collector:
             self.visit(child, prefix, nested, inherited)
 
     def _registrar(self, function: SgNode | None) -> tuple[str, list[Any] | None]:
-        """The registering API's name and, for ``.each``, its static parameter table."""
         if function is None or function.kind() != "call_expression":
             return api_name(function, self.aliases), None
         factory = api_name(function.field("function"), self.aliases)
@@ -448,7 +427,6 @@ class _Collector:
         dynamic: bool,
         inherited: Mapping[str, Any] | None,
     ) -> bool:
-        """Record a static registration call; False when ``node`` registers no test or suite."""
         function = node.field("function")
         if (
             node.field("arguments") is None
@@ -490,7 +468,6 @@ class _Collector:
         path: tuple[str, ...],
         inherited: Mapping[str, Any] | None,
     ) -> None:
-        """Collect one case per parameter row, or visit the suite body once per row."""
         names = _parameter_patterns(registration.callback)
         each = registration.each
         for index, row in enumerate(each if each is not None else [None]):

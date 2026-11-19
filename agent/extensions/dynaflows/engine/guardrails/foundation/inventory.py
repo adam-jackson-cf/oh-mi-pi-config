@@ -1,5 +1,3 @@
-"""Repository path inventory and the path-matching rules shared by the structure checkers."""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -13,11 +11,10 @@ GLOB_CHARACTERS = frozenset("*?[")
 
 
 class InventoryError(Exception):
-    """Git could not list the repository's paths."""
+    pass
 
 
 def repo_paths(repo: Path) -> list[str]:
-    """Tracked files plus untracked, not-ignored files, as sorted repo-relative posix paths."""
     try:
         result = run_bytes(
             [
@@ -42,7 +39,6 @@ def repo_paths(repo: Path) -> list[str]:
 
 
 def normalized_path(repo: Path, raw: str) -> str | None:
-    """Resolve an inside-repo path to posix form, refusing traversal and foreign paths."""
     if "\\" in raw:
         return None
     relative = PurePosixPath(raw)
@@ -59,7 +55,6 @@ def normalized_path(repo: Path, raw: str) -> str | None:
 
 
 def matches(path: str, pattern: str) -> bool:
-    """A glob pattern matches with fnmatch; a plain pattern matches the path or a parent."""
     if GLOB_CHARACTERS & set(pattern):
         return fnmatchcase(path, pattern)
     scope = pattern.rstrip("/")
@@ -71,7 +66,6 @@ def matches_any(path: str, patterns: list[str]) -> bool:
 
 
 def name_matches(path: str, pattern: str) -> bool:
-    """Test file patterns without a slash match the file name; others match the path."""
     target = path if "/" in pattern else PurePosixPath(path).name
     return fnmatchcase(target, pattern)
 
@@ -85,7 +79,6 @@ def as_list(value: object) -> list[str]:
 
 
 def settings(profile: dict[str, Any], checker: str) -> dict[str, Any]:
-    """Per-repo settings for one checker from the profile's ``guardrails`` section."""
     section = profile.get("guardrails")
     value = section.get(checker) if isinstance(section, dict) else None
     return value if isinstance(value, dict) else {}
