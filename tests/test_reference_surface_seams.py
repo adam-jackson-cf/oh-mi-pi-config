@@ -59,7 +59,7 @@ class FeatureMapTests(SurfaceRepoTestCase):
         return feature_map.run(self.repo, profile or surface_profile(), [])
 
     def test_complete_map_passes(self) -> None:
-        assert self.check() == []
+        assert feature_map.run(self.repo, surface_profile(), []) == []
 
     def test_wrong_or_missing_h2_is_reported(self) -> None:
         self.write(
@@ -134,7 +134,7 @@ class JourneyTests(SurfaceRepoTestCase):
         return journeys.run(self.repo, profile or surface_profile(), [])
 
     def test_mapped_journey_calling_the_lever_passes(self) -> None:
-        assert self.check() == []
+        assert journeys.run(self.repo, surface_profile(), []) == []
 
     def test_journey_not_calling_the_lever_is_reported(self) -> None:
         self.write(JOURNEY, "def test_checkout(client):\n    client.post('/pay')\n")
