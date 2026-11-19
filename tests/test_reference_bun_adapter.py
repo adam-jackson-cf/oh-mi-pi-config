@@ -136,7 +136,6 @@ class BunAdapterWiringTests(unittest.TestCase):
                 parse_report(report, DIALECT)
 
 
-@unittest.skipUnless(BUN, "bun is not on PATH")
 class BunRunTests(unittest.TestCase):
     def test_every_conformance_case_passes(self) -> None:
         results = run_conformance()

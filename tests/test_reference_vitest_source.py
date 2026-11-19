@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
-import os
 import sys
 import tempfile
 import unittest
@@ -25,8 +23,6 @@ from guardrails.findings import Finding
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
-PRESENT = importlib.util.find_spec("ast_grep_py") is not None
-REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
 PROFILE: dict[str, Any] = {
     "public_entry_points": {"shop/core.ts": ["checkout"]},
     "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
@@ -46,7 +42,6 @@ def findings(
     return lint.file_findings(path, source, rules, lint.owned_roots(profile))
 
 
-@unittest.skipUnless(PRESENT or REQUIRED, "pinned ast-grep-py extra not installed")
 class StaticCases(unittest.TestCase):
     def collect(self, source: str, path: str = "tests/case.test.ts") -> cases.Collected:
         return cases.collect(path, source)
@@ -160,7 +155,6 @@ class StaticCases(unittest.TestCase):
                 self.collect(source)
 
 
-@unittest.skipUnless(PRESENT or REQUIRED, "pinned ast-grep-py extra not installed")
 class SourceLint(unittest.TestCase):
     def assert_rule(
         self,
