@@ -1,28 +1,4 @@
-// Static source data; no installed-plugin or generated-theme reads at runtime.
-// PALETTES[palette][variant] = { appTheme: { pluginKey, file }, ansi, roles }.
-// ansi contains the 16 named ANSI entries, verbatim (lowercase hex) from the sources below.
-// roles: bg/fg = app background/foreground; mantle = card; surface0 = secondary;
-// surface1 = border; surface2 = input (alpha tokens composited over bg in sRGB).
-// Catppuccin keeps the reviewed surface steps and syntax inks instead.
-// subtle = chat's secondary ink override, otherwise app muted-foreground;
-// activity = app muted-foreground, accent = chat omp-accent otherwise app primary;
-// userMessage = app chat-user-message, otherwise 16% accent / 84% bg in sRGB.
-// Media and ID roles = palettes/<palette>.css embed-* and omp-id-*-ink values:
-// dark uses .dark; light uses the non-editorial darkened embed overrides.
-// Terminal area inks are tuned within these hue families for ≥0.05 OKLab separation,
-// including the 25% decision-tinted reasoning ink and editorial's 15% fade.
-// Syntax roles = paired app tokenColors' comment, keyword, entity.name.function,
-// variable, string, constant.numeric, support.type, keyword.operator, punctuation.
-// GitHub uses variable.other / constant / support; Ayu uses punctuation.separator.
-// Unspecified operator/punctuation syntax inherits the app foreground, as in the app.
-// table and diagram remain available as source roles but omp has no dedicated tokens.
-
 export const PALETTES = {
-  // Catppuccin ANSI: Orca 1.4.248 bundle, extracted at $TMPDIR/orca-harness-1.4.248/
-  // out/shared/terminal-themes/popular-dark-core.js (Catppuccin Mocha) and
-  // out/shared/terminal-themes/popular-light.js (Catppuccin Latte).
-  // Roles: ../palettes/catppuccin.css and ../../catppuccin-sections/themes/{mocha,latte}.json;
-  // Surface steps and syntax inks retain the former omp Catppuccin theme data.
   catppuccin: {
     "mocha": {
       "appTheme": {
@@ -136,10 +112,6 @@ export const PALETTES = {
     }
   },
 
-  // Ayu ANSI/app/syntax: installed stablyai.orca-ayu-theme version
-  // d6905874d692a152d91b9adcb507bcf6f82bf9b941e3e70ab7fca7a009099dc7,
-  // terminal/ayu-{dark,mirage,light}.json and themes/ayu-{dark,mirage,light}.json
-  // under ~/Library/Application Support/orca/plugins/. Roles: ../palettes/ayu.css.
   ayu: {
     "dark": {
       "appTheme": {
@@ -308,10 +280,6 @@ export const PALETTES = {
     }
   },
 
-  // GitHub ANSI/app/syntax: installed stablyai.orca-github-vscode-theme version
-  // 7e17af8557dd0163ee0bc74aca3a6eb227f00bdd4b2ca04a68d78d891a24afb3,
-  // terminal/github-{dark-default,dark-dimmed,light-default}.json and matching themes/
-  // under ~/Library/Application Support/orca/plugins/. Roles: ../palettes/github.css.
   github: {
     "dark": {
       "appTheme": {
@@ -480,12 +448,6 @@ export const PALETTES = {
     }
   },
 
-  // VS Code ANSI: ansiColorMap defaults (dark/light, not high contrast), retrieved 2026-11-08:
-  // https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts
-  // App/syntax: installed stablyai.orca-vscode-default-themes version
-  // ce11b29f4c21bedeaa3613e7ce9c4a6863f800e6945754ad1e36d04e24991139,
-  // themes/vs-code-{dark,light}-modern.json under ~/Library/Application Support/orca/plugins/.
-  // Roles: ../palettes/vscode.css. Modern app themes pair with the shared default ANSI table.
   vscode: {
     "dark": {
       "appTheme": {
