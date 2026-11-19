@@ -101,6 +101,39 @@ class LanguagePackTests(unittest.TestCase):
                     self.assertTrue(conventions.fixed_file(path))
                     self.assertEqual(naming.path_findings(Path(directory), path, {}), [])
 
+    def test_python_directory_casing_applies_only_to_packages(self) -> None:
+        def directory_casing(repo: Path) -> list[str]:
+            found = naming.path_findings(repo, "fixed-plan-effort/aggregate.py", {})
+            return [item.message for item in found if "directory" in item.message]
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            (repo / "fixed-plan-effort").mkdir()
+            self.assertEqual(directory_casing(repo), [])
+            (repo / "fixed-plan-effort" / "__init__.py").write_text("", encoding="utf-8")
+            self.assertEqual(
+                directory_casing(repo), ["python directory 'fixed-plan-effort' is not snake_case"]
+            )
+        sources = conventions.load_pack("python")["convention_sources"]
+        self.assertTrue(sources["package_marker"]["__init__.py"].startswith("https://docs.python.org/3/reference/import.html"))
+        self.assertTrue(sources["directory"]["snake_case"].startswith("https://peps.python.org/pep-0008/"))
+
+    def test_http_server_handler_methods_are_framework_symbols(self) -> None:
+        source = (
+            "from http.server import BaseHTTPRequestHandler\n\n\n"
+            "class Handler(BaseHTTPRequestHandler):\n"
+            "    def do_POST(self):\n        pass\n\n"
+            "    def doPost(self):\n        pass\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            (repo / "handler.py").write_text(source, encoding="utf-8")
+            found = naming.path_findings(repo, "handler.py", {})
+        symbols = [item.message for item in found if "symbol" in item.message]
+        self.assertEqual(symbols, ["line 8: symbol 'doPost' is not snake_case"])
+        sources = conventions.load_pack("python")["convention_sources"]["framework_symbols"]
+        self.assertTrue(sources["^do_[A-Z]+$"].startswith("https://docs.python.org/3/library/http.server.html"))
+
     def test_every_pack_cites_upstream_conventions(self) -> None:
         for pack in conventions.packs():
             self.assertTrue(pack["sources"])

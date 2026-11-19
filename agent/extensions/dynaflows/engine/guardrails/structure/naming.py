@@ -111,10 +111,16 @@ def plural_findings(
 
 
 def casing_findings(
-    path: str, config: dict[str, Any], existing_segments: Set[str] = frozenset()
+    repo: Path, path: str, existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
+    """Casing of each new segment; with a pack ``package_marker``, only marked directories are judged.
+
+    Python's directory casing is package naming (PEP 8), and a directory is an importable
+    regular package only when it holds ``__init__.py``; a directory of scripts is not a package.
+    """
     rules = conventions.for_path(path)
     name = rules["name"]
+    marker = rules.get("package_marker")
     parts = PurePosixPath(path).parts
     found = []
     for index, segment in enumerate(parts):
@@ -124,6 +130,8 @@ def casing_findings(
         if (last and conventions.fixed_file(path)) or (
             not last and conventions.fixed_folder(path, segment)
         ):
+            continue
+        if not last and marker and not repo.joinpath(*parts[: index + 1], marker).is_file():
             continue
         casings = rules["file"] if last else rules["directory"]
         candidate = house_style.stem(segment) if last else segment
@@ -232,7 +240,7 @@ def path_findings(
         *version_findings(path, config, existing_segments),
         *parent_findings(path, existing_paths),
         *plural_findings(path, config, existing_segments),
-        *casing_findings(path, config, existing_segments),
+        *casing_findings(repo, path, existing_segments),
         *(test_file_findings(path, profile) if new_file else []),
         *(symbol_findings(repo, path, config) if new_file else []),
     ]
