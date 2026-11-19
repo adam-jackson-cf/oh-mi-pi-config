@@ -109,8 +109,9 @@ The front matter is authoritative; any prose a live profile keeps must agree wit
 
 The template preserves tiers, public entry points, run events, per-machine budgets,
 coverage, guards, environments, verification surface, ownership areas, identity artefacts,
-layout and command notes. Harness additions are `adapter`, `structure` (owners, tiers and
-import direction), `house_style` and `guardrails`. Fill target roots, exclusions,
+layout and command notes. Harness additions are `adapters` (one entry per test framework, each
+with its per-tier selector and location; a tier keeps only its `command`), `structure` (owners,
+tiers and import direction), `house_style` and `guardrails`. Fill target roots, exclusions,
 allowlists, naming/ownership maps and CI wiring explicitly.
 
 These values support dependency direction, folder ownership, naming, test placement,

@@ -1,0 +1,3 @@
+import { test } from 'bun:test';
+// Bun has no in-body skip; the condition is read at run time and the title is the reason.
+test.skipIf(process.env.VENDOR_STATUS !== 'up')('waiting on vendor fix', () => {});

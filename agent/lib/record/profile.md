@@ -1,9 +1,9 @@
 ---
 {
   "tiers": {
-    "t1": {"selector": "<selector>", "location": "<location>", "command": "<command>"},
-    "t2": {"selector": "<selector>", "location": "<location>", "command": "<command>"},
-    "t3": {"selector": "<selector>", "location": "<location>", "command": "<command>"}
+    "t1": {"command": "<command that runs every framework in the tier>"},
+    "t2": {"command": "<command that runs every framework in the tier>"},
+    "t3": {"command": "<command that runs every framework in the tier>"}
   },
   "public_entry_points": {"<package>": "<public entry point>"},
   "run_events": {
@@ -63,7 +63,16 @@
     "working_directory": "<directory and prerequisites>",
     "interpretation": "<flags, exit codes, and interpretation>"
   },
-  "adapter": "<test-framework adapter, e.g. pytest>",
+  "adapters": [
+    {
+      "name": "<test-framework adapter, e.g. pytest>",
+      "tiers": {
+        "t1": {"selector": "<native selector>", "location": "<location>"},
+        "t2": {"selector": "<native selector>", "location": "<location>"},
+        "t3": {"selector": "<native selector>", "location": "<location>"}
+      }
+    }
+  ],
   "structure": {
     "owners": {"files": {"<path>": "<owner>"}, "directories": {"<directory>/": "<owner>"}},
     "tiers": ["<lowest tier package>", "<higher tier package>"],
@@ -84,11 +93,16 @@ The front matter above is the record's profile template: `guardrails init` draft
 `profile.md` from it, and its JSON is the authoritative value set. Every shared section, from
 `tiers` to `command_notes`, has the meaning, fill rules and allowed exemptions of the generic
 [test profile template](../../extensions/dynaflows/skills/test-guidance/assets/templates/test-profile.md).
-This template adds only the harness fields below.
+This template adds only the harness fields below, and splits the generic tiers by framework.
 
 - Repo file paths are repo-relative; record file paths are record-relative.
 - `fast_tier_budget.machines[].id` is the machine id the budget checker's probe reports.
-- `adapter` names the test-framework adapter that produces the profile's test evidence.
+- `adapters` lists one entry per test framework the repo uses: an adapter belongs to a
+  framework, not a tier, and every tier may hold tests from every framework. Each entry's
+  `name` is an installed adapter (`pytest`, `vitest`, `bun_test`); its `tiers` give, for each
+  tier the framework takes part in, the generic tier's `selector` (in that framework's native
+  syntax) and `location`. Names are unique, each entry takes part in at least one tier and each
+  tier has at least one adapter. `tiers.<tier>` keeps only the `command` that runs the tier.
 - `structure` holds capability owners, tiers (lowest first; empty for a flat package) and
   import direction.
 - `house_style.version` records the installed house-style version.

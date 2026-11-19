@@ -15,7 +15,7 @@ Besides the pattern rules, ``symbol_usage`` reports production symbols that only
 symbols defined in the linted production files.
 
 Owned packages (D2) are the top-level packages that own the profile's ``public_entry_points``
-keys. Test files are files under a tier ``location``, files matching ``layout.test_file_patterns``
+keys. Test files are files under a pytest adapter ``location``, files matching ``layout.test_file_patterns``
 and ``conftest.py`` files. Production files are the other Python files with an owned package
 in their path. A finding is waived where ``guardrails.exceptions`` holds a reason-backed entry
 whose ``rule`` and optional ``check`` match the finding and whose ``path`` matches the file.
@@ -30,10 +30,13 @@ from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails import adapters
 from guardrails.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.config.house_style import apply_exceptions
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, matches_any, name_matches
+
+NAME = "pytest"
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
@@ -100,14 +103,9 @@ def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
     return frozenset(names)
 
 
-def test_patterns(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
-    tiers = profile.get("tiers")
-    locations = [
-        location
-        for spec in (tiers.values() if isinstance(tiers, dict) else [])
-        if isinstance(spec, dict)
-        for location in as_list(spec.get("location"))
-    ]
+def test_patterns(profile: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
+    """Adapter ``name``'s test locations and the profile's test-file name patterns."""
+    locations = adapters.locations(profile, name)
     layout = profile.get("layout")
     patterns = (
         as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
@@ -259,7 +257,7 @@ def file_findings(
 
 def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
     owned = owned_packages(profile)
-    locations, patterns = test_patterns(profile)
+    locations, patterns = test_patterns(profile, NAME)
     rules = load_rules()
     findings: list[Finding] = []
     production: set[str] = set()
@@ -301,7 +299,7 @@ def test_only_symbol_findings(
     if not reported:
         return []
     owned = owned_packages(profile)
-    locations, patterns = test_patterns(profile)
+    locations, patterns = test_patterns(profile, NAME)
     production: dict[str, str] = {}
     tests: dict[str, str] = {}
     for path in python_files(repo, []):

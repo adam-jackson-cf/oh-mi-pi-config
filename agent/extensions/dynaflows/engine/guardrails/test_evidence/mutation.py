@@ -2,7 +2,7 @@
 
 ``guardrails mutation-check --report FILE --base <ref> [--head <ref>]`` runs in T3 (nightly)
 after the adapter's mutation tool has run and the adapter has normalised its results
-(``guardrails adapter mutation-report``). The check never runs the mutation tool itself.
+(``guardrails adapter <name> mutation-report``). The check never runs the mutation tool itself.
 
 Normalised report schema (framework-agnostic, version 1)::
 

@@ -18,7 +18,7 @@ An adapter does only these six things. No framework is assumed.
 
 1. **Run report.** Emit a JUnit XML report for every tier run.
 2. **Tier listing.** List the collected test IDs per tier, without running
-   them, using the selectors in the profile's `tiers`. Also collect test cases
+   them, using the adapter's selectors in the profile's `adapters` entry. Also collect test cases
    statically from source (`cases.collect(path, text)`): each case's test ID
    with a fingerprint of its normalised calls and assertions, and each test
    function's descriptive behavior name (Python function name or JS/TS test
@@ -43,8 +43,11 @@ An adapter does only these six things. No framework is assumed.
    report schema. Dialects differ, so normalisation lives in the adapter, never
    in a shared checker.
 
-The record's `profile.md` names the adapter in `adapter` and each tier's
-selector in `tiers`. Per-repo values go in the record, never in adapter code.
+An adapter belongs to a test framework, not a tier. The record's `profile.md` lists one
+`adapters` entry per framework the repo uses; each names its adapter and gives, per tier it
+takes part in, the framework's native `selector` and the `location` handed to it. Every tier
+may hold tests from several frameworks, and `guardrails adapter <name> <action>` runs one
+adapter. Per-repo values go in the record, never in adapter code.
 
 ## Conformance spec
 

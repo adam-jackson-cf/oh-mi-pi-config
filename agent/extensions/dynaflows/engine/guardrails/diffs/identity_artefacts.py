@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from guardrails import adapters
 from guardrails.diffs.changes import (
     DiffError,
     changed_files,
@@ -31,11 +32,7 @@ CHECKER = "identity_artefacts"
 
 
 def test_locations(profile: dict[str, Any]) -> list[str]:
-    locations: list[str] = []
-    tiers = profile.get("tiers")
-    for tier in tiers.values() if isinstance(tiers, dict) else []:
-        if isinstance(tier, dict):
-            locations.extend(as_list(tier.get("location")))
+    locations = adapters.locations(profile)
     layout = profile.get("layout")
     if isinstance(layout, dict):
         locations.extend(as_list(layout.get("support_dir")))

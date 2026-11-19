@@ -8,7 +8,8 @@ repository files and writes nothing anywhere.
 
 Steps are static: they read tracked files and need neither the repository's environment nor its
 test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``python-quality``,
-``python-fanout``, ``python-scalability``, ``surface-lint`` and the profile adapter's ``lint``;
+``python-fanout``, ``python-scalability``, ``surface-lint`` and ``adapter lint``, the ``lint`` of every adapter
+the profile declares;
 ``python-test-hygiene`` runs only when ``run`` selects it. Structure and naming are not steps:
 they judge only added and renamed paths, through ``path-check`` and ``structure`` over a commit
 range. Diff, run-report, collection, mutation and lever checks need evidence from a test run or a
@@ -195,6 +196,7 @@ def run_step(repo: Path, profile: dict[str, Any], step: str) -> list[Finding]:
     if name == "python-quality":
         argv.extend(["--event", "staged"])
     try:
+        # "adapter lint" lints with every declared adapter: each framework its own files.
         modules = cli.module_names(name, profile)
     except ProfileError as error:
         return [cli.profile_finding(error)]

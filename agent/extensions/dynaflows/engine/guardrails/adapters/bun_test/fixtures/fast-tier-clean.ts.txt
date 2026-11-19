@@ -1,0 +1,5 @@
+import { test, expect } from 'bun:test';
+import { writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+test('temporary write', () => { const file = join(tmpdir(), 'clean.txt'); writeFileSync(file, '42'); expect(readFileSync(file, 'utf8')).toBe('42'); });

@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
 
+# The files this collector reads.
+SUFFIXES = (".py",)
 TestFunction: TypeAlias = ast.FunctionDef | ast.AsyncFunctionDef
 Bindings: TypeAlias = dict[str, ast.expr]
 ParameterRow: TypeAlias = tuple[str, Bindings]
@@ -401,6 +403,25 @@ def _expanded_cases(
     return cases
 
 
+UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCase"})
+
+
+def _is_test_class(
+    node: ast.ClassDef, aliases: Mapping[str, str], test_classes: set[str]
+) -> bool:
+    """pytest's rule: a ``Test*`` class, or a ``unittest.TestCase`` subclass (directly or
+    through a test class defined earlier in the same file), whatever its name."""
+    if node.name.startswith("Test"):
+        return True
+    for base in node.bases:
+        name = _qualified(base)
+        head, dot, rest = name.partition(".")
+        resolved = f"{aliases.get(head, head)}{dot}{rest}"
+        if resolved in UNITTEST_BASES or name in test_classes:
+            return True
+    return False
+
+
 def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
     tree = ast.parse(text, filename=path)
     aliases = _imports(tree)
@@ -416,12 +437,16 @@ def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
                 constants.values[statement.targets[0].id] = value
     cases: list[Case] = []
     functions: dict[str, str | None] = {}
+    test_classes: set[str] = set()
 
     def collect(
         nodes: Sequence[ast.stmt], prefix: str, inherited: list[Dimension]
     ) -> None:
         for node in nodes:
-            if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            if isinstance(node, ast.ClassDef) and _is_test_class(
+                node, aliases, test_classes
+            ):
+                test_classes.add(node.name)
                 collect(
                     node.body,
                     f"{prefix}{node.name}::",

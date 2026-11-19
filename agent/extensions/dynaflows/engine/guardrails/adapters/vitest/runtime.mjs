@@ -40,7 +40,9 @@ const writing = (flags) => Number.isInteger(flags)
   ? Boolean(flags & (fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_APPEND))
   : /[wa+]/.test(flags ?? 'r');
 
-export function install(settings) {
+// `extend` receives { deny, protect, patch, tier } to arm a runtime's own boundaries (Bun's
+// native APIs) before the built-in exports are synchronised.
+export function install(settings, extend = () => {}) {
   const protectedHome = canonical(settings.protectedHome);
   const allowed = settings.allowed.map(canonical);
   const violations = [];
@@ -103,6 +105,7 @@ export function install(settings) {
       deny('TEST.fast-tier-isolation', 'worker_threads.Worker');
     };
   }
+  extend({ deny, protect, patch, tier: settings.tier });
   syncBuiltinESMExports();
   original.append(settings.events, JSON.stringify({ kind: 'armed', tier: settings.tier, guards: settings.tier === 't1' ? ['fast-tier', 'user-data'] : ['user-data'] }) + '\n');
   return violations;

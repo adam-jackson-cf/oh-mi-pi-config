@@ -1,12 +1,15 @@
 """Collect-only test-ID listing per tier from the profile's tier selectors (adapter item 2).
 
-Each ``tiers.<tier>`` entry gives ``location`` (one or more paths handed to pytest) and
-``selector``. A selector starting with ``-`` is a list of pytest arguments split by shell rules
+The pytest entry of the profile's ``adapters`` gives, per tier, ``location`` (one or more paths
+handed to pytest) and ``selector``. pytest collects ``unittest.TestCase`` classes as well, so a
+marker selector reaches them through a class decorator (``@pytest.mark.fast``) or a module
+``pytestmark``. A selector starting with ``-`` is a list of pytest arguments split by shell rules
 (for example ``-m "fast and not slow"``); any other selector is a marker expression passed as
 ``-m <selector>``. The listing writes ``<out>/<tier>.txt``: one test ID per line in the shared
 form ``<repository-relative file>::<name>`` (pytest's node ID with its file part made
 repository-relative), which ``guardrails collection-check --tier <tier>=<out>/<tier>.txt``
-reads for TEST.tier-selectors.
+reads for TEST.tier-selectors. Give each adapter its own ``--out`` directory: every adapter
+writes ``<tier>.txt``.
 
 pytest's exit code 5 (no tests collected) and any other collection failure are
 TEST.failure-propagation findings here as well: an empty or broken collection never passes.
@@ -27,11 +30,13 @@ from pathlib import Path
 from typing import Any
 
 import guardrails
+from guardrails.adapters import adapter_tiers
 from guardrails.child_env import repo_environment
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, settings
 
+NAME = "pytest"
 PLUGIN = "guardrails.adapters.pytest.plugin"
 SETTINGS = "adapter_pytest"
 NO_TESTS_COLLECTED = 5
@@ -79,11 +84,14 @@ def package_environment() -> dict[str, str]:
 def collect_tier(
     repo: Path, profile: dict[str, Any], tier: str, out_dir: Path
 ) -> list[Finding]:
-    spec = profile.get("tiers", {}).get(tier)
+    spec = adapter_tiers(profile, NAME).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
         return [
             Finding(
-                PROPAGATION, PROFILE_PATH, f"tiers.{tier} has no selector", "record it"
+                PROPAGATION,
+                PROFILE_PATH,
+                f"the pytest adapter has no selector for tier {tier}",
+                "record it under adapters[].tiers",
             )
         ]
     locations = as_list(spec.get("location"))
@@ -150,9 +158,8 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
 def list_tiers(
     repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path
 ) -> list[Finding]:
-    """List the named tiers, or every tier the profile declares."""
+    """List the named tiers, or every tier the pytest adapter takes part in."""
     findings: list[Finding] = []
-    declared = profile.get("tiers")
-    for tier in tiers or sorted(declared if isinstance(declared, dict) else {}):
+    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
         findings.extend(collect_tier(repo, profile, tier, out_dir))
     return findings

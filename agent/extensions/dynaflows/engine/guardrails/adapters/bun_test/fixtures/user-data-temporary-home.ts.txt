@@ -1,0 +1,5 @@
+import { test, expect } from 'bun:test';
+import { writeFileSync, readFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+test('redirected home and temp', () => { for (const dir of [homedir(), tmpdir()]) { const file = join(dir, 'allowed.txt'); writeFileSync(file, 'safe'); expect(readFileSync(file, 'utf8')).toBe('safe'); } });

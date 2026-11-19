@@ -3,7 +3,7 @@
 ``guardrails affected --base <ref> [--head <ref>]`` prints the T2 test files the change
 affects, one per line, and a ``selection:`` line on standard error that says why.
 
-1. T2 files are the repo's test files under the ``tiers.t2.location`` paths, plus files matching
+1. T2 files are the repo's test files under the t2 ``location`` paths of every adapter, plus files matching
    ``verification_surface.journey_file_pattern`` (journeys are T2). Test files are files that
    match ``layout.test_file_patterns``.
 2. Each T2 file's area is the area of the first ``ownership_areas.map`` pattern it matches.
@@ -26,6 +26,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from guardrails import adapters
 from guardrails.diffs.changes import (
     DiffError,
     changed_files,
@@ -57,7 +58,7 @@ def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def t2_files(paths: list[str], profile: dict[str, Any]) -> list[str]:
-    locations = as_list(section(section(profile, "tiers"), "t2").get("location"))
+    locations = adapters.tier_locations(profile).get("t2", [])
     journeys = as_list(
         section(profile, "verification_surface").get("journey_file_pattern")
     )

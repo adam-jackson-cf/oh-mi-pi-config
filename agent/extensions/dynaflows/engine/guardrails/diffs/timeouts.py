@@ -24,6 +24,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails import adapters
 from guardrails.config.house_style import apply_exceptions
 from guardrails.diffs.changes import (
     DiffError,
@@ -33,7 +34,7 @@ from guardrails.diffs.changes import (
     range_finding,
 )
 from guardrails.findings import Finding
-from guardrails.structure.inventory import as_list, matches_any, settings
+from guardrails.structure.inventory import matches_any, settings
 from guardrails.structure.naming import is_test_file
 
 RULE = "TEST.no-evasion"
@@ -46,13 +47,8 @@ FIX = (
 
 
 def tier_locations(profile: dict[str, Any]) -> list[str]:
-    tiers = profile.get("tiers")
-    return [
-        location
-        for spec in (tiers.values() if isinstance(tiers, dict) else [])
-        if isinstance(spec, dict)
-        for location in as_list(spec.get("location"))
-    ]
+    """Every adapter's test locations across the tiers."""
+    return adapters.locations(profile)
 
 
 def is_changed_test(path: str, profile: dict[str, Any]) -> bool:

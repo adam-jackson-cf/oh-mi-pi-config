@@ -44,14 +44,20 @@ CASE_TIMEOUT_S = 300
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
 BASE_PROFILE: dict[str, Any] = {
     "public_entry_points": {"shop": "shop.core:Basket"},
+    "adapters": [
+        {
+            "name": "pytest",
+            "tiers": {
+                "t1": {"selector": "fast", "location": "tests"},
+                "t2": {"selector": "slow", "location": "tests"},
+                "t3": {"selector": "-m explore", "location": "tests"},
+            },
+        }
+    ],
     "tiers": {
-        "t1": {"selector": "fast", "location": "tests", "command": "pytest -m fast"},
-        "t2": {"selector": "slow", "location": "tests", "command": "pytest -m slow"},
-        "t3": {
-            "selector": "-m explore",
-            "location": "tests",
-            "command": "pytest -m explore",
-        },
+        "t1": {"command": "pytest -m fast"},
+        "t2": {"command": "pytest -m slow"},
+        "t3": {"command": "pytest -m explore"},
     },
     "layout": {
         "support_dir": "tests",
@@ -275,7 +281,7 @@ def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
 
 
 def run_cases(case_ids: list[str]) -> list[Finding]:
-    """``guardrails adapter conformance``: one finding per misclassified case."""
+    """``guardrails adapter pytest conformance``: one finding per misclassified case."""
     return [
         Finding(
             result.rule,
