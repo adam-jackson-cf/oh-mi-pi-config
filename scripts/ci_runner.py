@@ -14,11 +14,12 @@ Exit codes: 0 success, 1 failure or error, 2 configuration error, 3 pending (sta
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import time
+from pathlib import Path
+from typing import Any
 
 BASE = Path(__file__).resolve().parents[1]
 OPERATIONS = ("submit", "wait", "status", "logs")
@@ -28,15 +29,15 @@ class ConfigError(Exception):
     pass
 
 
-def config_path():
+def config_path() -> Path:
     return Path(os.environ.get("OMP_CI_RUNNERS") or BASE / "ci-runners.json")
 
 
-def rollout_hint():
+def rollout_hint() -> str:
     return f"run python3 {BASE / 'scripts' / 'device_rollout.py'} to write ci-runners.json"
 
 
-def load_role(role):
+def load_role(role: str) -> dict[str, Any]:
     path = config_path()
     try:
         document = json.loads(path.read_text())
@@ -62,13 +63,13 @@ def load_role(role):
     return spec
 
 
-def substitute(argv, values):
+def substitute(argv: list[str], values: dict[str, str]) -> list[str]:
     """Replace {repo} {sha} {timeout} {tail} inside each argv element; other braces stay."""
     pattern = re.compile(r"\{(" + "|".join(values) + r")\}")
     return [pattern.sub(lambda match: values[match.group(1)], arg) for arg in argv]
 
 
-def gh_json(path):
+def gh_json(path: str) -> Any:
     result = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
     if result.returncode:
         # gh output is not echoed: it can carry request details.
@@ -76,7 +77,7 @@ def gh_json(path):
     return json.loads(result.stdout)
 
 
-def context_state(repo, sha, context):
+def context_state(repo: str, sha: str, context: str) -> str:
     """Return success, failure or pending for the context on the exact SHA."""
     states = []
     combined = gh_json(f"repos/{repo}/commits/{sha}/status")
@@ -98,11 +99,11 @@ def context_state(repo, sha, context):
     return "success"
 
 
-def report(repo, sha, context, state):
+def report(repo: str, sha: str, context: str, state: str) -> None:
     print(json.dumps({"repo": repo, "sha": sha, "context": context, "state": state}))
 
 
-def poll(args):
+def poll(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + args.timeout
     while True:
         state = context_state(args.repo, args.sha, args.context)
@@ -117,7 +118,7 @@ def poll(args):
         time.sleep(min(args.interval, max(deadline - time.monotonic(), 0)))
 
 
-def parse(argv):
+def parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("operation", choices=OPERATIONS)
@@ -143,7 +144,27 @@ def parse(argv):
     return args
 
 
-def main(argv=None):
+def builtin(args: argparse.Namespace) -> int:
+    """Run an operation whose configured command is null: a push-started submit or the built-in poller."""
+    if args.operation == "submit":
+        print(f"runner {args.role!r} starts on push; nothing to submit for {args.sha}")
+        return 0
+    if args.operation == "logs":
+        print(f"runner {args.role!r} has no logs command configured", file=sys.stderr)
+        return 2
+    if args.context is None:
+        print(f"runner {args.role!r} {args.operation} uses the built-in poller; "
+              "pass --context with the gate's ci.requiredContext", file=sys.stderr)
+        return 2
+    try:
+        return poll(args)
+    except (RuntimeError, ValueError, OSError) as error:
+        message = str(error) if isinstance(error, RuntimeError) else "GitHub status lookup failed"
+        print(message, file=sys.stderr)
+        return 1
+
+
+def main(argv: list[str] | None = None) -> int:
     args = parse(argv)
     try:
         spec = load_role(args.role)
@@ -154,22 +175,7 @@ def main(argv=None):
     if args.timeout is None:
         args.timeout = float(spec["timeout"])
     if command is None:
-        if args.operation == "submit":
-            print(f"runner {args.role!r} starts on push; nothing to submit for {args.sha}")
-            return 0
-        if args.operation == "logs":
-            print(f"runner {args.role!r} has no logs command configured", file=sys.stderr)
-            return 2
-        if args.context is None:
-            print(f"runner {args.role!r} {args.operation} uses the built-in poller; "
-                  "pass --context with the gate's ci.requiredContext", file=sys.stderr)
-            return 2
-        try:
-            return poll(args)
-        except (RuntimeError, ValueError, OSError) as error:
-            message = str(error) if isinstance(error, RuntimeError) else "GitHub status lookup failed"
-            print(message, file=sys.stderr)
-            return 1
+        return builtin(args)
     values = {"repo": args.repo, "sha": args.sha, "timeout": f"{args.timeout:g}", "tail": str(args.tail)}
     try:
         return subprocess.run(substitute(command, values), check=False).returncode
