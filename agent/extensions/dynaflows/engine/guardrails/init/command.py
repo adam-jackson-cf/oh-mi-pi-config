@@ -10,8 +10,8 @@ Into the record directory, init:
 2. writes ``profile.md`` from the test-guidance template, keeping every recorded value
    (``profile_fill``); ``--settings FILE`` adds per-checker settings under ``guardrails``;
 3. writes ``gate.json`` with the absent fields drafted from the discovery (``record_gate``);
-4. writes proposed native-tool configs to ``proposed/`` (``native_config``); the owner applies
-   them to the repository as a fix;
+4. writes proposed native-tool configs to ``proposed/`` (``native_config`` for Python,
+   ``native_languages`` for TypeScript, Go and shell); the owner applies them as a fix;
 5. records the detected language servers in ``command_notes.lsp`` and runs each server's canary
    references query (``lsp``). A server missing from ``PATH`` is a setup gap unless
    ``--allow-missing-lsp`` is given; a server that fails the canary always is.
@@ -30,7 +30,14 @@ from pathlib import Path
 from guardrails import harness
 from guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
 from guardrails.findings import Finding
-from guardrails.init import discovery, lsp, native_config, profile_fill, record_gate
+from guardrails.init import (
+    discovery,
+    lsp,
+    native_config,
+    native_languages,
+    profile_fill,
+    record_gate,
+)
 
 USAGE_RULE = "PROFILE.complete"
 PROPOSED_DIR = "proposed"
@@ -127,9 +134,11 @@ def apply_gate(
 
 
 def apply_native(repo: Path, record: Path, changes: list[str]) -> list[str]:
-    if not (repo / "pyproject.toml").is_file():
-        return []
-    planned, report = native_config.planned_configs(repo, optional_profile(record))
+    planned, report = native_languages.planned_configs(repo)
+    if (repo / "pyproject.toml").is_file():
+        python, lines = native_config.planned_configs(repo, optional_profile(record))
+        planned.update(python)
+        report = lines + report
     for name, text in planned.items():
         label = f"record:{PROPOSED_DIR}/{name} (apply it to the repository as a fix)"
         write_if_changed(record / PROPOSED_DIR / name, text, changes, label)
