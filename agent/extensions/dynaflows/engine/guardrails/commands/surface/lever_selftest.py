@@ -43,6 +43,7 @@ from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, settings
+from guardrails.host.process import run_text, start_logged
 
 RULE = "SURFACE.lever-isolation"
 CHECKER = "lever_selftest"
@@ -83,9 +84,7 @@ def group_alive(pgid: int) -> bool:
 def process_table() -> list[tuple[int, str]]:
     """(pid, command line) of every visible process: ``ps``, else Linux ``/proc``."""
     try:
-        result = subprocess.run(
-            ["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False
-        )
+        result = run_text(["ps", "-axo", "pid=,command="], check=False)
     except OSError:
         return proc_table()
     table = []
@@ -153,15 +152,7 @@ def run_lever(
     log = scratch / f"lever-output-{time.monotonic_ns()}.log"
     with log.open("wb") as output:
         try:
-            process = subprocess.Popen(
-                command,
-                cwd=repo,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            process = start_logged(command, output=output, cwd=repo, env=env)
         except OSError as error:
             return LeverRun(None, f"cannot start lever: {error}", ())
         try:

@@ -91,6 +91,10 @@ def substitute(argv: list[str], values: dict[str, str]) -> list[str]:
     return [pattern.sub(lambda match: values[match.group(1)], arg) for arg in argv]
 
 
+def run_operation(argv: list[str]) -> int:
+    return subprocess.run(argv, check=False).returncode
+
+
 def gh_json(path: str) -> Any:
     result = subprocess.run(
         ["gh", "api", path], capture_output=True, text=True, check=False
@@ -239,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         "tail": str(args.tail),
     }
     try:
-        return subprocess.run(substitute(command, values), check=False).returncode
+        return run_operation(substitute(command, values))
     except OSError:
         print(
             f"runner {args.role!r} {args.operation} command could not start: {command[0]}",

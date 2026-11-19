@@ -91,6 +91,17 @@ def summarize_reply(stdout: str) -> tuple[Record, str]:
     return usage, final_text
 
 
+def run_omp(cmd: list[str], ws: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        cwd=ws,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=TRIAL_TIMEOUT_S,
+    )
+
+
 def run_trial(items_dir: Path, item: Record, arm: Arm, rep: int, runs: Path) -> Record:
     run_id = uuid.uuid4().hex[:10]
     ws = WORKSPACES / run_id
@@ -116,14 +127,7 @@ def run_trial(items_dir: Path, item: Record, arm: Arm, rep: int, runs: Path) -> 
     ]
     started = time.time()
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=ws,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            timeout=TRIAL_TIMEOUT_S,
-        )
+        proc = run_omp(cmd, ws)
         stdout, timed_out = proc.stdout, False
     except subprocess.TimeoutExpired as exc:
         stdout = (

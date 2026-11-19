@@ -212,6 +212,29 @@ def _is_argv(value: object) -> TypeGuard[list[str]]:
     )
 
 
+def _run_text(
+    argv: list[str],
+    *,
+    cwd: StrPath | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+    errors: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        errors=errors,
+        timeout=timeout,
+    )
+
+
+def _run_bytes(argv: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(argv, capture_output=True)
+
+
 def run_check(
     cmd: object,
     cwd: StrPath,
@@ -224,12 +247,10 @@ def run_check(
         raise WorkflowError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
-        p = subprocess.run(
+        p = _run_text(
             cmd,
             cwd=cwd,
             env=env,
-            capture_output=True,
-            text=True,
             errors="replace",
             timeout=CHECK_TIMEOUT if timeout is None else timeout,
         )
@@ -253,12 +274,7 @@ def run_check(
 
 def _git(repo: StrPath, *args: str) -> str:
     try:
-        p = subprocess.run(
-            ["git", "-C", str(repo), *args],
-            capture_output=True,
-            text=True,
-            errors="surrogateescape",
-        )
+        p = _run_text(["git", "-C", str(repo), *args], errors="surrogateescape")
     except OSError as exc:
         raise WorkflowError(f"git infrastructure: {exc}") from exc
     if p.returncode:
@@ -268,14 +284,7 @@ def _git(repo: StrPath, *args: str) -> str:
 
 def _gh(repo: StrPath, *args: str) -> str:
     try:
-        process = subprocess.run(
-            ["gh", *args],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=20,
-        )
+        process = _run_text(["gh", *args], cwd=repo, errors="replace", timeout=20)
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         raise WorkflowError(f"gh unavailable: {exc}") from exc
     if process.returncode:
@@ -563,10 +572,15 @@ def _commit(repo: StrPath, ref: str) -> str:
 
 
 def _ancestor(repo: StrPath, older: str, newer: str, strict: bool = False) -> bool:
-    p = subprocess.run(
-        ["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer],
-        capture_output=True,
-    )
+    p = _run_bytes([
+        "git",
+        "-C",
+        str(repo),
+        "merge-base",
+        "--is-ancestor",
+        older,
+        newer,
+    ])
     if p.returncode not in (0, 1):
         raise WorkflowError(
             f"ancestry infrastructure: {p.stderr.decode(errors='replace')}"
@@ -1103,9 +1117,7 @@ def _frozen_file(root: Path, ident: str, name: str) -> str:
     source = _proof_path(root, name)
     if not source.is_file():
         raise WorkflowError(f"{ident}: missing regular proof file: {name}")
-    ignored = subprocess.run(
-        ["git", "-C", str(root), "check-ignore", "-q", "--", name], capture_output=True
-    )
+    ignored = _run_bytes(["git", "-C", str(root), "check-ignore", "-q", "--", name])
     if ignored.returncode == 0:
         raise WorkflowError(f"{ident}: ignored proof file: {name}")
     if ignored.returncode != 1:

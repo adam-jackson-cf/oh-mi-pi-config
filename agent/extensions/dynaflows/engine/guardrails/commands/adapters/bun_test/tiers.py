@@ -33,6 +33,7 @@ from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, settings
+from guardrails.host.process import run_text
 
 NAME = "bun_test"
 SETTINGS = "adapter_bun_test"
@@ -122,14 +123,8 @@ def collect_tier(
                 *selector_arguments(spec["selector"]),
                 *as_list(spec.get("location")),
             ]
-            result = subprocess.run(
-                argv,
-                cwd=repo,
-                env=repo_environment(),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
+            result = run_text(
+                argv, cwd=repo, env=repo_environment(), timeout=timeout, check=False
             )
             if result.returncode or not report.is_file():
                 tail = " ".join((result.stdout + result.stderr).split())[-600:]

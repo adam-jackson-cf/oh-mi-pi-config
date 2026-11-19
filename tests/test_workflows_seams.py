@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from child_process import run_text
 from test_workflows import workflow
 
 pytestmark = pytest.mark.seam
@@ -56,9 +57,9 @@ def map_doc(*targets: str, title: str = "Value") -> str:
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(repo), *args], text=True, timeout=60
-    ).strip()
+    return run_text(
+        ["git", "-C", str(repo), *args], timeout=60, check=True
+    ).stdout.strip()
 
 
 class RepositoryCase(unittest.TestCase):

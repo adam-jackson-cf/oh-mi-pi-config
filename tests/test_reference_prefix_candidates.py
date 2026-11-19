@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -47,12 +48,8 @@ class PrefixCandidateTests(unittest.TestCase):
         self.git("config", "user.email", "fixture@example.invalid")
 
     def git(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+        return run_text(
+            ["git", "-C", str(self.repo), *args], check=True, timeout=10
         ).stdout.strip()
 
     def write(self, path: str, text: str = "") -> None:

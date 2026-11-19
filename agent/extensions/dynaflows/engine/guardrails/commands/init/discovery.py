@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from guardrails.foundation.child_env import repo_environment
+from guardrails.host.process import run_text
 
 MAKEFILES = ("GNUmakefile", "makefile", "Makefile")
 MAKE_TARGET = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)\s*:(?!=)")
@@ -155,12 +156,10 @@ def gh_json(repo: Path, args: list[str], *, missing_ok: bool = False) -> object:
     if gh is None:
         raise GhError("gh is not on PATH")
     try:
-        result = subprocess.run(
+        result = run_text(
             [gh, *args],
             cwd=repo,
             env=repo_environment(),
-            capture_output=True,
-            text=True,
             timeout=GH_TIMEOUT_S,
             check=False,
         )

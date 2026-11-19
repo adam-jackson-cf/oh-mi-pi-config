@@ -4,12 +4,13 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -57,12 +58,12 @@ class NamingScopeCase(unittest.TestCase):
         self.base = self.git("rev-parse", "HEAD").strip()
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(
+        return run_text(
             ["git", "-C", str(self.repo), *args],
-            text=True,
             env=self.environment,
             timeout=30,
-        )
+            check=True,
+        ).stdout
 
     def write(self, path: str, content: str = "VALUE = 1\n") -> None:
         target = self.repo / path
@@ -379,7 +380,7 @@ class ProveScopeTests(NamingScopeCase):
 
         def prove() -> dict[str, Any]:
             head = self.git("rev-parse", "HEAD").strip()
-            process = subprocess.run(
+            process = run_text(
                 [
                     sys.executable,
                     "-I",
@@ -395,8 +396,6 @@ class ProveScopeTests(NamingScopeCase):
                     "rename scope",
                     self.base,
                 ],
-                capture_output=True,
-                text=True,
                 env=environment,
                 timeout=60,
             )

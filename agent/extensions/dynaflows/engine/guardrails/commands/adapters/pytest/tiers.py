@@ -34,6 +34,7 @@ from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, settings
+from guardrails.host.process import run_text
 
 NAME = "pytest"
 ENGINE_ROOT = Path(__file__).resolve().parents[4]
@@ -100,12 +101,10 @@ def collect_tier(
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)
         try:
-            result = subprocess.run(
+            result = run_text(
                 command,
                 cwd=repo,
                 env=package_environment(),
-                capture_output=True,
-                text=True,
                 timeout=timeout,
                 check=False,
             )

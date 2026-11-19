@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import pytest
+from child_process import run_text
 
 pytestmark = pytest.mark.seam
 
@@ -24,9 +25,9 @@ class CheckPathsTests(unittest.TestCase):
         self.git("add", ".gitignore")
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(
-            ["git", "-C", str(self.repo), *args], text=True, timeout=PROCESS_TIMEOUT
-        )
+        return run_text(
+            ["git", "-C", str(self.repo), *args], timeout=PROCESS_TIMEOUT, check=True
+        ).stdout
 
     def file(self, path: str, *, tracked: bool = False, allowed: bool = False) -> Path:
         file = self.repo / path
@@ -45,11 +46,9 @@ class CheckPathsTests(unittest.TestCase):
     def check(
         self, *paths: str | Path, cwd: Path | None = None
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return run_text(
             [sys.executable, str(SCRIPT), *map(str, paths)],
             cwd=cwd or self.repo,
-            capture_output=True,
-            text=True,
             timeout=PROCESS_TIMEOUT,
         )
 

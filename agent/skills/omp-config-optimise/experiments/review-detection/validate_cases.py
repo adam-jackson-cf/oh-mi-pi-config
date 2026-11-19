@@ -13,14 +13,18 @@ from pathlib import Path
 from cases import CASES, FIXTURES, build_workspace
 
 
-def failures(fixture: str, ws: Path) -> tuple[int, int, list[str]]:
-    result = subprocess.run(
+def run_hidden_check(fixture: str, ws: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         ["sh", str(FIXTURES / fixture / "hidden" / "check.sh"), str(ws)],
         capture_output=True,
         text=True,
         timeout=60,
         stdin=subprocess.DEVNULL,
     )
+
+
+def failures(fixture: str, ws: Path) -> tuple[int, int, list[str]]:
+    result = run_hidden_check(fixture, ws)
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     score = json.loads(lines[-1])
     failed = [
