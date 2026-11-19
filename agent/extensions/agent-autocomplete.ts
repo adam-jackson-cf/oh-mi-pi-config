@@ -94,6 +94,13 @@ function getAgentSuggestions(
 	return items.length > 0 ? { items, prefix: "" } : null;
 }
 
+function itemMatchesQuery(value: string, query: string): boolean {
+	if (value === AGENT_NAMESPACE) {
+		return AGENT_NAMESPACE.startsWith(query) && query !== AGENT_NAMESPACE;
+	}
+	return query.startsWith(AGENT_NAMESPACE) && value.toLowerCase().startsWith(query);
+}
+
 function wrapAutocompleteProvider(
 	current: AutocompleteProvider,
 	getAgents: () => AgentDefinition[],
@@ -112,14 +119,7 @@ function wrapAutocompleteProvider(
 			}
 
 			const token = getAgentToken(lines, cursorLine, cursorCol);
-			const query = token?.prefix.slice(1).toLowerCase();
-			const itemValue = item.value.toLowerCase();
-			const itemMatchesLiveToken =
-				query !== undefined &&
-				(item.value === AGENT_NAMESPACE
-					? AGENT_NAMESPACE.startsWith(query) && query !== AGENT_NAMESPACE
-					: query.startsWith(AGENT_NAMESPACE) && itemValue.startsWith(query));
-			if (!token || !itemMatchesLiveToken) {
+			if (!token || !itemMatchesQuery(item.value, token.prefix.slice(1).toLowerCase())) {
 				return { lines, cursorLine, cursorCol };
 			}
 
@@ -156,19 +156,26 @@ function wrapAutocompleteProvider(
 }
 
 
+function parseLeadingInvocation(trimmedStart: string): AgentInvocation | undefined {
+	const match = /^\/agent:([^\s/]+)(?:\s+([\s\S]*))?$/.exec(trimmedStart);
+	if (!match?.[1]) {
+		return undefined;
+	}
+	return { name: match[1], work: match[2]?.trim() ?? "" };
+}
+
 function parseAgentInvocation(text: string): AgentInvocation | undefined {
 	const trimmedStart = text.trimStart();
 	if (trimmedStart.startsWith(`/${AGENT_NAMESPACE}`)) {
-		const match = /^\/agent:([^\s/]+)(?:\s+([\s\S]*))?$/.exec(trimmedStart);
-		if (!match?.[1]) {
-			return undefined;
-		}
-		return { name: match[1], work: match[2]?.trim() ?? "" };
+		return parseLeadingInvocation(trimmedStart);
 	}
 	if (trimmedStart.startsWith("/") || trimmedStart.startsWith("!")) {
 		return undefined;
 	}
+	return parseMidPromptInvocation(text);
+}
 
+function parseMidPromptInvocation(text: string): AgentInvocation | undefined {
 	const match = MID_PROMPT_AGENT_RE.exec(text);
 	if (!match?.[2]) {
 		return undefined;
@@ -200,8 +207,9 @@ function getProfileName(): string | undefined {
 }
 
 function getAgentDirectory(): string {
-	if (process.env.PI_CODING_AGENT_DIR) {
-		return process.env.PI_CODING_AGENT_DIR;
+	const configured = process.env["PI_CODING_AGENT_DIR"];
+	if (configured) {
+		return configured;
 	}
 
 	const profile = getProfileName();
@@ -243,7 +251,7 @@ function readAgentDirectory(directory: string): AgentDefinition[] {
 
 	return entries
 		.filter(entry => entry.isFile() && entry.name.endsWith(".md"))
-		.sort((left, right) => left.name.localeCompare(right.name))
+		.toSorted((left, right) => left.name.localeCompare(right.name))
 		.flatMap(entry => {
 			try {
 				const content = readFileSync(join(directory, entry.name), "utf8");
@@ -274,7 +282,7 @@ export function discoverAgentDefinitions(cwd: string): AgentDefinition[] {
 		}
 	}
 
-	return [...agents.values()].sort((left, right) => left.name.localeCompare(right.name));
+	return [...agents.values()].toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
 function formatAgentDirective(agentName: string, work: string): string {

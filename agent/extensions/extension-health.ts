@@ -40,7 +40,7 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       )
       const unexpected = [
         ...new Set(markerNames.filter((name) => !Object.hasOwn(knownExtensions, name))),
-      ].sort()
+      ].toSorted()
 
       if (commandNames.has("extension-health")) {
         registered.add("extension-health")
@@ -53,7 +53,7 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       }
 
 
-      const registeredNames = [...registered].sort()
+      const registeredNames = [...registered].toSorted()
       const missing = defaultExtensions.filter((name) => !registered.has(name))
       const conditional = conditionalExtensions.filter((name) => registered.has(name))
       const count = `${defaultExtensions.length - missing.length}/${defaultExtensions.length}`

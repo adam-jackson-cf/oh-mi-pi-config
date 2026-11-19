@@ -46,7 +46,7 @@ export function repoSlug(repo: string): Promise<string | null> {
 
 /** Directory of the record for owner/name; it may not exist. */
 export function recordDir(slug: string, root: string = configRoot()): string {
-	const [owner, name] = slug.toLowerCase().split("/");
+	const [owner = "", name = ""] = slug.toLowerCase().split("/");
 	return join(root, RECORDS_DIR, owner, name);
 }
 
@@ -99,6 +99,7 @@ export function ownerPathProblem(path: string): string | undefined {
 	if (!body || /[\\\0]/.test(path) || body.split("/").some(part => part === "" || part === "." || part === "..")) {
 		return `ownerOnlyPaths entry ${JSON.stringify(path)} must be a repo-relative POSIX path (a trailing / names a directory)`;
 	}
+	return undefined;
 }
 
 /** True when the repo-relative `path` is, or lies under, one of the owner-only `owned` entries. */
