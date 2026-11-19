@@ -356,6 +356,19 @@ class CliTests(CliCase):
         for name in CONTRACT_SUBCOMMANDS:
             assert name in out
 
+    def test_subcommand_help_lists_each_checker_module_s_catalogue_rules(self) -> None:
+        code, out, _ = self.run_cli("diff-check", "--help")
+        assert code == 0
+        assert (
+            "guardrails.commands.check.integrity:\n"
+            "  CODE.no-comments: Block added comments of every supported syntax, "
+            "including Python docstrings; preserve tool directives.\n"
+        ) in out
+        assert (
+            "  TEST.duplicate-path: Reject new tests duplicating an existing call path "
+            "and assertion."
+        ) in out
+
     def test_profile_check_exit_codes_follow_findings(self) -> None:
         self.write_profile(complete_profile())
         assert self.run_cli(*self.located("profile-check"))[:2] == (
