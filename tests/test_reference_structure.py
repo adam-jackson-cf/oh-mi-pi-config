@@ -64,6 +64,43 @@ class HouseStyleVerdictTests(unittest.TestCase):
                 problems = house_style.test_name_problems(case["name"])
                 self.assertEqual(bool(problems), case["violates"], problems)
 
+    def test_child_repeats_parent_by_whole_token_sequence(self) -> None:
+        repeated_paths = (
+            "guardrails/guardrails.py",
+            "guardrails/omp_guardrails.py",
+            "guardrails/guardrails-core/entry.py",
+            "guardrails/omp.guardrails/entry.py",
+            "guardrails/ompGuardrails.ts",
+            "guardrails/GuardrailsCore.ts",
+            "HTTPServer/omp_http_server.py",
+            "audit-log/omp_audit_log_core.py",
+            "audit.log/ompAuditLog/entry.py",
+            "guardrails/_guardrails_.py",
+            "guardrails/guardrails.test.py",
+            "guardrails/.guardrails",
+        )
+        for path in repeated_paths:
+            with self.subTest(path=path):
+                self.assertIsNotNone(house_style.child_repeats_parent(tuple(path.split("/"))))
+        allowed_paths = (
+            "rail/guardrails.py",
+            "guardrails/guardrailsish.py",
+            "audit-log/audit.py",
+            "audit-log/log_audit.py",
+            "audit-log/audit_event_log.py",
+            "guardrails/role.guardrails.py",
+            "audit.log/audit.py",
+            "___/role.py",
+            "entry.py",
+        )
+        for path in allowed_paths:
+            with self.subTest(path=path):
+                self.assertIsNone(house_style.child_repeats_parent(tuple(path.split("/"))))
+        self.assertEqual(
+            house_style.child_repeats_parent(("guardrails", "omp_guardrails", "guardrails.py")),
+            "omp_guardrails",
+        )
+
     def test_test_roots(self) -> None:
         roots = house_style.load_house_style()["test_roots"]
         expected = VERDICTS["test_roots"]
@@ -143,6 +180,8 @@ class CheckerTests(unittest.TestCase):
             "src/orders/engine/utils.py": "",
             "src/orders/engine/runner_v2.py": "",
             "src/orders/engine/engine.py": "",
+            "src/orders/engine/omp_engine.py": "",
+            "src/orders/engine/engine-core/entry.py": "",
             "src/orders/engine/BadName.py": "",
             "src/orders/engine/shapes.py": "class bad_shape: ...\n\n\ndef BuildShape(): ...\n",
             "docs/Design.md": "",

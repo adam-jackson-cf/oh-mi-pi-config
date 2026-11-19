@@ -125,7 +125,13 @@
       "contract": {
         "target_path_and_symbol_naming_patterns_required": true,
         "reject_nonmatching_names": true,
-        "diagnostic_names_file_and_correct_name": true
+        "diagnostic_names_file_and_correct_name": true,
+        "child_repeats_parent": {
+          "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child token sequence",
+          "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
+          "files": "compare the final path segment by the house-style stem (before the first dot, except dotfiles); compare directory segments in full",
+          "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
+        }
       },
       "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
       "reference": [
