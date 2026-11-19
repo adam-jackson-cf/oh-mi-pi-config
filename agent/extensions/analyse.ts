@@ -1,5 +1,33 @@
 // @orca-managed-pi-extension
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+type Notify = (message: string, level: "info" | "warning" | "error") => void;
+
+export interface AnalyseCommandContext {
+  ui: { notify: Notify };
+  waitForIdle(): Promise<void>;
+}
+
+export interface AnalyseStartEvent {
+  prompt: string;
+  systemPrompt: string[];
+}
+
+export interface AnalyseToolCallEvent {
+  toolName: string;
+}
+
+export interface AnalyseAPI {
+  registerCommand(
+    name: string,
+    options: {
+      description?: string;
+      handler(args: string, ctx: AnalyseCommandContext): Promise<void>;
+    },
+  ): void;
+  on(event: "before_agent_start", handler: (event: AnalyseStartEvent) => Promise<{ systemPrompt: string[] } | undefined>): void;
+  on(event: "tool_call", handler: (event: AnalyseToolCallEvent) => Promise<{ block: true; reason: string } | undefined>): void;
+  on(event: "agent_end", handler: () => Promise<void>): void;
+  sendUserMessage(content: string): void;
+}
 
 const ANALYSE_SYSTEM_PROMPT = `<analyse-mode>
 This is a read only mode that reports findings based on the user request but takes no actions other than to report.
@@ -12,7 +40,7 @@ export function isAnalyseToolAllowed(toolName: string): boolean {
   return READ_ONLY_TOOLS.has(toolName);
 }
 
-export default function analyse(pi: ExtensionAPI): void {
+export default function analyse(pi: AnalyseAPI): void {
   let pendingRequest: string | undefined;
   let active = false;
 
