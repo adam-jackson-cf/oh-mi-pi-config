@@ -1,8 +1,8 @@
 export type GuardCheck = (args: unknown[]) => void;
 
 export function patch<Owner>(owner: Owner, name: string, check: GuardCheck): void {
-  const native: unknown = Object.getOwnPropertyDescriptor(owner, name)?.value;
-  if (!(native instanceof Function)) return;
+  const native = Object.getOwnPropertyDescriptor(owner, name)?.value;
+  if (!Function.prototype.isPrototypeOf(native)) return;
   Object.defineProperty(owner, name, {
     value: function guarded(this: Owner, ...args: unknown[]) {
       check(args);

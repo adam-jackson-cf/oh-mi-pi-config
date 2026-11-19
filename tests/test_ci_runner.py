@@ -397,6 +397,29 @@ class RunnerParityTests(unittest.TestCase):
             "prettier --check --log-level warn -- a.yml b.json c.css"
         ]
 
+    def test_oxlint_denies_warnings_on_owned_code_outside_fixtures(self) -> None:
+        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit")
+        names = [
+            "a.ts",
+            "tests/fixtures/b.ts",
+            "agent/skills/omp-config-optimise/experiments/x/fixtures/c.ts",
+        ]
+        for name in names:
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text("export {};\n")
+        run_attached(
+            ["git", "-C", str(self.repo), "add", *names],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        calls = self.repo.parent / "bunx-calls"
+        bunx = self.repo.parent / "bin/bunx"
+        bunx.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\nexit 42\n')
+        bunx.chmod(0o755)
+        result = self.run_script()
+        assert result.returncode == 42, result.stderr
+        assert calls.read_text().splitlines() == ["oxlint --deny-warnings a.ts"]
+
     def test_hook_without_runner_fails_even_when_workflow_references_it(self) -> None:
         self.hook("make check")
         workflow = self.repo / ".github/workflows/ci-quality-gates.yml"

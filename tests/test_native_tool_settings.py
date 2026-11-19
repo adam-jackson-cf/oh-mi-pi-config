@@ -35,6 +35,11 @@ def section(settings: dict[str, Any], dotted: str) -> dict[str, Any]:
     return settings
 
 
+def json_settings(name: str) -> dict[str, Any]:
+    settings: dict[str, Any] = json.loads((ROOT / name).read_text(encoding="utf-8"))
+    return settings
+
+
 def editorconfig_sections() -> dict[str, dict[str, str]]:
     sections: dict[str, dict[str, str]] = {}
     current = ""
@@ -66,6 +71,19 @@ class NativeToolSettingsTests(unittest.TestCase):
         mypy = pyproject_tool("mypy")
         expected = catalogue("mypy")
         assert {key: mypy.get(key) for key in expected} == expected
+
+    def test_tsc_settings_match_the_catalogue(self) -> None:
+        options = json_settings("tsconfig.json")["compilerOptions"]
+        expected = catalogue("tsc")["compilerOptions"]
+        assert {key: options.get(key) for key in expected} == expected
+
+    def test_oxlint_settings_match_the_catalogue(self) -> None:
+        settings = json_settings(".oxlintrc.json")
+        expected = catalogue("oxlint")
+        assert settings["plugins"] == expected["plugins"]
+        assert settings["categories"] == expected["categories"]
+        rules, wanted = settings["rules"], expected["rules"]
+        assert {rule: rules.get(rule) for rule in wanted} == wanted
 
     def test_shellcheck_settings_match_the_catalogue(self) -> None:
         expected = catalogue("shellcheck")

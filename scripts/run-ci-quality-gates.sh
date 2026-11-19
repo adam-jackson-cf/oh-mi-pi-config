@@ -71,10 +71,12 @@ tracked() {
   git ls-files -z -- "$@" >"$out"
 }
 
-code_files=(oxlint.config.ts)
-tracked "$scratch/code" "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts"
+code_files=()
+tracked "$scratch/code" "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
 while IFS= read -r -d '' file; do
-  if [[ "$file" != "oxlint.config.ts" && ! -L "$file" ]]; then
+  if [[ ! -L "$file" ]]; then
     code_files+=("$file")
   fi
 done <"$scratch/code"
@@ -111,7 +113,10 @@ while IFS= read -r -d '' file; do
   data_files+=("$file")
 done <"$scratch/data"
 
-lint_files=("${code_files[@]}")
+lint_files=()
+if ((${#code_files[@]})); then
+  lint_files+=("${code_files[@]}")
+fi
 for file in "${markdown_files[@]}"; do
   lint_files+=("$file")
 done
@@ -148,7 +153,9 @@ if "$fix"; then
   if ((${#data_files[@]})); then
     bunx prettier --write --log-level warn -- "${data_files[@]}"
   fi
-  bunx oxlint --fix "${code_files[@]}"
+  if ((${#code_files[@]})); then
+    bunx oxlint --fix --deny-warnings "${code_files[@]}"
+  fi
   if ((${#markdown_files[@]})); then
     bunx markdownlint-cli2 --fix "${markdown_files[@]}"
   fi
@@ -156,7 +163,9 @@ else
   if ((${#data_files[@]})); then
     bunx prettier --check --log-level warn -- "${data_files[@]}"
   fi
-  bunx oxlint "${code_files[@]}"
+  if ((${#code_files[@]})); then
+    bunx oxlint --deny-warnings "${code_files[@]}"
+  fi
   if ((${#markdown_files[@]})); then
     bunx markdownlint-cli2 "${markdown_files[@]}"
   fi
@@ -192,7 +201,7 @@ if [[ "$tier" == commit ]]; then
       *) bun_seams=true ;;
     esac
     case "$file" in
-      orca-plugins/* | tools/* | oxlint.config.ts | .markdownlint-cli2.jsonc | package.json | bun.lock | bunfig.toml | tsconfig.json | tests/*.ts) ;;
+      orca-plugins/* | tools/* | .oxlintrc.json | .markdownlint-cli2.jsonc | package.json | bun.lock | bunfig.toml | tsconfig.json | tests/*.ts) ;;
       *) pytest_seams=true ;;
     esac
   done <"$scratch/staged"
