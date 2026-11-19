@@ -127,9 +127,9 @@
         "reject_nonmatching_names": true,
         "diagnostic_names_file_and_correct_name": true,
         "child_repeats_parent": {
-          "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child token sequence",
+          "match": "for directories, the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child token sequence",
           "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
-          "files": "compare the final path segment by the house-style stem (before the first dot, except dotfiles); compare directory segments in full",
+          "files": "the final path segment retains exact case-sensitive equality between its house-style stem (before the first dot, except dotfiles) and its full parent name; token matching applies only to directory pairs",
           "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
         }
       },

@@ -72,13 +72,16 @@ def _name_tokens(name: str) -> tuple[str, ...]:
 
 
 def child_repeats_parent(parts: tuple[str, ...]) -> str | None:
-    """Return the first child containing its parent's complete, contiguous token sequence."""
+    """Return the first repeating child: directory tokens, but exact file-stem equality."""
     if load_house_style()["child_repeats_parent"] != "banned":
         return None
     for index in range(1, len(parts)):
-        child = stem(parts[index]) if index == len(parts) - 1 else parts[index]
+        if index == len(parts) - 1:
+            if stem(parts[index]) == parts[index - 1]:
+                return parts[index]
+            continue
         parent_tokens = _name_tokens(parts[index - 1])
-        child_tokens = _name_tokens(child)
+        child_tokens = _name_tokens(parts[index])
         width = len(parent_tokens)
         if width and any(
             child_tokens[start : start + width] == parent_tokens
