@@ -14,18 +14,21 @@ import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from toolset import describe, label_of, warn_if_mixed  # noqa: E402
+from toolset import describe, label_of, warn_if_mixed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
+Record = dict[str, Any]
+
 
 def kind_of(fixture: str) -> str:
-    return json.loads((FIXTURES / fixture / "meta.json").read_text())["kind"]
+    return str(json.loads((FIXTURES / fixture / "meta.json").read_text())["kind"])
 
 
-def row(label: str, recs: list[dict]) -> str:
+def row(label: str, recs: list[Record]) -> str:
     ok = [r for r in recs if "harnessError" not in r]
     n = len(ok)
     if not n:
@@ -41,14 +44,14 @@ def row(label: str, recs: list[dict]) -> str:
             f"{out_tok:.0f} | ${cost:.4f} | {wall:.0f}s | {turns:.0f} |")
 
 
-def report(recs: list[dict]) -> None:
+def report(recs: list[Record]) -> None:
     errors = [r for r in recs if "harnessError" in r]
     header = ("| Group | n | Full pass | Mean test fraction | Scope violations | "
               "Median output tokens | Mean API-equiv cost | Median wall | Median turns |\n"
               "|---|---|---|---|---|---|---|---|---|")
-    by_arm: dict[str, list[dict]] = defaultdict(list)
-    by_arm_kind: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    by_arm_fixture: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    by_arm: dict[str, list[Record]] = defaultdict(list)
+    by_arm_kind: dict[tuple[str, str], list[Record]] = defaultdict(list)
+    by_arm_fixture: dict[tuple[str, str], list[Record]] = defaultdict(list)
     for r in recs:
         by_arm[r["arm"]].append(r)
         by_arm_kind[(r["arm"], kind_of(r["fixture"]))].append(r)
@@ -70,8 +73,8 @@ def report(recs: list[dict]) -> None:
 
 def main() -> None:
     out_dir = Path(sys.argv[1]).expanduser()
-    recs = [json.loads(l) for l in (out_dir / "results.jsonl").read_text().splitlines() if l.strip()]
-    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    recs = [json.loads(line) for line in (out_dir / "results.jsonl").read_text().splitlines() if line.strip()]
+    groups: dict[tuple[str, str], list[Record]] = defaultdict(list)
     for r in recs:
         groups[label_of(r)].append(r)
     warning = warn_if_mixed(set(groups))

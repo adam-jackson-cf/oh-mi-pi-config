@@ -21,17 +21,20 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from toolset import label_of, toolset_label  # noqa: E402
-
 from analyze import latest_records, needs_rerun
 from cases import CASES, FIXTURES, Case, build_workspace
+from toolset import label_of, toolset_label
 
 WORKSPACES = Path("/tmp/omp-review-ws")
 TRIAL_TIMEOUT_S = 900
+
+Record = dict[str, Any]
 
 PROMPT = """You are reviewing an uncommitted change in this repository (inspect it with `git diff` \
 and by reading files). The change was meant to implement the fixed plan below exactly.
@@ -52,6 +55,17 @@ Use "blocking" only for plan violations or bugs. Report an empty list if there a
 
 
 @dataclass(frozen=True)
+class Invocation:
+    """What one headless `omp` process printed, how it exited, and how long it took."""
+
+    stdout: str
+    stderr: str
+    code: int
+    timed_out: bool
+    wall: float
+
+
+@dataclass(frozen=True)
 class Arm:
     name: str
     model: str
@@ -67,7 +81,7 @@ def parse_arm(spec: str) -> Arm:
     return Arm(name, model, thinking)
 
 
-def parse_findings(texts: list[str]) -> list[dict] | None:
+def parse_findings(texts: list[str]) -> list[Any] | None:
     """Last JSON object with a `findings` list across all assistant messages (fenced or bare)."""
     decoder = json.JSONDecoder()
     for text in reversed(texts):
@@ -82,7 +96,7 @@ def parse_findings(texts: list[str]) -> list[dict] | None:
     return None
 
 
-def summarize_events(stdout: str) -> dict:
+def summarize_events(stdout: str) -> Record:
     usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "cost": 0.0}
     texts: list[str] = []
     models: set[str] = set()
@@ -106,7 +120,33 @@ def summarize_events(stdout: str) -> dict:
     return {"usage": usage, "assistantMessages": len(texts), "texts": texts, "effectiveModels": sorted(models)}
 
 
-def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> dict:
+def invoke(cmd: list[str], ws: Path) -> Invocation:
+    """Run one trial process; a timeout keeps whatever it printed so far."""
+    started = time.time()
+    try:
+        proc = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=TRIAL_TIMEOUT_S)
+        stdout, stderr, code, timed_out = proc.stdout, proc.stderr, proc.returncode, False
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        code, timed_out = -1, True
+    return Invocation(stdout, stderr, code, timed_out, time.time() - started)
+
+
+def failure_of(run: Invocation, texts: list[str]) -> str | None:
+    """Why a trial produced no usable review, or None when it did."""
+    if run.timed_out:
+        return "timeout"
+    if run.code != 0:
+        return f"exit {run.code}"
+    if not texts:
+        return "empty reply"
+    if re.search(r"(?i)rate.?limit|quota|usage limit|429", run.stderr):
+        return "rate limit"
+    return None
+
+
+def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> Record:
     run_id = uuid.uuid4().hex[:10]
     run_dir = runs / run_id
     run_dir.mkdir(parents=True)
@@ -116,36 +156,24 @@ def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> dict:
     prompt = PROMPT.format(plan=(FIXTURES / case.fixture / "task.md").read_text())
     cmd = ["omp", "-p", "--no-session", "--no-extensions", "--no-title", "--approval-mode", "yolo",
            "--model", arm.model, "--thinking", arm.thinking, "--mode", "json", "--cwd", str(ws), prompt]
-    started = time.time()
-    timed_out = False
-    try:
-        proc = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=TRIAL_TIMEOUT_S)
-        stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        code, timed_out = -1, True
-    wall = time.time() - started
-    (run_dir / "events.jsonl").write_text(stdout)
-    (run_dir / "stderr.txt").write_text(stderr)
+    run = invoke(cmd, ws)
+    (run_dir / "events.jsonl").write_text(run.stdout)
+    (run_dir / "stderr.txt").write_text(run.stderr)
     after = subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True).stdout
-    events = summarize_events(stdout)
+    events = summarize_events(run.stdout)
     texts = events.pop("texts")
-    failure = None
-    if timed_out:
-        failure = "timeout"
-    elif code != 0:
-        failure = f"exit {code}"
-    elif not texts:
-        failure = "empty reply"
-    elif re.search(r"(?i)rate.?limit|quota|usage limit|429", stderr):
-        failure = "rate limit"
     return {
         "runId": run_id, "case": case.id, "fixture": case.fixture, "arm": arm.name, "rep": rep,
-        "model": arm.model, "thinking": arm.thinking, "exitCode": code, "timedOut": timed_out, "failure": failure,
-        "wallSeconds": round(wall, 1), "defects": defects, "modifiedRepo": before != after,
+        "model": arm.model, "thinking": arm.thinking, "exitCode": run.code, "timedOut": run.timed_out,
+        "failure": failure_of(run, texts), "wallSeconds": round(run.wall, 1), "defects": defects, "modifiedRepo": before != after,
         "findings": parse_findings(texts), "finalText": texts[-1][-2000:] if texts else "", **events,
     }
+
+
+def outcome(fut: Future[Record], job: Record) -> Record:
+    """The trial record, or the job with its harness failure: a failed job is recorded, never dropped."""
+    exc = fut.exception()
+    return fut.result() if exc is None else {**job, "harnessError": repr(exc)}
 
 
 def main() -> None:
@@ -174,10 +202,7 @@ def main() -> None:
         futures = {pool.submit(run_trial, c, a, r, runs): (c, a, r) for c, a, r in jobs}
         for fut in cf.as_completed(futures):
             case, arm, rep = futures[fut]
-            try:
-                rec = fut.result()
-            except Exception as exc:  # record harness failure against the job, never drop it
-                rec = {"case": case.id, "arm": arm.name, "rep": rep, "harnessError": repr(exc)}
+            rec = outcome(fut, {"case": case.id, "arm": arm.name, "rep": rep})
             out.write(json.dumps({**rec, **label}) + "\n")
             out.flush()
             found = rec.get("findings")

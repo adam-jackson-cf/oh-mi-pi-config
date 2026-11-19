@@ -146,7 +146,7 @@ every apply; adding a new palette file requires reinstalling the hook.
 ## Harness
 
 - `harness/shoot.sh <mode> <out-dir> [palette]` renders a long two-turn mixed-media transcript
-  (`harness/harness.html`) with Orca's real renderer CSS plus this folder's `chat.css`,
+  (`harness/transcript.html`) with Orca's real renderer CSS plus this folder's `chat.css`,
   `palettes/*.css` and `id-highlight.js`, in headless Chrome: `<mode>-light.png`, `<mode>-dark.png`
   (1500px), `<mode>-narrow.png` (760px, dark), plus `<mode>-dark-mirage.png` for `ayu` and
   `<mode>-dark-dimmed.png` for `github`. The first run per Orca version extracts `app.asar` into

@@ -86,12 +86,12 @@ function dynaflowsSetting(line: string): boolean | undefined {
 // `configRoot`/repos/) says dynaflows.enabled true. `machineDynaflowsPath` (~/.omp/dynaflows.json)
 // is the machine default: {"enabled": false} turns dynaflows off for every repo on this machine;
 // absent or true defers to the record. No origin or no record means off. `configPath` is the rails
-// mapping file (agent/agent-rails.yml shared with generic rails).
+// mapping file (agent/rails.yml shared with generic rails).
 export default function dynaflows(
 	pi: ExtensionAPI,
 	{
 		machineDynaflowsPath = fileURLToPath(new URL("../../../dynaflows.json", import.meta.url)),
-		configPath = fileURLToPath(new URL("../../agent-rails.yml", import.meta.url)),
+		configPath = fileURLToPath(new URL("../../rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),
 		guardrailsCommand = defaultGuardrailsCommand,
 	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[] } = {},
@@ -104,7 +104,7 @@ export default function dynaflows(
 		if (!parsed.success) throw new Error(`invalid mappings: ${parsed.error.message}`);
 		map = parsed.data;
 	} catch (error) {
-		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
+		loadError = `Agent rails: cannot load rails.yml: ${String(error)}`;
 	}
 	const stateFor = (ctx: ExtensionContext) => {
 		const id = ctx.sessionManager.getSessionId();

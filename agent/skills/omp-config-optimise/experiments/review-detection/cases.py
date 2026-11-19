@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 HARNESS = Path(__file__).resolve().parent
 FIXTURES = HARNESS.parent / "fixed-plan-effort" / "fixtures"
@@ -182,7 +183,7 @@ def apply_mutation(ws: Path, mutation: Mutation) -> tuple[int, int]:
     return start, start + mutation.replace.count("\n")
 
 
-def build_workspace(case: Case, ws: Path, mutations: tuple[Mutation, ...] | None = None) -> dict[str, dict]:
+def build_workspace(case: Case, ws: Path, mutations: tuple[Mutation, ...] | None = None) -> dict[str, dict[str, Any]]:
     """Baseline commit of repo/, then reference/ plus mutations left uncommitted.
 
     Returns defect id -> {file, start, end, steps, plan_step} in working-tree line numbers.
@@ -194,7 +195,7 @@ def build_workspace(case: Case, ws: Path, mutations: tuple[Mutation, ...] | None
     _git(ws, "add", "-A")
     _git(ws, "-c", "user.email=eval@local", "-c", "user.name=eval", "commit", "-qm", "baseline")
     shutil.copytree(fixture / "reference", ws, dirs_exist_ok=True)
-    spans: dict[str, dict] = {}
+    spans: dict[str, dict[str, Any]] = {}
     for mutation in case.mutations if mutations is None else mutations:
         start, end = apply_mutation(ws, mutation)
         spans[mutation.id] = {"file": mutation.file, "start": start, "end": end, "steps": sorted(mutation.steps),

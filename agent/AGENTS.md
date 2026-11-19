@@ -126,7 +126,7 @@ Git: agents own branch → PR → review → merge without asking, unless the re
 `"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
 
 Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/extensions/dynaflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/lib/rails-runtime.ts`, `agent/agent-rails.yml`,
+`agent/extensions/agent-rails.ts`, `agent/lib/rails-runtime.ts`, `agent/rails.yml`,
 `agent/agents/**`, rules, its bundled skills), or the git-tool skill, or to other skills in
 skills-directory, are not finished at merge:
 roll out to every device in the same task.

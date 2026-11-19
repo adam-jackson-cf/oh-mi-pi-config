@@ -18,6 +18,8 @@ Example:
     python3 -B scripts/tune_threshold.py --self-test
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import io
@@ -26,18 +28,65 @@ import math
 import random
 import sys
 from collections import defaultdict
+from dataclasses import dataclass, fields
+from itertools import pairwise
+from typing import Any, TextIO, TypedDict
 
 EPS = 1e-6
 Z95 = 1.959964
 
+Row = tuple[int, float]
+Counts = tuple[int, int, int]
+Result = dict[str, Any]
 
-def load(path):
+
+class Case(TypedDict):
+    id: str
+    y: int
+    s: float
+    split: str
+    stratum: str
+
+
+class Metrics(TypedDict):
+    precision: float
+    recall: float
+    f: float
+    tp: int
+    fp: int
+    fn: int
+
+
+class StratumMetrics(Metrics):
+    n: int
+
+
+@dataclass(frozen=True)
+class Options:
+    """The tuning and reporting settings shared by every model group."""
+
+    min_precision: float
+    min_recall: float
+    conservative: bool
+    beta: float
+    folds: int
+    repeats: int
+    seed: int
+    calibration: bool
+    errors: bool
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> Options:
+        return cls(**{f.name: getattr(args, f.name) for f in fields(cls)})
+
+
+def load(path: str) -> dict[str, list[Case]]:
     with open(path, newline="") as f:
         return parse(f)
 
 
-def parse(f):
-    groups = defaultdict(list)
+def parse(f: TextIO) -> dict[str, list[Case]]:
+    groups: dict[str, list[Case]] = defaultdict(list)
     reader = csv.DictReader(f)
     missing = {"label", "score"} - set(reader.fieldnames or [])
     if missing:
@@ -62,22 +111,22 @@ def parse(f):
     return groups
 
 
-def pairs(cases):
+def pairs(cases: list[Case]) -> list[Row]:
     return [(c["y"], c["s"]) for c in cases]
 
 
-def counts(rows, threshold):
+def counts(rows: list[Row], threshold: float) -> Counts:
     tp = sum(1 for y, s in rows if s >= threshold and y == 1)
     fp = sum(1 for y, s in rows if s >= threshold and y == 0)
     fn = sum(1 for y, s in rows if s < threshold and y == 1)
     return tp, fp, fn
 
 
-def metrics(rows, threshold, beta):
+def metrics(rows: list[Row], threshold: float, beta: float) -> Metrics:
     return from_counts(*counts(rows, threshold), beta)
 
 
-def from_counts(tp, fp, fn, beta):
+def from_counts(tp: int, fp: int, fn: int, beta: float) -> Metrics:
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     b2 = beta * beta
@@ -86,7 +135,7 @@ def from_counts(tp, fp, fn, beta):
     return {"precision": precision, "recall": recall, "f": f, "tp": tp, "fp": fp, "fn": fn}
 
 
-def wilson_lower(successes, n):
+def wilson_lower(successes: int, n: int) -> float:
     """95% Wilson lower bound for a proportion."""
     if n == 0:
         return 0.0
@@ -97,36 +146,36 @@ def wilson_lower(successes, n):
     return (centre - margin) / (1 + z2 / n)
 
 
-def meets(m, args):
-    if args.conservative:
+def meets(m: Metrics, opts: Options) -> bool:
+    if opts.conservative:
         precision = wilson_lower(m["tp"], m["tp"] + m["fp"])
         recall = wilson_lower(m["tp"], m["tp"] + m["fn"])
     else:
         precision, recall = m["precision"], m["recall"]
-    return precision >= args.min_precision and recall >= args.min_recall
+    return precision >= opts.min_precision and recall >= opts.min_recall
 
 
-def candidates(rows):
+def candidates(rows: list[Row]) -> list[float]:
     """Midpoints between adjacent distinct scores, plus the lowest score."""
     u = sorted({s for _, s in rows})
-    return u[:1] + [(lo + hi) / 2 for lo, hi in zip(u, u[1:])]
+    return u[:1] + [(lo + hi) / 2 for lo, hi in pairwise(u)]
 
 
-def choose(rows, args):
+def choose(rows: list[Row], opts: Options) -> float | None:
     """Best threshold on rows meeting both minimums, or None."""
-    best = None
+    best: tuple[float, Metrics] | None = None
     for t in candidates(rows):
-        m = metrics(rows, t, args.beta)
-        if not meets(m, args):
+        m = metrics(rows, t, opts.beta)
+        if not meets(m, opts):
             continue
         if best is None or m["f"] > best[1]["f"]:
             best = (t, m)
     return best[0] if best else None
 
 
-def stratified_folds(rows, k, seed):
+def stratified_folds(rows: list[Row], k: int, seed: int) -> list[list[int]]:
     rng = random.Random(seed)
-    folds = [[] for _ in range(k)]
+    folds: list[list[int]] = [[] for _ in range(k)]
     for label in (0, 1):
         idx = [i for i, (y, _) in enumerate(rows) if y == label]
         rng.shuffle(idx)
@@ -135,56 +184,59 @@ def stratified_folds(rows, k, seed):
     return folds
 
 
-def pooled(per_fold, beta):
+def pooled(per_fold: list[Counts], beta: float) -> Metrics:
     """Metrics over all held-out decisions, summing counts across folds."""
     tp, fp, fn = (sum(c[i] for c in per_fold) for i in range(3))
     return from_counts(tp, fp, fn, beta)
 
 
-def tune(rows, fold_sets, args):
-    tuned, default, failed, thresholds = [], [], [], []
+def tune(rows: list[Row], fold_sets: list[list[list[int]]], opts: Options) -> Result:
+    tuned: list[Counts] = []
+    default: list[Counts] = []
+    failed: list[dict[str, Any]] = []
+    thresholds: list[float] = []
     for r, folds in enumerate(fold_sets):
         for n, test_idx in enumerate(folds):
             test_set = set(test_idx)
             train = [row for i, row in enumerate(rows) if i not in test_set]
             test = [rows[i] for i in test_idx]
             default.append(counts(test, 0.5))
-            t = choose(train, args)
+            t = choose(train, opts)
             where = f"repeat {r} fold {n}" if len(fold_sets) > 1 else f"fold {n}"
             if t is None:
                 failed.append({"fold": where, "reason": "no threshold met minimums on train"})
                 continue
-            m = metrics(test, t, args.beta)
+            m = metrics(test, t, opts.beta)
             thresholds.append(t)
             tuned.append(counts(test, t))
-            if not meets(m, args):
+            if not meets(m, opts):
                 failed.append({"fold": where, "reason": "held-out below minimums", "threshold": t})
     return {
-        "shipped_threshold": choose(rows, args),
+        "shipped_threshold": choose(rows, opts),
         "fold_thresholds": thresholds,
-        "default_0.5_heldout": pooled(default, args.beta),
-        "tuned_heldout": pooled(tuned, args.beta) if tuned else None,
+        "default_0.5_heldout": pooled(default, opts.beta),
+        "tuned_heldout": pooled(tuned, opts.beta) if tuned else None,
         "tuned_folds": len(tuned),
         "total_folds": len(default),
         "failed_folds": failed,
     }
 
 
-def brier(scored):
+def brier(scored: list[tuple[int, float]]) -> float:
     return sum((p - y) ** 2 for y, p in scored) / len(scored)
 
 
-def sigmoid(z):
+def sigmoid(z: float) -> float:
     z = min(max(z, -30.0), 30.0)
     return 1 / (1 + math.exp(-z))
 
 
-def logit(p):
+def logit(p: float) -> float:
     p = min(max(p, EPS), 1 - EPS)
     return math.log(p / (1 - p))
 
 
-def fit_platt(rows, iters=100, l2=1.0):
+def fit_platt(rows: list[Row], iters: int = 100, l2: float = 1.0) -> tuple[float, float]:
     """Logistic regression of label on logit(score) by Newton's method.
 
     A small L2 prior toward the identity mapping (a=1, b=0) keeps the fit finite
@@ -215,8 +267,9 @@ def fit_platt(rows, iters=100, l2=1.0):
     return a, b
 
 
-def calibrate(rows, folds):
-    raw, scaled = [], []
+def calibrate(rows: list[Row], folds: list[list[int]]) -> Result:
+    raw: list[tuple[int, float]] = []
+    scaled: list[tuple[int, float]] = []
     for test_idx in folds:
         test_set = set(test_idx)
         train = [r for i, r in enumerate(rows) if i not in test_set]
@@ -237,11 +290,11 @@ def calibrate(rows, folds):
     }
 
 
-def reliability(scored, per_bin=20):
+def reliability(scored: list[tuple[int, float]], per_bin: int = 20) -> list[dict[str, float]]:
     scored = sorted(scored, key=lambda r: r[1])
     bins = max(1, len(scored) // per_bin)
     size = math.ceil(len(scored) / bins)
-    out = []
+    out: list[dict[str, float]] = []
     for i in range(0, len(scored), size):
         chunk = scored[i : i + size]
         out.append({
@@ -252,9 +305,9 @@ def reliability(scored, per_bin=20):
     return out
 
 
-def errors(cases, threshold):
+def errors(cases: list[Case], threshold: float) -> list[dict[str, Any]]:
     """False positives and false negatives at the shipped threshold."""
-    out = []
+    out: list[dict[str, Any]] = []
     for c in cases:
         flagged = c["s"] >= threshold
         if flagged != (c["y"] == 1):
@@ -264,35 +317,30 @@ def errors(cases, threshold):
     return sorted(out, key=lambda e: e["score"])
 
 
-def by_stratum(cases, threshold, beta):
-    groups = defaultdict(list)
+def by_stratum(cases: list[Case], threshold: float, beta: float) -> dict[str, StratumMetrics]:
+    groups: dict[str, list[Row]] = defaultdict(list)
     for c in cases:
         groups[c["stratum"]].append((c["y"], c["s"]))
-    return {name: {**metrics(rows, threshold, beta), "n": len(rows)}
+    return {name: StratumMetrics(**metrics(rows, threshold, beta), n=len(rows))
             for name, rows in sorted(groups.items())}
 
 
-def report(name, cases, args):
-    dev = [c for c in cases if c["split"] == "dev"]
-    test = [c for c in cases if c["split"] == "test"]
-    rows = pairs(dev)
-    positives = sum(y for y, _ in rows)
-    k = min(args.folds, positives, len(rows) - positives)
-    if k < 2:
-        return {"model": name, "error": "need at least 2 dev cases of each label"}
-    result = {"model": name, "dev_cases": len(rows), "dev_positives": positives,
-              "test_cases": len(test), "folds": k, "repeats": args.repeats}
+def data_warnings(rows: list[Row], positives: int, opts: Options) -> list[str]:
+    """Warnings about the dev set and the minimums, before any tuning."""
     warnings = []
     if min(positives, len(rows) - positives) < 50:
         warnings.append("fewer than 50 dev cases per label; treat results as noisy")
-    if args.min_precision == 0 and args.min_recall == 0:
+    if opts.min_precision == 0 and opts.min_recall == 0:
         warnings.append("no precision or recall minimums set; agree them before shipping")
     if max(s for y, s in rows if y == 0) < min(s for y, s in rows if y == 1):
         warnings.append("dev classes are perfectly separated; expect optimistic results")
-    fold_sets = [stratified_folds(rows, k, args.seed + r) for r in range(args.repeats)]
-    result.update(tune(rows, fold_sets, args))
-    t = result["shipped_threshold"]
-    if t is not None and result["tuned_folds"] < result["total_folds"]:
+    return warnings
+
+
+def fold_warnings(result: Result) -> list[str]:
+    """Warnings about how well cross-validation supports the shipped threshold."""
+    warnings = []
+    if result["shipped_threshold"] is not None and result["tuned_folds"] < result["total_folds"]:
         warnings.append(f"only {result['tuned_folds']} of {result['total_folds']} folds found "
                         "a qualifying threshold; the shipped threshold is not well supported")
     if result["tuned_folds"] < result["total_folds"]:
@@ -300,41 +348,115 @@ def report(name, cases, args):
     ts = result["fold_thresholds"]
     if ts and max(ts) - min(ts) > 0.05:
         warnings.append("fold thresholds vary by more than 0.05; grow the label set")
-    if test and t is not None:
+    return warnings
+
+
+def score_test(result: Result, test: list[Case], threshold: float, opts: Options) -> list[str]:
+    """Score the test split once at the shipped threshold and at 0.5; warn when it misses the minimums."""
+    test_rows = pairs(test)
+    result["test_at_shipped"] = metrics(test_rows, threshold, opts.beta)
+    result["test_at_0.5"] = metrics(test_rows, 0.5, opts.beta)
+    if not meets(result["test_at_shipped"], opts):
+        return ["test is below the minimums at the shipped threshold"]
+    return []
+
+
+def calibration_report(rows: list[Row], folds: list[list[int]], test: list[Case]) -> Result:
+    """Platt scaling against raw scores on dev held-out folds, plus test Brier scores when there is a test split."""
+    cal = calibrate(rows, folds)
+    if test:
+        a, b = cal["platt_mapping"]["a"], cal["platt_mapping"]["b"]
         test_rows = pairs(test)
-        result["test_at_shipped"] = metrics(test_rows, t, args.beta)
-        result["test_at_0.5"] = metrics(test_rows, 0.5, args.beta)
-        m = result["test_at_shipped"]
-        if not meets(m, args):
-            warnings.append("test is below the minimums at the shipped threshold")
+        cal["test_brier_raw"] = brier(test_rows)
+        cal["test_brier_platt"] = brier([(y, sigmoid(a * logit(s) + b)) for y, s in test_rows])
+    return cal
+
+
+def report(name: str, cases: list[Case], opts: Options) -> Result:
+    dev = [c for c in cases if c["split"] == "dev"]
+    test = [c for c in cases if c["split"] == "test"]
+    rows = pairs(dev)
+    positives = sum(y for y, _ in rows)
+    k = min(opts.folds, positives, len(rows) - positives)
+    if k < 2:
+        return {"model": name, "error": "need at least 2 dev cases of each label"}
+    result: Result = {"model": name, "dev_cases": len(rows), "dev_positives": positives,
+                      "test_cases": len(test), "folds": k, "repeats": opts.repeats}
+    warnings = data_warnings(rows, positives, opts)
+    fold_sets = [stratified_folds(rows, k, opts.seed + r) for r in range(opts.repeats)]
+    result.update(tune(rows, fold_sets, opts))
+    warnings += fold_warnings(result)
+    t = result["shipped_threshold"]
+    if test and t is not None:
+        warnings += score_test(result, test, t, opts)
     if t is not None and any(c["stratum"] for c in cases):
-        scope = test or dev
         result["strata_scope"] = "test" if test else "dev (in-sample)"
-        result["strata"] = by_stratum(scope, t, args.beta)
-    if args.calibration:
-        cal = calibrate(rows, fold_sets[0])
-        if test:
-            a, b = cal["platt_mapping"]["a"], cal["platt_mapping"]["b"]
-            test_rows = pairs(test)
-            cal["test_brier_raw"] = brier(test_rows)
-            cal["test_brier_platt"] = brier([(y, sigmoid(a * logit(s) + b)) for y, s in test_rows])
-        result["calibration"] = cal
-    if args.errors and t is not None:
+        result["strata"] = by_stratum(test or dev, t, opts.beta)
+    if opts.calibration:
+        result["calibration"] = calibration_report(rows, fold_sets[0], test)
+    if opts.errors and t is not None:
         result["errors"] = errors(dev, t)
     result["warnings"] = warnings
     return result
 
 
-def fmt(m):
+def fmt(m: Metrics | None) -> str:
     if not m:
         return "none qualified"
     return f"P {m['precision']:.2f} · R {m['recall']:.2f} · F {m['f']:.2f}"
 
 
-def print_markdown(results, args):
-    rule = "95% lower bounds" if args.conservative else "point estimates"
-    print(f"Minimums: precision {args.min_precision}, recall {args.min_recall} ({rule}); "
-          f"metric F-beta with beta {args.beta}; seed {args.seed}\n")
+def print_summary(r: Result) -> None:
+    """The dev, tuned, shipped, test and failed-fold lines for one model."""
+    t = r["shipped_threshold"]
+    print(f"- Dev: {r['dev_cases']} cases ({r['dev_positives']} positive), "
+          f"{r['folds']} folds × {r['repeats']} repeats; test: {r['test_cases']} cases")
+    print(f"- Default 0.5, dev held-out: {fmt(r['default_0.5_heldout'])}")
+    print(f"- Tuned, dev held-out ({r['tuned_folds']} of {r['total_folds']} folds): "
+          f"{fmt(r['tuned_heldout'])}")
+    print(f"- Shipped threshold: {'none meets minimums' if t is None else f'{t:.4f}'}")
+    if r["fold_thresholds"]:
+        ts = r["fold_thresholds"]
+        print(f"- Fold thresholds: {min(ts):.4f} to {max(ts):.4f}")
+    if "test_at_shipped" in r:
+        print(f"- Test at shipped threshold: {fmt(r['test_at_shipped'])}; "
+              f"at 0.5: {fmt(r['test_at_0.5'])}")
+    failed = r["failed_folds"]
+    for f in failed[:10]:
+        print(f"- {f['fold']}: {f['reason']}")
+    if len(failed) > 10:
+        print(f"- … {len(failed) - 10} more failed folds")
+
+
+def print_calibration(c: Result) -> None:
+    print(f"- Brier raw {c['brier_raw']:.4f}, Platt held-out "
+          f"{c['brier_platt_heldout']:.4f}: keep {c['keep']}")
+    if "test_brier_raw" in c:
+        print(f"- Test Brier raw {c['test_brier_raw']:.4f}, Platt {c['test_brier_platt']:.4f}")
+    if c["keep"] == "platt":
+        pm = c["platt_mapping"]
+        print(f"- Platt mapping fitted on all dev: a {pm['a']:.4f}, b {pm['b']:.4f}")
+
+
+def print_tables(r: Result) -> None:
+    """The per-stratum and dev-error tables, when the report has them."""
+    if r.get("strata"):
+        print(f"\nPer stratum at the shipped threshold, {r['strata_scope']}:\n")
+        print("| stratum | n | precision | recall |\n| --- | --- | --- | --- |")
+        for name, m in r["strata"].items():
+            print(f"| {name or '(none)'} | {m['n']} | {m['precision']:.2f} | {m['recall']:.2f} |")
+    if r.get("errors"):
+        print("\nDev errors at the shipped threshold:\n")
+        print("| case_id | stratum | label | score | kind |\n| --- | --- | --- | --- | --- |")
+        for e in r["errors"]:
+            print(f"| {e['case_id']} | {e['stratum']} | {e['label']} | {e['score']:.4f} "
+                  f"| {e['kind']} |")
+
+
+def print_markdown(results: list[Result], opts: Options) -> None:
+    rule = "95% lower bounds" if opts.conservative else "point estimates"
+    print(f"Minimums: precision {opts.min_precision}, recall {opts.min_recall} ({rule}); "
+          f"metric F-beta with beta {opts.beta}; seed {opts.seed}\n")
     for r in results:
         print(f"## {r['model']}\n")
         if "error" in r:
@@ -344,55 +466,20 @@ def print_markdown(results, args):
             print(f"Warning: {w}")
         if r["warnings"]:
             print()
-        t = r["shipped_threshold"]
-        print(f"- Dev: {r['dev_cases']} cases ({r['dev_positives']} positive), "
-              f"{r['folds']} folds × {r['repeats']} repeats; test: {r['test_cases']} cases")
-        print(f"- Default 0.5, dev held-out: {fmt(r['default_0.5_heldout'])}")
-        print(f"- Tuned, dev held-out ({r['tuned_folds']} of {r['total_folds']} folds): "
-              f"{fmt(r['tuned_heldout'])}")
-        print(f"- Shipped threshold: {'none meets minimums' if t is None else f'{t:.4f}'}")
-        if r["fold_thresholds"]:
-            ts = r["fold_thresholds"]
-            print(f"- Fold thresholds: {min(ts):.4f} to {max(ts):.4f}")
-        if "test_at_shipped" in r:
-            print(f"- Test at shipped threshold: {fmt(r['test_at_shipped'])}; "
-                  f"at 0.5: {fmt(r['test_at_0.5'])}")
-        failed = r["failed_folds"]
-        for f in failed[:10]:
-            print(f"- {f['fold']}: {f['reason']}")
-        if len(failed) > 10:
-            print(f"- … {len(failed) - 10} more failed folds")
+        print_summary(r)
         if "calibration" in r:
-            c = r["calibration"]
-            print(f"- Brier raw {c['brier_raw']:.4f}, Platt held-out "
-                  f"{c['brier_platt_heldout']:.4f}: keep {c['keep']}")
-            if "test_brier_raw" in c:
-                print(f"- Test Brier raw {c['test_brier_raw']:.4f}, Platt {c['test_brier_platt']:.4f}")
-            if c["keep"] == "platt":
-                pm = c["platt_mapping"]
-                print(f"- Platt mapping fitted on all dev: a {pm['a']:.4f}, b {pm['b']:.4f}")
-        if r.get("strata"):
-            print(f"\nPer stratum at the shipped threshold, {r['strata_scope']}:\n")
-            print("| stratum | n | precision | recall |\n| --- | --- | --- | --- |")
-            for name, m in r["strata"].items():
-                print(f"| {name or '(none)'} | {m['n']} | {m['precision']:.2f} | {m['recall']:.2f} |")
-        if r.get("errors"):
-            print("\nDev errors at the shipped threshold:\n")
-            print("| case_id | stratum | label | score | kind |\n| --- | --- | --- | --- | --- |")
-            for e in r["errors"]:
-                print(f"| {e['case_id']} | {e['stratum']} | {e['label']} | {e['score']:.4f} "
-                      f"| {e['kind']} |")
+            print_calibration(r["calibration"])
+        print_tables(r)
         print()
 
 
-def self_test():
+def self_test() -> list[str]:
     """Check core behaviour on fixed data; return a list of failures."""
-    base = dict(min_precision=0.8, min_recall=0.8, conservative=False, beta=1.0, folds=5,
-                repeats=1, seed=0, calibration=True, errors=True)
-    args = argparse.Namespace(**base)
+    args = Options(min_precision=0.8, min_recall=0.8, conservative=False, beta=1.0, folds=5,
+                   repeats=1, seed=0, calibration=True, errors=True)
     fails = []
 
-    def case(i, y, s, split="dev", stratum=""):
+    def case(i: int, y: int, s: float, split: str = "dev", stratum: str = "") -> Case:
         return {"id": str(i), "y": y, "s": s, "split": split, "stratum": stratum}
 
     shifted = [case(i, int(i < 30), 0.40 if i < 30 else 0.10) for i in range(60)]
@@ -427,7 +514,7 @@ def self_test():
     return fails
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser(
         description="Tune a decision threshold and check calibration from saved scores.")
     p.add_argument("csv", nargs="?")
@@ -459,12 +546,13 @@ def main():
         groups = load(args.csv)
     except (OSError, ValueError) as e:
         sys.exit(f"cannot read {args.csv}: {e}")
-    results = [report(name, groups[name], args) for name in sorted(groups)]
+    opts = Options.from_args(args)
+    results = [report(name, groups[name], opts) for name in sorted(groups)]
     if args.json:
         json.dump(results, sys.stdout, indent=2)
         print()
     else:
-        print_markdown(results, args)
+        print_markdown(results, opts)
 
 
 if __name__ == "__main__":
