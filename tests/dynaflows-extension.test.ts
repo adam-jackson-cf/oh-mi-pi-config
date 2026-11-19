@@ -37,14 +37,14 @@ test("delivery policy references and native reminder scope use the targeted home
 	});
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));
-	assert.deepEqual([...config.dynaflowsRules].sort(), files.sort());
+	assert.deepEqual(config.dynaflowsRules.toSorted(), files.toSorted());
 	for (const name of config.dynaflowsRules) {
 		const text = readFileSync(join(directory, `${name}.md`), "utf8");
 		const frontmatter = /^---\n([\s\S]*?)\n---/.exec(text);
 		assert.ok(frontmatter);
 		const rule = z.object({
 			agents: z.array(z.string()), repeatMode: z.string(),
-		}).parse(Bun.YAML.parse(frontmatter[1]));
+		}).parse(Bun.YAML.parse(frontmatter[1] ?? ""));
 		assert.deepEqual(rule.agents, ["main", "task"]);
 		assert.equal(rule.repeatMode, "once");
 	}

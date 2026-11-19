@@ -35,7 +35,7 @@ const PULLS_COMMITS = /^git (?:merge|rebase|cherry-pick|revert|am|pull)(?![-\w])
 const PUBLISHES = /^(?:git push\b|gh pr (?:create|merge)\b)/;
 
 export default function agentRails(
-	pi: ExtensionAPI,
+	pi: Pick<ExtensionAPI, "on" | "exec" | "registerCommand">,
 	{
 		configPath = fileURLToPath(new URL("../rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),

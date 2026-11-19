@@ -33,6 +33,12 @@ type RegisteredCommand = {
 	handler(args: string, context: ExtensionContext): Promise<void> | void;
 };
 
+function firstItem(items: AutocompleteItem[]): AutocompleteItem {
+	const [item] = items;
+	assert.ok(item, "a suggestion is offered");
+	return item;
+}
+
 function createExtensionHarness() {
 	const discoveryCalls: string[] = [];
 	const notifications: Notification[] = [];
@@ -195,7 +201,7 @@ describe("agent autocomplete", () => {
 		const result = await harness.suggest("/agent");
 		assert.ok(result);
 
-		assert.deepEqual(harness.applyCompletion("/agent", "/agent".length, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion("/agent", "/agent".length, firstItem(result.items), result.prefix), {
 			lines: ["/agent:"],
 			cursorLine: 0,
 			cursorCol: "/agent:".length,
@@ -209,7 +215,7 @@ describe("agent autocomplete", () => {
 
 		const line = "this is /agent:rev and keep this";
 		const cursorCol = "this is /agent:rev".length;
-		assert.deepEqual(harness.applyCompletion(line, cursorCol, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion(line, cursorCol, firstItem(result.items), result.prefix), {
 			lines: ["this is /agent:reviewer and keep this"],
 			cursorLine: 0,
 			cursorCol: "this is /agent:reviewer".length,
@@ -222,7 +228,7 @@ describe("agent autocomplete", () => {
 		assert.ok(result);
 
 		const line = "this is /agent:d";
-		assert.deepEqual(harness.applyCompletion(line, line.length, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion(line, line.length, firstItem(result.items), result.prefix), {
 			lines: [line],
 			cursorLine: 0,
 			cursorCol: line.length,
@@ -304,12 +310,12 @@ describe("agent autocomplete", () => {
 
 	test("reads multi-line YAML descriptions from agent frontmatter", () => {
 		const root = mkdtempSync(join(tmpdir(), "agent-autocomplete-"));
-		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 		try {
 			const projectAgents = join(root, "project", ".omp", "agents");
 			mkdirSync(projectAgents, { recursive: true });
 			mkdirSync(join(root, "user", "agents"), { recursive: true });
-			process.env.PI_CODING_AGENT_DIR = join(root, "user");
+			process.env["PI_CODING_AGENT_DIR"] = join(root, "user");
 			writeFileSync(
 				join(projectAgents, "judge.md"),
 				'---\nname: judge\ndescription:\n  "Read-only judge. Validates\n  delivered work."\ntools:\n  - read\n---\nBody\n',
@@ -321,8 +327,8 @@ describe("agent autocomplete", () => {
 				{ name: "judge", description: "Read-only judge. Validates delivered work." },
 			]);
 		} finally {
-			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			if (previousAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
+			else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
 			rmSync(root, { recursive: true, force: true });
 		}
 	});
