@@ -19,6 +19,7 @@ import ast
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 
@@ -72,7 +73,7 @@ def spans(source: str) -> dict[tuple[str | None, str], tuple[int, int]]:
     return found
 
 
-def span(node: ast.AST) -> tuple[int, int]:
+def span(node: ast.stmt) -> tuple[int, int]:
     decorators = getattr(node, "decorator_list", [])
     start = min([node.lineno, *(item.lineno for item in decorators)])
     return start, node.end_lineno or node.lineno
@@ -87,7 +88,7 @@ def unit(name: str) -> tuple[str | None, str]:
     return match.group("cls"), match.group("method")
 
 
-def file_mutants(repo: Path, meta: Path) -> list[dict]:
+def file_mutants(repo: Path, meta: Path) -> list[dict[str, Any]]:
     results = repo / RESULTS_DIR
     source_path = meta.relative_to(results).as_posix().removesuffix(META_SUFFIX)
     try:
@@ -95,7 +96,9 @@ def file_mutants(repo: Path, meta: Path) -> list[dict]:
         source = (repo / source_path).read_text(encoding="utf-8")
         found = spans(source)
     except (OSError, ValueError, SyntaxError) as error:
-        raise MutmutError(f"cannot read {meta} or its source {source_path}: {error}") from error
+        raise MutmutError(
+            f"cannot read {meta} or its source {source_path}: {error}"
+        ) from error
     by_key = data.get("exit_code_by_key") if isinstance(data, dict) else None
     if not isinstance(by_key, dict):
         raise MutmutError(f"{meta} has no exit_code_by_key")
@@ -115,7 +118,7 @@ def file_mutants(repo: Path, meta: Path) -> list[dict]:
     return mutants
 
 
-def normalise(repo: Path) -> dict:
+def normalise(repo: Path) -> dict[str, Any]:
     results = repo / RESULTS_DIR
     metas = sorted(results.rglob(f"*.py{META_SUFFIX}")) if results.is_dir() else []
     if not metas:
@@ -128,9 +131,15 @@ def write_report(repo: Path, out: Path) -> list[Finding]:
     try:
         report = normalise(repo)
     except MutmutError as error:
-        return [Finding(RULE, RESULTS_DIR, str(error), "run mutmut in the repo root, then retry")]
+        return [
+            Finding(
+                RULE, RESULTS_DIR, str(error), "run mutmut in the repo root, then retry"
+            )
+        ]
     target = out if out.is_absolute() else repo / out
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    target.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     print(f"mutation report: {len(report['mutants'])} mutants -> {out}")
     return []

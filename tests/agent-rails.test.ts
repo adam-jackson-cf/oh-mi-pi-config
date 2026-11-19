@@ -48,7 +48,7 @@ const wrappedPublishing = [
 	"env -S 'git push'", "env --split-string='git push'", "env -S git push",
 ];
 
-const railsConfig = join(import.meta.dir, "../agent/agent-rails.yml");
+const railsConfig = join(import.meta.dir, "../agent/rails.yml");
 const defaultOrigin = "git@github.com:owner/repo.git";
 // A record's gate.json as tests read it back: the switch typed, every other field kept.
 const recordGateSchema = z.object({ dynaflows: z.object({ enabled: z.boolean() }) }).passthrough();
@@ -266,7 +266,7 @@ function forbidGh(h: PrCiHarness) {
 }
 
 const ciGate = { requiredContext: "gate", runner: "ci-gate" };
-const ciRunner = resolve(import.meta.dir, "../scripts/ci-runner.py");
+const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 async function originRemote(h: { origin(url: string): Promise<void> }, remote = defaultOrigin) {
 	await h.origin(remote);
 }
@@ -722,18 +722,18 @@ test("uv and poetry separator commits pass the tool-call handler", async () => {
 	}
 });
 
-test("an invalid agent-rails.yml mapping fails the load", async () => {
+test("an invalid rails.yml mapping fails the load", async () => {
 	const source = readFileSync(railsConfig, "utf8");
 	assert.equal(/merge\|rebase|cherry-pick|revert\|am\|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
 		"pulling commits in is not a gated git command");
 	const dir = mkdtempSync(join(tmpdir(), "agent-rails-config-"));
 	try {
-		const configPath = join(dir, "agent-rails.yml");
+		const configPath = join(dir, "rails.yml");
 		writeFileSync(configPath, source.replace(/^gitCommand: .*$/m, "gitCommand: '('"));
 		const h = harness({ configPath });
 		try {
 			await h.emit("session_start");
-			assert.ok(h.notes.some(note => note.includes("cannot load agent-rails.yml")), h.notes.join("; "));
+			assert.ok(h.notes.some(note => note.includes("cannot load rails.yml")), h.notes.join("; "));
 		} finally { h.cleanup(); }
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

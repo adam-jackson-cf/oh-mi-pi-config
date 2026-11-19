@@ -17,7 +17,11 @@ PROCESS_CALLS = frozenset({
     "os.system",
     "os.popen",
 })
-DYNAMIC_IMPORT_CALLS = frozenset({"importlib.import_module", "__import__", "builtins.__import__"})
+DYNAMIC_IMPORT_CALLS = frozenset({
+    "importlib.import_module",
+    "__import__",
+    "builtins.__import__",
+})
 SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 

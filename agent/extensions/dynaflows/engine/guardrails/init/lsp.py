@@ -29,21 +29,36 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import IO, Any
 
 from guardrails.child_env import repo_environment
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
 
 RULE = "PROFILE.complete"
-SKIPPED_PARTS = frozenset({".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"})
+SKIPPED_PARTS = frozenset({
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+})
 DEFAULT_TIMEOUT_S = 60.0
 PYTHON_CANARY = (
     ("omp_lsp_canary.py", "def omp_lsp_canary():\n    return 1\n"),
-    ("omp_lsp_caller.py", "from omp_lsp_canary import omp_lsp_canary\n\nomp_lsp_canary()\n"),
+    (
+        "omp_lsp_caller.py",
+        "from omp_lsp_canary import omp_lsp_canary\n\nomp_lsp_canary()\n",
+    ),
 )
 TYPESCRIPT_CANARY = (
     ("omp-lsp-canary.ts", "export function ompLspCanary(): number {\n  return 1;\n}\n"),
-    ("omp-lsp-caller.ts", 'import { ompLspCanary } from "./omp-lsp-canary";\n\nompLspCanary();\n'),
+    (
+        "omp-lsp-caller.ts",
+        'import { ompLspCanary } from "./omp-lsp-canary";\n\nompLspCanary();\n',
+    ),
 )
 
 
@@ -97,7 +112,11 @@ class CanaryError(Exception):
 
 
 def detect(repo: Path) -> list[Stack]:
-    stacks = [stack for stack in STACKS if any((repo / name).is_file() for name in stack.markers)]
+    stacks = [
+        stack
+        for stack in STACKS
+        if any((repo / name).is_file() for name in stack.markers)
+    ]
     for index, stack in enumerate(stacks):
         if stack.name != "typescript":
             continue
@@ -116,9 +135,10 @@ def detect(repo: Path) -> list[Stack]:
     return stacks
 
 
-def notes(stacks: list[Stack]) -> list[dict]:
+def notes(stacks: list[Stack]) -> list[dict[str, Any]]:
     return [
-        {"stack": stack.name, "server": stack.server, "install": stack.install} for stack in stacks
+        {"stack": stack.name, "server": stack.server, "install": stack.install}
+        for stack in stacks
     ]
 
 
@@ -148,12 +168,12 @@ def find_symbol(root: Path, stack: Stack) -> Symbol | None:
     return None
 
 
-def frame(message: dict) -> bytes:
+def frame(message: dict[str, Any]) -> bytes:
     body = json.dumps(message).encode("utf-8")
     return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
-def read_messages(stream, inbox: queue.Queue) -> None:
+def read_messages(stream: IO[bytes], inbox: queue.Queue[dict[str, Any] | None]) -> None:
     """Parse framed messages from the server into ``inbox``; ``None`` marks end of stream."""
     try:
         while True:
@@ -196,22 +216,25 @@ class Session:
             )
         except OSError as error:
             raise CanaryError(f"cannot start {server}: {error}") from error
-        self.inbox: queue.Queue = queue.Queue()
+        if self.process.stdin is None or self.process.stdout is None:
+            raise CanaryError(f"{server} started without piped stdio")
+        self.stdin: IO[bytes] = self.process.stdin
+        self.inbox: queue.Queue[dict[str, Any] | None] = queue.Queue()
         threading.Thread(
             target=read_messages, args=(self.process.stdout, self.inbox), daemon=True
         ).start()
 
-    def send(self, message: dict) -> None:
+    def send(self, message: dict[str, Any]) -> None:
         try:
-            self.process.stdin.write(frame({"jsonrpc": "2.0", **message}))
-            self.process.stdin.flush()
+            self.stdin.write(frame({"jsonrpc": "2.0", **message}))
+            self.stdin.flush()
         except OSError as error:
             raise CanaryError(f"the server closed its input: {error}") from error
 
-    def notify(self, method: str, params: dict) -> None:
+    def notify(self, method: str, params: dict[str, Any]) -> None:
         self.send({"method": method, "params": params})
 
-    def request(self, method: str, params: dict | None) -> object:
+    def request(self, method: str, params: dict[str, Any] | None) -> object:
         self.next_id += 1
         wanted = self.next_id
         self.send({"id": wanted, "method": method, "params": params})
@@ -224,7 +247,7 @@ class Session:
                     raise CanaryError(f"{method} failed: {message['error']}")
                 return message.get("result")
 
-    def receive(self, method: str) -> dict:
+    def receive(self, method: str) -> dict[str, Any]:
         remaining = self.deadline - time.monotonic()
         try:
             message = self.inbox.get(timeout=max(remaining, 0))
@@ -232,10 +255,12 @@ class Session:
             raise CanaryError(f"no answer to {method} before the time limit") from error
         if message is None:
             code = self.process.wait()
-            raise CanaryError(f"the server exited (code {code}) before answering {method}")
+            raise CanaryError(
+                f"the server exited (code {code}) before answering {method}"
+            )
         return message
 
-    def answer(self, message: dict) -> None:
+    def answer(self, message: dict[str, Any]) -> None:
         """Reply to a server request so the server does not wait on the client."""
         result = None
         if message["method"] == "workspace/configuration":
@@ -256,7 +281,9 @@ class Session:
             self.process.wait()
 
 
-def query(server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: float) -> int:
+def query(
+    server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: float
+) -> int:
     session = Session(server, workspace, timeout, stack.arguments)
     try:
         session.request(
@@ -264,7 +291,9 @@ def query(server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: f
             {
                 "processId": os.getpid(),
                 "rootUri": workspace.as_uri(),
-                "workspaceFolders": [{"uri": workspace.as_uri(), "name": workspace.name}],
+                "workspaceFolders": [
+                    {"uri": workspace.as_uri(), "name": workspace.name}
+                ],
                 "capabilities": {},
             },
         )
@@ -303,7 +332,9 @@ def canary(repo: Path, stack: Stack, server: str, timeout: float) -> str:
     if symbol is not None:
         count = query(server, repo, symbol, stack, timeout)
         where = symbol.path.relative_to(repo).as_posix()
-        return f"references {where}:{symbol.line + 1} {symbol.name} -> {count} locations"
+        return (
+            f"references {where}:{symbol.line + 1} {symbol.name} -> {count} locations"
+        )
     with tempfile.TemporaryDirectory(prefix="omp-lsp-canary-") as scratch:
         workspace = Path(scratch).resolve()
         for marker in stack.markers:
@@ -333,10 +364,17 @@ def readiness(
         if not found:
             message = f"{stack.name} language server {stack.server} is not on PATH"
             if allow_missing:
-                lines.append(f"lsp: {message} (allowed by --allow-missing-lsp); {stack.install}")
+                lines.append(
+                    f"lsp: {message} (allowed by --allow-missing-lsp); {stack.install}"
+                )
             else:
                 findings.append(
-                    Finding(RULE, PROFILE_PATH, message, f"{stack.install}, then run init again")
+                    Finding(
+                        RULE,
+                        PROFILE_PATH,
+                        message,
+                        f"{stack.install}, then run init again",
+                    )
                 )
             continue
         try:
@@ -353,5 +391,7 @@ def readiness(
             continue
         lines.append(f"lsp: {stack.name} server {found} canary ok: {result}")
     if not stacks:
-        lines.append("lsp: no pyproject.toml, package.json or tsconfig.json in the repo root")
+        lines.append(
+            "lsp: no pyproject.toml, package.json or tsconfig.json in the repo root"
+        )
     return findings, lines

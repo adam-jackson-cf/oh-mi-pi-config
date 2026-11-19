@@ -14,6 +14,7 @@ Profile ``guardrails.golden_record`` settings:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.diffs.changes import (
@@ -35,11 +36,12 @@ def changed_goldens(changes: list[Change], globs: list[str]) -> list[Change]:
     return [
         change
         for change in changes
-        if change.status != "A" and any(matches_any(path, globs) for path in change.paths)
+        if change.status != "A"
+        and any(matches_any(path, globs) for path in change.paths)
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     globs = as_list(config.get("globs"))

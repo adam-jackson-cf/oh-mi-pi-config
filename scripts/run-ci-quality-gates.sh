@@ -75,6 +75,10 @@ lint_files=("${code_files[@]}")
 for file in "${markdown_files[@]}"; do
   lint_files+=("$file")
 done
+# ruff --fix may rewrite any owned Python file, so --stage tracks them all.
+while IFS= read -r -d '' file; do
+  lint_files+=("$file")
+done < <(git ls-files -z -- "*.py")
 
 file_hashes=()
 if "$fix" && "$stage"; then
@@ -95,6 +99,17 @@ else
   fi
 fi
 bunx tsc --noEmit
+# Owned Python: ruff, ruff format and mypy check the whole repository in both tiers, with the
+# tooling pyproject.toml pins and uv.lock locks (--locked fails when the lock is stale). Their
+# settings mirror the harness catalogue; only third-party code and fixture trees are excluded.
+if "$fix"; then
+  uv run --locked ruff check .
+  uv run --locked ruff format .
+else
+  uv run --locked ruff check --no-fix .
+  uv run --locked ruff format --check .
+fi
+uv run --locked mypy
 # A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
 # would otherwise write into this repository's index.
 (unset "${!GIT_@}"; bun test)
@@ -112,11 +127,12 @@ if [[ "$tier" == commit ]]; then
   done < <(git diff --cached --name-only -z)
 fi
 if "$run_seams"; then
-  (unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
+  # The suites run in the locked environment, which provides pytest and the guardrails pytest extra.
+  (unset "${!GIT_@}"; uv run --locked python -m unittest discover -s tests -p 'test_*.py')
 else
   printf 'Python seam suites skipped: no staged path reaches them.\n'
 fi
-(unset "${!GIT_@}"; python3 scripts/check-paths.py)
+(unset "${!GIT_@}"; python3 scripts/check_paths.py)
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do

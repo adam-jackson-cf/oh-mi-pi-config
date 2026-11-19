@@ -14,6 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.profile import ProfileError, load_profile
 from guardrails.findings import Finding, exit_code, format_findings
@@ -58,33 +59,12 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
         words(segment)
         for raw_path in owned_paths
         for segment in (
-            *PurePosixPath(raw_path).parts[:-1], PurePosixPath(raw_path).stem
+            *PurePosixPath(raw_path).parts[:-1],
+            PurePosixPath(raw_path).stem,
         )
     }
-    found = []
-    for rename in renames:
-        old = PurePosixPath(rename.old)
-        new = PurePosixPath(rename.new)
-        old_dirs, new_dirs = old.parts[:-1], new.parts[:-1]
-        shared = 0
-        while shared < min(len(old_dirs), len(new_dirs)):
-            if old_dirs[shared] != new_dirs[shared]:
-                break
-            shared += 1
-        remaining_dirs = new_dirs[shared:]
-        directory_words = tuple(word for part in remaining_dirs for word in words(part))
-        new_parts = (*new_dirs, new.stem)
-        for depth in range(shared, len(old_dirs)):
-            segment = old_dirs[depth]
-            if contains(directory_words, words(segment)):
-                continue
-            replacement = new_parts[min(depth, len(new_parts) - 1)]
-            directory = depth < len(new_dirs)
-            scope = "/".join(new.parts[: depth + 1]) if directory else rename.new
-            found.append(RetiredTerm(segment, replacement, scope, directory, rename))
-        if not contains((*directory_words, *words(new.stem)), words(old.stem)):
-            found.append(RetiredTerm(old.stem, new.stem, rename.new, False, rename))
-    unique = {}
+    found = [term for rename in renames for term in rename_terms(rename)]
+    unique: dict[tuple[tuple[str, ...], tuple[str, ...], str, bool], RetiredTerm] = {}
     for term in found:
         if words(term.old) in retained:
             continue
@@ -93,8 +73,38 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
     return list(unique.values())
 
 
+def rename_terms(rename: Rename) -> list[RetiredTerm]:
+    """Old directory segments and the old stem that the new path no longer names."""
+    found = []
+
+    old = PurePosixPath(rename.old)
+    new = PurePosixPath(rename.new)
+    old_dirs, new_dirs = old.parts[:-1], new.parts[:-1]
+    shared = 0
+    while shared < min(len(old_dirs), len(new_dirs)):
+        if old_dirs[shared] != new_dirs[shared]:
+            break
+        shared += 1
+    remaining_dirs = new_dirs[shared:]
+    directory_words = tuple(word for part in remaining_dirs for word in words(part))
+    new_parts = (*new_dirs, new.stem)
+    for depth in range(shared, len(old_dirs)):
+        segment = old_dirs[depth]
+        if contains(directory_words, words(segment)):
+            continue
+        replacement = new_parts[min(depth, len(new_parts) - 1)]
+        directory = depth < len(new_dirs)
+        scope = "/".join(new.parts[: depth + 1]) if directory else rename.new
+        found.append(RetiredTerm(segment, replacement, scope, directory, rename))
+    if not contains((*directory_words, *words(new.stem)), words(old.stem)):
+        found.append(RetiredTerm(old.stem, new.stem, rename.new, False, rename))
+    return found
+
+
 class DefinedNames(ast.NodeVisitor):
     """Collect module/class bindings, stopping before function-local scopes."""
+
+    descend_classes = True
 
     def __init__(self) -> None:
         self.names: list[str] = []
@@ -102,12 +112,14 @@ class DefinedNames(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.names.append(node.name)
 
-    visit_AsyncFunctionDef = visit_FunctionDef
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.names.append(node.name)
-        for statement in node.body:
-            self.visit(statement)
+        if self.descend_classes:
+            for statement in node.body:
+                self.visit(statement)
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Store):
@@ -122,14 +134,17 @@ class DefinedNames(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         pass
 
-    def visit_ListComp(
-        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
-    ) -> None:
+    def visit_ListComp(self, node: ast.ListComp) -> None:
         pass
 
-    visit_SetComp = visit_ListComp
-    visit_DictComp = visit_ListComp
-    visit_GeneratorExp = visit_ListComp
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        pass
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        pass
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        pass
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
@@ -138,14 +153,18 @@ class DefinedNames(ast.NodeVisitor):
             self.visit(statement)
 
 
-def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> list[Finding]:
+def residue_findings(
+    renames: list[Rename], head_files: dict[str, bytes]
+) -> list[Finding]:
     """Inspect an owned head snapshot; non-Python values need not contain file bytes."""
     terms = retired_terms(renames, list(head_files))
     found: list[Finding] = []
     for path, source in sorted(head_files.items()):
         scoped = [
-            term for term in terms
-            if path == term.scope or (term.directory and path.startswith(term.scope + "/"))
+            term
+            for term in terms
+            if path == term.scope
+            or (term.directory and path.startswith(term.scope + "/"))
         ]
         if not scoped:
             continue
@@ -154,8 +173,14 @@ def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> lis
             try:
                 tree = ast.parse(source, filename=path)
             except (SyntaxError, ValueError, UnicodeError) as error:
-                found.append(Finding(RULE, path, f"cannot parse head Python file: {error}",
-                                     "repair the Python source so rename residue can be checked"))
+                found.append(
+                    Finding(
+                        RULE,
+                        path,
+                        f"cannot parse head Python file: {error}",
+                        "repair the Python source so rename residue can be checked",
+                    )
+                )
                 continue
             visitor = DefinedNames()
             visitor.visit(tree)
@@ -165,18 +190,23 @@ def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> lis
         for term in scoped:
             retired = words(term.old)
             leftovers = [name for name in identifiers if contains(words(name), retired)]
-            path_leftovers = [part for part in path_names if contains(words(part), retired)]
+            path_leftovers = [
+                part for part in path_names if contains(words(part), retired)
+            ]
             if path_leftovers:
                 leftovers.insert(0, path_leftovers[0])
             for identifier in leftovers:
-                found.append(Finding(
-                    RULE, path,
-                    f"defines `{identifier}`, which still uses `{term.old}` after this change "
-                    f"renamed `{term.old}` to `{term.new}` "
-                    f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
-                    "in one change, with no alias for the old name (naming.md)",
-                    f"Rename it to use `{term.new}`.",
-                ))
+                found.append(
+                    Finding(
+                        RULE,
+                        path,
+                        f"defines `{identifier}`, which still uses `{term.old}` after this change "
+                        f"renamed `{term.old}` to `{term.new}` "
+                        f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
+                        "in one change, with no alias for the old name (naming.md)",
+                        f"Rename it to use `{term.new}`.",
+                    )
+                )
     return list(dict.fromkeys(found))
 
 
@@ -186,23 +216,57 @@ class GitError(Exception):
 
 def git(repo: Path, *args: str) -> bytes:
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False)
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, check=False
+        )
     except OSError as error:
         raise GitError(str(error)) from error
     if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip() or "git command failed")
+        raise GitError(
+            result.stderr.decode(errors="replace").strip() or "git command failed"
+        )
     return result.stdout
 
 
-def commit_snapshot(repo: Path, profile: dict, base: str, head: str) -> tuple[list[Rename], dict[str, bytes]]:
-    base_id = git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
-    head_id = git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}").decode().strip()
-    rows = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z",
-               f"--find-renames={RENAME_THRESHOLD}", "-l0", "--diff-filter=R", base_id, head_id, "--").decode().split("\0")
-    renames = [Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)]
+def commit_snapshot(
+    repo: Path, profile: dict[str, Any], base: str, head: str
+) -> tuple[list[Rename], dict[str, bytes]]:
+    base_id = (
+        git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}")
+        .decode()
+        .strip()
+    )
+    head_id = (
+        git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}")
+        .decode()
+        .strip()
+    )
+    rows = (
+        git(
+            repo,
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-status",
+            "-z",
+            f"--find-renames={RENAME_THRESHOLD}",
+            "-l0",
+            "--diff-filter=R",
+            base_id,
+            head_id,
+            "--",
+        )
+        .decode()
+        .split("\0")
+    )
+    renames = [
+        Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
+    ]
     exclusions = as_list(settings(profile, "check").get("exclude"))
     # Read the committed tree, not an index/worktree that may differ from --head.
-    paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
+    paths = (
+        git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
+    )
     owned_paths = [path for path in paths if path and not matches_any(path, exclusions)]
     terms = retired_terms(renames, owned_paths)
     files = {}
@@ -211,11 +275,15 @@ def commit_snapshot(repo: Path, profile: dict, base: str, head: str) -> tuple[li
             path == term.scope or (term.directory and path.startswith(term.scope + "/"))
             for term in terms
         )
-        files[path] = git(repo, "show", f"{head_id}:{path}") if scoped and path.endswith(".py") else b""
+        files[path] = (
+            git(repo, "show", f"{head_id}:{path}")
+            if scoped and path.endswith(".py")
+            else b""
+        )
     return renames, files
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
@@ -223,7 +291,14 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
     try:
         renames, files = commit_snapshot(repo, profile, args.base, args.head)
     except (GitError, UnicodeError) as error:
-        return [Finding(RULE, ".", str(error), "provide readable base and head commits in this repository")]
+        return [
+            Finding(
+                RULE,
+                ".",
+                str(error),
+                "provide readable base and head commits in this repository",
+            )
+        ]
     return residue_findings(renames, files)
 
 

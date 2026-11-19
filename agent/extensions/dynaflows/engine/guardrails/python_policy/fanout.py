@@ -19,6 +19,7 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import house_style
 from guardrails.findings import Finding
@@ -60,7 +61,9 @@ def module_for(relpath: str, roots: list[str]) -> Module:
     parts = segments(relpath)[depth:]
     if parts[-1] == "__init__.py":
         return Module(relpath, ".".join(parts[:-1]) or None, True)
-    return Module(relpath, ".".join((*parts[:-1], PurePosixPath(parts[-1]).stem)), False)
+    return Module(
+        relpath, ".".join((*parts[:-1], PurePosixPath(parts[-1]).stem)), False
+    )
 
 
 def resolve_relative(current: Module, node: ast.ImportFrom) -> str | None:
@@ -68,7 +71,9 @@ def resolve_relative(current: Module, node: ast.ImportFrom) -> str | None:
         return node.module
     if current.name is None:
         return None
-    package = current.name.split(".") if current.is_package else current.name.split(".")[:-1]
+    package = (
+        current.name.split(".") if current.is_package else current.name.split(".")[:-1]
+    )
     if node.level > 1:
         package = package[: -(node.level - 1)]
     if node.module:
@@ -131,7 +136,11 @@ def literal_import_module(node: ast.AST) -> str | None:
     ):
         return None
     first = node.args[0]
-    return first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else None
+    return (
+        first.value
+        if isinstance(first, ast.Constant) and isinstance(first.value, str)
+        else None
+    )
 
 
 def is_stdlib(module: str) -> bool:
@@ -140,10 +149,14 @@ def is_stdlib(module: str) -> bool:
 
 
 def source_nloc(text: str) -> int:
-    return sum(1 for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+    return sum(
+        1
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
 
 
-def root_packages(profile: dict, config: PythonSettings) -> set[str]:
+def root_packages(profile: dict[str, Any], config: PythonSettings) -> set[str]:
     section = config.mapping("fanout")
     if "root_packages" in section:
         return set(as_list(section["root_packages"]))
@@ -151,16 +164,23 @@ def root_packages(profile: dict, config: PythonSettings) -> set[str]:
     return set(entry_points) if isinstance(entry_points, dict) else set()
 
 
-def limits(config: PythonSettings) -> dict:
-    return {key: config.number("fanout", key, value) for key, value in LIMIT_DEFAULTS.items()}
+def limits(config: PythonSettings) -> dict[str, Any]:
+    return {
+        key: config.number("fanout", key, value)
+        for key, value in LIMIT_DEFAULTS.items()
+    }
 
 
-def setting_findings(repo: Path, profile: dict, config: PythonSettings) -> list[Finding]:
+def setting_findings(
+    repo: Path, profile: dict[str, Any], config: PythonSettings
+) -> list[Finding]:
     roots = config.paths("source_roots")
     if not roots:
         return [setting_finding(GENERAL, "source_roots", "is not configured")]
     found = [
-        setting_finding(GENERAL, "source_roots", f"names '{root}', which is not a directory")
+        setting_finding(
+            GENERAL, "source_roots", f"names '{root}', which is not a directory"
+        )
         for root in roots
         if not GLOB_CHARACTERS & set(root) and not (repo / root).is_dir()
     ]
@@ -176,7 +196,9 @@ def setting_findings(repo: Path, profile: dict, config: PythonSettings) -> list[
     return found
 
 
-def module_findings(module: Module, imports: set[str], nloc: int, limit: dict) -> list[Finding]:
+def module_findings(
+    module: Module, imports: set[str], nloc: int, limit: dict[str, Any]
+) -> list[Finding]:
     listed = ", ".join(sorted(imports))
     found = []
     if len(imports) > limit["architectural_max"]:
@@ -189,7 +211,10 @@ def module_findings(module: Module, imports: set[str], nloc: int, limit: dict) -
                 FIX,
             )
         )
-    if nloc > limit["large_module_nloc"] and len(imports) > limit["large_module_architectural_max"]:
+    if (
+        nloc > limit["large_module_nloc"]
+        and len(imports) > limit["large_module_architectural_max"]
+    ):
         found.append(
             finding(
                 LARGE,
@@ -203,7 +228,7 @@ def module_findings(module: Module, imports: set[str], nloc: int, limit: dict) -
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-fanout", argv)
     config = load_settings(profile)
     problems = setting_findings(repo, profile, config)
@@ -214,8 +239,14 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         everything = python_files(repo, config, [])
     except InventoryError as error:
         return [inventory_finding(GENERAL, error)]
-    modules = [module_for(path, roots) for path in everything if matched_root(path, roots) is not None]
-    collector = ImportCollector(root_packages(profile, config), {m.name for m in modules if m.name})
+    modules = [
+        module_for(path, roots)
+        for path in everything
+        if matched_root(path, roots) is not None
+    ]
+    collector = ImportCollector(
+        root_packages(profile, config), {m.name for m in modules if m.name}
+    )
     chosen = set(python_files(repo, config, selected)) if selected else None
     limit = limits(config)
     found: list[Finding] = []
@@ -224,7 +255,15 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
             continue
         source = read_source(repo, module.relpath)
         if source.tree is None:
-            found.append(finding(GENERAL, module.relpath, None, source.error, "restore readable UTF-8 Python"))
+            found.append(
+                finding(
+                    GENERAL,
+                    module.relpath,
+                    None,
+                    source.error,
+                    "restore readable UTF-8 Python",
+                )
+            )
             continue
         imports = collector.imports(source.tree, module)
         found.extend(module_findings(module, imports, source_nloc(source.text), limit))

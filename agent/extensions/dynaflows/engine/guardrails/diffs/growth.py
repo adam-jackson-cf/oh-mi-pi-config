@@ -1,11 +1,11 @@
-
 from __future__ import annotations
 
 import importlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 from guardrails.config.house_style import apply_exceptions
 from guardrails.config.profile import PROFILE_PATH, is_missing_text
@@ -36,10 +36,30 @@ class Snapshot:
     errors: dict[str, str]
 
 
-Collector = Callable[[str, str], object]
+class CollectedCase(Protocol):
+    """One statically collected test, as an adapter's ``cases.collect`` reports it."""
+
+    @property
+    def selector(self) -> str: ...
+
+    @property
+    def fingerprint(self) -> str: ...
 
 
-def adapter_collector(profile: dict) -> Collector | None:
+class CollectedFile(Protocol):
+    """The statically collected tests of one file."""
+
+    @property
+    def cases(self) -> Sequence[CollectedCase]: ...
+
+    @property
+    def behaviours(self) -> Mapping[str, str | None]: ...
+
+
+Collector = Callable[[str, str], CollectedFile]
+
+
+def adapter_collector(profile: dict[str, Any]) -> Collector | None:
     """The adapter's ``cases.collect``, or None when the adapter ships no static collector."""
     name = profile.get("adapter")
     if not isinstance(name, str) or not ADAPTER_NAME.fullmatch(name):
@@ -51,7 +71,7 @@ def adapter_collector(profile: dict) -> Collector | None:
     return getattr(module, "collect", None)
 
 
-def test_blobs(repo: Path, ref: str, profile: dict) -> dict[str, str]:
+def test_blobs(repo: Path, ref: str, profile: dict[str, Any]) -> dict[str, str]:
     """``{path: blob id}`` of the test files at ``ref``."""
     output = git(repo, "ls-tree", "-r", "-z", ref)
     blobs = {}
@@ -66,7 +86,10 @@ def test_blobs(repo: Path, ref: str, profile: dict) -> dict[str, str]:
 
 
 def snapshot(
-    repo: Path, blobs: Mapping[str, str], collect: Collector, cache: dict[str, object]
+    repo: Path,
+    blobs: Mapping[str, str],
+    collect: Collector,
+    cache: dict[str, CollectedFile | ValueError],
 ) -> Snapshot:
     """Collect each file once per blob, so files unchanged between commits parse once."""
     fingerprints: dict[str, str] = {}
@@ -93,15 +116,29 @@ def growth_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
     for selector in sorted(head.behaviours.keys() - base.behaviours.keys()):
         text = head.behaviours[selector]
         words = re.findall(r"[A-Za-z]+", text or "")
-        meaningful = [word for word in words if word.lower() not in {"test", "case", "todo", "tbd", "placeholder", "example"}]
+        meaningful = [
+            word
+            for word in words
+            if word.lower()
+            not in {"test", "case", "todo", "tbd", "placeholder", "example"}
+        ]
         if not is_missing_text(text) and len(meaningful) >= 2:
             continue
         path = selector.split("::", 1)[0]
-        found.append(Finding(GROWTH, path, f"{selector} has no descriptive behavior name", BEHAVIOUR_FIX))
+        found.append(
+            Finding(
+                GROWTH,
+                path,
+                f"{selector} has no descriptive behavior name",
+                BEHAVIOUR_FIX,
+            )
+        )
     return found
 
 
-def duplicate_findings(base: Mapping[str, str], head: Mapping[str, str]) -> list[Finding]:
+def duplicate_findings(
+    base: Mapping[str, str], head: Mapping[str, str]
+) -> list[Finding]:
     """New cases whose fingerprint matches an existing case or an earlier new case."""
     seen: dict[str, str] = {}
     for selector, fingerprint in sorted(base.items()):
@@ -122,13 +159,15 @@ def duplicate_findings(base: Mapping[str, str], head: Mapping[str, str]) -> list
 
 def collection_findings(head: Snapshot, changed: set[str]) -> list[Finding]:
     return [
-        Finding(GROWTH, path, f"cannot collect tests statically: {error}", BEHAVIOUR_FIX)
+        Finding(
+            GROWTH, path, f"cannot collect tests statically: {error}", BEHAVIOUR_FIX
+        )
         for path, error in sorted(head.errors.items())
         if path in changed
     ]
 
 
-def check(repo: Path, profile: dict, diff: DiffRange) -> list[Finding]:
+def check(repo: Path, profile: dict[str, Any], diff: DiffRange) -> list[Finding]:
     changes = changed_files(repo, diff)
     changed_paths = {path for change in changes for path in change.paths}
     if not any(is_test_file(path, profile) for path in changed_paths):
@@ -143,7 +182,7 @@ def check(repo: Path, profile: dict, diff: DiffRange) -> list[Finding]:
                 "name an adapter that ships one, or add 'cases.collect' to the adapter",
             )
         ]
-    cache: dict[str, object] = {}
+    cache: dict[str, CollectedFile | ValueError] = {}
     base = snapshot(repo, test_blobs(repo, diff.base, profile), collect, cache)
     head = snapshot(repo, test_blobs(repo, diff.head, profile), collect, cache)
     found = collection_findings(head, changed_paths)
@@ -152,7 +191,7 @@ def check(repo: Path, profile: dict, diff: DiffRange) -> list[Finding]:
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     try:
         found = check(repo, profile, parse_range(argv))

@@ -3,6 +3,7 @@
 Real framework conformance is explicitly invoked with the target's pinned local Vitest;
 its command fails closed when that installation is absent, rather than skipping cases.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,22 +13,31 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
+
+
+import pytest
+
+from guardrails.adapters.vitest import conformance
+from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments
+from guardrails.test_evidence.junit import parse_text
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
-sys.path.insert(0, str(REFERENCE))
-
-from guardrails.adapters.vitest import conformance  # noqa: E402
-from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments  # noqa: E402
-from guardrails.test_evidence.junit import parse_text  # noqa: E402
 
 RUNTIME = REFERENCE / "guardrails/adapters/vitest/runtime.mjs"
 
 
 class VitestRuntimeTests(unittest.TestCase):
-    def node(self, source: str, tier: str = "t1") -> dict:
+    def node(self, source: str, tier: str = "t1") -> dict[str, Any]:
         node = shutil.which("node")
-        self.assertIsNotNone(node, "activate the repository's pinned Node before running runtime tests")
+        assert node is not None, (
+            "activate the repository's pinned Node before running runtime tests"
+        )
         with tempfile.TemporaryDirectory(prefix="vitest-native-guards-") as scratch:
             root = Path(scratch).resolve()
             home, allowed = root / "real-home", root / "allowed"
@@ -50,12 +60,20 @@ class VitestRuntimeTests(unittest.TestCase):
                 + source
                 + "\nconsole.log(JSON.stringify({violations, events:fs.readFileSync(events,'utf8').trim().split('\\n').map(JSON.parse)}));\n"
             )
-            result = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True,
-                                    text=True, timeout=30, check=False)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return json.loads(result.stdout)
+            result = subprocess.run(
+                [node, "--input-type=module", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+            outcome: dict[str, Any] = json.loads(result.stdout)
+            return outcome
 
-    def test_native_process_and_network_violations_remain_sticky_when_caught(self):
+    def test_native_process_and_network_violations_remain_sticky_when_caught(
+        self,
+    ) -> None:
         result = self.node("""
 for (const [name, operation] of [
   ['process', () => spawnSync(process.execPath, ['-e', ''])],
@@ -68,12 +86,14 @@ for (const [name, operation] of [
   if (violations.length !== before + 1) throw new Error(`${name} bypassed the native process/network guard`);
 }
 """)
-        self.assertEqual(len(result["violations"]), 4)
-        self.assertTrue(all("TEST.fast-tier-isolation" in item for item in result["violations"]))
-        self.assertEqual(sum(event["kind"] == "violation" for event in result["events"]), 4)
-        self.assertEqual(result["events"][0]["guards"], ["fast-tier", "user-data"])
+        assert len(result["violations"]) == 4
+        assert all("TEST.fast-tier-isolation" in item for item in result["violations"])
+        assert sum(event["kind"] == "violation" for event in result["events"]) == 4
+        assert result["events"][0]["guards"] == ["fast-tier", "user-data"]
 
-    def test_process_guard_covers_captured_node_exports_and_native_bun_apis(self):
+    def test_process_guard_covers_captured_node_exports_and_native_bun_apis(
+        self,
+    ) -> None:
         result = self.node("""
 const operations = [() => spawnSync(process.execPath, ['-e', ''])];
 if (globalThis.Bun) {
@@ -88,12 +108,19 @@ for (const operation of operations) {
   if (violations.length !== before + 1) throw new Error('native process creation bypassed the guard');
 }
 """)
-        self.assertIn("TEST.fast-tier-isolation", result["violations"][0])
-        reasons = [event["reason"] for event in result["events"] if event["kind"] == "violation"]
-        self.assertEqual(reasons, result["violations"])
+        assert "TEST.fast-tier-isolation" in result["violations"][0]
+        reasons = [
+            event["reason"]
+            for event in result["events"]
+            if event["kind"] == "violation"
+        ]
+        assert reasons == result["violations"]
 
-    def test_user_home_guard_covers_native_promises_and_symlink_destinations(self):
-        result = self.node("""
+    def test_user_home_guard_covers_native_promises_and_symlink_destinations(
+        self,
+    ) -> None:
+        result = self.node(
+            """
 fs.symlinkSync(home, path.join(allowed, 'alias'), 'dir');
 for (const operation of [
   () => fs.writeFileSync(path.join(home, 'sync.txt'), 'x'),
@@ -104,65 +131,96 @@ for (const operation of [
 if (fs.readdirSync(home).length !== 0) throw new Error('guard allowed a real-home mutation');
 fs.writeFileSync(path.join(allowed, 'safe.txt'), 'safe');
 if (fs.readFileSync(path.join(allowed, 'safe.txt'), 'utf8') !== 'safe') throw new Error('temporary write failed');
-""", tier="t2")
-        self.assertEqual(len(result["violations"]), 4)
-        self.assertEqual(result["events"][0]["guards"], ["user-data"])
+""",
+            tier="t2",
+        )
+        assert len(result["violations"]) == 4
+        assert result["events"][0]["guards"] == ["user-data"]
 
-    def test_slow_tier_allows_native_subprocess_but_keeps_user_data_guard(self):
-        result = self.node("""
+    def test_slow_tier_allows_native_subprocess_but_keeps_user_data_guard(self) -> None:
+        result = self.node(
+            """
 const result = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
 if (result.status !== 0) throw new Error('t2 process unexpectedly blocked');
-""", tier="t2")
-        self.assertEqual(result["violations"], [])
+""",
+            tier="t2",
+        )
+        assert result["violations"] == []
 
-    def test_junit_arguments_keep_configuration_native_and_evidence_external(self):
+    def test_junit_arguments_keep_configuration_native_and_evidence_external(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             report = Path(scratch) / "run.xml"
             arguments = junit_arguments("t1", str(report))
-            self.assertEqual(arguments[0], "--reporter")
-            self.assertNotIn("--config", arguments)
-            self.assertIn("--no-cache", arguments)
-            self.assertIn("--no-fsModuleCache", arguments)
+            assert arguments[0] == "--reporter"
+            assert "--config" not in arguments
+            assert "--no-cache" in arguments
+            assert "--no-fsModuleCache" in arguments
             entry = Path(arguments[1])
-            self.assertEqual(entry.parent, report.parent.resolve())
-            self.assertIn(json.dumps(str(report.resolve())), entry.read_text())
-            self.assertEqual({item.name for item in report.parent.iterdir()}, {entry.name})
-        with self.assertRaises(ValueError):
+            assert entry.parent == report.parent.resolve()
+            assert json.dumps(str(report.resolve())) in entry.read_text()
+            assert {item.name for item in report.parent.iterdir()} == {entry.name}
+        with pytest.raises(ValueError, match="unknown Vitest tier"):
             junit_arguments("unknown", "unused.xml")
 
-    def test_dialect_preserves_native_names_durations_skips_expected_failures_and_retries(self):
-        report = parse_text('''<testsuite><testcase file="tests/case.test.ts" classname="tests/case.test.ts"
+    def test_dialect_preserves_native_names_durations_skips_expected_failures_and_retries(
+        self,
+    ) -> None:
+        report = parse_text(
+            """<testsuite><testcase file="tests/case.test.ts" classname="tests/case.test.ts"
  name="suite &gt; case" time="0.125"><properties><property name="retries" value="2"/></properties>
  <skipped type="xfail" message="known defect"/></testcase>
- <testcase file="tests/case.test.ts" name="skipped"><skipped message="waiting on vendor fix"/></testcase></testsuite>''', DIALECT, "synthetic")
+ <testcase file="tests/case.test.ts" name="skipped"><skipped message="waiting on vendor fix"/></testcase></testsuite>""",
+            DIALECT,
+            "synthetic",
+        )
         expected, skipped = report.cases
-        self.assertEqual((expected.id, expected.duration_s, expected.outcome, expected.reason, expected.retries),
-                         ("tests/case.test.ts::suite > case", 0.125, "xfail", "known defect", 2))
-        self.assertEqual((skipped.outcome, skipped.reason), ("skipped", "waiting on vendor fix"))
+        assert (
+            expected.id,
+            expected.duration_s,
+            expected.outcome,
+            expected.reason,
+            expected.retries,
+        ) == ("tests/case.test.ts::suite > case", 0.125, "xfail", "known defect", 2)
+        assert (skipped.outcome, skipped.reason) == ("skipped", "waiting on vendor fix")
 
-    def test_guard_evidence_rejects_missing_incomplete_and_wrong_tier_reports(self):
+    def test_guard_evidence_rejects_missing_incomplete_and_wrong_tier_reports(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             report = Path(scratch) / "run.xml"
-            self.assertEqual(guard_evidence(report, "t1")[0].rule_id, "TEST.failure-propagation")
-            report.write_text('<testsuite><properties><property name="omp.tier" value="t1"/>'
-                              '<property name="omp.guards" value="user-data"/></properties></testsuite>')
-            self.assertEqual([finding.rule_id for finding in guard_evidence(report, "t1")], ["TEST.fast-tier-isolation"])
-            self.assertEqual(guard_evidence(report, "t2")[0].rule_id, "TEST.failure-propagation")
+            assert guard_evidence(report, "t1")[0].rule_id == "TEST.failure-propagation"
+            report.write_text(
+                '<testsuite><properties><property name="omp.tier" value="t1"/>'
+                '<property name="omp.guards" value="user-data"/></properties></testsuite>'
+            )
+            assert [finding.rule_id for finding in guard_evidence(report, "t1")] == [
+                "TEST.fast-tier-isolation"
+            ]
+            assert guard_evidence(report, "t2")[0].rule_id == "TEST.failure-propagation"
 
-    def test_every_canonical_case_has_a_frozen_typescript_fixture(self):
+    def test_every_canonical_case_has_a_frozen_typescript_fixture(self) -> None:
         cases = conformance.load_cases()
-        self.assertEqual(len({case["id"] for case in cases}), len(cases))
+        assert len({case["id"] for case in cases}) == len(cases)
         for case in cases:
             with self.subTest(case=case["id"]):
-                self.assertTrue(conformance.fixture_source(case["id"]).strip())
-        self.assertTrue(conformance.fixture_source("owned-package").strip())
+                assert conformance.fixture_source(case["id"]).strip()
+        assert conformance.fixture_source("owned-package").strip()
 
-    def test_conformance_never_silently_skips_a_missing_native_installation(self):
+    def test_conformance_never_silently_skips_a_missing_native_installation(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             results = conformance.run_conformance(repo=Path(scratch))
-        self.assertEqual([result.case_id for result in results], [case["id"] for case in conformance.load_cases()])
-        self.assertTrue(all(not result.passed and "installed locally" in result.detail for result in results))
-        with self.assertRaisesRegex(ValueError, "unknown conformance"):
+        assert [result.case_id for result in results] == [
+            case["id"] for case in conformance.load_cases()
+        ]
+        assert all(
+            not result.passed and "installed locally" in result.detail
+            for result in results
+        )
+        with pytest.raises(ValueError, match="unknown conformance"):
             conformance.run_conformance(["not-a-case"])
 
 

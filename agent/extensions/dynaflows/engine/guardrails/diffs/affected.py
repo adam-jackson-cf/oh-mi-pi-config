@@ -24,8 +24,14 @@ import sys
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
+from typing import Any
 
-from guardrails.diffs.changes import DiffError, changed_files, parse_range, range_finding
+from guardrails.diffs.changes import (
+    DiffError,
+    changed_files,
+    parse_range,
+    range_finding,
+)
 from guardrails.findings import Finding
 from guardrails.structure.inventory import (
     InventoryError,
@@ -45,14 +51,16 @@ class Selection:
     reason: str
 
 
-def section(profile: dict, key: str) -> dict:
+def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
     value = profile.get(key)
     return value if isinstance(value, dict) else {}
 
 
-def t2_files(paths: list[str], profile: dict) -> list[str]:
+def t2_files(paths: list[str], profile: dict[str, Any]) -> list[str]:
     locations = as_list(section(section(profile, "tiers"), "t2").get("location"))
-    journeys = as_list(section(profile, "verification_surface").get("journey_file_pattern"))
+    journeys = as_list(
+        section(profile, "verification_surface").get("journey_file_pattern")
+    )
     return sorted(
         path
         for path in paths
@@ -61,30 +69,38 @@ def t2_files(paths: list[str], profile: dict) -> list[str]:
     )
 
 
-def area_of_test(path: str, profile: dict) -> str | None:
+def area_of_test(path: str, profile: dict[str, Any]) -> str | None:
     for pattern, area in section(section(profile, "ownership_areas"), "map").items():
         if matches(path, str(pattern)) and isinstance(area, str):
             return area
     return None
 
 
-def owner_of(path: str, profile: dict) -> str | None:
+def owner_of(path: str, profile: dict[str, Any]) -> str | None:
     owners = section(section(profile, "structure"), "owners")
     files = section(owners, "files")
-    if isinstance(files.get(path), str):
-        return files[path]
+    exact = files.get(path)
+    if isinstance(exact, str):
+        return exact
     directories = section(owners, "directories")
     best = None
     for prefix, owner in directories.items():
-        if isinstance(owner, str) and matches(path, str(prefix)):
-            if best is None or len(str(prefix)) > len(best[0]):
-                best = (str(prefix), owner)
+        if (
+            isinstance(owner, str)
+            and matches(path, str(prefix))
+            and (best is None or len(str(prefix)) > len(best[0]))
+        ):
+            best = (str(prefix), owner)
     return best[1] if best else None
 
 
-def is_production(path: str, profile: dict) -> bool:
+def is_production(path: str, profile: dict[str, Any]) -> bool:
     layout = section(profile, "layout")
-    holders = [value for value in (layout.get("fixtures_dir"), layout.get("support_dir")) if value]
+    holders = [
+        value
+        for value in (layout.get("fixtures_dir"), layout.get("support_dir"))
+        if value
+    ]
     scope = as_list(section(profile, "coverage").get("scope"))
     return (
         matches_any(path, scope)
@@ -93,7 +109,9 @@ def is_production(path: str, profile: dict) -> bool:
     )
 
 
-def select(changed: list[str], inventory: list[str], profile: dict) -> Selection:
+def select(
+    changed: list[str], inventory: list[str], profile: dict[str, Any]
+) -> Selection:
     candidates = t2_files(inventory, profile)
     production = [path for path in changed if is_production(path, profile)]
     unowned = [path for path in production if owner_of(path, profile) is None]
@@ -105,13 +123,17 @@ def select(changed: list[str], inventory: list[str], profile: dict) -> Selection
     areas = {owner_of(path, profile) for path in production}
     changed_t2 = set(t2_files(changed, profile)) & set(candidates)
     picked = [
-        path for path in candidates if area_of_test(path, profile) in areas or path in changed_t2
+        path
+        for path in candidates
+        if area_of_test(path, profile) in areas or path in changed_t2
     ]
     named = ", ".join(sorted(area for area in areas if area)) or "none"
-    return Selection(tuple(picked), f"areas {named}; changed T2 files {len(changed_t2)}")
+    return Selection(
+        tuple(picked), f"areas {named}; changed T2 files {len(changed_t2)}"
+    )
 
 
-def affected(repo: Path, profile: dict, argv: list[str]) -> Selection:
+def affected(repo: Path, profile: dict[str, Any], argv: list[str]) -> Selection:
     diff = parse_range(argv)
     changed = [path for change in changed_files(repo, diff) for path in change.paths]
     try:
@@ -121,7 +143,7 @@ def affected(repo: Path, profile: dict, argv: list[str]) -> Selection:
     return select(changed, inventory, profile)
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selection = affected(repo, profile, argv)
     except DiffError as error:

@@ -19,7 +19,20 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, TypeVar
+
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
+
+from guardrails import cli
+from guardrails.adapters import pytest as adapter
+from guardrails.adapters.pytest import guards, mutation, symbol_usage
+from guardrails.adapters.pytest.dialect import DIALECT
+from guardrails.findings import Finding
+from guardrails.test_evidence.junit import dialect_for, parse_report
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
@@ -27,15 +40,11 @@ LOCK = REFERENCE / "requirements-pytest.lock"
 MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
 CONTAINERFILE = ROOT / ".devcontainer/Containerfile"
 FIXTURES = ROOT / "tests/fixtures/reference/adapter_pytest"
-sys.path.insert(0, str(REFERENCE))
 
-from guardrails import cli  # noqa: E402
-from guardrails.adapters import pytest as adapter  # noqa: E402
-from guardrails.adapters.pytest import guards, mutation, symbol_usage  # noqa: E402
-from guardrails.adapters.pytest.dialect import DIALECT  # noqa: E402
-from guardrails.test_evidence.junit import dialect_for, parse_report  # noqa: E402
-
-EXTRA_PRESENT = all(importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py"))
+TestMethod = TypeVar("TestMethod", bound=Callable[..., None])
+EXTRA_PRESENT = all(
+    importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py")
+)
 EXTRA_REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
 RULE_IDS = {
     "TEST.no-self-mocking",
@@ -45,11 +54,13 @@ RULE_IDS = {
 }
 
 
-def needs_extra(test):
+def needs_extra(test: TestMethod) -> TestMethod:
     """Skip without the extra, except where the gate requires it (then the test runs and fails)."""
     if EXTRA_PRESENT or EXTRA_REQUIRED:
         return test
-    return unittest.skip("pinned pytest extra not installed (requirements-pytest.lock)")(test)
+    return unittest.skip(
+        "pinned pytest extra not installed (requirements-pytest.lock)"
+    )(test)
 
 
 def requirement_entries(text: str) -> dict[str, frozenset[str]]:
@@ -70,7 +81,8 @@ def requirement_entries(text: str) -> dict[str, frozenset[str]]:
 def containerfile_lock() -> dict[str, frozenset[str]]:
     text = re.sub(r"\\\n", " ", CONTAINERFILE.read_text())
     block = next(
-        line for line in text.splitlines()
+        line
+        for line in text.splitlines()
         if line.startswith("RUN ") and "requirements-pytest.lock" in line
     )
     quoted = re.findall(r'"([^"]+)"', block.split("> /tmp/requirements-pytest.lock")[0])
@@ -81,7 +93,7 @@ def containerfile_lock() -> dict[str, frozenset[str]]:
 RECORDS: dict[str, Path] = {}
 
 
-def write_profile(repo: Path, profile: dict) -> Path:
+def write_profile(repo: Path, profile: dict[str, Any]) -> Path:
     key = str(repo.resolve())
     if key not in RECORDS:
         RECORDS[key] = Path(tempfile.mkdtemp(prefix="omp-record-"))
@@ -97,7 +109,10 @@ def run_cli(*argv: str) -> tuple[int, str]:
     if "--repo" in args:
         record = RECORDS.get(str(Path(args[args.index("--repo") + 1]).resolve()))
         if record is not None:
-            args[args.index("--repo") + 2 : args.index("--repo") + 2] = ["--record", str(record)]
+            args[args.index("--repo") + 2 : args.index("--repo") + 2] = [
+                "--record",
+                str(record),
+            ]
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
         code = cli.main(args)
@@ -115,26 +130,26 @@ def git(repo: Path, *args: str) -> None:
 
 
 class PinnedExtraTests(unittest.TestCase):
-    def test_lock_pins_the_pyproject_extra_with_hashes(self):
+    def test_lock_pins_the_pyproject_extra_with_hashes(self) -> None:
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
         project = pyproject["project"]
         pins = {*project["optional-dependencies"]["pytest"], *project["dependencies"]}
         entries = requirement_entries(LOCK.read_text())
         specs = {spec.split(";")[0].strip() for spec in entries}
-        self.assertLessEqual(pins, specs)
-        self.assertTrue(all(entries.values()), "every locked requirement carries a hash")
-        self.assertTrue(all("==" in spec for spec in entries), "every requirement is pinned")
+        assert pins <= specs
+        assert all(entries.values()), "every locked requirement carries a hash"
+        assert all("==" in spec for spec in entries), "every requirement is pinned"
 
-    def test_containerfile_installs_exactly_the_lock(self):
-        self.assertEqual(containerfile_lock(), requirement_entries(LOCK.read_text()))
+    def test_containerfile_installs_exactly_the_lock(self) -> None:
+        assert containerfile_lock() == requirement_entries(LOCK.read_text())
         text = CONTAINERFILE.read_text()
-        self.assertIn("--require-hashes", text)
-        self.assertRegex(text, r'ENV PATH="/opt/guardrails/bin:\$\{PATH\}"')
-        self.assertIn("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1", text)
+        assert "--require-hashes" in text
+        assert re.search(r'ENV PATH="/opt/guardrails/bin:\$\{PATH\}"', text)
+        assert "OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1" in text
 
 
 class StandardLibraryTests(unittest.TestCase):
-    def test_adapter_modules_import_without_the_extra(self):
+    def test_adapter_modules_import_without_the_extra(self) -> None:
         code = (
             "import sys\n"
             f"sys.path.insert(0, {str(REFERENCE)!r})\n"
@@ -144,93 +159,115 @@ class StandardLibraryTests(unittest.TestCase):
             "assert 'pytest' not in sys.modules and 'ast_grep_py' not in sys.modules\n"
         )
         result = subprocess.run(
-            [sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        assert result.returncode == 0, result.stderr
 
-    def test_shared_parser_loads_the_pytest_dialect_by_adapter_name(self):
-        self.assertIs(dialect_for("pytest"), DIALECT)
+    def test_shared_parser_loads_the_pytest_dialect_by_adapter_name(self) -> None:
+        assert dialect_for("pytest") is DIALECT
 
-    def test_pytest_report_normalises_into_the_shared_schema(self):
+    def test_pytest_report_normalises_into_the_shared_schema(self) -> None:
         report = parse_report(FIXTURES / "dialect-mixed.xml", DIALECT)
         cases = {case.id: case for case in report.cases}
-        self.assertEqual(
-            sorted(cases),
-            [
-                "tests/test_basket.py::TestPricing::test_price[2-4]",
-                "tests/test_basket.py::test_flaky_total",
-                "tests/test_basket.py::test_receipt",
-                "tests/test_basket.py::test_rounding",
-                "tests/test_basket.py::test_total",
-                "tests/test_basket.py::test_vendor",
-            ],
-        )
+        assert sorted(cases) == [
+            "tests/test_basket.py::TestPricing::test_price[2-4]",
+            "tests/test_basket.py::test_flaky_total",
+            "tests/test_basket.py::test_receipt",
+            "tests/test_basket.py::test_rounding",
+            "tests/test_basket.py::test_total",
+            "tests/test_basket.py::test_vendor",
+        ]
         vendor = cases["tests/test_basket.py::test_vendor"]
-        self.assertEqual((vendor.outcome, vendor.reason), ("skipped", "waiting on vendor fix"))
+        assert (vendor.outcome, vendor.reason) == ("skipped", "waiting on vendor fix")
         rounding = cases["tests/test_basket.py::test_rounding"]
-        self.assertEqual((rounding.outcome, rounding.reason), ("xfail", "known defect"))
+        assert (rounding.outcome, rounding.reason) == ("xfail", "known defect")
         receipt = cases["tests/test_basket.py::test_receipt"]
-        self.assertEqual(receipt.outcome, "error")
-        self.assertIn("TEST.fast-tier-isolation", receipt.reason)
-        self.assertEqual(cases["tests/test_basket.py::test_flaky_total"].retries, 1)
-        self.assertEqual(report.properties["omp.tier"], "t1")
-        self.assertEqual(report.properties["omp.runtime"], "python 3.11.2")
-        self.assertEqual(report.wall_s, 0.512)
+        assert receipt.outcome == "error"
+        assert "TEST.fast-tier-isolation" in receipt.reason
+        assert cases["tests/test_basket.py::test_flaky_total"].retries == 1
+        assert report.properties["omp.tier"] == "t1"
+        assert report.properties["omp.runtime"] == "python 3.11.2"
+        assert report.wall_s == 0.512
 
-    def test_guard_evidence_accepts_a_fully_guarded_fast_tier(self):
-        self.assertEqual(adapter.guard_evidence(FIXTURES / "guards-t1-armed.xml", "t1"), [])
+    def test_guard_evidence_accepts_a_fully_guarded_fast_tier(self) -> None:
+        assert adapter.guard_evidence(FIXTURES / "guards-t1-armed.xml", "t1") == []
 
-    def test_guard_evidence_reports_a_missing_fast_tier_guard(self):
-        findings = adapter.guard_evidence(FIXTURES / "guards-t1-user-data-only.xml", "t1")
-        self.assertEqual([item.rule_id for item in findings], ["TEST.fast-tier-isolation"])
+    def test_guard_evidence_reports_a_missing_fast_tier_guard(self) -> None:
+        findings = adapter.guard_evidence(
+            FIXTURES / "guards-t1-user-data-only.xml", "t1"
+        )
+        assert [item.rule_id for item in findings] == ["TEST.fast-tier-isolation"]
 
-    def test_guard_evidence_rejects_another_tiers_report(self):
+    def test_guard_evidence_rejects_another_tiers_report(self) -> None:
         findings = adapter.guard_evidence(FIXTURES / "guards-t1-armed.xml", "t2")
-        self.assertEqual([item.rule_id for item in findings], ["TEST.failure-propagation"])
+        assert [item.rule_id for item in findings] == ["TEST.failure-propagation"]
 
-    def test_user_data_guard_protects_home_but_not_allowed_roots(self):
+    def test_user_data_guard_protects_home_but_not_allowed_roots(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             home = Path(scratch, "home")
             project = home / "project"
             self.addCleanup(guards.configure, None, [])
             guards.configure(str(home), [str(project)])
-            self.assertTrue(guards.is_protected(str(home / ".config/app.json")))
-            self.assertFalse(guards.is_protected(str(project / "out.txt")))
-            self.assertFalse(guards.is_protected(str(Path(scratch, "elsewhere.txt"))))
+            assert guards.is_protected(str(home / ".config/app.json"))
+            assert not guards.is_protected(str(project / "out.txt"))
+            assert not guards.is_protected(str(Path(scratch, "elsewhere.txt")))
             write = guards.user_data_violation("open", (str(home / "a"), "w", 0))
             read = guards.user_data_violation("open", (str(home / "a"), "r", 0))
-            self.assertIn("TEST.user-data-guard", write)
-            self.assertIsNone(read)
+            assert write is not None
+            assert "TEST.user-data-guard" in write
+            assert read is None
 
-    def test_fast_tier_guard_names_process_and_network_events(self):
-        process = guards.fast_tier_violation("subprocess.Popen", ("git", ["git"], None, None))
-        self.assertIn("TEST.fast-tier-isolation", process)
-        self.assertIsNone(guards.fast_tier_violation("open", ("x", "r", 0)))
+    def test_fast_tier_guard_names_process_and_network_events(self) -> None:
+        process = guards.fast_tier_violation(
+            "subprocess.Popen", ("git", ["git"], None, None)
+        )
+        assert process is not None
+        assert "TEST.fast-tier-isolation" in process
+        assert guards.fast_tier_violation("open", ("x", "r", 0)) is None
 
-    def test_rules_load_with_catalogue_ids_and_known_scopes(self):
+    def test_rules_load_with_catalogue_ids_and_known_scopes(self) -> None:
         rules = adapter_lint_rules()
-        self.assertEqual({rule["id"] for rule in rules}, RULE_IDS)
-        self.assertTrue(all(rule["scope"] in {"tests", "production"} for rule in rules))
+        assert {rule["id"] for rule in rules} == RULE_IDS
+        assert all(rule["scope"] in {"tests", "production"} for rule in rules)
 
-    def test_cli_prints_tier_arguments_and_mutation_tool(self):
+    def test_cli_prints_tier_arguments_and_mutation_tool(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             write_profile(repo, {"adapter": "pytest"})
             report = Path(scratch).parent / "reports/t1.xml"
-            code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
-                                "--out", str(report))
-            self.assertEqual(code, 0)
-            self.assertIn("--omp-guard=fast-tier,user-data", out)
-            self.assertIn("--omp-tier=t1", out)
-            self.assertIn(f"--junitxml={report}", out)
+            code, out = run_cli(
+                "adapter",
+                "--repo",
+                str(repo),
+                "junit-args",
+                "--tier",
+                "t1",
+                "--out",
+                str(report),
+            )
+            assert code == 0
+            assert "--omp-guard=fast-tier,user-data" in out
+            assert "--omp-tier=t1" in out
+            assert f"--junitxml={report}" in out
             for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
-                code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
-                                    "--out", inside)
-                self.assertEqual(code, 1)
-                self.assertIn("GUARDRAILS.output-outside-repo", out)
+                code, out = run_cli(
+                    "adapter",
+                    "--repo",
+                    str(repo),
+                    "junit-args",
+                    "--tier",
+                    "t1",
+                    "--out",
+                    inside,
+                )
+                assert code == 1
+                assert "GUARDRAILS.output-outside-repo" in out
             code, out = run_cli("adapter", "--repo", str(repo), "mutation-tool")
-            self.assertEqual(code, 0)
-            self.assertTrue(out.startswith("mutmut "))
+            assert code == 0
+            assert out.startswith("mutmut ")
 
 
 GIT_ENV = {
@@ -244,7 +281,7 @@ GIT_ENV = {
 class MutationTests(unittest.TestCase):
     """TEST.mutation-sensitivity: mutmut results normalised, then judged against the diff."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve() / "repo"
@@ -267,68 +304,99 @@ class MutationTests(unittest.TestCase):
         meta.parent.mkdir(parents=True)
         meta.write_bytes((source / "core.py.meta").read_bytes())
 
-    def commit(self):
+    def commit(self) -> None:
         environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         environment.update(GIT_ENV)
         for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
-            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True,
-                           env={**environment, "GIT_CONFIG_GLOBAL": os.devnull})
+            subprocess.run(
+                ["git", "-C", str(self.repo), *args],
+                check=True,
+                capture_output=True,
+                env={**environment, "GIT_CONFIG_GLOBAL": os.devnull},
+                timeout=60,
+            )
 
-    def test_mutmut_results_normalise_to_function_spans(self):
-        code, out = run_cli("adapter", "--repo", str(self.repo), "mutation-report",
-                            "--out", self.report)
-        self.assertEqual(code, 0, out)
+    def test_mutmut_results_normalise_to_function_spans(self) -> None:
+        code, out = run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
+        assert code == 0, out
         report = json.loads(Path(self.report).read_text())
-        spans = {(m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
-                 for m in report["mutants"]}
-        self.assertEqual(spans, {
+        spans = {
+            (m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
+            for m in report["mutants"]
+        }
+        assert spans == {
             ("x_total__mutmut_1", 1, 2, "killed"),
             ("x_clamp__mutmut_1", 5, 10, "survived"),
             ("x_clamp__mutmut_2", 5, 10, "survived"),
             ("xǁAccountǁdeposit__mutmut_1", 14, 15, "killed"),
-        })
-        self.assertEqual({m["path"] for m in report["mutants"]}, {"src/ledger/core.py"})
+        }
+        assert {m["path"] for m in report["mutants"]} == {"src/ledger/core.py"}
 
-    def test_surviving_mutant_in_changed_code_fails_the_check(self):
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
-                            "--base", "HEAD~1")
-        self.assertEqual(code, 1)
-        self.assertEqual(out.count("TEST.mutation-sensitivity"), 2)
-        self.assertIn("x_clamp__mutmut_1 survived in changed code", out)
-        self.assertNotIn("x_total", out)
+    def test_surviving_mutant_in_changed_code_fails_the_check(self) -> None:
+        run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
+        code, out = run_cli(
+            "mutation-check",
+            "--repo",
+            str(self.repo),
+            "--report",
+            self.report,
+            "--base",
+            "HEAD~1",
+        )
+        assert code == 1
+        assert out.count("TEST.mutation-sensitivity") == 2
+        assert "x_clamp__mutmut_1 survived in changed code" in out
+        assert "x_total" not in out
 
-    def test_killed_mutants_of_changed_code_pass_the_check(self):
+    def test_killed_mutants_of_changed_code_pass_the_check(self) -> None:
         meta = self.repo / "mutants/src/ledger/core.py.meta"
         data = json.loads(meta.read_text())
-        data["exit_code_by_key"] = {key: 1 for key in data["exit_code_by_key"]}
+        data["exit_code_by_key"] = dict.fromkeys(data["exit_code_by_key"], 1)
         meta.write_text(json.dumps(data))
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
-                            "--base", "HEAD~1")
-        self.assertEqual((code, out.strip()), (0, "mutation-check: ok"))
+        run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
+        code, out = run_cli(
+            "mutation-check",
+            "--repo",
+            str(self.repo),
+            "--report",
+            self.report,
+            "--base",
+            "HEAD~1",
+        )
+        assert (code, out.strip()) == (0, "mutation-check: ok")
 
-    def test_missing_mutmut_results_are_a_finding(self):
+    def test_missing_mutmut_results_are_a_finding(self) -> None:
         (self.repo / "mutants/src/ledger/core.py.meta").unlink()
         code, out = run_cli(
             "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
         )
-        self.assertEqual(code, 1)
-        self.assertIn("no mutmut results", out)
+        assert code == 1
+        assert "no mutmut results" in out
 
-    def test_exit_codes_map_to_shared_statuses(self):
-        self.assertEqual(
-            [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)],
-            ["killed", "survived", "no_tests", "timeout", "incomplete", "incomplete", "incomplete"],
-        )
+    def test_exit_codes_map_to_shared_statuses(self) -> None:
+        assert [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)] == [
+            "killed",
+            "survived",
+            "no_tests",
+            "timeout",
+            "incomplete",
+            "incomplete",
+            "incomplete",
+        ]
 
-    def test_mutation_lock_pins_both_extras_with_hashes(self):
+    def test_mutation_lock_pins_both_extras_with_hashes(self) -> None:
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
         extras = pyproject["project"]["optional-dependencies"]
         entries = requirement_entries(MUTATION_LOCK.read_text())
         specs = {spec.split(";")[0].strip() for spec in entries}
-        self.assertLessEqual(set(extras["mutation"]) | set(extras["pytest"]), specs)
-        self.assertTrue(all(entries.values()), "every locked requirement carries a hash")
+        assert set(extras["mutation"]) | set(extras["pytest"]) <= specs
+        assert all(entries.values()), "every locked requirement carries a hash"
 
 
 class TestOnlySymbolTests(unittest.TestCase):
@@ -350,53 +418,57 @@ class TestOnlySymbolTests(unittest.TestCase):
     }
     PROFILE = {"public_entry_points": {"shop": "shop.cli:main"}}
 
-    def findings(self, production=None, profile=None):
+    def findings(
+        self,
+        production: dict[str, str] | None = None,
+        profile: dict[str, Any] | None = None,
+    ) -> list[Finding]:
         production = production or self.PRODUCTION
         return symbol_usage.test_only_findings(
             production, self.TESTS, profile or self.PROFILE, set(production)
         )
 
-    def test_symbol_only_tests_use_is_reported(self):
+    def test_symbol_only_tests_use_is_reported(self) -> None:
         found = self.findings()
-        self.assertEqual(
-            sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found),
-            [
-                ("TEST.no-test-hooks", "shop/cart.py", "Basket"),
-                ("TEST.no-test-hooks", "shop/cart.py", "reset_cache_for_tests"),
-            ],
-        )
-        self.assertIn("(tests/test_cart.py)", found[0].message)
+        assert sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found) == [
+            ("TEST.no-test-hooks", "shop/cart.py", "Basket"),
+            ("TEST.no-test-hooks", "shop/cart.py", "reset_cache_for_tests"),
+        ]
+        assert "(tests/test_cart.py)" in found[0].message
 
-    def test_production_use_entry_points_and_exports_pass(self):
+    def test_production_use_entry_points_and_exports_pass(self) -> None:
         production = {
             **self.PRODUCTION,
             "shop/__init__.py": (
                 "from shop.cart import Basket\n__all__ = ['reset_cache_for_tests']\n"
             ),
         }
-        self.assertEqual(self.findings(production), [])
+        assert self.findings(production) == []
 
-    def test_symbol_nothing_uses_is_left_to_other_rules(self):
+    def test_symbol_nothing_uses_is_left_to_other_rules(self) -> None:
         production = {"shop/cart.py": "def unused():\n    pass\n"}
-        self.assertEqual(self.findings(production), [])
+        assert self.findings(production) == []
 
     @needs_extra
-    def test_lint_reports_test_only_symbols_in_linted_production_files(self):
+    def test_lint_reports_test_only_symbols_in_linted_production_files(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            profile = {"adapter": "pytest", **self.PROFILE,
-                       "tiers": {"t1": {"location": "tests"}},
-                       "layout": {"test_file_patterns": ["test_*.py"]}}
+            profile = {
+                "adapter": "pytest",
+                **self.PROFILE,
+                "tiers": {"t1": {"location": "tests"}},
+                "layout": {"test_file_patterns": ["test_*.py"]},
+            }
             write_profile(repo, profile)
             for path, text in {**self.PRODUCTION, **self.TESTS}.items():
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
                 (repo / path).write_text(text)
             code, out = run_cli("adapter", "--repo", str(repo), "lint", "shop/cart.py")
-        self.assertEqual(code, 1)
-        self.assertIn("production symbol 'reset_cache_for_tests' is used only by tests", out)
+        assert code == 1
+        assert "production symbol 'reset_cache_for_tests' is used only by tests" in out
 
 
-def adapter_lint_rules() -> list[dict]:
+def adapter_lint_rules() -> list[dict[str, Any]]:
     folder = REFERENCE / "guardrails/adapters/pytest/rules"
     return [json.loads(path.read_text()) for path in sorted(folder.glob("*.yml"))]
 
@@ -433,30 +505,43 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
     (repo / "shop").mkdir(parents=True)
     (repo / "tests").mkdir()
     (repo / "shop/__init__.py").write_text("")
-    (repo / "shop/core.py").write_text("def price(quantity):\n    return quantity * 2\n")
-    (repo / "pytest.ini").write_text("[pytest]\nmarkers =\n    fast: t1\n    slow: t2\n")
+    (repo / "shop/core.py").write_text(
+        "def price(quantity):\n    return quantity * 2\n"
+    )
+    (repo / "pytest.ini").write_text(
+        "[pytest]\nmarkers =\n    fast: t1\n    slow: t2\n"
+    )
     (repo / "tests/test_shop.py").write_text(test_source)
     write_profile(repo, SHOP_PROFILE)
     git(repo, "init", "-q")
     git(repo, "add", ".")
-    git(repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid",
-        "commit", "-q", "-m", "fixture")
+    git(
+        repo,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "fixture",
+    )
     return repo
 
 
 class ExtraTests(unittest.TestCase):
     @needs_extra
-    def test_every_conformance_case_passes(self):
+    def test_every_conformance_case_passes(self) -> None:
         from guardrails.adapters.pytest.conformance import load_cases, run_conformance
 
         results = run_conformance()
-        self.assertEqual(len(results), len(load_cases()))
+        assert len(results) == len(load_cases())
         for result in results:
             with self.subTest(case=result.case_id):
-                self.assertTrue(result.passed, result.detail)
+                assert result.passed, result.detail
 
     @needs_extra
-    def test_cli_lint_reports_self_mocking_in_a_repository(self):
+    def test_cli_lint_reports_self_mocking_in_a_repository(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             source = SHOP_TEST + (
                 "\n\ndef test_patched(monkeypatch):\n"
@@ -465,18 +550,20 @@ class ExtraTests(unittest.TestCase):
             )
             repo = shop_repository(Path(scratch), source)
             code, out = run_cli("adapter", "--repo", str(repo), "lint")
-            self.assertEqual(code, 1)
-            self.assertIn("tests/test_shop.py: TEST.no-self-mocking: line 17", out)
+            assert code == 1
+            assert "tests/test_shop.py: TEST.no-self-mocking: line 17" in out
 
     @needs_extra
-    def test_tier_listing_feeds_the_shared_collection_check(self):
+    def test_tier_listing_feeds_the_shared_collection_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
             out_dir = Path(scratch, "collections")
-            code, out = run_cli("adapter", "--repo", str(repo), "tiers", "--out", str(out_dir))
-            self.assertEqual(code, 0, out)
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "tiers", "--out", str(out_dir)
+            )
+            assert code == 0, out
             listing = (out_dir / "t1.txt").read_text()
-            self.assertIn("tests/test_shop.py::test_price_doubles", listing)
+            assert "tests/test_shop.py::test_price_doubles" in listing
             code, out = run_cli(
                 "collection-check",
                 "--repo",
@@ -487,32 +574,53 @@ class ExtraTests(unittest.TestCase):
                 f"t2={out_dir / 't2.txt'}",
             )
             # Both tiers select the same file, which TEST.tier-selectors forbids.
-            self.assertEqual(code, 1)
-            self.assertIn("TEST.tier-selectors", out)
-            self.assertIn("selected by tiers t1, t2", out)
+            assert code == 1
+            assert "TEST.tier-selectors" in out
+            assert "selected by tiers t1, t2" in out
 
     @needs_extra
-    def test_guarded_run_writes_the_shared_run_properties(self):
+    def test_guarded_run_writes_the_shared_run_properties(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
             report = Path(scratch, "t1.xml")
-            command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-m", "fast",
-                       *adapter.tier_arguments("t1", str(report)), "tests"]
+            command = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "-m",
+                "fast",
+                *adapter.tier_arguments("t1", str(report)),
+                "tests",
+            ]
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
             environment.pop("PYTEST_ADDOPTS", None)
-            result = subprocess.run(command, cwd=repo, env=environment, capture_output=True,
-                                    text=True, timeout=300)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True, timeout=60).stdout.strip()
+            result = subprocess.run(
+                command,
+                cwd=repo,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            head = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            ).stdout.strip()
             parsed = parse_report(report, DIALECT)
-            self.assertEqual(parsed.properties["omp.revision"], head)
-            self.assertEqual(parsed.properties["omp.tier"], "t1")
-            self.assertEqual(parsed.properties["omp.exit_code"], "0")
-            self.assertTrue(parsed.properties["omp.runtime"].startswith("python 3."))
-            self.assertEqual([case.id for case in parsed.cases],
-                             ["tests/test_shop.py::test_price_doubles"])
-            self.assertEqual(adapter.guard_evidence(report, "t1"), [])
+            assert parsed.properties["omp.revision"] == head
+            assert parsed.properties["omp.tier"] == "t1"
+            assert parsed.properties["omp.exit_code"] == "0"
+            assert parsed.properties["omp.runtime"].startswith("python 3.")
+            assert [case.id for case in parsed.cases] == [
+                "tests/test_shop.py::test_price_doubles"
+            ]
+            assert adapter.guard_evidence(report, "t1") == []
 
 
 if __name__ == "__main__":

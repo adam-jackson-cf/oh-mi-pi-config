@@ -6,23 +6,29 @@ import contextlib
 import io
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
+
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
+
+from guardrails import cli, harness
+from guardrails.config.house_style import load_house_style
+from guardrails.config.profile import load_profile
+from guardrails.init import lsp, native_config, native_languages
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 SKILL_TEMPLATE = ROOT / "agent/lib/record/profile.md"
-sys.path.insert(0, str(REFERENCE))
-
-from guardrails import cli, harness  # noqa: E402
-from guardrails.config.house_style import load_house_style  # noqa: E402
-from guardrails.config.profile import load_profile  # noqa: E402
-from guardrails.init import command, discovery, lsp, native_config, native_languages  # noqa: E402
 
 CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
@@ -68,7 +74,9 @@ while True:
 
 
 def clean_environment() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
 
 
 def git(repo: Path, *args: str) -> str:
@@ -78,6 +86,7 @@ def git(repo: Path, *args: str) -> str:
         text=True,
         check=False,
         env=clean_environment(),
+        timeout=60,
     )
     return result.stdout.strip()
 
@@ -104,7 +113,9 @@ class InitCase(unittest.TestCase):
             '[project]\nname = "target"\nrequires-python = ">=3.11"\n'
         )
         self.server = self.executable("language-server", FAKE_SERVER)
-        which = mock.patch.object(lsp.shutil, "which", return_value=str(self.server))
+        which = mock.patch(
+            "guardrails.init.lsp.shutil.which", return_value=str(self.server)
+        )
         which.start()
         self.addCleanup(which.stop)
 
@@ -132,15 +143,16 @@ class InitCase(unittest.TestCase):
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / name).write_text(text)
 
-    def gate(self) -> dict:
-        return json.loads((self.record / "gate.json").read_text())
+    def gate(self) -> dict[str, Any]:
+        gate: dict[str, Any] = json.loads((self.record / "gate.json").read_text())
+        return gate
 
     def assert_second_run_changes_nothing(self, *args: str) -> None:
         before = snapshot(self.record)
         code, output = self.init(*args)
-        self.assertEqual(code, 0, output)
-        self.assertIn("no changes", output)
-        self.assertEqual(snapshot(self.record), before)
+        assert code == 0, output
+        assert "no changes" in output
+        assert snapshot(self.record) == before
 
 
 MAKEFILE = """.PHONY: gate-commit gate-ci
@@ -167,60 +179,67 @@ jobs:
 
 
 class DraftRecordTests(InitCase):
-    def test_drafts_gate_and_profile_in_the_record_and_never_touches_the_repo(self) -> None:
+    def test_drafts_gate_and_profile_in_the_record_and_never_touches_the_repo(
+        self,
+    ) -> None:
         self.write("Makefile", MAKEFILE)
         self.write(".github/workflows/gate.yml", WORKFLOW)
         before = snapshot(self.repo)
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(snapshot(self.repo), before)
-        self.assertEqual(
-            self.gate(),
-            {
-                "schemaVersion": 2,
-                "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
-                "ci": {"requiredContext": "gate", "runner": "github-actions"},
-                "dynaflows": {"enabled": False},
-            },
-        )
+        assert code == 0, output
+        assert snapshot(self.repo) == before
+        assert self.gate() == {
+            "schemaVersion": 2,
+            "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
+            "ci": {"requiredContext": "gate", "runner": "github-actions"},
+            "dynaflows": {"enabled": False},
+        }
         profile = load_profile(self.record)
-        self.assertEqual(profile["house_style"]["version"], load_house_style()["version"])
-        self.assertEqual(set(profile["house_style"]), {"version"})
-        self.assertEqual(
-            set(profile["guardrails"]["exceptions"][0]), {"rule", "path", "reason"}
+        assert profile["house_style"]["version"] == load_house_style()["version"]
+        assert set(profile["house_style"]) == {"version"}
+        assert set(profile["guardrails"]["exceptions"][0]) == {"rule", "path", "reason"}
+        assert profile["command_notes"]["lsp"] == [
+            {
+                "stack": "python",
+                "server": "pyright-langserver",
+                "install": lsp.STACKS[0].install,
+            }
+        ]
+        assert profile["tiers"]["t1"]["selector"] == "<selector>"
+        assert "discovered: make targets: check-paths, gate-ci, gate-commit" in output
+        assert (
+            "discovered: CI jobs: gate (.github/workflows/gate.yml), Build docs"
+            in output
         )
-        self.assertEqual(
-            profile["command_notes"]["lsp"],
-            [{"stack": "python", "server": "pyright-langserver", "install": lsp.STACKS[0].install}],
+        assert "required checks not read (--offline)" in output
+        assert "confirm: dynaflows is off" in output
+        assert "turns on when the owner asks for it in a session" in output
+        assert "confirm: agentMerge is the owner's to set" in output
+        assert "required: ownerOnlyPaths is the owner's to set" in output
+        assert "ownerOnlyPaths" not in self.gate(), (
+            "init never drafts the owner-only paths"
         )
-        self.assertEqual(profile["tiers"]["t1"]["selector"], "<selector>")
-        self.assertIn("discovered: make targets: check-paths, gate-ci, gate-commit", output)
-        self.assertIn("discovered: CI jobs: gate (.github/workflows/gate.yml), Build docs", output)
-        self.assertIn("required checks not read (--offline)", output)
-        self.assertIn("confirm: dynaflows is off", output)
-        self.assertIn("turns on when the owner asks for it in a session", output)
-        self.assertIn("confirm: agentMerge is the owner's to set", output)
-        self.assertIn("required: ownerOnlyPaths is the owner's to set", output)
-        self.assertNotIn("ownerOnlyPaths", self.gate(), "init never drafts the owner-only paths")
 
-    def test_recorded_owner_only_paths_are_kept_and_satisfy_the_requirement(self) -> None:
+    def test_recorded_owner_only_paths_are_kept_and_satisfy_the_requirement(
+        self,
+    ) -> None:
         owned = ["scripts/checks/dependency-audit-exceptions.json"]
         gate = {"schemaVersion": 2, "ownerOnlyPaths": owned}
         self.write_record("gate.json", json.dumps(gate))
         self.write("Makefile", MAKEFILE)
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["ownerOnlyPaths"], owned)
-        self.assertNotIn("ownerOnlyPaths", output)
+        assert code == 0, output
+        assert self.gate()["ownerOnlyPaths"] == owned
+        assert "ownerOnlyPaths" not in output
 
     def test_second_run_changes_nothing(self) -> None:
         self.write("Makefile", MAKEFILE)
-        self.assertEqual(self.init()[0], 0)
+        assert self.init()[0] == 0
         self.assert_second_run_changes_nothing()
 
     def test_template_is_the_test_guidance_skill_template(self) -> None:
-        self.assertEqual(harness.PROFILE_TEMPLATE, SKILL_TEMPLATE)
-        self.assertFalse((REFERENCE / "guardrails/init/test-profile.md").exists())
+        assert harness.PROFILE_TEMPLATE == SKILL_TEMPLATE
+        assert not (REFERENCE / "guardrails/init/test-profile.md").exists()
 
     def test_recorded_values_and_approvals_are_kept(self) -> None:
         gate = {
@@ -232,102 +251,135 @@ class DraftRecordTests(InitCase):
         self.write_record("gate.json", json.dumps(gate))
         values = {
             "adapter": "pytest",
-            "verification_surface": {"none": "library without a UI", "approval": "ADR-7"},
+            "verification_surface": {
+                "none": "library without a UI",
+                "approval": "ADR-7",
+            },
             "guardrails": {"naming": {"roots": ["src"]}},
         }
-        self.write_record("profile.md", f"---\n{json.dumps(values)}\n---\n\n# Our profile\n")
+        self.write_record(
+            "profile.md", f"---\n{json.dumps(values)}\n---\n\n# Our profile\n"
+        )
         settings = self.repo.parent / "settings.json"
         settings.write_text(json.dumps({"naming": {"roots": ["lib"], "extra": 1}}))
         self.write("Makefile", MAKEFILE)
         code, output = self.init("--settings", str(settings))
-        self.assertEqual(code, 0, output)
+        assert code == 0, output
         drafted = self.gate()
-        self.assertEqual(drafted["checks"], {"commit": ["make", "verify"], "ci": ["make", "gate-ci"]})
-        self.assertEqual((drafted["agentMerge"], drafted["dynaflows"]), ("allowed", {"enabled": True}))
+        assert drafted["checks"] == {
+            "commit": ["make", "verify"],
+            "ci": ["make", "gate-ci"],
+        }
+        assert (drafted["agentMerge"], drafted["dynaflows"]) == (
+            "allowed",
+            {"enabled": True},
+        )
         profile = load_profile(self.record)
-        self.assertEqual(profile["verification_surface"]["approval"], "ADR-7")
-        self.assertEqual(profile["guardrails"]["naming"], {"roots": ["src"], "extra": 1})
-        self.assertTrue((self.record / "profile.md").read_text().endswith("# Our profile\n"))
+        assert profile["verification_surface"]["approval"] == "ADR-7"
+        assert profile["guardrails"]["naming"] == {"roots": ["src"], "extra": 1}
+        assert (self.record / "profile.md").read_text().endswith("# Our profile\n")
 
     def test_flags_supply_commands_and_ci_and_empty_flags_are_refused(self) -> None:
         code, output = self.init(
-            "--commit-command", "pre-commit run --all-files",
-            "--ci-command", "just ci",
-            "--required-context", "ci",
-            "--runner", "ci-gate",
+            "--commit-command",
+            "pre-commit run --all-files",
+            "--ci-command",
+            "just ci",
+            "--required-context",
+            "ci",
+            "--runner",
+            "ci-gate",
         )
-        self.assertEqual(code, 0, output)
+        assert code == 0, output
         gate = self.gate()
-        self.assertEqual(gate["checks"]["ci"], ["just", "ci"])
-        self.assertEqual(gate["ci"], {"requiredContext": "ci", "runner": "ci-gate"})
-        self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
+        assert gate["checks"]["ci"] == ["just", "ci"]
+        assert gate["ci"] == {"requiredContext": "ci", "runner": "ci-gate"}
+        assert required_fields(output) == ["ownerOnlyPaths"], (
+            "only the owner's field remains"
+        )
         for flags in (("--runner", " "), ("--commit-command", "")):
             code, output = self.init(*flags)
-            self.assertEqual(code, 1)
-            self.assertIn("must not be empty", output)
+            assert code == 1
+            assert "must not be empty" in output
 
     def test_repo_path_command_flag_is_refused_without_writing_the_record(self) -> None:
-        code, output = self.init("--path-command", "python3 scripts/check-paths.py")
-        self.assertEqual(code, 1)
-        self.assertIn("invalid init arguments: --offline --path-command", output)
-        self.assertFalse(self.record.exists())
+        code, output = self.init("--path-command", "python3 scripts/check_paths.py")
+        assert code == 1
+        assert "invalid init arguments: --offline --path-command" in output
+        assert not self.record.exists()
 
     def test_pre_commit_config_drafts_the_commit_command(self) -> None:
-        self.write(".pre-commit-config.yaml", "repos:\n  - repo: local\n    hooks:\n      - id: ruff\n")
+        self.write(
+            ".pre-commit-config.yaml",
+            "repos:\n  - repo: local\n    hooks:\n      - id: ruff\n",
+        )
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["checks"], {"commit": ["pre-commit", "run", "--all-files"]})
-        self.assertIn("discovered: pre-commit hooks: ruff", output)
-        self.assertIn("confirm: no checks.ci found", output)
-        self.assertIn("confirm: no ci found", output)
-        self.assertEqual(required_fields(output), ["ownerOnlyPaths"])
+        assert code == 0, output
+        assert self.gate()["checks"] == {"commit": ["pre-commit", "run", "--all-files"]}
+        assert "discovered: pre-commit hooks: ruff" in output
+        assert "confirm: no checks.ci found" in output
+        assert "confirm: no ci found" in output
+        assert required_fields(output) == ["ownerOnlyPaths"]
 
     def test_no_commit_command_found_is_reported_as_required(self) -> None:
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn("required: no checks.commit found; pass --commit-command", output)
+        assert code == 0, output
+        assert "required: no checks.commit found; pass --commit-command" in output
 
     def test_unreadable_gate_or_unknown_field_is_reported_not_rewritten(self) -> None:
-        for gate, named in (({"schemaVersion": 3}, "schemaVersion 2"),
-                            ({"schemaVersion": 2, "otherField": "github"}, "unknown field otherField must be removed"),
-                            ({"schemaVersion": 2, "unknownField": 3}, "unknown field unknownField must be removed"),
-                            ({"schemaVersion": 2, "checks": {"lint": ["x"]}}, "unknown field checks.lint must be removed")):
+        for gate, named in (
+            ({"schemaVersion": 3}, "schemaVersion 2"),
+            (
+                {"schemaVersion": 2, "otherField": "github"},
+                "unknown field otherField must be removed",
+            ),
+            (
+                {"schemaVersion": 2, "unknownField": 3},
+                "unknown field unknownField must be removed",
+            ),
+            (
+                {"schemaVersion": 2, "checks": {"lint": ["x"]}},
+                "unknown field checks.lint must be removed",
+            ),
+        ):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))
                 code, output = self.init()
-                self.assertEqual(code, 1)
-                self.assertIn("GATE.local-ci-parity", output)
-                self.assertIn(named, output)
-                self.assertEqual(self.gate(), gate)
+                assert code == 1
+                assert "GATE.local-ci-parity" in output
+                assert named in output
+                assert self.gate() == gate
 
     def test_live_record_can_be_written_with_dynaflows_off(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         with mock.patch.object(harness, "RECORDS", live):
             self.record = live / "owner/target"
             code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertTrue((self.record / "gate.json").is_file())
-        self.assertEqual(self.gate()["dynaflows"], {"enabled": False})
+        assert code == 0, output
+        assert (self.record / "gate.json").is_file()
+        assert self.gate()["dynaflows"] == {"enabled": False}
 
     def test_dynaflows_ask_writes_the_live_record_with_dynaflows_on(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         with mock.patch.object(harness, "RECORDS", live):
             self.record = live / "owner/target"
-            code, output = self.init("--enable-dynaflows", "--commit-command", "make check")
-            self.assertEqual(code, 0, output)
-            self.assertEqual(self.gate()["dynaflows"], {"enabled": True})
-            self.assertIn(f"init: record at {self.record}", output)
-            self.assertNotIn("confirm: dynaflows is off", output)
+            code, output = self.init(
+                "--enable-dynaflows", "--commit-command", "make check"
+            )
+            assert code == 0, output
+            assert self.gate()["dynaflows"] == {"enabled": True}
+            assert f"init: record at {self.record}" in output
+            assert "confirm: dynaflows is off" not in output
             self.record = live / "owner"
             code, output = self.init("--enable-dynaflows")
-            self.assertNotEqual(code, 0)
-            self.assertIn("must be a repo's record", output)
-            self.assertFalse((live / "owner/gate.json").exists())
+            assert code != 0
+            assert "must be a repo's record" in output
+            assert not (live / "owner/gate.json").exists()
 
     def test_record_inside_the_repo_is_refused(self) -> None:
         self.record = self.repo / "record"
-        self.assertEqual(self.init()[0], 2)
-        self.assertFalse(self.record.exists())
+        assert self.init()[0] == 2
+        assert not self.record.exists()
 
 
 class RequiredChecksTests(InitCase):
@@ -335,9 +387,10 @@ class RequiredChecksTests(InitCase):
 
     def fake_gh(self, script: str) -> None:
         gh = self.executable("gh", script)
-        real = discovery.shutil.which
-        which = mock.patch.object(
-            discovery.shutil, "which", side_effect=lambda name: str(gh) if name == "gh" else real(name)
+        real = shutil.which
+        which = mock.patch(
+            "guardrails.init.discovery.shutil.which",
+            side_effect=lambda name: str(gh) if name == "gh" else real(name),
         )
         which.start()
         self.addCleanup(which.stop)
@@ -357,16 +410,16 @@ class RequiredChecksTests(InitCase):
         )
         with mock.patch.dict(os.environ, {"AGENT": "harness-agent"}):
             code, output = self.init("--runner", "ci-gate", offline=False)
-        self.assertEqual(code, 0, output)
-        self.assertIn("required checks on the default branch: verify", output)
-        self.assertEqual(self.gate()["ci"], {"requiredContext": "verify", "runner": "ci-gate"})
+        assert code == 0, output
+        assert "required checks on the default branch: verify" in output
+        assert self.gate()["ci"] == {"requiredContext": "verify", "runner": "ci-gate"}
 
     def test_gh_failure_leaves_required_checks_unknown(self) -> None:
         self.fake_gh("import sys\nsys.stderr.write('not logged in'); sys.exit(4)\n")
         code, output = self.init(offline=False)
-        self.assertEqual(code, 0, output)
-        self.assertIn("required checks unknown: gh repo view exited 4: not logged in", output)
-        self.assertNotIn("ci", self.gate())
+        assert code == 0, output
+        assert "required checks unknown: gh repo view exited 4: not logged in" in output
+        assert "ci" not in self.gate()
 
 
 def required_fields(output: str) -> list[str]:
@@ -386,38 +439,43 @@ class ExistingRecordTests(InitCase):
         self.write_record("profile.md", '---\n{"adapter": "pytest"}\n---\n')
 
     def test_drafts_the_missing_required_fields(self) -> None:
-        self.write_record("gate.json", json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": True}}))
+        self.write_record(
+            "gate.json",
+            json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": True}}),
+        )
         self.write("Makefile", MAKEFILE)
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(self.gate()["checks"]["commit"], ["make", "gate-commit"])
-        self.assertEqual(required_fields(output), ["ownerOnlyPaths"], "only the owner's field remains")
+        assert code == 0, output
+        assert self.gate()["checks"]["commit"] == ["make", "gate-commit"]
+        assert required_fields(output) == ["ownerOnlyPaths"], (
+            "only the owner's field remains"
+        )
         self.assert_second_run_changes_nothing()
 
 
 class LspTests(InitCase):
     def test_missing_server_is_a_setup_gap_unless_allowed(self) -> None:
-        with mock.patch.object(lsp.shutil, "which", return_value=None):
+        with mock.patch("guardrails.init.lsp.shutil.which", return_value=None):
             code, output = self.init()
-            self.assertEqual(code, 1)
-            self.assertIn("PROFILE.complete", output)
-            self.assertIn("pyright-langserver is not on PATH", output)
+            assert code == 1
+            assert "PROFILE.complete" in output
+            assert "pyright-langserver is not on PATH" in output
             code, output = self.init("--allow-missing-lsp")
-        self.assertEqual(code, 0, output)
-        self.assertIn("allowed by --allow-missing-lsp", output)
+        assert code == 0, output
+        assert "allowed by --allow-missing-lsp" in output
 
     def test_detects_typescript_markers(self) -> None:
         (self.repo / "pyproject.toml").unlink()
         self.write("tsconfig.json", "{}")
         stacks = lsp.detect(self.repo)
-        self.assertEqual([stack.server for stack in stacks], ["typescript-language-server"])
+        assert [stack.server for stack in stacks] == ["typescript-language-server"]
 
     def test_typescript_six_keeps_the_javascript_language_server(self) -> None:
         self.write("package.json", "{}")
         self.write("node_modules/typescript/package.json", '{"version": "6.0.3"}')
         stack = lsp.detect(self.repo)[1]
-        self.assertEqual(stack.server, "typescript-language-server")
-        self.assertEqual(stack.arguments, ("--stdio",))
+        assert stack.server == "typescript-language-server"
+        assert stack.arguments == ("--stdio",)
 
     def test_typescript_seven_queries_the_installed_native_server(self) -> None:
         self.write("package.json", "{}")
@@ -430,53 +488,63 @@ class LspTests(InitCase):
         )
         native.chmod(0o755)
         stack = lsp.detect(self.repo)[1]
-        self.assertEqual(stack.server, str(native))
-        with mock.patch.object(lsp.shutil, "which", side_effect=lambda server: server):
+        assert stack.server == str(native)
+        with mock.patch(
+            "guardrails.init.lsp.shutil.which", side_effect=lambda server: server
+        ):
             findings, lines = lsp.readiness(self.repo, [stack], allow_missing=False)
-        self.assertEqual(findings, [])
-        self.assertIn("canary ok: references in a canary module", lines[0])
+        assert findings == []
+        assert "canary ok: references in a canary module" in lines[0]
 
     def test_repo_without_stack_records_no_server(self) -> None:
         (self.repo / "pyproject.toml").unlink()
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertNotIn("lsp", load_profile(self.record)["command_notes"])
-        self.assertIn("lsp: no pyproject.toml", output)
+        assert code == 0, output
+        assert "lsp" not in load_profile(self.record)["command_notes"]
+        assert "lsp: no pyproject.toml" in output
 
 
 class CanaryTests(InitCase):
     def test_canary_queries_a_symbol_from_the_repo(self) -> None:
-        self.write("src/target/core.py", "import os\n\n\ndef total(values):\n    return 1\n")
+        self.write(
+            "src/target/core.py", "import os\n\n\ndef total(values):\n    return 1\n"
+        )
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn("canary ok: references src/target/core.py:4 total -> 1 locations", output)
+        assert code == 0, output
+        assert (
+            "canary ok: references src/target/core.py:4 total -> 1 locations" in output
+        )
 
     def test_canary_uses_a_canary_module_when_the_repo_has_no_source(self) -> None:
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn("canary ok: references in a canary module omp_lsp_canary", output)
-        self.assertFalse(list(self.repo.glob("omp_lsp_*")))
+        assert code == 0, output
+        assert "canary ok: references in a canary module omp_lsp_canary" in output
+        assert not list(self.repo.glob("omp_lsp_*"))
 
-    def test_server_that_exits_fails_even_when_missing_servers_are_allowed(self) -> None:
+    def test_server_that_exits_fails_even_when_missing_servers_are_allowed(
+        self,
+    ) -> None:
         broken = self.executable("broken-server", "import sys\nsys.exit(97)\n")
-        with mock.patch.object(lsp.shutil, "which", return_value=str(broken)):
+        with mock.patch("guardrails.init.lsp.shutil.which", return_value=str(broken)):
             code, output = self.init("--allow-missing-lsp")
-        self.assertEqual(code, 1)
-        self.assertIn("PROFILE.complete", output)
-        self.assertIn("failed the canary: the server exited (code 97)", output)
+        assert code == 1
+        assert "PROFILE.complete" in output
+        assert "failed the canary: the server exited (code 97)" in output
 
     def test_server_that_never_answers_fails_within_the_time_limit(self) -> None:
         silent = self.executable("silent-server", "import time\ntime.sleep(30)\n")
-        with mock.patch.object(lsp.shutil, "which", return_value=str(silent)):
+        with mock.patch("guardrails.init.lsp.shutil.which", return_value=str(silent)):
             code, output = self.init("--lsp-timeout", "0.5")
-        self.assertEqual(code, 1)
-        self.assertIn("no answer to initialize before the time limit", output)
+        assert code == 1
+        assert "no answer to initialize before the time limit" in output
 
 
-def catalogue_values() -> dict[str, object]:
+def catalogue_values() -> dict[str, dict[str, Any]]:
     rules = json.loads(CATALOGUE.read_text())["rules"]
     native = ("RUFF.", "MYPY.")
-    return {rule["id"]: rule["contract"] for rule in rules if rule["id"].startswith(native)}
+    return {
+        rule["id"]: rule["contract"] for rule in rules if rule["id"].startswith(native)
+    }
 
 
 class NativeConfigTests(InitCase):
@@ -484,10 +552,12 @@ class NativeConfigTests(InitCase):
         data = native_config.load_data()
         ruff, contracts = data["ruff"], catalogue_values()
         # A rule may carry a selector, a value or both (a limit and the rule code enforcing it).
-        selected = {item["selector"] for item in contracts.values() if "selector" in item}
-        self.assertEqual(set(ruff["lint"]["select"]), selected)
-        self.assertEqual(ruff["lint"]["ignore"], contracts["RUFF.IGNORES"]["ignore"])
-        self.assertEqual(ruff["lint.per-file-ignores"], contracts["RUFF.IGNORES"]["per_file"])
+        selected = {
+            item["selector"] for item in contracts.values() if "selector" in item
+        }
+        assert set(ruff["lint"]["select"]) == selected
+        assert ruff["lint"]["ignore"] == contracts["RUFF.IGNORES"]["ignore"]
+        assert ruff["lint.per-file-ignores"] == contracts["RUFF.IGNORES"]["per_file"]
         tables = {
             "ROOT": ruff["root"],
             "FORMAT": ruff["format"],
@@ -500,30 +570,34 @@ class NativeConfigTests(InitCase):
             family, _, name = rule_id.partition(".")[2].partition(".")
             if rule_id.startswith("MYPY."):
                 key = rule_id.removeprefix("MYPY.").removeprefix("SETTING.")
-                self.assertEqual(str(data["mypy"][key]), str(contract["value"]), rule_id)
+                assert str(data["mypy"][key]) == str(contract["value"]), rule_id
             elif family == "SETTING":
-                where = ruff["lint.mccabe"] if name.startswith("mccabe.") else ruff["root"]
-                self.assertEqual(where[name.removeprefix("mccabe.")], contract["value"], rule_id)
+                where = (
+                    ruff["lint.mccabe"] if name.startswith("mccabe.") else ruff["root"]
+                )
+                assert where[name.removeprefix("mccabe.")] == contract["value"], rule_id
             else:
-                self.assertEqual(tables[family][name], contract["value"], rule_id)
+                assert tables[family][name] == contract["value"], rule_id
 
     def test_proposes_ruff_and_mypy_in_the_record_from_the_repo_and_data(self) -> None:
         self.write("src/target/__init__.py", "")
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertFalse((self.repo / "ruff.toml").exists())
-        self.assertIn("record:proposed/ruff.toml (apply it to the repository as a fix)", output)
+        assert code == 0, output
+        assert not (self.repo / "ruff.toml").exists()
+        assert (
+            "record:proposed/ruff.toml (apply it to the repository as a fix)" in output
+        )
         ruff = tomllib.loads((self.record / "proposed/ruff.toml").read_text())
-        self.assertEqual(ruff["target-version"], "py311")
-        self.assertEqual(ruff["lint"]["isort"]["known-first-party"], ["target"])
-        self.assertEqual(ruff["lint"]["pylint"]["max-args"], 5)
+        assert ruff["target-version"] == "py311"
+        assert ruff["lint"]["isort"]["known-first-party"] == ["target"]
+        assert ruff["lint"]["pylint"]["max-args"] == 5
         mypy = (self.record / "proposed/mypy.ini").read_text()
-        self.assertIn("python_version = 3.11", mypy)
-        self.assertIn("packages = target", mypy)
-        self.assertIn("mypy_path = src", mypy)
-        self.assertIn("strict = True", mypy)
-        self.assertIn("follow_imports = normal", mypy)
-        self.assertNotIn("skip", mypy)
+        assert "python_version = 3.11" in mypy
+        assert "packages = target" in mypy
+        assert "mypy_path = src" in mypy
+        assert "strict = True" in mypy
+        assert "follow_imports = normal" in mypy
+        assert "skip" not in mypy
 
     def test_keeps_existing_tool_configuration(self) -> None:
         self.write("src/target/__init__.py", "")
@@ -534,32 +608,38 @@ class NativeConfigTests(InitCase):
         )
         self.write("setup.cfg", "[mypy]\nstrict = True\n")
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertFalse((self.record / "proposed").exists())
-        self.assertIn("kept the existing ruff configuration in pyproject.toml [tool.ruff]", output)
-        self.assertIn("kept the existing mypy configuration in setup.cfg [mypy]", output)
+        assert code == 0, output
+        assert not (self.record / "proposed").exists()
+        assert (
+            "kept the existing ruff configuration in pyproject.toml [tool.ruff]"
+            in output
+        )
+        assert "kept the existing mypy configuration in setup.cfg [mypy]" in output
 
     def test_values_init_cannot_derive_leave_configs_unproposed(self) -> None:
         self.write("pyproject.toml", '[project]\nname = "target"\n')
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertFalse((self.record / "proposed/ruff.toml").exists())
-        self.assertIn("ruff not proposed; set project.requires-python first", output)
+        assert code == 0, output
+        assert not (self.record / "proposed/ruff.toml").exists()
+        assert "ruff not proposed; set project.requires-python first" in output
 
     def test_import_contract_follows_recorded_structure_tiers(self) -> None:
-        self.assertEqual(self.init()[0], 0)
-        self.assertFalse((self.record / "proposed/.importlinter").exists())
+        assert self.init()[0] == 0
+        assert not (self.record / "proposed/.importlinter").exists()
         path = self.record / "profile.md"
         text = path.read_text()
         values = load_profile(self.record)
         values["structure"]["tiers"] = ["core", "cli"]
-        values["structure"]["import_direction"] = {"package": "target", "source_root": "src"}
+        values["structure"]["import_direction"] = {
+            "package": "target",
+            "source_root": "src",
+        }
         body = text.split("\n---\n", 1)[1]
         path.write_text(f"---\n{json.dumps(values, indent=2)}\n---\n{body}")
-        self.assertEqual(self.init()[0], 0)
+        assert self.init()[0] == 0
         contract = (self.record / "proposed/.importlinter").read_text()
-        self.assertIn("root_package = target", contract)
-        self.assertIn("layers =\n    cli\n    core\n", contract)
+        assert "root_package = target" in contract
+        assert "layers =\n    cli\n    core\n" in contract
 
     def test_proposed_configs_never_name_the_harness(self) -> None:
         # Repositories stay unaware of omp: applying a proposal unchanged adds no harness mention.
@@ -567,15 +647,21 @@ class NativeConfigTests(InitCase):
         rendered = {
             "ruff.toml": native_config.render_ruff(data, (3, 11), ["target"]),
             "mypy.ini": native_config.render_mypy(data, (3, 11), ["target"], ["src"]),
-            ".importlinter": native_config.render_importlinter("target", ["core", "cli"]),
+            ".importlinter": native_config.render_importlinter(
+                "target", ["core", "cli"]
+            ),
         }
         for name, text in rendered.items():
-            self.assertNotRegex(text.lower(), r"\bomp|guardrails", name)
+            assert not re.search(r"\bomp|guardrails", text.lower()), name
 
 
-def language_contracts() -> dict[str, dict]:
+def language_contracts() -> dict[str, dict[str, Any]]:
     rules = json.loads(CATALOGUE.read_text())["rules"]
-    return {rule["id"]: rule["contract"] for rule in rules if rule["id"].startswith(LANGUAGE_PREFIXES)}
+    return {
+        rule["id"]: rule["contract"]
+        for rule in rules
+        if rule["id"].startswith(LANGUAGE_PREFIXES)
+    }
 
 
 LANGUAGE_PREFIXES = ("TSC.", "OXLINT.", "GOLANGCI.", "SHELLCHECK.", "SHFMT.")
@@ -585,61 +671,99 @@ SHELL_EDITORCONFIG = "root = true\n\n[*]\nindent_style = space\n\n[*.{sh,bash}]\
 class LanguageNativeConfigTests(InitCase):
     def test_language_data_mirrors_the_catalogue_contracts(self) -> None:
         data, contracts = native_config.load_data(), language_contracts()
-        tsc, oxlint, golangci = data["tsc"]["compilerOptions"], data["oxlint"], data["golangci"]
-        families: dict[str, dict] = {family: {} for family in LANGUAGE_PREFIXES}
-        for rule_id, contract in contracts.items():
-            family = next(prefix for prefix in LANGUAGE_PREFIXES if rule_id.startswith(prefix))
-            families[family][rule_id.removeprefix(family)] = contract
-        tsc_rows = {key: row["value"] for key, row in families["TSC."].items() if "value" in row}
-        self.assertEqual(tsc_rows, tsc)
-        ox = families["OXLINT."]
-        self.assertEqual(ox["plugins"]["value"], oxlint["plugins"])
-        self.assertEqual(
-            {key.removeprefix("CATEGORY."): row["value"] for key, row in ox.items() if key.startswith("CATEGORY.")},
-            oxlint["categories"],
+        tsc, oxlint, golangci = (
+            data["tsc"]["compilerOptions"],
+            data["oxlint"],
+            data["golangci"],
         )
-        self.assertEqual({row["rule"]: row["value"] for row in ox.values() if "rule" in row}, oxlint["rules"])
+        families: dict[str, dict[str, Any]] = {
+            family: {} for family in LANGUAGE_PREFIXES
+        }
+        for rule_id, contract in contracts.items():
+            family = next(
+                prefix for prefix in LANGUAGE_PREFIXES if rule_id.startswith(prefix)
+            )
+            families[family][rule_id.removeprefix(family)] = contract
+        tsc_rows = {
+            key: row["value"] for key, row in families["TSC."].items() if "value" in row
+        }
+        assert tsc_rows == tsc
+        ox = families["OXLINT."]
+        assert ox["plugins"]["value"] == oxlint["plugins"]
+        assert {
+            key.removeprefix("CATEGORY."): row["value"]
+            for key, row in ox.items()
+            if key.startswith("CATEGORY.")
+        } == oxlint["categories"]
+        assert {
+            row["rule"]: row["value"] for row in ox.values() if "rule" in row
+        } == oxlint["rules"]
         for rule in oxlint["rules"]:
-            self.assertIn(rule.split("/")[0], oxlint["plugins"], rule)
+            assert rule.split("/")[0] in oxlint["plugins"], rule
         go = families["GOLANGCI."]
-        self.assertEqual(go["version"]["value"], golangci["version"])
-        self.assertEqual(go["run.tests"]["value"], golangci["run"]["tests"])
-        self.assertEqual(go["linters.default"]["value"], golangci["linters"]["default"])
-        enabled = {key.removeprefix("ENABLE.") for key in go if key.startswith("ENABLE.")}
-        self.assertEqual(enabled, set(golangci["linters"]["enable"]))
-        formatters = {key.removeprefix("FORMAT.") for key in go if key.startswith("FORMAT.")}
-        self.assertEqual(formatters, set(golangci["formatters"]["enable"]))
+        assert go["version"]["value"] == golangci["version"]
+        assert go["run.tests"]["value"] == golangci["run"]["tests"]
+        assert go["linters.default"]["value"] == golangci["linters"]["default"]
+        enabled = {
+            key.removeprefix("ENABLE.") for key in go if key.startswith("ENABLE.")
+        }
+        assert enabled == set(golangci["linters"]["enable"])
+        formatters = {
+            key.removeprefix("FORMAT.") for key in go if key.startswith("FORMAT.")
+        }
+        assert formatters == set(golangci["formatters"]["enable"])
         settings = golangci["linters"]["settings"]
         for key, row in go.items():
             if key.startswith("LIMIT.") and row["linter"] != "revive":
-                self.assertEqual(settings[row["linter"]][row["setting"]], row["value"], key)
+                assert settings[row["linter"]][row["setting"]] == row["value"], key
             if key.startswith(("LIMIT.", "RULE.")):
-                self.assertIn(row["linter"], enabled, key)
-        revive = {item["name"]: item["arguments"] for item in settings["revive"]["rules"]}
-        self.assertEqual(revive["argument-limit"], [go["LIMIT.revive.argument-limit"]["value"]])
-        self.assertEqual(go["RULE.forbidigo.exec-command"]["value"], settings["forbidigo"]["forbid"])
-        self.assertEqual(go["RULE.nolintlint"]["value"], settings["nolintlint"])
-        self.assertEqual(
-            {key: row["value"] for key, row in families["SHELLCHECK."].items() if "value" in row},
-            data["shellcheck"],
+                assert row["linter"] in enabled, key
+        revive = {
+            item["name"]: item["arguments"] for item in settings["revive"]["rules"]
+        }
+        assert revive["argument-limit"] == [go["LIMIT.revive.argument-limit"]["value"]]
+        assert (
+            go["RULE.forbidigo.exec-command"]["value"]
+            == settings["forbidigo"]["forbid"]
         )
+        assert go["RULE.nolintlint"]["value"] == settings["nolintlint"]
+        assert {
+            key: row["value"]
+            for key, row in families["SHELLCHECK."].items()
+            if "value" in row
+        } == data["shellcheck"]
         shfmt = families["SHFMT."]
-        self.assertEqual({key: row["value"] for key, row in shfmt.items()}, data["shfmt"]["settings"])
-        self.assertEqual({row["section"] for row in shfmt.values()}, {data["shfmt"]["section"]})
+        assert {key: row["value"] for key, row in shfmt.items()} == data["shfmt"][
+            "settings"
+        ]
+        assert {row["section"] for row in shfmt.values()} == {data["shfmt"]["section"]}
 
     def test_limits_mirror_the_python_thresholds(self) -> None:
-        rules = {rule["id"]: rule["contract"] for rule in json.loads(CATALOGUE.read_text())["rules"]}
+        rules = {
+            rule["id"]: rule["contract"]
+            for rule in json.loads(CATALOGUE.read_text())["rules"]
+        }
         for rule_id in (
-            "OXLINT.LIMIT.complexity", "OXLINT.LIMIT.max-params", "OXLINT.LIMIT.max-statements",
-            "OXLINT.LIMIT.max-dependencies", "GOLANGCI.LIMIT.gocyclo.min-complexity",
-            "GOLANGCI.LIMIT.funlen.statements", "GOLANGCI.LIMIT.revive.argument-limit",
+            "OXLINT.LIMIT.complexity",
+            "OXLINT.LIMIT.max-params",
+            "OXLINT.LIMIT.max-statements",
+            "OXLINT.LIMIT.max-dependencies",
+            "GOLANGCI.LIMIT.gocyclo.min-complexity",
+            "GOLANGCI.LIMIT.funlen.statements",
+            "GOLANGCI.LIMIT.revive.argument-limit",
         ):
             with self.subTest(rule=rule_id):
                 contract = rules[rule_id]
-                limit = contract["value"][1]["max"] if rule_id.startswith("OXLINT.") else contract["value"]
+                limit = (
+                    contract["value"][1]["max"]
+                    if rule_id.startswith("OXLINT.")
+                    else contract["value"]
+                )
                 mirrored = rules[contract["mirrors"]]
-                expected = mirrored.get("value", mirrored.get("max_non_stdlib_dependencies"))
-                self.assertEqual(limit, expected)
+                expected = mirrored.get(
+                    "value", mirrored.get("max_non_stdlib_dependencies")
+                )
+                assert limit == expected
 
     def test_proposes_typescript_go_and_shell_configs_in_the_record(self) -> None:
         self.write("package.json", "{}\n")
@@ -647,32 +771,63 @@ class LanguageNativeConfigTests(InitCase):
         self.write("scripts/release.sh", "#!/bin/sh\necho release\n")
         before = snapshot(self.repo)
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertEqual(snapshot(self.repo), before)
+        assert code == 0, output
+        assert snapshot(self.repo) == before
         proposed = self.record / "proposed"
-        for name in ("tsconfig.json", ".oxlintrc.json", ".golangci.json", ".shellcheckrc", ".editorconfig"):
-            self.assertIn(f"record:proposed/{name} (apply it to the repository as a fix)", output)
+        for name in (
+            "tsconfig.json",
+            ".oxlintrc.json",
+            ".golangci.json",
+            ".shellcheckrc",
+            ".editorconfig",
+        ):
+            assert (
+                f"record:proposed/{name} (apply it to the repository as a fix)"
+                in output
+            )
         tsconfig = json.loads((proposed / "tsconfig.json").read_text())
-        self.assertIs(tsconfig["compilerOptions"]["exactOptionalPropertyTypes"], True)
+        assert tsconfig["compilerOptions"]["exactOptionalPropertyTypes"] is True
         golangci = json.loads((proposed / ".golangci.json").read_text())
-        self.assertEqual(golangci["formatters"]["settings"]["goimports"]["local-prefixes"], ["example.com/shop"])
-        self.assertIn("enable=check-set-e-suppressed\n", (proposed / ".shellcheckrc").read_text())
-        self.assertIn("[*.{sh,bash}]\nindent_style = space\n", (proposed / ".editorconfig").read_text())
+        assert golangci["formatters"]["settings"]["goimports"]["local-prefixes"] == [
+            "example.com/shop"
+        ]
+        assert (
+            "enable=check-set-e-suppressed\n"
+            in (proposed / ".shellcheckrc").read_text()
+        )
+        assert (
+            "[*.{sh,bash}]\nindent_style = space\n"
+            in (proposed / ".editorconfig").read_text()
+        )
         self.assert_second_run_changes_nothing()
 
     def test_proposed_oxlint_config_is_read_by_the_pinned_oxlint(self) -> None:
         self.write("package.json", "{}\n")
-        self.assertEqual(self.init()[0], 0)
-        source = self.write("wide.ts", "export function wide(a: number, b: number, c: number, d: number, e: number, f: number): number {\n  return a + b + c + d + e + f;\n}\n")
-        result = subprocess.run(
-            [str(ROOT / "node_modules/.bin/oxlint"), "-c", str(self.record / "proposed/.oxlintrc.json"), str(source)],
-            capture_output=True, text=True, timeout=60, check=False,
+        assert self.init()[0] == 0
+        source = self.write(
+            "wide.ts",
+            "export function wide(a: number, b: number, c: number, d: number, e: number, f: number): number {\n  return a + b + c + d + e + f;\n}\n",
         )
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("eslint(max-params)", result.stdout)
+        result = subprocess.run(
+            [
+                str(ROOT / "node_modules/.bin/oxlint"),
+                "-c",
+                str(self.record / "proposed/.oxlintrc.json"),
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "eslint(max-params)" in result.stdout
 
     def test_existing_tsconfig_and_editorconfig_report_each_missing_rule(self) -> None:
-        self.write("tsconfig.base.json", '{"compilerOptions": {"strict": true, "noUnusedLocals": true}}')
+        self.write(
+            "tsconfig.base.json",
+            '{"compilerOptions": {"strict": true, "noUnusedLocals": true}}',
+        )
         self.write(
             "tsconfig.json",
             '// project config\n{\n  "extends": "./tsconfig.base.json",\n'
@@ -681,55 +836,82 @@ class LanguageNativeConfigTests(InitCase):
         self.write("scripts/release.sh", "#!/bin/sh\n")
         self.write(".editorconfig", SHELL_EDITORCONFIG)
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertFalse((self.record / "proposed/tsconfig.json").exists())
-        self.assertFalse((self.record / "proposed/.editorconfig").exists())
-        self.assertNotIn("lacks TSC.strict ", output)
-        self.assertNotIn("lacks TSC.noUncheckedIndexedAccess ", output)
-        self.assertIn("native: tsconfig.json lacks TSC.noUnusedLocals (compilerOptions.noUnusedLocals: true)", output)
-        self.assertIn("native: tsconfig.json lacks TSC.exactOptionalPropertyTypes", output)
-        self.assertNotIn("lacks SHFMT.indent_style", output)
-        self.assertNotIn("lacks SHFMT.indent_size", output)
-        self.assertIn("native: .editorconfig lacks SHFMT.binary_next_line (binary_next_line = true for shell files)", output)
-        self.assertIn("native: .editorconfig lacks SHFMT.switch_case_indent", output, ".bash files lack it")
+        assert code == 0, output
+        assert not (self.record / "proposed/tsconfig.json").exists()
+        assert not (self.record / "proposed/.editorconfig").exists()
+        assert "lacks TSC.strict " not in output
+        assert "lacks TSC.noUncheckedIndexedAccess " not in output
+        assert (
+            "native: tsconfig.json lacks TSC.noUnusedLocals (compilerOptions.noUnusedLocals: true)"
+            in output
+        )
+        assert "native: tsconfig.json lacks TSC.exactOptionalPropertyTypes" in output
+        assert "lacks SHFMT.indent_style" not in output
+        assert "lacks SHFMT.indent_size" not in output
+        assert (
+            "native: .editorconfig lacks SHFMT.binary_next_line (binary_next_line = true for shell files)"
+            in output
+        )
+        assert "native: .editorconfig lacks SHFMT.switch_case_indent" in output, (
+            ".bash files lack it"
+        )
 
     def test_unreadable_tsconfig_base_is_reported_not_passed(self) -> None:
         self.write("tsconfig.json", '{"extends": "@tsconfig/strictest/tsconfig.json"}')
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn("native: tsc settings not verified; tsconfig.json: extends '@tsconfig/strictest/tsconfig.json' cannot be read", output)
-        self.write("node_modules/@tsconfig/strictest/tsconfig.json", '{"compilerOptions": {"strict": true}}')
-        self.assertIn("lacks TSC.noImplicitOverride", self.init()[1])
+        assert code == 0, output
+        assert (
+            "native: tsc settings not verified; tsconfig.json: extends '@tsconfig/strictest/tsconfig.json' cannot be read"
+            in output
+        )
+        self.write(
+            "node_modules/@tsconfig/strictest/tsconfig.json",
+            '{"compilerOptions": {"strict": true}}',
+        )
+        assert "lacks TSC.noImplicitOverride" in self.init()[1]
 
     def test_existing_linters_are_kept_and_never_doubled(self) -> None:
         self.write("package.json", "{}\n")
         self.write("eslint.config.js", "export default [];\n")
         self.write("go.mod", "module example.com/shop\n")
-        self.write(".golangci.yml", "version: \"2\"\n")
+        self.write(".golangci.yml", 'version: "2"\n')
         self.write("run.bash", "#!/bin/bash\n")
         self.write(".shellcheckrc", "disable=SC1091\n")
         code, output = self.init()
-        self.assertEqual(code, 0, output)
+        assert code == 0, output
         for name in (".oxlintrc.json", ".golangci.json", ".shellcheckrc"):
-            self.assertFalse((self.record / "proposed" / name).exists(), name)
-        self.assertIn("native: kept the existing lint configuration in eslint.config.js", output)
-        self.assertIn("native: kept the existing golangci-lint configuration in .golangci.yml", output)
-        self.assertIn("native: kept the existing shellcheck configuration in .shellcheckrc", output)
+            assert not (self.record / "proposed" / name).exists(), name
+        assert (
+            "native: kept the existing lint configuration in eslint.config.js" in output
+        )
+        assert (
+            "native: kept the existing golangci-lint configuration in .golangci.yml"
+            in output
+        )
+        assert (
+            "native: kept the existing shellcheck configuration in .shellcheckrc"
+            in output
+        )
 
     def test_go_module_without_a_path_leaves_golangci_unproposed(self) -> None:
         self.write("go.mod", "go 1.24\n")
         code, output = self.init()
-        self.assertEqual(code, 0, output)
-        self.assertIn("native: golangci-lint not proposed; go.mod declares no module path", output)
+        assert code == 0, output
+        assert (
+            "native: golangci-lint not proposed; go.mod declares no module path"
+            in output
+        )
 
     def test_language_proposals_never_name_the_harness(self) -> None:
         data = native_config.load_data()
         for text in (
-            native_languages.render_tsconfig(data), native_languages.render_oxlint(data),
+            native_languages.render_tsconfig(data),
+            native_languages.render_oxlint(data),
             native_languages.render_golangci(data, "example.com/shop"),
-            native_languages.render_shellcheck(data), native_languages.render_editorconfig(data),
+            native_languages.render_shellcheck(data),
+            native_languages.render_editorconfig(data),
         ):
-            self.assertNotRegex(text.lower(), r"\bomp|guardrails")
+            assert not re.search(r"\bomp|guardrails", text.lower())
 
 
 if __name__ == "__main__":

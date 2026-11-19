@@ -11,6 +11,8 @@
 !package.json
 !bun.lock
 !bunfig.toml
+!pyproject.toml
+!uv.lock
 !tsconfig.json
 !.githooks/
 .githooks/*
@@ -29,12 +31,12 @@
 !scripts/
 scripts/*
 !scripts/run-ci-quality-gates.sh
-!scripts/check-paths.py
-!scripts/ci-gate.py
+!scripts/check_paths.py
+!scripts/ci_gate.py
 !scripts/ci-gate-repos.json
-!scripts/ci-runner.py
-# ci-runners.json is machine config written by device-rollout.py; it stays untracked.
-!scripts/device-rollout.py
+!scripts/ci_runner.py
+# ci-runners.json is machine config written by device_rollout.py; it stays untracked.
+!scripts/device_rollout.py
 !scripts/device-rollout-hosts.json
 
 !tools/
@@ -54,7 +56,7 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/agent-rails.yml
+!agent/rails.yml
 !agent/lib/
 agent/lib/*
 !agent/lib/repo_record.py
@@ -117,6 +119,7 @@ tests/fixtures/*
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
+!tests/test_workflows.py
 
 !.omp/
 .omp/*

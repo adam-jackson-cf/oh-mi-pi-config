@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 GLOB_CHARACTERS = frozenset("*?[")
 
@@ -46,7 +47,9 @@ def normalized_path(repo: Path, raw: str) -> str | None:
     relative = PurePosixPath(raw)
     if relative.is_absolute():
         try:
-            relative = PurePosixPath(Path(raw).resolve().relative_to(repo.resolve()).as_posix())
+            relative = PurePosixPath(
+                Path(raw).resolve().relative_to(repo.resolve()).as_posix()
+            )
         except ValueError:
             return None
     if ".." in relative.parts or not relative.parts or relative.parts == (".",):
@@ -80,10 +83,8 @@ def as_list(value: object) -> list[str]:
     return []
 
 
-def settings(profile: dict, checker: str) -> dict:
+def settings(profile: dict[str, Any], checker: str) -> dict[str, Any]:
     """Per-repo settings for one checker from the profile's ``guardrails`` section."""
     section = profile.get("guardrails")
     value = section.get(checker) if isinstance(section, dict) else None
     return value if isinstance(value, dict) else {}
-
-

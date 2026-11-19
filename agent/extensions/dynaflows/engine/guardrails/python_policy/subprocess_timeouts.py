@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import house_style
 from guardrails.diffs.timeouts import tier_locations
@@ -43,9 +44,11 @@ FIX = "supply a positive timeout; bound async waits with asyncio.wait_for"
 SYNCHRONOUS = frozenset(
     f"subprocess.{method}" for method in ("run", "call", "check_call", "check_output")
 )
-PROCESS_FACTORIES = frozenset(
-    {"subprocess.Popen", "asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell"}
-)
+PROCESS_FACTORIES = frozenset({
+    "subprocess.Popen",
+    "asyncio.create_subprocess_exec",
+    "asyncio.create_subprocess_shell",
+})
 PROCESS_ANNOTATIONS = frozenset({"subprocess.Popen", "asyncio.subprocess.Process"})
 
 
@@ -55,9 +58,13 @@ def positive_timeout(node: ast.AST | None) -> bool:
         return False
     if isinstance(node, ast.Constant):
         value = node.value
-        return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
+        return (
+            isinstance(value, int | float) and not isinstance(value, bool) and value > 0
+        )
     if isinstance(node, ast.UnaryOp) and isinstance(node.operand, ast.Constant):
-        if isinstance(node.op, ast.USub) and isinstance(node.operand.value, int | float):
+        if isinstance(node.op, ast.USub) and isinstance(
+            node.operand.value, int | float
+        ):
             return -node.operand.value > 0
         return positive_timeout(node.operand)
     return True
@@ -94,7 +101,11 @@ class ProcessWaits(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         imports, processes = self.imports, self.processes
         self.imports, self.processes = imports.copy(), processes.copy()
-        for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ):
             self.processes.pop(argument.arg, None)
             self.imports.pop(argument.arg, None)
             annotation = self.name(argument.annotation) if argument.annotation else ""
@@ -135,16 +146,23 @@ class ProcessWaits(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         name = self.name(node.func)
         if name == "asyncio.wait_for":
-            timeout = keyword_timeout(node) or (node.args[1] if len(node.args) > 1 else None)
+            timeout = keyword_timeout(node) or (
+                node.args[1] if len(node.args) > 1 else None
+            )
             future = (
                 node.args[0]
                 if node.args
-                else next((item.value for item in node.keywords if item.arg == "fut"), None)
+                else next(
+                    (item.value for item in node.keywords if item.arg == "fut"), None
+                )
             )
             if positive_timeout(timeout) and future is not None:
                 self.bounded.update(id(child) for child in ast.walk(future))
         process = ""
-        if isinstance(node.func, ast.Attribute) and node.func.attr in {"wait", "communicate"}:
+        if isinstance(node.func, ast.Attribute) and node.func.attr in {
+            "wait",
+            "communicate",
+        }:
             if isinstance(node.func.value, ast.Name | ast.Attribute):
                 process = self.processes.get(ast.unparse(node.func.value), "")
             elif isinstance(node.func.value, ast.Call):
@@ -164,7 +182,7 @@ class ProcessWaits(ast.NodeVisitor):
         return positive_timeout(timeout)
 
 
-def is_test_source(path: str, profile: dict) -> bool:
+def is_test_source(path: str, profile: dict[str, Any]) -> bool:
     if PurePosixPath(path).name == "conftest.py":
         return True
     return is_test_file(path, profile) or matches_any(path, tier_locations(profile))
@@ -176,7 +194,7 @@ def unbounded_lines(tree: ast.AST) -> list[int]:
     return visitor.lines
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails python-test-hygiene [path ...]``."""
     selected = parse_paths("python-test-hygiene", argv)
     try:
@@ -189,10 +207,14 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
             continue
         source = read_source(repo, relpath)
         if source.tree is None:
-            found.append(finding(RULE, relpath, None, source.error, "repair the Python syntax"))
+            found.append(
+                finding(RULE, relpath, None, source.error, "repair the Python syntax")
+            )
             continue
         found.extend(
-            finding(RULE, relpath, line, "process call or wait has no positive timeout", FIX)
+            finding(
+                RULE, relpath, line, "process call or wait has no positive timeout", FIX
+            )
             for line in unbounded_lines(source.tree)
         )
     return house_style.apply_exceptions(found, profile)

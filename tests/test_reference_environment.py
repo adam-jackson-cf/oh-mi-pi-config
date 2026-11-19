@@ -9,12 +9,16 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
+
+from guardrails.environment import guarded_run
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
-sys.path.insert(0, str(REFERENCE))
-
-from guardrails.environment import guarded_run  # noqa: E402
 
 
 def python(code: str) -> list[str]:
@@ -30,15 +34,21 @@ class GuardedRunTests(unittest.TestCase):
         self.repo.mkdir()
         self.real_home = root / "real-home"
         (self.real_home / ".config/app").mkdir(parents=True)
-        (self.real_home / ".config/app/settings.json").write_text("{}", encoding="utf-8")
+        (self.real_home / ".config/app/settings.json").write_text(
+            "{}", encoding="utf-8"
+        )
         (self.real_home / ".cache").mkdir()
         patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.real_home)})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.profile = {"guardrails": {"guarded_run": {"watch": [".config/app"]}}}
 
-    def guard(self, argv: list[str], profile: dict | None = None) -> list:
-        return guarded_run.run(self.repo, self.profile if profile is None else profile, argv)
+    def guard(
+        self, argv: list[str], profile: dict[str, Any] | None = None
+    ) -> list[Any]:
+        return guarded_run.run(
+            self.repo, self.profile if profile is None else profile, argv
+        )
 
     def test_command_writing_only_to_redirected_home_passes(self) -> None:
         code = (
@@ -50,14 +60,14 @@ class GuardedRunTests(unittest.TestCase):
             "for kind in ('CONFIG', 'DATA', 'CACHE', 'STATE'):\n"
             "    assert os.path.isdir(os.environ[f'XDG_{kind}_HOME']), kind\n"
         )
-        self.assertEqual(self.guard(["--", *python(code)]), [])
+        assert self.guard(["--", *python(code)]) == []
 
     def test_command_changing_a_watched_real_file_is_reported(self) -> None:
         target = self.real_home / ".config/app/settings.json"
         code = f"open({str(target)!r}, 'w').write('changed by a test')"
         findings = self.guard(["--", *python(code)])
-        self.assertEqual([finding.rule_id for finding in findings], ["TEST.user-data-guard"])
-        self.assertIn("modified .config/app/settings.json", findings[0].message)
+        assert [finding.rule_id for finding in findings] == ["TEST.user-data-guard"]
+        assert "modified .config/app/settings.json" in findings[0].message
 
     def test_added_real_file_is_reported_and_ignored_paths_are_not(self) -> None:
         added = self.real_home / ".config/app/new.db"
@@ -65,36 +75,41 @@ class GuardedRunTests(unittest.TestCase):
         code = f"open({str(added)!r}, 'w').write('x'); open({str(noisy)!r}, 'w').write('x')"
         profile = {
             "guardrails": {
-                "guarded_run": {"watch": [".config/app"], "ignore": [".config/app/*.log"]}
+                "guarded_run": {
+                    "watch": [".config/app"],
+                    "ignore": [".config/app/*.log"],
+                }
             }
         }
         findings = self.guard(["--", *python(code)], profile)
-        self.assertEqual(len(findings), 1)
-        self.assertIn("added .config/app/new.db", findings[0].message)
-        self.assertNotIn("history.log", findings[0].message)
+        assert len(findings) == 1
+        assert "added .config/app/new.db" in findings[0].message
+        assert "history.log" not in findings[0].message
 
     def test_unwatched_real_paths_are_not_reported(self) -> None:
         code = f"open({str(self.real_home / '.cache/tool')!r}, 'w').write('x')"
-        self.assertEqual(self.guard(["--", *python(code)]), [])
+        assert self.guard(["--", *python(code)]) == []
 
     def test_failing_command_is_never_hidden(self) -> None:
         findings = self.guard(["--", *python("raise SystemExit(5)")])
-        self.assertEqual([finding.rule_id for finding in findings], ["TEST.failure-propagation"])
-        self.assertIn("exited 5", findings[0].message)
+        assert [finding.rule_id for finding in findings] == ["TEST.failure-propagation"]
+        assert "exited 5" in findings[0].message
 
     def test_tier_command_comes_from_the_profile(self) -> None:
         marker = self.repo / "ran"
         profile = {
             **self.profile,
-            "tiers": {"t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}},
+            "tiers": {
+                "t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}
+            },
         }
-        self.assertEqual(self.guard(["--tier", "t1"], profile), [])
-        self.assertTrue(marker.exists())
+        assert self.guard(["--tier", "t1"], profile) == []
+        assert marker.exists()
 
     def test_missing_watch_list_is_a_finding(self) -> None:
         findings = self.guard(["--", *python("pass")], {})
-        self.assertEqual([finding.rule_id for finding in findings], ["TEST.user-data-guard"])
-        self.assertIn("watch", findings[0].message)
+        assert [finding.rule_id for finding in findings] == ["TEST.user-data-guard"]
+        assert "watch" in findings[0].message
 
     def test_network_none_runs_behind_the_configured_prefix(self) -> None:
         profile = {
@@ -109,11 +124,11 @@ class GuardedRunTests(unittest.TestCase):
             "import os, sys\n"
             "sys.exit(0 if os.environ.get('OMP_GUARD_PREFIX_HOME') == os.environ['HOME'] else 9)"
         )
-        self.assertEqual(self.guard(["--network-none", "--", *python(code)], profile), [])
+        assert self.guard(["--network-none", "--", *python(code)], profile) == []
 
     def test_network_none_without_prefix_is_a_fast_tier_isolation_finding(self) -> None:
         findings = self.guard(["--network-none", "--", *python("pass")])
-        self.assertEqual([finding.rule_id for finding in findings], ["TEST.fast-tier-isolation"])
+        assert [finding.rule_id for finding in findings] == ["TEST.fast-tier-isolation"]
 
 
 if __name__ == "__main__":

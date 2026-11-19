@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import hashlib
@@ -6,9 +5,10 @@ import json
 import re
 from functools import cache
 from importlib import resources
+from typing import Any
 
-from guardrails.findings import Finding
 from guardrails.config import conventions
+from guardrails.findings import Finding
 from guardrails.structure.inventory import matches
 
 DATA_FILE = "house-style.json"
@@ -19,8 +19,9 @@ def data_bytes() -> bytes:
 
 
 @cache
-def load_house_style() -> dict:
-    return json.loads(data_bytes())
+def load_house_style() -> dict[str, Any]:
+    style: dict[str, Any] = json.loads(data_bytes())
+    return style
 
 
 def digest() -> str:
@@ -44,7 +45,9 @@ def matches_casing(name: str, casings: list[str]) -> bool:
     return any(re.fullmatch(patterns[casing], name) for casing in casings)
 
 
-def version_problem(segment: str, *, last: bool, standalone_allowed: bool) -> str | None:
+def version_problem(
+    segment: str, *, last: bool, standalone_allowed: bool
+) -> str | None:
     """Why a path segment's version token breaks the rule, or None when it does not."""
     rules = load_house_style()["versioning"]
     name = stem(segment) if last else segment
@@ -118,13 +121,16 @@ def test_name_problems(file_name: str) -> list[str]:
     return problems
 
 
-def apply_exceptions(findings: list[Finding], profile: dict) -> list[Finding]:
+def apply_exceptions(findings: list[Finding], profile: dict[str, Any]) -> list[Finding]:
     section = profile.get("guardrails")
     exceptions = section.get("exceptions", []) if isinstance(section, dict) else []
     covered = [
         item
         for item in exceptions
-        if isinstance(item, dict) and item.get("reason") and item.get("rule") and item.get("path")
+        if isinstance(item, dict)
+        and item.get("reason")
+        and item.get("rule")
+        and item.get("path")
     ]
     return [
         finding

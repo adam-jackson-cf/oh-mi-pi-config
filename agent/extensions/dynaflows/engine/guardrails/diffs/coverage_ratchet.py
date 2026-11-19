@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from guardrails.config.profile import is_missing_text
 from guardrails.diffs.changes import (
@@ -95,7 +96,9 @@ def key_pattern(keys: list[str], value: str) -> re.Pattern[str]:
 
 
 def bracket_delta(text: str) -> int:
-    return sum(text.count(char) for char in OPENERS) - sum(text.count(char) for char in CLOSERS)
+    return sum(text.count(char) for char in OPENERS) - sum(
+        text.count(char) for char in CLOSERS
+    )
 
 
 def indent(text: str) -> int:
@@ -124,7 +127,9 @@ def exclusion_line_numbers(text: str, key_re: re.Pattern[str]) -> set[int]:
             # INI-style continuation: indented lines under a key with an empty value.
             key_indent = indent(lines[index])
             while (
-                follow < len(lines) and lines[follow].strip() and indent(lines[follow]) > key_indent
+                follow < len(lines)
+                and lines[follow].strip()
+                and indent(lines[follow]) > key_indent
             ):
                 numbers.add(follow + 1)
                 follow += 1
@@ -132,7 +137,9 @@ def exclusion_line_numbers(text: str, key_re: re.Pattern[str]) -> set[int]:
     return numbers
 
 
-def floors(lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]) -> dict[str, float]:
+def floors(
+    lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]
+) -> dict[str, float]:
     found: dict[str, float] = {}
     for _, text in lines:
         for match in floor_re.finditer(text):
@@ -141,7 +148,11 @@ def floors(lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]) -> dic
 
 
 def config_findings(
-    repo: Path, diff: DiffRange, paths: tuple[str, ...], head_path: str | None, config: dict
+    repo: Path,
+    diff: DiffRange,
+    paths: tuple[str, ...],
+    head_path: str | None,
+    config: dict[str, Any],
 ) -> list[Finding]:
     """Floors removed or lowered across ``paths``, then exclusions added to ``head_path``.
 
@@ -151,35 +162,54 @@ def config_findings(
     path = head_path or paths[0]
     changes = line_changes(repo, diff, *paths)
     floor_re = key_pattern(
-        as_list(config.get("floor_keys")) or DEFAULT_FLOOR_KEYS, r"(?P<value>\d+(?:\.\d+)?)"
+        as_list(config.get("floor_keys")) or DEFAULT_FLOOR_KEYS,
+        r"(?P<value>\d+(?:\.\d+)?)",
     )
     found: list[Finding] = []
     before, after = floors(changes.removed, floor_re), floors(changes.added, floor_re)
     for key, old in sorted(before.items()):
         new = after.get(key)
         if new is None:
-            found.append(Finding(RULE, path, f"coverage floor '{key}' {old:g} was removed", FIX))
+            found.append(
+                Finding(RULE, path, f"coverage floor '{key}' {old:g} was removed", FIX)
+            )
         elif new < old:
             found.append(
-                Finding(RULE, path, f"coverage floor '{key}' lowered from {old:g} to {new:g}", FIX)
+                Finding(
+                    RULE,
+                    path,
+                    f"coverage floor '{key}' lowered from {old:g} to {new:g}",
+                    FIX,
+                )
             )
     head_text = None if head_path is None else file_at(repo, diff.head, head_path)
     if head_text is None:
         return found
-    exclusion_re = key_pattern(as_list(config.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, "")
+    exclusion_re = key_pattern(
+        as_list(config.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, ""
+    )
     excluded = exclusion_line_numbers(head_text, exclusion_re)
     moved = {entry_text(text) for _, text in changes.removed}
     for number, text in changes.added:
         entry = entry_text(text)
         if number in excluded and entry not in CLOSING and entry not in moved:
             found.append(
-                Finding(RULE, path, f"line {number} adds a coverage exclusion: {text.strip()}", FIX)
+                Finding(
+                    RULE,
+                    path,
+                    f"line {number} adds a coverage exclusion: {text.strip()}",
+                    FIX,
+                )
             )
     return found
 
 
 def change_config_findings(
-    repo: Path, diff: DiffRange, change: Change, config_files: list[str], config: dict
+    repo: Path,
+    diff: DiffRange,
+    change: Change,
+    config_files: list[str],
+    config: dict[str, Any],
 ) -> list[Finding]:
     paths = tuple(name for name in change.paths if is_config(name, config_files))
     if not paths:
@@ -200,13 +230,15 @@ def pragma_findings(
     changes = line_changes(repo, diff, path)
     moved = {text.strip() for _, text in changes.removed}
     return [
-        Finding(RULE, path, f"line {number} adds a coverage pragma: {text.strip()}", FIX)
+        Finding(
+            RULE, path, f"line {number} adds a coverage pragma: {text.strip()}", FIX
+        )
         for number, text in changes.added
         if pragma.search(text) and text.strip() not in moved
     ]
 
 
-def approvals(profile: dict) -> set[tuple[str, str]]:
+def approvals(profile: dict[str, Any]) -> set[tuple[str, str]]:
     entries = settings(profile, CHECKER).get("approvals")
     found = set()
     for entry in entries if isinstance(entries, list) else []:
@@ -222,19 +254,23 @@ def is_config(path: str, patterns: list[str]) -> bool:
     return any(name_matches(path, pattern) for pattern in patterns)
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     try:
         diff = parse_range(argv)
         changes = changed_files(repo, diff)
-        pragma = re.compile(str(config.get("pragma_pattern") or DEFAULT_PRAGMA), re.IGNORECASE)
+        pragma = re.compile(
+            str(config.get("pragma_pattern") or DEFAULT_PRAGMA), re.IGNORECASE
+        )
         config_files = as_list(config.get("config_files")) or DEFAULT_CONFIG_FILES
         skip = as_list(config.get("pragma_skip")) or DEFAULT_PRAGMA_SKIP
         found: list[Finding] = []
         for change in changes:
             path = change.path
-            found.extend(change_config_findings(repo, diff, change, config_files, config))
+            found.extend(
+                change_config_findings(repo, diff, change, config_files, config)
+            )
             if change.status == "D":
                 continue
             if not any(name_matches(path, pattern) for pattern in skip):

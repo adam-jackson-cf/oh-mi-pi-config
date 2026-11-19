@@ -14,8 +14,14 @@ file is production.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from guardrails.diffs.changes import DiffError, changed_files, parse_range, range_finding
+from guardrails.diffs.changes import (
+    DiffError,
+    changed_files,
+    parse_range,
+    range_finding,
+)
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, matches_any, settings
 from guardrails.structure.naming import is_test_file
@@ -24,7 +30,7 @@ RULE = "TEST.identity-artefacts"
 CHECKER = "identity_artefacts"
 
 
-def test_locations(profile: dict) -> list[str]:
+def test_locations(profile: dict[str, Any]) -> list[str]:
     locations: list[str] = []
     tiers = profile.get("tiers")
     for tier in tiers.values() if isinstance(tiers, dict) else []:
@@ -37,7 +43,7 @@ def test_locations(profile: dict) -> list[str]:
     return locations
 
 
-def is_production(path: str, profile: dict, artefacts: list[str]) -> bool:
+def is_production(path: str, profile: dict[str, Any], artefacts: list[str]) -> bool:
     non_production = [
         *artefacts,
         *test_locations(profile),
@@ -46,7 +52,7 @@ def is_production(path: str, profile: dict, artefacts: list[str]) -> bool:
     return not (matches_any(path, non_production) or is_test_file(path, profile))
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     declared = profile.get("identity_artefacts")
     if not isinstance(declared, dict) or "none" in declared:

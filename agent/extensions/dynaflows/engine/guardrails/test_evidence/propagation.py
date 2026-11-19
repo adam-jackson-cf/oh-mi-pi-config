@@ -18,6 +18,7 @@ the commit and CI gates both run it, and only the commit gate runs ``budget-chec
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.test_evidence.collection import report_findings
@@ -27,14 +28,16 @@ from guardrails.test_evidence.junit import (
     Report,
     ReportError,
     UsageError,
-    display_path,
     as_int,
+    display_path,
     load_run_report,
     report_options,
 )
 
 RULE = "TEST.failure-propagation"
-FAIL_FIX = "fix the failing check; a failed, errored or missing check never counts as passing"
+FAIL_FIX = (
+    "fix the failing check; a failed, errored or missing check never counts as passing"
+)
 TRUNCATED_FIX = "rerun the tier to completion and keep the whole report"
 EXIT_FIX = "fix the runner failure outside the test cases, then rerun the tier"
 
@@ -48,9 +51,20 @@ def outcome_findings(report: Report) -> list[Finding]:
     found = []
     for case in final_cases(report):
         if case.outcome in FAILING:
-            kind = "errored (infrastructure or collection)" if case.outcome == "error" else "failed"
+            kind = (
+                "errored (infrastructure or collection)"
+                if case.outcome == "error"
+                else "failed"
+            )
             reason = f": {case.reason}" if case.reason else ""
-            found.append(Finding(RULE, case.file or report.source, f"{case.id} {kind}{reason}", FAIL_FIX))
+            found.append(
+                Finding(
+                    RULE,
+                    case.file or report.source,
+                    f"{case.id} {kind}{reason}",
+                    FAIL_FIX,
+                )
+            )
     return found
 
 
@@ -99,7 +113,9 @@ def exit_findings(report: Report, exit_code: int | None) -> list[Finding]:
     return []
 
 
-def evaluate(report: Report, profile: dict, exit_code: int | None) -> list[Finding]:
+def evaluate(
+    report: Report, profile: dict[str, Any], exit_code: int | None
+) -> list[Finding]:
     if exit_code is None:
         exit_code = as_int(report.properties.get("omp.exit_code"))
     return [
@@ -110,7 +126,7 @@ def evaluate(report: Report, profile: dict, exit_code: int | None) -> list[Findi
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         options = report_options(repo, argv)
         report = load_run_report(repo, profile, options)

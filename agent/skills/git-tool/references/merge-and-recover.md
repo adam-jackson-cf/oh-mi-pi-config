@@ -48,20 +48,20 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 The record's [`gate.json` CI policy](../../../lib/record/README.md#merge-and-ci-policy) declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
-directory maps each role to its submit, wait, status and logs commands; `scripts/device-rollout.py` writes it per device.
-Drive CI through `scripts/ci-runner.py` in the omp base directory with the gate's runner role, the repository and the exact 40-hex SHA:
+directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
+Drive CI through `scripts/ci_runner.py` in the omp base directory with the gate's runner role, the repository and the exact 40-hex SHA:
 
 ```sh
-python3 <omp base>/scripts/ci-runner.py submit <runner> OWNER/REPO SHA
-python3 <omp base>/scripts/ci-runner.py wait <runner> OWNER/REPO SHA --context <requiredContext> [--timeout S]
-python3 <omp base>/scripts/ci-runner.py status <runner> OWNER/REPO SHA --context <requiredContext>
-python3 <omp base>/scripts/ci-runner.py logs <runner> OWNER/REPO SHA [--tail N]
+python3 <omp base>/scripts/ci_runner.py submit <runner> OWNER/REPO SHA
+python3 <omp base>/scripts/ci_runner.py wait <runner> OWNER/REPO SHA --context <requiredContext> [--timeout S]
+python3 <omp base>/scripts/ci_runner.py status <runner> OWNER/REPO SHA --context <requiredContext>
+python3 <omp base>/scripts/ci_runner.py logs <runner> OWNER/REPO SHA [--tail N]
 ```
 
 Wait defaults to the role's configured `timeout`; `--timeout` overrides it.
 A role whose runner starts on push reports that submit is not needed. A role without its own wait/status commands uses
 the built-in GitHub poller over the exact SHA's commit statuses and check runs; wait exits 0 on success, 124 on timeout
-and non-zero on failure. A missing role means the device's machine config is not set up: run `scripts/device-rollout.py`;
+and non-zero on failure. A missing role means the device's machine config is not set up: run `scripts/device_rollout.py`;
 that is a setup gap, never a CI waiver. Exit codes alone can be ambiguous: inspect status and logs before choosing the table action.
 Require successful publication of the required context on GitHub for the exact head, not just a local successful result.
 

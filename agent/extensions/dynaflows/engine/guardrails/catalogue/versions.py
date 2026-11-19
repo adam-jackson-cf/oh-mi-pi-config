@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
-NAME = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(\[[^\]]*\])?\s*")
+NAME = re.compile(
+    r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(\[[^\]]*\])?\s*"
+)
 CLAUSE = re.compile(r"^\s*(===|==|!=|<=|>=|~=|<|>)\s*([^\s,]+)\s*$")
 VERSION = re.compile(
     r"^v?(?:(?P<epoch>\d+)!)?(?P<release>\d+(?:\.\d+)*)"
@@ -21,7 +24,16 @@ VERSION = re.compile(
     r"(?:\+[a-z0-9.]+)?$",
     re.IGNORECASE,
 )
-PRE_RANK = {"a": 0, "alpha": 0, "b": 1, "beta": 1, "c": 2, "rc": 2, "pre": 2, "preview": 2}
+PRE_RANK = {
+    "a": 0,
+    "alpha": 0,
+    "b": 1,
+    "beta": 1,
+    "c": 2,
+    "rc": 2,
+    "pre": 2,
+    "preview": 2,
+}
 
 
 class VersionError(ValueError):
@@ -67,7 +79,7 @@ def release_of(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group("release").split("."))
 
 
-def version_key(version: str) -> tuple:
+def version_key(version: str) -> tuple[Any, ...]:
     match = VERSION.match(version.strip())
     if match is None:
         raise VersionError(f"unsupported version {version!r}")
@@ -75,7 +87,9 @@ def version_key(version: str) -> tuple:
     while len(release) > 1 and release[-1] == 0:
         release.pop()
     post = match.group("post_implicit") or match.group("post_n")
-    has_post = match.group("post_implicit") is not None or match.group("post") is not None
+    has_post = (
+        match.group("post_implicit") is not None or match.group("post") is not None
+    )
     if match.group("pre"):
         pre = (1, PRE_RANK[match.group("pre").lower()], int(match.group("pre_n") or 0))
     elif match.group("dev") and not has_post:
@@ -104,7 +118,9 @@ def clause_admits(op: str, wanted: str, version: str) -> bool:
         if len(release) < 2:
             raise VersionError(f"~={wanted} needs at least two release segments")
         prefix = ".".join(str(part) for part in release[:-1]) + ".*"
-        return version_key(version) >= version_key(wanted) and prefix_admits(prefix, version)
+        return version_key(version) >= version_key(wanted) and prefix_admits(
+            prefix, version
+        )
     left, right = version_key(version), version_key(wanted)
     return {
         "==": left == right,

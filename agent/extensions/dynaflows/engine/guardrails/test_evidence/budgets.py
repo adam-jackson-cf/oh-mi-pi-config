@@ -42,6 +42,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.test_evidence.junit import (
@@ -146,7 +147,11 @@ def current_revision(repo: Path) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
+    return (
+        result.stdout.strip()
+        if result.returncode == 0 and result.stdout.strip()
+        else None
+    )
 
 
 def seconds(value: float) -> str:
@@ -154,7 +159,9 @@ def seconds(value: float) -> str:
 
 
 def invalid(path: str, problem: str) -> Finding:
-    return Finding(FAST_TIER, path, f"duration report is invalid: {problem}", INVALID_FIX)
+    return Finding(
+        FAST_TIER, path, f"duration report is invalid: {problem}", INVALID_FIX
+    )
 
 
 def validity_findings(report: Report, expected_revision: str | None) -> list[Finding]:
@@ -168,31 +175,43 @@ def validity_findings(report: Report, expected_revision: str | None) -> list[Fin
     ]
     if untimed:
         sample = ", ".join(untimed[:3])
-        found.append(invalid(report.source, f"{len(untimed)} executed cases lack a time ({sample})"))
+        found.append(
+            invalid(
+                report.source, f"{len(untimed)} executed cases lack a time ({sample})"
+            )
+        )
     if report.wall_s is None:
-        found.append(invalid(report.source, "no outer wall time (omp.wall_s or root time)"))
+        found.append(
+            invalid(report.source, "no outer wall time (omp.wall_s or root time)")
+        )
     recorded = report.properties.get("omp.revision", "").strip()
     if not expected_revision:
-        found.append(invalid(report.source, "the current revision cannot be determined"))
+        found.append(
+            invalid(report.source, "the current revision cannot be determined")
+        )
     elif not recorded:
         found.append(invalid(report.source, "no omp.revision property"))
     elif recorded != expected_revision:
         found.append(
-            invalid(report.source, f"stale: measured {recorded}, current is {expected_revision}")
+            invalid(
+                report.source,
+                f"stale: measured {recorded}, current is {expected_revision}",
+            )
         )
     if not report.properties.get("omp.runtime", "").strip():
         found.append(invalid(report.source, "no omp.runtime property"))
     return found
 
 
-def approved_limits(profile: dict, machine: Machine) -> dict | None:
+def approved_limits(profile: dict[str, Any], machine: Machine) -> dict[str, Any] | None:
     budget = profile.get("fast_tier_budget")
     machines = budget.get("machines") if isinstance(budget, dict) else None
     for record in machines if isinstance(machines, list) else []:
         if not isinstance(record, dict) or record.get("id") != machine.id:
             continue
         limits_ok = all(
-            isinstance(record.get(key), (int, float)) and not isinstance(record.get(key), bool)
+            isinstance(record.get(key), (int, float))
+            and not isinstance(record.get(key), bool)
             for key in ("wall_limit_s", "per_test_limit_s")
         )
         approval = record.get("approval")
@@ -201,7 +220,9 @@ def approved_limits(profile: dict, machine: Machine) -> dict | None:
     return None
 
 
-def breach_findings(report: Report, wall_limit: float, per_test_limit: float) -> list[Finding]:
+def breach_findings(
+    report: Report, wall_limit: float, per_test_limit: float
+) -> list[Finding]:
     found = []
     if report.wall_s is not None and report.wall_s > wall_limit:
         found.append(
@@ -232,8 +253,8 @@ def baseline_prompt(report: Report, machine: Machine) -> str:
     return (
         f"machine {machine.id} ({machine.platform}, {machine.runtime}) has no approved budget; "
         "timing is report-only. Measure repeatedly, then ask the owner once: "
-        f"\"Approve a fast-tier wall limit of <value> and a per-test limit of <value> on "
-        f"{machine.id}, based on these repeated measurements: <values>?\" "
+        f'"Approve a fast-tier wall limit of <value> and a per-test limit of <value> on '
+        f'{machine.id}, based on these repeated measurements: <values>?" '
         f"This run: wall {wall}, slowest test {seconds(slowest)}. On approval record the "
         "machine's id, platform, runtime, limits and approval in fast_tier_budget.machines."
     )
@@ -241,7 +262,7 @@ def baseline_prompt(report: Report, machine: Machine) -> str:
 
 def evaluate(
     report: Report,
-    profile: dict,
+    profile: dict[str, Any],
     expected_revision: str | None,
     machine: Machine | None = None,
 ) -> BudgetResult:
@@ -256,7 +277,9 @@ def evaluate(
         result.notes.append(baseline_prompt(report, machine))
         return result
     result.findings.extend(
-        breach_findings(report, float(limits["wall_limit_s"]), float(limits["per_test_limit_s"]))
+        breach_findings(
+            report, float(limits["wall_limit_s"]), float(limits["per_test_limit_s"])
+        )
     )
     return result
 
@@ -265,13 +288,15 @@ def report_tier(report: Report, options: ReportOptions) -> str:
     return options.tier or report.properties.get("omp.tier", "").strip() or "t1"
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails budget-check --junit PATH [--tier T] [--revision SHA]``."""
     try:
         options = report_options(repo, argv)
         report = load_run_report(repo, profile, options)
     except UsageError as error:
-        return [Finding(FAST_TIER, "budget-check", f"usage: {error}", "fix the arguments")]
+        return [
+            Finding(FAST_TIER, "budget-check", f"usage: {error}", "fix the arguments")
+        ]
     except ReportError as error:
         path = display_path(repo, options.junit, "budget-check")
         return [invalid(path, str(error))]

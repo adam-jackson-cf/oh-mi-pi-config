@@ -28,14 +28,26 @@ import json
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Any
 
 from guardrails.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.config.house_style import apply_exceptions
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, matches_any, name_matches
 
+if TYPE_CHECKING:
+    from ast_grep_py import Config, SgNode
+
 RULES_PACKAGE = "guardrails.adapters.pytest"
-SKIPPED_PARTS = frozenset({".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"})
+SKIPPED_PARTS = frozenset({
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+})
 
 
 @dataclass(frozen=True)
@@ -46,7 +58,7 @@ class Rule:
     target: str | None
     message: str
     fix: str
-    config: dict
+    config: Config
 
 
 def load_rules() -> list[Rule]:
@@ -56,10 +68,11 @@ def load_rules() -> list[Rule]:
         if not entry.name.endswith(".yml"):
             continue
         data = json.loads(entry.read_text(encoding="utf-8"))
-        config = {"rule": data["rule"]}
-        for key in ("constraints", "utils"):
-            if key in data:
-                config[key] = data[key]
+        config: Config = {"rule": data["rule"]}
+        if "constraints" in data:
+            config["constraints"] = data["constraints"]
+        if "utils" in data:
+            config["utils"] = data["utils"]
         rules.append(
             Rule(
                 entry.name,
@@ -74,7 +87,7 @@ def load_rules() -> list[Rule]:
     return rules
 
 
-def owned_packages(profile: dict) -> frozenset[str]:
+def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
     """D2: the top-level packages owning ``public_entry_points`` (``src/`` prefixes dropped)."""
     entries = profile.get("public_entry_points")
     names = set()
@@ -87,7 +100,7 @@ def owned_packages(profile: dict) -> frozenset[str]:
     return frozenset(names)
 
 
-def test_patterns(profile: dict) -> tuple[list[str], list[str]]:
+def test_patterns(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
     tiers = profile.get("tiers")
     locations = [
         location
@@ -96,7 +109,9 @@ def test_patterns(profile: dict) -> tuple[list[str], list[str]]:
         for location in as_list(spec.get("location"))
     ]
     layout = profile.get("layout")
-    patterns = as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    patterns = (
+        as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    )
     return locations, patterns
 
 
@@ -151,7 +166,7 @@ def string_value(text: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def resolve(node: object, imports: dict[str, str]) -> str | None:
+def resolve(node: SgNode, imports: dict[str, str]) -> str | None:
     """Dotted origin of a string target or an imported expression, else None."""
     kind = node.kind()
     text = node.text()
@@ -166,27 +181,37 @@ def resolve(node: object, imports: dict[str, str]) -> str | None:
     return f"{origin}.{rest}" if rest else origin
 
 
-def arguments(call: object) -> list[object]:
+def arguments(call: SgNode) -> list[SgNode]:
     node = call.field("arguments")
     if node is None:
         return []
-    return [child for child in node.children() if child.is_named() and child.kind() != "comment"]
+    return [
+        child
+        for child in node.children()
+        if child.is_named() and child.kind() != "comment"
+    ]
 
 
-def target_nodes(match: object, target: str) -> list[object]:
+def target_nodes(match: SgNode, target: str) -> list[SgNode]:
     if target == "assigned-attribute-object":
         left = match.field("left")
         value = left.field("object") if left is not None else None
         return [value] if value is not None else []
-    positional = [item for item in arguments(match) if item.kind() != "keyword_argument"]
+    positional = [
+        item for item in arguments(match) if item.kind() != "keyword_argument"
+    ]
     if target == "first-argument":
         return positional[:1]
     if target.startswith("keyword:"):
         wanted = set(target.split(":", 1)[1].split(","))
-        found = []
+        found: list[SgNode] = []
         for item in arguments(match):
             name = item.field("name")
-            if item.kind() == "keyword_argument" and name is not None and name.text() in wanted:
+            if (
+                item.kind() == "keyword_argument"
+                and name is not None
+                and name.text() in wanted
+            ):
                 value = item.field("value")
                 if value is not None:
                     found.append(value)
@@ -194,7 +219,9 @@ def target_nodes(match: object, target: str) -> list[object]:
     raise ValueError(f"unknown rule target {target!r}")
 
 
-def owned_target(match: object, target: str, imports: dict[str, str], owned: frozenset[str]):
+def owned_target(
+    match: SgNode, target: str, imports: dict[str, str], owned: frozenset[str]
+) -> str | None:
     for node in target_nodes(match, target):
         origin = resolve(node, imports)
         if origin and origin.split(".")[0] in owned:
@@ -202,16 +229,18 @@ def owned_target(match: object, target: str, imports: dict[str, str], owned: fro
     return None
 
 
-def waived(rule_id: str, path: str, profile: dict) -> bool:
+def waived(rule_id: str, path: str, profile: dict[str, Any]) -> bool:
     return not apply_exceptions([Finding(rule_id, path, "", "")], profile)
 
 
-def file_findings(path: str, source: str, rules: list[Rule], owned: frozenset[str]):
+def file_findings(
+    path: str, source: str, rules: list[Rule], owned: frozenset[str]
+) -> list[Finding]:
     from ast_grep_py import SgRoot
 
     root = SgRoot(source, "python").root()
     imports = import_map(source)
-    findings = []
+    findings: list[Finding] = []
     for rule in rules:
         for match in root.find_all(rule.config):
             target = None
@@ -222,11 +251,13 @@ def file_findings(path: str, source: str, rules: list[Rule], owned: frozenset[st
             line = match.range().start.line + 1
             snippet = " ".join(match.text().split())[:80]
             message = rule.message.format(target=target, match=snippet)
-            findings.append(Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix))
+            findings.append(
+                Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix)
+            )
     return findings
 
 
-def lint(repo: Path, profile: dict, paths: list[str]) -> list[Finding]:
+def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
     owned = owned_packages(profile)
     locations, patterns = test_patterns(profile)
     rules = load_rules()
@@ -245,7 +276,11 @@ def lint(repo: Path, profile: dict, paths: list[str]) -> list[Finding]:
             continue
         findings.extend(file_findings(path, source, scoped, owned))
     findings.extend(test_only_symbol_findings(repo, profile, production))
-    return [finding for finding in findings if not waived(finding.rule_id, finding.path, profile)]
+    return [
+        finding
+        for finding in findings
+        if not waived(finding.rule_id, finding.path, profile)
+    ]
 
 
 def is_owned(path: str, owned: frozenset[str]) -> bool:
@@ -259,7 +294,9 @@ def read_source(repo: Path, path: str) -> str | None:
         return None
 
 
-def test_only_symbol_findings(repo: Path, profile: dict, reported: set[str]) -> list[Finding]:
+def test_only_symbol_findings(
+    repo: Path, profile: dict[str, Any], reported: set[str]
+) -> list[Finding]:
     """TEST.no-test-hooks over the whole repo's references, reported for the linted files."""
     if not reported:
         return []

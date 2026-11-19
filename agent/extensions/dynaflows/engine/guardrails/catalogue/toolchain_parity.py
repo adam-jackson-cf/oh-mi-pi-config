@@ -38,10 +38,10 @@ import platform
 import re
 import shlex
 import subprocess
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-
-import tomllib
+from typing import Any
 
 from guardrails.catalogue.versions import (
     VersionError,
@@ -84,8 +84,12 @@ MAKE_TARGET = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)")
 
 
 def option_values(tokens: list[str], option: str) -> set[str]:
-    values = {token.split("=", 1)[1] for token in tokens if token.startswith(option + "=")}
-    values.update(tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == option)
+    values = {
+        token.split("=", 1)[1] for token in tokens if token.startswith(option + "=")
+    }
+    values.update(
+        tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == option
+    )
     return values
 
 
@@ -125,7 +129,8 @@ def joined_lines(text: str) -> list[tuple[int, str]]:
 
 def make_targets(text: str) -> dict[str, str]:
     """Each Makefile target whose recipe runs ``uv sync``, mapped to that command."""
-    targets, current = {}, None
+    targets: dict[str, str] = {}
+    current: str | None = None
     for _, line in joined_lines(text):
         header = MAKE_TARGET.match(line)
         if header and not line.startswith("\t"):
@@ -147,7 +152,9 @@ def installer_commands(sources: Mapping[str, str]) -> dict[str, str]:
 def dependency_inventory_findings(
     project_path: str, project_toml: str, installers: Mapping[str, str]
 ) -> list[Finding]:
-    declared = set(tomllib.loads(project_toml)["project"].get("optional-dependencies", {}))
+    declared = set(
+        tomllib.loads(project_toml)["project"].get("optional-dependencies", {})
+    )
     own = project_dir(str(PurePosixPath(project_path).parent))
     findings = []
     for location, command in installers.items():
@@ -170,7 +177,9 @@ def dependency_inventory_findings(
 
 def guidance_commands(text: str) -> list[str]:
     commands: list[str] = []
-    for match in re.finditer(r"```(?:sh|bash|shell|console)\s*\n(.*?)```", text, re.DOTALL):
+    for match in re.finditer(
+        r"```(?:sh|bash|shell|console)\s*\n(.*?)```", text, re.DOTALL
+    ):
         commands.extend(line for _, line in joined_lines(match.group(1)))
     return commands
 
@@ -189,7 +198,9 @@ def documented_install(command: str, targets: Mapping[str, str]) -> str | None:
 
 
 def install_guidance_findings(
-    guidance: Mapping[str, str], installers: Mapping[str, str], targets: Mapping[str, str]
+    guidance: Mapping[str, str],
+    installers: Mapping[str, str],
+    targets: Mapping[str, str],
 ) -> list[Finding]:
     expected = {sync_signature(command) for command in installers.values()}
     findings = []
@@ -226,7 +237,9 @@ def locked_versions(lock_toml: str) -> dict[str, set[str]]:
     packages: dict[str, set[str]] = {}
     for package in tomllib.loads(lock_toml).get("package", []):
         if package.get("version"):
-            packages.setdefault(canonical_name(package["name"]), set()).add(package["version"])
+            packages.setdefault(canonical_name(package["name"]), set()).add(
+                package["version"]
+            )
     return packages
 
 
@@ -242,7 +255,9 @@ def lock_version_findings(
             seen.add(raw)
             requirement = parse_requirement(raw)
             versions = packages.get(requirement.name, set())
-            if not versions or not all(requirement.admits(version) for version in versions):
+            if not versions or not all(
+                requirement.admits(version) for version in versions
+            ):
                 findings.append(
                     Finding(
                         LOCK_VERSION,
@@ -284,7 +299,9 @@ def exact_uv_pin_findings(
     return []
 
 
-def python_pin_findings(pins: Mapping[str, bytes | None], interpreter: str) -> list[Finding]:
+def python_pin_findings(
+    pins: Mapping[str, bytes | None], interpreter: str
+) -> list[Finding]:
     fix = "keep every pin file byte-equal and install the pinned interpreter"
     findings = [
         Finding(LOCAL_CI, path, "interpreter pin file is missing", fix)
@@ -293,18 +310,27 @@ def python_pin_findings(pins: Mapping[str, bytes | None], interpreter: str) -> l
     ]
     present = {path: value for path, value in pins.items() if value is not None}
     if len(set(present.values())) > 1:
-        findings.append(Finding(LOCAL_CI, ", ".join(present), "interpreter pin files differ", fix))
+        findings.append(
+            Finding(LOCAL_CI, ", ".join(present), "interpreter pin files differ", fix)
+        )
     for path, value in present.items():
         pinned = value.decode(errors="replace").strip()
         if interpreter != pinned:
             findings.append(
-                Finding(LOCAL_CI, path, f"running Python {interpreter} differs from {pinned}", fix)
+                Finding(
+                    LOCAL_CI,
+                    path,
+                    f"running Python {interpreter} differs from {pinned}",
+                    fix,
+                )
             )
             break
     return findings
 
 
-def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding]:
+def prettier_findings(
+    options: dict[str, Any], sources: Mapping[str, str]
+) -> list[Finding]:
     package_json = options.get("package_json", "package.json")
     package_lock = options.get("package_lock", "package-lock.json")
     findings = []
@@ -318,7 +344,8 @@ def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding
             isinstance(version, str)
             and re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version) is not None
             and "prettier" not in manifest.get("dependencies", {})
-            and packages.get("", {}).get("devDependencies", {}).get("prettier") == version
+            and packages.get("", {}).get("devDependencies", {}).get("prettier")
+            == version
             and locked.get("version") == version
             and bool(locked.get("integrity"))
             and bool(locked.get("resolved"))
@@ -370,30 +397,55 @@ def node_version(repo: Path) -> str | None:
     return result.stdout.strip().removeprefix("v")
 
 
-def node_pin_findings(pins: Mapping[str, bytes | None], running: str | None) -> list[Finding]:
-    fix = "keep every Node pin file byte-equal with one exact X.Y.Z and install that Node"
+def node_pin_findings(
+    pins: Mapping[str, bytes | None], running: str | None
+) -> list[Finding]:
+    fix = (
+        "keep every Node pin file byte-equal with one exact X.Y.Z and install that Node"
+    )
     findings = [
         Finding(LOCAL_CI, path, "Node pin file is missing", fix)
         for path, value in pins.items()
         if value is None
     ]
-    present = {path: value.decode(errors="replace").strip() for path, value in pins.items() if value}
+    present = {
+        path: value.decode(errors="replace").strip()
+        for path, value in pins.items()
+        if value
+    }
     if len(set(present.values())) > 1:
-        findings.append(Finding(LOCAL_CI, ", ".join(present), "Node pin files differ", fix))
+        findings.append(
+            Finding(LOCAL_CI, ", ".join(present), "Node pin files differ", fix)
+        )
     if running is None and present:
         findings.append(
-            Finding(LOCAL_CI, ", ".join(present), "node --version failed, so the pin is unverified", fix)
+            Finding(
+                LOCAL_CI,
+                ", ".join(present),
+                "node --version failed, so the pin is unverified",
+                fix,
+            )
         )
     for path, pinned in present.items():
         exact = EXACT.fullmatch(pinned)
         if exact is None:
-            findings.append(Finding(LOCAL_CI, path, f"Node pin {pinned!r} is not one exact X.Y.Z", fix))
+            findings.append(
+                Finding(
+                    LOCAL_CI, path, f"Node pin {pinned!r} is not one exact X.Y.Z", fix
+                )
+            )
         elif running is not None and exact.group(1) != running:
-            findings.append(Finding(LOCAL_CI, path, f"running Node {running} differs from {pinned}", fix))
+            findings.append(
+                Finding(
+                    LOCAL_CI, path, f"running Node {running} differs from {pinned}", fix
+                )
+            )
     return findings
 
 
-def package_manager_findings(package_json: str, text: str, present: set[str]) -> list[Finding]:
+def package_manager_findings(
+    package_json: str, text: str, present: set[str]
+) -> list[Finding]:
     folder = PurePosixPath(package_json).parent
     try:
         declared = json.loads(text).get("packageManager")
@@ -435,17 +487,25 @@ def package_manager_findings(package_json: str, text: str, present: set[str]) ->
 
 
 def go_toolchain(go_mod: str) -> str | None:
-    directives = dict(match.groups() for match in GO_DIRECTIVE.finditer(go_mod))
+    directives = {
+        match.group(1): match.group(2) for match in GO_DIRECTIVE.finditer(go_mod)
+    }
     toolchain = directives.get("toolchain", "").removeprefix("go")
     wanted = toolchain or directives.get("go", "")
     return wanted if re.fullmatch(r"\d+\.\d+\.\d+", wanted) else None
 
 
-def go_findings(go_mod_path: str, go_mod: str, sources: Mapping[str, str]) -> list[Finding]:
+def go_findings(
+    go_mod_path: str, go_mod: str, sources: Mapping[str, str]
+) -> list[Finding]:
     fix = "pin one exact Go toolchain in go.mod and use it in CI (go-version-file: go.mod)"
     wanted = go_toolchain(go_mod)
     if wanted is None:
-        return [Finding(LOCAL_CI, go_mod_path, "go.mod names no exact goX.Y.Z toolchain", fix)]
+        return [
+            Finding(
+                LOCAL_CI, go_mod_path, "go.mod names no exact goX.Y.Z toolchain", fix
+            )
+        ]
     findings = []
     declared = False
     for path, text in sources.items():
@@ -454,16 +514,33 @@ def go_findings(go_mod_path: str, go_mod: str, sources: Mapping[str, str]) -> li
                 declared = True
                 if match.group(1).removeprefix("go") != wanted:
                     findings.append(
-                        Finding(LOCAL_CI, path, f"CI Go {match.group(1)} differs from go.mod {wanted}", fix)
+                        Finding(
+                            LOCAL_CI,
+                            path,
+                            f"CI Go {match.group(1)} differs from go.mod {wanted}",
+                            fix,
+                        )
                     )
         for match in CI_GO_FILE.finditer(text):
             declared = True
             if match.group(1).removeprefix("./") != go_mod_path:
                 findings.append(
-                    Finding(LOCAL_CI, path, f"go-version-file {match.group(1)} is not {go_mod_path}", fix)
+                    Finding(
+                        LOCAL_CI,
+                        path,
+                        f"go-version-file {match.group(1)} is not {go_mod_path}",
+                        fix,
+                    )
                 )
     if not declared:
-        findings.append(Finding(LOCAL_CI, ", ".join(sources) or go_mod_path, "CI sources set no Go version", fix))
+        findings.append(
+            Finding(
+                LOCAL_CI,
+                ", ".join(sources) or go_mod_path,
+                "CI sources set no Go version",
+                fix,
+            )
+        )
     return findings
 
 
@@ -471,12 +548,16 @@ def read_text(repo: Path, path: str) -> str:
     return (repo / path).read_text(encoding="utf-8")
 
 
-def globbed_sources(repo: Path, inventory: list[str], patterns: object) -> dict[str, str]:
+def globbed_sources(
+    repo: Path, inventory: list[str], patterns: object
+) -> dict[str, str]:
     selected = [path for path in inventory if matches_any(path, as_list(patterns))]
     return {path: read_text(repo, path) for path in selected if (repo / path).is_file()}
 
 
-def uv_findings(repo: Path, options: dict, inventory: list[str]) -> list[Finding]:
+def uv_findings(
+    repo: Path, options: dict[str, Any], inventory: list[str]
+) -> list[Finding]:
     project_path = options.get("project", "pyproject.toml")
     lock_path = options.get("lock", "uv.lock")
     project_toml, lock_toml = read_text(repo, project_path), read_text(repo, lock_path)
@@ -486,9 +567,12 @@ def uv_findings(repo: Path, options: dict, inventory: list[str]) -> list[Finding
     for path, text in sources.items():
         if PurePosixPath(path).name in {"Makefile", "makefile", "GNUmakefile"}:
             targets.update(make_targets(text))
-    guidance = {path: read_text(repo, path) for path in as_list(options.get("guidance"))}
+    guidance = {
+        path: read_text(repo, path) for path in as_list(options.get("guidance"))
+    }
     projects = {
-        path: read_text(repo, path) for path in as_list(options.get("lock_projects", project_path))
+        path: read_text(repo, path)
+        for path in as_list(options.get("lock_projects", project_path))
     }
     findings = [
         *dependency_inventory_findings(project_path, project_toml, installers),
@@ -496,16 +580,19 @@ def uv_findings(repo: Path, options: dict, inventory: list[str]) -> list[Finding
         *lock_version_findings(projects, lock_path, lock_toml),
     ]
     if options.get("exact_uv_pin"):
-        findings.extend(exact_uv_pin_findings(project_path, project_toml, lock_path, lock_toml))
+        findings.extend(
+            exact_uv_pin_findings(project_path, project_toml, lock_path, lock_toml)
+        )
     return findings
 
 
-def static_findings(repo: Path, options: dict) -> list[Finding]:
+def static_findings(repo: Path, options: dict[str, Any]) -> list[Finding]:
     findings = []
     pins = as_list(options.get("python_pins"))
     if pins:
         values = {
-            path: (repo / path).read_bytes() if (repo / path).is_file() else None for path in pins
+            path: (repo / path).read_bytes() if (repo / path).is_file() else None
+            for path in pins
         }
         findings.extend(python_pin_findings(values, platform.python_version()))
     node_pins = as_list(options.get("node_pins"))
@@ -534,12 +621,14 @@ def static_findings(repo: Path, options: dict) -> list[Finding]:
         names = [prettier.get("package_json", "package.json")]
         names.append(prettier.get("package_lock", "package-lock.json"))
         sources = globbed_sources(repo, inventory, prettier.get("npx_sources"))
-        sources.update({name: read_text(repo, name) for name in names if (repo / name).is_file()})
+        sources.update({
+            name: read_text(repo, name) for name in names if (repo / name).is_file()
+        })
         findings.extend(prettier_findings(prettier, sources))
     return findings
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
             Finding(

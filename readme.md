@@ -138,7 +138,7 @@ A repo never depends on, contains or mentions omp or dynaflows. Its harness sett
 gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
 `origin` remote. [The record contract](agent/lib/record/README.md) defines its `gate.json` and
 `profile.md`, strict loading, owner-only paths and write authority; records are never committed,
-because they mean nothing to anyone else who takes this config. `scripts/device-rollout.py`
+because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
 copies them to devices. Dynaflows
 [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record
 configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves off,
@@ -160,7 +160,7 @@ harness's `AGENT` variable from every repo command they run.
 
 ## Device rollout
 
-Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
+Run `python3 scripts/device_rollout.py` from this Mac to fetch and report local
 `~/.omp` and `~/.agents` revisions (never pull either local checkout), fast-forward
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
 It also writes each device's untracked `~/.omp/ci-runners.json` from the runner
@@ -196,12 +196,12 @@ The record's `gate.json` declares what must pass, not where it runs:
 `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`. Rails and `prove()`
 check only that the required context is green on the exact head, whoever posts
 it. The runner is a role name. Each device's untracked `~/.omp/ci-runners.json`,
-written by `scripts/device-rollout.py`, maps roles to submit, wait, status and logs
+written by `scripts/device_rollout.py`, maps roles to submit, wait, status and logs
 commands. Push an `agent/<slug>` branch, then submit and wait:
 
 ```sh
-python3 ~/.omp/scripts/ci-runner.py submit ci-gate OWNER/REPO SHA
-python3 ~/.omp/scripts/ci-runner.py wait ci-gate OWNER/REPO SHA
+python3 ~/.omp/scripts/ci_runner.py submit ci-gate OWNER/REPO SHA
+python3 ~/.omp/scripts/ci_runner.py wait ci-gate OWNER/REPO SHA
 ```
 
 Replace `SHA` with the pushed 40-character lowercase commit SHA. `status` prints
@@ -210,12 +210,12 @@ role's `timeout` from the tracked role config; `--timeout` overrides it. A role
 without configured `wait`/`status` commands uses a built-in GitHub poller and
 needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
-missing role exits 2 and names the device-rollout command to run. This
+missing role exits 2 and names the device_rollout.py command to run. This
 repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
 
 ### ci-gate service
 
-The `ci-gate` role is `scripts/ci-gate.py` on the owner's Linux NUC, running
+The `ci-gate` role is `scripts/ci_gate.py` on the owner's Linux NUC, running
 exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `scripts/ci-gate-repos.json` can run, and any of them may declare runner
 `ci-gate`. It posts the GitHub commit status context named by the repository's
@@ -258,7 +258,7 @@ process-local Git configuration environment variables, never command-line
 arguments or saved mirror configuration.
 
 `CI_GATE_INFISICAL_PROJECT` and `CI_GATE_INFISICAL_ENV` are required, and `submit`
-fails before creating job state when either is unset. `scripts/device-rollout.py`
+fails before creating job state when either is unset. `scripts/device_rollout.py`
 writes both into each device's `ci-gate` runner commands from the registry's
 `infisical` setting, which the judge key also uses; rerun it after changing the
 setting. `CI_GATE_REPOS`,
@@ -284,6 +284,25 @@ Dispatch manually from Actions → CI quality gates → Run workflow, or:
 gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main
 ```
 
+## Python checks
+
+Root `pyproject.toml` and `uv.lock` pin ruff, mypy and pytest for every owned Python file. The
+ruff and mypy settings mirror the harness catalogue,
+`agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
+
+```bash
+uv sync
+uv run ruff check     # fix = true applies safe fixes; add --no-fix to report only
+uv run ruff format --check
+uv run mypy
+uv run pytest
+```
+
+`scripts/run-ci-quality-gates.sh` runs `ruff check`, `ruff format --check` and `mypy` over the
+whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the gate. It runs the
+Python suites with `uv run --locked python -m unittest`, so the suites can import pytest. The
+CI-tier container installs uv by hash and syncs the locked environment in its `postCreateCommand`.
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.
@@ -303,11 +322,11 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.
-- `scripts/check-paths.py` — repo-owned source allowlist and test-layout checks retained for repo CI.
+- `scripts/check_paths.py` — repo-owned source allowlist and test-layout checks retained for repo CI.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
-- `scripts/ci-runner.py` — runs a CI runner role's submit, wait, status or logs
+- `scripts/ci_runner.py` — runs a CI runner role's submit, wait, status or logs
   command from `~/.omp/ci-runners.json`.
-- `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
+- `scripts/ci_gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
 - `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
   fallback and how a nuc-config sync merges.

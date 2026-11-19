@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from guardrails import harness
 from guardrails.config.house_style import load_house_style
@@ -41,15 +42,17 @@ def template_text() -> str:
         ) from error
 
 
-def split_document(text: str) -> tuple[dict, str]:
+def split_document(text: str) -> tuple[dict[str, Any], str]:
     """Return the front-matter values and the text after the closing fence."""
     values = parse_front_matter(text)
     lines = text.splitlines(keepends=True)
-    end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE)
+    end = next(
+        index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE
+    )
     return values, "".join(lines[end + 1 :])
 
 
-def render(values: dict, body: str) -> str:
+def render(values: dict[str, Any], body: str) -> str:
     front = json.dumps(values, indent=2, ensure_ascii=False)
     return f"{FENCE}\n{front}\n{FENCE}\n{body}"
 
@@ -58,7 +61,7 @@ def is_placeholder(value: object) -> bool:
     return isinstance(value, str) and bool(PLACEHOLDER.search(value))
 
 
-def is_whole_value(default: dict) -> bool:
+def is_whole_value(default: dict[str, Any]) -> bool:
     return any(is_placeholder(key) for key in default)
 
 
@@ -74,7 +77,7 @@ def fill_missing(existing: object, default: object) -> object:
     return merged
 
 
-def with_house_style_version(values: dict) -> dict:
+def with_house_style_version(values: dict[str, Any]) -> dict[str, Any]:
     house_style = values.get("house_style")
     if not isinstance(house_style, dict):
         return values
@@ -87,7 +90,9 @@ def with_house_style_version(values: dict) -> dict:
     return {**values, "house_style": {**house_style, "version": shipped}}
 
 
-def with_lsp_notes(values: dict, notes: list[dict]) -> tuple[dict, str | None]:
+def with_lsp_notes(
+    values: dict[str, Any], notes: list[dict[str, Any]]
+) -> tuple[dict[str, Any], str | None]:
     """Add ``command_notes.lsp`` when the profile has no LSP note yet."""
     if not notes:
         return values, None
@@ -95,13 +100,16 @@ def with_lsp_notes(values: dict, notes: list[dict]) -> tuple[dict, str | None]:
     if command_notes is None:
         return {**values, "command_notes": {"lsp": notes}}, None
     if not isinstance(command_notes, dict):
-        return values, "command_notes is not an object; record the LSP server there by hand"
+        return (
+            values,
+            "command_notes is not an object; record the LSP server there by hand",
+        )
     if "lsp" in command_notes:
         return values, None
     return {**values, "command_notes": {**command_notes, "lsp": notes}}, None
 
 
-def read_existing(record: Path) -> tuple[dict, str] | None:
+def read_existing(record: Path) -> tuple[dict[str, Any], str] | None:
     path = record / PROFILE_FILE
     if not path.exists():
         return None
@@ -112,7 +120,7 @@ def read_existing(record: Path) -> tuple[dict, str] | None:
 
 
 def planned_profile(
-    record: Path, settings: dict, lsp_notes: list[dict]
+    record: Path, settings: dict[str, Any], lsp_notes: list[dict[str, Any]]
 ) -> tuple[str | None, list[str]]:
     """Return the new profile text (None when unchanged) and notes for the report."""
     template_values, template_body = split_document(template_text())
@@ -130,7 +138,7 @@ def planned_profile(
     return render(values, body), notes
 
 
-def load_settings(path: Path | None) -> dict:
+def load_settings(path: Path | None) -> dict[str, Any]:
     """Per-checker settings for ``guardrails`` from a JSON file (``--settings``)."""
     if path is None:
         return {}

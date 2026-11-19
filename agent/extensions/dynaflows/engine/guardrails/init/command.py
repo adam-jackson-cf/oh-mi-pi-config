@@ -26,9 +26,15 @@ from __future__ import annotations
 import argparse
 import shlex
 from pathlib import Path
+from typing import Any
 
 from guardrails import harness
-from guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
+from guardrails.config.profile import (
+    PROFILE_FILE,
+    PROFILE_PATH,
+    ProfileError,
+    load_profile,
+)
 from guardrails.findings import Finding
 from guardrails.init import (
     discovery,
@@ -56,9 +62,12 @@ def parser() -> argparse.ArgumentParser:
         help="ci.requiredContext: status context or check run that must be green on the head",
     )
     command.add_argument(
-        "--runner", help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)"
+        "--runner",
+        help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)",
     )
-    command.add_argument("--settings", type=Path, help="JSON object of guardrails settings")
+    command.add_argument(
+        "--settings", type=Path, help="JSON object of guardrails settings"
+    )
     command.add_argument(
         "--offline", action="store_true", help="do not ask gh for the required checks"
     )
@@ -89,7 +98,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     return options
 
 
-def write_if_changed(path: Path, text: str | None, changes: list[str], label: str) -> None:
+def write_if_changed(
+    path: Path, text: str | None, changes: list[str], label: str
+) -> None:
     if text is None or (path.exists() and path.read_text(encoding="utf-8") == text):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,20 +120,19 @@ def apply_profile(
 
 def apply_gate(
     record: Path,
-    gate: dict | None,
+    gate: dict[str, Any] | None,
     found: discovery.Discovery,
     options: argparse.Namespace,
     changes: list[str],
 ) -> list[str]:
-    planned, confirmations = record_gate.planned_gate(
-        gate,
-        found,
+    answers = record_gate.GateAnswers(
         commit=options.commit_command,
         ci_command=options.ci_command,
         required_context=options.required_context,
         runner=options.runner,
         dynaflows=options.enable_dynaflows,
     )
+    planned, confirmations = record_gate.planned_gate(gate, found, answers)
     if planned != gate:
         write_if_changed(
             record / record_gate.GATE_FILE,
@@ -145,7 +155,7 @@ def apply_native(repo: Path, record: Path, changes: list[str]) -> list[str]:
     return report
 
 
-def optional_profile(record: Path) -> dict:
+def optional_profile(record: Path) -> dict[str, Any]:
     try:
         return load_profile(record)
     except ProfileError:
@@ -187,20 +197,21 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
+    live = harness.RECORDS.resolve()
     try:
         options = parse(argv)
-    except UsageError as error:
-        return [usage_finding(str(error))]
-    live = harness.RECORDS.resolve()
-    if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
-        return [usage_finding(f"--record {record} must be a repo's record, {live}/<owner>/<name>")]
-    try:
+        if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
+            raise UsageError(
+                f"--record {record} must be a repo's record, {live}/<owner>/<name>"
+            )
         lines, findings = initialise(repo, record, options)
     except UsageError as error:
         return [usage_finding(str(error))]
     except record_gate.GateError as error:
         return [record_gate.gate_finding(error)]
     except ProfileError as error:
-        return [Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")]
+        return [
+            Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")
+        ]
     print("\n".join(lines))
     return findings

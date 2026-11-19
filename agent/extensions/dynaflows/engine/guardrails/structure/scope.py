@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import subprocess
 import tempfile
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from guardrails.findings import Finding
 from guardrails.structure.inventory import InventoryError, normalized_path, repo_paths
 
 
@@ -20,8 +22,13 @@ class Scope:
 
 def git(repo: Path, *args: str, data: bytes = b"") -> bytes:
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], input=data, capture_output=True,
-                                check=False, timeout=60)
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            input=data,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InventoryError(str(error)) from error
     if result.returncode:
@@ -30,12 +37,34 @@ def git(repo: Path, *args: str, data: bytes = b"") -> bytes:
 
 
 def tree_paths(repo: Path, tree: str) -> list[str]:
-    return [path for path in git(repo, "ls-tree", "-r", "--name-only", "-z", tree).decode().split("\0") if path]
+    return [
+        path
+        for path in git(repo, "ls-tree", "-r", "--name-only", "-z", tree)
+        .decode()
+        .split("\0")
+        if path
+    ]
 
 
 def additions(repo: Path, base: str, head: str) -> list[str]:
-    rows = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z",
-               "--find-renames=50%", "-l0", "--diff-filter=AR", base, head, "--").decode().split("\0")
+    rows = (
+        git(
+            repo,
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-status",
+            "-z",
+            "--find-renames=50%",
+            "-l0",
+            "--diff-filter=AR",
+            base,
+            head,
+            "--",
+        )
+        .decode()
+        .split("\0")
+    )
     paths = []
     index = 0
     while index < len(rows) and rows[index]:
@@ -55,7 +84,9 @@ def _expand(repo: Path, requested: list[str], inventory: list[str]) -> list[str]
         if path is None:
             found.add(raw)
             continue
-        descendants = [item for item in inventory if item == path or item.startswith(path + "/")]
+        descendants = [
+            item for item in inventory if item == path or item.startswith(path + "/")
+        ]
         found.update(descendants or [path])
     return sorted(found)
 
@@ -70,20 +101,51 @@ def select(repo: Path, argv: list[str]) -> Scope:
     args = parser.parse_args(argv)
     if args.base or args.head:
         if not (args.base and args.head) or args.event or args.all or args.paths:
-            raise InventoryError("--base and --head require a range without paths or other scope options")
-        head = git(repo, "rev-parse", "--verify", "--end-of-options", args.head + "^{commit}").decode().strip()
+            raise InventoryError(
+                "--base and --head require a range without paths or other scope options"
+            )
+        head = (
+            git(
+                repo,
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                args.head + "^{commit}",
+            )
+            .decode()
+            .strip()
+        )
         base = git(repo, "merge-base", args.base, head).decode().strip()
-        return Scope(additions(repo, base, head), set(tree_paths(repo, base)), tree_paths(repo, head), head)
+        return Scope(
+            additions(repo, base, head),
+            set(tree_paths(repo, base)),
+            tree_paths(repo, head),
+            head,
+        )
     if args.all or (not args.paths and not args.event):
         inventory = repo_paths(repo)
-        return Scope(_expand(repo, args.paths, inventory) if args.paths else inventory, None, inventory)
-    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "HEAD"],
-                          capture_output=True, check=False, timeout=60)
-    base = head.stdout.decode().strip() if head.returncode == 0 else git(repo, "mktree").decode().strip()
+        return Scope(
+            _expand(repo, args.paths, inventory) if args.paths else inventory,
+            None,
+            inventory,
+        )
+    resolved = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    base = (
+        resolved.stdout.decode().strip()
+        if resolved.returncode == 0
+        else git(repo, "mktree").decode().strip()
+    )
     existing = set(tree_paths(repo, base))
     if args.event == "staged":
         tree = git(repo, "write-tree").decode().strip()
-        return Scope(additions(repo, base, tree), existing, tree_paths(repo, tree), tree)
+        return Scope(
+            additions(repo, base, tree), existing, tree_paths(repo, tree), tree
+        )
     inventory = repo_paths(repo)
     candidates = _expand(repo, args.paths, inventory) if args.paths else inventory
     paths = []
@@ -97,7 +159,7 @@ def select(repo: Path, argv: list[str]) -> Scope:
 
 
 @contextmanager
-def checkout(repo: Path, scope: Scope):
+def checkout(repo: Path, scope: Scope) -> Generator[Path, None, None]:
     if scope.tree is None:
         yield repo
         return
@@ -117,8 +179,12 @@ def checkout(repo: Path, scope: Scope):
                 raise InventoryError(f"unsafe snapshot path: {raw}")
             files.append((raw, mode, oid))
         if files:
-            output = git(repo, "cat-file", "--batch",
-                         data="".join(oid + "\n" for _, _, oid in files).encode())
+            output = git(
+                repo,
+                "cat-file",
+                "--batch",
+                data="".join(oid + "\n" for _, _, oid in files).encode(),
+            )
             offset = 0
             for raw, mode, expected in files:
                 end = output.index(b"\n", offset)
@@ -129,18 +195,28 @@ def checkout(repo: Path, scope: Scope):
                 size = int(raw_size)
                 path = root / raw
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(output[offset:offset + size])
+                path.write_bytes(output[offset : offset + size])
                 path.chmod(int(mode, 8) & 0o777)
                 offset += size + 1
         yield root
 
 
-def restrict(findings, paths: list[str], existing_paths: set[str] | None):
+def restrict(
+    findings: list[Finding], paths: list[str], existing_paths: set[str] | None
+) -> list[Finding]:
     if existing_paths is None:
         return findings
-    existing = {parent.as_posix() for path in existing_paths for parent in Path(path).parents}
+    existing = {
+        parent.as_posix() for path in existing_paths for parent in Path(path).parents
+    }
     existing.update(existing_paths)
-    return [finding for finding in findings
-            if finding.path.rstrip("/") not in existing
-            and any(path == finding.path.rstrip("/") or path.startswith(finding.path.rstrip("/") + "/")
-                    for path in paths)]
+    return [
+        finding
+        for finding in findings
+        if finding.path.rstrip("/") not in existing
+        and any(
+            path == finding.path.rstrip("/")
+            or path.startswith(finding.path.rstrip("/") + "/")
+            for path in paths
+        )
+    ]

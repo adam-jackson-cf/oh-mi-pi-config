@@ -18,7 +18,7 @@ With ``--junitxml`` the plugin adds the run properties ``omp.tier``, ``omp.runti
 Git), ``omp.wall_s``, ``omp.exit_code`` and ``omp.guards`` (the armed guards), so the report
 proves which tier ran, on which revision and runtime, and under which guards.
 
-A blocked operation raises ``GuardViolation`` and fails the phase it ran in, even when the test
+A blocked operation raises ``GuardViolationError`` and fails the phase it ran in, even when the test
 catches the exception. The failure text starts with the rule ID.
 """
 
@@ -32,6 +32,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="GUARD",
         help=f"arm a tier guard ({', '.join(guards.GUARDS)}); repeat or comma-separate",
     )
-    group.addoption("--omp-tier", default=None, metavar="TIER", help="profile tier of this run")
+    group.addoption(
+        "--omp-tier", default=None, metavar="TIER", help="profile tier of this run"
+    )
     group.addoption(
         "--omp-collect-out",
         default=None,
@@ -101,7 +104,9 @@ class GuardSession:
 
     def redirect_home(self, home: str) -> None:
         values = {"HOME": home, "USERPROFILE": home}
-        values.update({name: os.path.join(home, name.lower()) for name in XDG_VARIABLES})
+        values.update({
+            name: os.path.join(home, name.lower()) for name in XDG_VARIABLES
+        })
         for name, value in values.items():
             self.saved_environment[name] = os.environ.get(name)
             os.environ[name] = value
@@ -134,13 +139,16 @@ def pytest_unconfigure(config: pytest.Config) -> None:
         session.stop()
 
 
-def guarded_phase(item: pytest.Item, when: str) -> Generator[None, object, object]:
+@contextmanager
+def guarded_phase(item: pytest.Item, when: str) -> Generator[None, None, None]:
+    """Arm the session's guards for one test phase and record what they blocked."""
     session = item.config.stash.get(SESSION_KEY, None)
     if session is None:
-        return (yield)
+        yield
+        return
     guards.arm(session.armed)
     try:
-        return (yield)
+        yield
     finally:
         found = guards.disarm()
         if found:
@@ -149,17 +157,20 @@ def guarded_phase(item: pytest.Item, when: str) -> Generator[None, object, objec
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item) -> Generator[None, object, object]:
-    return (yield from guarded_phase(item, "setup"))
+    with guarded_phase(item, "setup"):
+        return (yield)
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, object, object]:
-    return (yield from guarded_phase(item, "call"))
+    with guarded_phase(item, "call"):
+        return (yield)
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_teardown(item: pytest.Item) -> Generator[None, object, object]:
-    return (yield from guarded_phase(item, "teardown"))
+    with guarded_phase(item, "teardown"):
+        return (yield)
 
 
 @pytest.hookimpl(wrapper=True)

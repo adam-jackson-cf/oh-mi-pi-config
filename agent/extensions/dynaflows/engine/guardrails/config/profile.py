@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,7 @@ class ProfileError(Exception):
     """The profile file is absent or its front matter cannot be read."""
 
 
-def load_profile(record: Path) -> dict:
+def load_profile(record: Path) -> dict[str, Any]:
     """Return the JSON object in the front matter of ``<record>/profile.md``."""
     path = record / PROFILE_FILE
     try:
@@ -70,18 +71,24 @@ def load_profile(record: Path) -> dict:
     return parse_front_matter(text)
 
 
-def parse_front_matter(text: str) -> dict:
+def parse_front_matter(text: str) -> dict[str, Any]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != FENCE:
         raise ProfileError(f"{PROFILE_PATH} must start with a '---' front-matter block")
     try:
-        end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE)
+        end = next(
+            index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE
+        )
     except StopIteration as error:
-        raise ProfileError(f"{PROFILE_PATH} front matter has no closing '---' line") from error
+        raise ProfileError(
+            f"{PROFILE_PATH} front matter has no closing '---' line"
+        ) from error
     try:
         values = json.loads("\n".join(lines[1:end]))
     except json.JSONDecodeError as error:
-        raise ProfileError(f"{PROFILE_PATH} front matter is not valid JSON: {error}") from error
+        raise ProfileError(
+            f"{PROFILE_PATH} front matter is not valid JSON: {error}"
+        ) from error
     if not isinstance(values, dict):
         raise ProfileError(f"{PROFILE_PATH} front matter must be one JSON object")
     return values
@@ -112,7 +119,10 @@ SCHEMA: dict[str, Any] = {
         "nightly_scheduler": "text",
         "nightly_branches": "texts",
     },
-    "fast_tier_budget": {"duration_report_command": "text", "machines": ("records", MACHINE)},
+    "fast_tier_budget": {
+        "duration_report_command": "text",
+        "machines": ("records", MACHINE),
+    },
     "coverage": {
         "scope": "texts",
         "line_floor": "percent",
@@ -120,7 +130,11 @@ SCHEMA: dict[str, Any] = {
         "where": "text",
     },
     "guards": {"process": "text", "network": "text", "user_data": "text"},
-    "environments": {"required": "texts", "require_flag": "text", "readiness_probe": "text"},
+    "environments": {
+        "required": "texts",
+        "require_flag": "text",
+        "readiness_probe": "text",
+    },
     "verification_surface": {
         "lever_command": "text",
         "doctor_marker": "text",
@@ -131,9 +145,17 @@ SCHEMA: dict[str, Any] = {
     },
     "ownership_areas": {"map": "map", "affected_t2_selection": "text"},
     "identity_artefacts": "value",
-    "layout": {"support_dir": "text", "fixtures_dir": "text", "test_file_patterns": "texts"},
+    "layout": {
+        "support_dir": "text",
+        "fixtures_dir": "text",
+        "test_file_patterns": "texts",
+    },
     # ``lsp`` is written by ``guardrails init``; the other two are the owner's notes.
-    "command_notes": {"working_directory": "text", "interpretation": "text", "lsp?": "value"},
+    "command_notes": {
+        "working_directory": "text",
+        "interpretation": "text",
+        "lsp?": "value",
+    },
     "adapter": "text",
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer"},
@@ -179,7 +201,7 @@ def is_missing_text(value: object) -> bool:
     )
 
 
-def validate_profile(profile: dict) -> list[Finding]:
+def validate_profile(profile: dict[str, Any]) -> list[Finding]:
     """PROFILE.complete findings for a parsed profile (empty when complete)."""
     problems: list[tuple[str, str]] = []
     for key in sorted(set(profile) - set(SCHEMA) - set(OPTIONAL)):
@@ -191,12 +213,14 @@ def validate_profile(profile: dict) -> list[Finding]:
             check_value(profile[key], spec, key, problems)
     problems.extend(house_style_version_problems(profile))
     return [
-        Finding(RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value")
+        Finding(
+            RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value"
+        )
         for key, problem in problems
     ]
 
 
-def house_style_version_problems(profile: dict) -> list[tuple[str, str]]:
+def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
     from guardrails.config.house_style import load_house_style
 
     declared = profile.get("house_style", {})
@@ -215,7 +239,9 @@ def house_style_version_problems(profile: dict) -> list[tuple[str, str]]:
     ]
 
 
-def check_value(value: object, spec: Any, key: str, problems: list[tuple[str, str]]) -> None:
+def check_value(
+    value: object, spec: Any, key: str, problems: list[tuple[str, str]]
+) -> None:
     if key in EXEMPTABLE and isinstance(value, dict) and "none" in value:
         check_exemption(value, key, problems)
         return
@@ -227,7 +253,9 @@ def check_value(value: object, spec: Any, key: str, problems: list[tuple[str, st
         check_leaf(value, spec, key, problems)
 
 
-def check_exemption(value: dict, key: str, problems: list[tuple[str, str]]) -> None:
+def check_exemption(
+    value: dict[str, Any], key: str, problems: list[tuple[str, str]]
+) -> None:
     extra = sorted(set(value) - {"none", "approval"})
     if extra:
         problems.append((key, f"exemption has unexpected keys {extra}"))
@@ -237,7 +265,9 @@ def check_exemption(value: dict, key: str, problems: list[tuple[str, str]]) -> N
         problems.append((key, "exemption needs an owner 'approval' reference"))
 
 
-def check_section(value: object, spec: dict, key: str, problems: list[tuple[str, str]]) -> None:
+def check_section(
+    value: object, spec: dict[str, Any], key: str, problems: list[tuple[str, str]]
+) -> None:
     if not isinstance(value, dict):
         problems.append((key, "is missing" if value is None else "must be an object"))
         return
@@ -256,7 +286,9 @@ def check_section(value: object, spec: dict, key: str, problems: list[tuple[str,
         check_value(value.get(name), spec[child], f"{key}.{name}", problems)
 
 
-def check_records(value: object, spec: tuple, key: str, problems: list[tuple[str, str]]) -> None:
+def check_records(
+    value: object, spec: tuple[Any, ...], key: str, problems: list[tuple[str, str]]
+) -> None:
     kind, fields = spec
     if not isinstance(value, list):
         problems.append((key, "must be a list"))
@@ -267,35 +299,67 @@ def check_records(value: object, spec: tuple, key: str, problems: list[tuple[str
         check_section(item, fields, f"{key}[{index}]", problems)
 
 
-def check_leaf(value: object, kind: str, key: str, problems: list[tuple[str, str]]) -> None:
+def check_leaf(
+    value: object, kind: str, key: str, problems: list[tuple[str, str]]
+) -> None:
     problem = leaf_problem(value, kind)
     if problem:
         problems.append((key, problem))
 
 
-def leaf_problem(value: object, kind: str) -> str | None:
-    if value is None:
-        return "is missing"
-    if kind == "text":
-        return "is missing (placeholder, sentinel or empty)" if is_missing_text(value) else None
-    if kind == "texts":
-        items = value if isinstance(value, list) else [value]
-        if not items or any(is_missing_text(item) for item in items):
-            return "needs one or more real values"
-        return None
-    if kind in {"percent", "positive", "integer"}:
-        return number_problem(value, kind)
-    if kind == "map":
-        if not isinstance(value, dict) or not value:
-            return "must be a non-empty object"
-        return placeholder_problem(value)
-    if kind == "object":
-        return None if isinstance(value, dict) else "must be an object"
-    if kind == "list":
-        return "must be a list" if not isinstance(value, list) else placeholder_problem(value)
+def text_problem(value: object) -> str | None:
+    return (
+        "is missing (placeholder, sentinel or empty)"
+        if is_missing_text(value)
+        else None
+    )
+
+
+def texts_problem(value: object) -> str | None:
+    items = value if isinstance(value, list) else [value]
+    if not items or any(is_missing_text(item) for item in items):
+        return "needs one or more real values"
+    return None
+
+
+def map_problem(value: object) -> str | None:
+    if not isinstance(value, dict) or not value:
+        return "must be a non-empty object"
+    return placeholder_problem(value)
+
+
+def object_problem(value: object) -> str | None:
+    return None if isinstance(value, dict) else "must be an object"
+
+
+def list_problem(value: object) -> str | None:
+    return (
+        "must be a list" if not isinstance(value, list) else placeholder_problem(value)
+    )
+
+
+def value_problem(value: object) -> str | None:
     if value in ({}, [], ""):
         return "is missing"
     return placeholder_problem(value)
+
+
+LEAF_CHECKS: dict[str, Callable[[object], str | None]] = {
+    "text": text_problem,
+    "texts": texts_problem,
+    "map": map_problem,
+    "object": object_problem,
+    "list": list_problem,
+}
+NUMBER_KINDS = frozenset({"percent", "positive", "integer"})
+
+
+def leaf_problem(value: object, kind: str) -> str | None:
+    if value is None:
+        return "is missing"
+    if kind in NUMBER_KINDS:
+        return number_problem(value, kind)
+    return LEAF_CHECKS.get(kind, value_problem)(value)
 
 
 def number_problem(value: object, kind: str) -> str | None:
@@ -327,7 +391,7 @@ def placeholder_problem(value: object) -> str | None:
     return None
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails profile-check``: the CLI has already loaded the front matter."""
     del repo, argv
     return validate_profile(profile)

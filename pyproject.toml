@@ -1,0 +1,151 @@
+# Shared Python verification tooling for every owned Python file in this repository.
+# The ruff and mypy settings mirror the harness catalogue,
+# agent/extensions/dynaflows/engine/guardrails/data/native-tools.json; change both together.
+# Target values (Python version, first-party modules, source roots) come from this repository.
+
+[project]
+name = "oh-mi-pi-config"
+version = "0.0.0"
+description = "Python verification tooling for the OMP control plane."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  # The engine and its pytest extra, so mypy sees its real dependencies.
+  "guardrails[pytest]",
+  # The vision-reading experiment's inline script dependencies.
+  "matplotlib==3.11.2",
+  "mypy==2.4.1",
+  "numpy==2.4.6",
+  "pytest==9.1.1",
+  "ruff==0.17.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+guardrails = { path = "agent/extensions/dynaflows/engine", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+fix = true
+output-format = "full"
+respect-gitignore = true
+preview = true
+exclude = [
+  ".build",
+  ".git",
+  ".tox",
+  ".venv",
+  "venv",
+  "__pycache__",
+  "*.egg-info",
+  "build",
+  "dist",
+  "node_modules",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+]
+# Intentional test-fixture trees: frozen repositories and conformance cases, not owned code.
+extend-exclude = [
+  "agent/extensions/dynaflows/engine/guardrails/adapters/pytest/conformance/fixtures",
+  "agent/skills/omp-config-optimise/experiments/*/fixtures",
+  "tests/fixtures",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "W",
+  "F",
+  "I",
+  "B",
+  "C4",
+  "C901",
+  "UP",
+  "SIM",
+  "PT",
+  "PGH",
+  "A",
+  "S110",
+  "BLE001",
+  "SIM105",
+  "N",
+  "PLR0904",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0914",
+  "PLR0915",
+  "PLR0917",
+]
+ignore = ["E501", "B006", "B008", "A005"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"test_*.py" = ["S101", "PLR2004"]
+"**/tests/**" = ["S101", "PLR2004"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["guardrails", "workflows", "repo_record"]
+force-single-line = false
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+max-locals = 15
+max-positional-args = 5
+max-public-methods = 20
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+follow_imports = "normal"
+show_error_codes = true
+# The owned Python roots, as the .gitignore allowlist tracks them.
+files = [
+  "agent/extensions/dynaflows",
+  "agent/lib",
+  "agent/skills/omp-config-optimise",
+  "scripts",
+  "tests",
+]
+# Script folders run with their own directory on sys.path; each is a module root.
+explicit_package_bases = true
+mypy_path = [
+  "agent/extensions/dynaflows/engine",
+  "agent/extensions/dynaflows/skills/jev-actions/scripts",
+  "agent/lib",
+  "agent/skills/omp-config-optimise/experiments",
+  "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",
+  "agent/skills/omp-config-optimise/experiments/review-detection",
+  "agent/skills/omp-config-optimise/experiments/vision-reading",
+  "tests",
+]
+# Intentional test-fixture trees and generated output only.
+exclude = [
+  '^agent/extensions/dynaflows/engine/guardrails/adapters/pytest/conformance/fixtures/',
+  '^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/',
+  '^tests/fixtures/',
+  '/build/',
+  '/node_modules/',
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

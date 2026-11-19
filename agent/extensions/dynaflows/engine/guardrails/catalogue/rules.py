@@ -17,7 +17,8 @@ PACKAGED_CATALOGUE = "guardrail-rules.json"
 
 def packaged_catalogue() -> dict[str, Any]:
     data = resources.files("guardrails.data").joinpath(PACKAGED_CATALOGUE).read_bytes()
-    return json.loads(data)
+    catalogue: dict[str, Any] = json.loads(data)
+    return catalogue
 
 
 def proven_by_package(rule: dict[str, Any]) -> bool:

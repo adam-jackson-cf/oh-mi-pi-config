@@ -13,7 +13,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
    remote-tracking ref as `target_ref`. Confirm GitHub's PR target matches; the helper's range check cannot
    authenticate that metadata.
 4. Set `parent` to `git merge-base <target_ref> <head>`, never `HEAD~1`; it must be a strict ancestor of head.
-5. Call `prove(repo, parent, head, manifest_path, manifest_sha256, objective, target_ref=target_ref)` under the
+5. Call `prove(repo, parent, head, (manifest_path, manifest_sha256), objective, target_ref=target_ref)` under the
    [prove contract](prove.md). `repo` is the dedicated source worktree on its named branch at head, not main's
    possibly different checkout. It checks exact-head CI, rename residue, new-path naming/structure, map coverage and frozen proofs.
 6. A PR with no behaviour change (refactor, docs, project setup without new controls, a Dependabot bump) uses a manifest

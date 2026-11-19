@@ -3,8 +3,10 @@
 ## Helpers
 
 ```python
-found = dependency_audit_findings(repo)            # {ok, advisories, failures}
-result = await triage_advisories(found, evidence)  # {halt, owner, fix, failures, report}
+found = dependency_audit_findings(repo)  # {ok, advisories, failures}
+result = await triage_advisories(
+    found, evidence
+)  # {halt, owner, fix, failures, report}
 ```
 
 Use this when a commit is blocked and the gate output holds `SECURITY.dependency-audit` lines.
