@@ -166,7 +166,6 @@ omit = [
   "agent/extensions/dynaflows/engine/build/*",
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
-  "*/.venv/*",
   "tools/oxlint/anti-slop/*",
 ]
 
