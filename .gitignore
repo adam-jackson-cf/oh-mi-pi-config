@@ -116,6 +116,7 @@ tests/*
 !tests/test_reference_*.py
 !tests/test_naming_scope.py
 !tests/test_language_packs.py
+!tests/test_native_tool_settings.py
 !tests/fixtures/
 tests/fixtures/*
 !tests/fixtures/reference/
