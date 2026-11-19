@@ -375,11 +375,8 @@ class Rollout:
         self.judge_key = hosts.get("judgeKey")
         self.canary = hosts.get("findCanary")
         self.ci_runners = hosts.get("ciRunners")
-        self.base = machine.base
+        self.machine = machine
         self.check = check
-        self.runner = machine.runner
-        self.pipeline = machine.pipeline
-        self.home = machine.home
         self.rows: list[list[str]] = []
         self.notes: list[str] = []
 
@@ -395,7 +392,7 @@ class Rollout:
         if host:
             argv = self.remote(argv, host)
         try:
-            result = self.runner(argv)
+            result = self.machine.runner(argv)
         except OSError:
             raise CommandError("unreachable" if host else "failed") from None
         if result.returncode not in allowed:
@@ -474,7 +471,7 @@ class Rollout:
         if host:
             consumer = self.remote(consumer, host)
         try:
-            produced, imported, reason = self.pipeline(producer, consumer)
+            produced, imported, reason = self.machine.pipeline(producer, consumer)
         except OSError:
             return "cannot start the key pipeline"
         if produced:
@@ -493,7 +490,7 @@ class Rollout:
             target = shell_path(path)
         else:
             target = shlex.quote(
-                str(self.home / path[2:]) if path.startswith("~/") else path
+                str(self.machine.home / path[2:]) if path.startswith("~/") else path
             )
         script = (
             "omp find " + shlex.quote(canary["query"]) + " " + target + " --json -q"
@@ -553,7 +550,7 @@ class Rollout:
                 base = self.ci_runners["remoteBase"]
                 python = "python3"
             else:
-                base = str(self.base)
+                base = str(self.machine.base)
                 python = sys.executable
             try:
                 document = json.dumps(
@@ -610,7 +607,7 @@ class Rollout:
             sys.executable,
             "-c",
             RECORDS_BUNDLER,
-            str(self.base / RECORDS),
+            str(self.machine.base / RECORDS),
             *copy,
         ]
         planned = json.dumps(
@@ -621,7 +618,7 @@ class Rollout:
             sort_keys=True,
         )
         consumer = self.remote(["python3", "-c", RECORDS_WRITER, base, planned], host)
-        codes = tuple(self.pipeline(producer, consumer))[:2]
+        codes = tuple(self.machine.pipeline(producer, consumer))[:2]
         if codes == (0, 5):
             # The writer refused files the target changed after inventory; name them.
             relisted = json.loads(
@@ -667,7 +664,7 @@ class Rollout:
 
     def records(self, host: str, config: dict[str, Any], start: int) -> None:
         """Copy this checkout's per-repo records to the host one way; never overwrite a newer target record."""
-        source = record_files(self.base / RECORDS)
+        source = record_files(self.machine.base / RECORDS)
         if not source:
             return
         base = config.get("base", REMOTE_BASE)
@@ -690,7 +687,7 @@ class Rollout:
         try:
             if not local_ready:
                 raise CommandError("failed")
-            source = self.home / ".omp"
+            source = self.machine.home / ".omp"
             branch = "origin/" + config["branch"]
             expected = self.git(source, "rev-parse", branch).stdout.strip()
             ancestor = self.git(
@@ -761,8 +758,8 @@ class Rollout:
         self.rows.append([host, "omp", deployed, expected, "-", state])
 
     def execute(self) -> int:
-        local_omp = self.checkout(self.local, "omp", self.home / ".omp")
-        agents = self.home / ".agents"
+        local_omp = self.checkout(self.local, "omp", self.machine.home / ".omp")
+        agents = self.machine.home / ".agents"
         self.checkout(self.local, "agents", agents)
         self.finish_device(self.local, 0)
         self.runners(self.local, 0)
