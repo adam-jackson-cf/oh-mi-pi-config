@@ -115,7 +115,7 @@ export function start(settings) {
 
   function registerTest(target, self, args, trail) {
     const test = {
-      kind: 'test',
+      kind: 'case',
       file: currentFile(),
       suites: suites.map(suite => suite.title),
       suiteEach: suites.map(suite => suite.each),
@@ -166,20 +166,20 @@ export function start(settings) {
     });
   }
 
-  const replaced = {
-    ...runner,
-    test: registrar(runner.test, 'test', []),
-    it: registrar(runner.it, 'test', []),
-    xtest: registrar(runner.test, 'test', ['skip']),
-    xit: registrar(runner.it, 'test', ['skip']),
+  const registrars = {
+    test: registrar(runner.test, 'case', []),
+    it: registrar(runner.it, 'case', []),
+    xtest: registrar(runner.test, 'case', ['skip']),
+    xit: registrar(runner.it, 'case', ['skip']),
     describe: registrar(runner.describe, 'suite', []),
     xdescribe: registrar(runner.describe, 'suite', ['skip']),
   };
+  const replaced = { ...runner, ...registrars };
   if (settings.mode === 'collect') {
     for (const hook of HOOKS) replaced[hook] = () => {};
   }
   runner.mock.module('bun:test', () => ({ ...replaced, default: { ...replaced } }));
-  for (const name of ['test', 'it', 'xtest', 'xit', 'describe', 'xdescribe', ...HOOKS]) {
+  for (const name of [...Object.keys(registrars), ...HOOKS]) {
     if (name in globalThis) globalThis[name] = replaced[name];
   }
   if (settings.mode === 'collect') return;

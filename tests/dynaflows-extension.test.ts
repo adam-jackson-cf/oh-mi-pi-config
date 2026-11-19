@@ -28,12 +28,12 @@ test("delivery policy references and native reminder scope use the targeted home
 		dynaflowsRules: z.array(z.string()),
 		references: z.object({
 			firstEdit: z.array(z.string()), newFile: z.array(z.string()),
-			test: z.array(z.string()), verification: z.array(z.string()),
+			testFile: z.array(z.string()), verification: z.array(z.string()),
 		}),
 	}).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
 	assert.deepEqual(config.references, {
 		firstEdit: [integrity], newFile: [structure],
-		test: [tiers, enforcement, proofs], verification: [verification],
+		testFile: [tiers, enforcement, proofs], verification: [verification],
 	});
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));
