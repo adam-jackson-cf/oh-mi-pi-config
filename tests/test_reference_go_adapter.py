@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,8 @@ def source(path: str, text: str) -> go_lint.Source:
 
 
 OWNED = ("example.com/shop/shop",)
+
+CONTAINERFILE = Path(__file__).resolve().parents[1] / ".devcontainer/Containerfile"
 
 
 class SourceRuleTests(unittest.TestCase):
@@ -275,6 +278,15 @@ class MutationTests(unittest.TestCase):
 
     def test_the_go_adapter_is_installed(self) -> None:
         assert installed("go")
+
+    def test_the_ci_image_installs_a_pinned_go_for_the_conformance_run(self) -> None:
+        text = CONTAINERFILE.read_text()
+        assert re.search(
+            r'"https://go\.dev/dl/go1\.\d+\.\d+\.linux-\$arch\.tar\.gz"', text
+        )
+        assert len(re.findall(r"(amd64|arm64)\) sum=[0-9a-f]{64} ;;", text)) == 2
+        assert "sha256sum -c -" in text
+        assert 'ENV PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=local' in text
 
 
 if __name__ == "__main__":
