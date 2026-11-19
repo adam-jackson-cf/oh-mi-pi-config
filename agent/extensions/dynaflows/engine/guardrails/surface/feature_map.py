@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import unquote
 
 from guardrails.config.profile import PROFILE_PATH
@@ -46,7 +47,7 @@ class Document:
     links: list[str] = field(default_factory=list)
 
 
-def surface(profile: dict) -> dict | None:
+def surface(profile: dict[str, Any]) -> dict[str, Any] | None:
     """The verification-surface section, or None when it is exempt or absent."""
     value = profile.get("verification_surface")
     if not isinstance(value, dict) or "none" in value:
@@ -125,7 +126,7 @@ def linked_files(repo: Path, doc: str, text: str) -> set[str]:
     return linked
 
 
-def index_files(profile: dict) -> set[str]:
+def index_files(profile: dict[str, Any]) -> set[str]:
     """Map file names (``guardrails.feature_map.index_files``) that are not feature documents."""
     return set(as_list(settings(profile, CHECKER).get("index_files")))
 
@@ -211,7 +212,7 @@ def map_documents(repo: Path, map_path: str) -> list[str]:
     return sorted(path.relative_to(repo).as_posix() for path in root.rglob("*.md"))
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails surface-lint``."""
     del argv
     values = surface(profile)

@@ -20,15 +20,18 @@ from __future__ import annotations
 import ast
 import subprocess
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.child_env import repo_environment
 from guardrails.config import conventions
 from guardrails.config.house_style import apply_exceptions
 from guardrails.findings import Finding
-from guardrails.structure import scope
-from guardrails.structure import layout, naming
-from guardrails.structure.import_graph import import_config, imported_edges
-from guardrails.structure.import_graph import run as import_graph_findings
+from guardrails.structure import layout, naming, scope
+from guardrails.structure.import_graph import (
+    import_config,
+    imported_edges,
+    run as import_graph_findings,
+)
 from guardrails.structure.inventory import (
     InventoryError,
     as_list,
@@ -44,12 +47,12 @@ TEST_PLACEMENT = "TEST.placement"
 TIER_KEYS = ("t1", "t2", "t3")
 
 
-def section(profile: dict, key: str) -> dict:
+def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
     value = profile.get(key)
     return value if isinstance(value, dict) else {}
 
 
-def ownership_findings(path: str, profile: dict) -> list[Finding]:
+def ownership_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
     owners = section(section(profile, "structure"), "owners")
     if path in owners.get("files", {}):
         return []
@@ -71,13 +74,46 @@ def ownership_findings(path: str, profile: dict) -> list[Finding]:
     ]
 
 
-def tier_locations(profile: dict) -> dict[str, list[str]]:
+def tier_locations(profile: dict[str, Any]) -> dict[str, list[str]]:
     tiers = section(profile, "tiers")
     return {
         key: as_list(tiers[key].get("location"))
         for key in TIER_KEYS
         if isinstance(tiers.get(key), dict)
     }
+
+
+def framework_names(tree: ast.Module) -> tuple[bool, set[str], set[str]]:
+    """Whether pytest or unittest is imported, and the local names of ``TestCase`` and ``unittest``."""
+    framework_imported = False
+    testcase_names = {"TestCase"}
+    unittest_names = {"unittest"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                framework_imported |= alias.name.split(".")[0] in {"pytest", "unittest"}
+                if alias.name == "unittest":
+                    unittest_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            framework_imported |= (node.module or "").split(".")[0] in {"pytest", "unittest"}
+            if node.module == "unittest":
+                testcase_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name == "TestCase"
+                )
+    return framework_imported, testcase_names, unittest_names
+
+
+def is_test_class(node: ast.ClassDef, testcase_names: set[str], unittest_names: set[str]) -> bool:
+    return node.name.startswith("Test") or any(
+        (isinstance(base, ast.Name) and base.id in testcase_names)
+        or (
+            isinstance(base, ast.Attribute)
+            and base.attr == "TestCase"
+            and isinstance(base.value, ast.Name)
+            and base.value.id in unittest_names
+        )
+        for base in node.bases
+    )
 
 
 def defines_tests(repo: Path, path: str) -> bool:
@@ -88,44 +124,14 @@ def defines_tests(repo: Path, path: str) -> bool:
         tree = ast.parse((repo / path).read_bytes(), filename=path)
     except (OSError, SyntaxError, ValueError):
         return False
-    framework_imported = False
-    testcase_names = {"TestCase"}
-    unittest_names = {"unittest"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                root = alias.name.split(".")[0]
-                if root in {"pytest", "unittest"}:
-                    framework_imported = True
-                if alias.name == "unittest":
-                    unittest_names.add(alias.asname or alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            root = (node.module or "").split(".")[0]
-            if root in {"pytest", "unittest"}:
-                framework_imported = True
-            if node.module == "unittest":
-                testcase_names.update(
-                    alias.asname or alias.name for alias in node.names if alias.name == "TestCase"
-                )
+    framework_imported, testcase_names, unittest_names = framework_names(tree)
     if not framework_imported:
         return False
     function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
     for node in tree.body:
         if isinstance(node, function_types) and node.name.startswith("test_"):
             return True
-        if not isinstance(node, ast.ClassDef):
-            continue
-        is_test_class = node.name.startswith("Test") or any(
-            (isinstance(base, ast.Name) and base.id in testcase_names)
-            or (
-                isinstance(base, ast.Attribute)
-                and base.attr == "TestCase"
-                and isinstance(base.value, ast.Name)
-                and base.value.id in unittest_names
-            )
-            for base in node.bases
-        )
-        if is_test_class and any(
+        if isinstance(node, ast.ClassDef) and is_test_class(node, testcase_names, unittest_names) and any(
             isinstance(method, function_types) and method.name.startswith("test_")
             for method in node.body
         ):
@@ -133,10 +139,26 @@ def defines_tests(repo: Path, path: str) -> bool:
     return False
 
 
-def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
-    """Runnable tests sit under a tier location, outside fixtures and support, and T2 files
-    map to an ownership area. A file whose location several tiers share is left to the
-    adapter's tier collection (TEST.tier-selectors)."""
+UNPLACED_FUNCTIONS = (
+    "test functions live outside every tier location",
+    "move them into a test file at a tier location",
+)
+HELD_TEST = (
+    "runnable test inside a fixtures or support directory",
+    "move it to its tier location or rename it so the runner does not collect it",
+)
+UNTIERED_TEST = (
+    "test file is outside every tier location",
+    "move it under its tier's location from the profile",
+)
+UNOWNED_T2 = (
+    "T2 test file maps to no ownership area",
+    "add its pattern to ownership_areas.map",
+)
+
+
+def placement_problem(repo: Path, path: str, profile: dict[str, Any]) -> tuple[str, str] | None:
+    """``(message, fix)`` for a misplaced test file or test-defining module, else None."""
     layout_section = {**conventions.placement(path), **section(profile, "layout")}
     holders = [
         d
@@ -144,61 +166,40 @@ def test_placement_findings(repo: Path, path: str, profile: dict) -> list[Findin
         if isinstance(d, str)
     ]
     in_holder = matches_any(path, holders)
-    is_test = naming.is_test_file(path, profile)
     if not tier_locations(profile) and layout_section.get("beside_code") and not in_holder:
-        return []
-    if not is_test:
-        if (
+        return None
+    if not naming.is_test_file(path, profile):
+        unplaced = (
             not in_holder
             and defines_tests(repo, path)
             and not matches_any(
                 path, [loc for locs in tier_locations(profile).values() for loc in locs]
             )
-        ):
-            return [
-                Finding(
-                    TEST_PLACEMENT,
-                    path,
-                    "test functions live outside every tier location",
-                    "move them into a test file at a tier location",
-                )
-            ]
-        return []
+        )
+        return UNPLACED_FUNCTIONS if unplaced else None
     if in_holder:
-        return [
-            Finding(
-                TEST_PLACEMENT,
-                path,
-                "runnable test inside a fixtures or support directory",
-                "move it to its tier location or rename it so the runner does not collect it",
-            )
-        ]
+        return HELD_TEST
     tiers = [
         key for key, locations in tier_locations(profile).items() if matches_any(path, locations)
     ]
     if not tiers:
-        return [
-            Finding(
-                TEST_PLACEMENT,
-                path,
-                "test file is outside every tier location",
-                "move it under its tier's location from the profile",
-            )
-        ]
+        return UNTIERED_TEST
     areas = section(section(profile, "ownership_areas"), "map")
-    if tiers == ["t2"] and not matches_any(path, list(areas)):
-        return [
-            Finding(
-                TEST_PLACEMENT,
-                path,
-                "T2 test file maps to no ownership area",
-                "add its pattern to ownership_areas.map",
-            )
-        ]
-    return []
+    return UNOWNED_T2 if tiers == ["t2"] and not matches_any(path, list(areas)) else None
 
 
-def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
+def test_placement_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
+    """Runnable tests sit under a tier location, outside fixtures and support, and T2 files
+    map to an ownership area. A file whose location several tiers share is left to the
+    adapter's tier collection (TEST.tier-selectors)."""
+    problem = placement_problem(repo, path, profile)
+    if problem is None:
+        return []
+    message, fix = problem
+    return [Finding(TEST_PLACEMENT, path, message, fix)]
+
+
+def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
     direction, tiers = import_config(profile)
     package, source_root = direction.get("package"), direction.get("source_root")
     if not (isinstance(package, str) and isinstance(source_root, str) and path.endswith(".py")):
@@ -237,7 +238,7 @@ def direction_findings(repo: Path, path: str, profile: dict) -> list[Finding]:
     return found
 
 
-def native_findings(repo: Path, paths: list[str], profile: dict) -> list[Finding]:
+def native_findings(repo: Path, paths: list[str], profile: dict[str, Any]) -> list[Finding]:
     direction, _ = import_config(profile)
     native = direction.get("native")
     scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
@@ -274,7 +275,7 @@ def native_findings(repo: Path, paths: list[str], profile: dict) -> list[Finding
 
 
 def path_findings(
-    repo: Path, raw: str, profile: dict, *, existing_paths: set[str] | None = None,
+    repo: Path, raw: str, profile: dict[str, Any], *, existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     path = normalized_path(repo, raw)
     if path is None:
@@ -288,16 +289,16 @@ def path_findings(
     problems = layout.path_findings(path, settings(profile, "structure"), existing_paths=existing_paths)
     python_findings = []
     if "python" in section(profile, "guardrails"):
-        from guardrails.python_policy import quality
+        from guardrails.python_policy import quality, scope as python_scope
 
-        config = quality.load_settings(profile)
+        config = python_scope.load_settings(profile)
         existing_segments = {
             "/".join(parts[:index])
             for item in existing_paths or ()
             for parts in (PurePosixPath(item).parts,)
             for index in range(1, len(parts) + 1)
         }
-        if not quality.is_excluded(path, config):
+        if not python_scope.is_excluded(path, config):
             python_findings = (
                 quality.structure_findings(path, config, existing_segments)
                 if path.endswith(".py")
@@ -313,7 +314,7 @@ def path_findings(
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
     except InventoryError as error:

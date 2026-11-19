@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.house_style import apply_exceptions
 from guardrails.config.profile import PROFILE_PATH
@@ -46,7 +47,7 @@ def placement(path: str, message: str, fix: str = "") -> Finding:
     )
 
 
-def root_findings(path: str, config: dict) -> list[Finding]:
+def root_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     parts = PurePosixPath(path).parts
     if len(parts) == 1:
         allowed = config.get("root_files")
@@ -59,7 +60,7 @@ def root_findings(path: str, config: dict) -> list[Finding]:
     return []
 
 
-def area_findings(path: str, config: dict) -> list[Finding]:
+def area_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     found = []
     areas = config.get("areas", {})
     for area, allowed in areas.items() if isinstance(areas, dict) else []:
@@ -76,7 +77,7 @@ def area_findings(path: str, config: dict) -> list[Finding]:
     return found
 
 
-def package_findings(path: str, config: dict) -> list[Finding]:
+def package_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     found = []
     for package in config.get("packages", []):
         root = package["root"].rstrip("/")
@@ -107,7 +108,7 @@ def package_findings(path: str, config: dict) -> list[Finding]:
     return found
 
 
-def instance_findings(paths: list[str], config: dict) -> list[Finding]:
+def instance_findings(paths: list[str], config: dict[str, Any]) -> list[Finding]:
     found = []
     for kind in config.get("instances", []):
         root = PurePosixPath(kind["root"])
@@ -144,7 +145,7 @@ def instance_findings(paths: list[str], config: dict) -> list[Finding]:
     return found
 
 
-def forbidden_import_findings(repo: Path, paths: list[str], config: dict) -> list[Finding]:
+def forbidden_import_findings(repo: Path, paths: list[str], config: dict[str, Any]) -> list[Finding]:
     found = []
     for rule in config.get("forbidden_imports", []):
         banned = set(as_list(rule.get("modules")))
@@ -179,7 +180,7 @@ def parse_python(repo: Path, path: str) -> ast.Module | Finding:
 
 def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
     """Absolute imports as (line, module) pairs."""
-    names = []
+    names: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names.extend((node.lineno, alias.name) for alias in node.names)
@@ -189,7 +190,7 @@ def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
 
 
 def path_findings(
-    path: str, config: dict, *, existing_paths: set[str] | None = None,
+    path: str, config: dict[str, Any], *, existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     """Per-path allowlist findings, shared with the changed-path check."""
     return scope.restrict([
@@ -199,7 +200,7 @@ def path_findings(
     ], [path], existing_paths)
 
 
-def configuration_findings(config: dict) -> list[Finding]:
+def configuration_findings(config: dict[str, Any]) -> list[Finding]:
     if isinstance(config.get("root_directories"), list) and isinstance(
         config.get("root_files"), list
     ):
@@ -213,11 +214,11 @@ def configuration_findings(config: dict) -> list[Finding]:
     ]
 
 
-def skipped(path: str, config: dict) -> bool:
+def skipped(path: str, config: dict[str, Any]) -> bool:
     return matches_any(path, as_list(config.get("skip")))
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     from guardrails.structure.paths import native_findings
 
     config = settings(profile, "structure")

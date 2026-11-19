@@ -26,9 +26,15 @@ from __future__ import annotations
 import argparse
 import shlex
 from pathlib import Path
+from typing import Any
 
 from guardrails import harness
-from guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
+from guardrails.config.profile import (
+    PROFILE_FILE,
+    PROFILE_PATH,
+    ProfileError,
+    load_profile,
+)
 from guardrails.findings import Finding
 from guardrails.init import (
     discovery,
@@ -109,20 +115,19 @@ def apply_profile(
 
 def apply_gate(
     record: Path,
-    gate: dict | None,
+    gate: dict[str, Any] | None,
     found: discovery.Discovery,
     options: argparse.Namespace,
     changes: list[str],
 ) -> list[str]:
-    planned, confirmations = record_gate.planned_gate(
-        gate,
-        found,
+    answers = record_gate.GateAnswers(
         commit=options.commit_command,
         ci_command=options.ci_command,
         required_context=options.required_context,
         runner=options.runner,
         dynaflows=options.enable_dynaflows,
     )
+    planned, confirmations = record_gate.planned_gate(gate, found, answers)
     if planned != gate:
         write_if_changed(
             record / record_gate.GATE_FILE,
@@ -145,7 +150,7 @@ def apply_native(repo: Path, record: Path, changes: list[str]) -> list[str]:
     return report
 
 
-def optional_profile(record: Path) -> dict:
+def optional_profile(record: Path) -> dict[str, Any]:
     try:
         return load_profile(record)
     except ProfileError:
@@ -187,14 +192,11 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
+    live = harness.RECORDS.resolve()
     try:
         options = parse(argv)
-    except UsageError as error:
-        return [usage_finding(str(error))]
-    live = harness.RECORDS.resolve()
-    if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
-        return [usage_finding(f"--record {record} must be a repo's record, {live}/<owner>/<name>")]
-    try:
+        if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
+            raise UsageError(f"--record {record} must be a repo's record, {live}/<owner>/<name>")
         lines, findings = initialise(repo, record, options)
     except UsageError as error:
         return [usage_finding(str(error))]

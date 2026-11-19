@@ -29,6 +29,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import IO, Any
 
 from guardrails.child_env import repo_environment
 from guardrails.config.profile import PROFILE_PATH
@@ -116,7 +117,7 @@ def detect(repo: Path) -> list[Stack]:
     return stacks
 
 
-def notes(stacks: list[Stack]) -> list[dict]:
+def notes(stacks: list[Stack]) -> list[dict[str, Any]]:
     return [
         {"stack": stack.name, "server": stack.server, "install": stack.install} for stack in stacks
     ]
@@ -148,12 +149,12 @@ def find_symbol(root: Path, stack: Stack) -> Symbol | None:
     return None
 
 
-def frame(message: dict) -> bytes:
+def frame(message: dict[str, Any]) -> bytes:
     body = json.dumps(message).encode("utf-8")
     return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
-def read_messages(stream, inbox: queue.Queue) -> None:
+def read_messages(stream: IO[bytes], inbox: queue.Queue[dict[str, Any] | None]) -> None:
     """Parse framed messages from the server into ``inbox``; ``None`` marks end of stream."""
     try:
         while True:
@@ -196,22 +197,25 @@ class Session:
             )
         except OSError as error:
             raise CanaryError(f"cannot start {server}: {error}") from error
-        self.inbox: queue.Queue = queue.Queue()
+        if self.process.stdin is None or self.process.stdout is None:
+            raise CanaryError(f"{server} started without piped stdio")
+        self.stdin: IO[bytes] = self.process.stdin
+        self.inbox: queue.Queue[dict[str, Any] | None] = queue.Queue()
         threading.Thread(
             target=read_messages, args=(self.process.stdout, self.inbox), daemon=True
         ).start()
 
-    def send(self, message: dict) -> None:
+    def send(self, message: dict[str, Any]) -> None:
         try:
-            self.process.stdin.write(frame({"jsonrpc": "2.0", **message}))
-            self.process.stdin.flush()
+            self.stdin.write(frame({"jsonrpc": "2.0", **message}))
+            self.stdin.flush()
         except OSError as error:
             raise CanaryError(f"the server closed its input: {error}") from error
 
-    def notify(self, method: str, params: dict) -> None:
+    def notify(self, method: str, params: dict[str, Any]) -> None:
         self.send({"method": method, "params": params})
 
-    def request(self, method: str, params: dict | None) -> object:
+    def request(self, method: str, params: dict[str, Any] | None) -> object:
         self.next_id += 1
         wanted = self.next_id
         self.send({"id": wanted, "method": method, "params": params})
@@ -224,7 +228,7 @@ class Session:
                     raise CanaryError(f"{method} failed: {message['error']}")
                 return message.get("result")
 
-    def receive(self, method: str) -> dict:
+    def receive(self, method: str) -> dict[str, Any]:
         remaining = self.deadline - time.monotonic()
         try:
             message = self.inbox.get(timeout=max(remaining, 0))
@@ -235,7 +239,7 @@ class Session:
             raise CanaryError(f"the server exited (code {code}) before answering {method}")
         return message
 
-    def answer(self, message: dict) -> None:
+    def answer(self, message: dict[str, Any]) -> None:
         """Reply to a server request so the server does not wait on the client."""
         result = None
         if message["method"] == "workspace/configuration":

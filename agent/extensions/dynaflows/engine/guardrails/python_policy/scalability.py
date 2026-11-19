@@ -20,12 +20,18 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any
 
 from guardrails.config import house_style
+from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
-from guardrails.python_policy.call_names import PROCESS_CALLS, import_names, qualified_name
+from guardrails.python_policy.call_names import (
+    PROCESS_CALLS,
+    import_names,
+    qualified_name,
+)
 from guardrails.python_policy.scope import (
-    PROFILE_PATH,
+    PythonSettings,
     finding,
     in_roots,
     inventory_finding,
@@ -181,7 +187,7 @@ def is_environ(node: ast.AST, names: dict[str, str]) -> bool:
     return qualified_name(node, names) == "os.environ"
 
 
-def ownership_findings(repo: Path, config) -> list[Finding]:
+def ownership_findings(repo: Path, config: PythonSettings) -> list[Finding]:
     roots = config.paths("analyzer_like_roots")
     if not roots or any((repo / marker).exists() for marker in config.paths("ownership_markers")):
         return []
@@ -196,7 +202,7 @@ def ownership_findings(repo: Path, config) -> list[Finding]:
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-scalability", argv)
     config = load_settings(profile)
     try:

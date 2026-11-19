@@ -36,6 +36,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from guardrails.child_env import repo_environment
 from guardrails.config.profile import PROFILE_PATH
@@ -58,7 +59,7 @@ class LeverRun:
     leftovers: tuple[str, ...]
 
 
-def number(config: dict, key: str, default: float) -> float:
+def number(config: dict[str, Any], key: str, default: float) -> float:
     value = config.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         return default
@@ -138,7 +139,7 @@ def leftovers(pgid: int, marker: str, settle_s: float) -> tuple[str, ...]:
 
 
 def run_lever(
-    repo: Path, command: list[str], env: dict[str, str], scratch: Path, config: dict
+    repo: Path, command: list[str], env: dict[str, str], scratch: Path, config: dict[str, Any]
 ) -> LeverRun:
     """Run the lever in its own session; output goes to a file so a child holding stdout
     cannot block the wait (it is reported as a leftover instead)."""
@@ -207,7 +208,7 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails lever-selftest``."""
     del argv
     values = surface(profile)
@@ -233,73 +234,78 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
         ]
     if not hasattr(os, "killpg"):
         return [Finding(RULE, PROFILE_PATH, "process-group checks need POSIX", "run in CI")]
-    base = [*lever, *as_list(config.get("doctor_args"))]
-    failure_env = config.get("failure_env")
+    lever_run = DoctorCommand(repo, [*lever, *as_list(config.get("doctor_args"))], data_flag, evidence_flag, config)
     found: list[Finding] = []
     with tempfile.TemporaryDirectory(prefix="omp-lever-selftest-") as scratch:
         root = Path(scratch).resolve()
-        healthy_data, healthy_evidence = root / "healthy-data", root / "healthy-evidence"
-        healthy_data.mkdir()
-        healthy = run_lever(
-            repo,
-            [
-                *base,
-                *path_arguments(data_flag, healthy_data),
-                *path_arguments(evidence_flag, healthy_evidence),
-            ],
-            repo_environment(),
-            root,
-            config,
-        )
-        if healthy.returncode not in (None, 0):
-            found.append(
-                Finding(
-                    RULE,
-                    PROFILE_PATH,
-                    f"healthy doctor run exited {healthy.returncode}: {tail(healthy.output)}",
-                    "make doctor pass in a fresh temporary data directory",
-                )
-            )
-        found.extend(run_findings("healthy", healthy, healthy_evidence))
+        found.extend(healthy_findings(lever_run, root))
+        found.extend(broken_findings(lever_run, root, config.get("failure_env"), doctor_marker))
+    return found
 
-        broken_evidence = root / "broken-evidence"
-        env = repo_environment()
-        if isinstance(failure_env, dict) and failure_env:
-            broken_data = root / "broken-data"
-            broken_data.mkdir()
-            env.update({str(key): str(value) for key, value in failure_env.items()})
-        else:
-            broken_data = root / "broken-data-is-a-file"
-            broken_data.write_text("not a data directory\n", encoding="utf-8")
-        broken = run_lever(
-            repo,
-            [
-                *base,
-                *path_arguments(data_flag, broken_data),
-                *path_arguments(evidence_flag, broken_evidence),
-            ],
-            env,
-            root,
-            config,
+
+@dataclass(frozen=True)
+class DoctorCommand:
+    """The doctor command and the flags that point it at a data and an evidence directory."""
+
+    repo: Path
+    base: list[str]
+    data_flag: str
+    evidence_flag: str
+    config: dict[str, Any]
+
+    def run(self, data: Path, evidence: Path, env: dict[str, str], root: Path) -> LeverRun:
+        argv = [*self.base, *path_arguments(self.data_flag, data), *path_arguments(self.evidence_flag, evidence)]
+        return run_lever(self.repo, argv, env, root, self.config)
+
+
+def healthy_findings(lever_run: DoctorCommand, root: Path) -> list[Finding]:
+    found = []
+    healthy_data, healthy_evidence = root / "healthy-data", root / "healthy-evidence"
+    healthy_data.mkdir()
+    healthy = lever_run.run(healthy_data, healthy_evidence, repo_environment(), root)
+    if healthy.returncode not in (None, 0):
+        found.append(
+            Finding(
+                RULE,
+                PROFILE_PATH,
+                f"healthy doctor run exited {healthy.returncode}: {tail(healthy.output)}",
+                "make doctor pass in a fresh temporary data directory",
+            )
         )
-        if broken.returncode == 0:
-            found.append(
-                Finding(
-                    RULE,
-                    PROFILE_PATH,
-                    "doctor passed in a broken environment (unusable data directory)",
-                    "make doctor prove the instance is usable, not only that it started",
-                )
+    found.extend(run_findings("healthy", healthy, healthy_evidence))
+    return found
+
+
+def broken_findings(lever_run: DoctorCommand, root: Path, failure_env: object, doctor_marker: str) -> list[Finding]:
+    found = []
+    broken_evidence = root / "broken-evidence"
+    env = repo_environment()
+    if isinstance(failure_env, dict) and failure_env:
+        broken_data = root / "broken-data"
+        broken_data.mkdir()
+        env.update({str(key): str(value) for key, value in failure_env.items()})
+    else:
+        broken_data = root / "broken-data-is-a-file"
+        broken_data.write_text("not a data directory\n", encoding="utf-8")
+    broken = lever_run.run(broken_data, broken_evidence, env, root)
+    if broken.returncode == 0:
+        found.append(
+            Finding(
+                RULE,
+                PROFILE_PATH,
+                "doctor passed in a broken environment (unusable data directory)",
+                "make doctor prove the instance is usable, not only that it started",
             )
-        elif broken.returncode is not None and doctor_marker not in broken.output:
-            found.append(
-                Finding(
-                    RULE,
-                    PROFILE_PATH,
-                    f"doctor failure did not print the doctor marker '{doctor_marker}': "
-                    f"{tail(broken.output)}",
-                    "print the profile's doctor marker on every doctor failure",
-                )
+        )
+    elif broken.returncode is not None and doctor_marker not in broken.output:
+        found.append(
+            Finding(
+                RULE,
+                PROFILE_PATH,
+                f"doctor failure did not print the doctor marker '{doctor_marker}': "
+                f"{tail(broken.output)}",
+                "print the profile's doctor marker on every doctor failure",
             )
-        found.extend(run_findings("broken-environment", broken, broken_evidence))
+        )
+    found.extend(run_findings("broken-environment", broken, broken_evidence))
     return found

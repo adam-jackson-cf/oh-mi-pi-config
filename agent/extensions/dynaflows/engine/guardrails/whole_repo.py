@@ -7,10 +7,12 @@ the harness blocks too. Any finding blocks the commit until it is fixed. The com
 repository files and writes nothing anywhere.
 
 Steps are static: they read tracked files and need neither the repository's environment nor its
-test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``structure``, ``naming``,
-``python-quality``, ``python-fanout``, ``python-scalability``, ``surface-lint`` and the profile
-adapter's ``lint``. Diff, run-report, collection, mutation and lever checks need evidence from a
-test run or a commit range, so they are not steps.
+test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``python-quality``,
+``python-fanout``, ``python-scalability``, ``surface-lint`` and the profile adapter's ``lint``;
+``python-test-hygiene`` runs only when ``run`` selects it. Structure and naming are not steps:
+they judge only added and renamed paths, through ``path-check`` and ``structure`` over a commit
+range. Diff, run-report, collection, mutation and lever checks need evidence from a test run or a
+commit range, so they are not steps either.
 
 Settings (``guardrails.check`` in the record's ``profile.md``):
 
@@ -32,8 +34,9 @@ Settings (``guardrails.check`` in the record's ``profile.md``):
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from guardrails.config.profile import PROFILE_PATH
+from guardrails.config.profile import PROFILE_PATH, ProfileError
 from guardrails.findings import Finding
 from guardrails.structure.inventory import (
     InventoryError,
@@ -82,7 +85,7 @@ def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
     return list(dict.fromkeys(steps)), []
 
 
-def owned_steps(profile: dict) -> tuple[dict[str, list[str]], list[Finding]]:
+def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Finding]]:
     """``guardrails.check.repo``: step -> the repo checker files that enforce it."""
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
@@ -116,7 +119,7 @@ def owned_steps(profile: dict) -> tuple[dict[str, list[str]], list[Finding]]:
     return (dict(declared), []) if not findings else ({}, findings)
 
 
-def dead_settings(profile: dict, configured: list[str], owned: dict[str, list[str]]) -> list[Finding]:
+def dead_settings(profile: dict[str, Any], configured: list[str], owned: dict[str, list[str]]) -> list[Finding]:
     """Settings sections whose configured steps are all owned by the repo."""
     findings = []
     for section, readers in STEP_SETTINGS.items():
@@ -133,7 +136,7 @@ def dead_settings(profile: dict, configured: list[str], owned: dict[str, list[st
     return findings
 
 
-def configured_steps(profile: dict) -> tuple[list[str], list[Finding]]:
+def configured_steps(profile: dict[str, Any]) -> tuple[list[str], list[Finding]]:
     """The steps ``check`` runs: ``run`` (or the default) without the repo-owned steps."""
     declared = settings(profile, CHECKER).get("run")
     steps, findings = selected_steps(declared)
@@ -153,7 +156,7 @@ def configured_steps(profile: dict) -> tuple[list[str], list[Finding]]:
     return [step for step in steps if step not in owned], []
 
 
-def missing_checkers(repo: Path, profile: dict) -> list[Finding]:
+def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
     owned, _ = owned_steps(profile)
     if not owned:
         return []
@@ -172,7 +175,7 @@ def missing_checkers(repo: Path, profile: dict) -> list[Finding]:
     ]
 
 
-def run_step(repo: Path, profile: dict, step: str) -> list[Finding]:
+def run_step(repo: Path, profile: dict[str, Any], step: str) -> list[Finding]:
     from guardrails import cli
 
     name, *argv = step.split()
@@ -180,7 +183,7 @@ def run_step(repo: Path, profile: dict, step: str) -> list[Finding]:
         argv.extend(["--event", "staged"])
     try:
         modules = cli.module_names(name, profile)
-    except cli.ProfileError as error:
+    except ProfileError as error:
         return [cli.profile_finding(error)]
     return cli.run_modules(modules, repo, profile, argv)
 
@@ -191,7 +194,7 @@ def excluded(finding: Finding, patterns: list[str]) -> bool:
     return matches_any(finding.path, patterns)
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
             Finding(

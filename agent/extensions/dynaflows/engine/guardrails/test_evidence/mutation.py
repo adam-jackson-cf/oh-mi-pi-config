@@ -28,6 +28,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from guardrails.diffs.changes import (
     DiffError,
@@ -98,7 +99,8 @@ def options(argv: list[str]) -> Path:
     known, _ = parser.parse_known_args(argv)
     if known.report is None:
         raise ReportError("pass --report FILE naming the normalised mutation report")
-    return known.report
+    report: Path = known.report
+    return report
 
 
 def check(mutants: list[Mutant], added: dict[str, set[int]]) -> list[Finding]:
@@ -120,7 +122,7 @@ def check(mutants: list[Mutant], added: dict[str, set[int]]) -> list[Finding]:
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     del profile
     try:
         report = options(argv)

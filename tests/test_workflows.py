@@ -123,7 +123,7 @@ class RepositoryTests(unittest.TestCase):
 
     def prove(self, objective="fix value", **kwargs):
         args = dict(target_ref=self.parent, **kwargs)
-        result = workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), objective, **args)
+        result = workflow.prove(self.repo, self.parent, self.head, (self.manifest_path, workflow._sha(self.manifest_path)), objective, **args)
         self.assert_cleaned()
         json.dumps(result)
         return result
@@ -167,7 +167,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn("kind", json.loads(path.read_text())["proofs"][0])
         self.write("value", "fixed")
         self.head = self.commit("implementation")
-        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "fix value", target_ref=self.parent)
+        result = workflow.prove(self.repo, self.parent, self.head, (path, digest), "fix value", target_ref=self.parent)
         self.assertEqual(result["status"], "pass", result)
         self.assertEqual([run["location"] for run in result["deterministic"]["proofs"]["P1"]], ["head", "head"],
                          "prove() runs proofs at head only; red at base was shown at freeze")
@@ -202,12 +202,12 @@ class RepositoryTests(unittest.TestCase):
         self.write_gate(json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]},
                                     "ci": {"requiredContext": "gate", "runner": "ci-gate"}}))
         with patch.object(workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")):
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest), "docs", target_ref=self.parent)
             self.assertEqual(result["status"], "pass", result)
             self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
             self.assertEqual(self.stored_status(), "pass")
             self.ci.return_value = "pending"
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest), "docs", target_ref=self.parent)
         self.assert_block(result, 'required CI context "gate" is pending')
         self.assertEqual(self.stored_status(), "fail")
 
@@ -276,8 +276,8 @@ class RepositoryTests(unittest.TestCase):
             proof = {"id": "P1", "cmd": [sys.executable, "-c",
                      "from pathlib import Path; assert Path('overlay').read_text() == 'proof'; "
                      "assert Path('value').read_text() == 'overlaid'"]}
-            record = workflow._execute(tree, proof, baselines,
-                                       overlay={"overlay": b"proof", "value": b"overlaid"})
+            placement = workflow.Placement(tree, overlay={"overlay": b"proof", "value": b"overlaid"})
+            record = workflow._execute(placement, proof, baselines)
             self.assertTrue(record["ok"], record)
             self.assertEqual((tree / "value").read_text(), "old")
             self.assertFalse((tree / "overlay").exists())
@@ -293,7 +293,7 @@ class RepositoryTests(unittest.TestCase):
             proof["cmd"] = [sys.executable, "-c",
                             "from pathlib import Path; assert Path('value').read_text() == 'old'; "
                             "assert not Path('artifact').exists(); assert not Path('overlay').exists()"]
-            self.assertTrue(workflow._execute(tree, proof, baselines)["ok"])
+            self.assertTrue(workflow._execute(workflow.Placement(tree), proof, baselines)["ok"])
             self.assertEqual((outside / "keep").read_text(), "safe")
             self.assertFalse((tree / "linked").is_symlink())
             self.assertFalse((tree / "new-dir").exists())
@@ -387,15 +387,15 @@ class RepositoryTests(unittest.TestCase):
         self.change()
         for kwargs in ({"parent": "missing"}, {"target_ref": "missing"}, {"digest": "0" * 64}):
             workflow._atomic_json(workflow.result_path(self.repo, self.head), {"head": self.head, "status": "pass"})
-            result = workflow.prove(self.repo, kwargs.get("parent", self.parent), self.head, self.manifest_path,
-                                    kwargs.get("digest", workflow._sha(self.manifest_path)), "fix", target_ref=kwargs.get("target_ref", self.parent))
+            result = workflow.prove(self.repo, kwargs.get("parent", self.parent), self.head,
+                                    (self.manifest_path, kwargs.get("digest", workflow._sha(self.manifest_path))), "fix", target_ref=kwargs.get("target_ref", self.parent))
             self.assertEqual(result["status"], "fail")
             self.assertEqual(self.stored_status(), "fail")
 
     def test_strict_range_and_proof_ancestry(self):
         data = self.change()
         for parent, target in ((self.head, self.parent), (self.parent, self.head)):
-            result = workflow.prove(self.repo, parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix", target_ref=target)
+            result = workflow.prove(self.repo, parent, self.head, (self.manifest_path, workflow._sha(self.manifest_path)), "fix", target_ref=target)
             self.assertEqual(result["status"], "fail")
         data["proofs"][0]["parent"] = self.head
         self.save(data)
@@ -427,7 +427,7 @@ class RepositoryTests(unittest.TestCase):
                 raise WorkflowErrorForTest("injected removal failure")
             return original(repo, *args)
         with patch.object(workflow, "_git", side_effect=fail_remove):
-            result = workflow.prove(self.repo, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix", target_ref=self.parent)
+            result = workflow.prove(self.repo, self.parent, self.head, (self.manifest_path, workflow._sha(self.manifest_path)), "fix", target_ref=self.parent)
         # TemporaryDirectory has removed test-owned scratch bytes; prune repairs its metadata.
         git(self.repo, "worktree", "prune")
         self.assertEqual(len(removed), 1)
@@ -577,7 +577,7 @@ class RepositoryTests(unittest.TestCase):
                 observed.append((json.loads(Path(source).read_text()), Path(destination)))
                 return original(source, destination)
             with patch.object(workflow.os, "replace", side_effect=inspect):
-                result = workflow.prove(linked, self.parent, self.head, self.manifest_path, workflow._sha(self.manifest_path), "fix value", target_ref=self.parent)
+                result = workflow.prove(linked, self.parent, self.head, (self.manifest_path, workflow._sha(self.manifest_path)), "fix value", target_ref=self.parent)
             self.assertEqual(result["status"], "pass", result)
             path = workflow.result_path(linked, self.head)
             self.assertEqual(path, workflow._common(self.repo) / "omp-prove" / f"{self.head}.result.json")
@@ -821,11 +821,11 @@ class RepositoryTests(unittest.TestCase):
         self.commit("docs")
         path, digest = self.freeze([], base=self.parent)
         self.head = git(self.repo, "rev-parse", "HEAD")
-        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+        result = workflow.prove(self.repo, self.parent, self.head, (path, digest), "docs", target_ref=self.parent)
         self.assertEqual(result["status"], "pass", result)
         self.write(f"{MAP_PATH}/value.md", map_doc("../../proof.py") + "\nMore behaviour.\n")
         self.head = self.commit("behaviour change without proof")
-        result = workflow.prove(self.repo, self.parent, self.head, path, digest, "docs", target_ref=self.parent)
+        result = workflow.prove(self.repo, self.parent, self.head, (path, digest), "docs", target_ref=self.parent)
         self.assert_block(result, f"link no frozen proof: {MAP_PATH}/value.md")
 
     def test_zero_proof_rename_residue_blocks_after_green_ci(self):
@@ -837,7 +837,7 @@ class RepositoryTests(unittest.TestCase):
         (self.repo / "oracle").rename(self.repo / "verifier")
         self.head = self.commit("rename oracle to verifier")
         with patch.object(workflow, "deterministic_checks", side_effect=AssertionError("no frozen proofs")):
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest),
                                     "rename oracle to verifier", target_ref=self.parent)
         self.assertEqual(result["manifest"]["proofs"], [])
         self.assertEqual(result["deterministic"], {})
@@ -860,7 +860,7 @@ class RepositoryTests(unittest.TestCase):
         self.write("verifier/runtime.py", padding + "class VerifierPlugin:\n    pass\n")
         self.head = self.commit("rename all oracle owner definitions")
         with patch.object(workflow, "deterministic_checks", side_effect=AssertionError("no frozen proofs")):
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest),
                                     "rename oracle to verifier", target_ref=self.parent)
         self.assertEqual(result["manifest"]["proofs"], [])
         self.assertEqual(result["deterministic"], {})
@@ -877,7 +877,7 @@ class RepositoryTests(unittest.TestCase):
         self.head = self.commit("docs")
         missing_python = str(self.tmp / "missing-harness-python")
         with patch.object(workflow.sys, "executable", missing_python):
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest),
                                     "update docs", target_ref=self.parent)
         self.assert_block(result, "infrastructure: launch error")
         self.assertEqual(result["deterministic"], {})
@@ -904,7 +904,7 @@ class RepositoryTests(unittest.TestCase):
             return original(cmd, **kwargs)
 
         with patch.object(workflow.subprocess, "run", side_effect=inspect_launch):
-            result = workflow.prove(self.repo, self.parent, self.head, path, digest,
+            result = workflow.prove(self.repo, self.parent, self.head, (path, digest),
                                     "add repo module", target_ref=self.parent)
         self.assertEqual(len(launches), 1)
         self.assertEqual(result["status"], "pass", result)

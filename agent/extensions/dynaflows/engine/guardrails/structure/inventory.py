@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 GLOB_CHARACTERS = frozenset("*?[")
 
@@ -80,10 +81,8 @@ def as_list(value: object) -> list[str]:
     return []
 
 
-def settings(profile: dict, checker: str) -> dict:
+def settings(profile: dict[str, Any], checker: str) -> dict[str, Any]:
     """Per-repo settings for one checker from the profile's ``guardrails`` section."""
     section = profile.get("guardrails")
     value = section.get(checker) if isinstance(section, dict) else None
     return value if isinstance(value, dict) else {}
-
-

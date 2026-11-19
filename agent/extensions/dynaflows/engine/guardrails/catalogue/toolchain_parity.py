@@ -38,10 +38,10 @@ import platform
 import re
 import shlex
 import subprocess
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-
-import tomllib
+from typing import Any
 
 from guardrails.catalogue.versions import (
     VersionError,
@@ -125,7 +125,8 @@ def joined_lines(text: str) -> list[tuple[int, str]]:
 
 def make_targets(text: str) -> dict[str, str]:
     """Each Makefile target whose recipe runs ``uv sync``, mapped to that command."""
-    targets, current = {}, None
+    targets: dict[str, str] = {}
+    current: str | None = None
     for _, line in joined_lines(text):
         header = MAKE_TARGET.match(line)
         if header and not line.startswith("\t"):
@@ -304,7 +305,7 @@ def python_pin_findings(pins: Mapping[str, bytes | None], interpreter: str) -> l
     return findings
 
 
-def prettier_findings(options: dict, sources: Mapping[str, str]) -> list[Finding]:
+def prettier_findings(options: dict[str, Any], sources: Mapping[str, str]) -> list[Finding]:
     package_json = options.get("package_json", "package.json")
     package_lock = options.get("package_lock", "package-lock.json")
     findings = []
@@ -435,7 +436,7 @@ def package_manager_findings(package_json: str, text: str, present: set[str]) ->
 
 
 def go_toolchain(go_mod: str) -> str | None:
-    directives = dict(match.groups() for match in GO_DIRECTIVE.finditer(go_mod))
+    directives = {match.group(1): match.group(2) for match in GO_DIRECTIVE.finditer(go_mod)}
     toolchain = directives.get("toolchain", "").removeprefix("go")
     wanted = toolchain or directives.get("go", "")
     return wanted if re.fullmatch(r"\d+\.\d+\.\d+", wanted) else None
@@ -476,7 +477,7 @@ def globbed_sources(repo: Path, inventory: list[str], patterns: object) -> dict[
     return {path: read_text(repo, path) for path in selected if (repo / path).is_file()}
 
 
-def uv_findings(repo: Path, options: dict, inventory: list[str]) -> list[Finding]:
+def uv_findings(repo: Path, options: dict[str, Any], inventory: list[str]) -> list[Finding]:
     project_path = options.get("project", "pyproject.toml")
     lock_path = options.get("lock", "uv.lock")
     project_toml, lock_toml = read_text(repo, project_path), read_text(repo, lock_path)
@@ -500,7 +501,7 @@ def uv_findings(repo: Path, options: dict, inventory: list[str]) -> list[Finding
     return findings
 
 
-def static_findings(repo: Path, options: dict) -> list[Finding]:
+def static_findings(repo: Path, options: dict[str, Any]) -> list[Finding]:
     findings = []
     pins = as_list(options.get("python_pins"))
     if pins:
@@ -539,7 +540,7 @@ def static_findings(repo: Path, options: dict) -> list[Finding]:
     return findings
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
             Finding(

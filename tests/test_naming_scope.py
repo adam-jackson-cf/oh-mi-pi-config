@@ -264,7 +264,8 @@ class NamingScopeTests(unittest.TestCase):
         environment = dict(self.environment, PATH=str(binary) + os.pathsep + os.environ.get("PATH", ""))
         driver = (
             "import json, sys; sys.path.insert(0, sys.argv[1]); import workflows; "
-            "print(json.dumps(workflows.prove(*sys.argv[2:8], target_ref=sys.argv[8])))"
+            "r, p, h, m, d, o, t = sys.argv[2:9]; "
+            "print(json.dumps(workflows.prove(r, p, h, (m, d), o, target_ref=t)))"
         )
 
         def prove():

@@ -47,6 +47,7 @@ import math
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 OUTCOMES = ("passed", "failed", "skipped", "xfail", "error")
 FAILING = frozenset({"failed", "error"})
@@ -170,7 +171,7 @@ def dialect_for(name: str | None, configured: object = None) -> Dialect:
         unknown = sorted(set(configured) - set(DIALECT_FIELDS))
         if unknown:
             raise UsageError(f"guardrails.test_evidence.dialect has unknown fields {unknown}")
-        values = {
+        values: dict[str, Any] = {
             key: tuple(value) if isinstance(value, list) else value
             for key, value in configured.items()
         }
@@ -286,13 +287,13 @@ def report_options(repo: Path, argv: list[str]) -> ReportOptions:
     )
 
 
-def evidence_settings(profile: dict) -> dict:
+def evidence_settings(profile: dict[str, Any]) -> dict[str, Any]:
     section = profile.get("guardrails")
     value = section.get("test_evidence") if isinstance(section, dict) else None
     return value if isinstance(value, dict) else {}
 
 
-def load_run_report(repo: Path, profile: dict, options: ReportOptions) -> Report:
+def load_run_report(repo: Path, profile: dict[str, Any], options: ReportOptions) -> Report:
     """Parse ``--junit`` with the dialect named by ``--dialect``, settings or the adapter."""
     if options.junit is None:
         raise ReportError("no run report given; pass --junit <path>")

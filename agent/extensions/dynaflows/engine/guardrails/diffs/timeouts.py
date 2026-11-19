@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config.house_style import apply_exceptions
 from guardrails.diffs.changes import (
@@ -46,7 +47,7 @@ FIX = (
 )
 
 
-def tier_locations(profile: dict) -> list[str]:
+def tier_locations(profile: dict[str, Any]) -> list[str]:
     tiers = profile.get("tiers")
     return [
         location
@@ -56,22 +57,26 @@ def tier_locations(profile: dict) -> list[str]:
     ]
 
 
-def is_changed_test(path: str, profile: dict) -> bool:
+def is_changed_test(path: str, profile: dict[str, Any]) -> bool:
     if PurePosixPath(path).name == "conftest.py":
         return True
     return is_test_file(path, profile) or matches_any(path, tier_locations(profile))
 
 
-def timeouts(lines: tuple[tuple[int, str], ...], pattern: re.Pattern[str]):
+def timeouts(lines: tuple[tuple[int, str], ...], pattern: re.Pattern[str]) -> list[tuple[int, str, float]]:
     """``(line, key, value)`` for every timeout literal in the lines, in order."""
-    found = []
+    found: list[tuple[int, str, float]] = []
     for number, text in lines:
         for match in pattern.finditer(text):
             found.append((number, match.group("key"), float(match.group("value"))))
     return found
 
 
-def increases(path: str, removed, added, pattern: re.Pattern[str]) -> list[Finding]:
+def increases(
+    path: str,
+    removed: tuple[tuple[int, str], ...],
+    added: tuple[tuple[int, str], ...],
+    pattern: re.Pattern[str]) -> list[Finding]:
     before: dict[str, list[float]] = {}
     for _, key, value in timeouts(removed, pattern):
         before.setdefault(key, []).append(value)
@@ -93,7 +98,7 @@ def increases(path: str, removed, added, pattern: re.Pattern[str]) -> list[Findi
     return found
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     """``guardrails diff-check --base <ref> [--head <ref>]``."""
     config = settings(profile, CHECKER)
     pattern = re.compile(str(config.get("timeout_pattern") or DEFAULT_TIMEOUT_PATTERN), re.I)

@@ -6,9 +6,10 @@ import json
 import re
 from functools import cache
 from importlib import resources
+from typing import Any
 
-from guardrails.findings import Finding
 from guardrails.config import conventions
+from guardrails.findings import Finding
 from guardrails.structure.inventory import matches
 
 DATA_FILE = "house-style.json"
@@ -19,8 +20,9 @@ def data_bytes() -> bytes:
 
 
 @cache
-def load_house_style() -> dict:
-    return json.loads(data_bytes())
+def load_house_style() -> dict[str, Any]:
+    style: dict[str, Any] = json.loads(data_bytes())
+    return style
 
 
 def digest() -> str:
@@ -118,7 +120,7 @@ def test_name_problems(file_name: str) -> list[str]:
     return problems
 
 
-def apply_exceptions(findings: list[Finding], profile: dict) -> list[Finding]:
+def apply_exceptions(findings: list[Finding], profile: dict[str, Any]) -> list[Finding]:
     section = profile.get("guardrails")
     exceptions = section.get("exceptions", []) if isinstance(section, dict) else []
     covered = [

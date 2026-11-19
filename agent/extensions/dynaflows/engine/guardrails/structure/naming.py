@@ -5,6 +5,7 @@ import ast
 import re
 from collections.abc import Set
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.config import conventions, house_style
 from guardrails.findings import Finding
@@ -55,7 +56,7 @@ def word_findings(path: str, existing_segments: Set[str] = frozenset()) -> list[
 
 
 def version_findings(
-    path: str, config: dict, existing_segments: Set[str] = frozenset()
+    path: str, config: dict[str, Any], existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
     if matches_any(path, as_list(config.get("version_exempt"))):
         return []
@@ -91,7 +92,7 @@ def parent_findings(path: str, existing_paths: set[str] | None = None) -> list[F
 
 
 def plural_findings(
-    path: str, config: dict, existing_segments: Set[str] = frozenset()
+    path: str, config: dict[str, Any], existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
     if not config.get("check_plurals"):
         return []
@@ -110,10 +111,16 @@ def plural_findings(
 
 
 def casing_findings(
-    path: str, config: dict, existing_segments: Set[str] = frozenset()
+    repo: Path, path: str, existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
+    """Casing of each new segment; with a pack ``package_marker``, only marked directories are judged.
+
+    Python's directory casing is package naming (PEP 8), and a directory is an importable
+    regular package only when it holds ``__init__.py``; a directory of scripts is not a package.
+    """
     rules = conventions.for_path(path)
     name = rules["name"]
+    marker = rules.get("package_marker")
     parts = PurePosixPath(path).parts
     found = []
     for index, segment in enumerate(parts):
@@ -123,6 +130,8 @@ def casing_findings(
         if (last and conventions.fixed_file(path)) or (
             not last and conventions.fixed_folder(path, segment)
         ):
+            continue
+        if not last and marker and not repo.joinpath(*parts[: index + 1], marker).is_file():
             continue
         casings = rules["file"] if last else rules["directory"]
         candidate = house_style.stem(segment) if last else segment
@@ -140,19 +149,19 @@ def casing_findings(
     return found
 
 
-def test_patterns(profile: dict) -> list[str]:
+def test_patterns(profile: dict[str, Any]) -> list[str]:
     layout = profile.get("layout")
     patterns = as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
     if patterns:
         return patterns
-    return conventions.test_patterns()
+    return conventions.all_test_patterns()
 
 
-def is_test_file(path: str, profile: dict) -> bool:
+def is_test_file(path: str, profile: dict[str, Any]) -> bool:
     return any(name_matches(path, pattern) for pattern in test_patterns(profile))
 
 
-def test_file_findings(path: str, profile: dict) -> list[Finding]:
+def test_file_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
     patterns = test_patterns(profile)
     test_like = conventions.test_like_patterns(path)
     if not any(name_matches(path, pattern) for pattern in patterns):
@@ -177,7 +186,7 @@ def test_file_findings(path: str, profile: dict) -> list[Finding]:
     ]
 
 
-def symbol_findings(repo: Path, path: str, config: dict) -> list[Finding]:
+def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Finding]:
     if conventions.for_path(path)["name"] != "python":
         return []
     source = repo / path
@@ -214,7 +223,7 @@ def symbol_findings(repo: Path, path: str, config: dict) -> list[Finding]:
 
 
 def path_findings(
-    repo: Path, path: str, profile: dict, *, existing_paths: set[str] | None = None
+    repo: Path, path: str, profile: dict[str, Any], *, existing_paths: set[str] | None = None
 ) -> list[Finding]:
     config = settings(profile, "naming")
     if conventions.ignored_path(path) or matches_any(path, as_list(config.get("skip"))):
@@ -231,13 +240,13 @@ def path_findings(
         *version_findings(path, config, existing_segments),
         *parent_findings(path, existing_paths),
         *plural_findings(path, config, existing_segments),
-        *casing_findings(path, config, existing_segments),
+        *casing_findings(repo, path, existing_segments),
         *(test_file_findings(path, profile) if new_file else []),
         *(symbol_findings(repo, path, config) if new_file else []),
     ]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
         if not selected.paths:

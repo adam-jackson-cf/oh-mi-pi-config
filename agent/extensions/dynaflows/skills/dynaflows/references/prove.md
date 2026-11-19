@@ -3,9 +3,10 @@
 ## Signature
 
 ```python
-prove(repo, parent, head, manifest_path, manifest_sha256, objective, *,
-      target_ref, max_checks=MAX_PROOFS)
+prove(repo, parent, head, frozen, objective, *, target_ref, max_checks=MAX_PROOFS)
 ```
+
+`frozen` is `freeze()`'s result, the `(manifest_path, manifest_sha256)` pair.
 
 Main calls this at the PR event, against the PR's current head. `repo` is the dedicated
 source worktree on a named branch at `head`, even when main's session is in the primary

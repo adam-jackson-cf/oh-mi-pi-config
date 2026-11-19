@@ -25,8 +25,14 @@ import inspect
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from guardrails.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError, load_profile
+from guardrails.config.profile import (
+    PROFILE_FILE,
+    PROFILE_PATH,
+    ProfileError,
+    load_profile,
+)
 from guardrails.findings import Finding, exit_code, format_findings
 
 
@@ -223,7 +229,7 @@ def resolve_target(argv: list[str], needs_record: bool) -> tuple[Target, list[st
     return Target(repo, record), rest
 
 
-def module_names(name: str, profile: dict) -> tuple[str, ...]:
+def module_names(name: str, profile: dict[str, Any]) -> tuple[str, ...]:
     if name != "adapter":
         return SUBCOMMANDS[name].modules
     adapter = profile.get("adapter")
@@ -250,7 +256,7 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
 
 
 def run_modules(
-    modules: tuple[str, ...], repo: Path, profile: dict, argv: list[str]
+    modules: tuple[str, ...], repo: Path, profile: dict[str, Any], argv: list[str]
 ) -> list[Finding]:
     findings: list[Finding] = []
     for module_name in modules:

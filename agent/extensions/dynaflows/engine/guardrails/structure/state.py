@@ -13,15 +13,22 @@ import importlib.util
 import json
 import subprocess
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from itertools import combinations
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, matches_any, settings
 from guardrails.structure.prefix_candidates import _groups, _module_names
 from guardrails.structure.rename_residue import (
-    DefinedNames, GitError, Rename, git, residue_findings, retired_terms, words,
+    DefinedNames,
+    GitError,
+    Rename,
+    git,
+    residue_findings,
+    retired_terms,
+    words,
 )
 
 DIRECTORY_QUESTIONS = frozenset({
@@ -45,15 +52,14 @@ CAPS = {
 class TopLevelNames(DefinedNames):
     """Keep module control-flow bindings, but not class or function locals."""
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self.names.append(node.name)
+    descend_classes = False
 
 
 def compact_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _bounded(state: dict) -> dict:
+def _bounded(state: dict[str, Any]) -> dict[str, Any]:
     """Keep the schema while dropping largest evidence collections to fit bytes."""
     limits = state["evidence_limits"]
     for field in ("truncations", "parse_errors", "excluded_paths"):
@@ -77,7 +83,7 @@ def _bounded(state: dict) -> dict:
     cuts: dict[str, int] = dict(limits.get("state_budget_omissions", {}))
     limits["state_budget_omissions"] = cuts
     while len(compact_json(state).encode()) > CAPS["state_bytes"]:
-        candidates = []
+        candidates: list[tuple[int, str, str | None]] = []
         for field, value in state.items():
             if field in {"folder_path", "evidence_limits"}:
                 continue
@@ -99,6 +105,7 @@ def _bounded(state: dict) -> dict:
         cuts[label] = cuts.get(label, 0) + len(value) - retained
     return state
 
+
 def _git_input(repo: Path, args: list[str], data: bytes) -> bytes:
     try:
         result = subprocess.run(["git", "-C", str(repo), *args], input=data,
@@ -108,7 +115,6 @@ def _git_input(repo: Path, args: list[str], data: bytes) -> bytes:
     if result.returncode:
         raise GitError(result.stderr.decode(errors="replace").strip() or "git batch read failed")
     return result.stdout
-
 
 
 def _inside(path: str, folder: str) -> bool:
@@ -139,8 +145,64 @@ def _changes(repo: Path, base: str, head: str) -> tuple[list[Rename], set[str]]:
     return renames, added
 
 
+def _owned_blobs(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
+    """``{path: blob id}`` of the regular files at ``head`` outside the excluded patterns."""
+    objects = {}
+    for entry in git(repo, "ls-tree", "-r", "-z", head).split(b"\0"):
+        if not entry:
+            continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        mode, kind, oid = metadata.decode().split()
+        path = raw_path.decode()
+        if kind == "blob" and mode != "120000" and not matches_any(path, excluded):
+            objects[path] = oid
+    return objects
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    """Upper-case module bindings to short string literals."""
+    constants: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            bindings = [item.id for target in targets for item in ast.walk(target)
+                        if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)]
+            value = node.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str) and len(value.value) <= 80:
+                constants.update({name: value.value for name in bindings if name.isupper()})
+    return constants
+
+
+def _imports(tree: ast.Module, parent: str) -> list[str]:
+    """Imported modules and names; an unresolvable relative import keeps its dots."""
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            destination = node.module or ""
+            if node.level:
+                try:
+                    destination = importlib.util.resolve_name("." * node.level + destination, parent)
+                except (ImportError, ValueError):
+                    destination = "." * node.level + destination
+            imports.extend(destination if alias.name == "*" else destination + "." + alias.name
+                           for alias in node.names)
+    return imports
+
+
+def _resolved(imported: str, modules: dict[str, list[str]], path: str) -> list[str]:
+    """The owned files an import names, found by its longest known module prefix."""
+    target = imported
+    while target:
+        if target in modules:
+            return sorted(p for p in modules[target] if p != path)
+        target = target.rpartition(".")[0]
+    return []
+
+
 class Snapshot:
-    def __init__(self, repo: Path, base: str, head: str, profile: dict,
+    def __init__(self, repo: Path, base: str, head: str, profile: dict[str, Any],
                  candidate_base: str | None = None) -> None:
         self.repo, self.profile = repo, profile
         self.head = _commit(repo, head)
@@ -155,22 +217,12 @@ class Snapshot:
             git(repo, "rev-parse", "--verify", "--end-of-options", candidate_base + "^{tree}").decode().strip()
             if candidate_base else self.base
         )
-        self.truncations: list[dict] = []
-        self.parse_errors: list[dict] = []
+        self.truncations: list[dict[str, Any]] = []
+        self.parse_errors: list[dict[str, Any]] = []
         self.global_truncations = 0
-        excluded = (as_list(settings(profile, "check").get("exclude"))
-                    + as_list(settings(profile, "python").get("excluded_paths")))
-        self.excluded = excluded
-        entries = git(repo, "ls-tree", "-r", "-z", self.head).split(b"\0")
-        objects = {}
-        for entry in entries:
-            if not entry:
-                continue
-            metadata, raw_path = entry.split(b"\t", 1)
-            mode, kind, oid = metadata.decode().split()
-            path = raw_path.decode()
-            if kind == "blob" and mode != "120000" and not matches_any(path, excluded):
-                objects[path] = oid
+        self.excluded = (as_list(settings(profile, "check").get("exclude"))
+                         + as_list(settings(profile, "python").get("excluded_paths")))
+        objects = _owned_blobs(repo, self.head, self.excluded)
         self.owned_paths = set(objects)
         self.paths = self.cap(sorted(objects), "tree_files", "tree")
         self.renames, self.added = _changes(repo, self.base, self.head)
@@ -181,38 +233,36 @@ class Snapshot:
         self.docs: dict[str, dict[str, str]] = {}
         self.constants: dict[str, dict[str, str]] = {}
         for path, source in self.sources.items():
-            try:
-                tree = ast.parse(source, filename=path)
-            except (SyntaxError, ValueError, UnicodeError) as error:
-                self.parse_errors.append({"path": path, "error": str(error)})
-                continue
-            self.trees[path] = tree
-            visitor = TopLevelNames()
-            visitor.visit(tree)
-            names, docs, constants = visitor.names, {}, {}
-            module_doc = ast.get_docstring(tree)
-            if module_doc:
-                docs["<module>"] = self.doc(module_doc.split("\n\n", 1)[0], path)
-            for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    doc = ast.get_docstring(node)
-                    if doc:
-                        docs[node.name] = self.doc(doc.splitlines()[0], path)
-                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                    bindings = [item.id for target in targets for item in ast.walk(target)
-                                if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)]
-                    value = node.value
-                    if isinstance(value, ast.Constant) and isinstance(value.value, str) and len(value.value) <= 80:
-                        constants.update({name: value.value for name in bindings if name.isupper()})
-            self.symbols[path] = self.cap(sorted(set(names)), "symbols_per_file", path)
-            doc_names = self.cap(sorted(docs), "symbols_per_file", path + ":docstrings")
-            self.docs[path] = {name: docs[name] for name in doc_names}
-            constant_names = self.cap(sorted(constants), "symbols_per_file", path + ":constants")
-            self.constants[path] = {name: constants[name] for name in constant_names}
+            self.index(path, source)
         self.edges = self.imports()
         self.clusters = _groups(self.paths, self.candidate_added, profile)
         self.global_truncations = len(self.truncations)
+
+    def index(self, path: str, source: bytes) -> None:
+        """Parse one source and record its top-level symbols, first docstring lines and constants."""
+        try:
+            tree = ast.parse(source, filename=path)
+        except (SyntaxError, ValueError, UnicodeError) as error:
+            self.parse_errors.append({"path": path, "error": str(error)})
+            return
+        self.trees[path] = tree
+        visitor = TopLevelNames()
+        visitor.visit(tree)
+        docs: dict[str, str] = {}
+        module_doc = ast.get_docstring(tree)
+        if module_doc:
+            docs["<module>"] = self.doc(module_doc.split("\n\n", 1)[0], path)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                doc = ast.get_docstring(node)
+                if doc:
+                    docs[node.name] = self.doc(doc.splitlines()[0], path)
+        constants = _string_constants(tree)
+        self.symbols[path] = self.cap(sorted(set(visitor.names)), "symbols_per_file", path)
+        doc_names = self.cap(sorted(docs), "symbols_per_file", path + ":docstrings")
+        self.docs[path] = {name: docs[name] for name in doc_names}
+        constant_names = self.cap(sorted(constants), "symbols_per_file", path + ":constants")
+        self.constants[path] = {name: constants[name] for name in constant_names}
 
     def read_sources(self, objects: dict[str, str]) -> dict[str, bytes]:
         paths = [path for path in self.paths if path.endswith(".py")]
@@ -251,7 +301,7 @@ class Snapshot:
             offset += size + 1
         return {path: blobs[objects[path]] for path in selected}
 
-    def cap(self, values: list, cap: str, field: str) -> list:
+    def cap(self, values: list[Any], cap: str, field: str) -> list[Any]:
         limit = CAPS[cap]
         if len(values) > limit:
             self.truncations.append({"field": field, "limit": limit,
@@ -264,47 +314,31 @@ class Snapshot:
                                      "omitted_chars": len(value) - CAPS["docstring_chars"]})
         return value[:CAPS["docstring_chars"]]
 
-    def imports(self) -> list[dict]:
+    def imports(self) -> list[dict[str, Any]]:
         aliases = {path: _module_names(path, self.profile) for path in self.paths if path.endswith(".py")}
         modules: dict[str, list[str]] = {}
         for path, names in aliases.items():
             for name in names:
                 modules.setdefault(name, []).append(path)
-        edges = []
+        edges: list[dict[str, Any]] = []
         for path, tree in self.trees.items():
             module = aliases[path][0]
             parent = module if PurePosixPath(path).stem == "__init__" else module.rpartition(".")[0]
-            imports = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imports.extend(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom):
-                    destination = node.module or ""
-                    if node.level:
-                        try:
-                            destination = importlib.util.resolve_name("." * node.level + destination, parent)
-                        except (ImportError, ValueError):
-                            destination = "." * node.level + destination
-                    imports.extend(destination if alias.name == "*" else destination + "." + alias.name
-                                   for alias in node.names)
-            for imported in self.cap(sorted(set(imports)), "imports_per_file", path + ":imports"):
-                target, resolved = imported, []
-                while target:
-                    if target in modules:
-                        resolved = sorted(p for p in modules[target] if p != path)
-                        break
-                    target = target.rpartition(".")[0]
-                edges.append({"from": path, "module": imported, "to": resolved})
+            imports = _imports(tree, parent)
+            edges.extend(
+                {"from": path, "module": imported, "to": _resolved(imported, modules, path)}
+                for imported in self.cap(sorted(set(imports)), "imports_per_file", path + ":imports")
+            )
         return edges
 
-    def context(self, folder: str) -> dict:
+    def context(self, folder: str) -> dict[str, Any]:
         paths = self.cap([p for p in self.paths if p == folder or str(PurePosixPath(p).parent) == folder],
                          "context_files", folder + ":context_files")
         return {"unit_path": folder, "folder_path": folder, "files": paths,
                 "top_level_symbols": {p: self.symbols[p] for p in paths if p in self.symbols}}
 
-    def cluster(self, cluster: dict) -> dict:
-        result: dict = dict(cluster, eligible=True)
+    def cluster(self, cluster: dict[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = dict(cluster, eligible=True)
         result["members"] = self.cap(cluster["members"], "unit_files", "cluster.members")
         members = set(result["members"])
         result["added_or_moved"] = sorted(members.intersection(cluster["added_or_moved"]))
@@ -320,7 +354,7 @@ class Snapshot:
                       "--format=%x1e", "--name-only", "-z", self.head, "--", *sorted(members)).decode()
         commits = [row for row in history.split("\x1e") if row.strip("\0\n")]
         commits = self.cap(commits, "history_commits", "cluster.co_change.history")
-        counts: Counter = Counter()
+        counts: Counter[tuple[str, str]] = Counter()
         for row in commits:
             changed = {p.strip("\n") for p in row.split("\0")} & members
             counts.update(combinations(sorted(changed), 2))
@@ -329,16 +363,11 @@ class Snapshot:
                                           "edges", "cluster.co_change")
         return result
 
-    def unit(self, folder: str) -> dict:
+    def unit(self, folder: str) -> dict[str, Any]:
         start = len(self.truncations)
         paths = self.cap([p for p in self.paths if _inside(p, folder)], "unit_files", folder + ":files")
         selected = set(paths)
-        parent = str(PurePosixPath(folder).parent)
-        sibling_names = sorted({PurePosixPath(p).relative_to(parent).parts[0]
-                                for p in self.paths if _inside(p, parent)})
-        siblings = [(PurePosixPath(parent) / name).as_posix() for name in sibling_names]
-        siblings = self.cap([p for p in siblings if p != folder] if folder != "." else [],
-                            "context_units", "sibling_context")
+        siblings = self.cap(self.siblings(folder), "context_units", "sibling_context")
         renames = [r for r in self.renames if _inside(r.old, folder) or _inside(r.new, folder)]
         related = sorted({str(PurePosixPath(p).parent) for r in renames for p in (r.old, r.new)} - {folder})
         related = self.cap(related, "context_units", "related_context")
@@ -346,26 +375,9 @@ class Snapshot:
         terms = [term for term in terms if _inside(term.scope, folder) or _inside(folder, term.scope)]
         files = {p: self.sources.get(p, b"") for p in self.paths}
         residue = [asdict(f) for f in residue_findings(self.renames, files) if _inside(f.path, folder)]
-        unit_words = {word for p in paths for part in PurePosixPath(p).parts for word in words(PurePosixPath(part).stem)}
-        unit_words.update(word for p in paths for name in self.symbols.get(p, []) for word in words(name))
-        owners: dict[str, set[str]] = {}
-        for path in self.paths:
-            if _inside(path, folder):
-                continue
-            for owner in (*PurePosixPath(path).parents, PurePosixPath(path)):
-                name = owner.stem if owner == PurePosixPath(path) else owner.name
-                if name.lower() in unit_words:
-                    owners.setdefault(name.lower(), set()).add(owner.as_posix())
+        owners = self.term_owners(folder, paths)
         owner_terms = self.cap(sorted(owners), "term_owners", "term_owners")
-        edge_groups = {"inbound": [], "outbound": [], "internal": []}
-        for edge in self.edges:
-            source_inside = edge["from"] in selected
-            targets_inside = any(p in selected for p in edge["to"])
-            if source_inside:
-                kind = "internal" if edge["to"] and all(p in selected for p in edge["to"]) else "outbound"
-                edge_groups[kind].append(edge)
-            elif targets_inside:
-                edge_groups["inbound"].append(edge)
+        edge_groups = self.edge_groups(selected)
         state = {
             "folder_path": folder, "files": paths,
             "introduced_paths": self.cap(sorted(selected & self.added), "change_rows", "introduced_paths"),
@@ -398,7 +410,41 @@ class Snapshot:
         }
         return _bounded(state)
 
-    def judgment_unit(self, folder: str) -> dict:
+    def siblings(self, folder: str) -> list[str]:
+        """The other direct children of the folder's parent that hold owned files."""
+        if folder == ".":
+            return []
+        parent = str(PurePosixPath(folder).parent)
+        sibling_names = sorted({PurePosixPath(p).relative_to(parent).parts[0]
+                                for p in self.paths if _inside(p, parent)})
+        siblings = [(PurePosixPath(parent) / name).as_posix() for name in sibling_names]
+        return [p for p in siblings if p != folder]
+
+    def term_owners(self, folder: str, paths: list[str]) -> dict[str, set[str]]:
+        """Paths outside the unit whose names repeat a word of the unit's paths or symbols."""
+        unit_words = {word for p in paths for part in PurePosixPath(p).parts for word in words(PurePosixPath(part).stem)}
+        unit_words.update(word for p in paths for name in self.symbols.get(p, []) for word in words(name))
+        owners: dict[str, set[str]] = {}
+        for path in self.paths:
+            if _inside(path, folder):
+                continue
+            for owner in (*PurePosixPath(path).parents, PurePosixPath(path)):
+                name = owner.stem if owner == PurePosixPath(path) else owner.name
+                if name.lower() in unit_words:
+                    owners.setdefault(name.lower(), set()).add(owner.as_posix())
+        return owners
+
+    def edge_groups(self, selected: set[str]) -> dict[str, list[dict[str, Any]]]:
+        groups: dict[str, list[dict[str, Any]]] = {"inbound": [], "outbound": [], "internal": []}
+        for edge in self.edges:
+            if edge["from"] in selected:
+                kind = "internal" if edge["to"] and all(p in selected for p in edge["to"]) else "outbound"
+                groups[kind].append(edge)
+            elif any(p in selected for p in edge["to"]):
+                groups["inbound"].append(edge)
+        return groups
+
+    def judgment_unit(self, folder: str) -> dict[str, Any]:
         state = self.unit(folder)
         introduced = set(state["introduced_paths"])
         legacy = [path for path in state["files"] if path not in introduced]
@@ -428,19 +474,26 @@ class Snapshot:
         return _bounded(state)
 
 
+@dataclass(frozen=True)
+class CommitWindow:
+    """The reviewed range; ``candidate_base`` may select a past introduction window."""
 
-def extract_unit(repo: Path, base: str, head: str, unit: str, profile: dict | None = None,
-                 *, candidate_base: str | None = None) -> dict:
-    """Extract any head folder; candidate_base may select a past introduction window."""
+    base: str
+    head: str
+    candidate_base: str | None = None
+
+
+def extract_unit(repo: Path, window: CommitWindow, unit: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Extract any head folder of the window's head."""
     folder = PurePosixPath(unit).as_posix()
     if PurePosixPath(folder).is_absolute() or ".." in PurePosixPath(folder).parts:
         raise ValueError("unit must be a repository-relative folder")
-    snapshot = Snapshot(repo, base, head, profile or {}, candidate_base)
+    snapshot = Snapshot(repo, window.base, window.head, profile or {}, window.candidate_base)
     snapshot.global_truncations = len(snapshot.truncations)
     return snapshot.unit(folder)
 
 
-def extract(repo: Path, base: str, head: str, profile: dict | None = None) -> dict[str, dict]:
+def extract(repo: Path, base: str, head: str, profile: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """Extract destination folders of added/renamed/moved owned files only."""
     snapshot = Snapshot(repo, base, head, profile or {})
     introduced = snapshot.added & snapshot.owned_paths
@@ -455,7 +508,7 @@ def extract(repo: Path, base: str, head: str, profile: dict | None = None) -> di
     return {folder: snapshot.judgment_unit(folder) for folder in sorted(folders)}
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
+def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)

@@ -31,14 +31,18 @@ import tempfile
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from guardrails.findings import Finding
+
+if TYPE_CHECKING:
+    from guardrails.test_evidence.junit import Report
 
 PACKAGE = "guardrails.adapters.pytest.conformance"
 # A hang guard for one case's pytest run, not a tuned budget: every fixture finishes in seconds.
 CASE_TIMEOUT_S = 300
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
-BASE_PROFILE: dict = {
+BASE_PROFILE: dict[str, Any] = {
     "public_entry_points": {"shop": "shop.core:Basket"},
     "tiers": {
         "t1": {"selector": "fast", "location": "tests", "command": "pytest -m fast"},
@@ -64,19 +68,21 @@ class CaseResult:
     detail: str
 
 
-def data(name: str) -> dict:
-    return json.loads(resources.files(PACKAGE).joinpath(name).read_text(encoding="utf-8"))
+def data(name: str) -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads(resources.files(PACKAGE).joinpath(name).read_text(encoding="utf-8"))
+    return loaded
 
 
 def fixture_source(name: str) -> str:
     return resources.files(f"{PACKAGE}.fixtures").joinpath(name).read_text(encoding="utf-8")
 
 
-def load_cases() -> list[dict]:
-    return data("cases.json")["cases"]
+def load_cases() -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = data("cases.json")["cases"]
+    return cases
 
 
-def build_project(root: Path, case: dict, binding: dict) -> str:
+def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> str:
     project = root / "project"
     (project / "shop").mkdir(parents=True)
     (project / "tests").mkdir()
@@ -89,11 +95,11 @@ def build_project(root: Path, case: dict, binding: dict) -> str:
     return placed
 
 
-def case_profile(binding: dict) -> dict:
+def case_profile(binding: dict[str, Any]) -> dict[str, Any]:
     return {**json.loads(json.dumps(BASE_PROFILE)), **binding.get("profile", {})}
 
 
-def check_source(project: Path, profile: dict, placed: str, case: dict) -> tuple[bool, str]:
+def check_source(project: Path, profile: dict[str, Any], placed: str, case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.pytest.lint import lint
 
     rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
@@ -101,7 +107,7 @@ def check_source(project: Path, profile: dict, placed: str, case: dict) -> tuple
     return reported == (case["expect"] == "finding"), f"rules reported: {rules or 'none'}"
 
 
-def check_static_cases(project: Path, placed: str, case: dict) -> tuple[bool, str]:
+def check_static_cases(project: Path, placed: str, case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.pytest.cases import collect
     from guardrails.diffs.growth import Snapshot, growth_findings
 
@@ -113,7 +119,7 @@ def check_static_cases(project: Path, placed: str, case: dict) -> tuple[bool, st
     return reported == (case["expect"] == "finding"), detail
 
 
-def run_tier(root: Path, tier: str):
+def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     """Run the project's tests as ``tier`` with the adapter's arguments; return the report."""
     from guardrails.adapters.pytest import tier_arguments
     from guardrails.adapters.pytest.dialect import DIALECT
@@ -156,7 +162,7 @@ def run_tier(root: Path, tier: str):
         return None, f"{error} (pytest exit {result.returncode}): {result.stdout[-400:]}"
 
 
-def check_run(root: Path, binding: dict, case: dict) -> tuple[bool, str]:
+def check_run(root: Path, binding: dict[str, Any], case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.pytest import TIER_GUARDS
     from guardrails.adapters.pytest.dialect import GUARDS_PROPERTY
 
@@ -180,7 +186,7 @@ def check_run(root: Path, binding: dict, case: dict) -> tuple[bool, str]:
     return len(cases) == 1 and all(getattr(only, k) == v for k, v in expect.items()), detail
 
 
-def check_collection(project: Path, profile: dict, case: dict) -> tuple[bool, str]:
+def check_collection(project: Path, profile: dict[str, Any], case: dict[str, Any]) -> tuple[bool, str]:
     from guardrails.adapters.pytest.tiers import list_tiers
 
     out = project.parent / "collections"
@@ -195,7 +201,7 @@ def check_collection(project: Path, profile: dict, case: dict) -> tuple[bool, st
     return not findings and ids == case["expect"]["ids"], detail
 
 
-def run_case(case: dict, binding: dict) -> CaseResult:
+def run_case(case: dict[str, Any], binding: dict[str, Any]) -> CaseResult:
     with tempfile.TemporaryDirectory(prefix="omp-conformance-") as scratch:
         root = Path(scratch).resolve()
         placed = build_project(root, case, binding)

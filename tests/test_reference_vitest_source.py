@@ -159,15 +159,15 @@ class SourceLint(unittest.TestCase):
             "shop/core.ts": "export function checkout() {} export function inspect() {}",
             "tests/case.test.ts": "import { inspect as view } from '../shop/core'; test('x', () => { view(); });",
         }
-        found = lint.test_only_findings(sources, PROFILE, {"shop/core.ts"})
+        found = lint.hook_findings(sources, PROFILE, {"shop/core.ts"})
         self.assertEqual(len(found), 1)
         self.assertIn("inspect", found[0].message)
         sources["shop/consumer.ts"] = "import { inspect } from './core'; inspect();"
-        self.assertEqual(lint.test_only_findings(sources, PROFILE, {"shop/core.ts"}), [])
+        self.assertEqual(lint.hook_findings(sources, PROFILE, {"shop/core.ts"}), [])
 
     def test_public_entry_symbol_and_unused_import_are_not_hooks(self):
         sources = {"shop/core.ts": "export function checkout() {} export function unused() {}", "tests/case.test.ts": "import {checkout, unused} from '../shop/core'; checkout();"}
-        self.assertEqual(lint.test_only_findings(sources, PROFILE, {"shop/core.ts"}), [])
+        self.assertEqual(lint.hook_findings(sources, PROFILE, {"shop/core.ts"}), [])
 
     def test_inventory_scope_waivers_and_no_target_writes(self):
         with tempfile.TemporaryDirectory() as folder:

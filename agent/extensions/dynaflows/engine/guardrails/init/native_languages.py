@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from guardrails.init.native_config import HEADER, load_data
 from guardrails.structure.inventory import InventoryError, repo_paths
@@ -81,7 +82,7 @@ def extends_target(repo: Path, folder: Path, base: str) -> Path:
     raise ConfigError(f"extends {base!r} cannot be read; install the repository's dependencies")
 
 
-def compiler_options(repo: Path, path: Path, seen: frozenset[Path] = frozenset()) -> dict:
+def compiler_options(repo: Path, path: Path, seen: frozenset[Path] = frozenset()) -> dict[str, Any]:
     """compilerOptions after every extends, bases first, as tsc merges them."""
     if path in seen:
         raise ConfigError(f"extends cycle at {path.name}")
@@ -92,7 +93,7 @@ def compiler_options(repo: Path, path: Path, seen: frozenset[Path] = frozenset()
     if not isinstance(data, dict):
         raise ConfigError(f"{path.name} is not a JSON object")
     bases = data.get("extends") or []
-    options: dict = {}
+    options: dict[str, Any] = {}
     for base in [bases] if isinstance(bases, str) else bases:
         target = extends_target(repo, path.parent, str(base))
         options.update(compiler_options(repo, target, seen | {path}))
@@ -103,7 +104,7 @@ def compiler_options(repo: Path, path: Path, seen: frozenset[Path] = frozenset()
     return options
 
 
-def tsconfig_report(repo: Path, wanted: dict) -> list[str]:
+def tsconfig_report(repo: Path, wanted: dict[str, Any]) -> list[str]:
     try:
         options = compiler_options(repo, repo / "tsconfig.json")
     except ConfigError as error:
@@ -152,7 +153,7 @@ def setting_text(value: object) -> str:
     return json.dumps(value) if isinstance(value, bool) else str(value)
 
 
-def editorconfig_report(text: str, shfmt: dict) -> list[str]:
+def editorconfig_report(text: str, shfmt: dict[str, Any]) -> list[str]:
     report = []
     for key, value in shfmt["settings"].items():
         wanted = setting_text(value)
@@ -164,28 +165,28 @@ def editorconfig_report(text: str, shfmt: dict) -> list[str]:
     return report
 
 
-def render_tsconfig(data: dict) -> str:
+def render_tsconfig(data: dict[str, Any]) -> str:
     return json.dumps({"compilerOptions": data["tsc"]["compilerOptions"]}, indent=2) + "\n"
 
 
-def render_oxlint(data: dict) -> str:
+def render_oxlint(data: dict[str, Any]) -> str:
     return json.dumps(data["oxlint"], indent=2) + "\n"
 
 
-def render_golangci(data: dict, module: str) -> str:
+def render_golangci(data: dict[str, Any], module: str) -> str:
     config = json.loads(json.dumps(data["golangci"]))
     config["formatters"]["settings"] = {"goimports": {"local-prefixes": [module]}}
     return json.dumps(config, indent=2) + "\n"
 
 
-def render_shellcheck(data: dict) -> str:
+def render_shellcheck(data: dict[str, Any]) -> str:
     rc = data["shellcheck"]
     lines = [HEADER.rstrip("\n"), *(f"enable={name}" for name in rc["enable"])]
     lines.extend(f"{key}={setting_text(value)}" for key, value in rc.items() if key != "enable")
     return "\n".join(lines) + "\n"
 
 
-def render_editorconfig(data: dict) -> str:
+def render_editorconfig(data: dict[str, Any]) -> str:
     shfmt = data["shfmt"]
     lines = [HEADER.rstrip("\n"), "root = true", "", shfmt["section"]]
     lines.extend(f"{key} = {setting_text(value)}" for key, value in shfmt["settings"].items())
@@ -200,7 +201,7 @@ def shell_scripts(repo: Path) -> bool:
     return any(PurePosixPath(path).suffix in SHELL_SUFFIXES for path in repo_paths(repo))
 
 
-def typescript_configs(repo: Path, data: dict) -> tuple[dict[str, str], list[str]]:
+def typescript_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     planned: dict[str, str] = {}
     report: list[str] = []
     if (repo / "tsconfig.json").is_file():
@@ -215,7 +216,7 @@ def typescript_configs(repo: Path, data: dict) -> tuple[dict[str, str], list[str
     return planned, report
 
 
-def go_configs(repo: Path, data: dict) -> tuple[dict[str, str], list[str]]:
+def go_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     kept = first_file(repo, GOLANGCI_FILES)
     if kept:
         return {}, [f"native: kept the existing golangci-lint configuration in {kept}"]
@@ -225,7 +226,7 @@ def go_configs(repo: Path, data: dict) -> tuple[dict[str, str], list[str]]:
     return {".golangci.json": render_golangci(data, module.group(1))}, []
 
 
-def shell_configs(repo: Path, data: dict) -> tuple[dict[str, str], list[str]]:
+def shell_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
     planned: dict[str, str] = {}
     report: list[str] = []
     kept = first_file(repo, SHELLCHECK_FILES)
