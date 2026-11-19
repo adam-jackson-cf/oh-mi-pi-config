@@ -186,8 +186,8 @@ uv run --locked mypy
 # - commit: all T1, then T2 for each framework a staged path reaches;
 # - ci: all T1 and all T2, with coverage of owned code checked against its floors.
 # Line floor: Python statements and TypeScript lines together; branch floor: Python branches.
-line_floor=69
-branch_floor=76
+line_floor=82
+branch_floor=83
 if [[ "$tier" == commit ]]; then
   bash scripts/run-test-tier.sh t1
   # A staged path reaches a framework's T2 unless it is one that framework's seams never read;
