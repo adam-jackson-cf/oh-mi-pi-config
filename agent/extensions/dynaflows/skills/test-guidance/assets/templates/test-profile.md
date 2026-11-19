@@ -69,7 +69,6 @@
 # Repo test profile
 
 The calling workflow supplies this profile's location. Repo paths in its settings are repo-relative.
-This generic template describes the repo's testing contract, not harness configuration.
 
 Fill every section with values. `none: <owner-approved reason>` is allowed only in Verification
 surface, Nightly scheduler (a Run events field), and Identity-bearing artefacts; elsewhere a

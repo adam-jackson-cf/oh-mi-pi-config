@@ -7,20 +7,16 @@ installation guide or an exhaustive reference.
 
 ## Design
 
-The configuration favors evidence before assertion, verification proportional to
-risk, and clean cutovers over compatibility layers. Changes should solve the
-underlying problem, preserve canonical wording where it matters, migrate callers
-when a design changes, and remove obsolete paths rather than carry them forward.
-`agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
+The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
+design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
-and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md);
-The package also bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `jev-actions`
-and `codify-omp-workflow-corrections`; `git-tool` stays standalone because it serves dynaflows-off
-sessions too ([ADR 0013](docs/adr/0013-dynaflows-bundles-its-skills.md)).
-Retired delivery-guidance copies and the disabled standalone workflow entry have been removed;
-Git history retains them. The extension package is the only workflow skill source.
-The [workflow page](agent/extensions/dynaflows/docs/workflow.html)
-is an explanatory view of the canonical skill contracts.
+and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md),
+and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `jev-actions` and
+`codify-omp-workflow-corrections`. `git-tool` stays standalone because it serves dynaflows-off
+sessions too ([ADR 0013](docs/adr/0013-dynaflows-bundles-its-skills.md)). Git history retains the
+retired delivery-guidance copies and standalone workflow entry. The
+[workflow page](agent/extensions/dynaflows/docs/workflow.html) is an explanatory view of the
+canonical skill contracts.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -108,32 +104,14 @@ with `git config core.hooksPath .githooks`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its
-[canonical six-stage workflow](agent/extensions/dynaflows/skills/dynaflows/SKILL.md)
-is available as `skill://dynaflows`.
-Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `init $dynaflows`,
-`$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
-`$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
-as "I want to enable dynaflows", the main agent judges whether you are asking (rather than asking about
-it or quoting it) and calls the `dynaflows` tool. Agents write records directly, with approval fields
-only as the owner stated them in the chat. Turning it on starts from the repo's stage:
-with no record the agent starts
-repository setup and writes the record, switch on, itself; with a refused record it resumes setup
-and repairs it; with a prompt that holds only the ask it assesses the repo against the workflow's
-Start here and starts that stage. The switch is the record's `dynaflows.enabled`; linked worktrees
-share their main checkout's record. No `origin` remote or no record means off, and a machine default
-`~/.omp/dynaflows.json` of `{"enabled": false}` turns it off for every repo. With dynaflows on,
-rails inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as
-above. Subagent filesystem edit paths must be absolute and cannot escape enclosing Git roots through
-symlinks; outside-repo scratch paths and internal URIs are allowed. Rails require `git worktree add`
-targets at `<worktree.base>/<repo>/<slug>`, using the lowercase `origin` repo name; `OMP_WORKTREE_DIR`
-overrides the base. Selecting the assigned worktree for edit-tool writes remains an instruction,
-not a path-rail guarantee. Proofs are outcome tests tied to the repo's
-feature map (the record profile's `verification_surface.feature_map_path`): `freeze()` refuses a
-proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
-proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
-and a test, then a re-freeze. Helper contracts live in
-[patterns](agent/extensions/dynaflows/skills/dynaflows/references/patterns.md).
-`skill://git-tool` owns Git/PR/CI/merge authority.
+[workflow skill](agent/extensions/dynaflows/skills/dynaflows/SKILL.md) is available as
+`skill://dynaflows`; its preflight step defines how the owner turns dynaflows on or off in the main
+chat (for example a standalone `$dynaflows on` or `$dynaflows off` line) and how the switch,
+record and playbook resolve. With dynaflows on, rails inject the workflow pointer, require
+guardrail owner approval and guard `gh pr merge` as above. Subagent edit paths must be absolute
+and cannot escape enclosing Git roots through symlinks, and `git worktree add` targets must sit at
+`<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides the base). `skill://git-tool` owns
+Git, PR, CI and merge authority.
 
 Native judged reply rules live inside the package. At session start its extension appends the
 configured `dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
@@ -156,37 +134,17 @@ source.
 
 ## Per-repo records
 
-A repo never depends on, contains or mentions omp or dynaflows. Its harness settings
-live in a **record**: `repos/<owner>/<name>/` under this checkout's root, lowercase,
-named by the clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
-`git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)`).
-Worktrees resolve to the same record as their main checkout.
-
-- `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`),
-  the `ci` contract, `ownerOnlyPaths`, `agentMerge` and `dynaflows.enabled`.
-  `checks.commit` and `ownerOnlyPaths` are required; missing required or unknown fields fail
-  to load with an error naming the field. The obsolete path command field is rejected.
-  `ownerOnlyPaths` lists the repo paths only the owner changes (`[]` when none);
-  rails refuse an agent commit that changes one.
-- `profile.md` holds the repo test profile, including every approval and exception.
-  Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings configure
-  harness-owned per-edit path checks even when whole-repo checks are repo-owned.
-  This is the explicit principles 1–2 exception in [ADR 0002](docs/adr/0002-harness-owns-path-checks.md):
-  consistent per-edit checks replace repo scripts whose contracts varied.
-  Existing records fail until the obsolete path command field is deleted and the required
-  profile is complete;
-  owner-approved migration follows immediately after merge, without changing repo CI commands.
-
-`/repos/` is gitignored: records are never committed, because they mean nothing to
-anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. Dynaflows [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md)
-adds record configuration to the generic `skill://setup-repo-proofs` workflow.
-Agents write records directly, with approval fields only as the owner stated them in the chat;
-records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit
-block remain unchanged. When dynaflows resolves off, rails say why
-once at session start and at every commit, naming the slug (or `none`) and the
-reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py`
-strip the harness's `AGENT` variable from every repo command they run.
+A repo never depends on, contains or mentions omp or dynaflows. Its harness settings live in a
+gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
+`origin` remote. [The record contract](agent/lib/record/README.md) defines its `gate.json` and
+`profile.md`, strict loading, owner-only paths and write authority; records are never committed,
+because they mean nothing to anyone else who takes this config. `scripts/device-rollout.py`
+copies them to devices. Dynaflows
+[harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record
+configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves off,
+rails say why once at session start and at every commit, naming the slug (or `none`) and the
+reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py` strip the
+harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
 

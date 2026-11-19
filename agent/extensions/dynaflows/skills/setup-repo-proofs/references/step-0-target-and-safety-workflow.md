@@ -22,6 +22,8 @@ Establish a safe, reproducible target and the setup modes before analysis.
 7. Select every applicable mode: `greenfield` for a project without guardrail checks; `adopt` when
    existing checkers or configurable tools can carry the selected rules; `extend` when adding only
    a missing part to established controls. Modes can overlap.
+8. Reuse existing tools, commands and ownership policies, and keep local checks and CI runnable by any contributor.
+   Every applicability or coverage claim needs source evidence for the individual rule.
 
 ## Done when
 

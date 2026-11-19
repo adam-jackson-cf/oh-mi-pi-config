@@ -4,7 +4,7 @@
 
 Prepare candidate controls and repository fixes outside the target checkout.
 
-## Guidance
+## Required actions
 
 1. Work in a temporary clone under the candidate root. Reuse project tools and settings; propose
    native-tool configuration separately from live configuration. Never overwrite established values

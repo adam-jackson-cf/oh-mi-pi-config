@@ -32,7 +32,7 @@ PROOF_FIELDS = frozenset({"id", "criterion", "parent", "cmd", "journey", "files"
 FEATURE_MAP_SETUP = (
     "the record profile declares no verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
-    "(skill://dynaflows/references/playbooks/project-setup.md). "
+    "(skill://dynaflows/references/project-setup.md). "
     "A PR with no behaviour change freezes no proofs")
 
 

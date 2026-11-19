@@ -57,7 +57,8 @@ See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.m
 
 Git-tool reads `agentMerge` and `ci` independently of the harness process switch.
 `agentMerge: disabled` requires the owner's approval to merge; `allowed` never waives CI.
-Follow [git-tool](../../skills/git-tool/SKILL.md), not setup, for Git authorization.
+Follow [git-tool](../../skills/git-tool/references/authority-and-safety.md), not setup, for Git
+authorization.
 
 `ci.requiredContext` is the commit-status context or check-run name that must report
 `success` on the exact PR head, normally `gate`. `ci.runner` is an owner-chosen role,
@@ -104,7 +105,7 @@ separate handoff check.
 Start the live `profile.md` from [this harness template](profile.md), not the generic
 test-guidance template. It contains one JSON object between `---` lines, then prose.
 JSON is valid YAML front matter; the engine reads it without a YAML parser.
-Keep the machine-readable values and human sections in step.
+The front matter is authoritative; any prose a live profile keeps must agree with it.
 
 The template preserves tiers, public entry points, run events, per-machine budgets,
 coverage, guards, environments, verification surface, ownership areas, identity artefacts,
@@ -156,29 +157,16 @@ tools through the repo's own package manager.
 
 ## Drafts, approvals and application
 
-`guardrails init --repo <clone> --record <record dir>` drafts directly in a live record
-or a draft directory for owner confirmation, without writing into the repo. During setup,
-keep the candidate draft outside the live records directory and start extend mode with a
-copy of the existing record. Init discovers make targets, hook managers, CI jobs and
-required checks through `gh`. It drafts `gate.json`, `profile.md` and native-tool proposals
-(Ruff, mypy, import-linter) under `proposed/`, and proves language-server readiness with a
-canary `references` query. It preserves recorded values and never invents an approval.
-`--enable-dynaflows` drafts the switch on only following the owner's chat request.
-`--commit-command` and `--ci-command` select repo gates; `--runner` and
-`--required-context` set `ci`. Missing `checks.commit` is reported as `required:`.
-There is no path-command option. `--settings` takes per-checker JSON; `check` takes no
-settings overrides.
-
-Present every command and discovered source (make target, hook, CI job, required check),
-CI fields, owner-only paths, scope exclusions and profile value for confirmation. Explain
-replacement and exception consequences, including removed hooks, CI, configs and docs.
-The setup's draft `guardrail-proposal.json` has
-`{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths.
-It travels with the confirmed record, never into the target repository.
-The setup workflow owns Minimal/Full or Approve/Revise decisions: no elapsed time or
-default option is approval. Do not apply the draft or candidate paths before the owner answers.
-After confirmation, the agent writes the live record directly; never ask the owner to save it.
-Compare the draft and confirmed profile with the approved matrix before applying repo fixes.
+`guardrails init --repo <clone> --record <record dir>` drafts `gate.json`, `profile.md` and
+native-tool proposals under `proposed/` in a live record or a draft directory, without writing
+into the repo, never inventing an approval. Harness setup's
+[candidate step](../../extensions/dynaflows/skills/dynaflows/references/setup-candidates.md)
+defines its options and use. The setup's draft `guardrail-proposal.json` has
+`{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths; it travels
+with the confirmed record, never into the target repository.
+[Setup approval](../../extensions/dynaflows/skills/dynaflows/references/setup-approval.md) owns
+the confirmation, the Minimal/Full or Approve/Revise decision and its STOP. After confirmation the
+agent writes the live record directly; never ask the owner to save it.
 
 All approvals and exceptions live only in the record's profile, never a PR. They include
 `approved_skips`, any `approval`, `approved_*` or `*_approval`, `user_approval`,
