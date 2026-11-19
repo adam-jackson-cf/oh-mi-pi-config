@@ -69,6 +69,12 @@ def keys_of(findings: list[Finding]) -> set[str]:
     return {finding.message.split(" ", 1)[0] for finding in findings}
 
 
+def set_nested(target: Any, path: tuple[object, ...], value: object) -> None:
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = value
+
+
 class ProfileLoadingTests(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-core-")
@@ -270,10 +276,7 @@ class ProfileCompleteTests(unittest.TestCase):
             for value in values:
                 with self.subTest(path=path, value=value):
                     profile = complete_profile()
-                    target: Any = profile
-                    for step in path[:-1]:
-                        target = target[step]
-                    target[path[-1]] = value
+                    set_nested(profile, path, value)
                     assert len(profile_module.validate_profile(profile)) == 1
 
     def test_unknown_keys_and_house_style_version_drift_are_reported(self) -> None:

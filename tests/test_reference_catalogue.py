@@ -45,6 +45,18 @@ NATIVE_PREFIXES = (
 )
 
 
+def names_rule(sources: list[Path], rule_id: str) -> bool:
+    return any(rule_id in source.read_text(encoding="utf-8") for source in sources)
+
+
+def imported_sources(sources: list[Path]) -> list[Path]:
+    return [
+        source
+        for imported in reference_imports(sources)
+        for source in module_sources(imported)
+    ]
+
+
 def packaged_catalogue() -> dict[str, Any]:
     data = resources.files("guardrails.data").joinpath("guardrail-rules.json")
     catalogue: dict[str, Any] = json.loads(data.read_bytes())
@@ -113,15 +125,10 @@ class PackagedCatalogueTests(unittest.TestCase):
                         assert module in dispatch.SUBCOMMANDS[subcommand].modules
                     sources = module_sources(module)
                     assert sources, f"missing module {module}"
-                    sources += [
-                        source
-                        for imported in reference_imports(sources)
-                        for source in module_sources(imported)
-                    ]
-                    assert any(
-                        rule["id"] in source.read_text(encoding="utf-8")
-                        for source in sources
-                    ), f"{module} never names {rule['id']}"
+                    sources += imported_sources(sources)
+                    assert names_rule(sources, rule["id"]), (
+                        f"{module} never names {rule['id']}"
+                    )
 
     def test_every_package_proven_rule_is_exercised_by_the_skill_tests(self) -> None:
         """Rules the package proves are proven here, once for every repo: each is named by a test."""

@@ -3,6 +3,7 @@
 import re
 import unittest
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,33 @@ REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 def skill_directory(name: str) -> Path:
     return SKILLS / name if name == "git-tool" else PACKAGE_SKILLS / name
+
+
+def citing_sources(
+    references: Mapping[tuple[str, str], set[str]], name: str
+) -> set[str]:
+    return {
+        source
+        for (skill, _), sources in references.items()
+        if skill == name
+        for source in sources
+    }
+
+
+def unresolved_links(source: Path) -> list[str]:
+    unresolved = []
+    text = source.read_text(encoding="utf-8")
+    for match in re.finditer(r"\[[^\]\n]*\]\(([^)\s]+)\)", text):
+        target = match.group(1)
+        if target.startswith("#") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
+            continue
+        relative = target.split("#", 1)[0]
+        if not (source.parent / relative).is_file():
+            unresolved.append(
+                f"unresolved relative markdown link: {target} "
+                f"(cited by: {source.relative_to(ROOT)})"
+            )
+    return unresolved
 
 
 class SkillReferenceTests(unittest.TestCase):
@@ -74,12 +102,7 @@ class SkillReferenceTests(unittest.TestCase):
 
         # Every core skill needs an entry point, even if all citations name subpaths.
         for name in CORE_SKILLS:
-            references[(name, "")].update(
-                source
-                for (skill, _), sources in list(references.items())
-                if skill == name
-                for source in sources
-            )
+            references[(name, "")].update(citing_sources(references, name))
 
         unresolved = []
         for (name, relative), citing in sorted(references.items()):
@@ -105,19 +128,7 @@ class SkillReferenceTests(unittest.TestCase):
         unresolved = []
         for name in CORE_SKILLS:
             for source in sorted(skill_directory(name).rglob("*.md")):
-                text = source.read_text(encoding="utf-8")
-                for match in re.finditer(r"\[[^\]\n]*\]\(([^)\s]+)\)", text):
-                    target = match.group(1)
-                    if target.startswith("#") or re.match(
-                        r"[A-Za-z][A-Za-z0-9+.-]*:", target
-                    ):
-                        continue
-                    relative = target.split("#", 1)[0]
-                    if not (source.parent / relative).is_file():
-                        unresolved.append(
-                            f"unresolved relative markdown link: {target} "
-                            f"(cited by: {source.relative_to(ROOT)})"
-                        )
+                unresolved.extend(unresolved_links(source))
         if unresolved:
             self.fail("\n".join(unresolved))
 
