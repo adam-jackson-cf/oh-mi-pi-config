@@ -14,6 +14,8 @@ sys.path.insert(
 
 import pytest
 
+from guardrails.commands.structure import import_graph
+from guardrails.commands.structure.import_direction import direction_findings
 from guardrails.context.config import house_style
 from guardrails.foundation import conventions
 
@@ -133,6 +135,35 @@ class HouseStyleVerdictTests(unittest.TestCase):
         )
         assert expected["python"] in conventions.test_patterns("test_sample.py")
         assert expected["typescript"] in conventions.test_patterns("sample.test.ts")
+
+
+ENGINE_SOURCE_ROOT = "agent/extensions/dynaflows/engine/guardrails"
+ENGINE_LAYERS = {
+    "structure": {
+        "tiers": ["foundation", "context", "toolkit", "commands"],
+        "import_direction": {
+            "package": "guardrails",
+            "source_root": ENGINE_SOURCE_ROOT,
+        },
+    }
+}
+
+
+class EngineLayerTests(unittest.TestCase):
+    def test_engine_modules_import_only_their_own_or_a_lower_layer(self) -> None:
+        paths = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / ENGINE_SOURCE_ROOT).rglob("*.py")
+        )
+        found = [
+            *import_graph.run(ROOT, ENGINE_LAYERS, [], inventory=paths),
+            *(
+                finding
+                for path in paths
+                for finding in direction_findings(ROOT, path, ENGINE_LAYERS)
+            ),
+        ]
+        assert found == []
 
 
 if __name__ == "__main__":
