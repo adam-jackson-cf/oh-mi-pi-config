@@ -4,7 +4,7 @@
 
 Land only approved changes, preserving unrelated work.
 
-## Guidance
+## Required actions
 
 1. Recheck target Git status and the approved base ref. Use an isolated worktree or equivalent
    reversible checkout for unrelated work or overlapping edits.

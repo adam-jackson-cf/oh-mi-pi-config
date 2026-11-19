@@ -4,7 +4,7 @@
 
 Translate every selected rule into an exact target-stack enforcement obligation.
 
-## Guidance
+## Required actions
 
 1. Read the complete authoritative contract selected for the project, including language-neutral
    rules. Preserve each ID, semantic, threshold and target-derived requirement, not just categories.

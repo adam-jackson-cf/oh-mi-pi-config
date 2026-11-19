@@ -4,7 +4,7 @@
 
 Demonstrate that no applicable rule is merely named, skipped or disconnected from execution.
 
-## Guidance
+## Required actions
 
 1. Run the enabled controls over the whole repository with approved exclusions. Expect zero
    findings and no unexpected target output. Run each project's checker tests through its public
