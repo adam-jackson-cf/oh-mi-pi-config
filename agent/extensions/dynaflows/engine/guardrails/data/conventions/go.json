@@ -40,33 +40,15 @@
     "The test-like pattern is a near-miss heuristic against the documented _test.go suffix.",
     "The tests/fixtures/support names are harness defaults, not Go requirements; Go discovers tests beside package source."
   ],
-  "extensions": [
-    ".go"
-  ],
+  "extensions": [".go"],
   "file": [],
-  "directory": [
-    "lowercase"
-  ],
-  "fixed_files": [
-    "doc.go",
-    "main.go"
-  ],
+  "directory": ["lowercase"],
+  "fixed_files": ["doc.go", "main.go"],
   "package_files": true,
-  "fixed_folders": [
-    "internal",
-    "cmd",
-    "testdata",
-    "vendor"
-  ],
-  "ignored_folders": [
-    "vendor"
-  ],
-  "test_patterns": [
-    "*_test.go"
-  ],
-  "test_like_patterns": [
-    "test_*.go"
-  ],
+  "fixed_folders": ["internal", "cmd", "testdata", "vendor"],
+  "ignored_folders": ["vendor"],
+  "test_patterns": ["*_test.go"],
+  "test_like_patterns": ["test_*.go"],
   "sources": [
     "https://go.dev/doc/effective_go#package-names",
     "https://pkg.go.dev/cmd/go#hdr-Test_packages",

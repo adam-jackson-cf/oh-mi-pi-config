@@ -20,10 +20,10 @@ references:
   git:
     - skill://git-tool
 testGlobs:
-  - '**/*.{test,spec}.*'
-  - '**/{test,tests,__tests__}/**'
+  - "**/*.{test,spec}.*"
+  - "**/{test,tests,__tests__}/**"
 codeGlobs:
-  - '**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}'
+  - "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}"
 editTools: [write, edit, ast_edit]
 # Applied to parsed command positions after env assignments and git global options.
 # Quoted echo/rg arguments are not commands and do not trigger this check. Pulling commits in

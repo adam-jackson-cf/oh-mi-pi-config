@@ -3,7 +3,7 @@
     "id": "TEST.no-self-mocking",
     "scope": "tests",
     "target": "mock-call",
-    "rule": {"kind": "call_expression"},
+    "rule": { "kind": "call_expression" },
     "message": "owned code is mocked: {target}",
     "fix": "exercise owned code directly; mock only external boundaries"
   },
@@ -11,7 +11,7 @@
     "id": "TEST.no-self-mocking",
     "scope": "tests",
     "target": "mock-assignment",
-    "rule": {"kind": "assignment_expression"},
+    "rule": { "kind": "assignment_expression" },
     "message": "owned import is replaced: {target}",
     "fix": "exercise owned code directly; mock only external boundaries"
   },
@@ -19,7 +19,7 @@
     "id": "TEST.no-evasion",
     "scope": "tests",
     "target": "evasion",
-    "rule": {"kind": "call_expression"},
+    "rule": { "kind": "call_expression" },
     "message": "test registration uses skip, focus, retry or expected failure: {target}",
     "fix": "remove the evasion and make the test pass on every required run"
   },
@@ -27,7 +27,7 @@
     "id": "TEST.property-seed",
     "scope": "tests",
     "target": "property",
-    "rule": {"kind": "call_expression"},
+    "rule": { "kind": "call_expression" },
     "message": "fast-check property run has no explicit integer seed: {target}",
     "fix": "set a reproducible integer seed in fast-check run options"
   },
@@ -37,8 +37,10 @@
     "target": "hook",
     "rule": {
       "all": [
-        {"any": [{"kind": "identifier"}, {"kind": "property_identifier"}]},
-        {"regex": "(?i)(for_?tests?|test_?only|test_?hooks?|__test|testing)"}
+        {
+          "any": [{ "kind": "identifier" }, { "kind": "property_identifier" }]
+        },
+        { "regex": "(?i)(for_?tests?|test_?only|test_?hooks?|__test|testing)" }
       ]
     },
     "message": "production exposes a test hook: {target}",
@@ -50,8 +52,22 @@
     "target": "environment",
     "rule": {
       "any": [
-        {"all": [{"kind": "member_expression"}, {"regex": "^process\\.env\\.(VITEST|JEST_WORKER_ID|TEST_MODE|TESTING|UNDER_TEST)$"}]},
-        {"all": [{"kind": "string"}, {"regex": "^[\"'](vitest|jest|test|testing|TEST_MODE|UNDER_TEST|VITEST|JEST_WORKER_ID)[\"']$"}]}
+        {
+          "all": [
+            { "kind": "member_expression" },
+            {
+              "regex": "^process\\.env\\.(VITEST|JEST_WORKER_ID|TEST_MODE|TESTING|UNDER_TEST)$"
+            }
+          ]
+        },
+        {
+          "all": [
+            { "kind": "string" },
+            {
+              "regex": "^[\"'](vitest|jest|test|testing|TEST_MODE|UNDER_TEST|VITEST|JEST_WORKER_ID)[\"']$"
+            }
+          ]
+        }
       ]
     },
     "message": "production reads a test marker: {target}",

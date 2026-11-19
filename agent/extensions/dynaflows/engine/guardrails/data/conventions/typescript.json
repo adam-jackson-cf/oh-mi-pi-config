@@ -70,16 +70,7 @@
     "Test patterns are runner discovery conventions; __tests__ is Jest-supported and .test/.spec are Vitest-supported.",
     "The tests/fixtures/support names are harness defaults, not language requirements."
   ],
-  "extensions": [
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs"
-  ],
+  "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
   "file": [],
   "directory": [],
   "fixed_files": [
@@ -95,13 +86,8 @@
     "*.d.mts",
     "*.d.cts"
   ],
-  "fixed_folders": [
-    "__tests__",
-    "node_modules"
-  ],
-  "ignored_folders": [
-    "node_modules"
-  ],
+  "fixed_folders": ["__tests__", "node_modules"],
+  "ignored_folders": ["node_modules"],
   "test_patterns": [
     "*.test.ts",
     "*.test.tsx",

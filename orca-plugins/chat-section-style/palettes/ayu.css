@@ -11,8 +11,7 @@
    chat.css owns highlight rules. Editorial aliases are resolved on the chat window
    (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
 
-
-:root[data-omp-chat-palette='ayu'] {
+:root[data-omp-chat-palette="ayu"] {
   --omp-id-key: #2f8fd0;
   --omp-id-key-ink: #16699c;
   --omp-id-key-tint: rgb(47 143 208 / 13%);
@@ -26,22 +25,38 @@
   --omp-id-suggestion: #568f1a;
   --omp-id-suggestion-ink: #3d6b0c;
   --omp-id-suggestion-tint: rgb(86 143 26 / 14%);
-  --omp-ed-suggestion: color-mix(in srgb, #568f1a 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #568f1a 85%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-suggestion-ink: color-mix(in srgb, #568f1a 62%, #000);
   --omp-id-related: #188f76;
   --omp-id-related-ink: #0f6c58;
   --omp-id-related-tint: rgb(24 143 118 / 14%);
-  --omp-ed-related: color-mix(in srgb, #188f76 85%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(
+    in srgb,
+    #188f76 85%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-related-ink: color-mix(in srgb, #188f76 62%, #000);
   --omp-id-decision: #8a5cc4;
   --omp-id-decision-ink: #6c3fa6;
   --omp-id-decision-tint: rgb(138 92 196 / 12%);
-  --omp-ed-decision: color-mix(in srgb, #8a5cc4 80%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8a5cc4 80%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-decision-ink: color-mix(in srgb, #8a5cc4 62%, #000);
   --omp-id-review: #ee640a;
   --omp-id-review-ink: #a34000;
   --omp-id-review-tint: rgb(238 100 10 / 14%);
-  --omp-ed-review: color-mix(in srgb, #ee640a 78%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(
+    in srgb,
+    #ee640a 78%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-review-ink: color-mix(in srgb, #ee640a 66%, #000);
   --embed-code: #16699c;
   --embed-command: #237530;
@@ -49,7 +64,7 @@
   --embed-diagram: #9c4579;
   --omp-accent: #9c5c00;
 }
-:root[data-omp-chat-palette='ayu'].dark {
+:root[data-omp-chat-palette="ayu"].dark {
   --omp-accent: #e6b450;
   --omp-id-key: #74cdff;
   --omp-id-key-ink: #74cdff;
@@ -87,22 +102,38 @@
   --embed-diagram: #b7b5f7;
 }
 
-:root[data-omp-chat-palette='ayu']:not(.dark) [data-native-chat-window] {
+:root[data-omp-chat-palette="ayu"]:not(.dark) [data-native-chat-window] {
   --omp-ed-label-mix: 80%;
   --omp-ed-key: color-mix(in srgb, #2f8fd0 85%, var(--chat-foreground-strong));
   --omp-ed-gap: color-mix(in srgb, #e04a55 85%, var(--chat-foreground-strong));
-  --omp-ed-suggestion: color-mix(in srgb, #568f1a 85%, var(--chat-foreground-strong));
-  --omp-ed-related: color-mix(in srgb, #188f76 85%, var(--chat-foreground-strong));
-  --omp-ed-decision: color-mix(in srgb, #8a5cc4 80%, var(--chat-foreground-strong));
-  --omp-ed-review: color-mix(in srgb, #ee640a 78%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #568f1a 85%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-related: color-mix(
+    in srgb,
+    #188f76 85%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8a5cc4 80%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-review: color-mix(
+    in srgb,
+    #ee640a 78%,
+    var(--chat-foreground-strong)
+  );
 }
 
 /* Orca chat inks nudged only where stock Ayu falls under 4.5:1. */
-:root[data-omp-chat-palette='ayu']:not(.dark) .native-chat-appearance {
+:root[data-omp-chat-palette="ayu"]:not(.dark) .native-chat-appearance {
   --chat-source-foreground: #484d52;
   --chat-source-muted-foreground: #565b61;
 }
-:root[data-omp-chat-palette='ayu'].dark .native-chat-appearance {
+:root[data-omp-chat-palette="ayu"].dark .native-chat-appearance {
   --chat-source-muted-foreground: #c2c8d1;
   --border: color-mix(in srgb, var(--chat-source-foreground) 16%, transparent);
 }
