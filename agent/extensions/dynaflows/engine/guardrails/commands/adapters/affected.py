@@ -20,7 +20,9 @@ The command reports no findings; a bad diff range is a ``TEST.tier-selectors`` f
 
 from __future__ import annotations
 
+import shlex
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -152,4 +154,29 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     print(f"selection: {selection.reason}", file=sys.stderr)
     for path in selection.paths:
         print(path)
+    return []
+
+
+@dataclass(frozen=True)
+class TierCommand:
+    name: str
+    suffixes: tuple[str, ...]
+    arguments: Callable[[object, list[str]], list[str]]
+
+
+def print_affected(
+    repo: Path, profile: dict[str, Any], command: TierCommand, base: str, head: str
+) -> list[Finding]:
+    try:
+        selection = affected(repo, profile, ["--base", base, "--head", head])
+    except DiffError as error:
+        return [range_finding(RULE, error)]
+    print(f"selection: {selection.reason}", file=sys.stderr)
+    paths = adapter_declarations.claimed(
+        profile, command.name, "t2", selection.paths, command.suffixes
+    )
+    if paths:
+        tiers = adapter_declarations.adapter_tiers(profile, command.name)
+        selector = tiers.get("t2", {}).get("selector", "")
+        print(shlex.join(command.arguments(selector, paths)))
     return []

@@ -71,22 +71,15 @@ def tier_arguments(tier: str, report_path: str) -> list[str]:
 def affected_arguments(
     repo: Path, profile: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
-    from guardrails.commands.adapters.affected import RULE, affected
-    from guardrails.commands.adapters.vitest.tiers import selector_arguments
-    from guardrails.context.changes import DiffError, range_finding
-
-    try:
-        selection = affected(repo, profile, ["--base", base, "--head", head])
-    except DiffError as error:
-        return [range_finding(RULE, error)]
-    print(f"selection: {selection.reason}", file=sys.stderr)
+    from guardrails.commands.adapters.affected import TierCommand, print_affected
     from guardrails.commands.adapters.vitest.cases import SUFFIXES
+    from guardrails.commands.adapters.vitest.tiers import selector_arguments
 
-    paths = claimed(profile, NAME, "t2", selection.paths, SUFFIXES)
-    if paths:
-        selector = adapter_tiers(profile, NAME).get("t2", {}).get("selector", "")
-        print(shlex.join([*selector_arguments(selector), "--", *paths]))
-    return []
+    def t2_arguments(selector: object, paths: list[str]) -> list[str]:
+        return [*selector_arguments(str(selector)), "--", *paths]
+
+    command = TierCommand(NAME, SUFFIXES, t2_arguments)
+    return print_affected(repo, profile, command, base, head)
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
