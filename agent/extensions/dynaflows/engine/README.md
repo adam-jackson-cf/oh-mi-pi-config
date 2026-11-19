@@ -37,6 +37,21 @@ dependencies. The pytest adapter's `tiers` and `conformance` actions need the
 `pytest` extra (`requirements-pytest.lock` pins it with hashes for the
 container). The T3 mutation run adds the `mutation` extra.
 
+## Layers
+
+The package has four layers. A module imports only its own layer or a lower
+one, and two parts of one layer never import each other.
+
+| Layer | Holds |
+| --- | --- |
+| `foundation` | findings, repository path matching, child-process environments, language packs |
+| `context` | the record's configuration, Git diff ranges and path selection |
+| `toolkit` | test reports, growth snapshots, Python path rules and subcommand dispatch |
+| `commands` | the CLI, `check`, `init`, every checker and the test-framework adapters |
+
+`tests/test_reference_structure.py` checks these layers with the
+`path-check` import rules.
+
 ## Adapters
 
 An adapter belongs to a test framework, not to a tier. The record's `adapters`
