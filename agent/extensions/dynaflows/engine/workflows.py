@@ -1036,10 +1036,7 @@ def freeze(
     _check_options("freeze", options, FreezeOptions)
     request = _freeze_request(slug, proofs, options)
     root, path = Path(worktree).resolve(), Path(manifest_path).resolve()
-    if any(
-        path.is_relative_to(directory)
-        for directory in (Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve())
-    ):
+    if path != _common(root) / "omp-manifests" / f"{slug}.json":
         raise WorkflowError(
             "manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json"
         )

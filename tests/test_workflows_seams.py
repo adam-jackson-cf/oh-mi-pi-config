@@ -69,7 +69,7 @@ class RepositoryCase(unittest.TestCase):
         env = patch.dict(os.environ, environment, clear=True)
         env.start()
         self.addCleanup(env.stop)
-        scratch = tempfile.TemporaryDirectory(prefix="omp-proof-test-", dir=Path.home())
+        scratch = tempfile.TemporaryDirectory(prefix="omp-proof-test-")
         self.addCleanup(scratch.cleanup)
         self.tmp = Path(scratch.name)
         self.repo = self.tmp / "repo"
@@ -261,26 +261,25 @@ class RepositoryCase(unittest.TestCase):
 class ProofRunTests(RepositoryCase):
     """Red at base, green at head: proof runs, setup, cleanup and input validation."""
 
-    def test_freeze_requires_durable_manifest_but_reads_temporary_previous(
+    def test_freeze_writes_only_the_slug_manifest_in_the_common_dir_but_reads_temporary_previous(
         self,
     ) -> None:
         proof = self.proof()
         durable = self.manifest_path
-        for root in dict.fromkeys((
-            Path(tempfile.gettempdir()).resolve(),
-            Path("/tmp").resolve(),
-        )):
-            with (
-                self.subTest(root=str(root)),
-                tempfile.TemporaryDirectory(dir=root) as scratch,
-            ):
-                self.manifest_path = Path(scratch) / "manifest.json"
+        for elsewhere in (
+            Path(tempfile.gettempdir()) / "manifest.json",
+            Path("/tmp") / "manifest.json",
+            self.repo / "manifest.json",
+            durable.with_name("other.json"),
+        ):
+            with self.subTest(elsewhere=str(elsewhere)):
+                self.manifest_path = elsewhere
                 with pytest.raises(
                     workflow.WorkflowError,
                     match=re.escape("<git-common-dir>/omp-manifests/<slug>.json"),
                 ):
                     self.freeze([proof])
-                assert not self.manifest_path.exists()
+                assert not elsewhere.exists()
         self.manifest_path = durable
         path, digest = self.freeze([proof])
         assert path == durable.resolve()
@@ -884,7 +883,11 @@ class FreezeTests(RepositoryCase):
         previous = self.freeze([proof])
         with pytest.raises(workflow.WorkflowError, match="immutable"):
             workflow.freeze(
-                self.repo, self.manifest_path, [proof], "different", previous=previous
+                self.repo,
+                self.manifest_path.with_name("different.json"),
+                [proof],
+                "different",
+                previous=previous,
             )
         self.commit("later base")
         with pytest.raises(workflow.WorkflowError, match="at or after base"):
