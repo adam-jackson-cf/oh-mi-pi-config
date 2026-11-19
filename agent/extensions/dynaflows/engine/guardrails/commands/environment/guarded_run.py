@@ -28,7 +28,6 @@ from __future__ import annotations
 import argparse
 import os
 import shlex
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -37,6 +36,7 @@ from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.host.process import run_attached
 
 USER_DATA = "TEST.user-data-guard"
 ISOLATION = "TEST.fast-tier-isolation"
@@ -190,7 +190,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             command = [*prefix, *command]
         before = snapshot(real_home, watched, ignore)
         try:
-            returncode = subprocess.run(
+            returncode = run_attached(
                 command, cwd=repo, env=env, check=False
             ).returncode
         except OSError as error:

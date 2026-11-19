@@ -4,13 +4,13 @@ These tests start processes or drive real Git repositories, so they run in T2.
 """
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import pytest
+from child_process import run_bytes, run_text
 from test_device_rollout import HOSTS, MODULE, RecordRolloutCase, rollout
 
 pytestmark = pytest.mark.seam
@@ -67,10 +67,8 @@ class RunnerConfigTests(unittest.TestCase):
             deployment.runners("dev", 0)
             assert target.read_text() == written
             cli = MODULE.with_name("ci_runner.py")
-            result = subprocess.run(
+            result = run_text(
                 [sys.executable, str(cli), "submit", "github-actions", "o/r", "a" * 40],
-                capture_output=True,
-                text=True,
                 check=False,
                 env={"PATH": "/usr/bin:/bin", "OMP_CI_RUNNERS": str(target)},
                 timeout=PROCESS_TIMEOUT,
@@ -89,7 +87,7 @@ class RunnerConfigTests(unittest.TestCase):
                     HOSTS["infisical"],
                 )
             )
-            result = subprocess.run(
+            result = run_text(
                 [
                     sys.executable,
                     "-c",
@@ -98,8 +96,6 @@ class RunnerConfigTests(unittest.TestCase):
                     "~/.omp/ci-runners.json",
                     document,
                 ],
-                capture_output=True,
-                text=True,
                 check=False,
                 env={"PATH": "/usr/bin:/bin", "HOME": home},
                 timeout=PROCESS_TIMEOUT,
@@ -113,7 +109,7 @@ class RunnerConfigTests(unittest.TestCase):
 
     def test_credential_builder_emits_auth_import_document(self) -> None:
         env = {"PATH": "/usr/bin:/bin", "FAKE_JUDGE_KEY": "fake-value"}
-        result = subprocess.run(
+        result = run_text(
             [
                 sys.executable,
                 "-c",
@@ -121,8 +117,6 @@ class RunnerConfigTests(unittest.TestCase):
                 "FAKE_JUDGE_KEY",
                 "openrouter",
             ],
-            capture_output=True,
-            text=True,
             env=env,
             check=False,
             timeout=PROCESS_TIMEOUT,
@@ -137,7 +131,7 @@ class RunnerConfigTests(unittest.TestCase):
                 }
             ],
         }
-        missing = subprocess.run(
+        missing = run_text(
             [
                 sys.executable,
                 "-c",
@@ -145,8 +139,6 @@ class RunnerConfigTests(unittest.TestCase):
                 "FAKE_JUDGE_KEY",
                 "openrouter",
             ],
-            capture_output=True,
-            text=True,
             env={"PATH": "/usr/bin:/bin"},
             check=False,
             timeout=PROCESS_TIMEOUT,
@@ -192,10 +184,8 @@ class RecordRolloutTests(RecordRolloutCase):
             str(self.base / "repos"),
             *files,
         ]
-        bundle = subprocess.run(
-            producer, capture_output=True, check=True, timeout=PROCESS_TIMEOUT
-        )
-        written = subprocess.run(
+        bundle = run_bytes(producer, check=True, timeout=PROCESS_TIMEOUT)
+        written = run_bytes(
             [
                 sys.executable,
                 "-c",
@@ -203,8 +193,7 @@ class RecordRolloutTests(RecordRolloutCase):
                 "~/.omp",
                 json.dumps(dict.fromkeys(files)),
             ],
-            input=bundle.stdout,
-            capture_output=True,
+            data=bundle.stdout,
             env=env,
             check=False,
             timeout=PROCESS_TIMEOUT,
@@ -214,10 +203,8 @@ class RecordRolloutTests(RecordRolloutCase):
             target = home / ".omp/repos" / relative
             assert target.read_bytes() == (self.base / "repos" / relative).read_bytes()
             assert target.stat().st_mode & 511 == 384
-        listed = subprocess.run(
+        listed = run_text(
             [sys.executable, "-c", rollout.RECORDS_LISTER, "~/.omp"],
-            capture_output=True,
-            text=True,
             env=env,
             check=True,
             timeout=PROCESS_TIMEOUT,
@@ -250,7 +237,7 @@ class RecordRolloutTests(RecordRolloutCase):
         )
         planned = json.dumps({relative: list(target[relative]) for relative in copy})
         edited = self.write(home / ".omp", gate, '{"edited": "after inventory"}\n', 500)
-        bundle = subprocess.run(
+        bundle = run_bytes(
             [
                 sys.executable,
                 "-c",
@@ -258,15 +245,12 @@ class RecordRolloutTests(RecordRolloutCase):
                 str(self.base / "repos"),
                 *copy,
             ],
-            capture_output=True,
             check=True,
             timeout=PROCESS_TIMEOUT,
         )
-        written = subprocess.run(
+        written = run_bytes(
             [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", planned],
-            input=bundle.stdout,
-            capture_output=True,
-            text=False,
+            data=bundle.stdout,
             env=env,
             check=False,
             timeout=PROCESS_TIMEOUT,
@@ -290,10 +274,9 @@ class RecordRolloutTests(RecordRolloutCase):
         for relative in ("../escape", "/abs", "o/./n", ""):
             with self.subTest(relative=relative):
                 document = json.dumps({relative: [1, "eA=="]}).encode()
-                result = subprocess.run(
+                result = run_bytes(
                     [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", "{}"],
-                    input=document,
-                    capture_output=True,
+                    data=document,
                     env=env,
                     check=False,
                     timeout=PROCESS_TIMEOUT,

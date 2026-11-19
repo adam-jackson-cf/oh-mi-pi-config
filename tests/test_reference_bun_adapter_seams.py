@@ -9,11 +9,12 @@ import contextlib
 import io
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -69,11 +70,9 @@ def bun_repository(root: Path, files: dict[str, str]) -> Path:
 
 def run_tier(repo: Path, report: Path, tier: str, *selector: str) -> int:
     assert BUN is not None
-    return subprocess.run(
+    return run_text(
         [BUN, "test", *junit_arguments(tier, str(report)), *selector, "tests"],
         cwd=repo,
-        capture_output=True,
-        text=True,
         timeout=300,
         check=False,
     ).returncode

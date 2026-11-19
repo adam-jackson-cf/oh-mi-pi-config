@@ -4,11 +4,11 @@ These tests start processes or drive real Git repositories, so they run in T2.
 """
 
 import re
-import subprocess
 import unittest
 from pathlib import Path
 
 import pytest
+from child_process import run_text
 from test_skill_references import ROOT
 
 pytestmark = pytest.mark.seam
@@ -31,7 +31,7 @@ ROUTES = {
 
 
 def tracked_skill_directories() -> list[Path]:
-    listed = subprocess.run(
+    listed = run_text(
         [
             "git",
             "ls-files",
@@ -42,8 +42,6 @@ def tracked_skill_directories() -> list[Path]:
         ],
         cwd=ROOT,
         check=True,
-        capture_output=True,
-        text=True,
         timeout=60,
     ).stdout.split("\0")
     return sorted({

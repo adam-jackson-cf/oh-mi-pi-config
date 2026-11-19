@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from child_process import run_text, start_text
 
 pytestmark = pytest.mark.seam
 
@@ -202,9 +203,9 @@ class GateFixture(unittest.TestCase):
             child.communicate(timeout=PROCESS_TIMEOUT)
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(
-            ["git", "-C", str(self.source), *args], text=True, timeout=PROCESS_TIMEOUT
-        ).strip()
+        return run_text(
+            ["git", "-C", str(self.source), *args], timeout=PROCESS_TIMEOUT, check=True
+        ).stdout.strip()
 
     @staticmethod
     def gate(**fields: object) -> dict[str, Any]:
@@ -231,11 +232,9 @@ class GateFixture(unittest.TestCase):
     def cli(
         self, *args: object, expected: int = 0, env: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
+        result = run_text(
             [sys.executable, str(SCRIPT), *map(str, args)],
             env=env or self.env,
-            capture_output=True,
-            text=True,
             timeout=20,
         )
         assert result.returncode == expected, result.stdout + result.stderr
@@ -256,12 +255,9 @@ class GateFixture(unittest.TestCase):
         )
 
     def start_run(self, sha: str) -> subprocess.Popen[str]:
-        child = subprocess.Popen(
+        child = start_text(
             [sys.executable, str(SCRIPT), "run", str(self.job(sha))],
             env={**self.env, "BLOCK_RUN": "1"},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
         )
         self.children.append(child)
         return child
@@ -368,11 +364,11 @@ class CiGateTests(GateFixture):
                 sha = self.commit()
                 self.cli("submit", REPO, sha, env=self.fetch_environment(mode, header))
                 assert (
-                    subprocess.check_output(
+                    run_text(
                         ["git", "-C", str(self.job(sha) / "src"), "rev-parse", "HEAD"],
-                        text=True,
                         timeout=PROCESS_TIMEOUT,
-                    ).strip()
+                        check=True,
+                    ).stdout.strip()
                     == sha
                 )
                 fetch = next(
@@ -696,12 +692,9 @@ class CiGateTests(GateFixture):
                 self.submit(sha)
                 self.final_status_started.clear()
                 self.release_final_status.clear()
-                runner = subprocess.Popen(
+                runner = start_text(
                     [sys.executable, str(SCRIPT), "run", str(self.job(sha))],
                     env={**self.env, "GATE_EXIT": str(exit_code)},
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
                 )
                 self.children.append(runner)
                 try:

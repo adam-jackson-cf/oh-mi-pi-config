@@ -139,6 +139,12 @@ def summarize_events(stdout: str) -> Record:
     }
 
 
+def git_diff(ws: Path) -> str:
+    return subprocess.run(
+        ["git", "diff"], cwd=ws, capture_output=True, text=True
+    ).stdout
+
+
 def invoke(cmd: list[str], ws: Path) -> Invocation:
     """Run one trial process; a timeout keeps whatever it printed so far."""
     started = time.time()
@@ -187,9 +193,7 @@ def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> Record:
     run_dir.mkdir(parents=True)
     ws = WORKSPACES / run_id
     defects = build_workspace(case, ws)
-    before = subprocess.run(
-        ["git", "diff"], cwd=ws, capture_output=True, text=True
-    ).stdout
+    before = git_diff(ws)
     prompt = PROMPT.format(plan=(FIXTURES / case.fixture / "task.md").read_text())
     cmd = [
         "omp",
@@ -212,9 +216,7 @@ def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> Record:
     run = invoke(cmd, ws)
     (run_dir / "events.jsonl").write_text(run.stdout)
     (run_dir / "stderr.txt").write_text(run.stderr)
-    after = subprocess.run(
-        ["git", "diff"], cwd=ws, capture_output=True, text=True
-    ).stdout
+    after = git_diff(ws)
     events = summarize_events(run.stdout)
     texts = events.pop("texts")
     return {

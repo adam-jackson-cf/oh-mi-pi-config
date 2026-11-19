@@ -6,7 +6,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +13,8 @@ import unittest.mock
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -63,13 +64,8 @@ class FixtureRepo:
     def git(self, *args: str) -> str:
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         env.update(GIT_ENV)
-        return subprocess.run(
-            ["git", "-C", str(self.path), *args],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
-            timeout=60,
+        return run_text(
+            ["git", "-C", str(self.path), *args], check=True, env=env, timeout=60
         ).stdout.strip()
 
     def commit(

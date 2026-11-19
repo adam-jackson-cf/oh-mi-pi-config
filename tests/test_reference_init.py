@@ -8,7 +8,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import tomllib
@@ -16,6 +15,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest import mock
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -84,10 +85,8 @@ def clean_environment() -> dict[str, str]:
 
 
 def git(repo: Path, *args: str) -> str:
-    result = subprocess.run(
+    result = run_text(
         ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
         check=False,
         env=clean_environment(),
         timeout=60,
@@ -831,15 +830,13 @@ class LanguageNativeConfigTests(InitCase):
             "wide.ts",
             "export function wide(a: number, b: number, c: number, d: number, e: number, f: number): number {\n  return a + b + c + d + e + f;\n}\n",
         )
-        result = subprocess.run(
+        result = run_text(
             [
                 str(ROOT / "node_modules/.bin/oxlint"),
                 "-c",
                 str(self.record / "proposed/.oxlintrc.json"),
                 str(source),
             ],
-            capture_output=True,
-            text=True,
             timeout=60,
             check=False,
         )

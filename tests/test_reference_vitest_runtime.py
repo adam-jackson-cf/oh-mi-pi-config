@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -66,12 +67,8 @@ class VitestRuntimeCase(unittest.TestCase):
                 + source
                 + "\nconsole.log(JSON.stringify({violations, events:fs.readFileSync(events,'utf8').trim().split('\\n').map(JSON.parse)}));\n"
             )
-            result = subprocess.run(
-                [node, "--input-type=module", "-e", script],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
+            result = run_text(
+                [node, "--input-type=module", "-e", script], timeout=30, check=False
             )
             assert result.returncode == 0, result.stderr
             outcome: dict[str, Any] = json.loads(result.stdout)

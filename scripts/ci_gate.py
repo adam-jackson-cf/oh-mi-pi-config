@@ -234,7 +234,7 @@ def pending(job: Path, log: TextIO) -> None:
     if os.environ.get(repositories()[metadata["repo"]]["tokenEnv"]):
         publish(job, "pending", "Queued on NUC (0s)")
     else:
-        result = subprocess.run(
+        result = run_logged(
             infisical()
             + [
                 sys.executable,
@@ -244,8 +244,7 @@ def pending(job: Path, log: TextIO) -> None:
                 "pending",
                 "Queued on NUC (0s)",
             ],
-            stdout=log,
-            stderr=log,
+            log,
             check=False,
         )
         if result.returncode:
@@ -264,12 +263,7 @@ def fetch(job: Path) -> None:
     git = [executable("git")]
     with (job / "log").open("a") as log:
         if not mirror.exists():
-            subprocess.run(
-                git + ["init", "--bare", str(mirror)],
-                check=True,
-                stdout=log,
-                stderr=log,
-            )
+            run_logged(git + ["init", "--bare", str(mirror)], log, check=True)
         environment = os.environ.copy()
         token = environment.get(repositories()[repo]["tokenEnv"])
         if token:
@@ -280,7 +274,7 @@ def fetch(job: Path) -> None:
                 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader",
                 GIT_CONFIG_VALUE_0="Authorization: Basic " + credential,
             )
-        subprocess.run(
+        run_logged(
             git
             + [
                 "--git-dir",
@@ -290,10 +284,9 @@ def fetch(job: Path) -> None:
                 f"https://github.com/{repo}.git",
                 sha,
             ],
+            log,
             env=environment,
             check=True,
-            stdout=log,
-            stderr=log,
         )
 
 
@@ -308,7 +301,7 @@ def republish(job: Path, repo: str, result: dict[str, Any]) -> bool:
             publish(job, state, description)
         else:
             with (job / "log").open("a") as log:
-                subprocess.run(
+                run_logged(
                     infisical()
                     + [
                         sys.executable,
@@ -318,9 +311,8 @@ def republish(job: Path, repo: str, result: dict[str, Any]) -> bool:
                         state,
                         description,
                     ],
+                    log,
                     check=True,
-                    stdout=log,
-                    stderr=log,
                 )
     except (RuntimeError, OSError, subprocess.SubprocessError) as error:
         message = (
@@ -341,25 +333,20 @@ def checkout(job: Path, repo: str, sha: str, log: TextIO) -> None:
     if os.environ.get(repositories()[repo]["tokenEnv"]):
         fetch(job)
     else:
-        subprocess.run(
+        run_logged(
             infisical() + [sys.executable, str(SELF), "fetch", str(job)],
+            log,
             check=True,
-            stdout=log,
-            stderr=log,
         )
     git = [executable("git")]
-    subprocess.run(
+    run_logged(
         git
         + ["clone", "--no-checkout", "--no-hardlinks", str(mirror), str(job / "src")],
+        log,
         check=True,
-        stdout=log,
-        stderr=log,
     )
-    subprocess.run(
-        git + ["-C", str(job / "src"), "checkout", "--detach", sha],
-        check=True,
-        stdout=log,
-        stderr=log,
+    run_logged(
+        git + ["-C", str(job / "src"), "checkout", "--detach", sha], log, check=True
     )
     try:
         context = required_context(record_gate(repo))
@@ -412,11 +399,10 @@ def start_unit(job: Path, repo: str, sha: str, log: TextIO, *, retry: bool) -> N
             or key in {"XDG_DATA_HOME", "XDG_STATE_HOME"}
         ):
             command.append("--setenv=" + key + "=" + value)
-    subprocess.run(
+    run_logged(
         command + infisical() + [sys.executable, str(SELF), "run", str(job)],
+        log,
         check=True,
-        stdout=log,
-        stderr=log,
     )
 
 
@@ -511,6 +497,19 @@ def run(job: Path) -> int:
         return execute(job, metadata)
 
 
+def run_logged(
+    argv: list[str],
+    log: TextIO,
+    *,
+    check: bool,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        argv, stdout=log, stderr=log, env=env, timeout=timeout, check=check
+    )
+
+
 def container_command(argv: list[str], log: TextIO) -> int:
     process = subprocess.Popen(argv, stdout=log, stderr=log)
     try:
@@ -533,13 +532,7 @@ def container_lifetime(
         yield
     finally:
         # Keep the global slot until an interrupted container is stopped.
-        subprocess.run(
-            [podman, "rm", "--force", container],
-            stdout=log,
-            stderr=log,
-            timeout=30,
-            check=False,
-        )
+        run_logged([podman, "rm", "--force", container], log, timeout=30, check=False)
 
 
 @dataclass

@@ -30,6 +30,7 @@ from guardrails.commands.structure.rename_residue import (
 )
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.host.process import run_bytes
 
 DIRECTORY_QUESTIONS = frozenset({
     "technical_kind_grouping",
@@ -138,12 +139,8 @@ def _bounded(state: dict[str, Any]) -> dict[str, Any]:
 
 def _git_input(repo: Path, args: list[str], data: bytes) -> bytes:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args],
-            input=data,
-            capture_output=True,
-            check=False,
-            timeout=60,
+        result = run_bytes(
+            ["git", "-C", str(repo), *args], data=data, check=False, timeout=60
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GitError(str(error)) from error

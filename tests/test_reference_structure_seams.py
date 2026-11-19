@@ -9,13 +9,14 @@ import contextlib
 import copy
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+from child_process import run_attached
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -40,14 +41,12 @@ class CheckerCase(unittest.TestCase):
         self.repo = Path(scratch.name).resolve() / "repo"
         self.record = Path(scratch.name).resolve() / "record"
         self.record.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
+        run_attached(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
         self.profile = copy.deepcopy(CLEAN["profile"])
         for path, text in CLEAN["files"].items():
             self.write(path, text)
-        subprocess.run(
-            ["git", "-C", str(self.repo), "add", "."], check=True, timeout=60
-        )
-        subprocess.run(
+        run_attached(["git", "-C", str(self.repo), "add", "."], check=True, timeout=60)
+        run_attached(
             [
                 "git",
                 "-C",
@@ -518,7 +517,7 @@ class ImportGraphTests(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-import-graph-")
         self.addCleanup(scratch.cleanup)
         repo, record = Path(scratch.name) / "repo", Path(scratch.name) / "record"
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=60)
+        run_attached(["git", "init", "-q", str(repo)], check=True, timeout=60)
         record.mkdir()
         (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
         for path, text in files.items():

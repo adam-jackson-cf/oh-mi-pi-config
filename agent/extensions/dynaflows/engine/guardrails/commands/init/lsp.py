@@ -23,7 +23,6 @@ import os
 import queue
 import re
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -34,6 +33,7 @@ from typing import IO, Any
 from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import start_piped
 
 RULE = "PROFILE.complete"
 SKIPPED_PARTS = frozenset({
@@ -206,13 +206,8 @@ class Session:
         self.deadline = time.monotonic() + timeout
         self.next_id = 0
         try:
-            self.process = subprocess.Popen(
-                [server, *arguments],
-                cwd=workspace,
-                env=repo_environment(),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+            self.process = start_piped(
+                [server, *arguments], cwd=workspace, env=repo_environment()
             )
         except OSError as error:
             raise CanaryError(f"cannot start {server}: {error}") from error

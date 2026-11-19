@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from child_process import run_attached, run_text
 
 pytestmark = pytest.mark.seam
 
@@ -82,13 +83,8 @@ class Fixture(unittest.TestCase):
         (self.root / "responses.json").write_text(json.dumps(pairs))
 
     def cli(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            capture_output=True,
-            text=True,
-            env=self.env,
-            check=False,
-            timeout=30,
+        return run_text(
+            [sys.executable, str(SCRIPT), *args], env=self.env, check=False, timeout=30
         )
 
     def recorder(self, code: int = 0) -> tuple[list[str], Path]:
@@ -309,12 +305,12 @@ class RunnerParityTests(unittest.TestCase):
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".githooks").mkdir()
         shutil.copy(GATES_SCRIPT, self.repo / "scripts")
-        subprocess.run(
+        run_attached(
             ["git", "init", "-q", str(self.repo)], check=True, timeout=PROCESS_TIMEOUT
         )
         # macOS bash 3.2 treats an empty array as unbound under `set -u`: track one Markdown file.
         (self.repo / "readme.md").write_text("# fixture\n")
-        subprocess.run(
+        run_attached(
             ["git", "-C", str(self.repo), "add", "readme.md"],
             check=True,
             timeout=PROCESS_TIMEOUT,
@@ -337,12 +333,10 @@ class RunnerParityTests(unittest.TestCase):
         )
 
     def run_script(self) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return run_text(
             ["bash", str(self.repo / "scripts/run-ci-quality-gates.sh")],
             cwd=self.repo,
             env=self.env,
-            capture_output=True,
-            text=True,
             timeout=30,
         )
 
@@ -358,7 +352,7 @@ class RunnerParityTests(unittest.TestCase):
         (self.repo / "tool.sh").write_text("echo tool\n")
         (self.repo / "notes").write_text("plain text\n")
         (self.repo / "run").write_text("#!/usr/bin/env python3\nprint(1)\n")
-        subprocess.run(
+        run_attached(
             [
                 "git",
                 "-C",
@@ -388,7 +382,7 @@ class RunnerParityTests(unittest.TestCase):
         for name in names:
             (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
             (self.repo / name).write_text("{}\n")
-        subprocess.run(
+        run_attached(
             ["git", "-C", str(self.repo), "add", *names],
             check=True,
             timeout=PROCESS_TIMEOUT,

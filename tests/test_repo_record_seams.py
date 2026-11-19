@@ -4,7 +4,6 @@ These tests start processes or drive real Git repositories, so they run in T2.
 """
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from child_process import run_bytes
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/lib"))
 from test_repo_record import GATE, gate
@@ -28,9 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def git(*args: str) -> None:
-    subprocess.run(
-        ["git", *args], check=True, capture_output=True, timeout=PROCESS_TIMEOUT
-    )
+    run_bytes(["git", *args], check=True, timeout=PROCESS_TIMEOUT)
 
 
 class Resolve(unittest.TestCase):

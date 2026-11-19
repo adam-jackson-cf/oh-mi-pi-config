@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import run_bytes
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
@@ -64,9 +64,7 @@ def parse_range(argv: list[str]) -> DiffRange:
 
 def git(repo: Path, *args: str) -> str:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, check=False
-        )
+        result = run_bytes(["git", "-C", str(repo), *args], check=False)
     except OSError as error:
         raise DiffError(f"cannot run git: {error}") from error
     if result.returncode != 0:

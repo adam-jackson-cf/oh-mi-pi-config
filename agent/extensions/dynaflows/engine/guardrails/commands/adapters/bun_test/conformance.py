@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import run_bytes, run_text
 
 CASE_TIMEOUT_S = 300
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -72,9 +73,7 @@ def build_project(root: Path, case: dict[str, Any]) -> tuple[Path, str, dict[str
     project = root / "project"
     (project / "shop").mkdir(parents=True)
     (project / "tests").mkdir()
-    subprocess.run(
-        ["git", "init", "-q", str(project)], check=True, capture_output=True, timeout=30
-    )
+    run_bytes(["git", "init", "-q", str(project)], check=True, timeout=30)
     (project / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
     (project / "shop/core.ts").write_text(
         fixture_source("owned-package"), encoding="utf-8"
@@ -143,12 +142,10 @@ def check_run(
         "USERPROFILE": str(home),
         "OMP_CONFORMANCE_LIVE_HOME": str(home),
     }
-    result = subprocess.run(
+    result = run_text(
         [*command, "test", *junit_arguments(tier, str(report)), "tests/case.test.ts"],
         cwd=project,
         env=environment,
-        capture_output=True,
-        text=True,
         timeout=CASE_TIMEOUT_S,
         check=False,
     )

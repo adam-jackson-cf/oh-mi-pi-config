@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import run_text
 
 if TYPE_CHECKING:
     from guardrails.toolkit.test_report.junit import Report
@@ -179,12 +180,10 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
         *tier_arguments(tier, str(report)),
         "tests",
     ]
-    result = subprocess.run(
+    result = run_text(
         command,
         cwd=root / "project",
         env=environment,
-        capture_output=True,
-        text=True,
         timeout=CASE_TIMEOUT_S,
         check=False,
     )

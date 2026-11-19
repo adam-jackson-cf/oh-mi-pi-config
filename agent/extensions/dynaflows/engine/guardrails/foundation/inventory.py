@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from guardrails.host.process import run_bytes
 
 GLOB_CHARACTERS = frozenset("*?[")
 
@@ -17,7 +18,7 @@ class InventoryError(Exception):
 def repo_paths(repo: Path) -> list[str]:
     """Tracked files plus untracked, not-ignored files, as sorted repo-relative posix paths."""
     try:
-        result = subprocess.run(
+        result = run_bytes(
             [
                 "git",
                 "-C",
@@ -28,7 +29,6 @@ def repo_paths(repo: Path) -> list[str]:
                 "--others",
                 "--exclude-standard",
             ],
-            capture_output=True,
             check=False,
         )
     except OSError as error:

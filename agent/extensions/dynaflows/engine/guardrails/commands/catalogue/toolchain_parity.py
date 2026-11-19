@@ -58,6 +58,7 @@ from guardrails.foundation.inventory import (
     repo_paths,
     settings,
 )
+from guardrails.host.process import run_text
 
 INVENTORY = "PARITY.dependency-inventory"
 GUIDANCE = "PARITY.install-guidance"
@@ -383,12 +384,10 @@ def prettier_findings(
 
 def node_version(repo: Path) -> str | None:
     try:
-        result = subprocess.run(
+        result = run_text(
             ["node", "--version"],
             cwd=repo,
             env=repo_environment(),
-            capture_output=True,
-            text=True,
             timeout=VERSION_TIMEOUT_S,
             check=True,
         )

@@ -18,6 +18,7 @@ from guardrails.foundation.inventory import (
     matches_any,
     normalized_path,
 )
+from guardrails.host.process import run_text
 
 
 def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
@@ -85,12 +86,10 @@ def native_findings(
         problem = "structure.import_direction.native needs command and timeout_s"
     else:
         try:
-            result = subprocess.run(
+            result = run_text(
                 command,
                 cwd=repo / native.get("cwd", "."),
                 env=repo_environment(),
-                capture_output=True,
-                text=True,
                 check=False,
                 timeout=timeout,
             )

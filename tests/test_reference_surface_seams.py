@@ -5,12 +5,13 @@ These tests start processes or drive real Git repositories, so they run in T2.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+from child_process import run_attached
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -44,7 +45,7 @@ class SurfaceRepoTestCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-surface-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name)
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
+        run_attached(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
         self.write("docs/features/checkout.md", feature_doc())
         self.write("docs/features/cart.md", feature_doc("Cart"))
         self.write(

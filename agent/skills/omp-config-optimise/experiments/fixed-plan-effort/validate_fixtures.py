@@ -21,13 +21,19 @@ class CheckResult:
     total: int
 
 
-def run_check(fixture: Path, workspace: Path) -> CheckResult:
-    result = subprocess.run(
+def run_hidden_check(
+    fixture: Path, workspace: Path
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [fixture / "hidden" / "check.sh", workspace],
         capture_output=True,
         text=True,
         timeout=10,
     )
+
+
+def run_check(fixture: Path, workspace: Path) -> CheckResult:
+    result = run_hidden_check(fixture, workspace)
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError(

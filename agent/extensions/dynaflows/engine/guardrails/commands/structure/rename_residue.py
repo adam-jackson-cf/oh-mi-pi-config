@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import ast
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -19,6 +18,7 @@ from typing import Any
 from guardrails.context.config.profile import ProfileError, load_profile
 from guardrails.foundation.findings import Finding, exit_code, format_findings
 from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.host.process import run_bytes
 
 RULE = "RENAME.residue"
 RENAME_THRESHOLD = "50%"
@@ -216,9 +216,7 @@ class GitError(Exception):
 
 def git(repo: Path, *args: str) -> bytes:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, check=False
-        )
+        result = run_bytes(["git", "-C", str(repo), *args], check=False)
     except OSError as error:
         raise GitError(str(error)) from error
     if result.returncode:

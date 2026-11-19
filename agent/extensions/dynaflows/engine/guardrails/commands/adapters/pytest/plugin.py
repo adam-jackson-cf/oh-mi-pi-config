@@ -28,7 +28,6 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import tempfile
 import time
 from collections.abc import Generator
@@ -44,6 +43,7 @@ from guardrails.commands.adapters.pytest.dialect import (
     GUARDS_PROPERTY,
     SUBTEST_PROPERTIES,
 )
+from guardrails.host.process import run_text
 
 VIOLATIONS = pytest.StashKey[dict[str, list[str]]]()
 STARTED = pytest.StashKey[float]()
@@ -213,12 +213,7 @@ def pytest_runtest_makereport(
 
 def revision(root: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = run_text(["git", "-C", str(root), "rev-parse", "HEAD"], check=False)
     except OSError:
         return None
     return result.stdout.strip() or None if result.returncode == 0 else None

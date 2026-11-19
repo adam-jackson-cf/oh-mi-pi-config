@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from child_process import run_text
+
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
@@ -44,12 +46,8 @@ class RenameResidueCommandTests(unittest.TestCase):
         self.git("config", "user.email", "fixture@example.invalid")
 
     def git(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+        return run_text(
+            ["git", "-C", str(self.repo), *args], check=True, timeout=10
         ).stdout.strip()
 
     def write_profile(self) -> None:
@@ -75,7 +73,7 @@ class RenameResidueCommandTests(unittest.TestCase):
     def command(
         self, base: str, head: str = "HEAD"
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return run_text(
             [
                 sys.executable,
                 "-I",
@@ -95,8 +93,6 @@ class RenameResidueCommandTests(unittest.TestCase):
                 head,
             ],
             cwd=REFERENCE,
-            capture_output=True,
-            text=True,
             check=False,
             timeout=20,
         )

@@ -8,11 +8,12 @@ from __future__ import annotations
 import contextlib
 import io
 import re
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 from typing import Any
+
+from child_process import run_attached, run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -58,8 +59,8 @@ class BudgetCommandTests(RepoTestCase):
 
     def test_the_revision_defaults_to_the_repository_head(self) -> None:
         git = ["git", "-C", str(self.repo)]
-        subprocess.run([*git, "init", "-q"], check=True, timeout=30)
-        subprocess.run(
+        run_attached([*git, "init", "-q"], check=True, timeout=30)
+        run_attached(
             [
                 *git,
                 "-c",
@@ -75,12 +76,8 @@ class BudgetCommandTests(RepoTestCase):
             check=True,
             timeout=30,
         )
-        head = subprocess.run(
-            [*git, "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
+        head = run_text(
+            [*git, "rev-parse", "HEAD"], check=True, timeout=30
         ).stdout.strip()
         report = self.copy_fixture("pytest-clean.xml", REVISION, head)
         with contextlib.redirect_stderr(io.StringIO()) as err:
@@ -91,7 +88,7 @@ class BudgetCommandTests(RepoTestCase):
 class CollectionTests(RepoTestCase):
     def setUp(self) -> None:
         super().setUp()
-        subprocess.run(
+        run_attached(
             ["git", "-C", str(self.repo), "init", "-q"], check=True, timeout=30
         )
         for path in (

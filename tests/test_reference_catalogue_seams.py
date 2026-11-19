@@ -15,6 +15,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from child_process import run_text
+
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
@@ -31,14 +33,7 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {
         key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=60,
-        env=env,
-    )
+    return run_text(["git", "-C", str(repo), *args], check=True, timeout=60, env=env)
 
 
 def rules_of(findings: list[Any]) -> list[str]:

@@ -51,6 +51,11 @@ def parse_origin(url: str) -> str | None:
 
 def repo_slug(repo: str | Path) -> str | None:
     """``owner/name`` of the clone or worktree at ``repo`` from its origin remote, else None."""
+    url = origin_url(repo)
+    return None if url is None else parse_origin(url)
+
+
+def origin_url(repo: str | Path) -> str | None:
     try:
         process = subprocess.run(
             ["git", "-C", str(repo), "remote", "get-url", "origin"],
@@ -60,9 +65,7 @@ def repo_slug(repo: str | Path) -> str | None:
         )
     except OSError:
         return None
-    if process.returncode:
-        return None
-    return parse_origin(process.stdout)
+    return None if process.returncode else process.stdout
 
 
 def record_dir(slug: str, root: str | Path | None = None) -> Path:
@@ -83,23 +86,15 @@ def resolve_record(
 ) -> tuple[str | None, Path | None, str | None]:
     """``(slug, record dir, None)``, or the reason the clone has no record: no origin remote, an
     origin that is not a GitHub owner/name URL, or no ``gate.json`` at the record directory."""
-    try:
-        process = subprocess.run(
-            ["git", "-C", str(repo), "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-        )
-    except OSError:
+    url = origin_url(repo)
+    if url is None:
         return None, None, "no origin remote"
-    if process.returncode:
-        return None, None, "no origin remote"
-    slug = parse_origin(process.stdout)
+    slug = parse_origin(url)
     if slug is None:
         return (
             None,
             None,
-            f"origin {process.stdout.strip()} is not a GitHub owner/name URL",
+            f"origin {url.strip()} is not a GitHub owner/name URL",
         )
     path = record_dir(slug, root)
     if not (path / GATE_FILE).is_file():

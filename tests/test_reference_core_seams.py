@@ -5,10 +5,11 @@ These tests start processes or drive real Git repositories, so they run in T2.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import unittest
 from pathlib import Path
+
+from child_process import run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -33,11 +34,9 @@ class CliTests(CliCase):
         )
         for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter"}):
             with self.subTest(subcommand=name):
-                result = subprocess.run(
+                result = run_text(
                     [sys.executable, "-c", entry, *self.located(name, "--help")],
                     cwd=REFERENCE,
-                    capture_output=True,
-                    text=True,
                     timeout=60,
                 )
                 assert result.returncode == 0, result.stderr
@@ -50,13 +49,8 @@ class CliTests(CliCase):
             "listed = {m for item in cli.SUBCOMMANDS.values() for m in item.modules}; "
             "print(sorted(listed & set(sys.modules) - {'guardrails.context.config.profile'}))"
         )
-        result = subprocess.run(
-            [sys.executable, "-c", probe],
-            cwd=REFERENCE,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
+        result = run_text(
+            [sys.executable, "-c", probe], cwd=REFERENCE, check=True, timeout=60
         )
         assert result.stdout.strip() == "[]"
 

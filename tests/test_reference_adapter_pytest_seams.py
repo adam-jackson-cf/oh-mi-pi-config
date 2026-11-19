@@ -8,7 +8,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import tomllib
@@ -16,6 +15,8 @@ import unittest
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
+
+from child_process import run_bytes, run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -68,10 +69,9 @@ def needs_extra(test: TestMethod) -> TestMethod:
 
 
 def git(repo: Path, *args: str) -> None:
-    subprocess.run(
+    run_bytes(
         ["git", "-C", str(repo), *args],
         check=True,
-        capture_output=True,
         timeout=60,
         env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
     )
@@ -87,12 +87,7 @@ class StandardLibraryTests(unittest.TestCase):
             "import guardrails.commands.adapters.pytest.lint\n"
             "assert 'pytest' not in sys.modules and 'ast_grep_py' not in sys.modules\n"
         )
-        result = subprocess.run(
-            [sys.executable, "-I", "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        result = run_text([sys.executable, "-I", "-c", code], timeout=60)
         assert result.returncode == 0, result.stderr
 
 
@@ -134,10 +129,9 @@ class MutationTests(unittest.TestCase):
         environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         environment.update(GIT_ENV)
         for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
-            subprocess.run(
+            run_bytes(
                 ["git", "-C", str(self.repo), *args],
                 check=True,
-                capture_output=True,
                 env={**environment, "GIT_CONFIG_GLOBAL": os.devnull},
                 timeout=60,
             )
@@ -411,20 +405,10 @@ class ExtraTests(unittest.TestCase):
             ]
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
             environment.pop("PYTEST_ADDOPTS", None)
-            result = subprocess.run(
-                command,
-                cwd=repo,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
+            result = run_text(command, cwd=repo, env=environment, timeout=300)
             assert result.returncode == 0, result.stdout + result.stderr
-            head = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=60,
+            head = run_text(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=60
             ).stdout.strip()
             parsed = parse_report(report, DIALECT)
             assert parsed.properties["omp.revision"] == head
@@ -443,7 +427,7 @@ class ExtraTests(unittest.TestCase):
             report = Path(scratch, "t1.xml")
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
             environment.pop("PYTEST_ADDOPTS", None)
-            result = subprocess.run(
+            result = run_text(
                 [
                     sys.executable,
                     "-m",
@@ -458,8 +442,6 @@ class ExtraTests(unittest.TestCase):
                 ],
                 cwd=repo,
                 env=environment,
-                capture_output=True,
-                text=True,
                 timeout=300,
             )
             assert result.returncode == 0, result.stdout + result.stderr
@@ -487,7 +469,7 @@ class ExtraTests(unittest.TestCase):
             report = Path(scratch, "t1.xml")
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
             environment.pop("PYTEST_ADDOPTS", None)
-            result = subprocess.run(
+            result = run_text(
                 [
                     sys.executable,
                     "-m",
@@ -502,8 +484,6 @@ class ExtraTests(unittest.TestCase):
                 ],
                 cwd=repo,
                 env=environment,
-                capture_output=True,
-                text=True,
                 timeout=300,
             )
             assert result.returncode == 0, result.stdout + result.stderr

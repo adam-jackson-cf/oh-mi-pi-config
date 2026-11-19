@@ -10,13 +10,14 @@ import copy
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from child_process import run_attached, run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -75,7 +76,7 @@ class ShopRepo:
         directory = tempfile.TemporaryDirectory()
         test.addCleanup(directory.cleanup)
         self.path = Path(directory.name)
-        subprocess.run(["git", "init", "-q", str(self.path)], check=True, timeout=60)
+        run_attached(["git", "init", "-q", str(self.path)], check=True, timeout=60)
         for relpath, text in {**FIXTURE["files"], **(files or {})}.items():
             target = self.path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -137,12 +138,12 @@ class PythonNameScopeTests(unittest.TestCase):
         self.commit()
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(
+        return run_text(
             ["git", "-C", str(self.repo.path), *args],
-            text=True,
             env=self.environment,
             timeout=30,
-        )
+            check=True,
+        ).stdout
 
     def commit(self) -> None:
         self.git("add", "-A")
@@ -426,7 +427,7 @@ class SubprocessTimeoutTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name)
-        subprocess.run(["git", "init", "-q", str(path)], check=True, timeout=60)
+        run_attached(["git", "init", "-q", str(path)], check=True, timeout=60)
         for relpath, text in files.items():
             target = path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)

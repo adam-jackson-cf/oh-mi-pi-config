@@ -17,6 +17,7 @@ from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, settings
+from guardrails.host.process import run_text
 
 NAME = "vitest"
 RULE = "TEST.failure-propagation"
@@ -102,14 +103,8 @@ def collect_tier(
                 "--configLoader=runner",
                 *as_list(spec.get("location")),
             ]
-            result = subprocess.run(
-                argv,
-                cwd=repo,
-                env=repo_environment(),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
+            result = run_text(
+                argv, cwd=repo, env=repo_environment(), timeout=timeout, check=False
             )
             if result.returncode:
                 tail = " ".join((result.stdout + result.stderr).splitlines()[-5:])

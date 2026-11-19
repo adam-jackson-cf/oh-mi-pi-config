@@ -15,6 +15,11 @@ def git(
     )
 
 
+def repo_root() -> Path:
+    root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True)
+    return Path(root.strip()).resolve()
+
+
 def existing_paths(repo: Path, paths: list[str]) -> list[str]:
     """Repo-relative forms of the given paths that exist inside the repository, without duplicates.
 
@@ -70,10 +75,7 @@ def layout_error(repo: Path, path: str) -> str | None:
 
 
 def main(paths: list[str]) -> int:
-    root = subprocess.check_output(
-        ["git", "rev-parse", "--show-toplevel"], text=True
-    ).strip()
-    repo = Path(root).resolve()
+    repo = repo_root()
     existing = existing_paths(repo, paths)
     if not existing:
         return 0

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import InventoryError, normalized_path, repo_paths
+from guardrails.host.process import run_bytes
 
 
 @dataclass
@@ -22,12 +23,8 @@ class Scope:
 
 def git(repo: Path, *args: str, data: bytes = b"") -> bytes:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args],
-            input=data,
-            capture_output=True,
-            check=False,
-            timeout=60,
+        result = run_bytes(
+            ["git", "-C", str(repo), *args], data=data, check=False, timeout=60
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InventoryError(str(error)) from error
@@ -129,9 +126,8 @@ def select(repo: Path, argv: list[str]) -> Scope:
             None,
             inventory,
         )
-    resolved = subprocess.run(
+    resolved = run_bytes(
         ["git", "-C", str(repo), "rev-parse", "--verify", "HEAD"],
-        capture_output=True,
         check=False,
         timeout=60,
     )

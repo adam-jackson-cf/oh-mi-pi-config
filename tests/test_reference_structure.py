@@ -140,7 +140,7 @@ class HouseStyleVerdictTests(unittest.TestCase):
 ENGINE_SOURCE_ROOT = "agent/extensions/dynaflows/engine/guardrails"
 ENGINE_LAYERS = {
     "structure": {
-        "tiers": ["foundation", "context", "toolkit", "commands"],
+        "tiers": ["host", "foundation", "context", "toolkit", "commands"],
         "import_direction": {
             "package": "guardrails",
             "source_root": ENGINE_SOURCE_ROOT,

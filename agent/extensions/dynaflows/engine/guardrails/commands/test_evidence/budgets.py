@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import run_text
 from guardrails.toolkit.test_report.junit import (
     Report,
     ReportError,
@@ -90,10 +91,8 @@ def cpu_model() -> str:
     system = platform.system()
     if system == "Darwin":
         try:
-            result = subprocess.run(
+            result = run_text(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
-                capture_output=True,
-                text=True,
                 timeout=PROBE_TIMEOUT_S,
                 check=False,
             )
@@ -138,10 +137,8 @@ def probe_machine(runtime: str) -> Machine:
 
 def current_revision(repo: Path) -> str | None:
     try:
-        result = subprocess.run(
+        result = run_text(
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
             timeout=PROBE_TIMEOUT_S,
             check=False,
         )
