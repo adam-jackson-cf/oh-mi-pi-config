@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import posixpath
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -355,23 +355,30 @@ def file_findings(
     aliases = imports(root)
     # Global configuration must precede the property invocation, not merely occur in the file.
     configured = configured_seeds(root, aliases)
+    site = Site(path, aliases, owned, False, vocabulary)
     findings = []
     for rule in rules:
-        for node in root.find_all(rule.config):
-            seeded = any(end < node.range().start.index for end in configured)
-            target = violation(
-                rule, node, Site(path, aliases, owned, seeded, vocabulary)
-            )
-            if target is not None:
-                findings.append(
-                    Finding(
-                        rule.rule_id,
-                        path,
-                        f"line {node.range().start.line + 1}: "
-                        + rule.message.format(target=target),
-                        rule.fix,
-                    )
+        findings.extend(rule_findings(rule, root, configured, site))
+    return findings
+
+
+def rule_findings(
+    rule: Rule, root: SgNode, configured: list[int], site: Site
+) -> list[Finding]:
+    findings = []
+    for node in root.find_all(rule.config):
+        seeded = any(end < node.range().start.index for end in configured)
+        target = violation(rule, node, replace(site, seeded=seeded))
+        if target is not None:
+            findings.append(
+                Finding(
+                    rule.rule_id,
+                    site.path,
+                    f"line {node.range().start.line + 1}: "
+                    + rule.message.format(target=target),
+                    rule.fix,
                 )
+            )
     return findings
 
 
@@ -396,16 +403,18 @@ def declarations(root: SgNode) -> Iterator[SgNode]:
             if statement.kind() == "export_statement"
             else [statement]
         ):
-            candidates = (
-                children(node)
-                if node.kind() in {"lexical_declaration", "variable_declaration"}
-                else [node]
-            )
-            yield from (
-                candidate
-                for candidate in candidates
-                if candidate.kind() in DECLARATION_KINDS
-            )
+            yield from declared_nodes(node)
+
+
+def declared_nodes(node: SgNode) -> list[SgNode]:
+    candidates = (
+        children(node)
+        if node.kind() in {"lexical_declaration", "variable_declaration"}
+        else [node]
+    )
+    return [
+        candidate for candidate in candidates if candidate.kind() in DECLARATION_KINDS
+    ]
 
 
 def production_definitions(

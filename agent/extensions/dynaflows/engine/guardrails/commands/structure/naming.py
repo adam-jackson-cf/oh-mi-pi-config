@@ -17,6 +17,7 @@ from guardrails.foundation.inventory import (
     matches_any,
     name_matches,
     normalized_path,
+    path_prefixes,
     settings,
 )
 
@@ -245,12 +246,7 @@ def path_findings(
     config = settings(profile, "naming")
     if conventions.ignored_path(path) or matches_any(path, as_list(config.get("skip"))):
         return []
-    existing_segments = {
-        "/".join(parts[:index])
-        for item in existing_paths or ()
-        for parts in (PurePosixPath(item).parts,)
-        for index in range(1, len(parts) + 1)
-    }
+    existing_segments = path_prefixes(existing_paths or ())
     new_file = path not in existing_segments
     return [
         *word_findings(path, existing_segments),

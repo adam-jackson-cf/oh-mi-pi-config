@@ -227,6 +227,14 @@ def parse_report(path: Path, dialect: Dialect, source: str | None = None) -> Rep
     return dialect.complete(path, parse_text(text, dialect, source or path.as_posix()))
 
 
+def property_items(holder: ElementTree.Element) -> list[ElementTree.Element]:
+    return [
+        item
+        for group in holder.findall("properties")
+        for item in group.findall("property")
+    ]
+
+
 def parse_text(text: str, dialect: Dialect, source: str) -> Report:
     try:
         root = ElementTree.fromstring(text)
@@ -239,12 +247,9 @@ def parse_text(text: str, dialect: Dialect, source: str) -> Report:
     cases = tuple(normalise(case, dialect) for case in root.iter("testcase"))
     properties = {}
     for holder in [root, *root.iter("testsuite")]:
-        for group in holder.findall("properties"):
-            for item in group.findall("property"):
-                if item.get("name"):
-                    properties[item.get("name", "")] = item.get(
-                        "value", item.text or ""
-                    )
+        for item in property_items(holder):
+            if item.get("name"):
+                properties[item.get("name", "")] = item.get("value", item.text or "")
     wall = properties.get("omp.wall_s", root.get("time"))
     return Report(
         source,
