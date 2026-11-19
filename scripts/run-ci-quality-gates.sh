@@ -114,7 +114,7 @@ while IFS= read -r -d '' file; do
 done <"$scratch/data"
 
 lint_files=()
-if ((${#code_files[@]})); then
+if [[ -n "${code_files[*]-}" ]]; then
   lint_files+=("${code_files[@]}")
 fi
 for file in "${markdown_files[@]}"; do
@@ -153,7 +153,7 @@ if "$fix"; then
   if ((${#data_files[@]})); then
     bunx prettier --write --log-level warn -- "${data_files[@]}"
   fi
-  if ((${#code_files[@]})); then
+  if [[ -n "${code_files[*]-}" ]]; then
     bunx oxlint --fix --deny-warnings "${code_files[@]}"
   fi
   if ((${#markdown_files[@]})); then
@@ -163,7 +163,7 @@ else
   if ((${#data_files[@]})); then
     bunx prettier --check --log-level warn -- "${data_files[@]}"
   fi
-  if ((${#code_files[@]})); then
+  if [[ -n "${code_files[*]-}" ]]; then
     bunx oxlint --deny-warnings "${code_files[@]}"
   fi
   if ((${#markdown_files[@]})); then

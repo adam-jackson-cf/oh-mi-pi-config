@@ -200,9 +200,8 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string): Promis
 	if (common.code !== 0 || common.killed) throw new Error("cannot resolve Git common directory for the prove() result");
 	const path = resolve(cwd, common.stdout.trim(), "omp-prove", `${head}.result.json`);
 	const result = z.object({ head: z.literal(head), status: z.literal("pass") });
-	try {
-		if (result.safeParse(JSON.parse(await readFile(path, "utf8"))).success) return;
-	} catch { /* A missing or corrupt result is not a pass. */ }
+	const passed = await readFile(path, "utf8").then(text => result.safeParse(JSON.parse(text)).success).catch(() => false);
+	if (passed) return undefined;
 	return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 }
 async function structureResultReason(pi: ExecApi, cwd: string, head: string): Promise<string | undefined> {
@@ -231,7 +230,7 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string): Pr
 type PrCi = { head?: string; repository?: string; reason?: string | undefined };
 type PrIdentity = { head: string; repository: string };
 async function foreignRepository(pi: ExecApi, root: string, selector: string | undefined, repository: string): Promise<boolean> {
-	if (!selector || !/^https?:\/\//i.test(selector)) return false;
+	if (!selector || !/^https?:[/]{2}/i.test(selector)) return false;
 	return (await primaryGithubRepository(pi, root)).toLowerCase() !== repository.toLowerCase();
 }
 function requiredCiReason(checks: CheckReport[], required: { requiredContext: string; runner: string }, pr: PrIdentity): string | undefined {
