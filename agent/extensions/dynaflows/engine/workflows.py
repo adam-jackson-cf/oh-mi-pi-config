@@ -1,4 +1,5 @@
 """Proof-first verification (TDD: red at base, green at head) and blind labels; load in the OMP Python eval kernel."""
+
 import copy
 import hashlib
 import importlib
@@ -24,17 +25,34 @@ CHECK_TIMEOUT = 900
 HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
     "missing per-repo record; follow skill://dynaflows/SKILL.md "
-    "owner-approval prerequisite (skill://dynaflows/references/harness-setup.md)")
+    "owner-approval prerequisite (skill://dynaflows/references/harness-setup.md)"
+)
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 # Every current manifest and proof field; any other field is rejected by name.
-MANIFEST_FIELDS = frozenset({"schemaVersion", "slug", "base", "setup", "revisions", "proofs"})
-PROOF_FIELDS = frozenset({"id", "criterion", "parent", "cmd", "journey", "files", "sha256"})
+MANIFEST_FIELDS = frozenset({
+    "schemaVersion",
+    "slug",
+    "base",
+    "setup",
+    "revisions",
+    "proofs",
+})
+PROOF_FIELDS = frozenset({
+    "id",
+    "criterion",
+    "parent",
+    "cmd",
+    "journey",
+    "files",
+    "sha256",
+})
 FEATURE_MAP_SETUP = (
     "the record profile declares no verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
     "(skill://dynaflows/references/project-setup.md). "
-    "A PR with no behaviour change freezes no proofs")
+    "A PR with no behaviour change freezes no proofs"
+)
 
 
 class WorkflowError(RuntimeError):
@@ -49,7 +67,14 @@ StrPath = str | os.PathLike[str]
 # What a proof run, Git, gh, a file write or an eval kernel call (agent, wait, judge) raises when
 # its infrastructure fails. Each is recorded as a blocking error; any other exception is a bug and
 # propagates.
-INFRASTRUCTURE_ERRORS = (RuntimeError, OSError, ValueError, LookupError, TypeError, subprocess.SubprocessError)
+INFRASTRUCTURE_ERRORS = (
+    RuntimeError,
+    OSError,
+    ValueError,
+    LookupError,
+    TypeError,
+    subprocess.SubprocessError,
+)
 # Each tree's setup outcome: the untracked entries after setup, or the infrastructure error it raised.
 Baselines = dict[Path, set[str] | Exception]
 
@@ -67,24 +92,34 @@ def _kernel(name: str) -> Callable[..., Any]:
     """An OMP eval kernel global (agent, wait, judge, judge_batch); the kernel injects them when it %load-s this file."""
     function: object = globals().get(name)
     if not callable(function):
-        raise WorkflowError(f"{name}() is unavailable: %load workflows.py in the OMP Python eval kernel")
+        raise WorkflowError(
+            f"{name}() is unavailable: %load workflows.py in the OMP Python eval kernel"
+        )
     return function
 
 
 def _check_options(function: str, options: Mapping[str, object], accepted: Any) -> None:
     """Refuse unknown and missing keyword arguments as Python does for a plain signature."""
-    unknown = sorted(set(options) - accepted.__required_keys__ - accepted.__optional_keys__)
+    unknown = sorted(
+        set(options) - accepted.__required_keys__ - accepted.__optional_keys__
+    )
     if unknown:
-        raise TypeError(f"{function}() got an unexpected keyword argument {unknown[0]!r}")
+        raise TypeError(
+            f"{function}() got an unexpected keyword argument {unknown[0]!r}"
+        )
     missing = sorted(accepted.__required_keys__ - set(options))
     if missing:
-        raise TypeError(f"{function}() missing required keyword argument: {missing[0]!r}")
+        raise TypeError(
+            f"{function}() missing required keyword argument: {missing[0]!r}"
+        )
 
 
 def _harness_root() -> Path:
     """The oh-mi-pi-config checkout containing agent/extensions/dynaflows/skills/dynaflows/templates/."""
     if not _LOADED_FROM:
-        raise WorkflowError("cannot locate the harness: workflows.py was loaded without __file__")
+        raise WorkflowError(
+            "cannot locate the harness: workflows.py was loaded without __file__"
+        )
     return Path(_LOADED_FROM).resolve().parents[4]
 
 
@@ -121,8 +156,12 @@ def _surface() -> list[ModuleType]:
     if not _SURFACE:
         reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
         loaded = sys.modules.get("guardrails")
-        if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(reference):
-            raise WorkflowError(f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}")
+        if loaded is not None and not Path(
+            loaded.__file__ or ""
+        ).resolve().is_relative_to(reference):
+            raise WorkflowError(
+                f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}"
+            )
         sys.path.insert(0, str(reference))
         try:
             feature_map = importlib.import_module("guardrails.surface.feature_map")
@@ -162,22 +201,48 @@ def no_record_reason(repo: StrPath) -> str:
 
 
 def _is_argv(value: object) -> TypeGuard[list[str]]:
-    return isinstance(value, list) and bool(value) and all(
-        isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value)
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(arg, str) and arg.strip() and "\0" not in arg for arg in value
+        )
+    )
 
 
-def run_check(cmd: object, cwd: StrPath, *, timeout: float | None = None, stdout_only: bool = False) -> tuple[bool, str]:
+def run_check(
+    cmd: object,
+    cwd: StrPath,
+    *,
+    timeout: float | None = None,
+    stdout_only: bool = False,
+) -> tuple[bool, str]:
     """Run without harness variables; retain all diagnostics unless stdout_only selects successful stdout."""
     if not _is_argv(cmd):
         raise WorkflowError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
-        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                           errors="replace", timeout=CHECK_TIMEOUT if timeout is None else timeout)
+        p = subprocess.run(
+            cmd,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=CHECK_TIMEOUT if timeout is None else timeout,
+        )
     except subprocess.TimeoutExpired as exc:
+
         def decode(value: bytes | str | None) -> str:
-            return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
-        raise WorkflowError(f"timeout: {exc}\n{decode(exc.stdout)}{decode(exc.stderr)}") from exc
+            return (
+                value.decode(errors="replace")
+                if isinstance(value, bytes)
+                else value or ""
+            )
+
+        raise WorkflowError(
+            f"timeout: {exc}\n{decode(exc.stdout)}{decode(exc.stderr)}"
+        ) from exc
     except (OSError, ValueError) as exc:
         raise WorkflowError(f"launch error: {exc}") from exc
     ok = p.returncode == 0
@@ -186,8 +251,12 @@ def run_check(cmd: object, cwd: StrPath, *, timeout: float | None = None, stdout
 
 def _git(repo: StrPath, *args: str) -> str:
     try:
-        p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                           text=True, errors="surrogateescape")
+        p = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+        )
     except OSError as exc:
         raise WorkflowError(f"git infrastructure: {exc}") from exc
     if p.returncode:
@@ -197,8 +266,14 @@ def _git(repo: StrPath, *args: str) -> str:
 
 def _gh(repo: StrPath, *args: str) -> str:
     try:
-        process = subprocess.run(["gh", *args], cwd=repo, capture_output=True,
-                                 text=True, errors="replace", timeout=20)
+        process = subprocess.run(
+            ["gh", *args],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=20,
+        )
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         raise WorkflowError(f"gh unavailable: {exc}") from exc
     if process.returncode:
@@ -217,11 +292,16 @@ def _github(repo: StrPath, *args: str) -> Any:
 def _github_repo(repo: StrPath) -> str:
     """Return OWNER/REPO of origin (or the only remote) when it is a GitHub URL."""
     remotes = _git(repo, "remote").splitlines()
-    remote = "origin" if "origin" in remotes else remotes[0] if len(remotes) == 1 else None
+    remote = (
+        "origin" if "origin" in remotes else remotes[0] if len(remotes) == 1 else None
+    )
     if remote is None:
         raise WorkflowError("cannot resolve primary GitHub remote")
     url = _git(repo, "remote", "get-url", remote).strip()
-    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?", url)
+    match = re.fullmatch(
+        r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?",
+        url,
+    )
     if not match:
         raise WorkflowError("primary remote is not a validated GitHub repository")
     return match[1]
@@ -229,8 +309,22 @@ def _github_repo(repo: StrPath) -> str:
 
 def _pr_at_head(repo: StrPath, head: str, fields: tuple[str, ...]) -> dict[str, Any]:
     """The one open PR whose head is exactly `head`, with the requested gh JSON fields."""
-    prs = _github(repo, "pr", "list", "--search", head, "--state", "open", "--json", ",".join(("headRefOid", *fields)))
-    matches = [pr for pr in prs if isinstance(pr, dict) and pr.get("headRefOid") == head] if isinstance(prs, list) else []
+    prs = _github(
+        repo,
+        "pr",
+        "list",
+        "--search",
+        head,
+        "--state",
+        "open",
+        "--json",
+        ",".join(("headRefOid", *fields)),
+    )
+    matches = (
+        [pr for pr in prs if isinstance(pr, dict) and pr.get("headRefOid") == head]
+        if isinstance(prs, list)
+        else []
+    )
     if len(matches) != 1:
         raise WorkflowError("no unique open PR at requested head")
     return matches[0]
@@ -244,13 +338,27 @@ def _required_context_state(repo: StrPath, head: str, context: str) -> str:
     """
     slug = _github_repo(repo)
     combined = _github(repo, "api", f"repos/{slug}/commits/{head}/status?per_page=100")
-    statuses = [item for item in (combined.get("statuses") if isinstance(combined, dict) else None) or []
-                if isinstance(item, dict) and item.get("context") == context]
-    listed = _github(repo, "api", f"repos/{slug}/commits/{head}/check-runs?check_name={quote(context, safe='')}&per_page=100")
-    runs = [item for item in (listed.get("check_runs") if isinstance(listed, dict) else None) or []
-            if isinstance(item, dict) and item.get("name") == context]
-    if (any(item.get("state") == "success" for item in statuses)
-            or any(item.get("status") == "completed" and item.get("conclusion") == "success" for item in runs)):
+    statuses = [
+        item
+        for item in (combined.get("statuses") if isinstance(combined, dict) else None)
+        or []
+        if isinstance(item, dict) and item.get("context") == context
+    ]
+    listed = _github(
+        repo,
+        "api",
+        f"repos/{slug}/commits/{head}/check-runs?check_name={quote(context, safe='')}&per_page=100",
+    )
+    runs = [
+        item
+        for item in (listed.get("check_runs") if isinstance(listed, dict) else None)
+        or []
+        if isinstance(item, dict) and item.get("name") == context
+    ]
+    if any(item.get("state") == "success" for item in statuses) or any(
+        item.get("status") == "completed" and item.get("conclusion") == "success"
+        for item in runs
+    ):
         return "success"
     if statuses:
         return str(statuses[0].get("state"))
@@ -264,9 +372,17 @@ def _sha(path: StrPath) -> str:
 
 
 def _canonical(name: object) -> str:
-    if (not isinstance(name, str) or not name or "\0" in name or "\\" in name
-            or ":" in name or any(part in ("", ".", "..", ".git") for part in name.split("/"))):
-        raise WorkflowError(f"invalid proof path: {name!r}; require canonical relative POSIX path")
+    if (
+        not isinstance(name, str)
+        or not name
+        or "\0" in name
+        or "\\" in name
+        or ":" in name
+        or any(part in ("", ".", "..", ".git") for part in name.split("/"))
+    ):
+        raise WorkflowError(
+            f"invalid proof path: {name!r}; require canonical relative POSIX path"
+        )
     return name
 
 
@@ -288,13 +404,22 @@ def _limit(value: object) -> None:
 
 
 def _hex(value: object, length: int) -> bool:
-    return isinstance(value, str) and re.fullmatch(rf"[0-9a-f]{{{length}}}", value) is not None
+    return (
+        isinstance(value, str)
+        and re.fullmatch(rf"[0-9a-f]{{{length}}}", value) is not None
+    )
 
 
-def _validate(manifest: object, max_checks: int, *, frozen: bool = True) -> dict[str, Any]:
+def _validate(
+    manifest: object, max_checks: int, *, frozen: bool = True
+) -> dict[str, Any]:
     """Lexical manifest checks. Zero proofs is valid: a PR with no behaviour change freezes none."""
     _limit(max_checks)
-    if not isinstance(manifest, dict) or type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1:
+    if (
+        not isinstance(manifest, dict)
+        or type(manifest.get("schemaVersion")) is not int
+        or manifest["schemaVersion"] != 1
+    ):
         raise WorkflowError("unsupported manifest schema")
     _validate_fields(manifest, frozen=frozen)
     proofs = manifest.get("proofs")
@@ -312,7 +437,9 @@ def _validate_fields(manifest: dict[str, Any], *, frozen: bool) -> None:
     if unknown:
         raise WorkflowError(f"unknown manifest field {', '.join(unknown)}")
     slug = manifest.get("slug")
-    if not isinstance(slug, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", slug):
+    if not isinstance(slug, str) or not re.fullmatch(
+        r"[a-zA-Z0-9][a-zA-Z0-9_-]*", slug
+    ):
         raise WorkflowError("invalid manifest slug")
     if frozen and not _hex(manifest.get("base"), 40):
         raise WorkflowError("base must be 40-hex")
@@ -326,9 +453,14 @@ def _validate_fields(manifest: dict[str, Any], *, frozen: bool) -> None:
 
 
 def _valid_revision(revision: object) -> bool:
-    return (isinstance(revision, dict) and isinstance(revision.get("id"), str)
-            and bool(revision["id"].strip()) and _hex(revision.get("oldSha256"), 64)
-            and isinstance(revision.get("reason"), str) and bool(revision["reason"].strip()))
+    return (
+        isinstance(revision, dict)
+        and isinstance(revision.get("id"), str)
+        and bool(revision["id"].strip())
+        and _hex(revision.get("oldSha256"), 64)
+        and isinstance(revision.get("reason"), str)
+        and bool(revision["reason"].strip())
+    )
 
 
 def _validate_proof(proof: object, ids: set[str], *, frozen: bool) -> None:
@@ -344,9 +476,15 @@ def _validate_proof(proof: object, ids: set[str], *, frozen: bool) -> None:
         raise WorkflowError(f"{ident}: unknown proof field {', '.join(unknown)}")
     if not isinstance(proof.get("criterion"), str) or not proof["criterion"].strip():
         raise WorkflowError(f"{ident}: missing criterion")
-    if "parent" in proof and (not isinstance(proof["parent"], str) or not proof["parent"].strip() or "\0" in proof["parent"]
-                              or (frozen and not _hex(proof["parent"], 40))):
-        raise WorkflowError(f"{ident}: parent must be 40-hex" if frozen else f"{ident}: invalid parent")
+    if "parent" in proof and (
+        not isinstance(proof["parent"], str)
+        or not proof["parent"].strip()
+        or "\0" in proof["parent"]
+        or (frozen and not _hex(proof["parent"], 40))
+    ):
+        raise WorkflowError(
+            f"{ident}: parent must be 40-hex" if frozen else f"{ident}: invalid parent"
+        )
     if not _is_argv(proof.get("cmd")):
         raise WorkflowError(f"{ident}: cmd must be argv")
     if "journey" in proof and type(proof["journey"]) is not bool:
@@ -374,7 +512,9 @@ def _validate_hashes(ident: str, hashes: object, files: list[str]) -> None:
         raise WorkflowError(f"{ident}: invalid sha256")
 
 
-def load_manifest(path: StrPath, digest: object, max_checks: int = MAX_PROOFS) -> dict[str, Any]:
+def load_manifest(
+    path: StrPath, digest: object, max_checks: int = MAX_PROOFS
+) -> dict[str, Any]:
     """Validate lexical structure without inspecting arbitrary host paths."""
     _limit(max_checks)
     try:
@@ -392,10 +532,16 @@ def _command_files(proof: dict[str, Any], roots: tuple[StrPath, ...]) -> None:
             candidate = Path(token)
             if candidate.is_absolute():
                 for root in roots:
-                    if (candidate.resolve().is_relative_to(Path(root).resolve())
-                            or candidate.absolute().is_relative_to(Path(root).absolute())
-                            or (candidate.parent.resolve() / candidate.name).is_relative_to(Path(root).resolve())):
-                        raise WorkflowError(f"{proof['id']}: absolute command reference into worktree: {token}")
+                    if (
+                        candidate.resolve().is_relative_to(Path(root).resolve())
+                        or candidate.absolute().is_relative_to(Path(root).absolute())
+                        or (candidate.parent.resolve() / candidate.name).is_relative_to(
+                            Path(root).resolve()
+                        )
+                    ):
+                        raise WorkflowError(
+                            f"{proof['id']}: absolute command reference into worktree: {token}"
+                        )
                 continue
             name = token.removeprefix("./")
             try:
@@ -405,7 +551,9 @@ def _command_files(proof: dict[str, Any], roots: tuple[StrPath, ...]) -> None:
             for root in roots:
                 path = _proof_path(root, name)
                 if path.is_file() and name not in proof["files"]:
-                    raise WorkflowError(f"{proof['id']}: command file not frozen: {name}; unchanged runners must also be frozen")
+                    raise WorkflowError(
+                        f"{proof['id']}: command file not frozen: {name}; unchanged runners must also be frozen"
+                    )
 
 
 def _commit(repo: StrPath, ref: str) -> str:
@@ -413,9 +561,14 @@ def _commit(repo: StrPath, ref: str) -> str:
 
 
 def _ancestor(repo: StrPath, older: str, newer: str, strict: bool = False) -> bool:
-    p = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer], capture_output=True)
+    p = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer],
+        capture_output=True,
+    )
     if p.returncode not in (0, 1):
-        raise WorkflowError(f"ancestry infrastructure: {p.stderr.decode(errors='replace')}")
+        raise WorkflowError(
+            f"ancestry infrastructure: {p.stderr.decode(errors='replace')}"
+        )
     return (not strict or older != newer) and p.returncode == 0
 
 
@@ -436,9 +589,17 @@ def _setup(tree: Path, setup: list[str] | None) -> set[str]:
 
 
 def _entries(tree: Path) -> set[str]:
-    status = _git(tree, "status", "--porcelain=v1", "--ignored=matching",
-                  "--untracked-files=normal", "-z")
-    return {entry[3:] for entry in status.split("\0") if entry.startswith(("?? ", "!! "))}
+    status = _git(
+        tree,
+        "status",
+        "--porcelain=v1",
+        "--ignored=matching",
+        "--untracked-files=normal",
+        "-z",
+    )
+    return {
+        entry[3:] for entry in status.split("\0") if entry.startswith(("?? ", "!! "))
+    }
 
 
 def _reset(tree: Path, baseline: set[str] | None) -> None:
@@ -461,7 +622,9 @@ def _hash_failures(root: StrPath, manifest: dict[str, Any]) -> list[str]:
         for name in proof["files"]:
             path = _proof_path(root, name)
             if not path.is_file() or _sha(path) != proof["sha256"][name]:
-                failures.append(f"{proof['id']}: missing proof or hash mismatch: {name}")
+                failures.append(
+                    f"{proof['id']}: missing proof or hash mismatch: {name}"
+                )
     return failures
 
 
@@ -481,25 +644,40 @@ class Placement:
 
 
 def _execute(
-    placement: Placement, proof: dict[str, Any], baselines: Baselines, setup: list[str] | None = None
+    placement: Placement,
+    proof: dict[str, Any],
+    baselines: Baselines,
+    setup: list[str] | None = None,
 ) -> dict[str, Any]:
     """Reuse each tree's setup; reset tracked files and remove non-baseline entries."""
     tree, location, run = placement.tree, placement.location, placement.run
-    record: dict[str, Any] = {"tree": location, "location": location, "ok": None, "output": ""}
+    record: dict[str, Any] = {
+        "tree": location,
+        "location": location,
+        "ok": None,
+        "output": "",
+    }
     if run is not None:
         record["run"] = run
     try:
         _run_placed(placement, proof, _baseline(tree, baselines, setup), record)
     except INFRASTRUCTURE_ERRORS as exc:
         record["ok"] = None
-        record["error"] = f"{proof['id']}: {location}" + (f" run {run}" if run else "") + f": infrastructure: {exc}"
+        record["error"] = (
+            f"{proof['id']}: {location}"
+            + (f" run {run}" if run else "")
+            + f": infrastructure: {exc}"
+        )
     finally:
         try:
             baseline = baselines.get(tree)
             _reset(tree, None if isinstance(baseline, Exception) else baseline)
         except INFRASTRUCTURE_ERRORS as exc:
             record["ok"] = None
-            record["error"] = record.get("error", "") + f" {proof['id']}: {location}: cleanup infrastructure: {exc}"
+            record["error"] = (
+                record.get("error", "")
+                + f" {proof['id']}: {location}: cleanup infrastructure: {exc}"
+            )
     record["output"] = _scrub(record["output"], tree)
     if "error" in record:
         record["error"] = _scrub(record["error"], tree)
@@ -519,7 +697,12 @@ def _baseline(tree: Path, baselines: Baselines, setup: list[str] | None) -> set[
     return baseline
 
 
-def _run_placed(placement: Placement, proof: dict[str, Any], baseline: set[str], record: dict[str, Any]) -> None:
+def _run_placed(
+    placement: Placement,
+    proof: dict[str, Any],
+    baseline: set[str],
+    record: dict[str, Any],
+) -> None:
     """Reset the tree, write the overlay, run the proof command and check it left no trace."""
     tree, overlay = placement.tree, placement.overlay
     _reset(tree, baseline)
@@ -538,14 +721,18 @@ def _run_placed(placement: Placement, proof: dict[str, Any], baseline: set[str],
             raise WorkflowError(f"proof run modified overlay: {name}")
 
 
-def _red_at_base_failure(proof: dict[str, Any], record: dict[str, Any], marker: str | None) -> str | None:
+def _red_at_base_failure(
+    proof: dict[str, Any], record: dict[str, Any], marker: str | None
+) -> str | None:
     """The one proof rule at base: any failing run is red, unless the record's doctor marker shows the environment failed."""
     error: str | None = record.get("error")
     if error:
         return error
     if record["ok"]:
-        return (f"{proof['id']}: passes at baseline; a proof must fail at base and pass at head. "
-                "For a regression found after implementation, supply the defective implementation commit as parent")
+        return (
+            f"{proof['id']}: passes at baseline; a proof must fail at base and pass at head. "
+            "For a regression found after implementation, supply the defective implementation commit as parent"
+        )
     if marker and marker in record["output"]:
         return f"{proof['id']}: red came from the environment doctor, not the behaviour"
     return None
@@ -575,7 +762,9 @@ class FreezeResult(tuple[Path, str]):
 
     formatted: list[str]
 
-    def __new__(cls, path: Path, digest: str, formatted: Iterable[str] = ()) -> "FreezeResult":
+    def __new__(
+        cls, path: Path, digest: str, formatted: Iterable[str] = ()
+    ) -> "FreezeResult":
         result = super().__new__(cls, (path, digest))
         result.formatted = list(formatted)
         return result
@@ -599,7 +788,10 @@ def _profile(record: StrPath | None) -> dict[str, Any]:
         raise WorkflowError(f"{path} unreadable: {exc}") from exc
     if not lines or lines[0].strip() != "---":
         return {}
-    end = next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    end = next(
+        (index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"),
+        None,
+    )
     if end is None:
         raise WorkflowError(f"{path} front matter has no closing '---' line")
     try:
@@ -613,7 +805,9 @@ def _doctor_marker(profile: dict[str, Any]) -> str | None:
     """verification_surface.doctor_marker from the profile front matter; an absent or placeholder value skips."""
     surface = profile.get("verification_surface")
     marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
-    if not isinstance(marker, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL):
+    if not isinstance(marker, str) or re.fullmatch(
+        r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL
+    ):
         return None
     return marker
 
@@ -623,38 +817,72 @@ def _feature_map_path(profile: dict[str, Any]) -> str | None:
     profile declares none, exempts the surface or leaves a placeholder."""
     surface = _surface()[0].surface(profile)
     value = surface.get("feature_map_path") if surface is not None else None
-    if not isinstance(value, str) or re.fullmatch(r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", value, re.IGNORECASE | re.DOTALL):
+    if not isinstance(value, str) or re.fullmatch(
+        r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", value, re.IGNORECASE | re.DOTALL
+    ):
         return None
     return value.strip().rstrip("/") or None
 
 
-def _unmapped_proof_files(root: StrPath, map_path: str, proofs: list[dict[str, Any]]) -> list[str]:
+def _unmapped_proof_files(
+    root: StrPath, map_path: str, proofs: list[dict[str, Any]]
+) -> list[str]:
     """Proof files that no feature-map document in the working tree links to."""
     if not (Path(root) / map_path).exists():
-        raise WorkflowError(f"feature map {map_path} (verification_surface.feature_map_path) does not exist; "
-                            "write the feature map before freezing proofs")
+        raise WorkflowError(
+            f"feature map {map_path} (verification_surface.feature_map_path) does not exist; "
+            "write the feature map before freezing proofs"
+        )
     linked, _ = _surface()[1].mapped_paths(Path(root), map_path)
-    return [f"{proof['id']}: {name}" for proof in proofs for name in proof["files"] if name not in linked]
+    return [
+        f"{proof['id']}: {name}"
+        for proof in proofs
+        for name in proof["files"]
+        if name not in linked
+    ]
 
 
 def _map_document(map_path: str, name: str, indexes: Collection[str]) -> bool:
     """Whether a changed repo path is a feature document of the map at map_path (index files are not)."""
     if PurePosixPath(name).name in indexes:
         return False
-    return name == map_path or (name.startswith(f"{map_path}/") and name.endswith(".md"))
+    return name == map_path or (
+        name.startswith(f"{map_path}/") and name.endswith(".md")
+    )
 
 
-def _unproven_map_docs(repo: Path, parent: str, head: str, profile: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+def _unproven_map_docs(
+    repo: Path,
+    parent: str,
+    head: str,
+    profile: dict[str, Any],
+    manifest: dict[str, Any],
+) -> list[str]:
     """Feature-map documents changed in parent..head that link no proof file in the manifest."""
     map_path = _feature_map_path(profile)
     if map_path is None:
         return []
     feature_map = _surface()[0]
     indexes = feature_map.index_files(profile)
-    changed = _git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", parent, head, "--", map_path)
+    changed = _git(
+        repo,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--diff-filter=d",
+        "-z",
+        parent,
+        head,
+        "--",
+        map_path,
+    )
     proof_files = {name for proof in manifest["proofs"] for name in proof["files"]}
     unproven = []
-    for doc in sorted(name for name in changed.split("\0") if name and _map_document(map_path, name, indexes)):
+    for doc in sorted(
+        name
+        for name in changed.split("\0")
+        if name and _map_document(map_path, name, indexes)
+    ):
         text = _git(repo, "show", f"{head}:{doc}")
         if not feature_map.linked_files(repo, doc, text) & proof_files:
             unproven.append(doc)
@@ -662,9 +890,16 @@ def _unproven_map_docs(repo: Path, parent: str, head: str, profile: dict[str, An
 
 
 def _dirty(root: Path) -> dict[str, str | None]:
-    status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames")
+    status = _git(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"
+    )
     names = [entry[3:] for entry in status.split("\0") if entry]
-    return {name: _sha(root / name) if (root / name).is_file() and not (root / name).is_symlink() else None for name in names}
+    return {
+        name: _sha(root / name)
+        if (root / name).is_file() and not (root / name).is_symlink()
+        else None
+        for name in names
+    }
 
 
 def _format(root: Path, argv: list[str]) -> tuple[list[str], set[str]]:
@@ -675,7 +910,9 @@ def _format(root: Path, argv: list[str]) -> tuple[list[str], set[str]]:
         raise WorkflowError(f"checks.format failed:\n{_scrub(out, root)}")
     after = _dirty(root)
     newly = set(after) - set(before)
-    changed = {name for name in after if name in newly or before[name] != after[name]} | (set(before) - set(after))
+    changed = {
+        name for name in after if name in newly or before[name] != after[name]
+    } | (set(before) - set(after))
     return sorted(changed), newly
 
 
@@ -716,7 +953,10 @@ class Lineage:
 
 
 def freeze(
-    worktree: StrPath, manifest_path: StrPath, proofs: list[dict[str, Any]], slug: str,
+    worktree: StrPath,
+    manifest_path: StrPath,
+    proofs: list[dict[str, Any]],
+    slug: str,
     **options: Unpack[FreezeOptions],
 ) -> FreezeResult:
     """Freeze working-tree proofs after showing each one fails at its baseline (red at base).
@@ -734,9 +974,13 @@ def freeze(
     _check_options("freeze", options, FreezeOptions)
     request = _freeze_request(slug, proofs, options)
     root, path = Path(worktree).resolve(), Path(manifest_path).resolve()
-    if any(path.is_relative_to(directory) for directory in
-           (Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve())):
-        raise WorkflowError("manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json")
+    if any(
+        path.is_relative_to(directory)
+        for directory in (Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve())
+    ):
+        raise WorkflowError(
+            "manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json"
+        )
     lineage = _lineage(root, request)
     record, gate = read_record(root)
     if record is None and not request.project_setup:
@@ -744,8 +988,15 @@ def freeze(
     profile = _profile(record)
     marker = _doctor_marker(profile)
     policy = gate_policy(gate) if gate is not None else None
-    formatted, format_dirtied = _format(root, policy["format"]) if policy and policy["format"] else ([], set())
-    manifest: dict[str, Any] = {"schemaVersion": 1, "slug": slug, "base": lineage.base, "proofs": []}
+    formatted, format_dirtied = (
+        _format(root, policy["format"]) if policy and policy["format"] else ([], set())
+    )
+    manifest: dict[str, Any] = {
+        "schemaVersion": 1,
+        "slug": slug,
+        "base": lineage.base,
+        "proofs": [],
+    }
     if lineage.setup is not None:
         manifest["setup"] = lineage.setup
     manifest["proofs"].extend(_frozen_proof(root, proof, lineage) for proof in proofs)
@@ -758,7 +1009,9 @@ def freeze(
     return FreezeResult(path, _sha(path), formatted)
 
 
-def _freeze_request(slug: str, proofs: list[dict[str, Any]], options: FreezeOptions) -> FreezeRequest:
+def _freeze_request(
+    slug: str, proofs: list[dict[str, Any]], options: FreezeOptions
+) -> FreezeRequest:
     """Validate freeze()'s arguments before any Git or filesystem access."""
     project_setup = options.get("project_setup", False)
     if not isinstance(project_setup, bool):
@@ -766,7 +1019,9 @@ def _freeze_request(slug: str, proofs: list[dict[str, Any]], options: FreezeOpti
     max_checks = options.get("max_checks", MAX_PROOFS)
     _limit(max_checks)
     base = options.get("base")
-    if base is not None and (not isinstance(base, str) or not base.strip() or "\0" in base):
+    if base is not None and (
+        not isinstance(base, str) or not base.strip() or "\0" in base
+    ):
         raise WorkflowError("base must be a nonblank commit reference")
     setup = options.get("setup")
     draft: dict[str, Any] = {"schemaVersion": 1, "slug": slug, "proofs": proofs}
@@ -774,40 +1029,67 @@ def _freeze_request(slug: str, proofs: list[dict[str, Any]], options: FreezeOpti
         draft["setup"] = setup
     _validate(draft, max_checks, frozen=False)
     previous = options.get("previous")
-    if previous is not None and (not isinstance(previous, (tuple, list)) or len(previous) != 2):
+    if previous is not None and (
+        not isinstance(previous, (tuple, list)) or len(previous) != 2
+    ):
         raise WorkflowError("previous must be (manifest_path, sha256)")
     revise = options.get("revise")
     if revise is None:
         revise = {}
-    if not isinstance(revise, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in revise.items()):
+    if not isinstance(revise, dict) or any(
+        not isinstance(k, str) or not isinstance(v, str) or not v.strip()
+        for k, v in revise.items()
+    ):
         raise WorkflowError("revise must map proof IDs to nonblank reasons")
-    return FreezeRequest(slug, proofs, base, setup, previous, revise, max_checks, project_setup)
+    return FreezeRequest(
+        slug, proofs, base, setup, previous, revise, max_checks, project_setup
+    )
 
 
 def _lineage(root: Path, request: FreezeRequest) -> Lineage:
     """The previous manifest and the base, setup and head this freeze binds; a re-freeze keeps its lineage."""
     previous = request.previous
-    old = load_manifest(previous[0], previous[1], request.max_checks) if previous else {"proofs": []}
+    old = (
+        load_manifest(previous[0], previous[1], request.max_checks)
+        if previous
+        else {"proofs": []}
+    )
     old_proofs = {p["id"]: p for p in old["proofs"]}
     if set(request.revise) - set(old_proofs):
         raise WorkflowError("revision names an unknown previous proof")
-    resolved_base = _commit(root, request.base if request.base is not None else old.get("base", "HEAD"))
+    resolved_base = _commit(
+        root, request.base if request.base is not None else old.get("base", "HEAD")
+    )
     setup = old.get("setup") if previous and request.setup is None else request.setup
-    if previous and (request.slug != old["slug"] or resolved_base != old["base"] or setup != old.get("setup")):
-        raise WorkflowError("re-freeze slug, base and setup are immutable; start a new lineage")
+    if previous and (
+        request.slug != old["slug"]
+        or resolved_base != old["base"]
+        or setup != old.get("setup")
+    ):
+        raise WorkflowError(
+            "re-freeze slug, base and setup are immutable; start a new lineage"
+        )
     head = _commit(root, "HEAD")
     if not _ancestor(root, resolved_base, head):
         raise WorkflowError("base is not an ancestor of HEAD")
     return Lineage(old, old_proofs, resolved_base, setup, head)
 
 
-def _frozen_proof(root: Path, proof: dict[str, Any], lineage: Lineage) -> dict[str, Any]:
+def _frozen_proof(
+    root: Path, proof: dict[str, Any], lineage: Lineage
+) -> dict[str, Any]:
     """The proof with its resolved parent commit and the sha256 of each of its files."""
     ident = proof["id"]
-    baseline = proof.get("parent", lineage.old_proofs.get(ident, {}).get("parent", lineage.base))
+    baseline = proof.get(
+        "parent", lineage.old_proofs.get(ident, {}).get("parent", lineage.base)
+    )
     item = dict(proof, parent=_commit(root, baseline), sha256={})
-    if not _ancestor(root, lineage.base, item["parent"]) or not _ancestor(root, item["parent"], lineage.head):
-        raise WorkflowError(f"{ident}: parent is not an ancestor of HEAD at or after base")
+    if not _ancestor(root, lineage.base, item["parent"]) or not _ancestor(
+        root, item["parent"], lineage.head
+    ):
+        raise WorkflowError(
+            f"{ident}: parent is not an ancestor of HEAD at or after base"
+        )
     _command_files(item, (root,))
     for name in item["files"]:
         item["sha256"][name] = _frozen_file(root, ident, name)
@@ -819,17 +1101,25 @@ def _frozen_file(root: Path, ident: str, name: str) -> str:
     source = _proof_path(root, name)
     if not source.is_file():
         raise WorkflowError(f"{ident}: missing regular proof file: {name}")
-    ignored = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", "--", name], capture_output=True)
+    ignored = subprocess.run(
+        ["git", "-C", str(root), "check-ignore", "-q", "--", name], capture_output=True
+    )
     if ignored.returncode == 0:
         raise WorkflowError(f"{ident}: ignored proof file: {name}")
     if ignored.returncode != 1:
-        raise WorkflowError(f"{ident}: check-ignore infrastructure: {ignored.stderr.decode(errors='replace')}")
-    if _git(root, "hash-object", f"--path={name}", "--", name) != _git(root, "hash-object", "--no-filters", "--", name):
+        raise WorkflowError(
+            f"{ident}: check-ignore infrastructure: {ignored.stderr.decode(errors='replace')}"
+        )
+    if _git(root, "hash-object", f"--path={name}", "--", name) != _git(
+        root, "hash-object", "--no-filters", "--", name
+    ):
         raise WorkflowError(f"{ident}: normalise line endings/clean filters: {name}")
     return _sha(source)
 
 
-def _mapped_proofs(root: Path, profile: dict[str, Any], manifest: dict[str, Any]) -> str | None:
+def _mapped_proofs(
+    root: Path, profile: dict[str, Any], manifest: dict[str, Any]
+) -> str | None:
     """The feature map path when there are proofs, after checking a map document links each proof file."""
     if not manifest["proofs"]:
         return None
@@ -838,30 +1128,50 @@ def _mapped_proofs(root: Path, profile: dict[str, Any], manifest: dict[str, Any]
         raise WorkflowError(FEATURE_MAP_SETUP)
     unmapped = _unmapped_proof_files(root, map_path, manifest["proofs"])
     if unmapped:
-        raise WorkflowError(f"proof files not linked from any feature-map document under {map_path}: "
-                            f"{', '.join(unmapped)}; link each proof from its feature's map entry")
+        raise WorkflowError(
+            f"proof files not linked from any feature-map document under {map_path}: "
+            f"{', '.join(unmapped)}; link each proof from its feature's map entry"
+        )
     return map_path
 
 
-def _refuse_unfrozen(root: Path, manifest: dict[str, Any], format_dirtied: set[str], map_path: str | None) -> None:
+def _refuse_unfrozen(
+    root: Path, manifest: dict[str, Any], format_dirtied: set[str], map_path: str | None
+) -> None:
     """Every working-tree change is a proof file, a formatter change or a feature-map document."""
     names = {name for proof in manifest["proofs"] for name in proof["files"]}
-    for entry in _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames").split("\0"):
+    for entry in _git(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"
+    ).split("\0"):
         name = entry[3:]
-        if (entry and name not in names and name not in format_dirtied
-                and not (map_path and (name == map_path or name.startswith(f"{map_path}/")))):
-            raise WorkflowError(f"unfrozen change: {name}; add it to a proof's files or revert")
+        if (
+            entry
+            and name not in names
+            and name not in format_dirtied
+            and not (map_path and (name == map_path or name.startswith(f"{map_path}/")))
+        ):
+            raise WorkflowError(
+                f"unfrozen change: {name}; add it to a proof's files or revert"
+            )
 
 
-def _record_revisions(manifest: dict[str, Any], lineage: Lineage, revise: dict[str, str]) -> set[str]:
+def _record_revisions(
+    manifest: dict[str, Any], lineage: Lineage, revise: dict[str, str]
+) -> set[str]:
     """Append a revision for each changed previous proof; return the IDs of those proofs."""
     current = {p["id"]: p for p in manifest["proofs"]}
     revisions, changed = list(lineage.old.get("revisions", [])), set()
     for ident, proof in lineage.old_proofs.items():
         if current.get(ident) != proof:
             if ident not in revise:
-                raise WorkflowError(f"{ident}: silent proof change; supply revise reason")
-            revisions.append({"id": ident, "oldSha256": _proof_digest(proof), "reason": revise[ident]})
+                raise WorkflowError(
+                    f"{ident}: silent proof change; supply revise reason"
+                )
+            revisions.append({
+                "id": ident,
+                "oldSha256": _proof_digest(proof),
+                "reason": revise[ident],
+            })
             changed.add(ident)
     if revisions:
         manifest["revisions"] = revisions
@@ -869,7 +1179,11 @@ def _record_revisions(manifest: dict[str, Any], lineage: Lineage, revise: dict[s
 
 
 def _show_red_at_base(
-    root: Path, manifest: dict[str, Any], lineage: Lineage, changed: set[str], marker: str | None
+    root: Path,
+    manifest: dict[str, Any],
+    lineage: Lineage,
+    changed: set[str],
+    marker: str | None,
 ) -> None:
     """Run each new or revised proof at its parent with the frozen bytes overlaid; each must fail."""
     trees: list[Path] = []
@@ -887,9 +1201,16 @@ def _show_red_at_base(
                     _git(root, "worktree", "add", "--detach", str(tree), commit)
                     trees.append(tree)
                     parent_trees[commit] = tree
-                overlay = {name: _proof_path(root, name).read_bytes() for name in proof["files"]}
-                placement = Placement(parent_trees[commit], "baseline", overlay=overlay, roots=(root,))
-                error = _red_at_base_failure(proof, _execute(placement, proof, baselines, lineage.setup), marker)
+                overlay = {
+                    name: _proof_path(root, name).read_bytes()
+                    for name in proof["files"]
+                }
+                placement = Placement(
+                    parent_trees[commit], "baseline", overlay=overlay, roots=(root,)
+                )
+                error = _red_at_base_failure(
+                    proof, _execute(placement, proof, baselines, lineage.setup), marker
+                )
                 if error:
                     raise WorkflowError(error)
             errors = _hash_failures(root, manifest)
@@ -913,7 +1234,9 @@ def _atomic_json(path: StrPath, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     name = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False
+        ) as stream:
             name = stream.name
             json.dump(value, stream, indent=2)
             stream.write("\n")
@@ -940,7 +1263,10 @@ def gate_policy(gate: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def deterministic_checks(
-    head_tree: Path, manifest: dict[str, Any], roots: tuple[StrPath, ...] = (), baselines: Baselines | None = None
+    head_tree: Path,
+    manifest: dict[str, Any],
+    roots: tuple[StrPath, ...] = (),
+    baselines: Baselines | None = None,
 ) -> dict[str, Any]:
     """Run every frozen proof at head: frozen bytes unchanged, then HEAD_RUNS passing runs, or for a
     journey proof JOURNEY_RUNS. Red at base was shown at freeze()."""
@@ -963,7 +1289,9 @@ def deterministic_checks(
                 failures.append(f"{proof['id']}: head run {n} failed")
         passed = sum(record["ok"] is True for record in runs)
         if proof.get("journey") and passed != count:
-            failures.append(f"{proof['id']}: journey proof passed {passed} of {count} clean head runs; journeys must pass every run")
+            failures.append(
+                f"{proof['id']}: journey proof passed {passed} of {count} clean head runs; journeys must pass every run"
+            )
     return result
 
 
@@ -1001,20 +1329,30 @@ def _write_result(result: dict[str, Any], repo: StrPath, head: str) -> Exception
 
 def _result_comment(result: dict[str, Any]) -> str:
     """PR comment body: the machine result as JSON, with long proof outputs tail-truncated to fit GitHub's limit."""
-    header = (f"{RESULT_MARKER}\n**prove() {result['status']}** for `{result['head']}`. "
-              f"Full JSON: `<git-common-dir>/omp-prove/{result['head']}.result.json` on the proving machine.\n\n")
+    header = (
+        f"{RESULT_MARKER}\n**prove() {result['status']}** for `{result['head']}`. "
+        f"Full JSON: `<git-common-dir>/omp-prove/{result['head']}.result.json` on the proving machine.\n\n"
+    )
     for tail in (COMMENT_OUTPUT_TAIL, 0):
         compact = copy.deepcopy(result)
-        proofs = compact.get("deterministic", {}).get("proofs", {}) if isinstance(compact.get("deterministic"), dict) else {}
+        proofs = (
+            compact.get("deterministic", {}).get("proofs", {})
+            if isinstance(compact.get("deterministic"), dict)
+            else {}
+        )
         for runs in proofs.values():
             for record in runs:
                 output = record.get("output", "")
                 if len(output) > tail:
-                    record["output"] = f"[TRUNCATED to last {tail} chars]" + (output[-tail:] if tail else "")
+                    record["output"] = f"[TRUNCATED to last {tail} chars]" + (
+                        output[-tail:] if tail else ""
+                    )
         body = f"{header}```json\n{json.dumps(compact, indent=2)}\n```\n"
         if len(body) <= COMMENT_LIMIT:
             return body
-    return f"{header}The result is too large for a PR comment; read the full JSON file.\n"
+    return (
+        f"{header}The result is too large for a PR comment; read the full JSON file.\n"
+    )
 
 
 def _post_result_comment(repo: StrPath, head: str, result: dict[str, Any]) -> str:
@@ -1023,15 +1361,19 @@ def _post_result_comment(repo: StrPath, head: str, result: dict[str, Any]) -> st
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as body:
         body.write(_result_comment(result))
         body.flush()
-        return _gh(repo, "pr", "comment", str(pr["number"]), "--body-file", body.name).strip()
+        return _gh(
+            repo, "pr", "comment", str(pr["number"]), "--body-file", body.name
+        ).strip()
 
 
 def _publish_result(result: dict[str, Any], repo: StrPath, head: str) -> None:
     """Write the result file and post it on the PR. A pass that cannot be published becomes a fail;
     a result file that cannot be rewritten is removed, so a stale pass never survives."""
+
     def fail(reason: object) -> None:
         result["status"] = "fail"
         result["blocking"].append(f"infrastructure: publishing prove result: {reason}")
+
     if _write_result(result, repo, head) is not None:
         fail("writing the result file")
     try:
@@ -1044,7 +1386,9 @@ def _publish_result(result: dict[str, Any], repo: StrPath, head: str) -> None:
         try:
             result_path(repo, head).unlink(missing_ok=True)
         except INFRASTRUCTURE_ERRORS as exc:
-            result["blocking"].append(f"infrastructure: removing the unwritable result file: {exc}")
+            result["blocking"].append(
+                f"infrastructure: removing the unwritable result file: {exc}"
+            )
 
 
 class ProveOptions(TypedDict, total=False):
@@ -1066,7 +1410,11 @@ class ProveRequest:
 
 
 def prove(
-    repo: StrPath, parent: str, head: str, frozen: tuple[StrPath, str], objective: str,
+    repo: StrPath,
+    parent: str,
+    head: str,
+    frozen: tuple[StrPath, str],
+    objective: str,
     **options: Unpack[ProveOptions],
 ) -> dict[str, Any]:
     """At the PR event: refuse unless the record's required CI context is green on head, then check
@@ -1079,10 +1427,26 @@ def prove(
     The result is written to result_path(repo, head), the merge signal rails reads, and posted on the PR at head.
     """
     _check_options("prove", options, ProveOptions)
-    manifest_path, manifest_sha256 = frozen if isinstance(frozen, (tuple, list)) and len(frozen) == 2 else (None, None)
-    request = ProveRequest(parent, frozen, objective, options["target_ref"], options.get("max_checks", MAX_PROOFS))
-    result: dict[str, Any] = {"status": "fail", "head": None, "objective": _json_safe(objective),
-                              "manifestSha256": _json_safe(manifest_sha256), "deterministic": {}, "blocking": []}
+    manifest_path, manifest_sha256 = (
+        frozen
+        if isinstance(frozen, (tuple, list)) and len(frozen) == 2
+        else (None, None)
+    )
+    request = ProveRequest(
+        parent,
+        frozen,
+        objective,
+        options["target_ref"],
+        options.get("max_checks", MAX_PROOFS),
+    )
+    result: dict[str, Any] = {
+        "status": "fail",
+        "head": None,
+        "objective": _json_safe(objective),
+        "manifestSha256": _json_safe(manifest_sha256),
+        "deterministic": {},
+        "blocking": [],
+    }
     published = None
     try:
         repo = Path(repo).resolve()
@@ -1102,7 +1466,9 @@ def prove(
     return result
 
 
-def _prove_head(repo: Path, head: str, request: ProveRequest, result: dict[str, Any]) -> None:
+def _prove_head(
+    repo: Path, head: str, request: ProveRequest, result: dict[str, Any]
+) -> None:
     """prove()'s checks on the exact head; blocking findings join `result`, prerequisites raise."""
     _limit(request.max_checks)
     if not isinstance(request.objective, str) or not request.objective.strip():
@@ -1120,13 +1486,19 @@ def _prove_head(repo: Path, head: str, request: ProveRequest, result: dict[str, 
     result["blocking"].extend(_harness_check_findings(repo, record, parent, head))
     unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
     if unproven:
-        raise ProveBlockedError(f"feature-map documents changed in {parent}..{head} link no frozen proof: "
-                                f"{', '.join(unproven)}; add an outcome test for each changed entry, "
-                                "link it from the entry and re-freeze")
+        raise ProveBlockedError(
+            f"feature-map documents changed in {parent}..{head} link no frozen proof: "
+            f"{', '.join(unproven)}; add an outcome test for each changed entry, "
+            "link it from the entry and re-freeze"
+        )
     for proof in manifest["proofs"]:
         commit = proof.get("parent", base)
-        if not _ancestor(repo, commit, head, strict=True) or not _ancestor(repo, base, commit):
-            raise WorkflowError(f"{proof['id']}: proof parent must be an ancestor of head at or after base")
+        if not _ancestor(repo, commit, head, strict=True) or not _ancestor(
+            repo, base, commit
+        ):
+            raise WorkflowError(
+                f"{proof['id']}: proof parent must be an ancestor of head at or after base"
+            )
         _command_files(proof, (repo,))
     if manifest["proofs"]:
         _run_head_proofs(repo, head, manifest, result)
@@ -1144,22 +1516,41 @@ def _record_with_green_ci(repo: Path, head: str) -> Path:
         context = policy["ci"]["requiredContext"]
         state = _required_context_state(repo, head, context)
         if state != "success":
-            raise ProveBlockedError(f'required CI context "{context}" is {state} for {head}; '
-                                    "prove() runs only after CI is green on this exact head")
+            raise ProveBlockedError(
+                f'required CI context "{context}" is {state} for {head}; '
+                "prove() runs only after CI is green on this exact head"
+            )
     return record
 
 
-def _harness_check_findings(repo: Path, record: Path, parent: str, head: str) -> list[str]:
+def _harness_check_findings(
+    repo: Path, record: Path, parent: str, head: str
+) -> list[str]:
     """Run the harness's rename-residue, path-check and structure checkers over parent..head."""
     found: list[str] = []
     for checker in ("rename-residue", "path-check", "structure"):
         ok, output = run_check(
-            [sys.executable, "-I", "-S", "-c",
-             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-             "from guardrails.cli import main; raise SystemExit(main())",
-             str(_harness_root() / GUARDRAILS_REFERENCE),
-             checker, "--repo", str(repo), "--record", str(record),
-             "--base", parent, "--head", head], repo, timeout=HARNESS_CHECK_TIMEOUT)
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+                "from guardrails.cli import main; raise SystemExit(main())",
+                str(_harness_root() / GUARDRAILS_REFERENCE),
+                checker,
+                "--repo",
+                str(repo),
+                "--record",
+                str(record),
+                "--base",
+                parent,
+                "--head",
+                head,
+            ],
+            repo,
+            timeout=HARNESS_CHECK_TIMEOUT,
+        )
         if not ok:
             found.extend(line for line in output.splitlines() if line.strip())
             if not output.strip():
@@ -1167,7 +1558,9 @@ def _harness_check_findings(repo: Path, record: Path, parent: str, head: str) ->
     return found
 
 
-def _run_head_proofs(repo: Path, head: str, manifest: dict[str, Any], result: dict[str, Any]) -> None:
+def _run_head_proofs(
+    repo: Path, head: str, manifest: dict[str, Any], result: dict[str, Any]
+) -> None:
     """Run the frozen proofs in a detached worktree at head; failures and cleanup errors block."""
     trees: list[Path] = []
     with tempfile.TemporaryDirectory(prefix="omp-prove-") as scratch:
@@ -1186,16 +1579,28 @@ LABEL_FIELDS = frozenset({"id", "label", "evidence", "rationale"})
 
 
 def blind_label(
-    batch_files: list[StrPath], rubric_path: StrPath, labels: list[str],
+    batch_files: list[StrPath],
+    rubric_path: StrPath,
+    labels: list[str],
     labellers: tuple[str, str] = ("scout", "reviewer"),
 ) -> dict[str, list[dict[str, Any]]]:
     """Two independent read-only sessions; humans confirm every label before writing."""
-    if (not isinstance(labellers, (list, tuple)) or len(labellers) != 2
-            or not all(isinstance(who, str) for who in labellers) or set(labellers) != {"scout", "reviewer"}):
-        raise WorkflowError("labellers must be two distinct read-only agents: scout and reviewer")
+    if (
+        not isinstance(labellers, (list, tuple))
+        or len(labellers) != 2
+        or not all(isinstance(who, str) for who in labellers)
+        or set(labellers) != {"scout", "reviewer"}
+    ):
+        raise WorkflowError(
+            "labellers must be two distinct read-only agents: scout and reviewer"
+        )
     if not isinstance(batch_files, (list, tuple)) or 2 * len(batch_files) > MAX_AGENTS:
         raise WorkflowError(f"labellers exceeds cap {MAX_AGENTS}; merge batches")
-    if not isinstance(labels, (list, tuple)) or not labels or any(not isinstance(x, str) or not x.strip() for x in labels):
+    if (
+        not isinstance(labels, (list, tuple))
+        or not labels
+        or any(not isinstance(x, str) or not x.strip() for x in labels)
+    ):
         raise WorkflowError("labels must be nonblank strings")
     batches = [_label_batch(filename) for filename in batch_files]
     failed: list[dict[str, Any]] = []
@@ -1209,8 +1614,14 @@ def blind_label(
     for index, (n, who, _) in enumerate(jobs):
         result = results[index] if index < len(results) else None
         cases = result.get("cases") if isinstance(result, dict) else None
-        if not isinstance(cases, list) or any(not _valid_label(c, labels, batches[n]) for c in cases):
-            failed.append({"batch": n, "labeller": who, "error": f"invalid labeller result: {result!r}"})
+        if not isinstance(cases, list) or any(
+            not _valid_label(c, labels, batches[n]) for c in cases
+        ):
+            failed.append({
+                "batch": n,
+                "labeller": who,
+                "error": f"invalid labeller result: {result!r}",
+            })
             continue
         for case in cases:
             key = (n, case["id"])
@@ -1228,7 +1639,12 @@ def _label_batch(filename: StrPath) -> list[str]:
     except (OSError, ValueError) as exc:
         raise WorkflowError(f"invalid batch: {exc}") from exc
     cases = batch.get("cases") if isinstance(batch, dict) else batch
-    if not isinstance(cases, list) or any(not isinstance(c, dict) or not isinstance(c.get("id"), str) or not c["id"].strip() for c in cases):
+    if not isinstance(cases, list) or any(
+        not isinstance(c, dict)
+        or not isinstance(c.get("id"), str)
+        or not c["id"].strip()
+        for c in cases
+    ):
         raise WorkflowError("batch must contain cases with nonblank string IDs")
     ids = [c["id"] for c in cases]
     if len(set(ids)) != len(ids):
@@ -1237,13 +1653,34 @@ def _label_batch(filename: StrPath) -> list[str]:
 
 
 def _start_labellers(
-    batch_files: list[StrPath], rubric_path: StrPath, labels: list[str], labellers: tuple[str, str],
+    batch_files: list[StrPath],
+    rubric_path: StrPath,
+    labels: list[str],
+    labellers: tuple[str, str],
     failed: list[dict[str, Any]],
 ) -> list[tuple[int, str, Any]]:
     """Spawn one read-only labeller per batch and selector; a spawn failure joins `failed`."""
-    schema = {"type": "object", "required": ["cases"], "additionalProperties": False, "properties": {"cases": {
-        "type": "array", "items": {"type": "object", "required": ["id", "label", "evidence", "rationale"], "additionalProperties": False,
-        "properties": {"id": {"type": "string"}, "label": {"enum": list(labels)}, "evidence": {"type": "string"}, "rationale": {"type": "string"}}}}}}
+    schema = {
+        "type": "object",
+        "required": ["cases"],
+        "additionalProperties": False,
+        "properties": {
+            "cases": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "label", "evidence", "rationale"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "id": {"type": "string"},
+                        "label": {"enum": list(labels)},
+                        "evidence": {"type": "string"},
+                        "rationale": {"type": "string"},
+                    },
+                },
+            }
+        },
+    }
     jobs = []
     for n, filename in enumerate(batch_files):
         for who in labellers:
@@ -1251,7 +1688,10 @@ def _start_labellers(
                 handle = _kernel("agent")(
                     f"Read-only. Label every case in {filename} using rubric {rubric_path}. Read only those two files. "
                     "Quote deciding evidence; rationale in 1-2 plain sentences. Human confirms every label before writing.",
-                    agent=who, label=f"Label{n:02d}{who[:3]}", schema=schema)
+                    agent=who,
+                    label=f"Label{n:02d}{who[:3]}",
+                    schema=schema,
+                )
                 jobs.append((n, who, handle))
             except INFRASTRUCTURE_ERRORS as exc:
                 failed.append({"batch": n, "labeller": who, "error": repr(exc)})
@@ -1259,14 +1699,23 @@ def _start_labellers(
 
 
 def _valid_label(case: object, labels: list[str], ids: list[str]) -> bool:
-    return (isinstance(case, dict) and set(case) == LABEL_FIELDS
-            and all(isinstance(case.get(k), str) for k in ("id", "label", "evidence", "rationale"))
-            and case["label"] in labels and case["id"] in ids)
+    return (
+        isinstance(case, dict)
+        and set(case) == LABEL_FIELDS
+        and all(
+            isinstance(case.get(k), str)
+            for k in ("id", "label", "evidence", "rationale")
+        )
+        and case["label"] in labels
+        and case["id"] in ids
+    )
 
 
 def _tally(
-    batches: list[list[str]], votes: dict[tuple[int, str], dict[str, dict[str, Any]]],
-    duplicates: set[tuple[int, str]], labellers: tuple[str, str],
+    batches: list[list[str]],
+    votes: dict[tuple[int, str], dict[str, dict[str, Any]]],
+    duplicates: set[tuple[int, str]],
+    labellers: tuple[str, str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Cases both labellers gave the same single label, and every other case with its votes."""
     agreed, disputed = [], []
@@ -1274,8 +1723,16 @@ def _tally(
         for ident in ids:
             key = (n, ident)
             value = votes.get(key, {})
-            if key not in duplicates and len(value) == 2 and value[labellers[0]]["label"] == value[labellers[1]]["label"]:
-                agreed.append({"batch": n, "id": ident, "label": value[labellers[0]]["label"]})
+            if (
+                key not in duplicates
+                and len(value) == 2
+                and value[labellers[0]]["label"] == value[labellers[1]]["label"]
+            ):
+                agreed.append({
+                    "batch": n,
+                    "id": ident,
+                    "label": value[labellers[0]]["label"],
+                })
             else:
                 disputed.append({"batch": n, "id": ident, "votes": value})
     return agreed, disputed
@@ -1285,23 +1742,60 @@ def _tally(
 # calibrated severity judgment and routed to the owner or to an in-flow fix. The line format is the
 # catalogue row's contract (guardrails/data/guardrail-rules.json); repos print exactly it.
 DEPENDENCY_AUDIT = "SECURITY.dependency-audit"
-ADVISORY_FIELDS = ("lock", "ecosystem", "package", "version", "advisory", "aliases", "fix")
+ADVISORY_FIELDS = (
+    "lock",
+    "ecosystem",
+    "package",
+    "version",
+    "advisory",
+    "aliases",
+    "fix",
+)
 ADVISORY_LISTS = ("aliases", "fix")
-AUDIT_FAILURE_KINDS = ("unknown-lock-format", "manifest-without-lock", "exception", "auditor")
+AUDIT_FAILURE_KINDS = (
+    "unknown-lock-format",
+    "manifest-without-lock",
+    "exception",
+    "auditor",
+)
 _ADVISORY_LINE = re.compile(
-    re.escape(DEPENDENCY_AUDIT) + "".join(
-        rf" {field}=(?P<{field}>\S*)" if field in ADVISORY_LISTS else rf" {field}=(?P<{field}>\S+)"
-        for field in ADVISORY_FIELDS))
-_FAILURE_LINE = re.compile(re.escape(DEPENDENCY_AUDIT) + r" failure=(?P<kind>\S+) path=(?P<path>\S+) reason=(?P<reason>\S.*)")
+    re.escape(DEPENDENCY_AUDIT)
+    + "".join(
+        rf" {field}=(?P<{field}>\S*)"
+        if field in ADVISORY_LISTS
+        else rf" {field}=(?P<{field}>\S+)"
+        for field in ADVISORY_FIELDS
+    )
+)
+_FAILURE_LINE = re.compile(
+    re.escape(DEPENDENCY_AUDIT)
+    + r" failure=(?P<kind>\S+) path=(?P<path>\S+) reason=(?P<reason>\S.*)"
+)
 SEVERITY_JUDGMENT = "agent/extensions/dynaflows/judgments/dependency-severity"
 SEVERITIES = ("low", "medium", "high", "critical")
 OWNER_SEVERITIES = ("high", "critical")
 # The fixed rubric: an impact class sets the base level; each mitigating dimension that the
 # judgment clears lowers it one level, never below low. Unclear evidence never lowers it.
-IMPACT_LEVEL = {"rce": 4, "auth_bypass": 4, "unclear": 4, "data_exposure": 3, "integrity_loss": 3, "dos": 2, "info_leak": 2}
+IMPACT_LEVEL = {
+    "rce": 4,
+    "auth_bypass": 4,
+    "unclear": 4,
+    "data_exposure": 3,
+    "integrity_loss": 3,
+    "dos": 2,
+    "info_leak": 2,
+}
 PRECONDITIONS = ("local_only", "needs_privileges", "needs_interaction")
 MALICIOUS_PREFIX = "MAL-"
-EVIDENCE_FIELDS = frozenset({"advisory_text", "advisory_source", "scope", "scope_source", "code_search", "fix_options", "blocked_fix"})
+EVIDENCE_FIELDS = frozenset({
+    "advisory_text",
+    "advisory_source",
+    "scope",
+    "scope_source",
+    "code_search",
+    "fix_options",
+    "blocked_fix",
+})
 BLOCKED_FIX_FIELDS = frozenset({"blocked_by", "constraint", "constraint_source"})
 
 
@@ -1313,7 +1807,9 @@ def advisory_key(advisory: dict[str, Any]) -> str:
 def _listed(value: str, field: str, line: str) -> list[str]:
     items = value.split(",") if value else []
     if any(not item for item in items):
-        raise WorkflowError(f"{DEPENDENCY_AUDIT} line has an empty {field} item: {line}")
+        raise WorkflowError(
+            f"{DEPENDENCY_AUDIT} line has an empty {field} item: {line}"
+        )
     return items
 
 
@@ -1326,7 +1822,9 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
     if not isinstance(output, str):
         raise WorkflowError("commit-gate output must be text")
     if output.startswith("…"):
-        raise WorkflowError("commit-gate output is truncated; parse the full output of the record's checks.commit")
+        raise WorkflowError(
+            "commit-gate output is truncated; parse the full output of the record's checks.commit"
+        )
     advisories, failures, seen = [], [], set()
     for line in output.splitlines():
         line = line.rstrip("\r")
@@ -1346,7 +1844,9 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
         if match and match["kind"] in AUDIT_FAILURE_KINDS:
             failures.append(match.groupdict())
             continue
-        raise WorkflowError(f"{DEPENDENCY_AUDIT} line does not match the catalogue contract: {line}")
+        raise WorkflowError(
+            f"{DEPENDENCY_AUDIT} line does not match the catalogue contract: {line}"
+        )
     return {"advisories": advisories, "failures": failures}
 
 
@@ -1358,7 +1858,9 @@ def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
     ok, output = run_check(gate["checks"]["commit"], repo)
     found = parse_dependency_audit(output)
     if ok and (found["advisories"] or found["failures"]):
-        raise WorkflowError(f"checks.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block")
+        raise WorkflowError(
+            f"checks.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block"
+        )
     return {"ok": ok, **found}
 
 
@@ -1378,7 +1880,11 @@ def severity_questions() -> tuple[dict[str, Any], dict[str, Any]]:
 def severity_version_key(model: object) -> str:
     """sha256 over the questions, the state shape and the pinned model (compose-and-integrate)."""
     questions, state = severity_questions()
-    payload = json.dumps({"questions": questions, "state": state, "model": model}, sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(
+        {"questions": questions, "state": state, "model": model},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -1389,7 +1895,9 @@ def severity_thresholds() -> dict[str, Any]:
     except (OSError, ValueError) as exc:
         raise WorkflowError(f"cannot read the severity thresholds: {exc}") from exc
     if thresholds.get("version_key") != severity_version_key(thresholds.get("model")):
-        raise WorkflowError("severity thresholds are stale for the current questions; re-score the cases and re-tune")
+        raise WorkflowError(
+            "severity thresholds are stale for the current questions; re-score the cases and re-tune"
+        )
     decisions: dict[str, Any] = thresholds["decisions"]
     return decisions
 
@@ -1405,43 +1913,90 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
     if evidence["scope"] not in ("runtime", "dev"):
         raise WorkflowError(f"{key}: evidence.scope must be runtime or dev")
     search = evidence["code_search"]
-    if (not isinstance(search, dict) or set(search) != {"queries", "hits"}
-            or not isinstance(search["queries"], list) or not search["queries"]
-            or any(not isinstance(q, str) or not q.strip() for q in search["queries"])
-            or not isinstance(search["hits"], list)
-            or any(not isinstance(h, dict) or set(h) != {"location", "line"} or not all(isinstance(h[k], str) and h[k].strip() for k in h)
-                   for h in search["hits"])):
-        raise WorkflowError(f"{key}: evidence.code_search needs nonblank queries and hits of {{location, line}}")
-    if not isinstance(evidence["fix_options"], str) or (not advisory["fix"] and not evidence["fix_options"].strip()):
-        raise WorkflowError(f"{key}: evidence.fix_options must name a replacement or mitigation when no fixed version exists")
+    if (
+        not isinstance(search, dict)
+        or set(search) != {"queries", "hits"}
+        or not isinstance(search["queries"], list)
+        or not search["queries"]
+        or any(not isinstance(q, str) or not q.strip() for q in search["queries"])
+        or not isinstance(search["hits"], list)
+        or any(
+            not isinstance(h, dict)
+            or set(h) != {"location", "line"}
+            or not all(isinstance(h[k], str) and h[k].strip() for k in h)
+            for h in search["hits"]
+        )
+    ):
+        raise WorkflowError(
+            f"{key}: evidence.code_search needs nonblank queries and hits of {{location, line}}"
+        )
+    if not isinstance(evidence["fix_options"], str) or (
+        not advisory["fix"] and not evidence["fix_options"].strip()
+    ):
+        raise WorkflowError(
+            f"{key}: evidence.fix_options must name a replacement or mitigation when no fixed version exists"
+        )
     blocked = evidence["blocked_fix"]
     if blocked is not None:
-        if (not advisory["fix"] or not isinstance(blocked, dict) or set(blocked) != BLOCKED_FIX_FIELDS
-                or any(not isinstance(v, str) or not v.strip() for v in blocked.values())):
-            raise WorkflowError(f"{key}: evidence.blocked_fix needs exactly {sorted(BLOCKED_FIX_FIELDS)} for a fixed release, or null")
+        if (
+            not advisory["fix"]
+            or not isinstance(blocked, dict)
+            or set(blocked) != BLOCKED_FIX_FIELDS
+            or any(not isinstance(v, str) or not v.strip() for v in blocked.values())
+        ):
+            raise WorkflowError(
+                f"{key}: evidence.blocked_fix needs exactly {sorted(BLOCKED_FIX_FIELDS)} for a fixed release, or null"
+            )
         package, separator, version = blocked["blocked_by"].rpartition("@")
         source = urlsplit(blocked["constraint_source"])
-        if (not separator or not package or not version or any(c.isspace() for c in blocked["blocked_by"])
-                or source.scheme != "https" or not source.netloc):
-            raise WorkflowError(f"{key}: blocked_fix needs package@exact-version and an absolute HTTPS constraint_source")
+        if (
+            not separator
+            or not package
+            or not version
+            or any(c.isspace() for c in blocked["blocked_by"])
+            or source.scheme != "https"
+            or not source.netloc
+        ):
+            raise WorkflowError(
+                f"{key}: blocked_fix needs package@exact-version and an absolute HTTPS constraint_source"
+            )
     return evidence
 
 
 def _probability(answers: object, question: str, kind: str) -> Any:
     answer = answers.get(question) if isinstance(answers, dict) else None
     if kind == "choice":
-        probabilities = answer.get("probabilities") if isinstance(answer, dict) else None
-        if (not isinstance(probabilities, dict) or set(probabilities) != set(IMPACT_LEVEL)
-                or not all(isinstance(p, (int, float)) and 0 <= p <= 1 for p in probabilities.values())):
-            raise WorkflowError(f"severity judgment returned no valid {question} answer")
+        probabilities = (
+            answer.get("probabilities") if isinstance(answer, dict) else None
+        )
+        if (
+            not isinstance(probabilities, dict)
+            or set(probabilities) != set(IMPACT_LEVEL)
+            or not all(
+                isinstance(p, (int, float)) and 0 <= p <= 1
+                for p in probabilities.values()
+            )
+        ):
+            raise WorkflowError(
+                f"severity judgment returned no valid {question} answer"
+            )
         return probabilities
     value = answer.get("bool") if isinstance(answer, dict) else None
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not 0 <= value <= 1
+    ):
         raise WorkflowError(f"severity judgment returned no valid {question} answer")
     return value
 
 
-def rate_advisory(advisory: dict[str, Any], evidence: object, answers: object, decisions: dict[str, Any]) -> dict[str, Any]:
+def rate_advisory(
+    advisory: dict[str, Any],
+    evidence: object,
+    answers: object,
+    decisions: dict[str, Any],
+) -> dict[str, Any]:
     """Apply the fixed rubric to the judgment's answers: severity, route and the cited evidence.
 
     Rounds up: the impact is the most severe class at or above the round-up floor, and a
@@ -1453,31 +2008,48 @@ def rate_advisory(advisory: dict[str, Any], evidence: object, answers: object, d
     evidence = _evidence(advisory, evidence)
     probabilities = _probability(answers, "impact", "choice")
     floor = decisions["impact"]["round_up_floor"]
-    impact = max((c for c, p in probabilities.items() if p >= floor), key=IMPACT_LEVEL.__getitem__,
-                 default=max(probabilities, key=probabilities.get))
+    impact = max(
+        (c for c, p in probabilities.items() if p >= floor),
+        key=IMPACT_LEVEL.__getitem__,
+        default=max(probabilities, key=probabilities.get),
+    )
     preconditions = {q: _probability(answers, q, "bool") for q in PRECONDITIONS}
     reached = _probability(answers, "reached", "bool")
-    cleared = [q for q in PRECONDITIONS if preconditions[q] >= decisions[q]["threshold"]]
+    cleared = [
+        q for q in PRECONDITIONS if preconditions[q] >= decisions[q]["threshold"]
+    ]
     unreached = reached <= decisions["reached"]["unreached_at_most"]
-    level = IMPACT_LEVEL[impact] - bool(cleared) - (evidence["scope"] == "dev") - unreached
+    level = (
+        IMPACT_LEVEL[impact] - bool(cleared) - (evidence["scope"] == "dev") - unreached
+    )
     severity = SEVERITIES[max(1, level) - 1]
     reasons = []
     if severity in OWNER_SEVERITIES:
         reasons.append(f"severity {severity}")
     if not advisory["fix"]:
-        reasons.append("no fixed release: blocked until the owner approves a dated exception")
+        reasons.append(
+            "no fixed release: blocked until the owner approves a dated exception"
+        )
     if evidence["blocked_fix"] is not None:
-        reasons.append("fixed releases blocked by a pinned dependent: blocked until the owner approves a dated exception")
+        reasons.append(
+            "fixed releases blocked by a pinned dependent: blocked until the owner approves a dated exception"
+        )
     upgrade = f"upgrade {advisory['package']} from {advisory['version']} to a fixed version ({', '.join(advisory['fix'])})"
     if advisory["fix"]:
-        suggested = upgrade + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")
+        suggested = upgrade + (
+            f"; also: {evidence['fix_options']}"
+            if evidence["fix_options"].strip()
+            else ""
+        )
     else:
         suggested = evidence["fix_options"]
     if evidence["blocked_fix"] is not None:
         blocked = evidence["blocked_fix"]
-        suggested = (f"owner: approve a dated exception with blocked_by={blocked['blocked_by']}, "
-                     f"constraint={blocked['constraint']}, constraint_source={blocked['constraint_source']}; "
-                     "upgrade when the dependent's declared constraint permits a fixed release")
+        suggested = (
+            f"owner: approve a dated exception with blocked_by={blocked['blocked_by']}, "
+            f"constraint={blocked['constraint']}, constraint_source={blocked['constraint_source']}; "
+            "upgrade when the dependent's declared constraint permits a fixed release"
+        )
     return {
         "key": advisory_key(advisory),
         "advisory": advisory,
@@ -1485,11 +2057,28 @@ def rate_advisory(advisory: dict[str, Any], evidence: object, answers: object, d
         "route": "owner" if reasons else "fix",
         "reasons": reasons,
         "dimensions": {
-            "impact": {"class": impact, "probabilities": probabilities, "source": evidence["advisory_source"]},
-            "preconditions": {"probabilities": preconditions, "cleared": cleared, "source": evidence["advisory_source"]},
-            "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
-                         "reached": reached, "unreached": unreached, "code_search": evidence["code_search"]},
-            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"], "blocked_fix": evidence["blocked_fix"]},
+            "impact": {
+                "class": impact,
+                "probabilities": probabilities,
+                "source": evidence["advisory_source"],
+            },
+            "preconditions": {
+                "probabilities": preconditions,
+                "cleared": cleared,
+                "source": evidence["advisory_source"],
+            },
+            "exposure": {
+                "scope": evidence["scope"],
+                "scope_source": evidence["scope_source"],
+                "reached": reached,
+                "unreached": unreached,
+                "code_search": evidence["code_search"],
+            },
+            "fix": {
+                "versions": advisory["fix"],
+                "options": evidence["fix_options"],
+                "blocked_fix": evidence["blocked_fix"],
+            },
         },
         "suggested_fix": suggested,
     }
@@ -1500,7 +2089,10 @@ def malicious_package(advisory: dict[str, Any]) -> bool:
 
     The catalogue contract has the checker report an auditor's own malicious mark the same way.
     """
-    return any(ident.upper().startswith(MALICIOUS_PREFIX) for ident in (advisory["advisory"], *advisory["aliases"]))
+    return any(
+        ident.upper().startswith(MALICIOUS_PREFIX)
+        for ident in (advisory["advisory"], *advisory["aliases"])
+    )
 
 
 def malicious_assessment(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
@@ -1514,15 +2106,38 @@ def malicious_assessment(advisory: dict[str, Any], evidence: object) -> dict[str
         "route": "owner",
         "reasons": ["malicious package (OSV MAL- record): supply-chain compromise"],
         "dimensions": {
-            "impact": {"class": "malicious_package", "probabilities": {}, "source": evidence["advisory_source"]},
-            "preconditions": {"probabilities": {}, "cleared": [], "source": evidence["advisory_source"]},
-            "exposure": {"scope": evidence["scope"], "scope_source": evidence["scope_source"],
-                         "reached": None, "unreached": False, "code_search": evidence["code_search"]},
-            "fix": {"versions": advisory["fix"], "options": evidence["fix_options"], "blocked_fix": evidence["blocked_fix"]},
+            "impact": {
+                "class": "malicious_package",
+                "probabilities": {},
+                "source": evidence["advisory_source"],
+            },
+            "preconditions": {
+                "probabilities": {},
+                "cleared": [],
+                "source": evidence["advisory_source"],
+            },
+            "exposure": {
+                "scope": evidence["scope"],
+                "scope_source": evidence["scope_source"],
+                "reached": None,
+                "unreached": False,
+                "code_search": evidence["code_search"],
+            },
+            "fix": {
+                "versions": advisory["fix"],
+                "options": evidence["fix_options"],
+                "blocked_fix": evidence["blocked_fix"],
+            },
         },
-        "suggested_fix": (f"remove {advisory['package']} or replace it with a trusted package, and rotate every "
-                          "credential the environments that installed it exposed (CI and developer tokens, keys)"
-                          + (f"; also: {evidence['fix_options']}" if evidence["fix_options"].strip() else "")),
+        "suggested_fix": (
+            f"remove {advisory['package']} or replace it with a trusted package, and rotate every "
+            "credential the environments that installed it exposed (CI and developer tokens, keys)"
+            + (
+                f"; also: {evidence['fix_options']}"
+                if evidence["fix_options"].strip()
+                else ""
+            )
+        ),
     }
 
 
@@ -1537,25 +2152,48 @@ async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[st
     evidence = _evidence(advisory, evidence)
     questions, _ = severity_questions()
     decisions = severity_thresholds()
-    state = {"advisory": {"id": advisory["advisory"], "aliases": advisory["aliases"], "ecosystem": advisory["ecosystem"],
-                          "package": advisory["package"], "version": advisory["version"], "fix": advisory["fix"],
-                          "text": evidence["advisory_text"], "source": evidence["advisory_source"]},
-             "code_search": evidence["code_search"]}
+    state = {
+        "advisory": {
+            "id": advisory["advisory"],
+            "aliases": advisory["aliases"],
+            "ecosystem": advisory["ecosystem"],
+            "package": advisory["package"],
+            "version": advisory["version"],
+            "fix": advisory["fix"],
+            "text": evidence["advisory_text"],
+            "source": evidence["advisory_source"],
+        },
+        "code_search": evidence["code_search"],
+    }
     try:
         answers = await _kernel("judge")(state, questions)
     except Exception as exc:
-        raise WorkflowError(f"{advisory_key(advisory)}: severity judgment failed: {exc}") from exc
+        raise WorkflowError(
+            f"{advisory_key(advisory)}: severity judgment failed: {exc}"
+        ) from exc
     return rate_advisory(advisory, evidence, answers, decisions)
 
 
-def owner_report(assessments: list[dict[str, Any]], failures: Iterable[dict[str, Any]] = ()) -> str:
+def owner_report(
+    assessments: list[dict[str, Any]], failures: Iterable[dict[str, Any]] = ()
+) -> str:
     """The report the workflow halts with: each advisory, severity, evidence and suggested fix."""
-    lines = [f"Dependency advisories need the owner ({DEPENDENCY_AUDIT}). The workflow stopped; nothing was changed for them."]
+    lines = [
+        f"Dependency advisories need the owner ({DEPENDENCY_AUDIT}). The workflow stopped; nothing was changed for them."
+    ]
     for item in assessments:
         a, d = item["advisory"], item["dimensions"]
         aliases = f" ({', '.join(a['aliases'])})" if a["aliases"] else ""
-        hits = ", ".join(h["location"] for h in d["exposure"]["code_search"]["hits"]) or "no hits"
-        pre = ", ".join(f"{q} {p:.2f}" for q, p in d["preconditions"]["probabilities"].items()) or "not judged"
+        hits = (
+            ", ".join(h["location"] for h in d["exposure"]["code_search"]["hits"])
+            or "no hits"
+        )
+        pre = (
+            ", ".join(
+                f"{q} {p:.2f}" for q, p in d["preconditions"]["probabilities"].items()
+            )
+            or "not judged"
+        )
         lines += [
             f"- {a['advisory']}{aliases}: {a['package']} {a['version']} ({a['ecosystem']}), lock {a['lock']}",
             f"  - Severity: {item['severity']}; why the owner: {'; '.join(item['reasons'])}",
@@ -1570,14 +2208,20 @@ def owner_report(assessments: list[dict[str, Any]], failures: Iterable[dict[str,
         ]
         blocked = d["fix"]["blocked_fix"]
         if blocked is not None:
-            lines.append(f"  - Pinned dependent: {blocked['blocked_by']}; declaration: {blocked['constraint']} "
-                         f"(source: {blocked['constraint_source']})")
+            lines.append(
+                f"  - Pinned dependent: {blocked['blocked_by']}; declaration: {blocked['constraint']} "
+                f"(source: {blocked['constraint_source']})"
+            )
     for failure in failures:
-        lines.append(f"- Exception file failure at {failure['path']}: {failure['reason']} (owner-only path)")
+        lines.append(
+            f"- Exception file failure at {failure['path']}: {failure['reason']} (owner-only path)"
+        )
     return "\n".join(lines)
 
 
-async def triage_advisories(found: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+async def triage_advisories(
+    found: dict[str, Any], evidence: dict[str, Any]
+) -> dict[str, Any]:
     """Assess every advisory in `found` (from dependency_audit_findings) with its cited evidence.
 
     Returns ``{halt, owner, fix, failures, report}``. Any high or critical advisory, any advisory
@@ -1589,14 +2233,23 @@ async def triage_advisories(found: dict[str, Any], evidence: dict[str, Any]) -> 
     missing = sorted(set(keys) - set(evidence))
     extra = sorted(set(evidence) - set(keys))
     if missing or extra:
-        raise WorkflowError(f"evidence must cover exactly the advisories found; missing {missing}, unknown {extra}")
-    assessed = [await assess_advisory(a, evidence[k]) for a, k in zip(found["advisories"], keys, strict=True)]
+        raise WorkflowError(
+            f"evidence must cover exactly the advisories found; missing {missing}, unknown {extra}"
+        )
+    assessed = [
+        await assess_advisory(a, evidence[k])
+        for a, k in zip(found["advisories"], keys, strict=True)
+    ]
     owner = [item for item in assessed if item["route"] == "owner"]
     exceptions = [f for f in found["failures"] if f["kind"] == "exception"]
     halt = bool(owner or exceptions)
-    return {"halt": halt, "owner": owner, "fix": [item for item in assessed if item["route"] == "fix"],
-            "failures": [f for f in found["failures"] if f["kind"] != "exception"],
-            "report": owner_report(owner, exceptions) if halt else ""}
+    return {
+        "halt": halt,
+        "owner": owner,
+        "fix": [item for item in assessed if item["route"] == "fix"],
+        "failures": [f for f in found["failures"] if f["kind"] != "exception"],
+        "report": owner_report(owner, exceptions) if halt else "",
+    }
 
 
 STRUCTURE_JUDGMENT = "agent/extensions/dynaflows/judgments/structure-naming"
@@ -1604,8 +2257,11 @@ STRUCTURE_MARKER = "<!-- omp-structure-review -->"
 
 
 def _structure_digest(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     allow_nan=False).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+    ).hexdigest()
 
 
 def _structure_config() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1614,59 +2270,102 @@ def _structure_config() -> tuple[dict[str, Any], dict[str, Any]]:
     thresholds = json.loads((directory / "thresholds.json").read_text())
     questions = document["questions"]
     if len(questions) != 8 or any(q.get("type") != "bool" for q in questions.values()):
-        raise WorkflowError("structure questions must contain eight eval bool questions")
-    version = _structure_digest({"questions": questions, "state": document["state"],
-                                 "model": thresholds["model"]})
+        raise WorkflowError(
+            "structure questions must contain eight eval bool questions"
+        )
+    version = _structure_digest({
+        "questions": questions,
+        "state": document["state"],
+        "model": thresholds["model"],
+    })
     if thresholds["version_key"] != version or thresholds["score_space"] != "raw":
         raise WorkflowError("structure thresholds are stale or not in raw score space")
     if set(thresholds["decisions"]) != set(questions):
         raise WorkflowError("structure thresholds must cover every question")
     for ident, question in questions.items():
         decision = thresholds["decisions"][ident]
-        expected = _structure_digest({"question": question, "state": document["state"],
-                                      "model": thresholds["model"]})
+        expected = _structure_digest({
+            "question": question,
+            "state": document["state"],
+            "model": thresholds["model"],
+        })
         threshold = decision["threshold"]
-        if (decision["version_key"] != expected or decision["status"] not in ("provisional", "ready")
-                or isinstance(threshold, bool) or not isinstance(threshold, (int, float))
-                or not 0 <= threshold <= 1):
+        if (
+            decision["version_key"] != expected
+            or decision["status"] not in ("provisional", "ready")
+            or isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not 0 <= threshold <= 1
+        ):
             raise WorkflowError(f"invalid or stale structure decision: {ident}")
     return questions, thresholds
 
 
-def _structure_states(repo: StrPath, parent: str, head: str) -> dict[str, dict[str, Any]]:
+def _structure_states(
+    repo: StrPath, parent: str, head: str
+) -> dict[str, dict[str, Any]]:
     # Only the harness reference is importable; never import or execute repository code.
     ok, output = run_check(
-        [sys.executable, "-I", "-S", "-c",
-         "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-         "from guardrails.cli import main; raise SystemExit(main())",
-         str(_harness_root() / GUARDRAILS_REFERENCE),
-         "structure-state", "--repo", str(repo), "--base", parent, "--head", head],
-        repo, timeout=HARNESS_CHECK_TIMEOUT, stdout_only=True)
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+            "from guardrails.cli import main; raise SystemExit(main())",
+            str(_harness_root() / GUARDRAILS_REFERENCE),
+            "structure-state",
+            "--repo",
+            str(repo),
+            "--base",
+            parent,
+            "--head",
+            head,
+        ],
+        repo,
+        timeout=HARNESS_CHECK_TIMEOUT,
+        stdout_only=True,
+    )
     if not ok:
         raise WorkflowError(f"structure-state failed: {output}")
     states = json.loads(output)
-    if not isinstance(states, dict) or any(not isinstance(v, dict) for v in states.values()):
+    if not isinstance(states, dict) or any(
+        not isinstance(v, dict) for v in states.values()
+    ):
         raise WorkflowError("structure-state must emit {unit_path: unit_state}")
     return states
 
 
 def _structure_comment(result: dict[str, Any]) -> str:
-    lines = [STRUCTURE_MARKER, f"**Structure/naming shadow review** for `{result['head']}`.",
-             "Scores are raw judgment probabilities, not calibrated confidence. "
-             "Provisional findings never affect prove or merge."]
+    lines = [
+        STRUCTURE_MARKER,
+        f"**Structure/naming shadow review** for `{result['head']}`.",
+        "Scores are raw judgment probabilities, not calibrated confidence. "
+        "Provisional findings never affect prove or merge.",
+    ]
     for item in result["findings"]:
-        lines.append(f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
-                     f"≥ {item['threshold']:.3f} ({item['status']})")
+        lines.append(
+            f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
+            f"≥ {item['threshold']:.3f} ({item['status']})"
+        )
     if not result["findings"]:
-        lines.append("- No findings recorded." if not result["errors"] else "- Review incomplete.")
+        lines.append(
+            "- No findings recorded."
+            if not result["errors"]
+            else "- Review incomplete."
+        )
     lines.extend(f"- Infrastructure: {error}" for error in result["errors"])
     if result["halt"]:
-        lines.append("**Blocked:** ready decisions have findings; rails refuse merge. "
-                     "Fix them and rerun prove() and structure_review() on the new head.")
-    lines.append(f"Full result: `<git-common-dir>/omp-structure/{result['head']}.json`.")
+        lines.append(
+            "**Blocked:** ready decisions have findings; rails refuse merge. "
+            "Fix them and rerun prove() and structure_review() on the new head."
+        )
+    lines.append(
+        f"Full result: `<git-common-dir>/omp-structure/{result['head']}.json`."
+    )
     body = "\n".join(lines)
     if len(body) > COMMENT_LIMIT:
-        body = body[:COMMENT_LIMIT - 200] + "\n[Truncated; read the full result file.]"
+        body = body[: COMMENT_LIMIT - 200] + "\n[Truncated; read the full result file.]"
     return body
 
 
@@ -1675,26 +2374,50 @@ def _post_structure_comment(repo: StrPath, head: str, result: dict[str, Any]) ->
     endpoint = f"repos/{_github_repo(repo)}/issues/{pr['number']}/comments"
     comments = _github(repo, "api", endpoint, "--paginate")
     previous = [c for c in comments if STRUCTURE_MARKER in (c.get("body") or "")]
-    endpoint = f"repos/{_github_repo(repo)}/issues/comments/{previous[-1]['id']}" if previous else endpoint
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json") as stream:
+    endpoint = (
+        f"repos/{_github_repo(repo)}/issues/comments/{previous[-1]['id']}"
+        if previous
+        else endpoint
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".json"
+    ) as stream:
         json.dump({"body": _structure_comment(result)}, stream)
         stream.flush()
-        response = _github(repo, "api", endpoint, "--method", "PATCH" if previous else "POST",
-                           "--input", stream.name)
+        response = _github(
+            repo,
+            "api",
+            endpoint,
+            "--method",
+            "PATCH" if previous else "POST",
+            "--input",
+            stream.name,
+        )
     url: str = response["html_url"]
     return url
 
 
-async def structure_review(repo: StrPath, parent: str, head: str, *, target_ref: str) -> dict[str, Any]:
+async def structure_review(
+    repo: StrPath, parent: str, head: str, *, target_ref: str
+) -> dict[str, Any]:
     """PR-time structure judgment, separate from prove().
 
     Rails require this exact-head result and refuse merge when halt is true.
     Only ready decisions can halt; infrastructure errors remain shadow-only.
     No proof result file is modified.
     """
-    result: dict[str, Any] = {"head": None, "parent": None, "status": "shadow", "halt": False,
-                              "units": {}, "findings": [], "errors": [], "thresholds": None,
-                              "version_key": None, "model_reported": None}
+    result: dict[str, Any] = {
+        "head": None,
+        "parent": None,
+        "status": "shadow",
+        "halt": False,
+        "units": {},
+        "findings": [],
+        "errors": [],
+        "thresholds": None,
+        "version_key": None,
+        "model_reported": None,
+    }
     published = None
     try:
         repo = Path(repo).resolve()
@@ -1707,15 +2430,21 @@ async def structure_review(repo: StrPath, parent: str, head: str, *, target_ref:
         result["thresholds"] = thresholds
         result["version_key"] = thresholds["version_key"]
         # eval's judge API exposes answers, not a pinned/reported model. Do not invent one.
-        result["model_note"] = "eval judge selects the runtime model; response model metadata unavailable"
-        groups = _structure_units(_structure_states(repo, parent, head), questions, result)
+        result["model_note"] = (
+            "eval judge selects the runtime model; response model metadata unavailable"
+        )
+        groups = _structure_units(
+            _structure_states(repo, parent, head), questions, result
+        )
         judgment = StructureJudgment(questions, thresholds, result)
         for eligible, group in groups.items():
             await judgment.judge_group(eligible, group)
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"infrastructure: {exc}")
     result["halt"] = any(item["status"] == "ready" for item in result["findings"])
-    result["status"] = "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+    result["status"] = (
+        "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+    )
     if published is not None:
         _publish_structure(repo, head, published, result)
     return result
@@ -1728,13 +2457,17 @@ def _structure_units(
     groups: dict[tuple[str, ...], dict[str, dict[str, Any]]] = {}
     for unit, state in sorted(states.items()):
         eligible = state.get("judgment_questions")
-        if not isinstance(eligible, list) or any(ident not in questions for ident in eligible):
+        if not isinstance(eligible, list) or any(
+            ident not in questions for ident in eligible
+        ):
             raise WorkflowError(f"{unit}: invalid deterministic judgment scope")
         result["units"][unit] = {
-            "digest": _structure_digest(state), "judgment_digest": _structure_digest(state),
+            "digest": _structure_digest(state),
+            "judgment_digest": _structure_digest(state),
             "judged_paths": state["introduced_paths"],
             "judged_directories": state["introduced_directories"],
-            "questions": eligible, "scores": {},
+            "questions": eligible,
+            "scores": {},
         }
         if eligible:
             groups.setdefault(tuple(eligible), {})[unit] = {"unit_state": state}
@@ -1744,7 +2477,12 @@ def _structure_units(
 class StructureJudgment:
     """Judge structure units through the eval kernel and record scores and findings in the result."""
 
-    def __init__(self, questions: dict[str, Any], thresholds: dict[str, Any], result: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        questions: dict[str, Any],
+        thresholds: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
         self.questions = questions
         self.thresholds = thresholds
         self.result = result
@@ -1755,11 +2493,18 @@ class StructureJudgment:
         for ident, score in scores.items():
             decision = self.thresholds["decisions"][ident]
             if score >= decision["threshold"]:
-                finding = {"unit": unit, "question": ident, "score": score,
-                           "threshold": decision["threshold"], "status": decision["status"]}
+                finding = {
+                    "unit": unit,
+                    "question": ident,
+                    "score": score,
+                    "threshold": decision["threshold"],
+                    "status": decision["status"],
+                }
                 self.result["findings"].append(finding)
 
-    async def judge_group(self, eligible: tuple[str, ...], group: dict[str, dict[str, Any]]) -> None:
+    async def judge_group(
+        self, eligible: tuple[str, ...], group: dict[str, dict[str, Any]]
+    ) -> None:
         """One judge() call for a single unit, else one judge_batch() over units sharing questions."""
         selected = {ident: self.questions[ident] for ident in eligible}
         if len(group) == 1:
@@ -1769,7 +2514,9 @@ class StructureJudgment:
             except INFRASTRUCTURE_ERRORS as exc:
                 self.result["errors"].append(f"{unit}: judgment: {exc}")
             return
-        batch = _kernel("judge_batch")(group, selected, intent="Structure/naming shadow review")
+        batch = _kernel("judge_batch")(
+            group, selected, intent="Structure/naming shadow review"
+        )
         try:
             async for unit, item in batch.drain_iter():
                 try:
@@ -1782,7 +2529,9 @@ class StructureJudgment:
             batch.close()
 
 
-def _publish_structure(repo: StrPath, head: str, published: Path, result: dict[str, Any]) -> None:
+def _publish_structure(
+    repo: StrPath, head: str, published: Path, result: dict[str, Any]
+) -> None:
     """Write the result file, post the PR comment, then rewrite the file with the final status."""
     try:
         _atomic_json(published, result)
@@ -1792,7 +2541,9 @@ def _publish_structure(repo: StrPath, head: str, published: Path, result: dict[s
         result["prComment"] = _post_structure_comment(repo, head, result)
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"posting structure result: {exc}")
-    result["status"] = "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+    result["status"] = (
+        "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
+    )
     try:
         _atomic_json(published, result)
     except INFRASTRUCTURE_ERRORS as exc:

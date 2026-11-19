@@ -51,7 +51,9 @@ SEAM_FIX = "inject the effect through a seam owned outside the analyzer-like roo
 class ScalabilityVisitor(ast.NodeVisitor):
     """Walks one module, tracking loop depth per callable body and the enclosing function."""
 
-    def __init__(self, relpath: str, *, max_depth: int | None, analyzer_like: bool) -> None:
+    def __init__(
+        self, relpath: str, *, max_depth: int | None, analyzer_like: bool
+    ) -> None:
         self.relpath = relpath
         self.max_depth = max_depth
         self.analyzer_like = analyzer_like
@@ -113,7 +115,8 @@ class ScalabilityVisitor(ast.NodeVisitor):
     def _check_call(self, node: ast.Call) -> None:
         name = qualified_name(node.func, self.names)
         if name in {"open", "io.open"} or (
-            isinstance(node.func, ast.Attribute) and node.func.attr in FILESYSTEM_METHODS
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in FILESYSTEM_METHODS
         ):
             self._seam("PYS251", node.lineno, "synchronous filesystem I/O")
         if name in PROCESS_CALLS:
@@ -123,13 +126,21 @@ class ScalabilityVisitor(ast.NodeVisitor):
 
     def _seam(self, rule: str, line: int, what: str) -> None:
         self.findings.append(
-            finding(rule, self.relpath, line, f"{what} in analyzer-like code in {self._owner()}", SEAM_FIX)
+            finding(
+                rule,
+                self.relpath,
+                line,
+                f"{what} in analyzer-like code in {self._owner()}",
+                SEAM_FIX,
+            )
         )
 
     def _owner(self) -> str:
         return self._functions[-1] if self._functions else "<module>"
 
-    def _visit_callable(self, node: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> None:
+    def _visit_callable(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, name: str
+    ) -> None:
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in (*node.args.defaults, *node.args.kw_defaults):
@@ -154,7 +165,10 @@ class ScalabilityVisitor(ast.NodeVisitor):
             self.visit(statement)
 
     def _visit_comprehension(
-        self, generators: list[ast.comprehension], results: tuple[ast.expr, ...], index: int = 0
+        self,
+        generators: list[ast.comprehension],
+        results: tuple[ast.expr, ...],
+        index: int = 0,
     ) -> None:
         if index == len(generators):
             for result in results:
@@ -189,7 +203,9 @@ def is_environ(node: ast.AST, names: dict[str, str]) -> bool:
 
 def ownership_findings(repo: Path, config: PythonSettings) -> list[Finding]:
     roots = config.paths("analyzer_like_roots")
-    if not roots or any((repo / marker).exists() for marker in config.paths("ownership_markers")):
+    if not roots or any(
+        (repo / marker).exists() for marker in config.paths("ownership_markers")
+    ):
         return []
     return [
         finding(
@@ -218,7 +234,15 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             continue
         source = read_source(repo, relpath)
         if source.tree is None:
-            found.append(finding("PYS000", relpath, None, source.error, "restore readable UTF-8 Python"))
+            found.append(
+                finding(
+                    "PYS000",
+                    relpath,
+                    None,
+                    source.error,
+                    "restore readable UTF-8 Python",
+                )
+            )
             continue
         visitor = ScalabilityVisitor(
             relpath,

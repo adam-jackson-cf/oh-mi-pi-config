@@ -54,7 +54,9 @@ class PythonSettings:
     raw: dict[str, Any]
 
     def paths(self, key: str) -> list[str]:
-        return [item.strip("/") for item in as_list(self.raw.get(key)) if item.strip("/")]
+        return [
+            item.strip("/") for item in as_list(self.raw.get(key)) if item.strip("/")
+        ]
 
     def scope(self, key: str) -> list[str]:
         """A rule scope; unset means every maintained root."""
@@ -65,8 +67,14 @@ class PythonSettings:
         return value if isinstance(value, dict) else {}
 
     def number(self, section: str, key: str, default: int | None) -> int | None:
-        value = self.mapping(section).get(key, default) if section else self.raw.get(key, default)
-        return value if isinstance(value, int) and not isinstance(value, bool) else default
+        value = (
+            self.mapping(section).get(key, default)
+            if section
+            else self.raw.get(key, default)
+        )
+        return (
+            value if isinstance(value, int) and not isinstance(value, bool) else default
+        )
 
 
 def load_settings(profile: dict[str, Any]) -> PythonSettings:
@@ -84,7 +92,9 @@ def root_depth(relpath: str, pattern: str) -> int | None:
     if not wanted or len(parts) < len(wanted):
         return None
     if GLOB_CHARACTERS & set(pattern):
-        hit = all(fnmatchcase(part, want) for part, want in zip(parts, wanted, strict=False))
+        hit = all(
+            fnmatchcase(part, want) for part, want in zip(parts, wanted, strict=False)
+        )
     else:
         hit = parts[: len(wanted)] == wanted
     return len(wanted) if hit else None
@@ -92,7 +102,9 @@ def root_depth(relpath: str, pattern: str) -> int | None:
 
 def matched_root(relpath: str, roots: list[str]) -> int | None:
     """Depth of the deepest root containing ``relpath``, or None when no root does."""
-    depths = [depth for root in roots if (depth := root_depth(relpath, root)) is not None]
+    depths = [
+        depth for root in roots if (depth := root_depth(relpath, root)) is not None
+    ]
     return max(depths) if depths else None
 
 
@@ -109,7 +121,9 @@ def is_excluded(relpath: str, config: PythonSettings) -> bool:
 
 def parse_paths(command: str, argv: list[str]) -> list[str]:
     parser = argparse.ArgumentParser(prog=f"guardrails {command}")
-    parser.add_argument("paths", nargs="*", help="limit the check to these files or directories")
+    parser.add_argument(
+        "paths", nargs="*", help="limit the check to these files or directories"
+    )
     paths: list[str] = parser.parse_args(argv).paths
     return paths
 
@@ -119,7 +133,9 @@ def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> lis
 
     Raises InventoryError when the repository is not a Git work tree.
     """
-    scope = [path for raw in selected if (path := normalized_path(repo, raw)) is not None]
+    scope = [
+        path for raw in selected if (path := normalized_path(repo, raw)) is not None
+    ]
     return [
         path
         for path in repo_paths(repo)
@@ -147,10 +163,14 @@ def read_source(repo: Path, relpath: str) -> Source:
     except UnicodeDecodeError as error:
         return Source(relpath, error=f"could not decode source: {error.reason}")
     except SyntaxError as error:
-        return Source(relpath, error=f"line {error.lineno or 1}: could not parse: {error.msg}")
+        return Source(
+            relpath, error=f"line {error.lineno or 1}: could not parse: {error.msg}"
+        )
 
 
-def finding(rule: str, relpath: str, line: int | None, message: str, fix: str) -> Finding:
+def finding(
+    rule: str, relpath: str, line: int | None, message: str, fix: str
+) -> Finding:
     """Code findings name the line inside the message so the path stays a plain repo path."""
     prefix = f"line {line}: " if line is not None else ""
     return Finding(rule, relpath, f"{prefix}{message}", fix)

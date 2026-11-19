@@ -12,7 +12,9 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails.structure import prefix_candidates
 
@@ -29,17 +31,24 @@ class PrefixCandidateTests(unittest.TestCase):
         self.repo.mkdir()
         self.record.mkdir()
         self.profile: dict[str, Any] = {
-            "structure": {"import_direction": {"source_root": "src/shop", "package": "shop"}}
+            "structure": {
+                "import_direction": {"source_root": "src/shop", "package": "shop"}
+            }
         }
-        (self.record / "profile.md").write_text("---\n" + json.dumps(self.profile) + "\n---\n")
+        (self.record / "profile.md").write_text(
+            "---\n" + json.dumps(self.profile) + "\n---\n"
+        )
         self.git("init", "-q")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
 
     def git(self, *args: str) -> str:
         return subprocess.run(
-            ["git", "-C", str(self.repo), *args], check=True,
-            capture_output=True, text=True, timeout=10,
+            ["git", "-C", str(self.repo), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         ).stdout.strip()
 
     def write(self, path: str, text: str = "") -> None:
@@ -58,11 +67,17 @@ class PrefixCandidateTests(unittest.TestCase):
     def seed_pairs(self) -> str:
         self.write("src/shop/grading/coverage_store.py", "RECORD = 'coverage'\n")
         self.write("src/shop/grading/prefix_store.py", "RECORD = 'prefix'\n")
-        self.write("src/shop/readers.py", "from shop.grading import coverage_store, prefix_store\n")
+        self.write(
+            "src/shop/readers.py",
+            "from shop.grading import coverage_store, prefix_store\n",
+        )
         return self.commit("Existing record stores and readers")
 
     def add_producers(self) -> str:
-        self.write("src/shop/grading/coverage_offline.py", "from .coverage_store import RECORD\n")
+        self.write(
+            "src/shop/grading/coverage_offline.py",
+            "from .coverage_store import RECORD\n",
+        )
         self.write("src/shop/grading/prefix_grade.py", "from . import prefix_store\n")
         self.write("src/shop/grading/coverage_store.py", "RECORD = 'coverage/1'\n")
         self.write("src/shop/grading/prefix_store.py", "RECORD = 'prefix/1'\n")
@@ -73,7 +88,9 @@ class PrefixCandidateTests(unittest.TestCase):
         self.add_producers()
         clusters = self.candidates(base)
         assert [cluster["prefix"] for cluster in clusters] == ["coverage", "prefix"]
-        for cluster, producer in zip(clusters, ["coverage_offline", "prefix_grade"], strict=True):
+        for cluster, producer in zip(
+            clusters, ["coverage_offline", "prefix_grade"], strict=True
+        ):
             prefix = cluster["prefix"]
             source = f"src/shop/grading/{producer}.py"
             store = f"src/shop/grading/{prefix}_store.py"
@@ -82,7 +99,9 @@ class PrefixCandidateTests(unittest.TestCase):
             assert cluster["added_or_moved"] == [source]
             assert cluster["internal_edges"] == [{"source": source, "target": store}]
             assert cluster["importers"] == {source: [], store: ["src/shop/readers.py"]}
-            assert cluster["co_change"] == [{"members": sorted([source, store]), "count": 1}]
+            assert cluster["co_change"] == [
+                {"members": sorted([source, store]), "count": 1}
+            ]
 
     def test_existing_pairs_without_addition_or_move_are_not_candidates(self) -> None:
         self.seed_pairs()
@@ -94,11 +113,16 @@ class PrefixCandidateTests(unittest.TestCase):
 
     def test_moved_member_is_a_candidate(self) -> None:
         self.write("src/shop/grading/coverage_store.py", "RECORD = 'coverage'\n")
-        self.write("src/shop/incoming.py", "def produce():\n    return 'unique coverage producer payload'\n")
+        self.write(
+            "src/shop/incoming.py",
+            "def produce():\n    return 'unique coverage producer payload'\n",
+        )
         base = self.commit("Existing producer outside grading")
-        (self.repo / "src/shop/incoming.py").rename(self.repo / "src/shop/grading/coverage_offline.py")
+        (self.repo / "src/shop/incoming.py").rename(
+            self.repo / "src/shop/grading/coverage_offline.py"
+        )
         self.commit("Move producer beside its store")
-        cluster, = self.candidates(base)
+        (cluster,) = self.candidates(base)
         assert cluster["prefix"] == "coverage"
         assert cluster["added_or_moved"] == ["src/shop/grading/coverage_offline.py"]
 
@@ -115,9 +139,12 @@ class PrefixCandidateTests(unittest.TestCase):
     def test_tests_and_init_files_do_not_join_groups(self) -> None:
         base = self.commit("Empty base")
         for path in [
-            "src/shop/test_coverage.py", "src/shop/test_prefix.py",
-            "src/shop/coverage_test.py", "src/shop/prefix_test.py",
-            "src/shop/__init__.py", "src/shop/init_store.py",
+            "src/shop/test_coverage.py",
+            "src/shop/test_prefix.py",
+            "src/shop/coverage_test.py",
+            "src/shop/prefix_test.py",
+            "src/shop/__init__.py",
+            "src/shop/init_store.py",
         ]:
             self.write(path)
         self.commit("Add tests and package marker")
@@ -128,9 +155,12 @@ class PrefixCandidateTests(unittest.TestCase):
         base = self.commit("Whole-stem sibling")
         self.write("src/shop/cross_mode_metrics.py", "from .cross_mode import VALUE\n")
         self.commit("Add metrics sibling")
-        cluster, = self.candidates(base)
+        (cluster,) = self.candidates(base)
         assert cluster["prefix"] == "cross_mode"
-        assert cluster["members"] == ["src/shop/cross_mode.py", "src/shop/cross_mode_metrics.py"]
+        assert cluster["members"] == [
+            "src/shop/cross_mode.py",
+            "src/shop/cross_mode_metrics.py",
+        ]
 
     def test_single_member_and_partial_words_do_not_make_a_group(self) -> None:
         base = self.commit("Empty base")
@@ -153,7 +183,10 @@ class PrefixCandidateTests(unittest.TestCase):
         head = self.add_producers()
         self.write("src/shop/grading/coverage_offline.py", "not valid python !!!")
         self.write("src/shop/grading/coverage/child.py")
-        assert [cluster["prefix"] for cluster in self.candidates(base, head)] == ["coverage", "prefix"]
+        assert [cluster["prefix"] for cluster in self.candidates(base, head)] == [
+            "coverage",
+            "prefix",
+        ]
 
     def test_documented_non_owned_sources_are_excluded(self) -> None:
         self.profile["guardrails"] = {"check": {"exclude": ["vendor"]}}
@@ -170,15 +203,24 @@ class PrefixCandidateTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             findings = prefix_candidates.run(self.repo, self.profile, ["--base", base])
         assert findings == []
-        assert [cluster["prefix"] for cluster in json.loads(output.getvalue())] == ["coverage", "prefix"]
+        assert [cluster["prefix"] for cluster in json.loads(output.getvalue())] == [
+            "coverage",
+            "prefix",
+        ]
 
     def test_standalone_main_accepts_repo_record_and_range(self) -> None:
         base = self.commit("Empty base")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             status = prefix_candidates.main([
-                "--repo", str(self.repo), "--record", str(self.record),
-                "--base", base, "--head", base,
+                "--repo",
+                str(self.repo),
+                "--record",
+                str(self.record),
+                "--base",
+                base,
+                "--head",
+                base,
             ])
         assert status == 0
         assert json.loads(output.getvalue()) == []
@@ -187,7 +229,9 @@ class PrefixCandidateTests(unittest.TestCase):
         self.commit("Empty base")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            findings = prefix_candidates.run(self.repo, self.profile, ["--base", "missing-ref"])
+            findings = prefix_candidates.run(
+                self.repo, self.profile, ["--base", "missing-ref"]
+            )
         assert output.getvalue() == ""
         assert [finding.rule_id for finding in findings] == ["PREFIX.candidates"]
 

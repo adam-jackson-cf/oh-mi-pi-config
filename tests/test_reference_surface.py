@@ -10,7 +10,9 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails.surface import feature_map, journeys, lever_selftest
 
@@ -23,7 +25,9 @@ DOCTOR_MARKER = "LEVER-DOCTOR-FAILED"
 JOURNEY = "tests/journeys/test_checkout_journey.py"
 
 
-def feature_doc(title: str = "Checkout", driving: str = f"Driving it with `{LEVER}`") -> str:
+def feature_doc(
+    title: str = "Checkout", driving: str = f"Driving it with `{LEVER}`"
+) -> str:
     return (
         f"# {title}\n\n"
         "## Sub-features\n\nPaying by card ends with an order number on screen.\n\n"
@@ -43,7 +47,10 @@ def surface_profile(**overrides: str) -> dict[str, Any]:
         "evidence_dir_arg": "--evidence-dir",
     }
     values.update(overrides)
-    return {"verification_surface": values, "layout": {"test_file_patterns": ["test_*.py"]}}
+    return {
+        "verification_surface": values,
+        "layout": {"test_file_patterns": ["test_*.py"]},
+    }
 
 
 class SurfaceRepoTestCase(unittest.TestCase):
@@ -54,7 +61,9 @@ class SurfaceRepoTestCase(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
         self.write("docs/features/checkout.md", feature_doc())
         self.write("docs/features/cart.md", feature_doc("Cart"))
-        self.write(JOURNEY, "def test_checkout(lever):\n    lever.run('scripts/lever')\n")
+        self.write(
+            JOURNEY, "def test_checkout(lever):\n    lever.run('scripts/lever')\n"
+        )
         self.write("scripts/lever", "#!/bin/sh\n")
 
     def write(self, name: str, text: str) -> None:
@@ -71,20 +80,25 @@ class FeatureMapTests(SurfaceRepoTestCase):
         assert self.check() == []
 
     def test_wrong_or_missing_h2_is_reported(self) -> None:
-        self.write("docs/features/cart.md", feature_doc("Cart", "Driving it with something"))
+        self.write(
+            "docs/features/cart.md", feature_doc("Cart", "Driving it with something")
+        )
         findings = self.check()
         assert [finding.path for finding in findings] == ["docs/features/cart.md"]
         assert "expected exactly" in findings[0].message
 
     def test_extra_h2_is_reported(self) -> None:
-        self.write("docs/features/cart.md", feature_doc("Cart") + "\n## Notes\n\nMore.\n")
+        self.write(
+            "docs/features/cart.md", feature_doc("Cart") + "\n## Notes\n\nMore.\n"
+        )
         assert len(self.check()) == 1
 
     def test_headings_inside_code_fences_do_not_count(self) -> None:
         self.write(
             "docs/features/cart.md",
             feature_doc("Cart").replace(
-                "## Gotchas\n", "## Gotchas\n\n```md\n## Not a heading\n# Nor this\n```\n"
+                "## Gotchas\n",
+                "## Gotchas\n\n```md\n## Not a heading\n# Nor this\n```\n",
             ),
         )
         assert self.check() == []
@@ -100,7 +114,9 @@ class FeatureMapTests(SurfaceRepoTestCase):
 
     def test_duplicate_feature_and_missing_h1_are_reported(self) -> None:
         self.write("docs/features/cart.md", feature_doc("Checkout"))
-        self.write("docs/features/payments.md", feature_doc().replace("# Checkout\n", ""))
+        self.write(
+            "docs/features/payments.md", feature_doc().replace("# Checkout\n", "")
+        )
         messages = " | ".join(finding.message for finding in self.check())
         assert "also documented in docs/features/cart.md" in messages
         assert "has 0 H1 headings" in messages
@@ -161,7 +177,9 @@ class JourneyTests(SurfaceRepoTestCase):
         self.write("tests/journeys/test_refund.py", "def test_refund():\n    pass\n")
         self.write("tests/journeys/conftest_data.json", "{}")
         findings = self.check()
-        assert [finding.path for finding in findings] == ["tests/journeys/test_refund.py"]
+        assert [finding.path for finding in findings] == [
+            "tests/journeys/test_refund.py"
+        ]
         assert "does not match" in findings[0].message
 
     def test_exempt_surface_has_no_journey_rules(self) -> None:
@@ -179,7 +197,9 @@ class LeverSelftestTests(unittest.TestCase):
     def selftest(self, mode: str, **settings: object) -> list[Any]:
         lever = shlex.join([sys.executable, str(FAKE_LEVER), "--mode", mode])
         profile = surface_profile(lever_command=lever)
-        profile["guardrails"] = {"lever_selftest": {"doctor_args": ["doctor"], **settings}}
+        profile["guardrails"] = {
+            "lever_selftest": {"doctor_args": ["doctor"], **settings}
+        }
         return lever_selftest.run(self.repo, profile, [])
 
     def messages(self, findings: list[Any]) -> str:
@@ -190,7 +210,9 @@ class LeverSelftestTests(unittest.TestCase):
         assert self.selftest("good") == []
 
     def test_doctor_failure_without_marker_is_reported(self) -> None:
-        assert "did not print the doctor marker" in self.messages(self.selftest("no-marker"))
+        assert "did not print the doctor marker" in self.messages(
+            self.selftest("no-marker")
+        )
 
     def test_doctor_passing_in_a_broken_environment_is_reported(self) -> None:
         findings = self.selftest("blind")
@@ -212,7 +234,9 @@ class LeverSelftestTests(unittest.TestCase):
     def test_failure_env_replaces_the_unusable_data_directory(self) -> None:
         # The fake lever ignores the environment, so a healthy data directory keeps doctor green
         # and the self-test must report that the broken environment was not detected.
-        findings = self.selftest("good", failure_env={"OMP_FAKE_DEPENDENCY": "unreachable"})
+        findings = self.selftest(
+            "good", failure_env={"OMP_FAKE_DEPENDENCY": "unreachable"}
+        )
         assert "doctor passed in a broken environment" in self.messages(findings)
 
     def test_incomplete_surface_is_reported(self) -> None:

@@ -35,7 +35,12 @@ HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 INLINE_LINK = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+[\"'(][^)]*)?\)")
 REFERENCE_LINK = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
-SECTIONS = ("Sub-features", "How to get to it (user POV)", "Driving it with {lever}", "Gotchas")
+SECTIONS = (
+    "Sub-features",
+    "How to get to it (user POV)",
+    "Driving it with {lever}",
+    "Gotchas",
+)
 
 
 @dataclass
@@ -138,8 +143,12 @@ def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
         if SCHEME.match(target):
             continue
         resolved, anchor = resolve_link(repo, doc, target)
-        if resolved == ".." or (resolved is not None and not (repo / resolved).exists()):
-            found.append(Finding(RULE, doc, f"link '{target}' does not resolve", "fix the link"))
+        if resolved == ".." or (
+            resolved is not None and not (repo / resolved).exists()
+        ):
+            found.append(
+                Finding(RULE, doc, f"link '{target}' does not resolve", "fix the link")
+            )
             continue
         if not anchor:
             continue
@@ -151,7 +160,12 @@ def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
             continue
         if anchor.lower() not in slugs:
             found.append(
-                Finding(RULE, doc, f"link '{target}' names a missing heading", "fix the anchor")
+                Finding(
+                    RULE,
+                    doc,
+                    f"link '{target}' names a missing heading",
+                    "fix the anchor",
+                )
             )
     return found
 
@@ -169,7 +183,11 @@ def section_findings(doc: str, document: Document, lever: str) -> list[Finding]:
                 "give the document exactly one H1 naming its feature",
             )
         )
-    h2 = [(index, text) for index, (level, text) in enumerate(document.headings) if level == 2]
+    h2 = [
+        (index, text)
+        for index, (level, text) in enumerate(document.headings)
+        if level == 2
+    ]
     if [normalise(text) for _, text in h2] != [normalise(text) for text in expected]:
         found.append(
             Finding(
@@ -182,7 +200,9 @@ def section_findings(doc: str, document: Document, lever: str) -> list[Finding]:
         return found
     for index, text in h2:
         if not any(line.strip() for line in section_lines(document, index)):
-            found.append(Finding(RULE, doc, f"section '{text}' is empty", "fill the section"))
+            found.append(
+                Finding(RULE, doc, f"section '{text}' is empty", "fill the section")
+            )
     return found
 
 

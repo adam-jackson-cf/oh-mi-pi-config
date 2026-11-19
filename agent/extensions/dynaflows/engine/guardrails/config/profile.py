@@ -76,13 +76,19 @@ def parse_front_matter(text: str) -> dict[str, Any]:
     if not lines or lines[0].strip() != FENCE:
         raise ProfileError(f"{PROFILE_PATH} must start with a '---' front-matter block")
     try:
-        end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE)
+        end = next(
+            index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE
+        )
     except StopIteration as error:
-        raise ProfileError(f"{PROFILE_PATH} front matter has no closing '---' line") from error
+        raise ProfileError(
+            f"{PROFILE_PATH} front matter has no closing '---' line"
+        ) from error
     try:
         values = json.loads("\n".join(lines[1:end]))
     except json.JSONDecodeError as error:
-        raise ProfileError(f"{PROFILE_PATH} front matter is not valid JSON: {error}") from error
+        raise ProfileError(
+            f"{PROFILE_PATH} front matter is not valid JSON: {error}"
+        ) from error
     if not isinstance(values, dict):
         raise ProfileError(f"{PROFILE_PATH} front matter must be one JSON object")
     return values
@@ -113,7 +119,10 @@ SCHEMA: dict[str, Any] = {
         "nightly_scheduler": "text",
         "nightly_branches": "texts",
     },
-    "fast_tier_budget": {"duration_report_command": "text", "machines": ("records", MACHINE)},
+    "fast_tier_budget": {
+        "duration_report_command": "text",
+        "machines": ("records", MACHINE),
+    },
     "coverage": {
         "scope": "texts",
         "line_floor": "percent",
@@ -121,7 +130,11 @@ SCHEMA: dict[str, Any] = {
         "where": "text",
     },
     "guards": {"process": "text", "network": "text", "user_data": "text"},
-    "environments": {"required": "texts", "require_flag": "text", "readiness_probe": "text"},
+    "environments": {
+        "required": "texts",
+        "require_flag": "text",
+        "readiness_probe": "text",
+    },
     "verification_surface": {
         "lever_command": "text",
         "doctor_marker": "text",
@@ -132,9 +145,17 @@ SCHEMA: dict[str, Any] = {
     },
     "ownership_areas": {"map": "map", "affected_t2_selection": "text"},
     "identity_artefacts": "value",
-    "layout": {"support_dir": "text", "fixtures_dir": "text", "test_file_patterns": "texts"},
+    "layout": {
+        "support_dir": "text",
+        "fixtures_dir": "text",
+        "test_file_patterns": "texts",
+    },
     # ``lsp`` is written by ``guardrails init``; the other two are the owner's notes.
-    "command_notes": {"working_directory": "text", "interpretation": "text", "lsp?": "value"},
+    "command_notes": {
+        "working_directory": "text",
+        "interpretation": "text",
+        "lsp?": "value",
+    },
     "adapter": "text",
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer"},
@@ -192,7 +213,9 @@ def validate_profile(profile: dict[str, Any]) -> list[Finding]:
             check_value(profile[key], spec, key, problems)
     problems.extend(house_style_version_problems(profile))
     return [
-        Finding(RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value")
+        Finding(
+            RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value"
+        )
         for key, problem in problems
     ]
 
@@ -216,7 +239,9 @@ def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str
     ]
 
 
-def check_value(value: object, spec: Any, key: str, problems: list[tuple[str, str]]) -> None:
+def check_value(
+    value: object, spec: Any, key: str, problems: list[tuple[str, str]]
+) -> None:
     if key in EXEMPTABLE and isinstance(value, dict) and "none" in value:
         check_exemption(value, key, problems)
         return
@@ -228,7 +253,9 @@ def check_value(value: object, spec: Any, key: str, problems: list[tuple[str, st
         check_leaf(value, spec, key, problems)
 
 
-def check_exemption(value: dict[str, Any], key: str, problems: list[tuple[str, str]]) -> None:
+def check_exemption(
+    value: dict[str, Any], key: str, problems: list[tuple[str, str]]
+) -> None:
     extra = sorted(set(value) - {"none", "approval"})
     if extra:
         problems.append((key, f"exemption has unexpected keys {extra}"))
@@ -238,7 +265,9 @@ def check_exemption(value: dict[str, Any], key: str, problems: list[tuple[str, s
         problems.append((key, "exemption needs an owner 'approval' reference"))
 
 
-def check_section(value: object, spec: dict[str, Any], key: str, problems: list[tuple[str, str]]) -> None:
+def check_section(
+    value: object, spec: dict[str, Any], key: str, problems: list[tuple[str, str]]
+) -> None:
     if not isinstance(value, dict):
         problems.append((key, "is missing" if value is None else "must be an object"))
         return
@@ -257,7 +286,9 @@ def check_section(value: object, spec: dict[str, Any], key: str, problems: list[
         check_value(value.get(name), spec[child], f"{key}.{name}", problems)
 
 
-def check_records(value: object, spec: tuple[Any, ...], key: str, problems: list[tuple[str, str]]) -> None:
+def check_records(
+    value: object, spec: tuple[Any, ...], key: str, problems: list[tuple[str, str]]
+) -> None:
     kind, fields = spec
     if not isinstance(value, list):
         problems.append((key, "must be a list"))
@@ -268,14 +299,20 @@ def check_records(value: object, spec: tuple[Any, ...], key: str, problems: list
         check_section(item, fields, f"{key}[{index}]", problems)
 
 
-def check_leaf(value: object, kind: str, key: str, problems: list[tuple[str, str]]) -> None:
+def check_leaf(
+    value: object, kind: str, key: str, problems: list[tuple[str, str]]
+) -> None:
     problem = leaf_problem(value, kind)
     if problem:
         problems.append((key, problem))
 
 
 def text_problem(value: object) -> str | None:
-    return "is missing (placeholder, sentinel or empty)" if is_missing_text(value) else None
+    return (
+        "is missing (placeholder, sentinel or empty)"
+        if is_missing_text(value)
+        else None
+    )
 
 
 def texts_problem(value: object) -> str | None:
@@ -296,7 +333,9 @@ def object_problem(value: object) -> str | None:
 
 
 def list_problem(value: object) -> str | None:
-    return "must be a list" if not isinstance(value, list) else placeholder_problem(value)
+    return (
+        "must be a list" if not isinstance(value, list) else placeholder_problem(value)
+    )
 
 
 def value_problem(value: object) -> str | None:

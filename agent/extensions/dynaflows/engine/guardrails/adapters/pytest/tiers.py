@@ -76,10 +76,16 @@ def package_environment() -> dict[str, str]:
     return environment
 
 
-def collect_tier(repo: Path, profile: dict[str, Any], tier: str, out_dir: Path) -> list[Finding]:
+def collect_tier(
+    repo: Path, profile: dict[str, Any], tier: str, out_dir: Path
+) -> list[Finding]:
     spec = profile.get("tiers", {}).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
-        return [Finding(PROPAGATION, PROFILE_PATH, f"tiers.{tier} has no selector", "record it")]
+        return [
+            Finding(
+                PROPAGATION, PROFILE_PATH, f"tiers.{tier} has no selector", "record it"
+            )
+        ]
     locations = as_list(spec.get("location"))
     timeout = settings(profile, SETTINGS).get("collect_timeout_s")
     with tempfile.TemporaryDirectory(prefix="omp-collect-") as scratch:
@@ -115,7 +121,9 @@ def test_id(repo: Path, file: str, node_id: str) -> str:
     return f"{path}{separator}{rest}"
 
 
-def collection_findings(tier: str, result: subprocess.CompletedProcess[str]) -> list[Finding]:
+def collection_findings(
+    tier: str, result: subprocess.CompletedProcess[str]
+) -> list[Finding]:
     if result.returncode == 0:
         return []
     if result.returncode == NO_TESTS_COLLECTED:
@@ -123,7 +131,9 @@ def collection_findings(tier: str, result: subprocess.CompletedProcess[str]) -> 
         fix = "fix the tier's selector or location; an empty collection never passes"
     else:
         tail = " ".join((result.stdout + result.stderr).strip().splitlines()[-3:])
-        message = f"tier {tier} collection failed (pytest exit {result.returncode}): {tail}"
+        message = (
+            f"tier {tier} collection failed (pytest exit {result.returncode}): {tail}"
+        )
         fix = "make the tier collect without errors"
     return [Finding(PROPAGATION, f"tiers.{tier}", message, fix)]
 
@@ -137,7 +147,9 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
     )
 
 
-def list_tiers(repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path) -> list[Finding]:
+def list_tiers(
+    repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path
+) -> list[Finding]:
     """List the named tiers, or every tier the profile declares."""
     findings: list[Finding] = []
     declared = profile.get("tiers")

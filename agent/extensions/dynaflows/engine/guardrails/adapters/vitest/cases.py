@@ -3,6 +3,7 @@
 Selectors use the shared ``path::suite::test[row]`` convention. Dynamic registration
 is rejected rather than silently losing cases from growth and duplicate checks.
 """
+
 from __future__ import annotations
 
 import ast
@@ -18,10 +19,20 @@ REGISTRARS = frozenset({"test", "it", "describe", "suite"})
 TEST_REGISTRARS = frozenset({"test", "it"})
 SUITE_REGISTRARS = frozenset({"describe", "suite"})
 CALLBACK_KINDS = frozenset({"arrow_function", "function_expression"})
-FUNCTION_KINDS = frozenset({"arrow_function", "function_expression", "function_declaration"})
+FUNCTION_KINDS = frozenset({
+    "arrow_function",
+    "function_expression",
+    "function_declaration",
+})
 DYNAMIC_KINDS = frozenset({
-    "if_statement", "for_statement", "for_in_statement", "while_statement", "switch_statement",
-    "function_declaration", "arrow_function", "function_expression",
+    "if_statement",
+    "for_statement",
+    "for_in_statement",
+    "while_statement",
+    "switch_statement",
+    "function_declaration",
+    "arrow_function",
+    "function_expression",
 })
 LITERAL_KINDS = frozenset({"number", "true", "false", "null", "unary_expression"})
 ELIDED_KINDS = frozenset({"comment", "type_annotation"})
@@ -44,7 +55,9 @@ class Collected:
 
 
 def children(node: SgNode) -> list[SgNode]:
-    return [item for item in node.children() if item.is_named() and item.kind() != "comment"]
+    return [
+        item for item in node.children() if item.is_named() and item.kind() != "comment"
+    ]
 
 
 def walk(node: SgNode) -> Iterator[SgNode]:
@@ -56,7 +69,9 @@ def walk(node: SgNode) -> Iterator[SgNode]:
 def parse(path: str, text: str) -> SgNode:
     from ast_grep_py import SgRoot
 
-    root = SgRoot(text, "tsx" if path.endswith((".tsx", ".jsx")) else "typescript").root()
+    root = SgRoot(
+        text, "tsx" if path.endswith((".tsx", ".jsx")) else "typescript"
+    ).root()
     if any(node.kind() == "ERROR" for node in walk(root)):
         raise CollectionError(f"invalid JavaScript/TypeScript in {path}")
     return root
@@ -80,13 +95,21 @@ def _import_bindings(node: SgNode, module: str) -> dict[str, str]:
     kind = node.kind()
     if kind == "import_specifier":
         name, alias = node.field("name"), node.field("alias")
-        return {(alias or name).text(): f"{module}#{name.text()}"} if name is not None else {}
+        return (
+            {(alias or name).text(): f"{module}#{name.text()}"}
+            if name is not None
+            else {}
+        )
     if kind == "namespace_import":
         names = children(node)
         return {names[-1].text(): module} if names else {}
     if kind == "import_clause":
         target = module if module == "fast-check" else f"{module}#default"
-        return {child.text(): target for child in children(node) if child.kind() == "identifier"}
+        return {
+            child.text(): target
+            for child in children(node)
+            if child.kind() == "identifier"
+        }
     return {}
 
 
@@ -124,11 +147,13 @@ def api_name(node: SgNode | None, aliases: Mapping[str, str]) -> str:
     name = qualified(node, aliases)
     for prefix in ("vitest#", "vitest."):
         if name.startswith(prefix):
-            return name[len(prefix):]
+            return name[len(prefix) :]
     return name
 
 
-def literal(node: SgNode, constants: Mapping[str, SgNode], active: frozenset[str] = frozenset()) -> Any:
+def literal(
+    node: SgNode, constants: Mapping[str, SgNode], active: frozenset[str] = frozenset()
+) -> Any:
     if node.kind() == "identifier" and node.text() in constants:
         if node.text() in active:
             raise CollectionError("cyclic static parameter constant")
@@ -148,7 +173,9 @@ def literal(node: SgNode, constants: Mapping[str, SgNode], active: frozenset[str
         for pair in children(node):
             key, entry = pair.field("key"), pair.field("value")
             if key is None or entry is None:
-                raise CollectionError("parameter objects require static key/value pairs")
+                raise CollectionError(
+                    "parameter objects require static key/value pairs"
+                )
             result[string(key) or key.text()] = literal(entry, constants, active)
         return result
     raise CollectionError(f"dynamic parameter value: {node.text()[:80]}")
@@ -180,9 +207,14 @@ def _temporary(node: SgNode, nodes: list[SgNode]) -> tuple[str, SgNode] | None:
         return None
     if parent is None or len(children(parent)) != 1:
         return None
-    occurrences = [item for item in nodes if item.kind() == "identifier" and item.text() == name.text()]
+    occurrences = [
+        item
+        for item in nodes
+        if item.kind() == "identifier" and item.text() == name.text()
+    ]
     if len(occurrences) != 2 or any(
-        item.kind() in {"assignment_expression", "update_expression"} and name.text() in item.text()
+        item.kind() in {"assignment_expression", "update_expression"}
+        and name.text() in item.text()
         for item in nodes
     ):
         return None
@@ -191,7 +223,9 @@ def _temporary(node: SgNode, nodes: list[SgNode]) -> tuple[str, SgNode] | None:
 
 def _temporaries(callback: SgNode) -> dict[str, SgNode]:
     nodes = list(walk(callback))
-    return dict(found for node in nodes if (found := _temporary(node, nodes)) is not None)
+    return dict(
+        found for node in nodes if (found := _temporary(node, nodes)) is not None
+    )
 
 
 def _constant(node: SgNode) -> list[Any] | None:
@@ -275,7 +309,11 @@ def _call_order(node: SgNode, aliases: Mapping[str, str], calls: list[str]) -> N
     if node.kind() == "call_expression":
         function = node.field("function")
         origin = qualified(function, aliases).replace("#", ".")
-        if function is not None and function.kind() == "member_expression" and not origin:
+        if (
+            function is not None
+            and function.kind() == "member_expression"
+            and not origin
+        ):
             prop = function.field("property")
             origin = prop.text() if prop is not None else ""
         calls.append(origin.removeprefix("vitest."))
@@ -288,7 +326,9 @@ def _body(callback: SgNode) -> SgNode:
     return body
 
 
-def fingerprint(callback: SgNode, aliases: Mapping[str, str], bindings: Mapping[str, Any]) -> str:
+def fingerprint(
+    callback: SgNode, aliases: Mapping[str, str], bindings: Mapping[str, Any]
+) -> str:
     """Normalise AST structure, imported aliases, parameter values and local names."""
     body = _body(callback)
     calls: list[str] = []
@@ -368,7 +408,9 @@ class _Collector:
         dynamic: bool = False,
         inherited: Mapping[str, Any] | None = None,
     ) -> None:
-        if node.kind() == "call_expression" and self._registered(node, prefix, dynamic, inherited):
+        if node.kind() == "call_expression" and self._registered(
+            node, prefix, dynamic, inherited
+        ):
             return
         nested = dynamic or node.kind() in DYNAMIC_KINDS
         for child in children(node):
@@ -390,12 +432,21 @@ class _Collector:
         return factory, each
 
     def _registered(
-        self, node: SgNode, prefix: tuple[str, ...], dynamic: bool, inherited: Mapping[str, Any] | None
+        self,
+        node: SgNode,
+        prefix: tuple[str, ...],
+        dynamic: bool,
+        inherited: Mapping[str, Any] | None,
     ) -> bool:
         """Record a static registration call; False when ``node`` registers no test or suite."""
         function = node.field("function")
-        if node.field("arguments") is None and api_name(function, self.aliases).split(".")[0] in REGISTRARS:
-            raise CollectionError("tagged-template registration requires runtime collection")
+        if (
+            node.field("arguments") is None
+            and api_name(function, self.aliases).split(".")[0] in REGISTRARS
+        ):
+            raise CollectionError(
+                "tagged-template registration requires runtime collection"
+            )
         name, each = self._registrar(function)
         base = name.split(".")[0]
         if base not in REGISTRARS:
@@ -416,11 +467,18 @@ class _Collector:
             if selector in self.behaviours:
                 raise CollectionError(f"duplicate test title: {selector}")
             self.behaviours[selector] = title
-        self._expand(_Registration(base, selector, callbacks[-1], each), (*prefix, title), inherited)
+        self._expand(
+            _Registration(base, selector, callbacks[-1], each),
+            (*prefix, title),
+            inherited,
+        )
         return True
 
     def _expand(
-        self, registration: _Registration, path: tuple[str, ...], inherited: Mapping[str, Any] | None
+        self,
+        registration: _Registration,
+        path: tuple[str, ...],
+        inherited: Mapping[str, Any] | None,
     ) -> None:
         """Collect one case per parameter row, or visit the suite body once per row."""
         names = _parameter_patterns(registration.callback)
@@ -431,11 +489,18 @@ class _Collector:
                 _bind_row(names, row, bindings)
             suffix = f"[{index}]" if each is not None else ""
             if registration.base in SUITE_REGISTRARS:
-                self.visit(_body(registration.callback), (*path[:-1], path[-1] + suffix), inherited=bindings)
+                self.visit(
+                    _body(registration.callback),
+                    (*path[:-1], path[-1] + suffix),
+                    inherited=bindings,
+                )
             else:
-                self.cases.append(Case(
-                    registration.selector + suffix, fingerprint(registration.callback, self.aliases, bindings)
-                ))
+                self.cases.append(
+                    Case(
+                        registration.selector + suffix,
+                        fingerprint(registration.callback, self.aliases, bindings),
+                    )
+                )
 
 
 def collect(path: str, text: str) -> Collected:

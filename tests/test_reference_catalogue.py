@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 
 from guardrails import child_env, cli
@@ -32,11 +34,21 @@ REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
 # Tool rules whose values tests/test_reference_init.py NativeConfigTests and
 # LanguageNativeConfigTests check against the data init writes.
-NATIVE_PREFIXES = ("RUFF.", "MYPY.", "TSC.", "OXLINT.", "GOLANGCI.", "SHELLCHECK.", "SHFMT.")
+NATIVE_PREFIXES = (
+    "RUFF.",
+    "MYPY.",
+    "TSC.",
+    "OXLINT.",
+    "GOLANGCI.",
+    "SHELLCHECK.",
+    "SHFMT.",
+)
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
@@ -87,8 +99,12 @@ class PackagedCatalogueTests(unittest.TestCase):
                 assert isinstance(rule["summary"], str)
                 assert rule["summary"]
 
-    def test_path_check_contract_is_a_harness_subcommand_over_record_settings(self) -> None:
-        rule = next(rule for rule in self.catalogue["rules"] if rule["id"] == "GATE.path-check")
+    def test_path_check_contract_is_a_harness_subcommand_over_record_settings(
+        self,
+    ) -> None:
+        rule = next(
+            rule for rule in self.catalogue["rules"] if rule["id"] == "GATE.path-check"
+        )
         contract = rule["contract"]
         assert contract["configuration"] == "record:profile.md"
         assert contract["harness_subcommand"] == "guardrails path-check"
@@ -99,7 +115,10 @@ class PackagedCatalogueTests(unittest.TestCase):
 
     def test_naming_contract_limits_events_to_new_path_segments(self) -> None:
         rules = {rule["id"]: rule["contract"] for rule in self.catalogue["rules"]}
-        assert "content edits do not trigger naming" in rules["NAME.conventions"]["event_scope"]
+        assert (
+            "content edits do not trigger naming"
+            in rules["NAME.conventions"]["event_scope"]
+        )
         assert "legacy parent" in rules["NAME.conventions"]["segment_scope"]
         assert "full scans" in rules["NAME.test-files"]["event_scope"]
         exceptions = rules["PROFILE.complete"]["guardrail_exceptions"]
@@ -126,27 +145,39 @@ class PackagedCatalogueTests(unittest.TestCase):
                         for imported in reference_imports(sources)
                         for source in module_sources(imported)
                     ]
-                    assert any(rule["id"] in source.read_text(encoding="utf-8") for source in sources), f"{module} never names {rule['id']}"
+                    assert any(
+                        rule["id"] in source.read_text(encoding="utf-8")
+                        for source in sources
+                    ), f"{module} never names {rule['id']}"
 
     def test_every_package_proven_rule_is_exercised_by_the_skill_tests(self) -> None:
         """Rules the package proves are proven here, once for every repo: each is named by a test."""
         tests = ROOT / "tests"
-        sources = [*tests.glob("test_reference_*.py"), *(tests / "fixtures/reference").rglob("*")]
+        sources = [
+            *tests.glob("test_reference_*.py"),
+            *(tests / "fixtures/reference").rglob("*"),
+        ]
         texts = "".join(
             path.read_text(encoding="utf-8")
             for path in sorted(sources)
             if path.is_file() and path.suffix in {".py", ".json", ".md", ".xml"}
         )
         conformance = REFERENCE / "guardrails/adapters/pytest/conformance"
-        texts += "".join(path.read_text(encoding="utf-8") for path in conformance.glob("*.json"))
+        texts += "".join(
+            path.read_text(encoding="utf-8") for path in conformance.glob("*.json")
+        )
         for rule in self.catalogue["rules"]:
             if not catalogue_rules.proven_by_package(rule):
                 continue
             with self.subTest(rule=rule["id"]):
                 # Native tool rules: init writes the native config the tool enforces, and
                 # the native config tests check it against every such catalogue row.
-                native = rule["kind"] == "tool" and rule["id"].startswith(NATIVE_PREFIXES)
-                assert native or rule["id"] in texts, f"no skill test names {rule['id']}"
+                native = rule["kind"] == "tool" and rule["id"].startswith(
+                    NATIVE_PREFIXES
+                )
+                assert native or rule["id"] in texts, (
+                    f"no skill test names {rule['id']}"
+                )
 
 
 class DependencyAuditContractTests(unittest.TestCase):
@@ -154,7 +185,9 @@ class DependencyAuditContractTests(unittest.TestCase):
 
     def setUp(self) -> None:
         rows = catalogue_rules.packaged_catalogue()["rules"]
-        self.row = next(rule for rule in rows if rule["id"] == "SECURITY.dependency-audit")
+        self.row = next(
+            rule for rule in rows if rule["id"] == "SECURITY.dependency-audit"
+        )
         self.contract = self.row["contract"]
 
     def test_the_repo_checker_owns_the_rule_and_the_harness_runs_no_copy(self) -> None:
@@ -166,7 +199,10 @@ class DependencyAuditContractTests(unittest.TestCase):
         assert "dependency-audit" not in "".join(cli.SUBCOMMANDS)
 
     def test_scope_is_whole_repo_and_fails_closed(self) -> None:
-        assert self.contract["scope_source"] == "git ls-files --cached --others --exclude-standard"
+        assert (
+            self.contract["scope_source"]
+            == "git ls-files --cached --others --exclude-standard"
+        )
         for key in (
             "unknown_lock_format_is_failure",
             "manifest_with_dependencies_and_no_lock_is_failure",
@@ -185,13 +221,34 @@ class DependencyAuditContractTests(unittest.TestCase):
         fields = [token.split("=", 1)[0] for token in tokens[1:]]
         assert fields == self.contract["advisory_fields_in_order"]
         failure = self.contract["failure_line"].split(" ")
-        assert [token.split("=", 1)[0] for token in failure[1:4]] == ["failure", "path", "reason"]
+        assert [token.split("=", 1)[0] for token in failure[1:4]] == [
+            "failure",
+            "path",
+            "reason",
+        ]
 
-    def test_exceptions_are_owner_only_dated_and_only_for_unavailable_fixes(self) -> None:
+    def test_exceptions_are_owner_only_dated_and_only_for_unavailable_fixes(
+        self,
+    ) -> None:
         exceptions = self.contract["exceptions"]
-        assert exceptions["allowed_only_for"] == ["advisory_with_no_fix_version", "fixed_release_blocked_by_pinned_dependent"]
-        assert exceptions["entry_fields"] == ["advisory", "package", "version", "lock", "reason", "exposure", "expires"]
-        assert exceptions["blocked_fix_fields"] == ["blocked_by", "constraint", "constraint_source"]
+        assert exceptions["allowed_only_for"] == [
+            "advisory_with_no_fix_version",
+            "fixed_release_blocked_by_pinned_dependent",
+        ]
+        assert exceptions["entry_fields"] == [
+            "advisory",
+            "package",
+            "version",
+            "lock",
+            "reason",
+            "exposure",
+            "expires",
+        ]
+        assert exceptions["blocked_fix_fields"] == [
+            "blocked_by",
+            "constraint",
+            "constraint_source",
+        ]
         for rule in (
             "suppresses_only_the_exact_advisory_package_version_and_lock",
             "expired_entry_reports_the_advisory_again_and_a_failure",
@@ -202,9 +259,14 @@ class DependencyAuditContractTests(unittest.TestCase):
             with self.subTest(rule=rule):
                 assert exceptions[rule] is True
         for requirement in (
-            "same lock", "constraint must parse", "target the advisory package",
-            "exclude every reported fixed version", "absolute HTTPS URL",
-            "missing blocking fields", "missing or changed blocker", "any compatible fixed version",
+            "same lock",
+            "constraint must parse",
+            "target the advisory package",
+            "exclude every reported fixed version",
+            "absolute HTTPS URL",
+            "missing blocking fields",
+            "missing or changed blocker",
+            "any compatible fixed version",
         ):
             with self.subTest(requirement=requirement):
                 assert requirement in exceptions["blocked_fix_validation"]
@@ -220,7 +282,9 @@ def module_sources(module: str) -> list[Path]:
     """Source files of a reference module: one ``.py`` file, or a package's code and rules."""
     path = REFERENCE.joinpath(*module.split("."))
     if path.is_dir():
-        return sorted(p for p in path.rglob("*") if p.suffix in {".py", ".yml", ".json"})
+        return sorted(
+            p for p in path.rglob("*") if p.suffix in {".py", ".yml", ".json"}
+        )
     return [path.with_suffix(".py")] if path.with_suffix(".py").is_file() else []
 
 
@@ -240,7 +304,9 @@ def reference_imports(sources: list[Path]) -> set[str]:
 
 class ChildEnvironmentTests(unittest.TestCase):
     def test_repository_commands_never_see_harness_variables(self) -> None:
-        with mock.patch.dict(os.environ, {"AGENT": "agent-name", "GIT_DIR": "x", "KEEP": "1"}):
+        with mock.patch.dict(
+            os.environ, {"AGENT": "agent-name", "GIT_DIR": "x", "KEEP": "1"}
+        ):
             repo_env = child_env.repo_environment()
             clean = child_env.clean_environment(["KEEP"])
         assert "AGENT" not in repo_env
@@ -307,7 +373,9 @@ class ToolchainParityTests(RepoCase):
         self.write("uv.lock", LOCK)
         self.write("Makefile", MAKEFILE)
         self.write("README.md", README)
-        self.write(".github/workflows/ci.yml", "    - run: uv sync --all-extras --locked\n")
+        self.write(
+            ".github/workflows/ci.yml", "    - run: uv sync --all-extras --locked\n"
+        )
         self.uv = {
             "project": "pyproject.toml",
             "lock": "uv.lock",
@@ -324,17 +392,26 @@ class ToolchainParityTests(RepoCase):
         assert self.parity({"uv": self.uv}) == []
 
     def test_partial_installer_extras_are_an_inventory_finding(self) -> None:
-        self.write(".github/workflows/ci.yml", "    - run: uv sync --extra dev --locked\n")
+        self.write(
+            ".github/workflows/ci.yml", "    - run: uv sync --extra dev --locked\n"
+        )
         findings = self.parity({"uv": self.uv})
         assert "PARITY.dependency-inventory" in rules_of(findings)
         assert findings[0].path == ".github/workflows/ci.yml:1"
 
     def test_installers_for_other_projects_are_not_compared(self) -> None:
-        self.write(".github/workflows/ci.yml", "run: uv sync --project tools --extra x --locked\n")
-        assert "PARITY.dependency-inventory" not in rules_of(self.parity({"uv": self.uv}))
+        self.write(
+            ".github/workflows/ci.yml",
+            "run: uv sync --project tools --extra x --locked\n",
+        )
+        assert "PARITY.dependency-inventory" not in rules_of(
+            self.parity({"uv": self.uv})
+        )
 
     def test_documented_installs_must_match_a_maintained_installer(self) -> None:
-        self.write("README.md", "```bash\nuv sync --extra dev\nmake install-everything\n```\n")
+        self.write(
+            "README.md", "```bash\nuv sync --extra dev\nmake install-everything\n```\n"
+        )
         findings = self.parity({"uv": self.uv})
         assert rules_of(findings) == ["PARITY.install-guidance"] * 2
 
@@ -363,11 +440,17 @@ class ToolchainParityTests(RepoCase):
 
     def test_prettier_must_be_exactly_locked_and_never_fetched_by_npx(self) -> None:
         version = "3.9.10"
-        self.write("package.json", json.dumps({"devDependencies": {"prettier": version}}))
+        self.write(
+            "package.json", json.dumps({"devDependencies": {"prettier": version}})
+        )
         lock: dict[str, Any] = {
             "packages": {
                 "": {"devDependencies": {"prettier": version}},
-                "node_modules/prettier": {"version": version, "integrity": "sha", "resolved": "u"},
+                "node_modules/prettier": {
+                    "version": version,
+                    "integrity": "sha",
+                    "resolved": "u",
+                },
             }
         }
         self.write("package-lock.json", json.dumps(lock))
@@ -377,21 +460,29 @@ class ToolchainParityTests(RepoCase):
         assert [f.path for f in self.parity(options)] == ["Makefile"]
         assert rules_of(self.parity(options)) == ["PRETTIER.version"]
         self.write("Makefile", "")
-        self.write("package.json", json.dumps({"devDependencies": {"prettier": "^3.9.10"}}))
+        self.write(
+            "package.json", json.dumps({"devDependencies": {"prettier": "^3.9.10"}})
+        )
         assert "package.json" in [f.path for f in self.parity(options)]
-        self.write("package.json", json.dumps({"devDependencies": {"prettier": version}}))
+        self.write(
+            "package.json", json.dumps({"devDependencies": {"prettier": version}})
+        )
         lock["packages"]["node_modules/prettier"]["version"] = "3.9.9"
         self.write("package-lock.json", json.dumps(lock))
         assert rules_of(self.parity(options)) == ["PRETTIER.version"]
         lock["packages"]["node_modules/prettier"]["version"] = version
-        lock["packages"]["node_modules/other/node_modules/prettier"] = {"version": "3.9.9"}
+        lock["packages"]["node_modules/other/node_modules/prettier"] = {
+            "version": "3.9.9"
+        }
         self.write("package-lock.json", json.dumps(lock))
         assert rules_of(self.parity(options)) == ["PRETTIER.version"]
 
     def test_node_pins_must_be_exact_equal_and_match_the_running_node(self) -> None:
         pins = {".nvmrc": b"v22.11.0\n", ".node-version": b"v22.11.0\n"}
         assert toolchain_parity.node_pin_findings(pins, "22.11.0") == []
-        findings = toolchain_parity.node_pin_findings({**pins, ".node-version": b"lts/*\n"}, "22.11.0")
+        findings = toolchain_parity.node_pin_findings(
+            {**pins, ".node-version": b"lts/*\n"}, "22.11.0"
+        )
         assert rules_of(findings) == ["GATE.local-ci-parity"] * 2
         assert "not one exact X.Y.Z" in findings[1].message
         findings = toolchain_parity.node_pin_findings(pins, "20.1.0")
@@ -427,10 +518,18 @@ class ToolchainParityTests(RepoCase):
 
     def test_go_toolchain_in_go_mod_matches_every_ci_go_version(self) -> None:
         options = {"go": {"ci_sources": [".github/workflows/*.yml"]}}
-        self.write("go.mod", "module example.com/shop\n\ngo 1.24.0\n\ntoolchain go1.24.4\n")
-        self.write(".github/workflows/ci.yml", "    - uses: actions/setup-go@v5\n      with:\n        go-version-file: go.mod\n")
+        self.write(
+            "go.mod", "module example.com/shop\n\ngo 1.24.0\n\ntoolchain go1.24.4\n"
+        )
+        self.write(
+            ".github/workflows/ci.yml",
+            "    - uses: actions/setup-go@v5\n      with:\n        go-version-file: go.mod\n",
+        )
         assert self.parity(options) == []
-        self.write(".github/workflows/lint.yml", "    container: golang:1.24.4\n    - with:\n        go-version: '1.23.1'\n")
+        self.write(
+            ".github/workflows/lint.yml",
+            "    container: golang:1.24.4\n    - with:\n        go-version: '1.23.1'\n",
+        )
         findings = self.parity(options)
         assert rules_of(findings) == ["GATE.local-ci-parity"]
         assert "CI Go 1.23.1 differs from go.mod 1.24.4" in findings[0].message
@@ -460,13 +559,23 @@ class ToolchainParityTests(RepoCase):
 class VersionMatchingTests(unittest.TestCase):
     def test_pep_440_ordering(self) -> None:
         key = versions.version_key
-        ordered = ["1.0.dev1", "1.0a1", "1.0b2", "1.0rc1", "1.0", "1.0.post1.dev1", "1.0.post1"]
+        ordered = [
+            "1.0.dev1",
+            "1.0a1",
+            "1.0b2",
+            "1.0rc1",
+            "1.0",
+            "1.0.post1.dev1",
+            "1.0.post1",
+        ]
         assert sorted(ordered, key=key) == ordered
         assert key("1.0") == key("1.0.0")
         assert key("1!0.1") > key("2.0")
 
     def test_requirement_parsing_and_specifiers(self) -> None:
-        requirement = versions.parse_requirement('Foo_Bar[x] >=1.2, <2 ; python_version > "3"')
+        requirement = versions.parse_requirement(
+            'Foo_Bar[x] >=1.2, <2 ; python_version > "3"'
+        )
         assert requirement.name == "foo-bar"
         assert requirement.admits("1.9.9")
         assert not requirement.admits("2.0")

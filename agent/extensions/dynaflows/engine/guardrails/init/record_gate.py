@@ -44,9 +44,14 @@ GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
 # Every current gate field; any other field, at the top level or in ``checks``, is refused.
-GATE_FIELDS = frozenset(
-    {"schemaVersion", "checks", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"}
-)
+GATE_FIELDS = frozenset({
+    "schemaVersion",
+    "checks",
+    "ownerOnlyPaths",
+    "agentMerge",
+    "ci",
+    "dynaflows",
+})
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
@@ -73,7 +78,9 @@ def load_gate(record: Path) -> dict[str, Any] | None:
     if isinstance(checks, dict):
         unknown += sorted(f"checks.{key}" for key in set(checks) - CHECK_FIELDS)
     if unknown:
-        raise GateError(f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed")
+        raise GateError(
+            f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
+        )
     return gate
 
 
@@ -86,7 +93,11 @@ def drafted_checks(
     found: Discovery, commit: str | None, ci: str | None
 ) -> dict[str, list[str]]:
     checks: dict[str, list[str]] = {}
-    commit_argv = shlex.split(commit) if commit else make_command(found.make_targets, COMMIT_TARGETS)
+    commit_argv = (
+        shlex.split(commit)
+        if commit
+        else make_command(found.make_targets, COMMIT_TARGETS)
+    )
     if commit_argv is None and "pre-commit" in found.hook_managers:
         commit_argv = ["pre-commit", "run", "--all-files"]
     ci_argv = shlex.split(ci) if ci else make_command(found.make_targets, CI_TARGETS)
@@ -97,7 +108,9 @@ def drafted_checks(
     return checks
 
 
-def drafted_ci(found: Discovery, required_context: str | None, runner: str | None) -> dict[str, Any] | None:
+def drafted_ci(
+    found: Discovery, required_context: str | None, runner: str | None
+) -> dict[str, Any] | None:
     context = required_context
     if context is None and found.required_checks and len(found.required_checks) == 1:
         context = found.required_checks[0]
@@ -129,7 +142,9 @@ def planned_gate(
     planned: dict[str, Any] = dict(gate) if gate else {"schemaVersion": SCHEMA_VERSION}
     declared = planned.get("checks")
     checks = dict(declared) if isinstance(declared, dict) else {}
-    for event, argv in drafted_checks(found, answers.commit, answers.ci_command).items():
+    for event, argv in drafted_checks(
+        found, answers.commit, answers.ci_command
+    ).items():
         checks.setdefault(event, argv)
     planned["checks"] = checks
     ci = drafted_ci(found, answers.required_context, answers.runner)
@@ -141,7 +156,9 @@ def planned_gate(
 
 def confirmations(gate: dict[str, Any]) -> list[str]:
     lines = []
-    checks: dict[str, Any] = gate["checks"] if isinstance(gate.get("checks"), dict) else {}
+    checks: dict[str, Any] = (
+        gate["checks"] if isinstance(gate.get("checks"), dict) else {}
+    )
     if "commit" not in checks:
         lines.append(
             f"required: no checks.commit found; pass --commit-command or edit {GATE_PATH}"
@@ -152,7 +169,9 @@ def confirmations(gate: dict[str, Any]) -> list[str]:
             "only the owner changes (the dependency-audit exception file), or [] when there are none"
         )
     if "ci" not in checks:
-        lines.append(f"confirm: no checks.ci found; pass --ci-command or edit {GATE_PATH}")
+        lines.append(
+            f"confirm: no checks.ci found; pass --ci-command or edit {GATE_PATH}"
+        )
     if "ci" not in gate:
         lines.append(
             f"confirm: no ci found; pass --required-context and --runner or edit {GATE_PATH}"
@@ -172,4 +191,9 @@ def render(gate: dict[str, Any]) -> str:
 
 
 def gate_finding(error: GateError) -> Finding:
-    return Finding(RULE, GATE_PATH, str(error), "repair the record's gate.json, then run init again")
+    return Finding(
+        RULE,
+        GATE_PATH,
+        str(error),
+        "repair the record's gate.json, then run init again",
+    )

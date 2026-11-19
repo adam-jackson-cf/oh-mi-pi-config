@@ -132,7 +132,14 @@ def from_counts(tp: int, fp: int, fn: int, beta: float) -> Metrics:
     b2 = beta * beta
     denom = b2 * precision + recall
     f = (1 + b2) * precision * recall / denom if denom else 0.0
-    return {"precision": precision, "recall": recall, "f": f, "tp": tp, "fp": fp, "fn": fn}
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f": f,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+    }
 
 
 def wilson_lower(successes: int, n: int) -> float:
@@ -204,13 +211,20 @@ def tune(rows: list[Row], fold_sets: list[list[list[int]]], opts: Options) -> Re
             t = choose(train, opts)
             where = f"repeat {r} fold {n}" if len(fold_sets) > 1 else f"fold {n}"
             if t is None:
-                failed.append({"fold": where, "reason": "no threshold met minimums on train"})
+                failed.append({
+                    "fold": where,
+                    "reason": "no threshold met minimums on train",
+                })
                 continue
             m = metrics(test, t, opts.beta)
             thresholds.append(t)
             tuned.append(counts(test, t))
             if not meets(m, opts):
-                failed.append({"fold": where, "reason": "held-out below minimums", "threshold": t})
+                failed.append({
+                    "fold": where,
+                    "reason": "held-out below minimums",
+                    "threshold": t,
+                })
     return {
         "shipped_threshold": choose(rows, opts),
         "fold_thresholds": thresholds,
@@ -236,7 +250,9 @@ def logit(p: float) -> float:
     return math.log(p / (1 - p))
 
 
-def fit_platt(rows: list[Row], iters: int = 100, l2: float = 1.0) -> tuple[float, float]:
+def fit_platt(
+    rows: list[Row], iters: int = 100, l2: float = 1.0
+) -> tuple[float, float]:
     """Logistic regression of label on logit(score) by Newton's method.
 
     A small L2 prior toward the identity mapping (a=1, b=0) keeps the fit finite
@@ -290,7 +306,9 @@ def calibrate(rows: list[Row], folds: list[list[int]]) -> Result:
     }
 
 
-def reliability(scored: list[tuple[int, float]], per_bin: int = 20) -> list[dict[str, float]]:
+def reliability(
+    scored: list[tuple[int, float]], per_bin: int = 20
+) -> list[dict[str, float]]:
     scored = sorted(scored, key=lambda r: r[1])
     bins = max(1, len(scored) // per_bin)
     size = math.ceil(len(scored) / bins)
@@ -311,18 +329,27 @@ def errors(cases: list[Case], threshold: float) -> list[dict[str, Any]]:
     for c in cases:
         flagged = c["s"] >= threshold
         if flagged != (c["y"] == 1):
-            out.append({"case_id": c["id"], "split": c["split"], "stratum": c["stratum"],
-                        "label": c["y"], "score": c["s"],
-                        "kind": "false_positive" if flagged else "false_negative"})
+            out.append({
+                "case_id": c["id"],
+                "split": c["split"],
+                "stratum": c["stratum"],
+                "label": c["y"],
+                "score": c["s"],
+                "kind": "false_positive" if flagged else "false_negative",
+            })
     return sorted(out, key=lambda e: e["score"])
 
 
-def by_stratum(cases: list[Case], threshold: float, beta: float) -> dict[str, StratumMetrics]:
+def by_stratum(
+    cases: list[Case], threshold: float, beta: float
+) -> dict[str, StratumMetrics]:
     groups: dict[str, list[Row]] = defaultdict(list)
     for c in cases:
         groups[c["stratum"]].append((c["y"], c["s"]))
-    return {name: StratumMetrics(**metrics(rows, threshold, beta), n=len(rows))
-            for name, rows in sorted(groups.items())}
+    return {
+        name: StratumMetrics(**metrics(rows, threshold, beta), n=len(rows))
+        for name, rows in sorted(groups.items())
+    }
 
 
 def data_warnings(rows: list[Row], positives: int, opts: Options) -> list[str]:
@@ -331,27 +358,40 @@ def data_warnings(rows: list[Row], positives: int, opts: Options) -> list[str]:
     if min(positives, len(rows) - positives) < 50:
         warnings.append("fewer than 50 dev cases per label; treat results as noisy")
     if opts.min_precision == 0 and opts.min_recall == 0:
-        warnings.append("no precision or recall minimums set; agree them before shipping")
+        warnings.append(
+            "no precision or recall minimums set; agree them before shipping"
+        )
     if max(s for y, s in rows if y == 0) < min(s for y, s in rows if y == 1):
-        warnings.append("dev classes are perfectly separated; expect optimistic results")
+        warnings.append(
+            "dev classes are perfectly separated; expect optimistic results"
+        )
     return warnings
 
 
 def fold_warnings(result: Result) -> list[str]:
     """Warnings about how well cross-validation supports the shipped threshold."""
     warnings = []
-    if result["shipped_threshold"] is not None and result["tuned_folds"] < result["total_folds"]:
-        warnings.append(f"only {result['tuned_folds']} of {result['total_folds']} folds found "
-                        "a qualifying threshold; the shipped threshold is not well supported")
+    if (
+        result["shipped_threshold"] is not None
+        and result["tuned_folds"] < result["total_folds"]
+    ):
+        warnings.append(
+            f"only {result['tuned_folds']} of {result['total_folds']} folds found "
+            "a qualifying threshold; the shipped threshold is not well supported"
+        )
     if result["tuned_folds"] < result["total_folds"]:
-        warnings.append("default 0.5 covers all folds; tuned covers qualifying folds only")
+        warnings.append(
+            "default 0.5 covers all folds; tuned covers qualifying folds only"
+        )
     ts = result["fold_thresholds"]
     if ts and max(ts) - min(ts) > 0.05:
         warnings.append("fold thresholds vary by more than 0.05; grow the label set")
     return warnings
 
 
-def score_test(result: Result, test: list[Case], threshold: float, opts: Options) -> list[str]:
+def score_test(
+    result: Result, test: list[Case], threshold: float, opts: Options
+) -> list[str]:
     """Score the test split once at the shipped threshold and at 0.5; warn when it misses the minimums."""
     test_rows = pairs(test)
     result["test_at_shipped"] = metrics(test_rows, threshold, opts.beta)
@@ -361,14 +401,18 @@ def score_test(result: Result, test: list[Case], threshold: float, opts: Options
     return []
 
 
-def calibration_report(rows: list[Row], folds: list[list[int]], test: list[Case]) -> Result:
+def calibration_report(
+    rows: list[Row], folds: list[list[int]], test: list[Case]
+) -> Result:
     """Platt scaling against raw scores on dev held-out folds, plus test Brier scores when there is a test split."""
     cal = calibrate(rows, folds)
     if test:
         a, b = cal["platt_mapping"]["a"], cal["platt_mapping"]["b"]
         test_rows = pairs(test)
         cal["test_brier_raw"] = brier(test_rows)
-        cal["test_brier_platt"] = brier([(y, sigmoid(a * logit(s) + b)) for y, s in test_rows])
+        cal["test_brier_platt"] = brier([
+            (y, sigmoid(a * logit(s) + b)) for y, s in test_rows
+        ])
     return cal
 
 
@@ -380,8 +424,14 @@ def report(name: str, cases: list[Case], opts: Options) -> Result:
     k = min(opts.folds, positives, len(rows) - positives)
     if k < 2:
         return {"model": name, "error": "need at least 2 dev cases of each label"}
-    result: Result = {"model": name, "dev_cases": len(rows), "dev_positives": positives,
-                      "test_cases": len(test), "folds": k, "repeats": opts.repeats}
+    result: Result = {
+        "model": name,
+        "dev_cases": len(rows),
+        "dev_positives": positives,
+        "test_cases": len(test),
+        "folds": k,
+        "repeats": opts.repeats,
+    }
     warnings = data_warnings(rows, positives, opts)
     fold_sets = [stratified_folds(rows, k, opts.seed + r) for r in range(opts.repeats)]
     result.update(tune(rows, fold_sets, opts))
@@ -409,18 +459,24 @@ def fmt(m: Metrics | None) -> str:
 def print_summary(r: Result) -> None:
     """The dev, tuned, shipped, test and failed-fold lines for one model."""
     t = r["shipped_threshold"]
-    print(f"- Dev: {r['dev_cases']} cases ({r['dev_positives']} positive), "
-          f"{r['folds']} folds × {r['repeats']} repeats; test: {r['test_cases']} cases")
+    print(
+        f"- Dev: {r['dev_cases']} cases ({r['dev_positives']} positive), "
+        f"{r['folds']} folds × {r['repeats']} repeats; test: {r['test_cases']} cases"
+    )
     print(f"- Default 0.5, dev held-out: {fmt(r['default_0.5_heldout'])}")
-    print(f"- Tuned, dev held-out ({r['tuned_folds']} of {r['total_folds']} folds): "
-          f"{fmt(r['tuned_heldout'])}")
+    print(
+        f"- Tuned, dev held-out ({r['tuned_folds']} of {r['total_folds']} folds): "
+        f"{fmt(r['tuned_heldout'])}"
+    )
     print(f"- Shipped threshold: {'none meets minimums' if t is None else f'{t:.4f}'}")
     if r["fold_thresholds"]:
         ts = r["fold_thresholds"]
         print(f"- Fold thresholds: {min(ts):.4f} to {max(ts):.4f}")
     if "test_at_shipped" in r:
-        print(f"- Test at shipped threshold: {fmt(r['test_at_shipped'])}; "
-              f"at 0.5: {fmt(r['test_at_0.5'])}")
+        print(
+            f"- Test at shipped threshold: {fmt(r['test_at_shipped'])}; "
+            f"at 0.5: {fmt(r['test_at_0.5'])}"
+        )
     failed = r["failed_folds"]
     for f in failed[:10]:
         print(f"- {f['fold']}: {f['reason']}")
@@ -429,10 +485,14 @@ def print_summary(r: Result) -> None:
 
 
 def print_calibration(c: Result) -> None:
-    print(f"- Brier raw {c['brier_raw']:.4f}, Platt held-out "
-          f"{c['brier_platt_heldout']:.4f}: keep {c['keep']}")
+    print(
+        f"- Brier raw {c['brier_raw']:.4f}, Platt held-out "
+        f"{c['brier_platt_heldout']:.4f}: keep {c['keep']}"
+    )
     if "test_brier_raw" in c:
-        print(f"- Test Brier raw {c['test_brier_raw']:.4f}, Platt {c['test_brier_platt']:.4f}")
+        print(
+            f"- Test Brier raw {c['test_brier_raw']:.4f}, Platt {c['test_brier_platt']:.4f}"
+        )
     if c["keep"] == "platt":
         pm = c["platt_mapping"]
         print(f"- Platt mapping fitted on all dev: a {pm['a']:.4f}, b {pm['b']:.4f}")
@@ -444,19 +504,27 @@ def print_tables(r: Result) -> None:
         print(f"\nPer stratum at the shipped threshold, {r['strata_scope']}:\n")
         print("| stratum | n | precision | recall |\n| --- | --- | --- | --- |")
         for name, m in r["strata"].items():
-            print(f"| {name or '(none)'} | {m['n']} | {m['precision']:.2f} | {m['recall']:.2f} |")
+            print(
+                f"| {name or '(none)'} | {m['n']} | {m['precision']:.2f} | {m['recall']:.2f} |"
+            )
     if r.get("errors"):
         print("\nDev errors at the shipped threshold:\n")
-        print("| case_id | stratum | label | score | kind |\n| --- | --- | --- | --- | --- |")
+        print(
+            "| case_id | stratum | label | score | kind |\n| --- | --- | --- | --- | --- |"
+        )
         for e in r["errors"]:
-            print(f"| {e['case_id']} | {e['stratum']} | {e['label']} | {e['score']:.4f} "
-                  f"| {e['kind']} |")
+            print(
+                f"| {e['case_id']} | {e['stratum']} | {e['label']} | {e['score']:.4f} "
+                f"| {e['kind']} |"
+            )
 
 
 def print_markdown(results: list[Result], opts: Options) -> None:
     rule = "95% lower bounds" if opts.conservative else "point estimates"
-    print(f"Minimums: precision {opts.min_precision}, recall {opts.min_recall} ({rule}); "
-          f"metric F-beta with beta {opts.beta}; seed {opts.seed}\n")
+    print(
+        f"Minimums: precision {opts.min_precision}, recall {opts.min_recall} ({rule}); "
+        f"metric F-beta with beta {opts.beta}; seed {opts.seed}\n"
+    )
     for r in results:
         print(f"## {r['model']}\n")
         if "error" in r:
@@ -475,8 +543,17 @@ def print_markdown(results: list[Result], opts: Options) -> None:
 
 def self_test() -> list[str]:
     """Check core behaviour on fixed data; return a list of failures."""
-    args = Options(min_precision=0.8, min_recall=0.8, conservative=False, beta=1.0, folds=5,
-                   repeats=1, seed=0, calibration=True, errors=True)
+    args = Options(
+        min_precision=0.8,
+        min_recall=0.8,
+        conservative=False,
+        beta=1.0,
+        folds=5,
+        repeats=1,
+        seed=0,
+        calibration=True,
+        errors=True,
+    )
     fails = []
 
     def case(i: int, y: int, s: float, split: str = "dev", stratum: str = "") -> Case:
@@ -485,12 +562,16 @@ def self_test() -> list[str]:
     shifted = [case(i, int(i < 30), 0.40 if i < 30 else 0.10) for i in range(60)]
     r = report("shifted", shifted, args)
     if r["shipped_threshold"] != 0.25:
-        fails.append(f"0.40/0.10 threshold: expected 0.25, got {r['shipped_threshold']}")
+        fails.append(
+            f"0.40/0.10 threshold: expected 0.25, got {r['shipped_threshold']}"
+        )
     if r["default_0.5_heldout"]["recall"] != 0.0:
         fails.append("0.40/0.10 at 0.5 should catch nothing")
     cal = r["calibration"]
     pm = cal["platt_mapping"]
-    if not all(math.isfinite(v) for v in (pm["a"], pm["b"], cal["brier_platt_heldout"])):
+    if not all(
+        math.isfinite(v) for v in (pm["a"], pm["b"], cal["brier_platt_heldout"])
+    ):
         fails.append("Platt fit is not finite on separable data")
 
     overlap = [case(i, i % 2, 0.5) for i in range(40)]
@@ -500,11 +581,17 @@ def self_test() -> list[str]:
     split = [case(i, int(i < 30), 0.40 if i < 30 else 0.10) for i in range(60)]
     split += [case(100 + i, 1, 0.05, "test", "phone") for i in range(10)]
     r = report("split", split, args)
-    if "test_brier_platt" not in r["calibration"] or not r["calibration"]["reliability_platt_heldout"]:
+    if (
+        "test_brier_platt" not in r["calibration"]
+        or not r["calibration"]["reliability_platt_heldout"]
+    ):
         fails.append("calibration does not report test Brier or Platt reliability")
     if r["dev_cases"] != 60 or r["test_cases"] != 10:
         fails.append("dev and test cases are not kept apart")
-    if r["shipped_threshold"] != 0.25 or r.get("test_at_shipped", {}).get("recall") != 0.0:
+    if (
+        r["shipped_threshold"] != 0.25
+        or r.get("test_at_shipped", {}).get("recall") != 0.0
+    ):
         fails.append("test cases influenced tuning or were not scored once")
 
     text = "case_id,label,score,model,question_version\n1,1,0.9,a,v1\n2,0,0.1,a,v2\n3,1,0.8,b,v1\n"
@@ -516,20 +603,31 @@ def self_test() -> list[str]:
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Tune a decision threshold and check calibration from saved scores.")
+        description="Tune a decision threshold and check calibration from saved scores."
+    )
     p.add_argument("csv", nargs="?")
-    p.add_argument("--self-test", action="store_true", help="run built-in checks and exit")
+    p.add_argument(
+        "--self-test", action="store_true", help="run built-in checks and exit"
+    )
     p.add_argument("--min-precision", type=float, default=0.0)
     p.add_argument("--min-recall", type=float, default=0.0)
-    p.add_argument("--conservative", action="store_true",
-                   help="require the 95%% lower bound, not the point estimate, to meet minimums")
-    p.add_argument("--beta", type=float, default=1.0, help="<1 favors precision, >1 recall")
+    p.add_argument(
+        "--conservative",
+        action="store_true",
+        help="require the 95%% lower bound, not the point estimate, to meet minimums",
+    )
+    p.add_argument(
+        "--beta", type=float, default=1.0, help="<1 favors precision, >1 recall"
+    )
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--repeats", type=int, default=1, help="repeat CV with new seeds")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--calibration", action="store_true", help="also test Platt scaling")
-    p.add_argument("--errors", action="store_true",
-                   help="list dev false positives and negatives at the shipped threshold")
+    p.add_argument(
+        "--errors",
+        action="store_true",
+        help="list dev false positives and negatives at the shipped threshold",
+    )
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
     if args.self_test:

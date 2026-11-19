@@ -128,11 +128,17 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         report = options(argv)
         mutants = load_report(report if report.is_absolute() else repo / report)
     except ReportError as error:
-        return [Finding(RULE, "mutation report", str(error), "run the adapter's mutation-report")]
+        return [
+            Finding(
+                RULE, "mutation report", str(error), "run the adapter's mutation-report"
+            )
+        ]
     try:
         diff = parse_range(argv)
         added = {
-            change.path: {number for number, _ in line_changes(repo, diff, change.path).added}
+            change.path: {
+                number for number, _ in line_changes(repo, diff, change.path).added
+            }
             for change in changed_files(repo, diff)
             if change.status != "D"
         }

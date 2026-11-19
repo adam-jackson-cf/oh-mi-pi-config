@@ -11,26 +11,37 @@ from typing import Any
 @cache
 def load_pack(name: str) -> dict[str, Any]:
     pack: dict[str, Any] = json.loads(
-        resources.files("guardrails.data").joinpath("conventions", f"{name}.json").read_bytes()
+        resources
+        .files("guardrails.data")
+        .joinpath("conventions", f"{name}.json")
+        .read_bytes()
     )
     return pack
 
 
 @cache
 def packs() -> tuple[dict[str, Any], ...]:
-    return tuple(load_pack(name) for name in ("python", "typescript", "go", "shell", "tooling"))
+    return tuple(
+        load_pack(name) for name in ("python", "typescript", "go", "shell", "tooling")
+    )
 
 
 def for_path(path: str) -> dict[str, Any]:
     return next(
-        (pack for pack in packs() if any(path.endswith(ext) for ext in pack["extensions"])),
+        (
+            pack
+            for pack in packs()
+            if any(path.endswith(ext) for ext in pack["extensions"])
+        ),
         load_pack("tooling"),
     )
 
 
 def ignored_path(path: str) -> bool:
     directories = PurePosixPath(path).parts[:-1]
-    return any(folder in pack["ignored_folders"] for pack in packs() for folder in directories)
+    return any(
+        folder in pack["ignored_folders"] for pack in packs() for folder in directories
+    )
 
 
 def fixed_file(path: str) -> bool:
@@ -49,7 +60,9 @@ def fixed_file(path: str) -> bool:
 
 
 def fixed_folder(path: str, name: str) -> bool:
-    return any(name in pack["fixed_folders"] for pack in (for_path(path), load_pack("tooling")))
+    return any(
+        name in pack["fixed_folders"] for pack in (for_path(path), load_pack("tooling"))
+    )
 
 
 def all_test_patterns() -> list[str]:

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import ast
@@ -31,7 +30,9 @@ def convention(path: str, message: str, fix: str) -> Finding:
     return Finding(CONVENTIONS, path, message, fix)
 
 
-def word_findings(path: str, existing_segments: Set[str] = frozenset()) -> list[Finding]:
+def word_findings(
+    path: str, existing_segments: Set[str] = frozenset()
+) -> list[Finding]:
     parts = PurePosixPath(path).parts
     found = []
     for index, part in enumerate(parts):
@@ -70,10 +71,16 @@ def version_findings(
             part,
             last=index == len(parts) - 1,
             standalone_allowed=bool(standalone)
-            and not (index == len(parts) - 1 and conventions.for_path(path)["extensions"]),
+            and not (
+                index == len(parts) - 1 and conventions.for_path(path)["extensions"]
+            ),
         )
         if problem:
-            return [convention(path, problem, "put versions in data or a <name>/v<N> folder")]
+            return [
+                convention(
+                    path, problem, "put versions in data or a <name>/v<N> folder"
+                )
+            ]
     return []
 
 
@@ -85,8 +92,11 @@ def parent_findings(path: str, existing_paths: set[str] | None = None) -> list[F
         return []
     return [
         Finding(
-            CONVENTIONS, path, f"'{repeated}' repeats its parent folder's name",
-            "name the child by its role", check="child-repeats-parent",
+            CONVENTIONS,
+            path,
+            f"'{repeated}' repeats its parent folder's name",
+            "name the child by its role",
+            check="child-repeats-parent",
         )
     ]
 
@@ -99,7 +109,9 @@ def plural_findings(
     allowed = set(as_list(config.get("plural_allowlist")))
     return [
         convention(
-            path, f"plural directory name '{part}'", "use a singular noun unless it is a catalogue"
+            path,
+            f"plural directory name '{part}'",
+            "use a singular noun unless it is a catalogue",
         )
         for index, part in enumerate(PurePosixPath(path).parts[:-1])
         if "/".join(PurePosixPath(path).parts[: index + 1]) not in existing_segments
@@ -131,12 +143,18 @@ def casing_findings(
             not last and conventions.fixed_folder(path, segment)
         ):
             continue
-        if not last and marker and not repo.joinpath(*parts[: index + 1], marker).is_file():
+        if (
+            not last
+            and marker
+            and not repo.joinpath(*parts[: index + 1], marker).is_file()
+        ):
             continue
         casings = rules["file"] if last else rules["directory"]
         candidate = house_style.stem(segment) if last else segment
-        if casings and not segment.startswith(".") and not house_style.matches_casing(
-            candidate, casings
+        if (
+            casings
+            and not segment.startswith(".")
+            and not house_style.matches_casing(candidate, casings)
         ):
             kind = "file" if last else "directory"
             found.append(
@@ -151,7 +169,9 @@ def casing_findings(
 
 def test_patterns(profile: dict[str, Any]) -> list[str]:
     layout = profile.get("layout")
-    patterns = as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    patterns = (
+        as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    )
     if patterns:
         return patterns
     return conventions.all_test_patterns()
@@ -197,7 +217,10 @@ def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Findi
     except (OSError, SyntaxError, ValueError) as error:
         return [
             Finding(
-                "PYS000", path, f"cannot parse Python source: {error}", "restore readable Python"
+                "PYS000",
+                path,
+                f"cannot parse Python source: {error}",
+                "restore readable Python",
             )
         ]
     rules = conventions.load_pack("python")
@@ -210,7 +233,9 @@ def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Findi
             re.fullmatch(p, node.name) for p in rules["framework_symbols"]
         ):
             continue
-        casings = rules["class"] if isinstance(node, ast.ClassDef) else rules["function"]
+        casings = (
+            rules["class"] if isinstance(node, ast.ClassDef) else rules["function"]
+        )
         if not house_style.matches_casing(node.name, casings):
             found.append(
                 convention(
@@ -223,7 +248,11 @@ def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Findi
 
 
 def path_findings(
-    repo: Path, path: str, profile: dict[str, Any], *, existing_paths: set[str] | None = None
+    repo: Path,
+    path: str,
+    profile: dict[str, Any],
+    *,
+    existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     config = settings(profile, "naming")
     if conventions.ignored_path(path) or matches_any(path, as_list(config.get("skip"))):
@@ -257,12 +286,23 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 path = normalized_path(root, raw)
                 if path is None:
                     found.append(
-                        convention(raw, "path is outside the repository", "name a repository path")
+                        convention(
+                            raw,
+                            "path is outside the repository",
+                            "name a repository path",
+                        )
                     )
                 else:
-                    found.extend(path_findings(
-                        root, path, profile, existing_paths=selected.existing_paths,
-                    ))
+                    found.extend(
+                        path_findings(
+                            root,
+                            path,
+                            profile,
+                            existing_paths=selected.existing_paths,
+                        )
+                    )
         return house_style.apply_exceptions(found, profile)
     except InventoryError as error:
-        return [convention(".", str(error), "provide a readable Git work tree or snapshot")]
+        return [
+            convention(".", str(error), "provide a readable Git work tree or snapshot")
+        ]

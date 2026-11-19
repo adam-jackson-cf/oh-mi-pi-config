@@ -15,7 +15,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails import cli, whole_repo
 from guardrails.findings import Finding
@@ -29,7 +31,9 @@ from guardrails.python_policy import (
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
-FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text())
+FIXTURE = json.loads(
+    (ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text()
+)
 
 CHECKERS: dict[str, Callable[[Path, dict[str, Any], list[str]], list[Finding]]] = {
     "quality": quality.run,
@@ -52,7 +56,12 @@ def merged_settings(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str
 class ShopRepo:
     """A temporary Git work tree holding the fixture's files plus a case's changes."""
 
-    def __init__(self, test: unittest.TestCase, files: dict[str, Any] | None = None, settings: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        test: unittest.TestCase,
+        files: dict[str, Any] | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> None:
         directory = tempfile.TemporaryDirectory()
         test.addCleanup(directory.cleanup)
         self.path = Path(directory.name)
@@ -93,20 +102,25 @@ class ConfiguredCleanRepoTests(unittest.TestCase):
 
 class PythonNameScopeTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.repo = ShopRepo(self, {
-            "lib/orphan.py": "VALUE = 1\n",
-            "scripts/BadCommand.py": "VALUE = 1\n",
-            "tests/nested/check.py": "VALUE = 1\n",
-            "src/shop/common/BadFolder/misc.py": "VALUE = 1\n",
-            "src/shop/BadModule.py": "VALUE = 1\n",
-            ".agents/skills/BadSkill/SKILL.md": "# Skill\n",
-        })
+        self.repo = ShopRepo(
+            self,
+            {
+                "lib/orphan.py": "VALUE = 1\n",
+                "scripts/BadCommand.py": "VALUE = 1\n",
+                "tests/nested/check.py": "VALUE = 1\n",
+                "src/shop/common/BadFolder/misc.py": "VALUE = 1\n",
+                "src/shop/BadModule.py": "VALUE = 1\n",
+                ".agents/skills/BadSkill/SKILL.md": "# Skill\n",
+            },
+        )
         self.environment = dict(
-            os.environ, HOME=str(self.repo.path),
+            os.environ,
+            HOME=str(self.repo.path),
             XDG_CONFIG_HOME=str(self.repo.path / ".config"),
             XDG_CACHE_HOME=str(self.repo.path / ".cache"),
             XDG_DATA_HOME=str(self.repo.path / ".local/share"),
-            GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+            GIT_CONFIG_NOSYSTEM="1",
+            GIT_CONFIG_GLOBAL=os.devnull,
         )
         self.repo.profile["guardrails"]["check"] = {"run": ["python-quality"]}
         self.name_rules = {f"PYQ{number}" for number in range(100, 108)}
@@ -114,14 +128,23 @@ class PythonNameScopeTests(unittest.TestCase):
 
     def git(self, *args: str) -> str:
         return subprocess.check_output(
-            ["git", "-C", str(self.repo.path), *args], text=True,
-            env=self.environment, timeout=30,
+            ["git", "-C", str(self.repo.path), *args],
+            text=True,
+            env=self.environment,
+            timeout=30,
         )
 
     def commit(self) -> None:
         self.git("add", "-A")
-        self.git("-c", "user.name=Python scope outcomes", "-c",
-                 "user.email=python-scope@example.invalid", "commit", "-qm", "fixture")
+        self.git(
+            "-c",
+            "user.name=Python scope outcomes",
+            "-c",
+            "user.email=python-scope@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        )
 
     def write(self, path: str, source: str = "VALUE = 1\n") -> None:
         target = self.repo.path / path
@@ -131,13 +154,17 @@ class PythonNameScopeTests(unittest.TestCase):
     def check(self) -> list[Any]:
         return whole_repo.run(self.repo.path, self.repo.profile, [])
 
-    def test_automatic_commit_scope_preserves_legacy_names_but_explicit_scan_reports_them(self) -> None:
+    def test_automatic_commit_scope_preserves_legacy_names_but_explicit_scan_reports_them(
+        self,
+    ) -> None:
         assert self.check() == []
         for argv in ([], ["--all"]):
             found = self.repo.run("quality", *argv)
             assert {item.rule_id for item in found} & self.name_rules == self.name_rules
 
-    def test_unchanged_legacy_content_quality_still_blocks_automatic_commit_check(self) -> None:
+    def test_unchanged_legacy_content_quality_still_blocks_automatic_commit_check(
+        self,
+    ) -> None:
         self.write(
             "src/shop/contracts.py",
             "from collections.abc import Callable\nfrom typing import Any\n\n"
@@ -151,7 +178,9 @@ class PythonNameScopeTests(unittest.TestCase):
         assert ("PYQ230", "src/shop/contracts.py") in rules_at(found)
         assert not {item.rule_id for item in found} & self.name_rules
 
-    def test_unstaged_and_untracked_content_quality_blocks_with_new_clean_staged_path(self) -> None:
+    def test_unstaged_and_untracked_content_quality_blocks_with_new_clean_staged_path(
+        self,
+    ) -> None:
         source = (
             "from collections.abc import Callable\nfrom typing import Any\n\n"
             "def price(pricer: Callable[[int], int], raw: Any) -> int:\n"
@@ -159,7 +188,9 @@ class PythonNameScopeTests(unittest.TestCase):
         )
         self.write("src/shop/contracts.py", source)
         self.write("src/shop/receipt.py", source)
-        self.repo.profile["guardrails"]["python"]["contract_files"].append("src/shop/receipt.py")
+        self.repo.profile["guardrails"]["python"]["contract_files"].append(
+            "src/shop/receipt.py"
+        )
         self.write("src/shop/reader.py")
         self.git("add", "src/shop/reader.py")
         found = self.check()
@@ -167,7 +198,9 @@ class PythonNameScopeTests(unittest.TestCase):
         assert ("PYQ230", "src/shop/receipt.py") in rules_at(found)
         assert not {item.rule_id for item in found} & self.name_rules
 
-    def test_new_files_judge_only_new_segments_under_legacy_parent_directories(self) -> None:
+    def test_new_files_judge_only_new_segments_under_legacy_parent_directories(
+        self,
+    ) -> None:
         self.write("src/shop/common/BadFolder/reader.py")
         self.write(".agents/skills/BadSkill/reader.py")
         self.git("add", "-A")
@@ -177,12 +210,26 @@ class PythonNameScopeTests(unittest.TestCase):
         self.write(".agents/skills/NewBadSkill/SKILL.md", "# Skill\n")
         self.git("add", "-A")
         found = self.check()
-        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(found)
-        assert ("PYQ105", "src/shop/common/BadFolder/BadChild/reader.py") in rules_at(found)
+        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(
+            found
+        )
+        assert ("PYQ105", "src/shop/common/BadFolder/BadChild/reader.py") in rules_at(
+            found
+        )
         assert ("PYQ106", ".agents/skills/NewBadSkill") in rules_at(found)
-        assert not any(item.rule_id in self.name_rules and ("'common'" in item.message or "'BadFolder'" in item.message or "'BadSkill'" in item.message) for item in found)
+        assert not any(
+            item.rule_id in self.name_rules
+            and (
+                "'common'" in item.message
+                or "'BadFolder'" in item.message
+                or "'BadSkill'" in item.message
+            )
+            for item in found
+        )
 
-    def test_new_and_renamed_destinations_receive_file_naming_and_placement_checks(self) -> None:
+    def test_new_and_renamed_destinations_receive_file_naming_and_placement_checks(
+        self,
+    ) -> None:
         self.git("mv", "src/shop/orders.py", "src/shop/utils.py")
         paths = {
             "src/shop/AnotherBad.py": "PYQ107",
@@ -199,24 +246,34 @@ class PythonNameScopeTests(unittest.TestCase):
             assert (rule, path) in found
         assert ("PYQ107", "src/shop/BadModule.py") not in found
 
-    def test_explicit_edit_paths_ignore_legacy_names_and_check_new_destinations(self) -> None:
+    def test_explicit_edit_paths_ignore_legacy_names_and_check_new_destinations(
+        self,
+    ) -> None:
         self.write("src/shop/BadModule.py", "VALUE = 2\n")
         assert self.repo.run("quality", "src/shop/BadModule.py") == []
         self.write("src/shop/common/BadFolder/reader.py")
         assert self.repo.run("quality", "src/shop/common/BadFolder/reader.py") == []
         self.write("src/shop/common/BadFolder/helpers/reader.py")
         found = self.repo.run("quality", "src/shop/common/BadFolder/helpers/reader.py")
-        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(found)
+        assert ("PYQ103", "src/shop/common/BadFolder/helpers/reader.py") in rules_at(
+            found
+        )
 
 
 class FailClosedDefaultTests(unittest.TestCase):
-    def test_without_settings_every_file_is_unmapped_and_fanout_asks_for_roots(self) -> None:
+    def test_without_settings_every_file_is_unmapped_and_fanout_asks_for_roots(
+        self,
+    ) -> None:
         repo = ShopRepo(self)
         repo.profile = {"public_entry_points": {"shop": "shop.cli:main"}}
-        unmapped = {item.path for item in repo.run("quality") if item.rule_id == "PYQ100"}
+        unmapped = {
+            item.path for item in repo.run("quality") if item.rule_id == "PYQ100"
+        }
         expected = {path for path in FIXTURE["files"] if path.endswith(".py")}
         assert expected == unmapped
-        assert sorted(rules_at(repo.run("fanout"))) == [("FANOUT.general", "record:profile.md")]
+        assert sorted(rules_at(repo.run("fanout"))) == [
+            ("FANOUT.general", "record:profile.md")
+        ]
 
     def test_empty_script_allowlist_rejects_every_command(self) -> None:
         repo = ShopRepo(self, settings={"script_names": []})
@@ -230,7 +287,12 @@ class FailClosedDefaultTests(unittest.TestCase):
         assert ("PYQ220", "scripts/build-catalogue.py") in found
 
     def test_unset_class_limits_use_the_catalogue_contract(self) -> None:
-        assert quality.class_limits(scope.load_settings({})) == {"max_lines": 700, "max_public_methods": None, "max_init_args": 8, "max_instance_attributes": 12}
+        assert quality.class_limits(scope.load_settings({})) == {
+            "max_lines": 700,
+            "max_public_methods": None,
+            "max_init_args": 8,
+            "max_instance_attributes": 12,
+        }
 
 
 class SettingsTests(unittest.TestCase):
@@ -246,16 +308,26 @@ class SettingsTests(unittest.TestCase):
 
     def test_guardrail_exception_with_reason_drops_the_finding(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        repo.profile.setdefault("guardrails", {})["exceptions"] = [{
-            "rule": "PYQ104", "path": "src/shop/utils.py",
-            "reason": "Owner-approved upstream compatibility filename",
-        }]
+        repo.profile.setdefault("guardrails", {})["exceptions"] = [
+            {
+                "rule": "PYQ104",
+                "path": "src/shop/utils.py",
+                "reason": "Owner-approved upstream compatibility filename",
+            }
+        ]
         assert repo.run("quality") == []
 
     def test_glob_roots_and_data_label_directories(self) -> None:
         files = {"lab/stages/EU-West/pricing/tool/src/run_stage.py": "X = 1\n"}
-        settings = {"maintained_roots": ["src/shop", "scripts", "tests", ".agents/skills",
-                                         "lab/stages/*/*/tool/src"]}
+        settings = {
+            "maintained_roots": [
+                "src/shop",
+                "scripts",
+                "tests",
+                ".agents/skills",
+                "lab/stages/*/*/tool/src",
+            ]
+        }
         assert ShopRepo(self, files, settings).run("quality") == []
         files = {"src/shop/regions/EU-West/rates.py": "X = 1\n"}
         flagged = ShopRepo(self, files).run("quality")
@@ -269,8 +341,12 @@ class SettingsTests(unittest.TestCase):
         assert repo.run("quality") == []
 
     def test_path_arguments_limit_the_scan(self) -> None:
-        repo = ShopRepo(self, {"lib/orphan.py": "X = 1\n", "src/shop/utils.py": "X = 1\n"})
-        assert {("PYQ104", "src/shop/utils.py")} == rules_at(repo.run("quality", "src/shop"))
+        repo = ShopRepo(
+            self, {"lib/orphan.py": "X = 1\n", "src/shop/utils.py": "X = 1\n"}
+        )
+        assert {("PYQ104", "src/shop/utils.py")} == rules_at(
+            repo.run("quality", "src/shop")
+        )
 
     def test_contract_json_record_binding_must_match_exactly(self) -> None:
         source = "from typing import Any\n\n\ndef price(pricer: int, raw: dict[str, Any]) -> int:\n    return 1\n"
@@ -278,11 +354,15 @@ class SettingsTests(unittest.TestCase):
         assert ("PYQ231", "src/shop/contracts.py") in rules_at(repo.run("quality"))
 
     def test_loop_depth_limit_and_scope_are_configurable(self) -> None:
-        nested = {"src/shop/pairs.py": "def pairs(rows):\n    for a in rows:\n        for b in a:\n            yield b\n"}
+        nested = {
+            "src/shop/pairs.py": "def pairs(rows):\n    for a in rows:\n        for b in a:\n            yield b\n"
+        }
         assert ShopRepo(self, nested).run("scalability") == []
         strict = ShopRepo(self, nested, {"max_loop_depth": 1})
         assert ("PYS250", "src/shop/pairs.py") in rules_at(strict.run("scalability"))
-        unscoped = ShopRepo(self, nested, {"max_loop_depth": 1, "loop_roots": ["scripts"]})
+        unscoped = ShopRepo(
+            self, nested, {"max_loop_depth": 1, "loop_roots": ["scripts"]}
+        )
         assert unscoped.run("scalability") == []
 
     def test_function_bodies_reset_loop_depth(self) -> None:
@@ -295,7 +375,9 @@ class SettingsTests(unittest.TestCase):
 
     def test_fanout_counts_first_party_modules_and_ignores_stdlib(self) -> None:
         source = "import os\nimport json\nfrom shop import orders, process\nfrom . import cli\n"
-        repo = ShopRepo(self, {"src/shop/hub.py": source}, {"fanout": {"architectural_max": 2}})
+        repo = ShopRepo(
+            self, {"src/shop/hub.py": source}, {"fanout": {"architectural_max": 2}}
+        )
         findings = repo.run("fanout")
         assert {("FANOUT.general", "src/shop/hub.py")} == rules_at(findings)
         assert "shop.cli, shop.orders, shop.process" in findings[0].message
@@ -349,7 +431,9 @@ class SubprocessTimeoutTests(unittest.TestCase):
             target.write_text(text, encoding="utf-8")
         return path
 
-    def check(self, files: dict[str, str], profile: dict[str, Any] = HYGIENE_PROFILE) -> list[Any]:
+    def check(
+        self, files: dict[str, str], profile: dict[str, Any] = HYGIENE_PROFILE
+    ) -> list[Any]:
         return subprocess_timeouts.run(self.repo(files), profile, [])
 
     def test_bounded_process_calls_pass(self) -> None:
@@ -374,23 +458,34 @@ class SubprocessTimeoutTests(unittest.TestCase):
             "    proc = await asyncio.create_subprocess_exec('true')\n    await proc.wait()\n"
         )
         findings = self.check({"tests/boundary/test_proc.py": unbounded})
-        assert sorted(item.message.split(":", 1)[0] for item in findings) == ["line 10", "line 15", "line 20", "line 6"]
+        assert sorted(item.message.split(":", 1)[0] for item in findings) == [
+            "line 10",
+            "line 15",
+            "line 20",
+            "line 6",
+        ]
         assert all(item.rule_id == "TEST.subprocess-timeouts" for item in findings)
         assert "positive timeout" in findings[0].fix
 
     def test_only_test_files_are_checked_and_conftest_counts(self) -> None:
         call = "import subprocess\nsubprocess.run(['true'])\n"
-        findings = self.check(
-            {"src/shop/process.py": call, "tests/conftest.py": call, "tests/unit/helper.py": call}
-        )
+        findings = self.check({
+            "src/shop/process.py": call,
+            "tests/conftest.py": call,
+            "tests/unit/helper.py": call,
+        })
         assert rules_at(findings) == {("TEST.subprocess-timeouts", "tests/conftest.py")}
 
     def test_unparsable_test_file_is_reported(self) -> None:
         findings = self.check({"tests/unit/test_bad.py": "def test_x(:\n"})
-        assert rules_at(findings) == {("TEST.subprocess-timeouts", "tests/unit/test_bad.py")}
+        assert rules_at(findings) == {
+            ("TEST.subprocess-timeouts", "tests/unit/test_bad.py")
+        }
 
     def test_cli_runs_python_test_hygiene(self) -> None:
-        path = self.repo({"tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"})
+        path = self.repo({
+            "tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"
+        })
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         record = Path(directory.name)
@@ -398,7 +493,10 @@ class SubprocessTimeoutTests(unittest.TestCase):
         argv = ["python-test-hygiene", "--repo", str(path), "--record", str(record)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
             assert cli.main(argv) == 1
-        assert "tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:" in out.getvalue()
+        assert (
+            "tests/unit/test_proc.py: TEST.subprocess-timeouts: line 2:"
+            in out.getvalue()
+        )
 
 
 if __name__ == "__main__":

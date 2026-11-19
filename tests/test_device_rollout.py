@@ -1,4 +1,5 @@
 """Device rollout classification without SSH, Infisical, omp or checkout side effects."""
+
 import importlib.util
 import io
 import json
@@ -50,8 +51,12 @@ class Runner:
         if argv[0] == "ssh" and self.unreachable:
             code, stdout = 255, ""
         else:
-            code, stdout = self.reads(text) or self.git(text) or self.service(text) or (0, "")
-        return subprocess.CompletedProcess(argv, code, stdout, "secret error not displayed")
+            code, stdout = (
+                self.reads(text) or self.git(text) or self.service(text) or (0, "")
+            )
+        return subprocess.CompletedProcess(
+            argv, code, stdout, "secret error not displayed"
+        )
 
     def reads(self, text: str) -> tuple[int, str] | None:
         """Answers for the records lister, the runners writer and the find canary."""
@@ -61,8 +66,10 @@ class Runner:
             return 0, self.runners + "\n"
         if "omp find" in text:
             return int(self.coverage == "unavailable"), (
-                self.find_output if self.find_output is not None
-                else json.dumps({"coverage": self.coverage, "hits": []}))
+                self.find_output
+                if self.find_output is not None
+                else json.dumps({"coverage": self.coverage, "hits": []})
+            )
         return None
 
     def git(self, text: str) -> tuple[int, str] | None:
@@ -88,7 +95,9 @@ class Runner:
         if "systemctl" in text and "status" in text:
             return 3, "Active: failed (Result: exit-code)\nsecret log not displayed\n"
         if "cat" in text:
-            return 0, "{}" if self.malformed else json.dumps({"revision": OLD if self.stale else CURRENT})
+            return 0, "{}" if self.malformed else json.dumps({
+                "revision": OLD if self.stale else CURRENT
+            })
         return None
 
 
@@ -98,7 +107,9 @@ class Pipeline:
         self.reason = reason
         self.calls: list[tuple[list[str], list[str]]] = []
 
-    def __call__(self, producer: list[str], consumer: list[str]) -> tuple[int, int, str]:
+    def __call__(
+        self, producer: list[str], consumer: list[str]
+    ) -> tuple[int, int, str]:
         self.calls.append((producer, consumer))
         return (*self.codes, self.reason)
 
@@ -112,23 +123,40 @@ def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
     raise AssertionError(f"{error.__name__} not raised")
 
 
-def execute(runner: Runner, *, check: bool = True, hostname: str = "cdhvc2hw3l",
-            pipeline: Pipeline | None = None, base: Path = Path("/base")) -> tuple[Any, int]:
+def execute(
+    runner: Runner,
+    *,
+    check: bool = True,
+    hostname: str = "cdhvc2hw3l",
+    pipeline: Pipeline | None = None,
+    base: Path = Path("/base"),
+) -> tuple[Any, int]:
     """Run a rollout against the fakes from a local home of /local; the rollout and its exit code."""
-    machine = rollout.Machine(runner=runner, pipeline=pipeline or Pipeline(), home=Path("/local"),
-                              hostname=hostname, base=base)
+    machine = rollout.Machine(
+        runner=runner,
+        pipeline=pipeline or Pipeline(),
+        home=Path("/local"),
+        hostname=hostname,
+        base=base,
+    )
     deployment = rollout.Rollout(HOSTS, machine, check=check)
     return deployment, deployment.execute()
 
 
 def row(deployment: Any, device: str, component: str) -> list[str]:
-    found: list[str] = next(item for item in deployment.rows if item[:2] == [device, component])
+    found: list[str] = next(
+        item for item in deployment.rows if item[:2] == [device, component]
+    )
     return found
 
 
 def checkouts(deployment: Any, skip: tuple[str, ...] = ()) -> list[list[str]]:
     """Checkout and deployment rows, without the ci-runners rows or skipped devices."""
-    return [item for item in deployment.rows if item[1] != "ci-runners" and item[0] not in skip]
+    return [
+        item
+        for item in deployment.rows
+        if item[1] != "ci-runners" and item[0] not in skip
+    ]
 
 
 class DeviceRolloutTests(unittest.TestCase):
@@ -139,10 +167,15 @@ class DeviceRolloutTests(unittest.TestCase):
         assert pipeline.calls == []
         assert not any("pull" in cmd for cmd in runner.commands)
         assert code == 0
-        assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {"complete"}
+        assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {
+            "complete"
+        }
         assert len(deployment.rows) == 8
         assert {row[5] for row in deployment.rows} == {"current"}
-        assert not any("pull" in " ".join(cmd) or "systemctl" in " ".join(cmd) for cmd in runner.commands)
+        assert not any(
+            "pull" in " ".join(cmd) or "systemctl" in " ".join(cmd)
+            for cmd in runner.commands
+        )
         assert "device" in deployment.report()
         assert not any(row[:2] == ("mac-cf2", "omp") for row in deployment.rows)
 
@@ -162,7 +195,12 @@ class DeviceRolloutTests(unittest.TestCase):
         assert code == 0
         assert [row[0] for row in deployment.rows[:2]] == ["mac-cf2"] * 2
         assert len(deployment.rows) == 6
-        assert [row[:2] for row in deployment.rows[2:]] == [["mac-cf2", "ci-runners"], ["codex-omarchy-nuc", "agents"], ["codex-omarchy-nuc", "omp"], ["codex-omarchy-nuc", "ci-runners"]]
+        assert [row[:2] for row in deployment.rows[2:]] == [
+            ["mac-cf2", "ci-runners"],
+            ["codex-omarchy-nuc", "agents"],
+            ["codex-omarchy-nuc", "omp"],
+            ["codex-omarchy-nuc", "ci-runners"],
+        ]
         assert all(cmd[5] != "mac-cf2" for cmd in runner.commands if cmd[0] == "ssh")
 
     def test_stale_is_nonzero(self) -> None:
@@ -175,7 +213,9 @@ class DeviceRolloutTests(unittest.TestCase):
         assert code == 1
         remote = deployment.rows[3:]
         assert [row[5] for row in remote] == ["unreachable"] * 5
-        assert [row[4] for row in checkouts(deployment, ("mac-cf3",))] == ["unreachable"] * 3
+        assert [row[4] for row in checkouts(deployment, ("mac-cf3",))] == [
+            "unreachable"
+        ] * 3
         assert row(deployment, "mac-cf3", "ci-runners")[5] == "current"
         assert "secret" not in deployment.report()
 
@@ -186,13 +226,18 @@ class DeviceRolloutTests(unittest.TestCase):
             assert code == 1
             assert row(deployment, "mac-cf2", "agents")[5] == "dirty-blocked"
             assert not any("--ff-only" in " ".join(cmd) for cmd in runner.commands)
-            assert any("--untracked-files=no" in " ".join(cmd) for cmd in runner.commands)
+            assert any(
+                "--untracked-files=no" in " ".join(cmd) for cmd in runner.commands
+            )
 
     def test_nuc_config_behind_is_nonzero_even_when_deployed_matches(self) -> None:
         deployment, code = execute(Runner(behind=True))
         assert code == 1
         assert row(deployment, "codex-omarchy-nuc", "omp")[5] == "nuc-config-behind"
-        assert "nuc-config behind main by 3 commits: open an agent/nuc-sync-<date> PR" in deployment.report()
+        assert (
+            "nuc-config behind main by 3 commits: open an agent/nuc-sync-<date> PR"
+            in deployment.report()
+        )
 
     def test_apply_pulls_only_remote_and_starts_service(self) -> None:
         runner = Runner(stale=True)
@@ -201,14 +246,21 @@ class DeviceRolloutTests(unittest.TestCase):
         pulls = [cmd for cmd in runner.commands if "--ff-only" in " ".join(cmd)]
         assert len(pulls) == 2
         assert all(cmd[0] == "ssh" for cmd in pulls)
-        assert [row[5] for row in checkouts(deployment, ("mac-cf3",))] == ["current"] * 3
-        assert any("systemctl --user start omp-config-pull.service" in " ".join(cmd) for cmd in runner.commands)
+        assert [row[5] for row in checkouts(deployment, ("mac-cf3",))] == [
+            "current"
+        ] * 3
+        assert any(
+            "systemctl --user start omp-config-pull.service" in " ".join(cmd)
+            for cmd in runner.commands
+        )
         for cmd in runner.commands:
             if cmd[0] == "ssh":
                 assert cmd[1:5] == ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
                 if cmd[5] == "codex-omarchy-nuc":
                     assert cmd[6].startswith("bash -lc ")
-                    assert "git -C" not in (cmd[6].replace(".agents", "") if ".omp" in cmd[6] else "")
+                    assert "git -C" not in (
+                        cmd[6].replace(".agents", "") if ".omp" in cmd[6] else ""
+                    )
 
     def test_service_failure_reports_safe_status(self) -> None:
         runner = Runner(service_failed=True)
@@ -232,7 +284,9 @@ class DeviceRolloutTests(unittest.TestCase):
         for runner, expected in ((Runner(), 0), (Runner(unreachable=True), 1)):
             pipeline = Pipeline()
             with redirect_stdout(io.StringIO()) as output:
-                machine = rollout.Machine(runner=runner, pipeline=pipeline, base=Path("/base"))
+                machine = rollout.Machine(
+                    runner=runner, pipeline=pipeline, base=Path("/base")
+                )
                 assert rollout.main(["--check"], machine) == expected
             assert "deployed" in output.getvalue()
             assert "find" in output.getvalue().splitlines()[0]
@@ -245,47 +299,88 @@ class DeviceRolloutTests(unittest.TestCase):
         assert len(pipeline.calls) == 2
         key, source = HOSTS["judgeKey"], HOSTS["infisical"]
         for producer, consumer in pipeline.calls:
-            assert producer[:7] == ["infisical", "run", "--silent", "--projectId", source["project"], "--env", source["environment"]]
+            assert producer[:7] == [
+                "infisical",
+                "run",
+                "--silent",
+                "--projectId",
+                source["project"],
+                "--env",
+                source["environment"],
+            ]
             assert producer[-2:] == [key["secret"], key["provider"]]
-            assert consumer == ["omp", "auth", "import", "-"] or consumer[0] == "ssh" and "omp auth import -" in consumer[-1]
+            assert (
+                consumer == ["omp", "auth", "import", "-"]
+                or consumer[0] == "ssh"
+                and "omp auth import -" in consumer[-1]
+            )
         assert [call[1][5] for call in pipeline.calls[1:]] == ["codex-omarchy-nuc"]
         assert pipeline.calls[1][1][6].startswith("bash -lc ")
 
     def test_devices_without_omp_skip_key_and_find(self) -> None:
         runner, pipeline = Runner(), Pipeline((3, 1))
         deployment, _ = execute(runner, check=False, pipeline=pipeline)
-        assert "mac-cf2" not in [call[1][5] for call in pipeline.calls if call[1][0] == "ssh"]
-        assert not any("omp find" in " ".join(cmd) and "mac-cf2" in cmd for cmd in runner.commands)
+        assert "mac-cf2" not in [
+            call[1][5] for call in pipeline.calls if call[1][0] == "ssh"
+        ]
+        assert not any(
+            "omp find" in " ".join(cmd) and "mac-cf2" in cmd for cmd in runner.commands
+        )
         assert row(deployment, "mac-cf2", "agents")[4:] == ["-", "current"]
         assert "mac-cf2: judge key" not in deployment.report()
 
     def test_key_failure_keeps_rows_non_current(self) -> None:
         deployment, code = execute(Runner(), check=False, pipeline=Pipeline((3, 1)))
         assert code == 1
-        assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {"key-failed"}
-        assert {row[5] for row in checkouts(deployment, skip=("mac-cf2",))} == {"find-blocked"}
-        assert "judge key provisioning failed (infisical exited 3)" in deployment.report()
+        assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {
+            "key-failed"
+        }
+        assert {row[5] for row in checkouts(deployment, skip=("mac-cf2",))} == {
+            "find-blocked"
+        }
+        assert (
+            "judge key provisioning failed (infisical exited 3)" in deployment.report()
+        )
 
-    def test_key_failure_names_the_import_error_without_credential_material(self) -> None:
-        reason = rollout.failure_line(b"warming up\nerror: credential sk-or-v1-0123456789abcdef0123 rejected\n")
+    def test_key_failure_names_the_import_error_without_credential_material(
+        self,
+    ) -> None:
+        reason = rollout.failure_line(
+            b"warming up\nerror: credential sk-or-v1-0123456789abcdef0123 rejected\n"
+        )
         assert reason == "error: credential <redacted> rejected"
-        deployment, code = execute(Runner(), check=False, pipeline=Pipeline((0, 1), reason))
+        deployment, code = execute(
+            Runner(), check=False, pipeline=Pipeline((0, 1), reason)
+        )
         assert code == 1
-        assert "judge key provisioning failed (omp auth import exited 1: " "error: credential <redacted> rejected)" in deployment.report()
+        assert (
+            "judge key provisioning failed (omp auth import exited 1: "
+            "error: credential <redacted> rejected)" in deployment.report()
+        )
         assert "0123456789abcdef" not in deployment.report()
 
     def test_non_complete_find_keeps_rows_non_current(self) -> None:
-        for coverage, output in (("partial", None), ("unavailable", None), ("failed", "not json"),
-                                 ("failed", json.dumps({"coverage": "odd"}))):
+        for coverage, output in (
+            ("partial", None),
+            ("unavailable", None),
+            ("failed", "not json"),
+            ("failed", json.dumps({"coverage": "odd"})),
+        ):
             deployment, code = execute(Runner(coverage=coverage, find_output=output))
             assert code == 1
-            assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {coverage}
-            assert {row[5] for row in checkouts(deployment, skip=("mac-cf2",))} == {"find-blocked"}
+            assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {
+                coverage
+            }
+            assert {row[5] for row in checkouts(deployment, skip=("mac-cf2",))} == {
+                "find-blocked"
+            }
 
     def test_find_canary_runs_on_configured_path(self) -> None:
         runner = Runner()
         execute(runner)
-        finds = [" ".join(cmd) for cmd in runner.commands if "omp find" in " ".join(cmd)]
+        finds = [
+            " ".join(cmd) for cmd in runner.commands if "omp find" in " ".join(cmd)
+        ]
         assert len(finds) == 2
         assert "/local/.agents/scripts --json -q" in finds[0]
         assert all("--json -q" in text for text in finds[1:])
@@ -300,20 +395,41 @@ class RunnerConfigTests(unittest.TestCase):
             deployment, code = execute(runner)
             assert code == 1
             rows = [item for item in deployment.rows if item[1] == "ci-runners"]
-            assert [item[0] for item in rows] == ["mac-cf3", "mac-cf2", "codex-omarchy-nuc"]
+            assert [item[0] for item in rows] == [
+                "mac-cf3",
+                "mac-cf2",
+                "codex-omarchy-nuc",
+            ]
             assert {item[5] for item in rows} == {state}
-            assert f"mac-cf2: ci-runners.json {state}; run device_rollout.py without --check" in deployment.report()
-            writes = [cmd for cmd in runner.commands if "ci-runners.json" in " ".join(cmd)]
+            assert (
+                f"mac-cf2: ci-runners.json {state}; run device_rollout.py without --check"
+                in deployment.report()
+            )
+            writes = [
+                cmd for cmd in runner.commands if "ci-runners.json" in " ".join(cmd)
+            ]
             assert len(writes) == 3
-            assert all(" check " in " ".join(cmd) and " apply " not in " ".join(cmd) for cmd in writes)
+            assert all(
+                " check " in " ".join(cmd) and " apply " not in " ".join(cmd)
+                for cmd in writes
+            )
         runner = Runner(runners="written")
         deployment, code = execute(runner, check=False)
         assert code == 0
         assert row(deployment, "codex-omarchy-nuc", "ci-runners")[5] == "current"
-        local, mac, nuc = [cmd for cmd in runner.commands if "ci-runners.json" in " ".join(cmd)]
+        local, mac, nuc = [
+            cmd for cmd in runner.commands if "ci-runners.json" in " ".join(cmd)
+        ]
         assert local[0] == sys.executable
         assert local[4] == "/base/ci-runners.json"
-        assert mac[:6] == ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "mac-cf2"]
+        assert mac[:6] == [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "mac-cf2",
+        ]
         assert "python3 -c" in mac[6]
         assert "~/.omp/ci-runners.json" in mac[6]
         assert nuc[6].startswith("bash -lc ")
@@ -327,61 +443,135 @@ class RunnerConfigTests(unittest.TestCase):
         definition = HOSTS["ciRunners"]
         host = definition["roles"]["ci-gate"]["host"]
         infisical = {"project": "test-project", "environment": "test-env"}
-        settings = ["CI_GATE_INFISICAL_PROJECT=test-project", "CI_GATE_INFISICAL_ENV=test-env"]
-        on_host = rollout.runner_document(definition, host, "~/.omp", infisical)["runners"]
-        assert on_host["ci-gate"]["wait"] == ["env", *settings, "python3", "~/.omp/scripts/ci_gate.py", "wait", "{repo}", "{sha}", "--timeout", "{timeout}"]
-        elsewhere = rollout.runner_document(definition, "mac-cf3", "/base", infisical)["runners"]
-        prefix = 'bash -lc "' + " ".join(settings) + " python3 ~/.omp/scripts/ci_gate.py "
-        assert elsewhere["ci-gate"]["submit"] == ["ssh", "-o", "BatchMode=yes", host, prefix + 'submit {repo} {sha}"']
-        assert elsewhere["ci-gate"]["logs"][-1] == prefix + 'logs {repo} {sha} --tail {tail}"'
+        settings = [
+            "CI_GATE_INFISICAL_PROJECT=test-project",
+            "CI_GATE_INFISICAL_ENV=test-env",
+        ]
+        on_host = rollout.runner_document(definition, host, "~/.omp", infisical)[
+            "runners"
+        ]
+        assert on_host["ci-gate"]["wait"] == [
+            "env",
+            *settings,
+            "python3",
+            "~/.omp/scripts/ci_gate.py",
+            "wait",
+            "{repo}",
+            "{sha}",
+            "--timeout",
+            "{timeout}",
+        ]
+        elsewhere = rollout.runner_document(definition, "mac-cf3", "/base", infisical)[
+            "runners"
+        ]
+        prefix = (
+            'bash -lc "' + " ".join(settings) + " python3 ~/.omp/scripts/ci_gate.py "
+        )
+        assert elsewhere["ci-gate"]["submit"] == [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            host,
+            prefix + 'submit {repo} {sha}"',
+        ]
+        assert (
+            elsewhere["ci-gate"]["logs"][-1]
+            == prefix + 'logs {repo} {sha} --tail {tail}"'
+        )
         for runners in (on_host, elsewhere):
             for role, spec in definition["roles"].items():
                 assert runners[role]["timeout"] == spec["timeout"]
             actions = runners["github-actions"]
-            assert [actions[name] for name in ("submit", "wait", "status")] == [None] * 3
+            assert [actions[name] for name in ("submit", "wait", "status")] == [
+                None
+            ] * 3
             assert "--log-failed" in actions["logs"][2]
             assert actions["logs"][-3:] == ["{repo}", "{sha}", "{tail}"]
-        for bad in ({**definition, "remoteBase": "/abs; rm"},
-                    {**definition, "roles": {"x": {"kind": "ci-gate", "host": "a b"}}},
-                    {**definition, "roles": {"x": {"kind": "other"}}},
-                    {**definition, "roles": {"x": {"kind": "github-actions"}}},
-                    {**definition, "roles": {"x": {"kind": "github-actions", "timeout": 0}}}):
-            raised(ValueError, partial(rollout.runner_document, bad, "mac-cf3", "/base", infisical))
-        for setting in (None, {}, {"project": "p"}, {"project": "p; rm", "environment": "e"},
-                        {"project": "p", "environment": ""}):
+        for bad in (
+            {**definition, "remoteBase": "/abs; rm"},
+            {**definition, "roles": {"x": {"kind": "ci-gate", "host": "a b"}}},
+            {**definition, "roles": {"x": {"kind": "other"}}},
+            {**definition, "roles": {"x": {"kind": "github-actions"}}},
+            {**definition, "roles": {"x": {"kind": "github-actions", "timeout": 0}}},
+        ):
+            raised(
+                ValueError,
+                partial(rollout.runner_document, bad, "mac-cf3", "/base", infisical),
+            )
+        for setting in (
+            None,
+            {},
+            {"project": "p"},
+            {"project": "p; rm", "environment": "e"},
+            {"project": "p", "environment": ""},
+        ):
             with self.subTest(infisical=setting):
-                error = raised(ValueError, partial(rollout.runner_document, definition, "mac-cf3", "/base", setting))
+                error = raised(
+                    ValueError,
+                    partial(
+                        rollout.runner_document, definition, "mac-cf3", "/base", setting
+                    ),
+                )
                 assert "infisical" in str(error)
 
     def test_registry_holds_infisical_project_once_for_key_and_runners(self) -> None:
         text = MODULE.with_name("device-rollout-hosts.json").read_text()
         assert text.count(HOSTS["infisical"]["project"]) == 1
         assert "infisicalProject" not in HOSTS["judgeKey"]
-        runners = rollout.runner_document(HOSTS["ciRunners"], "mac-cf3", "/base", HOSTS["infisical"])
-        assert "CI_GATE_INFISICAL_PROJECT=" + HOSTS["infisical"]["project"] in runners["runners"]["ci-gate"]["submit"][-1]
+        runners = rollout.runner_document(
+            HOSTS["ciRunners"], "mac-cf3", "/base", HOSTS["infisical"]
+        )
+        assert (
+            "CI_GATE_INFISICAL_PROJECT=" + HOSTS["infisical"]["project"]
+            in runners["runners"]["ci-gate"]["submit"][-1]
+        )
         assert HOSTS["infisical"]["project"] not in MODULE.read_text()
-        assert HOSTS["infisical"]["project"] not in MODULE.with_name("ci_gate.py").read_text()
+        assert (
+            HOSTS["infisical"]["project"]
+            not in MODULE.with_name("ci_gate.py").read_text()
+        )
 
     def test_missing_infisical_setting_fails_key_and_runner_rows(self) -> None:
         hosts = {key: value for key, value in HOSTS.items() if key != "infisical"}
         pipeline = Pipeline()
-        machine = rollout.Machine(runner=Runner(runners="written"), pipeline=pipeline, home=Path("/local"),
-                                  hostname="cdhvc2hw3l", base=Path("/base"))
+        machine = rollout.Machine(
+            runner=Runner(runners="written"),
+            pipeline=pipeline,
+            home=Path("/local"),
+            hostname="cdhvc2hw3l",
+            base=Path("/base"),
+        )
         deployment = rollout.Rollout(hosts, machine, check=False)
         assert deployment.execute() == 1
         assert pipeline.calls == []
         assert "judge key provisioning failed" in deployment.report()
-        assert {item[5] for item in deployment.rows if item[1] == "ci-runners"} == {"failed"}
+        assert {item[5] for item in deployment.rows if item[1] == "ci-runners"} == {
+            "failed"
+        }
 
     def test_runners_writer_is_idempotent_and_feeds_ci_runner(self) -> None:
         with tempfile.TemporaryDirectory() as base:
-            machine = rollout.Machine(runner=rollout.run_command, home=Path(base), hostname="dev",
-                                      base=Path(base))
-            deployment = rollout.Rollout({"ciRunners": HOSTS["ciRunners"], "infisical": HOSTS["infisical"]},
-                                         machine, check=True)
+            machine = rollout.Machine(
+                runner=rollout.run_command,
+                home=Path(base),
+                hostname="dev",
+                base=Path(base),
+            )
+            deployment = rollout.Rollout(
+                {"ciRunners": HOSTS["ciRunners"], "infisical": HOSTS["infisical"]},
+                machine,
+                check=True,
+            )
             target = Path(base) / "ci-runners.json"
             deployment.runners("dev", 0)
-            assert deployment.rows[-1] == ["dev", "ci-runners", "-", "-", "-", "missing"]
+            assert deployment.rows[-1] == [
+                "dev",
+                "ci-runners",
+                "-",
+                "-",
+                "-",
+                "missing",
+            ]
             assert not target.exists()
             deployment.check = False
             deployment.runners("dev", 0)
@@ -404,35 +594,90 @@ class RunnerConfigTests(unittest.TestCase):
             deployment.runners("dev", 0)
             assert target.read_text() == written
             cli = MODULE.with_name("ci_runner.py")
-            result = subprocess.run([sys.executable, str(cli), "submit", "github-actions", "o/r",
-                                     "a" * 40], capture_output=True, text=True, check=False,
-                                    env={"PATH": "/usr/bin:/bin", "OMP_CI_RUNNERS": str(target)}, timeout=PROCESS_TIMEOUT)
+            result = subprocess.run(
+                [sys.executable, str(cli), "submit", "github-actions", "o/r", "a" * 40],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={"PATH": "/usr/bin:/bin", "OMP_CI_RUNNERS": str(target)},
+                timeout=PROCESS_TIMEOUT,
+            )
             assert result.returncode == 0
             assert "starts on push" in result.stdout
 
     def test_writer_expands_home_paths_on_target(self) -> None:
         with tempfile.TemporaryDirectory() as home:
             Path(home, ".omp").mkdir()
-            document = json.dumps(rollout.runner_document(HOSTS["ciRunners"], "codex-omarchy-nuc",
-                                                          "~/.omp", HOSTS["infisical"]))
-            result = subprocess.run([sys.executable, "-c", rollout.RUNNERS_WRITER, "apply",
-                                     "~/.omp/ci-runners.json", document], capture_output=True,
-                                    text=True, check=False, env={"PATH": "/usr/bin:/bin", "HOME": home}, timeout=PROCESS_TIMEOUT)
+            document = json.dumps(
+                rollout.runner_document(
+                    HOSTS["ciRunners"],
+                    "codex-omarchy-nuc",
+                    "~/.omp",
+                    HOSTS["infisical"],
+                )
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    rollout.RUNNERS_WRITER,
+                    "apply",
+                    "~/.omp/ci-runners.json",
+                    document,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={"PATH": "/usr/bin:/bin", "HOME": home},
+                timeout=PROCESS_TIMEOUT,
+            )
             assert result.stdout.strip() == "written"
             written = json.loads(Path(home, ".omp/ci-runners.json").read_text())
-            assert written["runners"]["ci-gate"]["submit"][4] == home + "/.omp/scripts/ci_gate.py"
+            assert (
+                written["runners"]["ci-gate"]["submit"][4]
+                == home + "/.omp/scripts/ci_gate.py"
+            )
 
     def test_credential_builder_emits_auth_import_document(self) -> None:
         env = {"PATH": "/usr/bin:/bin", "FAKE_JUDGE_KEY": "fake-value"}
-        result = subprocess.run([sys.executable, "-c", rollout.CREDENTIAL_BUILDER,
-                                 "FAKE_JUDGE_KEY", "openrouter"],
-                                capture_output=True, text=True, env=env, check=False, timeout=PROCESS_TIMEOUT)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                rollout.CREDENTIAL_BUILDER,
+                "FAKE_JUDGE_KEY",
+                "openrouter",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=PROCESS_TIMEOUT,
+        )
         assert result.returncode == 0
-        assert json.loads(result.stdout) == {"version": 1, "credentials": [{"provider": "openrouter", "credential": {"type": "api_key", "key": "fake-value"}}]}
-        missing = subprocess.run([sys.executable, "-c", rollout.CREDENTIAL_BUILDER,
-                                  "FAKE_JUDGE_KEY", "openrouter"],
-                                 capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"},
-                                 check=False, timeout=PROCESS_TIMEOUT)
+        assert json.loads(result.stdout) == {
+            "version": 1,
+            "credentials": [
+                {
+                    "provider": "openrouter",
+                    "credential": {"type": "api_key", "key": "fake-value"},
+                }
+            ],
+        }
+        missing = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                rollout.CREDENTIAL_BUILDER,
+                "FAKE_JUDGE_KEY",
+                "openrouter",
+            ],
+            capture_output=True,
+            text=True,
+            env={"PATH": "/usr/bin:/bin"},
+            check=False,
+            timeout=PROCESS_TIMEOUT,
+        )
         assert (missing.returncode, missing.stdout) == (3, "")
 
     def test_pipeline_streams_stdout_to_stdin_without_output(self) -> None:
@@ -440,25 +685,42 @@ class RunnerConfigTests(unittest.TestCase):
             sink = Path(folder) / "sink"
             codes = rollout.run_pipeline(
                 [sys.executable, "-c", "print('payload')"],
-                [sys.executable, "-c",
-                 f"import sys; open({str(sink)!r}, 'w').write(sys.stdin.read())"])
+                [
+                    sys.executable,
+                    "-c",
+                    f"import sys; open({str(sink)!r}, 'w').write(sys.stdin.read())",
+                ],
+            )
             assert codes == (0, 0, "")
             assert sink.read_text() == "payload\n"
             failed = rollout.run_pipeline(
                 [sys.executable, "-c", "print('payload')"],
-                [sys.executable, "-c", "import sys; sys.stdin.read(); sys.exit('import refused')"])
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdin.read(); sys.exit('import refused')",
+                ],
+            )
             assert failed == (0, 1, "import refused")
 
 
 class RecordRolloutTests(unittest.TestCase):
     """Per-repo records go one way from the rollout source to remote omp devices."""
+
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="records-rollout-test-")
         self.addCleanup(scratch.cleanup)
         self.scratch = Path(scratch.name)
         self.base = self.scratch / "source"
-        self.write(self.base, "example-owner/example-repo/gate.json", '{"schemaVersion": 2}\n', 1_000)
-        self.write(self.base, "example-owner/example-repo/profile.md", "---\n{}\n---\n", 1_000)
+        self.write(
+            self.base,
+            "example-owner/example-repo/gate.json",
+            '{"schemaVersion": 2}\n',
+            1_000,
+        )
+        self.write(
+            self.base, "example-owner/example-repo/profile.md", "---\n{}\n---\n", 1_000
+        )
         self.source = rollout.record_files(self.base / "repos")
 
     @staticmethod
@@ -469,18 +731,24 @@ class RecordRolloutTests(unittest.TestCase):
         os.utime(path, (mtime_s, mtime_s))
         return path
 
-    def execute(self, runner: Runner, *, check: bool = True, pipeline: Pipeline | None = None) -> tuple[Any, int]:
+    def execute(
+        self, runner: Runner, *, check: bool = True, pipeline: Pipeline | None = None
+    ) -> tuple[Any, int]:
         return execute(runner, check=check, pipeline=pipeline, base=self.base)
 
     def target(self, **changes: list[object]) -> dict[str, list[object]]:
-        listing: dict[str, list[object]] = {relative: list(value) for relative, value in self.source.items()}
+        listing: dict[str, list[object]] = {
+            relative: list(value) for relative, value in self.source.items()
+        }
         listing.update(changes)
         return listing
 
     def test_records_go_only_to_devices_that_run_omp(self) -> None:
         deployment, code = self.execute(Runner(records=self.target()))
         assert code == 0
-        assert [item[:2] for item in deployment.rows if item[1] == "records"] == [["codex-omarchy-nuc", "records"]]
+        assert [item[:2] for item in deployment.rows if item[1] == "records"] == [
+            ["codex-omarchy-nuc", "records"]
+        ]
         assert row(deployment, "codex-omarchy-nuc", "records")[5] == "current"
 
     def test_check_reports_missing_records_without_copying(self) -> None:
@@ -494,29 +762,53 @@ class RecordRolloutTests(unittest.TestCase):
     def test_apply_streams_changed_files_to_the_target_base(self) -> None:
         pipeline = Pipeline()
         older = [1, "0" * 64]
-        deployment, code = self.execute(Runner(records=self.target(**{"example-owner/example-repo/gate.json": older})),
-                                        check=False, pipeline=pipeline)
+        deployment, code = self.execute(
+            Runner(
+                records=self.target(**{"example-owner/example-repo/gate.json": older})
+            ),
+            check=False,
+            pipeline=pipeline,
+        )
         assert code == 0
         assert row(deployment, "codex-omarchy-nuc", "records")[5] == "current"
-        copies = [call for call in pipeline.calls if call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER]]
+        copies = [
+            call
+            for call in pipeline.calls
+            if call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER]
+        ]
         assert len(copies) == 1
         producer, consumer = copies[0]
-        assert producer[3:] == [str(self.base / "repos"), "example-owner/example-repo/gate.json"]
+        assert producer[3:] == [
+            str(self.base / "repos"),
+            "example-owner/example-repo/gate.json",
+        ]
         assert consumer[:5] == ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
         assert consumer[5] == "codex-omarchy-nuc"
         assert "omp-records-write" in consumer[6]
-        assert shlex.split(shlex.split(consumer[6])[-1])[-2:] == ["~/.omp", json.dumps({"example-owner/example-repo/gate.json": older})], "the writer receives the base and the target state the plan saw"
+        assert shlex.split(shlex.split(consumer[6])[-1])[-2:] == [
+            "~/.omp",
+            json.dumps({"example-owner/example-repo/gate.json": older}),
+        ], "the writer receives the base and the target state the plan saw"
 
     def test_newer_target_record_is_refused_and_reported(self) -> None:
         pipeline = Pipeline()
         newer = [self.source["example-owner/example-repo/gate.json"][0] + 1, "f" * 64]
-        runner = Runner(records=self.target(**{"example-owner/example-repo/gate.json": newer,
-                                                "example-owner/example-repo/profile.md": [1, "0" * 64]}))
+        runner = Runner(
+            records=self.target(**{
+                "example-owner/example-repo/gate.json": newer,
+                "example-owner/example-repo/profile.md": [1, "0" * 64],
+            })
+        )
         deployment, code = self.execute(runner, check=False, pipeline=pipeline)
         assert code == 1
         assert row(deployment, "codex-omarchy-nuc", "records")[5] == "record-newer"
-        assert not any(call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER] for call in pipeline.calls), "no file of a newer target record may be overwritten"
-        assert "codex-omarchy-nuc: record example-owner/example-repo is newer on the target; not overwritten" in deployment.report()
+        assert not any(
+            call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER] for call in pipeline.calls
+        ), "no file of a newer target record may be overwritten"
+        assert (
+            "codex-omarchy-nuc: record example-owner/example-repo is newer on the target; not overwritten"
+            in deployment.report()
+        )
 
     def test_unreachable_target_records_row(self) -> None:
         deployment, code = self.execute(Runner(unreachable=True))
@@ -532,8 +824,12 @@ class RecordRolloutTests(unittest.TestCase):
     def test_plan_copies_missing_and_older_and_leaves_target_only_files(self) -> None:
         gate, profile = "o/n/gate.json", "o/n/profile.md"
         source = {gate: (10, "a"), profile: (10, "b"), "o/other/gate.json": (10, "c")}
-        target = {gate: (10, "a"), profile: (5, "old"), "o/n/extra.md": (99, "x"),
-                  "o/other/gate.json": (11, "edited")}
+        target = {
+            gate: (10, "a"),
+            profile: (5, "old"),
+            "o/n/extra.md": (99, "x"),
+            "o/other/gate.json": (11, "edited"),
+        }
         assert rollout.record_plan(source, target) == ([profile], ["o/other"])
         assert rollout.record_plan(source, {}) == (sorted(source), [])
 
@@ -542,53 +838,119 @@ class RecordRolloutTests(unittest.TestCase):
         (home / ".omp").mkdir(parents=True)
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
         files = sorted(self.source)
-        producer = [sys.executable, "-c", rollout.RECORDS_BUNDLER, str(self.base / "repos"), *files]
-        bundle = subprocess.run(producer, capture_output=True, check=True, timeout=PROCESS_TIMEOUT)
-        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp",
-                                  json.dumps(dict.fromkeys(files))], input=bundle.stdout,
-                                 capture_output=True, env=env, check=False, timeout=PROCESS_TIMEOUT)
+        producer = [
+            sys.executable,
+            "-c",
+            rollout.RECORDS_BUNDLER,
+            str(self.base / "repos"),
+            *files,
+        ]
+        bundle = subprocess.run(
+            producer, capture_output=True, check=True, timeout=PROCESS_TIMEOUT
+        )
+        written = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                rollout.RECORDS_WRITER,
+                "~/.omp",
+                json.dumps(dict.fromkeys(files)),
+            ],
+            input=bundle.stdout,
+            capture_output=True,
+            env=env,
+            check=False,
+            timeout=PROCESS_TIMEOUT,
+        )
         assert written.returncode == 0, written.stderr
         for relative in files:
             target = home / ".omp/repos" / relative
             assert target.read_bytes() == (self.base / "repos" / relative).read_bytes()
             assert target.stat().st_mode & 511 == 384
-        listed = subprocess.run([sys.executable, "-c", rollout.RECORDS_LISTER, "~/.omp"],
-                                capture_output=True, text=True, env=env, check=True, timeout=PROCESS_TIMEOUT)
-        listing = {key: tuple(value) for key, value in json.loads(listed.stdout).items()}
+        listed = subprocess.run(
+            [sys.executable, "-c", rollout.RECORDS_LISTER, "~/.omp"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        listing = {
+            key: tuple(value) for key, value in json.loads(listed.stdout).items()
+        }
         assert listing == self.source, "the copy keeps source bytes and mtimes"
         assert rollout.record_plan(self.source, listing) == ([], [])
         self.write(home / ".omp", "example-owner/example-repo/gate.json", "{}\n", 2_000)
         listing = rollout.record_files(home / ".omp/repos")
-        assert rollout.record_plan(self.source, listing) == ([], ["example-owner/example-repo"])
+        assert rollout.record_plan(self.source, listing) == (
+            [],
+            ["example-owner/example-repo"],
+        )
 
     def test_writer_refuses_a_target_file_edited_after_inventory(self) -> None:
         home = self.scratch / "home"
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
-        gate, profile = "example-owner/example-repo/gate.json", "example-owner/example-repo/profile.md"
+        gate, profile = (
+            "example-owner/example-repo/gate.json",
+            "example-owner/example-repo/profile.md",
+        )
         self.write(home / ".omp", gate, '{"old": 1}\n', 500)
         self.write(home / ".omp", profile, "old profile\n", 500)
         target = rollout.record_files(home / ".omp/repos")
         copy, newer = rollout.record_plan(self.source, target)
-        assert (copy, newer) == ([gate, profile], []), "the plan copies both older target files"
+        assert (copy, newer) == ([gate, profile], []), (
+            "the plan copies both older target files"
+        )
         planned = json.dumps({relative: list(target[relative]) for relative in copy})
         edited = self.write(home / ".omp", gate, '{"edited": "after inventory"}\n', 500)
-        bundle = subprocess.run([sys.executable, "-c", rollout.RECORDS_BUNDLER, str(self.base / "repos"), *copy],
-                                capture_output=True, check=True, timeout=PROCESS_TIMEOUT)
-        written = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", planned],
-                                 input=bundle.stdout, capture_output=True, text=False, env=env, check=False, timeout=PROCESS_TIMEOUT)
+        bundle = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                rollout.RECORDS_BUNDLER,
+                str(self.base / "repos"),
+                *copy,
+            ],
+            capture_output=True,
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        written = subprocess.run(
+            [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", planned],
+            input=bundle.stdout,
+            capture_output=True,
+            text=False,
+            env=env,
+            check=False,
+            timeout=PROCESS_TIMEOUT,
+        )
         assert written.returncode == 5, written.stderr
         assert b"changed since inventory: " + gate.encode() in written.stderr
-        assert edited.read_text() == '{"edited": "after inventory"}\n', "the edited target stays untouched"
-        assert (home / ".omp/repos" / profile).read_bytes() == (self.base / "repos" / profile).read_bytes(), "unchanged target files are still replaced"
-        assert sorted(path.name for path in edited.parent.iterdir()) == ["gate.json", "profile.md"], "no temporary file is left behind"
+        assert edited.read_text() == '{"edited": "after inventory"}\n', (
+            "the edited target stays untouched"
+        )
+        assert (home / ".omp/repos" / profile).read_bytes() == (
+            self.base / "repos" / profile
+        ).read_bytes(), "unchanged target files are still replaced"
+        assert sorted(path.name for path in edited.parent.iterdir()) == [
+            "gate.json",
+            "profile.md",
+        ], "no temporary file is left behind"
 
     def test_apply_reports_files_the_writer_refused(self) -> None:
         older = [1, "0" * 64]
-        runner = Runner(records=self.target(**{"example-owner/example-repo/gate.json": older}))
-        deployment, code = self.execute(runner, check=False, pipeline=Pipeline(codes=(0, 5)))
+        runner = Runner(
+            records=self.target(**{"example-owner/example-repo/gate.json": older})
+        )
+        deployment, code = self.execute(
+            runner, check=False, pipeline=Pipeline(codes=(0, 5))
+        )
         assert code == 1
         assert row(deployment, "codex-omarchy-nuc", "records")[5] == "record-newer"
-        assert "codex-omarchy-nuc: record file example-owner/example-repo/gate.json changed on the target " "after inventory; not overwritten" in deployment.report()
+        assert (
+            "codex-omarchy-nuc: record file example-owner/example-repo/gate.json changed on the target "
+            "after inventory; not overwritten" in deployment.report()
+        )
 
     def test_writer_refuses_paths_that_leave_the_records_root(self) -> None:
         home = self.scratch / "home"
@@ -596,8 +958,14 @@ class RecordRolloutTests(unittest.TestCase):
         for relative in ("../escape", "/abs", "o/./n", ""):
             with self.subTest(relative=relative):
                 document = json.dumps({relative: [1, "eA=="]}).encode()
-                result = subprocess.run([sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", "{}"],
-                                        input=document, capture_output=True, env=env, check=False, timeout=PROCESS_TIMEOUT)
+                result = subprocess.run(
+                    [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", "{}"],
+                    input=document,
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                    timeout=PROCESS_TIMEOUT,
+                )
                 assert result.returncode == 4
         assert not (self.scratch / "escape").exists()
 

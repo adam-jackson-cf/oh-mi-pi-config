@@ -96,7 +96,9 @@ def file_mutants(repo: Path, meta: Path) -> list[dict[str, Any]]:
         source = (repo / source_path).read_text(encoding="utf-8")
         found = spans(source)
     except (OSError, ValueError, SyntaxError) as error:
-        raise MutmutError(f"cannot read {meta} or its source {source_path}: {error}") from error
+        raise MutmutError(
+            f"cannot read {meta} or its source {source_path}: {error}"
+        ) from error
     by_key = data.get("exit_code_by_key") if isinstance(data, dict) else None
     if not isinstance(by_key, dict):
         raise MutmutError(f"{meta} has no exit_code_by_key")
@@ -129,9 +131,15 @@ def write_report(repo: Path, out: Path) -> list[Finding]:
     try:
         report = normalise(repo)
     except MutmutError as error:
-        return [Finding(RULE, RESULTS_DIR, str(error), "run mutmut in the repo root, then retry")]
+        return [
+            Finding(
+                RULE, RESULTS_DIR, str(error), "run mutmut in the repo root, then retry"
+            )
+        ]
     target = out if out.is_absolute() else repo / out
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    target.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     print(f"mutation report: {len(report['mutants'])} mutants -> {out}")
     return []

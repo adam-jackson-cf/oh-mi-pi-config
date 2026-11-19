@@ -55,7 +55,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="GUARD",
         help=f"arm a tier guard ({', '.join(guards.GUARDS)}); repeat or comma-separate",
     )
-    group.addoption("--omp-tier", default=None, metavar="TIER", help="profile tier of this run")
+    group.addoption(
+        "--omp-tier", default=None, metavar="TIER", help="profile tier of this run"
+    )
     group.addoption(
         "--omp-collect-out",
         default=None,
@@ -102,7 +104,9 @@ class GuardSession:
 
     def redirect_home(self, home: str) -> None:
         values = {"HOME": home, "USERPROFILE": home}
-        values.update({name: os.path.join(home, name.lower()) for name in XDG_VARIABLES})
+        values.update({
+            name: os.path.join(home, name.lower()) for name in XDG_VARIABLES
+        })
         for name, value in values.items():
             self.saved_environment[name] = os.environ.get(name)
             os.environ[name] = value

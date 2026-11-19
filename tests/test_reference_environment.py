@@ -11,7 +11,9 @@ import unittest.mock
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails.environment import guarded_run
 
@@ -32,15 +34,21 @@ class GuardedRunTests(unittest.TestCase):
         self.repo.mkdir()
         self.real_home = root / "real-home"
         (self.real_home / ".config/app").mkdir(parents=True)
-        (self.real_home / ".config/app/settings.json").write_text("{}", encoding="utf-8")
+        (self.real_home / ".config/app/settings.json").write_text(
+            "{}", encoding="utf-8"
+        )
         (self.real_home / ".cache").mkdir()
         patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.real_home)})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.profile = {"guardrails": {"guarded_run": {"watch": [".config/app"]}}}
 
-    def guard(self, argv: list[str], profile: dict[str, Any] | None = None) -> list[Any]:
-        return guarded_run.run(self.repo, self.profile if profile is None else profile, argv)
+    def guard(
+        self, argv: list[str], profile: dict[str, Any] | None = None
+    ) -> list[Any]:
+        return guarded_run.run(
+            self.repo, self.profile if profile is None else profile, argv
+        )
 
     def test_command_writing_only_to_redirected_home_passes(self) -> None:
         code = (
@@ -67,7 +75,10 @@ class GuardedRunTests(unittest.TestCase):
         code = f"open({str(added)!r}, 'w').write('x'); open({str(noisy)!r}, 'w').write('x')"
         profile = {
             "guardrails": {
-                "guarded_run": {"watch": [".config/app"], "ignore": [".config/app/*.log"]}
+                "guarded_run": {
+                    "watch": [".config/app"],
+                    "ignore": [".config/app/*.log"],
+                }
             }
         }
         findings = self.guard(["--", *python(code)], profile)
@@ -88,7 +99,9 @@ class GuardedRunTests(unittest.TestCase):
         marker = self.repo / "ran"
         profile = {
             **self.profile,
-            "tiers": {"t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}},
+            "tiers": {
+                "t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}
+            },
         }
         assert self.guard(["--tier", "t1"], profile) == []
         assert marker.exists()

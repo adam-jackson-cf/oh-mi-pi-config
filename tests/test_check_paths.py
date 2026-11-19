@@ -1,4 +1,5 @@
 """Exercise the changed-path gate against real Git allowlists and test layouts."""
+
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,9 @@ class CheckPathsTests(unittest.TestCase):
         self.git("add", ".gitignore")
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(["git", "-C", str(self.repo), *args], text=True, timeout=PROCESS_TIMEOUT)
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo), *args], text=True, timeout=PROCESS_TIMEOUT
+        )
 
     def file(self, path: str, *, tracked: bool = False, allowed: bool = False) -> Path:
         file = self.repo / path
@@ -35,16 +38,25 @@ class CheckPathsTests(unittest.TestCase):
             self.git("add", "-f", "--", path)
         return file
 
-    def check(self, *paths: str | Path, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([sys.executable, str(SCRIPT), *map(str, paths)],
-                              cwd=cwd or self.repo, capture_output=True, text=True, timeout=PROCESS_TIMEOUT)
+    def check(
+        self, *paths: str | Path, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *map(str, paths)],
+            cwd=cwd or self.repo,
+            capture_output=True,
+            text=True,
+            timeout=PROCESS_TIMEOUT,
+        )
 
     def assert_clean(self, result: subprocess.CompletedProcess[str]) -> None:
         assert result.returncode == 0, result.stdout + result.stderr
         assert result.stdout == ""
         assert result.stderr == ""
 
-    def assert_error(self, result: subprocess.CompletedProcess[str], path: str, fix: str) -> None:
+    def assert_error(
+        self, result: subprocess.CompletedProcess[str], path: str, fix: str
+    ) -> None:
         assert result.returncode == 1, result.stdout + result.stderr
         assert result.stderr == ""
         lines = result.stdout.splitlines()
@@ -58,8 +70,11 @@ class CheckPathsTests(unittest.TestCase):
 
     def test_new_ignored_file_names_allowlist_fix(self) -> None:
         self.file("some/new/ignored.txt")
-        self.assert_error(self.check("some/new/ignored.txt"), "some/new/ignored.txt",
-                          "add a !some/new/ignored.txt re-include")
+        self.assert_error(
+            self.check("some/new/ignored.txt"),
+            "some/new/ignored.txt",
+            "add a !some/new/ignored.txt re-include",
+        )
 
     def test_untracked_reincluded_file_passes(self) -> None:
         self.file("source.txt", allowed=True)
@@ -69,13 +84,20 @@ class CheckPathsTests(unittest.TestCase):
         for path in ("foo.test.ts", "src/test_feature.py", "tests/nested/foo.test.ts"):
             with self.subTest(path=path):
                 self.file(path, allowed=True)
-                self.assert_error(self.check(path), path, "move test files directly under tests/")
+                self.assert_error(
+                    self.check(path), path, "move test files directly under tests/"
+                )
 
     def test_test_sources_require_test_names(self) -> None:
-        for path, pattern in (("tests/helper.py", "test_*.py"), ("tests/helper.ts", "*.test.ts")):
+        for path, pattern in (
+            ("tests/helper.py", "test_*.py"),
+            ("tests/helper.ts", "*.test.ts"),
+        ):
             with self.subTest(path=path):
                 self.file(path, allowed=True)
-                self.assert_error(self.check(path), path, f"rename test files to {pattern}")
+                self.assert_error(
+                    self.check(path), path, f"rename test files to {pattern}"
+                )
 
     def test_named_tests_and_non_source_fixtures_pass(self) -> None:
         paths = ("tests/test_feature.py", "tests/feature.test.ts", "tests/fixture.json")
@@ -93,37 +115,55 @@ class CheckPathsTests(unittest.TestCase):
         self.file("ignored.txt")
         self.assert_clean(self.check())
         self.file("misplaced.test.ts", tracked=True)
-        self.assert_error(self.check(), "misplaced.test.ts", "move test files directly under tests/")
+        self.assert_error(
+            self.check(), "misplaced.test.ts", "move test files directly under tests/"
+        )
 
     def test_subdirectory_arguments_resolve_against_working_directory(self) -> None:
         self.file("source/feature.test.ts", allowed=True)
         self.file("ignored.txt")
         cwd = self.repo / "source"
-        self.assert_error(self.check("feature.test.ts", cwd=cwd), "source/feature.test.ts",
-                          "move test files directly under tests/")
-        self.assert_error(self.check("../ignored.txt", cwd=cwd), "ignored.txt",
-                          "add a !ignored.txt re-include")
+        self.assert_error(
+            self.check("feature.test.ts", cwd=cwd),
+            "source/feature.test.ts",
+            "move test files directly under tests/",
+        )
+        self.assert_error(
+            self.check("../ignored.txt", cwd=cwd),
+            "ignored.txt",
+            "add a !ignored.txt re-include",
+        )
 
     def test_no_arguments_from_subdirectory_still_checks_repository(self) -> None:
         self.file("source/value.txt", tracked=True)
         self.file("misplaced.test.ts", tracked=True)
-        self.assert_error(self.check(cwd=self.repo / "source"), "misplaced.test.ts",
-                          "move test files directly under tests/")
+        self.assert_error(
+            self.check(cwd=self.repo / "source"),
+            "misplaced.test.ts",
+            "move test files directly under tests/",
+        )
 
     def test_absolute_paths_use_repository_relative_diagnostics(self) -> None:
         file = self.file("some ignored.txt")
-        self.assert_error(self.check(file), "some ignored.txt", "add a !some ignored.txt re-include")
+        self.assert_error(
+            self.check(file), "some ignored.txt", "add a !some ignored.txt re-include"
+        )
 
     def test_absolute_directory_alias_uses_repository_path(self) -> None:
         self.file("ignored.txt")
         alias = self.repo / "alias"
         alias.symlink_to(self.repo, target_is_directory=True)
-        self.assert_error(self.check(alias / "ignored.txt"), "ignored.txt",
-                          "add a !ignored.txt re-include")
+        self.assert_error(
+            self.check(alias / "ignored.txt"),
+            "ignored.txt",
+            "add a !ignored.txt re-include",
+        )
 
     def test_dangling_symlink_is_checked_without_following_target(self) -> None:
         (self.repo / "link.txt").symlink_to(self.repo / "missing.txt")
-        self.assert_error(self.check("link.txt"), "link.txt", "add a !link.txt re-include")
+        self.assert_error(
+            self.check("link.txt"), "link.txt", "add a !link.txt re-include"
+        )
 
     def test_batch_preserves_spaces_and_reports_each_ignored_path(self) -> None:
         paths = ("first ignored.txt", "second.txt")
@@ -133,7 +173,10 @@ class CheckPathsTests(unittest.TestCase):
         assert result.returncode == 1, result.stderr
         assert len(result.stdout.splitlines()) == 2
         for path in paths:
-            assert f"{path}: ignored by the .gitignore allowlist; add a !{path} re-include" in result.stdout
+            assert (
+                f"{path}: ignored by the .gitignore allowlist; add a !{path} re-include"
+                in result.stdout
+            )
 
 
 if __name__ == "__main__":

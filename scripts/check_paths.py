@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Check the source allowlist and test layout for changed repository paths."""
+
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 
-def git(repo: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, input=stdin, check=False)
+def git(
+    repo: Path, *args: str, stdin: bytes | None = None
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, input=stdin, check=False
+    )
 
 
 def existing_paths(repo: Path, paths: list[str]) -> list[str]:
@@ -26,7 +31,9 @@ def existing_paths(repo: Path, paths: list[str]) -> list[str]:
         # Resolve directory aliases (such as macOS /var) but not a symlink file's target.
         candidate = base / path
         absolute = candidate.parent.resolve() / candidate.name
-        if absolute.is_relative_to(repo) and (absolute.exists() or absolute.is_symlink()):
+        if absolute.is_relative_to(repo) and (
+            absolute.exists() or absolute.is_symlink()
+        ):
             existing.append(os.path.relpath(absolute, repo))
     return list(dict.fromkeys(existing))
 
@@ -34,8 +41,13 @@ def existing_paths(repo: Path, paths: list[str]) -> list[str]:
 def ignored_paths(repo: Path, paths: list[str]) -> set[str]:
     """The paths the .gitignore allowlist ignores."""
     # Git excludes tracked paths by default, including force-added ignored files.
-    ignored = git(repo, "check-ignore", "-z", "--stdin",
-                  stdin=b"".join(os.fsencode(path) + b"\0" for path in paths))
+    ignored = git(
+        repo,
+        "check-ignore",
+        "-z",
+        "--stdin",
+        stdin=b"".join(os.fsencode(path) + b"\0" for path in paths),
+    )
     if ignored.returncode not in {0, 1}:
         ignored.check_returncode()
     return {os.fsdecode(path) for path in ignored.stdout.split(b"\0") if path}
@@ -47,7 +59,8 @@ def layout_error(repo: Path, path: str) -> str | None:
     if not (repo / file).is_file() and not (repo / file).is_symlink():
         return None
     is_test = file.name.endswith(".test.ts") or (
-        file.name.startswith("test_") and file.suffix == ".py")
+        file.name.startswith("test_") and file.suffix == ".py"
+    )
     if is_test and file.parent != Path("tests"):
         return f"{path}: move test files directly under tests/"
     if file.parts[0] == "tests" and file.suffix in {".ts", ".py"} and not is_test:
@@ -57,7 +70,9 @@ def layout_error(repo: Path, path: str) -> str | None:
 
 
 def main(paths: list[str]) -> int:
-    root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+    root = subprocess.check_output(
+        ["git", "rev-parse", "--show-toplevel"], text=True
+    ).strip()
     repo = Path(root).resolve()
     existing = existing_paths(repo, paths)
     if not existing:
@@ -66,8 +81,10 @@ def main(paths: list[str]) -> int:
     errors = []
     for path in existing:
         if path in ignored:
-            errors.append(f"{path}: ignored by the .gitignore allowlist; "
-                          f"add a !{path} re-include or move it under a tracked folder")
+            errors.append(
+                f"{path}: ignored by the .gitignore allowlist; "
+                f"add a !{path} re-include or move it under a tracked folder"
+            )
         error = layout_error(repo, path)
         if error:
             errors.append(error)

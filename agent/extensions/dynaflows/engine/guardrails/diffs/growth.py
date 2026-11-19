@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import importlib
@@ -87,7 +86,10 @@ def test_blobs(repo: Path, ref: str, profile: dict[str, Any]) -> dict[str, str]:
 
 
 def snapshot(
-    repo: Path, blobs: Mapping[str, str], collect: Collector, cache: dict[str, CollectedFile | ValueError]
+    repo: Path,
+    blobs: Mapping[str, str],
+    collect: Collector,
+    cache: dict[str, CollectedFile | ValueError],
 ) -> Snapshot:
     """Collect each file once per blob, so files unchanged between commits parse once."""
     fingerprints: dict[str, str] = {}
@@ -114,15 +116,29 @@ def growth_findings(base: Snapshot, head: Snapshot) -> list[Finding]:
     for selector in sorted(head.behaviours.keys() - base.behaviours.keys()):
         text = head.behaviours[selector]
         words = re.findall(r"[A-Za-z]+", text or "")
-        meaningful = [word for word in words if word.lower() not in {"test", "case", "todo", "tbd", "placeholder", "example"}]
+        meaningful = [
+            word
+            for word in words
+            if word.lower()
+            not in {"test", "case", "todo", "tbd", "placeholder", "example"}
+        ]
         if not is_missing_text(text) and len(meaningful) >= 2:
             continue
         path = selector.split("::", 1)[0]
-        found.append(Finding(GROWTH, path, f"{selector} has no descriptive behavior name", BEHAVIOUR_FIX))
+        found.append(
+            Finding(
+                GROWTH,
+                path,
+                f"{selector} has no descriptive behavior name",
+                BEHAVIOUR_FIX,
+            )
+        )
     return found
 
 
-def duplicate_findings(base: Mapping[str, str], head: Mapping[str, str]) -> list[Finding]:
+def duplicate_findings(
+    base: Mapping[str, str], head: Mapping[str, str]
+) -> list[Finding]:
     """New cases whose fingerprint matches an existing case or an earlier new case."""
     seen: dict[str, str] = {}
     for selector, fingerprint in sorted(base.items()):
@@ -143,7 +159,9 @@ def duplicate_findings(base: Mapping[str, str], head: Mapping[str, str]) -> list
 
 def collection_findings(head: Snapshot, changed: set[str]) -> list[Finding]:
     return [
-        Finding(GROWTH, path, f"cannot collect tests statically: {error}", BEHAVIOUR_FIX)
+        Finding(
+            GROWTH, path, f"cannot collect tests statically: {error}", BEHAVIOUR_FIX
+        )
         for path, error in sorted(head.errors.items())
         if path in changed
     ]

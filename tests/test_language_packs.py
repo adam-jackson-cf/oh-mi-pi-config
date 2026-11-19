@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails.config import conventions
 from guardrails.structure import naming
@@ -16,11 +18,23 @@ ROOT = Path(__file__).resolve().parents[1]
 class LanguagePackTests(unittest.TestCase):
     def test_fixed_ecosystem_and_tool_names_need_no_record_setting(self) -> None:
         paths = (
-            "init/__init__.py", "main/__main__.py", "conftest/conftest.py",
-            "clock/clock.go", "clock/clock_test.go", "doc/doc.go", "main/main.go",
-            "index/index.ts", "schema/schema.d.ts", ".devcontainer/devcontainer.json",
-            "Dockerfile/Dockerfile", "Makefile/Makefile", "package/package.json",
-            "pyproject/pyproject.toml", "go/go.mod", "AGENTS/AGENTS.md", "CLAUDE/CLAUDE.md",
+            "init/__init__.py",
+            "main/__main__.py",
+            "conftest/conftest.py",
+            "clock/clock.go",
+            "clock/clock_test.go",
+            "doc/doc.go",
+            "main/main.go",
+            "index/index.ts",
+            "schema/schema.d.ts",
+            ".devcontainer/devcontainer.json",
+            "Dockerfile/Dockerfile",
+            "Makefile/Makefile",
+            "package/package.json",
+            "pyproject/pyproject.toml",
+            "go/go.mod",
+            "AGENTS/AGENTS.md",
+            "CLAUDE/CLAUDE.md",
         )
         with tempfile.TemporaryDirectory() as directory:
             for path in paths:
@@ -34,14 +48,22 @@ class LanguagePackTests(unittest.TestCase):
 
     def test_javascript_and_typescript_do_not_impose_personal_casing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            for path in ("UI/AccountView.tsx", "frontend/account-view.js", "frontend/account_view.mjs"):
+            for path in (
+                "UI/AccountView.tsx",
+                "frontend/account-view.js",
+                "frontend/account_view.mjs",
+            ):
                 with self.subTest(path=path):
                     assert naming.path_findings(Path(directory), path, {}) == []
 
     def test_ecosystem_discovery_and_placement_are_automatic(self) -> None:
         for path in (
-            "account/test_balance.py", "account/balance_test.py", "account/balance_test.go",
-            "account/balance.spec.ts", "account/balance.test.jsx", "account/__tests__/balance.ts",
+            "account/test_balance.py",
+            "account/balance_test.py",
+            "account/balance_test.go",
+            "account/balance.spec.ts",
+            "account/balance.test.jsx",
+            "account/__tests__/balance.ts",
         ):
             with self.subTest(path=path):
                 assert naming.is_test_file(path, {})
@@ -56,7 +78,11 @@ class LanguagePackTests(unittest.TestCase):
 
     def test_nonfixed_file_stems_still_cannot_repeat_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            for path in ("clock/clock_reader.go", "account/account-view.ts", "account/account.sh"):
+            for path in (
+                "clock/clock_reader.go",
+                "account/account-view.ts",
+                "account/account.sh",
+            ):
                 found = naming.path_findings(Path(directory), path, {})
                 assert any(item.check == "child-repeats-parent" for item in found), path
 
@@ -64,11 +90,28 @@ class LanguagePackTests(unittest.TestCase):
         baseline = {"common/BadFolder/common_parser.py"}
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
-            assert naming.path_findings(repo, next(iter(baseline)), {}, existing_paths=baseline) == []
-            assert naming.path_findings(repo, "common/BadFolder/reader.py", {}, existing_paths=baseline) == []
-            found = naming.path_findings(repo, "common/BadFolder/helpers/reader.py", {}, existing_paths=baseline)
+            assert (
+                naming.path_findings(
+                    repo, next(iter(baseline)), {}, existing_paths=baseline
+                )
+                == []
+            )
+            assert (
+                naming.path_findings(
+                    repo, "common/BadFolder/reader.py", {}, existing_paths=baseline
+                )
+                == []
+            )
+            found = naming.path_findings(
+                repo, "common/BadFolder/helpers/reader.py", {}, existing_paths=baseline
+            )
             assert any("helpers" in item.message for item in found)
-            repeated = naming.path_findings(repo, "common/BadFolder/bad_folder_reader.py", {}, existing_paths=baseline)
+            repeated = naming.path_findings(
+                repo,
+                "common/BadFolder/bad_folder_reader.py",
+                {},
+                existing_paths=baseline,
+            )
             assert any(item.check == "child-repeats-parent" for item in repeated)
             assert naming.path_findings(repo, next(iter(baseline)), {})
 
@@ -90,11 +133,23 @@ class LanguagePackTests(unittest.TestCase):
 
     def test_lockfile_and_tool_config_names_are_fixed(self) -> None:
         paths = (
-            "uv/uv.lock", "bun/bun.lock", "pnpm/pnpm-lock.yaml", "yarn/yarn.lock", "go/go.work",
-            "go/go.work.sum", "requirements/requirements.txt", "ruff/ruff.toml", "mypy/mypy.ini",
-            "golangci/.golangci.yml", "shellcheckrc/.shellcheckrc", "biome/biome.json",
-            "eslint/eslint.config.mjs", "oxlint/oxlint.config.ts", "oxlintrc/.oxlintrc.json",
-            "vitest/vitest.config.ts", "importlinter/.importlinter",
+            "uv/uv.lock",
+            "bun/bun.lock",
+            "pnpm/pnpm-lock.yaml",
+            "yarn/yarn.lock",
+            "go/go.work",
+            "go/go.work.sum",
+            "requirements/requirements.txt",
+            "ruff/ruff.toml",
+            "mypy/mypy.ini",
+            "golangci/.golangci.yml",
+            "shellcheckrc/.shellcheckrc",
+            "biome/biome.json",
+            "eslint/eslint.config.mjs",
+            "oxlint/oxlint.config.ts",
+            "oxlintrc/.oxlintrc.json",
+            "vitest/vitest.config.ts",
+            "importlinter/.importlinter",
         )
         with tempfile.TemporaryDirectory() as directory:
             for path in paths:
@@ -111,13 +166,24 @@ class LanguagePackTests(unittest.TestCase):
             repo = Path(directory)
             (repo / "fixed-plan-effort").mkdir()
             self.assertEqual(directory_casing(repo), [])
-            (repo / "fixed-plan-effort" / "__init__.py").write_text("", encoding="utf-8")
+            (repo / "fixed-plan-effort" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
             self.assertEqual(
-                directory_casing(repo), ["python directory 'fixed-plan-effort' is not snake_case"]
+                directory_casing(repo),
+                ["python directory 'fixed-plan-effort' is not snake_case"],
             )
         sources = conventions.load_pack("python")["convention_sources"]
-        self.assertTrue(sources["package_marker"]["__init__.py"].startswith("https://docs.python.org/3/reference/import.html"))
-        self.assertTrue(sources["directory"]["snake_case"].startswith("https://peps.python.org/pep-0008/"))
+        self.assertTrue(
+            sources["package_marker"]["__init__.py"].startswith(
+                "https://docs.python.org/3/reference/import.html"
+            )
+        )
+        self.assertTrue(
+            sources["directory"]["snake_case"].startswith(
+                "https://peps.python.org/pep-0008/"
+            )
+        )
 
     def test_http_server_handler_methods_are_framework_symbols(self) -> None:
         source = (
@@ -132,8 +198,14 @@ class LanguagePackTests(unittest.TestCase):
             found = naming.path_findings(repo, "handler.py", {})
         symbols = [item.message for item in found if "symbol" in item.message]
         self.assertEqual(symbols, ["line 8: symbol 'doPost' is not snake_case"])
-        sources = conventions.load_pack("python")["convention_sources"]["framework_symbols"]
-        self.assertTrue(sources["^do_[A-Z]+$"].startswith("https://docs.python.org/3/library/http.server.html"))
+        sources = conventions.load_pack("python")["convention_sources"][
+            "framework_symbols"
+        ]
+        self.assertTrue(
+            sources["^do_[A-Z]+$"].startswith(
+                "https://docs.python.org/3/library/http.server.html"
+            )
+        )
 
     def test_every_pack_cites_upstream_conventions(self) -> None:
         for pack in conventions.packs():

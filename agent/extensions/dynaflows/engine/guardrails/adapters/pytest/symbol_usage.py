@@ -82,7 +82,10 @@ def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
 
 
 def test_only_findings(
-    production: dict[str, str], tests: dict[str, str], profile: dict[str, Any], reported: set[str]
+    production: dict[str, str],
+    tests: dict[str, str],
+    profile: dict[str, Any],
+    reported: set[str],
 ) -> list[Finding]:
     """Findings for test-only symbols defined in the ``reported`` production paths."""
     defined: list[Definition] = []
@@ -110,5 +113,7 @@ def test_only_findings(
             FIX,
         )
         for item in defined
-        if item.name in test_uses and item.name not in production_uses and item.name not in public
+        if item.name in test_uses
+        and item.name not in production_uses
+        and item.name not in public
     ]

@@ -10,6 +10,7 @@ every remote device that runs omp, refusing to overwrite a target record that is
 The registry's `infisical` project and environment serve both the judge key and the
 `ci-gate` runner commands, which pass them to ci_gate.py as CI_GATE_INFISICAL_* settings.
 """
+
 import argparse
 import hashlib
 import json
@@ -138,21 +139,38 @@ CI_GATE_ARGS = {
     "logs": ["logs", "{repo}", "{sha}", "--tail", "{tail}"],
 }
 # Failed-job logs of every GitHub Actions run for the SHA; placeholders arrive as positional args.
-GITHUB_LOGS = ("gh run list --repo \"$1\" --commit \"$2\" --json databaseId --jq '.[].databaseId' "
-               "| while read -r id; do gh run view \"$id\" --repo \"$1\" --log-failed; done "
-               "| tail -n \"$3\"")
+GITHUB_LOGS = (
+    'gh run list --repo "$1" --commit "$2" --json databaseId --jq \'.[].databaseId\' '
+    '| while read -r id; do gh run view "$id" --repo "$1" --log-failed; done '
+    '| tail -n "$3"'
+)
 
 
 def infisical_settings(infisical: dict[str, Any] | None) -> list[str]:
     """Return ci_gate.py's CI_GATE_INFISICAL_* assignments from the registry's `infisical` setting."""
-    project, environment = (infisical or {}).get("project"), (infisical or {}).get("environment")
-    if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", value) for value in (project, environment)):
-        raise ValueError("ci-gate runners need the registry's infisical project and environment")
-    return ["CI_GATE_INFISICAL_PROJECT=" + str(project), "CI_GATE_INFISICAL_ENV=" + str(environment)]
+    project, environment = (
+        (infisical or {}).get("project"),
+        (infisical or {}).get("environment"),
+    )
+    if not all(
+        isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", value)
+        for value in (project, environment)
+    ):
+        raise ValueError(
+            "ci-gate runners need the registry's infisical project and environment"
+        )
+    return [
+        "CI_GATE_INFISICAL_PROJECT=" + str(project),
+        "CI_GATE_INFISICAL_ENV=" + str(environment),
+    ]
 
 
-def runner_document(definition: dict[str, Any], device: str, base: str,
-                    infisical: dict[str, Any] | None = None) -> dict[str, Any]:
+def runner_document(
+    definition: dict[str, Any],
+    device: str,
+    base: str,
+    infisical: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return the ci-runners.json document for `device`, whose omp base directory is `base`."""
     remote_base = definition["remoteBase"]
     if not re.fullmatch(r"~/[A-Za-z0-9_./-]+", remote_base):
@@ -166,22 +184,52 @@ def runner_document(definition: dict[str, Any], device: str, base: str,
             settings = infisical_settings(infisical)
             commands: dict[str, list[str] | None]
             if device == host:
-                commands = {name: ["env", *settings, "python3", base + "/scripts/ci_gate.py", *args]
-                            for name, args in CI_GATE_ARGS.items()}
+                commands = {
+                    name: [
+                        "env",
+                        *settings,
+                        "python3",
+                        base + "/scripts/ci_gate.py",
+                        *args,
+                    ]
+                    for name, args in CI_GATE_ARGS.items()
+                }
             else:
                 script = remote_base + "/scripts/ci_gate.py"
-                commands = {name: ["ssh", "-o", "BatchMode=yes", host,
-                                   'bash -lc "' + " ".join(settings) + " python3 " + script + " "
-                                   + " ".join(args) + '"']
-                            for name, args in CI_GATE_ARGS.items()}
+                commands = {
+                    name: [
+                        "ssh",
+                        "-o",
+                        "BatchMode=yes",
+                        host,
+                        'bash -lc "'
+                        + " ".join(settings)
+                        + " python3 "
+                        + script
+                        + " "
+                        + " ".join(args)
+                        + '"',
+                    ]
+                    for name, args in CI_GATE_ARGS.items()
+                }
         elif spec["kind"] == "github-actions":
-            commands = {"submit": None, "wait": None, "status": None,
-                        "logs": ["sh", "-c", GITHUB_LOGS, "sh", "{repo}", "{sha}", "{tail}"]}
+            commands = {
+                "submit": None,
+                "wait": None,
+                "status": None,
+                "logs": ["sh", "-c", GITHUB_LOGS, "sh", "{repo}", "{sha}", "{tail}"],
+            }
         else:
             raise ValueError("unknown ciRunners kind " + repr(spec["kind"]))
         timeout = spec.get("timeout")
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            raise ValueError("ciRunners role " + repr(role) + " needs a positive timeout in seconds")
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or timeout <= 0
+        ):
+            raise ValueError(
+                "ciRunners role " + repr(role) + " needs a positive timeout in seconds"
+            )
         runners[role] = {**commands, "timeout": timeout}
     return {"schemaVersion": 1, "runners": runners}
 
@@ -206,7 +254,11 @@ SECRET_LIKE = re.compile(r"[A-Za-z0-9_\-+/=.]{20,}")
 
 def failure_line(stderr: bytes | None) -> str:
     """The consumer's last stderr line, with credential-like runs redacted, at most 200 characters."""
-    lines = [line.strip() for line in (stderr or b"").decode(errors="replace").splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in (stderr or b"").decode(errors="replace").splitlines()
+        if line.strip()
+    ]
     return SECRET_LIKE.sub("<redacted>", lines[-1])[:200] if lines else ""
 
 
@@ -216,11 +268,15 @@ def run_pipeline(producer: list[str], consumer: list[str]) -> tuple[int, int, st
     Returns both exit codes and the consumer's redacted last stderr line; all other output is
     discarded, and the producer's output never leaves the pipe."""
     try:
-        source = subprocess.Popen(producer, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        source = subprocess.Popen(
+            producer, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
     except OSError:
         return 127, 127, f"cannot start {producer[0]}"
     try:
-        sink = subprocess.run(consumer, stdin=source.stdout, capture_output=True, check=False)
+        sink = subprocess.run(
+            consumer, stdin=source.stdout, capture_output=True, check=False
+        )
         code, reason = sink.returncode, failure_line(sink.stderr)
     except OSError:
         code, reason = 127, f"cannot start {consumer[0]}"
@@ -241,29 +297,48 @@ def record_files(root: Path) -> RecordFiles:
     for path in sorted(root.rglob("*")):
         if path.is_symlink() or not path.is_file():
             continue
-        found[path.relative_to(root).as_posix()] = (path.stat().st_mtime_ns,
-                                                    hashlib.sha256(path.read_bytes()).hexdigest())
+        found[path.relative_to(root).as_posix()] = (
+            path.stat().st_mtime_ns,
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
     return found
 
 
-def record_plan(source: RecordFiles, target: RecordFiles) -> tuple[list[str], list[str]]:
+def record_plan(
+    source: RecordFiles, target: RecordFiles
+) -> tuple[list[str], list[str]]:
     """Split source files into (paths to copy, records refused because the target copy is newer).
 
     A record is `<owner>/<name>`. A target record is newer when any of its files differs from the
     source and was modified after the source file; the whole record is then left alone.
     Target-only files are never touched.
     """
+
     def record(relative: str) -> str:
         return "/".join(relative.split("/")[:2])
-    newer = sorted({record(relative) for relative, (mtime, digest) in source.items()
-                    if relative in target and target[relative][1] != digest and target[relative][0] > mtime})
-    copy = [relative for relative, (_, digest) in sorted(source.items())
-            if record(relative) not in newer and (relative not in target or target[relative][1] != digest)]
+
+    newer = sorted({
+        record(relative)
+        for relative, (mtime, digest) in source.items()
+        if relative in target
+        and target[relative][1] != digest
+        and target[relative][0] > mtime
+    })
+    copy = [
+        relative
+        for relative, (_, digest) in sorted(source.items())
+        if record(relative) not in newer
+        and (relative not in target or target[relative][1] != digest)
+    ]
     return copy, newer
 
 
 def shell_path(path: str) -> str:
-    return '"$HOME"/' + shlex.quote(path[2:]) if path.startswith("~/") else shlex.quote(path)
+    return (
+        '"$HOME"/' + shlex.quote(path[2:])
+        if path.startswith("~/")
+        else shlex.quote(path)
+    )
 
 
 @dataclass(frozen=True)
@@ -281,12 +356,21 @@ class Machine:
 
 
 class Rollout:
-    def __init__(self, hosts: dict[str, Any], machine: Machine | None = None, *, check: bool = False) -> None:
+    def __init__(
+        self,
+        hosts: dict[str, Any],
+        machine: Machine | None = None,
+        *,
+        check: bool = False,
+    ) -> None:
         machine = Machine() if machine is None else machine
         hostname = machine.hostname.split(".")[0].lower()
         self.local: str = hosts.get("local", {}).get(hostname, hostname)
-        self.hosts = {host: config for host, config in hosts.items()
-                      if host not in (*SETTINGS, self.local, hostname)}
+        self.hosts = {
+            host: config
+            for host, config in hosts.items()
+            if host not in (*SETTINGS, self.local, hostname)
+        }
         self.infisical = hosts.get("infisical")
         self.judge_key = hosts.get("judgeKey")
         self.canary = hosts.get("findCanary")
@@ -305,8 +389,9 @@ class Rollout:
             command = "bash -lc " + shlex.quote(command)
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, command]
 
-    def command(self, argv: list[str], host: str | None = None,
-                allowed: Sequence[int] = (0,)) -> subprocess.CompletedProcess[str]:
+    def command(
+        self, argv: list[str], host: str | None = None, allowed: Sequence[int] = (0,)
+    ) -> subprocess.CompletedProcess[str]:
         if host:
             argv = self.remote(argv, host)
         try:
@@ -314,33 +399,48 @@ class Rollout:
         except OSError:
             raise CommandError("unreachable" if host else "failed") from None
         if result.returncode not in allowed:
-            raise CommandError("unreachable" if host and result.returncode == 255 else "failed")
+            raise CommandError(
+                "unreachable" if host and result.returncode == 255 else "failed"
+            )
         return result
 
-    def git(self, path: str | Path, *args: str, host: str | None = None,
-            allowed: Sequence[int] = (0,)) -> subprocess.CompletedProcess[str]:
+    def git(
+        self,
+        path: str | Path,
+        *args: str,
+        host: str | None = None,
+        allowed: Sequence[int] = (0,),
+    ) -> subprocess.CompletedProcess[str]:
         if host:
             # Expand only the configured home-relative path, never command output.
             script = "git -C " + shell_path(str(path)) + " " + shlex.join(args)
             return self.command(["sh", "-c", script], host, allowed)
         return self.command(["git", "-C", str(path), *args], allowed=allowed)
 
-    def checkout(self, device: str, component: str, path: str | Path, host: str | None = None) -> str:
+    def checkout(
+        self, device: str, component: str, path: str | Path, host: str | None = None
+    ) -> str:
         deployed = expected = "-"
         state = "failed"
         try:
             self.git(path, "fetch", "origin", host=host)
-            expected = self.git(path, "rev-parse", "origin/main", host=host).stdout.strip()
+            expected = self.git(
+                path, "rev-parse", "origin/main", host=host
+            ).stdout.strip()
             deployed = self.git(path, "rev-parse", "HEAD", host=host).stdout.strip()
             state = "current" if deployed == expected else "stale"
             if host:
-                dirty = self.git(path, "status", "--porcelain", "--untracked-files=no", host=host)
+                dirty = self.git(
+                    path, "status", "--porcelain", "--untracked-files=no", host=host
+                )
                 if dirty.stdout.strip():
                     state = "dirty-blocked"
             if host and not self.check and state != "dirty-blocked":
                 self.git(path, "pull", "--ff-only", "origin", "main", host=host)
                 deployed = self.git(path, "rev-parse", "HEAD", host=host).stdout.strip()
-                expected = self.git(path, "rev-parse", "origin/main", host=host).stdout.strip()
+                expected = self.git(
+                    path, "rev-parse", "origin/main", host=host
+                ).stdout.strip()
                 state = "current" if deployed == expected else "stale"
         except CommandError as error:
             state = error.state
@@ -353,9 +453,21 @@ class Rollout:
         if key is None or source is None:
             return "the registry's infisical or judgeKey setting is incomplete"
         try:
-            producer = ["infisical", "run", "--silent", "--projectId", source["project"],
-                        "--env", source["environment"], "--", sys.executable, "-c",
-                        CREDENTIAL_BUILDER, key["secret"], key["provider"]]
+            producer = [
+                "infisical",
+                "run",
+                "--silent",
+                "--projectId",
+                source["project"],
+                "--env",
+                source["environment"],
+                "--",
+                sys.executable,
+                "-c",
+                CREDENTIAL_BUILDER,
+                key["secret"],
+                key["provider"],
+            ]
         except (TypeError, KeyError):
             return "the registry's infisical or judgeKey setting is incomplete"
         consumer = ["omp", "auth", "import", "-"]
@@ -368,7 +480,9 @@ class Rollout:
         if produced:
             return f"infisical exited {produced}"
         if imported:
-            return f"omp auth import exited {imported}" + (f": {reason}" if reason else "")
+            return f"omp auth import exited {imported}" + (
+                f": {reason}" if reason else ""
+            )
         return None
 
     def find(self, host: str | None = None) -> str:
@@ -378,8 +492,12 @@ class Rollout:
         if host:
             target = shell_path(path)
         else:
-            target = shlex.quote(str(self.home / path[2:]) if path.startswith("~/") else path)
-        script = "omp find " + shlex.quote(canary["query"]) + " " + target + " --json -q"
+            target = shlex.quote(
+                str(self.home / path[2:]) if path.startswith("~/") else path
+            )
+        script = (
+            "omp find " + shlex.quote(canary["query"]) + " " + target + " --json -q"
+        )
         try:
             result = self.command(["sh", "-c", script], host, allowed=(0, 1))
             coverage: object = json.loads(result.stdout).get("coverage")
@@ -387,9 +505,16 @@ class Rollout:
             return error.state
         except (ValueError, AttributeError):
             return "failed"
-        return coverage if isinstance(coverage, str) and coverage in {"complete", "partial", "unavailable"} else "failed"
+        return (
+            coverage
+            if isinstance(coverage, str)
+            and coverage in {"complete", "partial", "unavailable"}
+            else "failed"
+        )
 
-    def finish_device(self, device: str, start: int, host: str | None = None, *, omp: bool = True) -> None:
+    def finish_device(
+        self, device: str, start: int, host: str | None = None, *, omp: bool = True
+    ) -> None:
         """Apply key and find results to the device's rows from index `start`.
 
         Key provisioning and the find canary run only on devices that run omp."""
@@ -401,10 +526,14 @@ class Rollout:
             coverage = None
         else:
             coverage = None
-            failure = self.provision(host) if self.judge_key and not self.check else None
+            failure = (
+                self.provision(host) if self.judge_key and not self.check else None
+            )
             if failure:
                 coverage = "key-failed"
-                self.notes.append(f"{device}: judge key provisioning failed ({failure})")
+                self.notes.append(
+                    f"{device}: judge key provisioning failed ({failure})"
+                )
             if self.canary:
                 found = self.find(host)
                 coverage = coverage or found
@@ -427,43 +556,88 @@ class Rollout:
                 base = str(self.base)
                 python = sys.executable
             try:
-                document = json.dumps(runner_document(self.ci_runners, device, base,
-                                                           self.infisical), sort_keys=True)
-                result = self.command([python, "-c", RUNNERS_WRITER, "check" if self.check else "apply",
-                                       base + "/ci-runners.json", document], host)
+                document = json.dumps(
+                    runner_document(self.ci_runners, device, base, self.infisical),
+                    sort_keys=True,
+                )
+                result = self.command(
+                    [
+                        python,
+                        "-c",
+                        RUNNERS_WRITER,
+                        "check" if self.check else "apply",
+                        base + "/ci-runners.json",
+                        document,
+                    ],
+                    host,
+                )
                 state = result.stdout.strip()
-                state = "current" if state in ("current", "written") else (
-                    state if state in ("missing", "stale") else "failed")
+                state = (
+                    "current"
+                    if state in ("current", "written")
+                    else (state if state in ("missing", "stale") else "failed")
+                )
             except CommandError as error:
                 state = error.state
             except (ValueError, KeyError, TypeError):
                 state = "failed"
         if state in ("missing", "stale") and self.check:
-            self.notes.append(f"{device}: ci-runners.json {state}; run device_rollout.py without --check")
+            self.notes.append(
+                f"{device}: ci-runners.json {state}; run device_rollout.py without --check"
+            )
         self.rows.append([device, "ci-runners", "-", "-", "-", state])
 
     def listed_records(self, host: str, base: str) -> RecordFiles:
         """The target's record files: {relative path: (mtime_ns, sha256)}."""
-        listed = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
-        return {relative: (int(value[0]), str(value[1])) for relative, value in listed.items()}
+        listed = json.loads(
+            self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout
+        )
+        return {
+            relative: (int(value[0]), str(value[1]))
+            for relative, value in listed.items()
+        }
 
-    def copy_records(self, host: str, base: str, source: RecordFiles, target: RecordFiles,
-                     copy: list[str]) -> list[str]:
+    def copy_records(
+        self,
+        host: str,
+        base: str,
+        source: RecordFiles,
+        target: RecordFiles,
+        copy: list[str],
+    ) -> list[str]:
         """Stream the `copy` files to the host; return the files the target changed after inventory."""
-        producer = [sys.executable, "-c", RECORDS_BUNDLER, str(self.base / RECORDS), *copy]
-        planned = json.dumps({relative: list(target[relative]) if relative in target else None
-                              for relative in copy}, sort_keys=True)
+        producer = [
+            sys.executable,
+            "-c",
+            RECORDS_BUNDLER,
+            str(self.base / RECORDS),
+            *copy,
+        ]
+        planned = json.dumps(
+            {
+                relative: list(target[relative]) if relative in target else None
+                for relative in copy
+            },
+            sort_keys=True,
+        )
         consumer = self.remote(["python3", "-c", RECORDS_WRITER, base, planned], host)
         codes = tuple(self.pipeline(producer, consumer))[:2]
         if codes == (0, 5):
             # The writer refused files the target changed after inventory; name them.
-            relisted = json.loads(self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout)
-            changed = [relative for relative in copy
-                       if (relisted.get(relative) or [None, None])[1] != source[relative][1]]
+            relisted = json.loads(
+                self.command(["python3", "-c", RECORDS_LISTER, base], host).stdout
+            )
+            changed = [
+                relative
+                for relative in copy
+                if (relisted.get(relative) or [None, None])[1] != source[relative][1]
+            ]
             for relative in changed:
-                self.notes.append(f"{host}: record file {relative} changed on the target after "
-                                  "inventory; not overwritten (merge it into the rollout source "
-                                  "by hand, then re-run)")
+                self.notes.append(
+                    f"{host}: record file {relative} changed on the target after "
+                    "inventory; not overwritten (merge it into the rollout source "
+                    "by hand, then re-run)"
+                )
             return changed
         if codes != (0, 0):
             raise CommandError("failed")
@@ -474,14 +648,20 @@ class Rollout:
         target = self.listed_records(host, base)
         copy, newer = record_plan(source, target)
         for slug in newer:
-            self.notes.append(f"{host}: record {slug} is newer on the target; not overwritten "
-                              "(merge it into the rollout source by hand, then re-run)")
+            self.notes.append(
+                f"{host}: record {slug} is newer on the target; not overwritten "
+                "(merge it into the rollout source by hand, then re-run)"
+            )
         if copy and self.check:
             state = "stale"
-            self.notes.append(f"{host}: {len(copy)} record file(s) to copy; "
-                              "run device_rollout.py without --check")
+            self.notes.append(
+                f"{host}: {len(copy)} record file(s) to copy; "
+                "run device_rollout.py without --check"
+            )
         else:
-            changed = self.copy_records(host, base, source, target, copy) if copy else []
+            changed = (
+                self.copy_records(host, base, source, target, copy) if copy else []
+            )
             state = "record-newer" if changed else "current"
         return "record-newer" if newer else state
 
@@ -502,7 +682,9 @@ class Rollout:
                 state = "failed"
         self.rows.append([host, "records", "-", "-", "-", state])
 
-    def deployment(self, host: str, config: dict[str, Any], *, local_ready: bool) -> None:
+    def deployment(
+        self, host: str, config: dict[str, Any], *, local_ready: bool
+    ) -> None:
         deployed = expected = "-"
         state = "failed"
         try:
@@ -511,31 +693,66 @@ class Rollout:
             source = self.home / ".omp"
             branch = "origin/" + config["branch"]
             expected = self.git(source, "rev-parse", branch).stdout.strip()
-            ancestor = self.git(source, "merge-base", "--is-ancestor", "origin/main", branch,
-                                allowed=(0, 1))
+            ancestor = self.git(
+                source,
+                "merge-base",
+                "--is-ancestor",
+                "origin/main",
+                branch,
+                allowed=(0, 1),
+            )
             behind = ancestor.returncode == 1
             if behind:
-                count = self.git(source, "rev-list", "--count", branch + "..origin/main").stdout.strip()
-                self.notes.append(f"{host}: {config['branch']} behind main by {count} commits: "
-                                  "open an agent/nuc-sync-<date> PR")
+                count = self.git(
+                    source, "rev-list", "--count", branch + "..origin/main"
+                ).stdout.strip()
+                self.notes.append(
+                    f"{host}: {config['branch']} behind main by {count} commits: "
+                    "open an agent/nuc-sync-<date> PR"
+                )
             if not self.check:
                 try:
                     self.command(["systemctl", "--user", "start", config["unit"]], host)
                 except CommandError:
                     # No journal messages or command environments: status metadata only.
-                    status = self.command(["systemctl", "--user", "status", config["unit"],
-                                           "--no-pager", "--lines=0"], host, allowed=(0, 1, 3))
-                    lines = [line.strip() for line in status.stdout.splitlines()
-                             if line.strip().startswith(("Active:", "Result:"))]
-                    self.notes.append(f"{host}: service failed; status tail: " + " | ".join(lines[-10:]))
+                    status = self.command(
+                        [
+                            "systemctl",
+                            "--user",
+                            "status",
+                            config["unit"],
+                            "--no-pager",
+                            "--lines=0",
+                        ],
+                        host,
+                        allowed=(0, 1, 3),
+                    )
+                    lines = [
+                        line.strip()
+                        for line in status.stdout.splitlines()
+                        if line.strip().startswith(("Active:", "Result:"))
+                    ]
+                    self.notes.append(
+                        f"{host}: service failed; status tail: "
+                        + " | ".join(lines[-10:])
+                    )
                     raise CommandError("failed") from None
-            result = self.command(["sh", "-c", "cat " + shell_path(config["stateFile"])], host)
+            result = self.command(
+                ["sh", "-c", "cat " + shell_path(config["stateFile"])], host
+            )
             revision = json.loads(result.stdout)["revision"]
-            if not isinstance(revision, str) or len(revision) != 40 or any(
-                    char not in "0123456789abcdef" for char in revision):
+            if (
+                not isinstance(revision, str)
+                or len(revision) != 40
+                or any(char not in "0123456789abcdef" for char in revision)
+            ):
                 raise ValueError("invalid revision")
             deployed = revision
-            state = "nuc-config-behind" if behind else ("current" if deployed == expected else "stale")
+            state = (
+                "nuc-config-behind"
+                if behind
+                else ("current" if deployed == expected else "stale")
+            )
         except CommandError as error:
             state = error.state
         except (ValueError, KeyError, TypeError):
@@ -553,7 +770,9 @@ class Rollout:
             start = len(self.rows)
             self.checkout(host, "agents", config["agents"], host)
             if "omp" in config:
-                self.deployment(host, config["omp"], local_ready=local_omp in {"current", "stale"})
+                self.deployment(
+                    host, config["omp"], local_ready=local_omp in {"current", "stale"}
+                )
             self.finish_device(host, start, host, omp="omp" in config)
             self.runners(host, start, host)
             if "omp" in config:
@@ -561,17 +780,27 @@ class Rollout:
         return int(any(row[5] != "current" for row in self.rows))
 
     def report(self) -> str:
-        rows = [("device", "component", "deployed", "expected", "find", "state"), *self.rows]
+        rows = [
+            ("device", "component", "deployed", "expected", "find", "state"),
+            *self.rows,
+        ]
         widths = [max(len(row[column]) for row in rows) for column in range(6)]
-        return "\n".join("  ".join(value.ljust(width) for value, width in zip(row, widths, strict=True)).rstrip()
-                         for row in rows) + ("\n" + "\n".join(self.notes) if self.notes else "")
+        return "\n".join(
+            "  ".join(
+                value.ljust(width) for value, width in zip(row, widths, strict=True)
+            ).rstrip()
+            for row in rows
+        ) + ("\n" + "\n".join(self.notes) if self.notes else "")
 
 
 def main(argv: list[str] | None = None, machine: Machine | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true",
-                        help="fetch and report without pulling, starting services, "
-                             "provisioning keys or copying records")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="fetch and report without pulling, starting services, "
+        "provisioning keys or copying records",
+    )
     args = parser.parse_args(argv)
     registry = Path(__file__).with_name("device-rollout-hosts.json")
     rollout = Rollout(json.loads(registry.read_text()), machine, check=args.check)

@@ -46,7 +46,9 @@ def split_document(text: str) -> tuple[dict[str, Any], str]:
     """Return the front-matter values and the text after the closing fence."""
     values = parse_front_matter(text)
     lines = text.splitlines(keepends=True)
-    end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE)
+    end = next(
+        index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE
+    )
     return values, "".join(lines[end + 1 :])
 
 
@@ -88,7 +90,9 @@ def with_house_style_version(values: dict[str, Any]) -> dict[str, Any]:
     return {**values, "house_style": {**house_style, "version": shipped}}
 
 
-def with_lsp_notes(values: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[dict[str, Any], str | None]:
+def with_lsp_notes(
+    values: dict[str, Any], notes: list[dict[str, Any]]
+) -> tuple[dict[str, Any], str | None]:
     """Add ``command_notes.lsp`` when the profile has no LSP note yet."""
     if not notes:
         return values, None
@@ -96,7 +100,10 @@ def with_lsp_notes(values: dict[str, Any], notes: list[dict[str, Any]]) -> tuple
     if command_notes is None:
         return {**values, "command_notes": {"lsp": notes}}, None
     if not isinstance(command_notes, dict):
-        return values, "command_notes is not an object; record the LSP server there by hand"
+        return (
+            values,
+            "command_notes is not an object; record the LSP server there by hand",
+        )
     if "lsp" in command_notes:
         return values, None
     return {**values, "command_notes": {**command_notes, "lsp": notes}}, None

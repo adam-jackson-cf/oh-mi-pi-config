@@ -23,7 +23,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails import cli
 from guardrails.adapters import pytest as adapter
@@ -40,7 +42,9 @@ CONTAINERFILE = ROOT / ".devcontainer/Containerfile"
 FIXTURES = ROOT / "tests/fixtures/reference/adapter_pytest"
 
 TestMethod = TypeVar("TestMethod", bound=Callable[..., None])
-EXTRA_PRESENT = all(importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py"))
+EXTRA_PRESENT = all(
+    importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py")
+)
 EXTRA_REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
 RULE_IDS = {
     "TEST.no-self-mocking",
@@ -54,7 +58,9 @@ def needs_extra(test: TestMethod) -> TestMethod:
     """Skip without the extra, except where the gate requires it (then the test runs and fails)."""
     if EXTRA_PRESENT or EXTRA_REQUIRED:
         return test
-    return unittest.skip("pinned pytest extra not installed (requirements-pytest.lock)")(test)
+    return unittest.skip(
+        "pinned pytest extra not installed (requirements-pytest.lock)"
+    )(test)
 
 
 def requirement_entries(text: str) -> dict[str, frozenset[str]]:
@@ -75,7 +81,8 @@ def requirement_entries(text: str) -> dict[str, frozenset[str]]:
 def containerfile_lock() -> dict[str, frozenset[str]]:
     text = re.sub(r"\\\n", " ", CONTAINERFILE.read_text())
     block = next(
-        line for line in text.splitlines()
+        line
+        for line in text.splitlines()
         if line.startswith("RUN ") and "requirements-pytest.lock" in line
     )
     quoted = re.findall(r'"([^"]+)"', block.split("> /tmp/requirements-pytest.lock")[0])
@@ -102,7 +109,10 @@ def run_cli(*argv: str) -> tuple[int, str]:
     if "--repo" in args:
         record = RECORDS.get(str(Path(args[args.index("--repo") + 1]).resolve()))
         if record is not None:
-            args[args.index("--repo") + 2 : args.index("--repo") + 2] = ["--record", str(record)]
+            args[args.index("--repo") + 2 : args.index("--repo") + 2] = [
+                "--record",
+                str(record),
+            ]
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
         code = cli.main(args)
@@ -149,7 +159,10 @@ class StandardLibraryTests(unittest.TestCase):
             "assert 'pytest' not in sys.modules and 'ast_grep_py' not in sys.modules\n"
         )
         result = subprocess.run(
-            [sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         assert result.returncode == 0, result.stderr
 
@@ -159,7 +172,14 @@ class StandardLibraryTests(unittest.TestCase):
     def test_pytest_report_normalises_into_the_shared_schema(self) -> None:
         report = parse_report(FIXTURES / "dialect-mixed.xml", DIALECT)
         cases = {case.id: case for case in report.cases}
-        assert sorted(cases) == ["tests/test_basket.py::TestPricing::test_price[2-4]", "tests/test_basket.py::test_flaky_total", "tests/test_basket.py::test_receipt", "tests/test_basket.py::test_rounding", "tests/test_basket.py::test_total", "tests/test_basket.py::test_vendor"]
+        assert sorted(cases) == [
+            "tests/test_basket.py::TestPricing::test_price[2-4]",
+            "tests/test_basket.py::test_flaky_total",
+            "tests/test_basket.py::test_receipt",
+            "tests/test_basket.py::test_rounding",
+            "tests/test_basket.py::test_total",
+            "tests/test_basket.py::test_vendor",
+        ]
         vendor = cases["tests/test_basket.py::test_vendor"]
         assert (vendor.outcome, vendor.reason) == ("skipped", "waiting on vendor fix")
         rounding = cases["tests/test_basket.py::test_rounding"]
@@ -176,7 +196,9 @@ class StandardLibraryTests(unittest.TestCase):
         assert adapter.guard_evidence(FIXTURES / "guards-t1-armed.xml", "t1") == []
 
     def test_guard_evidence_reports_a_missing_fast_tier_guard(self) -> None:
-        findings = adapter.guard_evidence(FIXTURES / "guards-t1-user-data-only.xml", "t1")
+        findings = adapter.guard_evidence(
+            FIXTURES / "guards-t1-user-data-only.xml", "t1"
+        )
         assert [item.rule_id for item in findings] == ["TEST.fast-tier-isolation"]
 
     def test_guard_evidence_rejects_another_tiers_report(self) -> None:
@@ -199,7 +221,9 @@ class StandardLibraryTests(unittest.TestCase):
             assert read is None
 
     def test_fast_tier_guard_names_process_and_network_events(self) -> None:
-        process = guards.fast_tier_violation("subprocess.Popen", ("git", ["git"], None, None))
+        process = guards.fast_tier_violation(
+            "subprocess.Popen", ("git", ["git"], None, None)
+        )
         assert process is not None
         assert "TEST.fast-tier-isolation" in process
         assert guards.fast_tier_violation("open", ("x", "r", 0)) is None
@@ -214,15 +238,31 @@ class StandardLibraryTests(unittest.TestCase):
             repo = Path(scratch)
             write_profile(repo, {"adapter": "pytest"})
             report = Path(scratch).parent / "reports/t1.xml"
-            code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
-                                "--out", str(report))
+            code, out = run_cli(
+                "adapter",
+                "--repo",
+                str(repo),
+                "junit-args",
+                "--tier",
+                "t1",
+                "--out",
+                str(report),
+            )
             assert code == 0
             assert "--omp-guard=fast-tier,user-data" in out
             assert "--omp-tier=t1" in out
             assert f"--junitxml={report}" in out
             for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
-                code, out = run_cli("adapter", "--repo", str(repo), "junit-args", "--tier", "t1",
-                                    "--out", inside)
+                code, out = run_cli(
+                    "adapter",
+                    "--repo",
+                    str(repo),
+                    "junit-args",
+                    "--tier",
+                    "t1",
+                    "--out",
+                    inside,
+                )
                 assert code == 1
                 assert "GUARDRAILS.output-outside-repo" in out
             code, out = run_cli("adapter", "--repo", str(repo), "mutation-tool")
@@ -268,23 +308,45 @@ class MutationTests(unittest.TestCase):
         environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         environment.update(GIT_ENV)
         for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
-            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True,
-                           env={**environment, "GIT_CONFIG_GLOBAL": os.devnull}, timeout=60)
+            subprocess.run(
+                ["git", "-C", str(self.repo), *args],
+                check=True,
+                capture_output=True,
+                env={**environment, "GIT_CONFIG_GLOBAL": os.devnull},
+                timeout=60,
+            )
 
     def test_mutmut_results_normalise_to_function_spans(self) -> None:
-        code, out = run_cli("adapter", "--repo", str(self.repo), "mutation-report",
-                            "--out", self.report)
+        code, out = run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
         assert code == 0, out
         report = json.loads(Path(self.report).read_text())
-        spans = {(m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
-                 for m in report["mutants"]}
-        assert spans == {("x_total__mutmut_1", 1, 2, "killed"), ("x_clamp__mutmut_1", 5, 10, "survived"), ("x_clamp__mutmut_2", 5, 10, "survived"), ("xǁAccountǁdeposit__mutmut_1", 14, 15, "killed")}
+        spans = {
+            (m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
+            for m in report["mutants"]
+        }
+        assert spans == {
+            ("x_total__mutmut_1", 1, 2, "killed"),
+            ("x_clamp__mutmut_1", 5, 10, "survived"),
+            ("x_clamp__mutmut_2", 5, 10, "survived"),
+            ("xǁAccountǁdeposit__mutmut_1", 14, 15, "killed"),
+        }
         assert {m["path"] for m in report["mutants"]} == {"src/ledger/core.py"}
 
     def test_surviving_mutant_in_changed_code_fails_the_check(self) -> None:
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
-                            "--base", "HEAD~1")
+        run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
+        code, out = run_cli(
+            "mutation-check",
+            "--repo",
+            str(self.repo),
+            "--report",
+            self.report,
+            "--base",
+            "HEAD~1",
+        )
         assert code == 1
         assert out.count("TEST.mutation-sensitivity") == 2
         assert "x_clamp__mutmut_1 survived in changed code" in out
@@ -295,9 +357,18 @@ class MutationTests(unittest.TestCase):
         data = json.loads(meta.read_text())
         data["exit_code_by_key"] = dict.fromkeys(data["exit_code_by_key"], 1)
         meta.write_text(json.dumps(data))
-        run_cli("adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report)
-        code, out = run_cli("mutation-check", "--repo", str(self.repo), "--report", self.report,
-                            "--base", "HEAD~1")
+        run_cli(
+            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+        )
+        code, out = run_cli(
+            "mutation-check",
+            "--repo",
+            str(self.repo),
+            "--report",
+            self.report,
+            "--base",
+            "HEAD~1",
+        )
         assert (code, out.strip()) == (0, "mutation-check: ok")
 
     def test_missing_mutmut_results_are_a_finding(self) -> None:
@@ -309,7 +380,15 @@ class MutationTests(unittest.TestCase):
         assert "no mutmut results" in out
 
     def test_exit_codes_map_to_shared_statuses(self) -> None:
-        assert [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)] == ["killed", "survived", "no_tests", "timeout", "incomplete", "incomplete", "incomplete"]
+        assert [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)] == [
+            "killed",
+            "survived",
+            "no_tests",
+            "timeout",
+            "incomplete",
+            "incomplete",
+            "incomplete",
+        ]
 
     def test_mutation_lock_pins_both_extras_with_hashes(self) -> None:
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
@@ -339,7 +418,11 @@ class TestOnlySymbolTests(unittest.TestCase):
     }
     PROFILE = {"public_entry_points": {"shop": "shop.cli:main"}}
 
-    def findings(self, production: dict[str, str] | None = None, profile: dict[str, Any] | None = None) -> list[Finding]:
+    def findings(
+        self,
+        production: dict[str, str] | None = None,
+        profile: dict[str, Any] | None = None,
+    ) -> list[Finding]:
         production = production or self.PRODUCTION
         return symbol_usage.test_only_findings(
             production, self.TESTS, profile or self.PROFILE, set(production)
@@ -347,7 +430,10 @@ class TestOnlySymbolTests(unittest.TestCase):
 
     def test_symbol_only_tests_use_is_reported(self) -> None:
         found = self.findings()
-        assert sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found) == [("TEST.no-test-hooks", "shop/cart.py", "Basket"), ("TEST.no-test-hooks", "shop/cart.py", "reset_cache_for_tests")]
+        assert sorted((f.rule_id, f.path, f.message.split("'")[1]) for f in found) == [
+            ("TEST.no-test-hooks", "shop/cart.py", "Basket"),
+            ("TEST.no-test-hooks", "shop/cart.py", "reset_cache_for_tests"),
+        ]
         assert "(tests/test_cart.py)" in found[0].message
 
     def test_production_use_entry_points_and_exports_pass(self) -> None:
@@ -367,9 +453,12 @@ class TestOnlySymbolTests(unittest.TestCase):
     def test_lint_reports_test_only_symbols_in_linted_production_files(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            profile = {"adapter": "pytest", **self.PROFILE,
-                       "tiers": {"t1": {"location": "tests"}},
-                       "layout": {"test_file_patterns": ["test_*.py"]}}
+            profile = {
+                "adapter": "pytest",
+                **self.PROFILE,
+                "tiers": {"t1": {"location": "tests"}},
+                "layout": {"test_file_patterns": ["test_*.py"]},
+            }
             write_profile(repo, profile)
             for path, text in {**self.PRODUCTION, **self.TESTS}.items():
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
@@ -416,14 +505,27 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
     (repo / "shop").mkdir(parents=True)
     (repo / "tests").mkdir()
     (repo / "shop/__init__.py").write_text("")
-    (repo / "shop/core.py").write_text("def price(quantity):\n    return quantity * 2\n")
-    (repo / "pytest.ini").write_text("[pytest]\nmarkers =\n    fast: t1\n    slow: t2\n")
+    (repo / "shop/core.py").write_text(
+        "def price(quantity):\n    return quantity * 2\n"
+    )
+    (repo / "pytest.ini").write_text(
+        "[pytest]\nmarkers =\n    fast: t1\n    slow: t2\n"
+    )
     (repo / "tests/test_shop.py").write_text(test_source)
     write_profile(repo, SHOP_PROFILE)
     git(repo, "init", "-q")
     git(repo, "add", ".")
-    git(repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid",
-        "commit", "-q", "-m", "fixture")
+    git(
+        repo,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "fixture",
+    )
     return repo
 
 
@@ -456,7 +558,9 @@ class ExtraTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
             out_dir = Path(scratch, "collections")
-            code, out = run_cli("adapter", "--repo", str(repo), "tiers", "--out", str(out_dir))
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "tiers", "--out", str(out_dir)
+            )
             assert code == 0, out
             listing = (out_dir / "t1.txt").read_text()
             assert "tests/test_shop.py::test_price_doubles" in listing
@@ -479,21 +583,43 @@ class ExtraTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
             report = Path(scratch, "t1.xml")
-            command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-m", "fast",
-                       *adapter.tier_arguments("t1", str(report)), "tests"]
+            command = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "-m",
+                "fast",
+                *adapter.tier_arguments("t1", str(report)),
+                "tests",
+            ]
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
             environment.pop("PYTEST_ADDOPTS", None)
-            result = subprocess.run(command, cwd=repo, env=environment, capture_output=True,
-                                    text=True, timeout=300)
+            result = subprocess.run(
+                command,
+                cwd=repo,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
             assert result.returncode == 0, result.stdout + result.stderr
-            head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True, timeout=60).stdout.strip()
+            head = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            ).stdout.strip()
             parsed = parse_report(report, DIALECT)
             assert parsed.properties["omp.revision"] == head
             assert parsed.properties["omp.tier"] == "t1"
             assert parsed.properties["omp.exit_code"] == "0"
             assert parsed.properties["omp.runtime"].startswith("python 3.")
-            assert [case.id for case in parsed.cases] == ["tests/test_shop.py::test_price_doubles"]
+            assert [case.id for case in parsed.cases] == [
+                "tests/test_shop.py::test_price_doubles"
+            ]
             assert adapter.guard_evidence(report, "t1") == []
 
 

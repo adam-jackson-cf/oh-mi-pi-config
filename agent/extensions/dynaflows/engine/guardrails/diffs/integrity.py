@@ -22,24 +22,126 @@ DIRECTIVE = re.compile(
     r"biome-ignore\b|go:build\b|nolint\b|SPDX-License-Identifier:|markdownlint-|"
     r".*(?:-\*-.*-\*-|vim:|vi:|ex:)|.*coding[:=]\s*[-\w.]+)"
 )
-HASH = {".sh", ".bash", ".zsh", ".fish", ".yml", ".yaml", ".toml", ".conf", ".rb", ".pl", ".pm", ".r", ".ps1", ".dockerfile", ".mk", ".nix", ".jl", ".tcl", ".awk", ".tf", ".tfvars", ".hcl", ".env", ".graphql", ".gql", ".ex", ".exs", ".cmake", ".gemspec", ".rake"}
-SLASH = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".jsonc", ".json5", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".java", ".cs", ".go", ".rs", ".swift", ".kt", ".kts", ".scala", ".dart", ".php", ".css", ".scss", ".less", ".vue", ".svelte", ".proto", ".groovy", ".gradle", ".sol", ".m", ".mm", ".tf", ".tfvars", ".hcl", ".prisma"}
+HASH = {
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".conf",
+    ".rb",
+    ".pl",
+    ".pm",
+    ".r",
+    ".ps1",
+    ".dockerfile",
+    ".mk",
+    ".nix",
+    ".jl",
+    ".tcl",
+    ".awk",
+    ".tf",
+    ".tfvars",
+    ".hcl",
+    ".env",
+    ".graphql",
+    ".gql",
+    ".ex",
+    ".exs",
+    ".cmake",
+    ".gemspec",
+    ".rake",
+}
+SLASH = {
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".mjs",
+    ".cjs",
+    ".mts",
+    ".cts",
+    ".jsonc",
+    ".json5",
+    ".c",
+    ".h",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".hpp",
+    ".java",
+    ".cs",
+    ".go",
+    ".rs",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".dart",
+    ".php",
+    ".css",
+    ".scss",
+    ".less",
+    ".vue",
+    ".svelte",
+    ".proto",
+    ".groovy",
+    ".gradle",
+    ".sol",
+    ".m",
+    ".mm",
+    ".tf",
+    ".tfvars",
+    ".hcl",
+    ".prisma",
+}
 HTML = {".html", ".htm", ".xml", ".svg", ".md", ".markdown", ".mdx"}
-MOCK_MODULES = {"mock", "pytest_mock", "unittest.mock", "sinon", "jest-mock", "ts-mockito", "testdouble", "mock-require", "proxyquire"}
+MOCK_MODULES = {
+    "mock",
+    "pytest_mock",
+    "unittest.mock",
+    "sinon",
+    "jest-mock",
+    "ts-mockito",
+    "testdouble",
+    "mock-require",
+    "proxyquire",
+}
 
 
 def finding(rule: str, path: str, line: int, message: str) -> Finding:
-    return Finding(rule, path, f"line {line}: {message}", "implement the behavior without comments, placeholder bodies or product mocks")
+    return Finding(
+        rule,
+        path,
+        f"line {line}: {message}",
+        "implement the behavior without comments, placeholder bodies or product mocks",
+    )
 
 
-HASH_NAMES = frozenset({"dockerfile", "makefile", "cmakelists.txt", "rakefile", ".gitignore", ".gitattributes", ".env"})
+HASH_NAMES = frozenset({
+    "dockerfile",
+    "makefile",
+    "cmakelists.txt",
+    "rakefile",
+    ".gitignore",
+    ".gitattributes",
+    ".env",
+})
 # Comment markers by file suffix, in the order they are tried at each position.
 SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] = (
-    (frozenset({".sql", ".lua", ".hs", ".elm", ".vhd", ".vhdl", ".ada"}), (("--", "\n"),)),
+    (
+        frozenset({".sql", ".lua", ".hs", ".elm", ".vhd", ".vhdl", ".ada"}),
+        (("--", "\n"),),
+    ),
     (frozenset({".sql"}), (("/*", "*/"),)),
     (frozenset({".hs", ".elm"}), (("{-", "-}"),)),
     (frozenset({".tex", ".erl", ".hrl", ".pro"}), (("%", "\n"),)),
-    (frozenset({".el", ".lisp", ".clj", ".cljs", ".edn", ".scm", ".rkt", ".asm"}), ((";", "\n"),)),
+    (
+        frozenset({".el", ".lisp", ".clj", ".cljs", ".edn", ".scm", ".rkt", ".asm"}),
+        ((";", "\n"),),
+    ),
     (frozenset({".ini", ".cfg"}), (("#", "\n"), (";", "\n"))),
     (frozenset({".properties"}), (("#", "\n"), ("!", "\n"))),
     (frozenset({*HTML, ".vue", ".svelte"}), (("<!--", "-->"),)),
@@ -70,14 +172,16 @@ def comment_stop(text: str, at: int, marker: tuple[str, str]) -> int:
     return len(text) if stop < 0 else stop + (0 if end == "\n" else len(end))
 
 
-def comment_span(text: str, at: int, stop: int, marker: tuple[str, str]) -> tuple[int, int, str]:
+def comment_span(
+    text: str, at: int, stop: int, marker: tuple[str, str]
+) -> tuple[int, int, str]:
     """``(first line, last line, content)`` of the comment between ``at`` and ``stop``."""
     start, end = marker
     content_end = stop - len(end) if end != "\n" and text[:stop].endswith(end) else stop
     return (
         text.count("\n", 0, at) + 1,
         text.count("\n", 0, max(at, stop - 1)) + 1,
-        text[at + len(start):content_end],
+        text[at + len(start) : content_end],
     )
 
 
@@ -106,7 +210,9 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
     comments = []
     at = 0
     while at < len(text):
-        marker = next(((start, end) for start, end in markers if text.startswith(start, at)), None)
+        marker = next(
+            ((start, end) for start, end in markers if text.startswith(start, at)), None
+        )
         if marker:
             stop = comment_stop(text, at, marker)
             if not (at == 0 and text.startswith("#!")):
@@ -125,25 +231,44 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
 
 def is_test(path: str, profile: dict[str, Any]) -> bool:
     layout = profile.get("layout", {})
-    locations = [location for values in tier_locations(profile).values() for location in values]
+    locations = [
+        location for values in tier_locations(profile).values() for location in values
+    ]
     locations.extend(as_list(layout.get("support_dir")))
     locations.extend(as_list(layout.get("fixtures_dir")))
     return matches_any(path, locations)
 
 
-def add_comment_findings(text: str, path: str, added: set[int], findings: list[Finding]) -> None:
+def add_comment_findings(
+    text: str, path: str, added: set[int], findings: list[Finding]
+) -> None:
     """Append a finding per added comment token; tokenize errors propagate with earlier findings kept."""
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type == tokenize.COMMENT and token.start[0] in added and not DIRECTIVE.match(token.string[1:].strip()) and not (token.start[0] == 1 and token.string.startswith("#!")):
+        if (
+            token.type == tokenize.COMMENT
+            and token.start[0] in added
+            and not DIRECTIVE.match(token.string[1:].strip())
+            and not (token.start[0] == 1 and token.string.startswith("#!"))
+        ):
             findings.append(finding(COMMENTS, path, token.start[0], "added comment"))
 
 
 def declaration_names(tree: ast.Module) -> dict[str, str]:
     """Local name -> typing/abc name for ``Protocol``, ``abstractmethod`` and ``overload`` imports."""
-    names = {"Protocol": "Protocol", "abstractmethod": "abstractmethod", "overload": "overload"}
+    names = {
+        "Protocol": "Protocol",
+        "abstractmethod": "abstractmethod",
+        "overload": "overload",
+    }
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in {"typing", "typing_extensions", "abc"}:
-            names.update((alias.asname or alias.name, alias.name) for alias in node.names)
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "typing",
+            "typing_extensions",
+            "abc",
+        }:
+            names.update(
+                (alias.asname or alias.name, alias.name) for alias in node.names
+            )
     return names
 
 
@@ -151,7 +276,11 @@ def protocol_members(tree: ast.Module, names: dict[str, str]) -> set[int]:
     """Node ids of every statement in a Protocol class body."""
     members: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and any((isinstance(base, ast.Name) and names.get(base.id) == "Protocol") or (isinstance(base, ast.Attribute) and base.attr == "Protocol") for base in node.bases):
+        if isinstance(node, ast.ClassDef) and any(
+            (isinstance(base, ast.Name) and names.get(base.id) == "Protocol")
+            or (isinstance(base, ast.Attribute) and base.attr == "Protocol")
+            for base in node.bases
+        ):
             members.update(id(child) for child in node.body)
     return members
 
@@ -159,29 +288,62 @@ def protocol_members(tree: ast.Module, names: dict[str, str]) -> set[int]:
 def docstring_findings(tree: ast.Module, path: str, added: set[int]) -> list[Finding]:
     findings: list[Finding] = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+        if (
+            isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            )
+            and node.body
+        ):
             first = node.body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-                findings.extend(finding(COMMENTS, path, line, "added docstring")
-                                for line in sorted(added.intersection(range(first.lineno, (first.end_lineno or first.lineno) + 1))))
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                findings.extend(
+                    finding(COMMENTS, path, line, "added docstring")
+                    for line in sorted(
+                        added.intersection(
+                            range(first.lineno, (first.end_lineno or first.lineno) + 1)
+                        )
+                    )
+                )
     return findings
 
 
 def placeholder_finding(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, path: str, added: set[int], names: dict[str, str]
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    path: str,
+    added: set[int],
+    names: dict[str, str],
 ) -> Finding | None:
-    decorators = {names.get(name, name) for item in node.decorator_list for name in [ast.unparse(item).split("(")[0].split(".")[-1]]}
+    decorators = {
+        names.get(name, name)
+        for item in node.decorator_list
+        for name in [ast.unparse(item).split("(")[0].split(".")[-1]]
+    }
     body = node.body
-    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
         body = body[1:]
     if len(body) != 1 or decorators.intersection({"abstractmethod", "overload"}):
         return None
     item = body[0]
-    placeholder = isinstance(item, ast.Pass) or (isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant) and item.value.value is Ellipsis)
+    placeholder = isinstance(item, ast.Pass) or (
+        isinstance(item, ast.Expr)
+        and isinstance(item.value, ast.Constant)
+        and item.value.value is Ellipsis
+    )
     if isinstance(item, ast.Raise):
         exc = item.exc.func if isinstance(item.exc, ast.Call) else item.exc
         placeholder |= isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
-    if placeholder and added.intersection(range(item.lineno, (item.end_lineno or item.lineno) + 1)):
+    if placeholder and added.intersection(
+        range(item.lineno, (item.end_lineno or item.lineno) + 1)
+    ):
         return finding(PLACEHOLDERS, path, item.lineno, "placeholder function body")
     return None
 
@@ -191,29 +353,60 @@ def mock_import_finding(node: ast.AST, path: str) -> Finding | None:
     if isinstance(node, ast.Import):
         names = [alias.name for alias in node.names]
     elif isinstance(node, ast.ImportFrom):
-        names = [node.module or "", *((node.module + "." + alias.name) if node.module else alias.name for alias in node.names)]
-    if any(name == module or name.startswith(module + ".") for name in names for module in MOCK_MODULES):
-        return finding(MOCKS, path, getattr(node, "lineno", 1), "mock library imported in product code")
+        names = [
+            node.module or "",
+            *(
+                (node.module + "." + alias.name) if node.module else alias.name
+                for alias in node.names
+            ),
+        ]
+    if any(
+        name == module or name.startswith(module + ".")
+        for name in names
+        for module in MOCK_MODULES
+    ):
+        return finding(
+            MOCKS,
+            path,
+            getattr(node, "lineno", 1),
+            "mock library imported in product code",
+        )
     return None
 
 
-def python_findings(text: str, path: str, added: set[int], profile: dict[str, Any]) -> list[Finding]:
+def python_findings(
+    text: str, path: str, added: set[int], profile: dict[str, Any]
+) -> list[Finding]:
     findings: list[Finding] = []
     try:
         add_comment_findings(text, path, added, findings)
         tree = ast.parse(text, filename=path)
     except (SyntaxError, tokenize.TokenError, IndentationError) as error:
-        return [*findings, finding(COMMENTS, path, getattr(error, "lineno", 1) or 1, f"cannot tokenize/parse Python: {error}")]
+        return [
+            *findings,
+            finding(
+                COMMENTS,
+                path,
+                getattr(error, "lineno", 1) or 1,
+                f"cannot tokenize/parse Python: {error}",
+            ),
+        ]
     names = declaration_names(tree)
     protocol_methods = protocol_members(tree, names)
     findings.extend(docstring_findings(tree, path, added))
     product = not is_test(path, profile)
     for node in ast.walk(tree):
-        lines = range(getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1)
+        lines = range(
+            getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1
+        )
         if not added.intersection(lines):
             continue
         found = []
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not path.endswith(".pyi") and id(node) not in protocol_methods:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not path.endswith(".pyi")
+            and id(node) not in protocol_methods
+        ):
             found.append(placeholder_finding(node, path, added, names))
         if product:
             found.append(mock_import_finding(node, path))
@@ -221,7 +414,9 @@ def python_findings(text: str, path: str, added: set[int], profile: dict[str, An
     return findings
 
 
-def inspect(text: str, path: str, added: set[int], profile: dict[str, Any]) -> list[Finding]:
+def inspect(
+    text: str, path: str, added: set[int], profile: dict[str, Any]
+) -> list[Finding]:
     if not added:
         return []
     if path.endswith((".py", ".pyi")):
@@ -233,7 +428,9 @@ def inspect(text: str, path: str, added: set[int], profile: dict[str, Any]) -> l
     return findings
 
 
-def comment_findings(comments: list[tuple[int, int, str]], path: str, added: set[int]) -> list[Finding]:
+def comment_findings(
+    comments: list[tuple[int, int, str]], path: str, added: set[int]
+) -> list[Finding]:
     findings = []
     for start, end, content in comments:
         lines = [line.strip().lstrip("*").strip() for line in content.split("\n")]
@@ -245,26 +442,45 @@ def comment_findings(comments: list[tuple[int, int, str]], path: str, added: set
     return findings
 
 
-def script_mock_findings(text: str, code: str, path: str, added: set[int]) -> list[Finding]:
+def script_mock_findings(
+    text: str, code: str, path: str, added: set[int]
+) -> list[Finding]:
     """Mock calls and mock-library imports added to JavaScript or TypeScript product code."""
     findings = []
-    pattern = re.compile(r"\b(?:jest|vi)\s*\.\s*(?:mock|doMock|unstable_mockModule)\s*\(")
+    pattern = re.compile(
+        r"\b(?:jest|vi)\s*\.\s*(?:mock|doMock|unstable_mockModule)\s*\("
+    )
     for match in pattern.finditer(code):
         line = code.count("\n", 0, match.start()) + 1
         if line in added:
             findings.append(finding(MOCKS, path, line, "mock call in product code"))
-    import_pattern = re.compile(r"(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*(?:\(\s*)?)[\"'](" + "|".join(re.escape(name) for name in MOCK_MODULES) + r")(?:/[^\"']*)?[\"']")
+    import_pattern = re.compile(
+        r"(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*(?:\(\s*)?)[\"']("
+        + "|".join(re.escape(name) for name in MOCK_MODULES)
+        + r")(?:/[^\"']*)?[\"']"
+    )
     for match in import_pattern.finditer(text):
         line = text.count("\n", 0, match.start()) + 1
-        if line in added and code[match.start():match.start() + 1].strip():
-            findings.append(finding(MOCKS, path, line, "mock library imported in product code"))
+        if line in added and code[match.start() : match.start() + 1].strip():
+            findings.append(
+                finding(MOCKS, path, line, "mock library imported in product code")
+            )
     return findings
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
-        names = git(repo, "diff", "--name-only", "-z", "--diff-filter=ACMR", diff.base, diff.head, "--").split("\0")
+        names = git(
+            repo,
+            "diff",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+            diff.base,
+            diff.head,
+            "--",
+        ).split("\0")
         return check_files(repo, profile, names, Revisions(diff.base, diff.head))
     except DiffError as error:
         return [range_finding(COMMENTS, error)]
@@ -279,14 +495,31 @@ class Revisions:
     staged: bool = False
 
 
-def check_files(repo: Path, profile: dict[str, Any], names: list[str], revisions: Revisions) -> list[Finding]:
+def check_files(
+    repo: Path, profile: dict[str, Any], names: list[str], revisions: Revisions
+) -> list[Finding]:
     findings = []
     base, head, staged = revisions.base, revisions.head, revisions.staged
     for path in filter(None, names):
-        text = git(repo, "show", f":{path}") if staged else file_at(repo, head, path) if head else (repo / path).read_text(errors="replace")
+        text = (
+            git(repo, "show", f":{path}")
+            if staged
+            else file_at(repo, head, path)
+            if head
+            else (repo / path).read_text(errors="replace")
+        )
         if text is None or "\0" in text:
             continue
-        args = ["diff", "-U0", "--no-ext-diff", *(["--cached"] if staged else []), base, *([head] if head else []), "--", path]
+        args = [
+            "diff",
+            "-U0",
+            "--no-ext-diff",
+            *(["--cached"] if staged else []),
+            base,
+            *([head] if head else []),
+            "--",
+            path,
+        ]
         patch = git(repo, *args)
         added: set[int] = set()
         for line in patch.splitlines():
@@ -306,10 +539,29 @@ def commit_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
             base = git(repo, "rev-parse", "--verify", "HEAD").strip()
         except DiffError:
             base = git(repo, "hash-object", "-t", "tree", "/dev/null").strip()
-        staged = git(repo, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", base, "--").split("\0")
-        names = (git(repo, "diff", "--name-only", "-z", "--diff-filter=ACMR", base, "--") + git(repo, "ls-files", "-z", "--others", "--exclude-standard")).split("\0")
+        staged = git(
+            repo,
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+            base,
+            "--",
+        ).split("\0")
+        names = (
+            git(repo, "diff", "--name-only", "-z", "--diff-filter=ACMR", base, "--")
+            + git(repo, "ls-files", "-z", "--others", "--exclude-standard")
+        ).split("\0")
         findings = check_files(repo, profile, staged, Revisions(base, staged=True))
-        findings.extend(check_files(repo, profile, [path for path in names if path and (repo / path).is_file()], Revisions(base)))
+        findings.extend(
+            check_files(
+                repo,
+                profile,
+                [path for path in names if path and (repo / path).is_file()],
+                Revisions(base),
+            )
+        )
         return list(dict.fromkeys(findings))
     except (DiffError, OSError) as error:
         return [range_finding(COMMENTS, DiffError(str(error)))]

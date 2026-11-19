@@ -140,8 +140,14 @@ def violation(event: str, args: tuple[Any, ...]) -> str | None:
 def fast_tier_violation(event: str, args: tuple[Any, ...]) -> str | None:
     rule = RULES[FAST_TIER]
     if event in PROCESS_EVENTS:
-        return f"{rule}: the fast tier may not start a process ({event} {describe(args)})"
-    if event in NETWORK_EVENTS and args and getattr(args[0], "family", None) in IP_FAMILIES:
+        return (
+            f"{rule}: the fast tier may not start a process ({event} {describe(args)})"
+        )
+    if (
+        event in NETWORK_EVENTS
+        and args
+        and getattr(args[0], "family", None) in IP_FAMILIES
+    ):
         address = args[1] if len(args) > 1 else ""
         return f"{rule}: the fast tier may not use the network ({event} {address!r})"
     return None
@@ -152,7 +158,9 @@ def describe(args: tuple[Any, ...]) -> str:
         if isinstance(item, (str, bytes, os.PathLike)):
             return repr(os.fsdecode(item))
         if isinstance(item, (list, tuple)) and item:
-            return repr([os.fsdecode(part) for part in item if isinstance(part, (str, bytes))])
+            return repr([
+                os.fsdecode(part) for part in item if isinstance(part, (str, bytes))
+            ])
     return ""
 
 

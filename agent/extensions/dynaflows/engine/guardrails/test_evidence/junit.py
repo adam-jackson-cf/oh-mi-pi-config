@@ -87,7 +87,12 @@ class Dialect:
     name: str = "generic"
     source_suffix: str | None = None
     xfail_markers: tuple[str, ...] = ("xfail",)
-    retry_tags: tuple[str, ...] = ("rerunFailure", "rerunError", "flakyFailure", "flakyError")
+    retry_tags: tuple[str, ...] = (
+        "rerunFailure",
+        "rerunError",
+        "flakyFailure",
+        "flakyError",
+    )
     retry_properties: tuple[str, ...] = ("retries", "retry")
 
     def case_file(self, case: ElementTree.Element) -> str:
@@ -109,7 +114,9 @@ class Dialect:
         if not classname or "/" in classname or classname == file:
             return name
         stem, dot, _ = file.rpartition(".")
-        module = (stem if dot and "/" not in file[len(stem) :] else file).replace("/", ".")
+        module = (stem if dot and "/" not in file[len(stem) :] else file).replace(
+            "/", "."
+        )
         if classname == module or classname.startswith(f"{module}."):
             classname = classname[len(module) :]
         return "::".join([*filter(None, classname.split(".")), name])
@@ -170,7 +177,9 @@ def dialect_for(name: str | None, configured: object = None) -> Dialect:
     if isinstance(configured, dict):
         unknown = sorted(set(configured) - set(DIALECT_FIELDS))
         if unknown:
-            raise UsageError(f"guardrails.test_evidence.dialect has unknown fields {unknown}")
+            raise UsageError(
+                f"guardrails.test_evidence.dialect has unknown fields {unknown}"
+            )
         values: dict[str, Any] = {
             key: tuple(value) if isinstance(value, list) else value
             for key, value in configured.items()
@@ -208,14 +217,18 @@ def parse_text(text: str, dialect: Dialect, source: str) -> Report:
     except ElementTree.ParseError as error:
         raise ReportError(f"run report is not well-formed XML: {error}") from error
     if root.tag not in {"testsuites", "testsuite"}:
-        raise ReportError(f"run report root is <{root.tag}>, not <testsuites> or <testsuite>")
+        raise ReportError(
+            f"run report root is <{root.tag}>, not <testsuites> or <testsuite>"
+        )
     cases = tuple(normalise(case, dialect) for case in root.iter("testcase"))
     properties = {}
     for holder in [root, *root.iter("testsuite")]:
         for group in holder.findall("properties"):
             for item in group.findall("property"):
                 if item.get("name"):
-                    properties[item.get("name", "")] = item.get("value", item.text or "")
+                    properties[item.get("name", "")] = item.get(
+                        "value", item.text or ""
+                    )
     wall = properties.get("omp.wall_s", root.get("time"))
     return Report(source, cases, properties, as_seconds(wall), declared_counts(root))
 
@@ -236,7 +249,9 @@ def normalise(case: ElementTree.Element, dialect: Dialect) -> Case:
 
 def declared_counts(root: ElementTree.Element) -> dict[str, int]:
     """Counts declared by leaf suites (or the root when it is the only suite)."""
-    suites = [suite for suite in root.iter("testsuite") if suite.find("testsuite") is None]
+    suites = [
+        suite for suite in root.iter("testsuite") if suite.find("testsuite") is None
+    ]
     totals: dict[str, int] = {}
     for suite in suites or [root]:
         for key in ("tests", "failures", "errors"):
@@ -293,14 +308,20 @@ def evidence_settings(profile: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def load_run_report(repo: Path, profile: dict[str, Any], options: ReportOptions) -> Report:
+def load_run_report(
+    repo: Path, profile: dict[str, Any], options: ReportOptions
+) -> Report:
     """Parse ``--junit`` with the dialect named by ``--dialect``, settings or the adapter."""
     if options.junit is None:
         raise ReportError("no run report given; pass --junit <path>")
     settings = evidence_settings(profile)
-    adapter = profile.get("adapter") if isinstance(profile.get("adapter"), str) else None
+    adapter = (
+        profile.get("adapter") if isinstance(profile.get("adapter"), str) else None
+    )
     dialect = dialect_for(options.dialect or adapter, settings.get("dialect"))
-    return parse_report(options.junit, dialect, display_path(repo, options.junit, "run report"))
+    return parse_report(
+        options.junit, dialect, display_path(repo, options.junit, "run report")
+    )
 
 
 def display_path(repo: Path, path: Path | None, subcommand: str) -> str:

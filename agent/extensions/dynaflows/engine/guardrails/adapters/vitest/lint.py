@@ -1,4 +1,5 @@
 """AST source checks for Vitest and fast-check, with shared repository inventory."""
+
 from __future__ import annotations
 
 import json
@@ -47,19 +48,40 @@ class Rule:
 
 
 def load_rules() -> list[Rule]:
-    text = resources.files("guardrails.adapters.vitest").joinpath("patterns.yml").read_text(encoding="utf-8")
-    return [Rule(item["id"], item["scope"], item["target"], item["message"], item["fix"], {"rule": item["rule"]}) for item in json.loads(text)]
+    text = (
+        resources
+        .files("guardrails.adapters.vitest")
+        .joinpath("patterns.yml")
+        .read_text(encoding="utf-8")
+    )
+    return [
+        Rule(
+            item["id"],
+            item["scope"],
+            item["target"],
+            item["message"],
+            item["fix"],
+            {"rule": item["rule"]},
+        )
+        for item in json.loads(text)
+    ]
 
 
 def source_files(repo: Path, paths: list[str]) -> list[str]:
-    return sorted({path for raw in (paths or repo_paths(repo))
-                   if (path := normalized_path(repo, raw)) is not None
-                   and path.endswith(SUFFIXES) and not SKIPPED.intersection(PurePosixPath(path).parts)})
+    return sorted({
+        path
+        for raw in (paths or repo_paths(repo))
+        if (path := normalized_path(repo, raw)) is not None
+        and path.endswith(SUFFIXES)
+        and not SKIPPED.intersection(PurePosixPath(path).parts)
+    })
 
 
 def is_test(path: str, profile: dict[str, Any]) -> bool:
     locations, patterns = test_patterns(profile)
-    return matches_any(path, locations) or any(name_matches(path, item) for item in patterns)
+    return matches_any(path, locations) or any(
+        name_matches(path, item) for item in patterns
+    )
 
 
 def owned_roots(profile: dict[str, Any], repo: Path | None = None) -> tuple[str, ...]:
@@ -75,7 +97,11 @@ def owned_roots(profile: dict[str, Any], repo: Path | None = None) -> tuple[str,
         package_names = set(roots)
         for raw in repo_paths(repo):
             manifest = normalized_path(repo, raw)
-            if manifest is None or PurePosixPath(manifest).name != "package.json" or SKIPPED.intersection(PurePosixPath(manifest).parts):
+            if (
+                manifest is None
+                or PurePosixPath(manifest).name != "package.json"
+                or SKIPPED.intersection(PurePosixPath(manifest).parts)
+            ):
                 continue
             data = json.loads((repo / manifest).read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("name") in package_names:
@@ -84,11 +110,17 @@ def owned_roots(profile: dict[str, Any], repo: Path | None = None) -> tuple[str,
 
 
 def owned_path(path: str, roots: tuple[str, ...]) -> bool:
-    return any(root == "." or path == root or path.startswith(root + "/") for root in roots)
+    return any(
+        root == "." or path == root or path.startswith(root + "/") for root in roots
+    )
 
 
 def module_path(path: str, module: str) -> str:
-    return posixpath.normpath(posixpath.join(posixpath.dirname(path), module)) if module.startswith(".") else module
+    return (
+        posixpath.normpath(posixpath.join(posixpath.dirname(path), module))
+        if module.startswith(".")
+        else module
+    )
 
 
 def owned_origin(path: str, origin: str, roots: tuple[str, ...]) -> bool:
@@ -97,21 +129,31 @@ def owned_origin(path: str, origin: str, roots: tuple[str, ...]) -> bool:
         resolved = module_path(path, module)
         return not resolved.startswith("../") and owned_path(resolved, roots)
     return any(
-        module == root or module.startswith(root + "/")
-        or (root.startswith("src/") and (module == root[4:] or module.startswith(root[4:] + "/")))
-        for root in roots if root != "."
+        module == root
+        or module.startswith(root + "/")
+        or (
+            root.startswith("src/")
+            and (module == root[4:] or module.startswith(root[4:] + "/"))
+        )
+        for root in roots
+        if root != "."
     )
 
 
 def api(node: SgNode | None, aliases: Mapping[str, str]) -> str:
-    return qualified(node, aliases).replace("vitest#", "vitest.").removeprefix("vitest.")
+    return (
+        qualified(node, aliases).replace("vitest#", "vitest.").removeprefix("vitest.")
+    )
 
 
 def object_pairs(node: SgNode | None) -> dict[str, SgNode | None]:
     if node is None or node.kind() != "object":
         return {}
-    return {(string(key) or key.text()): item.field("value")
-            for item in children(node) if item.kind() == "pair" and (key := item.field("key")) is not None}
+    return {
+        (string(key) or key.text()): item.field("value")
+        for item in children(node)
+        if item.kind() == "pair" and (key := item.field("key")) is not None
+    }
 
 
 def integer_seed(node: SgNode | None) -> bool:
@@ -129,7 +171,9 @@ def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
     if value is not None:
         return value
     function = node.field("function") if node.kind() == "call_expression" else None
-    if function is not None and (function.kind() == "import" or api(function, aliases) == "import"):
+    if function is not None and (
+        function.kind() == "import" or api(function, aliases) == "import"
+    ):
         args = arguments(node)
         return string(args[0]) if args else None
     if node.kind() == "new_expression":
@@ -138,7 +182,10 @@ def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
     if function is not None:
         return mock_origin(function, aliases)
     head: SgNode | None = node
-    while head is not None and head.kind() in {"member_expression", "subscript_expression"}:
+    while head is not None and head.kind() in {
+        "member_expression",
+        "subscript_expression",
+    }:
         head = head.field("object")
     if head is not None and head.kind() == "identifier" and head.text() in aliases:
         return qualified(node, aliases) or None
@@ -156,13 +203,31 @@ class Site:
 
 
 HOOK_DECLARATIONS = frozenset({
-    "variable_declarator", "function_declaration", "class_declaration", "method_definition",
-    "required_parameter", "optional_parameter",
+    "variable_declarator",
+    "function_declaration",
+    "class_declaration",
+    "method_definition",
+    "required_parameter",
+    "optional_parameter",
 })
-MOCK_CALLS = frozenset({"vi.mock", "vi.doMock", "vi.spyOn", "vi.mockObject", "vi.mocked"})
+MOCK_CALLS = frozenset({
+    "vi.mock",
+    "vi.doMock",
+    "vi.spyOn",
+    "vi.mockObject",
+    "vi.mocked",
+})
 EVASION_FLAGS = frozenset({"skip", "skipIf", "runIf", "only", "fails", "todo", "retry"})
-PROPERTY_RUNNERS = frozenset({"fast-check.assert", "fast-check.check", "fast-check#assert", "fast-check#check"})
-GLOBAL_CONFIGURATION = frozenset({"fast-check.configureGlobal", "fast-check#configureGlobal"})
+PROPERTY_RUNNERS = frozenset({
+    "fast-check.assert",
+    "fast-check.check",
+    "fast-check#assert",
+    "fast-check#check",
+})
+GLOBAL_CONFIGURATION = frozenset({
+    "fast-check.configureGlobal",
+    "fast-check#configureGlobal",
+})
 
 
 def environment_violation(node: SgNode, site: Site) -> str | None:
@@ -215,7 +280,9 @@ def property_violation(node: SgNode, site: Site) -> str | None:
     args = arguments(node)
     options = object_pairs(args[1]) if len(args) > 1 else {}
     explicit = options.get("seed")
-    return None if integer_seed(explicit) or (explicit is None and site.seeded) else origin
+    return (
+        None if integer_seed(explicit) or (explicit is None and site.seeded) else origin
+    )
 
 
 VIOLATIONS: dict[str, Callable[[SgNode, Site], str | None]] = {
@@ -243,13 +310,20 @@ def configured_seeds(root: SgNode, aliases: Mapping[str, str]) -> list[int]:
             args = arguments(node)
             parent = node.parent()
             grandparent = parent.parent() if parent is not None else None
-            top_level = parent is not None and parent.kind() == "expression_statement" and grandparent is not None and grandparent.kind() == "program"
+            top_level = (
+                parent is not None
+                and parent.kind() == "expression_statement"
+                and grandparent is not None
+                and grandparent.kind() == "program"
+            )
             if top_level and args and integer_seed(object_pairs(args[0]).get("seed")):
                 configured.append(node.range().end.index)
     return configured
 
 
-def file_findings(path: str, source: str, rules: list[Rule], owned: tuple[str, ...]) -> list[Finding]:
+def file_findings(
+    path: str, source: str, rules: list[Rule], owned: tuple[str, ...]
+) -> list[Finding]:
     root = parse(path, source)
     aliases = imports(root)
     # Global configuration must precede the property invocation, not merely occur in the file.
@@ -260,21 +334,49 @@ def file_findings(path: str, source: str, rules: list[Rule], owned: tuple[str, .
             seeded = any(end < node.range().start.index for end in configured)
             target = violation(rule, node, Site(path, aliases, owned, seeded))
             if target is not None:
-                findings.append(Finding(rule.rule_id, path, f"line {node.range().start.line + 1}: " + rule.message.format(target=target), rule.fix))
+                findings.append(
+                    Finding(
+                        rule.rule_id,
+                        path,
+                        f"line {node.range().start.line + 1}: "
+                        + rule.message.format(target=target),
+                        rule.fix,
+                    )
+                )
     return findings
 
 
 Definitions = dict[tuple[str, str], tuple["SgNode", "SgNode"]]
-DECLARATION_KINDS = frozenset({"function_declaration", "class_declaration", "variable_declarator"})
-REFERENCE_KINDS = frozenset({"identifier", "shorthand_property_identifier", "member_expression"})
+DECLARATION_KINDS = frozenset({
+    "function_declaration",
+    "class_declaration",
+    "variable_declarator",
+})
+REFERENCE_KINDS = frozenset({
+    "identifier",
+    "shorthand_property_identifier",
+    "member_expression",
+})
 
 
 def declarations(root: SgNode) -> Iterator[SgNode]:
     """Top-level and exported function, class and variable declarations."""
     for statement in children(root):
-        for node in children(statement) if statement.kind() == "export_statement" else [statement]:
-            candidates = children(node) if node.kind() in {"lexical_declaration", "variable_declaration"} else [node]
-            yield from (candidate for candidate in candidates if candidate.kind() in DECLARATION_KINDS)
+        for node in (
+            children(statement)
+            if statement.kind() == "export_statement"
+            else [statement]
+        ):
+            candidates = (
+                children(node)
+                if node.kind() in {"lexical_declaration", "variable_declaration"}
+                else [node]
+            )
+            yield from (
+                candidate
+                for candidate in candidates
+                if candidate.kind() in DECLARATION_KINDS
+            )
 
 
 def production_definitions(
@@ -301,7 +403,9 @@ def in_import(node: SgNode) -> bool:
     return False
 
 
-def referenced_keys(path: str, node: SgNode, aliases: Mapping[str, str]) -> set[tuple[str, str]]:
+def referenced_keys(
+    path: str, node: SgNode, aliases: Mapping[str, str]
+) -> set[tuple[str, str]]:
     """The ``(module file, symbol)`` keys an imported reference may resolve to."""
     origin = qualified(node, aliases)
     if "#" in origin:
@@ -311,12 +415,20 @@ def referenced_keys(path: str, node: SgNode, aliases: Mapping[str, str]) -> set[
     else:
         return set()
     resolved = module_path(path, module)
-    candidates = {resolved, *(resolved + suffix for suffix in SUFFIXES), *(resolved + "/index" + suffix for suffix in SUFFIXES)}
+    candidates = {
+        resolved,
+        *(resolved + suffix for suffix in SUFFIXES),
+        *(resolved + "/index" + suffix for suffix in SUFFIXES),
+    }
     return {(owner, symbol) for owner in candidates}
 
 
 def record_uses(
-    path: str, root: SgNode, test: bool, definitions: Definitions, uses: dict[tuple[str, str], set[bool]]
+    path: str,
+    root: SgNode,
+    test: bool,
+    definitions: Definitions,
+    uses: dict[tuple[str, str], set[bool]],
 ) -> None:
     """Add ``test`` to the uses of every definition this file references outside imports."""
     aliases = imports(root)
@@ -329,7 +441,11 @@ def record_uses(
         if own_definition is not None:
             declaration, _ = own_definition
             # Recursive implementation references do not establish production use.
-            within = declaration.range().start.index <= node.range().start.index <= declaration.range().end.index
+            within = (
+                declaration.range().start.index
+                <= node.range().start.index
+                <= declaration.range().end.index
+            )
             if not within:
                 uses[local_key].add(test)
         for key in referenced_keys(path, node, aliases):
@@ -347,7 +463,12 @@ def public_symbols(profile: dict[str, Any]) -> set[tuple[str, str]]:
     return public
 
 
-def hook_findings(sources: dict[str, str], profile: dict[str, Any], reported: set[str], roots: tuple[str, ...] | None = None) -> list[Finding]:
+def hook_findings(
+    sources: dict[str, str],
+    profile: dict[str, Any],
+    reported: set[str],
+    roots: tuple[str, ...] | None = None,
+) -> list[Finding]:
     """Resolve imported references to declarations; same-spelled unrelated symbols do not count."""
     roots = owned_roots(profile) if roots is None else roots
     trees = {path: parse(path, text) for path, text in sources.items()}
@@ -356,9 +477,18 @@ def hook_findings(sources: dict[str, str], profile: dict[str, Any], reported: se
     for path, root in trees.items():
         record_uses(path, root, is_test(path, profile), definitions, uses)
     public = public_symbols(profile)
-    return [Finding("TEST.no-test-hooks", path, f"line {declared.range().start.line + 1}: production symbol {name!r} is used only by tests", "remove the test-only symbol or exercise the real production API")
-            for (path, name), (_, declared) in definitions.items()
-            if path in reported and uses[(path, name)] == {True} and (path, name) not in public]
+    return [
+        Finding(
+            "TEST.no-test-hooks",
+            path,
+            f"line {declared.range().start.line + 1}: production symbol {name!r} is used only by tests",
+            "remove the test-only symbol or exercise the real production API",
+        )
+        for (path, name), (_, declared) in definitions.items()
+        if path in reported
+        and uses[(path, name)] == {True}
+        and (path, name) not in public
+    ]
 
 
 def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
@@ -376,10 +506,24 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
             sources[path] = source
         except (OSError, UnicodeError) as error:
             rule = "TEST.no-evasion" if is_test(path, profile) else "TEST.no-test-hooks"
-            findings.append(Finding(rule, path, f"cannot read source for AST analysis: {error}", "restore readable UTF-8 TypeScript/JavaScript source before running adapter lint"))
+            findings.append(
+                Finding(
+                    rule,
+                    path,
+                    f"cannot read source for AST analysis: {error}",
+                    "restore readable UTF-8 TypeScript/JavaScript source before running adapter lint",
+                )
+            )
         except CollectionError as error:
             rule = "TEST.no-evasion" if is_test(path, profile) else "TEST.no-test-hooks"
-            findings.append(Finding(rule, path, f"cannot parse source for AST analysis: {error}", "repair JavaScript/TypeScript syntax before running adapter lint"))
+            findings.append(
+                Finding(
+                    rule,
+                    path,
+                    f"cannot parse source for AST analysis: {error}",
+                    "repair JavaScript/TypeScript syntax before running adapter lint",
+                )
+            )
     rules = load_rules()
     production = set()
     for path in sorted(selected):
@@ -392,6 +536,17 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
             production.add(path)
         else:
             continue
-        findings.extend(file_findings(path, sources[path], [rule for rule in rules if rule.scope == scope], roots))
+        findings.extend(
+            file_findings(
+                path,
+                sources[path],
+                [rule for rule in rules if rule.scope == scope],
+                roots,
+            )
+        )
     findings.extend(hook_findings(sources, profile, production, roots))
-    return [finding for finding in findings if not waived(finding.rule_id, finding.path, profile)]
+    return [
+        finding
+        for finding in findings
+        if not waived(finding.rule_id, finding.path, profile)
+    ]

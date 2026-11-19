@@ -43,7 +43,10 @@ SETTINGS_FIX = (
 
 def placement(path: str, message: str, fix: str = "") -> Finding:
     return Finding(
-        PLACEMENT, path, message, fix or f"move it to an allowlisted location {SETTINGS_FIX}"
+        PLACEMENT,
+        path,
+        message,
+        fix or f"move it to an allowlisted location {SETTINGS_FIX}",
     )
 
 
@@ -56,7 +59,9 @@ def root_findings(path: str, config: dict[str, Any]) -> list[Finding]:
         return []
     allowed = config.get("root_directories")
     if isinstance(allowed, list) and parts[0] not in allowed:
-        return [placement(f"{parts[0]}/", f"unexpected top-level directory {parts[0]}/")]
+        return [
+            placement(f"{parts[0]}/", f"unexpected top-level directory {parts[0]}/")
+        ]
     return []
 
 
@@ -73,7 +78,9 @@ def area_findings(path: str, config: dict[str, Any]) -> list[Finding]:
         names = as_list(allowed.get("files" if direct_file else "directories"))
         if child not in names:
             kind = "file" if direct_file else "directory"
-            found.append(placement(f"{area}/{child}", f"unexpected {kind} {child} in {area}/"))
+            found.append(
+                placement(f"{area}/{child}", f"unexpected {kind} {child} in {area}/")
+            )
     return found
 
 
@@ -87,7 +94,9 @@ def package_findings(path: str, config: dict[str, Any]) -> list[Finding]:
         children = package.get("children", {})
         if len(parts) > 1 and parts[0] not in children:
             found.append(
-                placement(f"{root}/{parts[0]}/", f"unexpected package {parts[0]}/ in {root}/")
+                placement(
+                    f"{root}/{parts[0]}/", f"unexpected package {parts[0]}/ in {root}/"
+                )
             )
         elif len(parts) > 2 and parts[1] not in children[parts[0]]:
             found.append(
@@ -145,7 +154,9 @@ def instance_findings(paths: list[str], config: dict[str, Any]) -> list[Finding]
     return found
 
 
-def forbidden_import_findings(repo: Path, paths: list[str], config: dict[str, Any]) -> list[Finding]:
+def forbidden_import_findings(
+    repo: Path, paths: list[str], config: dict[str, Any]
+) -> list[Finding]:
     found = []
     for rule in config.get("forbidden_imports", []):
         banned = set(as_list(rule.get("modules")))
@@ -174,7 +185,10 @@ def parse_python(repo: Path, path: str) -> ast.Module | Finding:
         return ast.parse((repo / path).read_bytes(), filename=path)
     except (OSError, SyntaxError, ValueError) as error:
         return Finding(
-            "PYS000", path, f"cannot parse Python source: {error}", "restore readable Python"
+            "PYS000",
+            path,
+            f"cannot parse Python source: {error}",
+            "restore readable Python",
         )
 
 
@@ -190,14 +204,21 @@ def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
 
 
 def path_findings(
-    path: str, config: dict[str, Any], *, existing_paths: set[str] | None = None,
+    path: str,
+    config: dict[str, Any],
+    *,
+    existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     """Per-path allowlist findings, shared with the changed-path check."""
-    return scope.restrict([
-        *root_findings(path, config),
-        *area_findings(path, config),
-        *package_findings(path, config),
-    ], [path], existing_paths)
+    return scope.restrict(
+        [
+            *root_findings(path, config),
+            *area_findings(path, config),
+            *package_findings(path, config),
+        ],
+        [path],
+        existing_paths,
+    )
 
 
 def configuration_findings(config: dict[str, Any]) -> list[Finding]:
@@ -232,17 +253,30 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     found = configuration_findings(config)
     try:
         with scope.checkout(repo, selected) as root:
-            found.extend(scope.restrict(
-                import_graph_findings(root, profile, [], inventory=selected.inventory),
-                paths, selected.existing_paths,
-            ))
+            found.extend(
+                scope.restrict(
+                    import_graph_findings(
+                        root, profile, [], inventory=selected.inventory
+                    ),
+                    paths,
+                    selected.existing_paths,
+                )
+            )
             for path in paths:
-                found.extend(path_findings(path, config, existing_paths=selected.existing_paths))
-            found.extend(scope.restrict(
-                instance_findings(selected.inventory, config), paths, selected.existing_paths,
-            ))
+                found.extend(
+                    path_findings(path, config, existing_paths=selected.existing_paths)
+                )
+            found.extend(
+                scope.restrict(
+                    instance_findings(selected.inventory, config),
+                    paths,
+                    selected.existing_paths,
+                )
+            )
             found.extend(forbidden_import_findings(root, paths, config))
             found.extend(native_findings(root, paths, profile))
     except InventoryError as error:
         return [placement(".", str(error), "provide a readable Git snapshot")]
-    return apply_exceptions(sorted(set(found), key=lambda item: (item.path, item.message)), profile)
+    return apply_exceptions(
+        sorted(set(found), key=lambda item: (item.path, item.message)), profile
+    )

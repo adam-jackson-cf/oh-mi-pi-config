@@ -103,7 +103,10 @@ def proc_table() -> list[tuple[int, str]]:
             raw = (entry / "cmdline").read_bytes()
         except OSError:
             continue
-        table.append((int(entry.name), raw.replace(b"\0", b" ").decode(errors="replace").strip()))
+        table.append((
+            int(entry.name),
+            raw.replace(b"\0", b" ").decode(errors="replace").strip(),
+        ))
     return table
 
 
@@ -139,7 +142,11 @@ def leftovers(pgid: int, marker: str, settle_s: float) -> tuple[str, ...]:
 
 
 def run_lever(
-    repo: Path, command: list[str], env: dict[str, str], scratch: Path, config: dict[str, Any]
+    repo: Path,
+    command: list[str],
+    env: dict[str, str],
+    scratch: Path,
+    config: dict[str, Any],
 ) -> LeverRun:
     """Run the lever in its own session; output goes to a file so a child holding stdout
     cannot block the wait (it is reported as a leftover instead)."""
@@ -166,7 +173,9 @@ def run_lever(
                 os.killpg(process.pid, signal.SIGKILL)
             process.wait()
             returncode = None
-    left = leftovers(process.pid, str(scratch), number(config, "settle_s", DEFAULT_SETTLE_S))
+    left = leftovers(
+        process.pid, str(scratch), number(config, "settle_s", DEFAULT_SETTLE_S)
+    )
     text = log.read_bytes().decode(errors="replace")
     return LeverRun(returncode, text, left)
 
@@ -233,13 +242,23 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
         ]
     if not hasattr(os, "killpg"):
-        return [Finding(RULE, PROFILE_PATH, "process-group checks need POSIX", "run in CI")]
-    lever_run = DoctorCommand(repo, [*lever, *as_list(config.get("doctor_args"))], data_flag, evidence_flag, config)
+        return [
+            Finding(RULE, PROFILE_PATH, "process-group checks need POSIX", "run in CI")
+        ]
+    lever_run = DoctorCommand(
+        repo,
+        [*lever, *as_list(config.get("doctor_args"))],
+        data_flag,
+        evidence_flag,
+        config,
+    )
     found: list[Finding] = []
     with tempfile.TemporaryDirectory(prefix="omp-lever-selftest-") as scratch:
         root = Path(scratch).resolve()
         found.extend(healthy_findings(lever_run, root))
-        found.extend(broken_findings(lever_run, root, config.get("failure_env"), doctor_marker))
+        found.extend(
+            broken_findings(lever_run, root, config.get("failure_env"), doctor_marker)
+        )
     return found
 
 
@@ -253,8 +272,14 @@ class DoctorCommand:
     evidence_flag: str
     config: dict[str, Any]
 
-    def run(self, data: Path, evidence: Path, env: dict[str, str], root: Path) -> LeverRun:
-        argv = [*self.base, *path_arguments(self.data_flag, data), *path_arguments(self.evidence_flag, evidence)]
+    def run(
+        self, data: Path, evidence: Path, env: dict[str, str], root: Path
+    ) -> LeverRun:
+        argv = [
+            *self.base,
+            *path_arguments(self.data_flag, data),
+            *path_arguments(self.evidence_flag, evidence),
+        ]
         return run_lever(self.repo, argv, env, root, self.config)
 
 
@@ -276,7 +301,9 @@ def healthy_findings(lever_run: DoctorCommand, root: Path) -> list[Finding]:
     return found
 
 
-def broken_findings(lever_run: DoctorCommand, root: Path, failure_env: object, doctor_marker: str) -> list[Finding]:
+def broken_findings(
+    lever_run: DoctorCommand, root: Path, failure_env: object, doctor_marker: str
+) -> list[Finding]:
     found = []
     broken_evidence = root / "broken-evidence"
     env = repo_environment()

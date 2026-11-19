@@ -21,6 +21,7 @@ Toolset: each record carries a toolset label (`find` availability plus a config 
 ../toolset.py). Every table is computed per label; unlabelled records form a `pre-find` group,
 and mixing labels prints a warning because arms then ran with different tools.
 """
+
 from __future__ import annotations
 
 import json
@@ -79,11 +80,19 @@ def needs_rerun(rec: Record, out: Path) -> bool:
 
 def same_file(reported: str, expected: str) -> bool:
     reported = reported.lstrip("./")
-    return bool(reported) and (reported == expected or reported.endswith("/" + expected) or expected.endswith("/" + reported))
+    return bool(reported) and (
+        reported == expected
+        or reported.endswith("/" + expected)
+        or expected.endswith("/" + reported)
+    )
 
 
 def reported(rec: Record, any_severity: bool = False) -> list[Record]:
-    return [f for f in rec.get("findings") or [] if isinstance(f, dict) and (any_severity or f.get("severity") == "blocking")]
+    return [
+        f
+        for f in rec.get("findings") or []
+        if isinstance(f, dict) and (any_severity or f.get("severity") == "blocking")
+    ]
 
 
 def score(rec: Record, any_severity: bool = False) -> Record:
@@ -96,9 +105,14 @@ def score(rec: Record, any_severity: bool = False) -> Record:
         step = f.get("step") if isinstance(f.get("step"), int) else None
         candidates = []
         for defect_id, span in defects.items():
-            if defect_id in detected or not same_file(str(f.get("file", "")), span["file"]):
+            if defect_id in detected or not same_file(
+                str(f.get("file", "")), span["file"]
+            ):
                 continue
-            by_line = line is not None and span["start"] - WINDOW <= line <= span["end"] + WINDOW
+            by_line = (
+                line is not None
+                and span["start"] - WINDOW <= line <= span["end"] + WINDOW
+            )
             by_step = step is not None and step in span["steps"]
             if by_line or by_step:
                 centre = (span["start"] + span["end"]) / 2
@@ -109,8 +123,16 @@ def score(rec: Record, any_severity: bool = False) -> Record:
             _, _, defect_id, how = min(candidates)
             detected[defect_id] = how
             matched.add(i)
-    file_level = {d for d, span in defects.items() if any(same_file(str(f.get("file", "")), span["file"]) for f in findings)}
-    return {"detected": detected, "fileLevel": file_level, "unmatched": [f for i, f in enumerate(findings) if i not in matched]}
+    file_level = {
+        d
+        for d, span in defects.items()
+        if any(same_file(str(f.get("file", "")), span["file"]) for f in findings)
+    }
+    return {
+        "detected": detected,
+        "fileLevel": file_level,
+        "unmatched": [f for i, f in enumerate(findings) if i not in matched],
+    }
 
 
 def credits_of(rec: Record) -> float | None:
@@ -118,7 +140,9 @@ def credits_of(rec: Record) -> float | None:
     if rate is None:
         return None
     u = rec["usage"]
-    return float((u["input"] * rate[0] + u["cacheRead"] * rate[1] + u["output"] * rate[2]) / 1e6)
+    return float(
+        (u["input"] * rate[0] + u["cacheRead"] * rate[1] + u["output"] * rate[2]) / 1e6
+    )
 
 
 def shared_clusters(clean: list[Record]) -> set[TrialKey]:
@@ -127,12 +151,24 @@ def shared_clusters(clean: list[Record]) -> set[TrialKey]:
     for r in clean:
         for i, f in enumerate(r["score"]["unmatched"]):
             line = f.get("line") if isinstance(f.get("line"), int) else None
-            by_case[r["case"]].append((r["arm"], i, str(f.get("file", "")).lstrip("./"), line))
+            by_case[r["case"]].append((
+                r["arm"],
+                i,
+                str(f.get("file", "")).lstrip("./"),
+                line,
+            ))
     shared: set[TrialKey] = set()
     for case, items in by_case.items():
         for arm, i, file, line in items:
-            others = {a for a, _, f2, l2 in items if a != arm and f2 == file and line is not None and l2 is not None
-                      and abs(l2 - line) <= WINDOW}
+            others = {
+                a
+                for a, _, f2, l2 in items
+                if a != arm
+                and f2 == file
+                and line is not None
+                and l2 is not None
+                and abs(l2 - line) <= WINDOW
+            }
             if others:
                 shared.add((case, arm, i))
     return shared
@@ -152,8 +188,10 @@ def detection_cells(seeded: list[Record]) -> tuple[str, int, int]:
     hows = [h for r in seeded for h in r["score"]["detected"].values()]
     file_level = sum(len(r["score"]["fileLevel"]) for r in seeded)
     any_sev = sum(len(score(r, any_severity=True)["detected"]) for r in seeded)
-    cells = (f" {len(hows)}/{total} | {hows.count('line')} / {hows.count('step')} / {hows.count('both')} |"
-             f" {any_sev}/{total} | {file_level}/{total} |")
+    cells = (
+        f" {len(hows)}/{total} | {hows.count('line')} / {hows.count('step')} / {hows.count('both')} |"
+        f" {any_sev}/{total} | {file_level}/{total} |"
+    )
     return cells, len(hows), total
 
 
@@ -162,7 +200,12 @@ def clean_fp(clean: list[Record], arm: str, shared: set[TrialKey]) -> float:
     if not clean:
         return 0.0
     return statistics.mean(
-        sum(1 for i in range(len(r["score"]["unmatched"])) if (r["case"], arm, i) not in shared) for r in clean
+        sum(
+            1
+            for i in range(len(r["score"]["unmatched"]))
+            if (r["case"], arm, i) not in shared
+        )
+        for r in clean
     )
 
 
@@ -176,28 +219,62 @@ def usage_cells(rs: list[Record]) -> tuple[str, float | None]:
     mean_credits = statistics.mean(cr) if cr else None
     wall = statistics.median(r["wallSeconds"] for r in rs) if rs else 0
     credit_cell = f"{mean_credits:.2f}" if mean_credits is not None else "—"
-    return f" {unparsed} | {mismatch} | {reasoning:.0f} | ${cost:.3f} | {credit_cell} | {wall:.0f}s |", mean_credits
+    return (
+        f" {unparsed} | {mismatch} | {reasoning:.0f} | ${cost:.3f} | {credit_cell} | {wall:.0f}s |",
+        mean_credits,
+    )
 
 
-def arm_row(arm: str, rs: list[Record], invalid: int, expected: int, shared: set[TrialKey]) -> tuple[str, Record]:
+def arm_row(
+    arm: str, rs: list[Record], invalid: int, expected: int, shared: set[TrialKey]
+) -> tuple[str, Record]:
     """One arm's decision-table row and its summary entry."""
     seeded = [r for r in rs if r["defects"]]
     detection, detected, total = detection_cells(seeded)
     fp = clean_fp([r for r in rs if not r["defects"]], arm, shared)
-    unmatched_seeded = statistics.mean(len(r["score"]["unmatched"]) for r in seeded) if seeded else 0.0
+    unmatched_seeded = (
+        statistics.mean(len(r["score"]["unmatched"]) for r in seeded) if seeded else 0.0
+    )
     usage, mean_credits = usage_cells(rs)
     model = rs[0]["model"].split("/")[-1] + ":" + rs[0]["thinking"] if rs else "?"
-    row = (f"| {arm} | {model} | {len(rs)}/{expected} |"
-           f" {invalid} |{detection} {fp:.2f}{' VETO' if fp > FP_VETO else ''} | {unmatched_seeded:.2f} |{usage}")
-    return row, {"detected": detected, "total": total, "fp": fp, "credits": mean_credits}
+    row = (
+        f"| {arm} | {model} | {len(rs)}/{expected} |"
+        f" {invalid} |{detection} {fp:.2f}{' VETO' if fp > FP_VETO else ''} | {unmatched_seeded:.2f} |{usage}"
+    )
+    return row, {
+        "detected": detected,
+        "total": total,
+        "fp": fp,
+        "credits": mean_credits,
+    }
 
 
-def defect_lines(valid: list[Record], by_arm: dict[str, list[Record]], arms: list[str]) -> list[str]:
+def defect_lines(
+    valid: list[Record], by_arm: dict[str, list[Record]], arms: list[str]
+) -> list[str]:
     """Per-defect detections across reps, one row per seeded defect."""
-    lines = ["", "Per-defect detections (of reps):", "", "| Defect | " + " | ".join(arms) + " |", "|---|" + "---|" * len(arms)]
+    lines = [
+        "",
+        "Per-defect detections (of reps):",
+        "",
+        "| Defect | " + " | ".join(arms) + " |",
+        "|---|" + "---|" * len(arms),
+    ]
     for d in sorted({d for r in valid for d in r["defects"]}):
-        lines.append(f"| {d} | " + " | ".join(
-            str(sum(d in r["score"]["detected"] for r in by_arm[a] if d in r["defects"])) for a in arms) + " |")
+        lines.append(
+            f"| {d} | "
+            + " | ".join(
+                str(
+                    sum(
+                        d in r["score"]["detected"]
+                        for r in by_arm[a]
+                        if d in r["defects"]
+                    )
+                )
+                for a in arms
+            )
+            + " |"
+        )
     return lines
 
 
@@ -205,7 +282,11 @@ def discordance_lines(ever: dict[str, set[str]], arms: list[str]) -> list[str]:
     """Paired discordance of each arm against G-high, when G-high ran."""
     if "G-high" not in ever:
         return []
-    lines = ["", "Paired discordance vs G-high (defects found in ≥1 rep): candidate-only − G-high-only", ""]
+    lines = [
+        "",
+        "Paired discordance vs G-high (defects found in ≥1 rep): candidate-only − G-high-only",
+        "",
+    ]
     for arm in arms:
         if arm != "G-high":
             a_only = len(ever[arm] - ever["G-high"])
@@ -214,7 +295,9 @@ def discordance_lines(ever: dict[str, set[str]], arms: list[str]) -> list[str]:
     return lines
 
 
-def analyse(out: Path, latest: dict[TrialKey, Record]) -> tuple[list[str], dict[str, Record]]:
+def analyse(
+    out: Path, latest: dict[TrialKey, Record]
+) -> tuple[list[str], dict[str, Record]]:
     arms = sorted({arm for _, arm, _ in latest})
     expected = len({case for case, _, _ in latest}) * len({rep for _, _, rep in latest})
     valid = scored_records(out, latest)
@@ -229,17 +312,26 @@ def analyse(out: Path, latest: dict[TrialKey, Record]) -> tuple[list[str], dict[
     ever: dict[str, set[str]] = {}
     summary: dict[str, Record] = {}
     for arm in arms:
-        invalid = sum(1 for (_, a, _), r in latest.items() if a == arm and needs_rerun(r, out))
+        invalid = sum(
+            1 for (_, a, _), r in latest.items() if a == arm and needs_rerun(r, out)
+        )
         row, summary[arm] = arm_row(arm, by_arm[arm], invalid, expected, shared)
         lines.append(row)
-        ever[arm] = {d for r in by_arm[arm] if r["defects"] for d in r["score"]["detected"]}
+        ever[arm] = {
+            d for r in by_arm[arm] if r["defects"] for d in r["score"]["detected"]
+        }
 
     lines += defect_lines(valid, by_arm, arms)
     lines += discordance_lines(ever, arms)
-    lines += ["", f"Shared clean-case clusters excluded from FP: {len(shared)}",
-              f"Complete (every arm {expected}/{expected} scored): {complete}"]
+    lines += [
+        "",
+        f"Shared clean-case clusters excluded from FP: {len(shared)}",
+        f"Complete (every arm {expected}/{expected} scored): {complete}",
+    ]
     if not complete:
-        lines.append("INCOMPLETE — decision withheld; run `run_reviews.py --rerun-failed` once, then re-analyse.")
+        lines.append(
+            "INCOMPLETE — decision withheld; run `run_reviews.py --rerun-failed` once, then re-analyse."
+        )
     return lines, summary
 
 

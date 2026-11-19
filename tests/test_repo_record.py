@@ -1,4 +1,5 @@
 """Per-repo record resolution against real git clones, worktrees and temp records."""
+
 import json
 import re
 import subprocess
@@ -36,8 +37,12 @@ REFUSED = [
 
 
 # A complete gate.json; tests vary one field at a time.
-GATE = {"schemaVersion": 2, "checks": {"commit": ["make", "gate"]},
-        "ownerOnlyPaths": [], "dynaflows": {"enabled": True}}
+GATE = {
+    "schemaVersion": 2,
+    "checks": {"commit": ["make", "gate"]},
+    "ownerOnlyPaths": [],
+    "dynaflows": {"enabled": True},
+}
 
 
 def gate(**fields: object) -> dict[str, Any]:
@@ -56,7 +61,9 @@ def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
 
 
 def git(*args: str) -> None:
-    subprocess.run(["git", *args], check=True, capture_output=True, timeout=PROCESS_TIMEOUT)
+    subprocess.run(
+        ["git", *args], check=True, capture_output=True, timeout=PROCESS_TIMEOUT
+    )
 
 
 class ParseOrigin(unittest.TestCase):
@@ -79,8 +86,19 @@ class Resolve(unittest.TestCase):
         self.config = self.temp / "config"
         self.repo = self.temp / "clone"
         git("init", "-q", "-b", "main", str(self.repo))
-        git("-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-            "commit", "-q", "--allow-empty", "-m", "init")
+        git(
+            "-C",
+            str(self.repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        )
 
     def write_record(self, slug: str, gate: dict[str, Any]) -> Path:
         record = self.config / "repos" / slug
@@ -88,17 +106,55 @@ class Resolve(unittest.TestCase):
         (record / "gate.json").write_text(json.dumps(gate))
         return record
 
-    def test_resolve_record_names_the_slug_and_the_reason_in_the_twin_s_words(self) -> None:
-        assert repo_record.resolve_record(self.repo, self.config) == (None, None, "no origin remote")
-        git("-C", str(self.repo), "remote", "add", "origin", "https://gitlab.com/owner/name.git")
-        assert repo_record.resolve_record(self.repo, self.config) == (None, None, "origin https://gitlab.com/owner/name.git is not a GitHub owner/name URL")
-        git("-C", str(self.repo), "remote", "set-url", "origin", "git@github.com:Owner/Name.git")
+    def test_resolve_record_names_the_slug_and_the_reason_in_the_twin_s_words(
+        self,
+    ) -> None:
+        assert repo_record.resolve_record(self.repo, self.config) == (
+            None,
+            None,
+            "no origin remote",
+        )
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "https://gitlab.com/owner/name.git",
+        )
+        assert repo_record.resolve_record(self.repo, self.config) == (
+            None,
+            None,
+            "origin https://gitlab.com/owner/name.git is not a GitHub owner/name URL",
+        )
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "set-url",
+            "origin",
+            "git@github.com:Owner/Name.git",
+        )
         gate = self.config / "repos/owner/name/gate.json"
-        assert repo_record.resolve_record(self.repo, self.config) == ("owner/name", None, f"no per-repo record at {gate}")
+        assert repo_record.resolve_record(self.repo, self.config) == (
+            "owner/name",
+            None,
+            f"no per-repo record at {gate}",
+        )
         record = self.write_record("owner/name", {})
-        assert repo_record.resolve_record(self.repo, self.config) == ("owner/name", record, None)
-        assert repo_record.off_text(None, "no origin remote") == "dynaflows off for none: no origin remote"
-        assert repo_record.off_text("owner/name", "why") == "dynaflows off for owner/name: why"
+        assert repo_record.resolve_record(self.repo, self.config) == (
+            "owner/name",
+            record,
+            None,
+        )
+        assert (
+            repo_record.off_text(None, "no origin remote")
+            == "dynaflows off for none: no origin remote"
+        )
+        assert (
+            repo_record.off_text("owner/name", "why")
+            == "dynaflows off for owner/name: why"
+        )
 
     def test_no_origin_means_no_record_and_dynaflows_off(self) -> None:
         assert repo_record.repo_slug(self.repo) is None
@@ -106,44 +162,110 @@ class Resolve(unittest.TestCase):
         assert not repo_record.dynaflows_enabled(self.repo, self.config)
 
     def test_origin_without_a_record_means_dynaflows_off(self) -> None:
-        git("-C", str(self.repo), "remote", "add", "origin", "git@github.com:Owner/Name.git")
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:Owner/Name.git",
+        )
         assert repo_record.repo_slug(self.repo) == "owner/name"
         assert repo_record.find_record(self.repo, self.config) is None
         assert not repo_record.dynaflows_enabled(self.repo, self.config)
 
     def test_worktree_resolves_to_the_main_checkout_record(self) -> None:
-        git("-C", str(self.repo), "remote", "add", "origin", "https://github.com/Owner/Name.git")
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/Owner/Name.git",
+        )
         record = self.write_record("owner/name", GATE)
         worktree = self.temp / "worktree"
-        git("-C", str(self.repo), "worktree", "add", "-q", "-b", "agent/x", str(worktree))
+        git(
+            "-C",
+            str(self.repo),
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "agent/x",
+            str(worktree),
+        )
         for clone in (self.repo, worktree):
             with self.subTest(clone=clone.name):
                 assert repo_record.find_record(clone, self.config) == record
                 assert repo_record.dynaflows_enabled(clone, self.config)
 
     def test_disabled_record_is_off_and_malformed_record_is_an_error(self) -> None:
-        git("-C", str(self.repo), "remote", "add", "origin", "https://github.com/owner/name")
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/name",
+        )
         record = self.write_record("owner/name", gate(dynaflows={"enabled": False}))
         assert not repo_record.dynaflows_enabled(self.repo, self.config)
         (record / "gate.json").write_text(json.dumps({"schemaVersion": 2}))
-        raised(repo_record.RecordError, partial(repo_record.dynaflows_enabled, self.repo, self.config))
+        raised(
+            repo_record.RecordError,
+            partial(repo_record.dynaflows_enabled, self.repo, self.config),
+        )
         (record / "gate.json").write_text("{")
-        raised(repo_record.RecordError, partial(repo_record.dynaflows_enabled, self.repo, self.config))
+        raised(
+            repo_record.RecordError,
+            partial(repo_record.dynaflows_enabled, self.repo, self.config),
+        )
 
-    def test_a_record_missing_a_required_field_or_carrying_an_unknown_one_does_not_load(self) -> None:
-        git("-C", str(self.repo), "remote", "add", "origin", "https://github.com/owner/name")
+    def test_a_record_missing_a_required_field_or_carrying_an_unknown_one_does_not_load(
+        self,
+    ) -> None:
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/name",
+        )
         record = self.write_record("owner/name", GATE)
         assert repo_record.load_gate(record) == GATE
-        for invalid, named in ((gate(checks={"ci": ["ci"]}), "checks.commit"),
-                               (gate(checks=None), "checks"), (gate(unknownField=3), "unknownField"),
-                               (gate(extraField=1000), "extraField"), (gate(otherField="github"), "otherField"),
-                               (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint"),
-                               (gate(ownerOnlyPaths=None), "ownerOnlyPaths")):
+        for invalid, named in (
+            (gate(checks={"ci": ["ci"]}), "checks.commit"),
+            (gate(checks=None), "checks"),
+            (gate(unknownField=3), "unknownField"),
+            (gate(extraField=1000), "extraField"),
+            (gate(otherField="github"), "otherField"),
+            (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint"),
+            (gate(ownerOnlyPaths=None), "ownerOnlyPaths"),
+        ):
             with self.subTest(named=named):
                 (record / "gate.json").write_text(json.dumps(invalid))
-                assert re.search(named, str(raised(repo_record.RecordError, partial(repo_record.load_gate, record))))
-                assert re.search(named, str(raised(repo_record.RecordError,
-                                                   partial(repo_record.dynaflows_enabled, self.repo, self.config))))
+                assert re.search(
+                    named,
+                    str(
+                        raised(
+                            repo_record.RecordError,
+                            partial(repo_record.load_gate, record),
+                        )
+                    ),
+                )
+                assert re.search(
+                    named,
+                    str(
+                        raised(
+                            repo_record.RecordError,
+                            partial(
+                                repo_record.dynaflows_enabled, self.repo, self.config
+                            ),
+                        )
+                    ),
+                )
 
     def test_default_root_is_the_checkout_holding_the_module(self) -> None:
         assert repo_record.config_root() == ROOT
@@ -152,10 +274,26 @@ class Resolve(unittest.TestCase):
 
 class GateReason(unittest.TestCase):
     def test_complete_gates_with_optional_fields_are_accepted(self) -> None:
-        for valid in (GATE, gate(agentMerge="disabled"),
-                      gate(ownerOnlyPaths=["scripts/checks/dependency-audit-exceptions.json", "security/"]),
-                      gate(checks={"commit": ["c"], "ci": ["true"], "format": ["ruff", "format"], "profile": ["p"]},
-                           ci={"requiredContext": "gate", "runner": "ci-gate"}, dynaflows={"enabled": False})):
+        for valid in (
+            GATE,
+            gate(agentMerge="disabled"),
+            gate(
+                ownerOnlyPaths=[
+                    "scripts/checks/dependency-audit-exceptions.json",
+                    "security/",
+                ]
+            ),
+            gate(
+                checks={
+                    "commit": ["c"],
+                    "ci": ["true"],
+                    "format": ["ruff", "format"],
+                    "profile": ["p"],
+                },
+                ci={"requiredContext": "gate", "runner": "ci-gate"},
+                dynaflows={"enabled": False},
+            ),
+        ):
             with self.subTest(gate=valid):
                 assert repo_record.gate_reason(valid) is None
 
@@ -167,39 +305,96 @@ class GateReason(unittest.TestCase):
             (gate(checks={"ci": ["true"]}), "checks.commit must be argv"),
             (gate(checks={"commit": []}), "checks.commit must be argv"),
             (gate(checks={"commit": ["c"], "ci": None}), "checks.ci must be argv"),
-            (gate(checks={"commit": ["c"], "format": "ruff format"}), "checks.format must be argv"),
-            (gate(checks={"commit": ["c"], "profile": []}), "checks.profile must be argv"),
-            (gate(checks={"commit": ["c"], "lint": ["x"]}), "unknown field checks.lint must be removed"),
+            (
+                gate(checks={"commit": ["c"], "format": "ruff format"}),
+                "checks.format must be argv",
+            ),
+            (
+                gate(checks={"commit": ["c"], "profile": []}),
+                "checks.profile must be argv",
+            ),
+            (
+                gate(checks={"commit": ["c"], "lint": ["x"]}),
+                "unknown field checks.lint must be removed",
+            ),
             (gate(unknownField=3), "unknown field unknownField must be removed"),
-            (gate(unknownField=3, extraField=5), "unknown field extraField, unknownField must be removed"),
+            (
+                gate(unknownField=3, extraField=5),
+                "unknown field extraField, unknownField must be removed",
+            ),
             (gate(otherField="github"), "unknown field otherField must be removed"),
             (gate(agentMerge=False), "agentMerge must be allowed or disabled"),
             (gate(ci="gate"), "ci must declare nonblank requiredContext and runner"),
-            (gate(ci={"requiredContext": "gate"}), "ci must declare nonblank requiredContext and runner"),
-            (gate(ci={"requiredContext": " ", "runner": "ci-gate"}), "ci must declare nonblank requiredContext and runner"),
-            (gate(ci={"requiredContext": "gate", "runner": 1}), "ci must declare nonblank requiredContext and runner"),
-            (gate(ownerOnlyPaths=None), "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"),
-            (gate(ownerOnlyPaths="a.json"), "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"),
+            (
+                gate(ci={"requiredContext": "gate"}),
+                "ci must declare nonblank requiredContext and runner",
+            ),
+            (
+                gate(ci={"requiredContext": " ", "runner": "ci-gate"}),
+                "ci must declare nonblank requiredContext and runner",
+            ),
+            (
+                gate(ci={"requiredContext": "gate", "runner": 1}),
+                "ci must declare nonblank requiredContext and runner",
+            ),
+            (
+                gate(ownerOnlyPaths=None),
+                "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)",
+            ),
+            (
+                gate(ownerOnlyPaths="a.json"),
+                "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)",
+            ),
             (gate(ownerOnlyPaths=[1]), "ownerOnlyPaths entries must be strings"),
-            (gate(ownerOnlyPaths=["a.json", "a.json"]), "ownerOnlyPaths entries must be unique"),
+            (
+                gate(ownerOnlyPaths=["a.json", "a.json"]),
+                "ownerOnlyPaths entries must be unique",
+            ),
         ]
-        cases += [(gate(ownerOnlyPaths=[path]),
-                   f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)")
-                  for path in ("", "/", "/abs.json", "a//b", "./a", "a/../b", "..", "a\\b", "a\0b")]
-        cases += [(gate(dynaflows=switch), 'dynaflows must be {"enabled": true|false}')
-                  for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True)]
+        cases += [
+            (
+                gate(ownerOnlyPaths=[path]),
+                f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)",
+            )
+            for path in (
+                "",
+                "/",
+                "/abs.json",
+                "a//b",
+                "./a",
+                "a/../b",
+                "..",
+                "a\\b",
+                "a\0b",
+            )
+        ]
+        cases += [
+            (gate(dynaflows=switch), 'dynaflows must be {"enabled": true|false}')
+            for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True)
+        ]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):
                 assert repo_record.gate_reason(invalid) == reason
 
 
 class OwnerOnly(unittest.TestCase):
-    def test_a_file_entry_matches_itself_and_a_directory_entry_matches_what_lies_under_it(self) -> None:
+    def test_a_file_entry_matches_itself_and_a_directory_entry_matches_what_lies_under_it(
+        self,
+    ) -> None:
         owned = ["scripts/checks/exceptions.json", "security/"]
-        for path in ("scripts/checks/exceptions.json", "security/a.json", "security/deep/b.json"):
+        for path in (
+            "scripts/checks/exceptions.json",
+            "security/a.json",
+            "security/deep/b.json",
+        ):
             with self.subTest(path=path):
                 assert repo_record.owner_only(path, owned)
-        for path in ("scripts/checks/exceptions.json.bak", "scripts/checks", "securityx/a.json", "security"):
+        for path in (
+            "scripts/checks/exceptions.json.bak",
+            "scripts/checks",
+            "securityx/a.json",
+            "security",
+        ):
             with self.subTest(path=path):
                 assert not repo_record.owner_only(path, owned)
         assert not repo_record.owner_only("anything", [])

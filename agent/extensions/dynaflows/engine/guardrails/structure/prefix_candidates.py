@@ -35,7 +35,9 @@ def _words(name: str) -> tuple[str, ...]:
 
 
 def _added_or_moved(repo: Path, base: str, head: str) -> set[str]:
-    tokens = git(repo, "diff", "--name-status", "-z", "--find-renames=50%", base, head, "--").split("\0")
+    tokens = git(
+        repo, "diff", "--name-status", "-z", "--find-renames=50%", base, head, "--"
+    ).split("\0")
     found: set[str] = set()
     index = 0
     while index < len(tokens) and tokens[index]:
@@ -51,12 +53,20 @@ def _added_or_moved(repo: Path, base: str, head: str) -> set[str]:
     return found
 
 
-def _groups(paths: list[str], added: set[str], profile: dict[str, Any]) -> list[dict[str, Any]]:
-    folders = {parent.as_posix() for path in paths for parent in PurePosixPath(path).parents}
+def _groups(
+    paths: list[str], added: set[str], profile: dict[str, Any]
+) -> list[dict[str, Any]]:
+    folders = {
+        parent.as_posix() for path in paths for parent in PurePosixPath(path).parents
+    }
     siblings: dict[str, list[str]] = defaultdict(list)
     for path in paths:
         part = PurePosixPath(path)
-        if part.suffix == ".py" and part.stem != "__init__" and not is_test_file(path, profile):
+        if (
+            part.suffix == ".py"
+            and part.stem != "__init__"
+            and not is_test_file(path, profile)
+        ):
             siblings[part.parent.as_posix()].append(path)
     clusters: list[dict[str, Any]] = []
     touched = {PurePosixPath(path).parent.as_posix() for path in added}
@@ -81,15 +91,20 @@ def _groups(paths: list[str], added: set[str], profile: dict[str, Any]) -> list[
 
 
 def _longest_new_prefix(
-    folder: str, words: tuple[str, ...], members: list[str],
-    prefixes: dict[tuple[str, ...], list[str]], added: set[str],
+    folder: str,
+    words: tuple[str, ...],
+    members: list[str],
+    prefixes: dict[tuple[str, ...], list[str]],
+    added: set[str],
 ) -> bool:
     """A shared prefix of two or more files, one of them added, not the folder's own name."""
     if len(members) < 2 or not added.intersection(members):
         return False
     # A prefix with exactly the same members as a longer one is not longest.
-    if any(len(other) == len(words) + 1 and other[:-1] == words and group == members
-           for other, group in prefixes.items()):
+    if any(
+        len(other) == len(words) + 1 and other[:-1] == words and group == members
+        for other, group in prefixes.items()
+    ):
         return False
     return words != _words(PurePosixPath(folder).name)
 
@@ -121,23 +136,35 @@ def _imported_names(tree: ast.Module, path: str, parent: str) -> list[str]:
             destination = node.module or ""
             if node.level:
                 try:
-                    destination = importlib.util.resolve_name("." * node.level + destination, parent)
+                    destination = importlib.util.resolve_name(
+                        "." * node.level + destination, parent
+                    )
                 except ImportError as error:
                     raise DiffError(f"{path}: {error}") from error
-            imports.extend(destination if alias.name == "*" else f"{destination}.{alias.name}"
-                           for alias in node.names)
+            imports.extend(
+                destination if alias.name == "*" else f"{destination}.{alias.name}"
+                for alias in node.names
+            )
     return imports
 
 
-def _import_edges(repo: Path, head: str, paths: list[str], profile: dict[str, Any]) -> set[tuple[str, str]]:
-    names = {path: _module_names(path, profile) for path in paths if path.endswith(".py")}
+def _import_edges(
+    repo: Path, head: str, paths: list[str], profile: dict[str, Any]
+) -> set[tuple[str, str]]:
+    names = {
+        path: _module_names(path, profile) for path in paths if path.endswith(".py")
+    }
     modules = {name: path for path, aliases in names.items() for name in aliases}
     edges = set()
     for path, aliases in names.items():
         text = git(repo, "show", f"{head}:{path}")
         tree = ast.parse(text, filename=path)
         module = aliases[0]
-        parent = module if PurePosixPath(path).stem == "__init__" else module.rpartition(".")[0]
+        parent = (
+            module
+            if PurePosixPath(path).stem == "__init__"
+            else module.rpartition(".")[0]
+        )
         for imported in _imported_names(tree, path, parent):
             while imported:
                 if imported in modules:
@@ -151,40 +178,56 @@ def _import_edges(repo: Path, head: str, paths: list[str], profile: dict[str, An
 
 def _co_change(repo: Path, head: str, members: set[str]) -> Counter[tuple[str, str]]:
     counts: Counter[tuple[str, str]] = Counter()
-    history = git(repo, "log", "--format=%x1e", "--name-only", "-z", head, "--", *sorted(members))
+    history = git(
+        repo, "log", "--format=%x1e", "--name-only", "-z", head, "--", *sorted(members)
+    )
     for commit in history.split("\x1e"):
         changed = {path.strip("\n") for path in commit.split("\0")} & members
         counts.update(combinations(sorted(changed), 2))
     return counts
 
 
-def candidates(repo: Path, profile: dict[str, Any], base: str, head: str = "HEAD") -> list[dict[str, Any]]:
+def candidates(
+    repo: Path, profile: dict[str, Any], base: str, head: str = "HEAD"
+) -> list[dict[str, Any]]:
     """Return longest-prefix clusters with at least one added or moved member."""
     added = _added_or_moved(repo, base, head)
     if not added:
         return []
-    excluded = (as_list(settings(profile, "check").get("exclude"))
-                + as_list(settings(profile, "python").get("excluded_paths")))
-    paths = sorted(path for path in git(repo, "ls-tree", "-r", "--name-only", "-z", head).split("\0")
-                   if path and not matches_any(path, excluded))
+    excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
+        settings(profile, "python").get("excluded_paths")
+    )
+    paths = sorted(
+        path
+        for path in git(repo, "ls-tree", "-r", "--name-only", "-z", head).split("\0")
+        if path and not matches_any(path, excluded)
+    )
     clusters = _groups(paths, added, profile)
     if not clusters:
         return []
     edges = _import_edges(repo, head, paths, profile)
-    counts = _co_change(repo, head, {member for cluster in clusters for member in cluster["members"]})
+    counts = _co_change(
+        repo, head, {member for cluster in clusters for member in cluster["members"]}
+    )
     for cluster in clusters:
         members = set(cluster["members"])
         cluster["internal_edges"] = [
-            {"source": source, "target": target} for source, target in sorted(edges)
+            {"source": source, "target": target}
+            for source, target in sorted(edges)
             if source in members and target in members
         ]
         cluster["importers"] = {
-            member: sorted(source for source, target in edges if target == member and source not in members)
+            member: sorted(
+                source
+                for source, target in edges
+                if target == member and source not in members
+            )
             for member in cluster["members"]
         }
         cluster["co_change"] = [
             {"members": [left, right], "count": counts[left, right]}
-            for left, right in combinations(cluster["members"], 2) if counts[left, right]
+            for left, right in combinations(cluster["members"], 2)
+            if counts[left, right]
         ]
     return clusters
 

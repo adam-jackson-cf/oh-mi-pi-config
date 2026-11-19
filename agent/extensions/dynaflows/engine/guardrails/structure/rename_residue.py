@@ -59,7 +59,8 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
         words(segment)
         for raw_path in owned_paths
         for segment in (
-            *PurePosixPath(raw_path).parts[:-1], PurePosixPath(raw_path).stem
+            *PurePosixPath(raw_path).parts[:-1],
+            PurePosixPath(raw_path).stem,
         )
     }
     found = [term for rename in renames for term in rename_terms(rename)]
@@ -152,14 +153,18 @@ class DefinedNames(ast.NodeVisitor):
             self.visit(statement)
 
 
-def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> list[Finding]:
+def residue_findings(
+    renames: list[Rename], head_files: dict[str, bytes]
+) -> list[Finding]:
     """Inspect an owned head snapshot; non-Python values need not contain file bytes."""
     terms = retired_terms(renames, list(head_files))
     found: list[Finding] = []
     for path, source in sorted(head_files.items()):
         scoped = [
-            term for term in terms
-            if path == term.scope or (term.directory and path.startswith(term.scope + "/"))
+            term
+            for term in terms
+            if path == term.scope
+            or (term.directory and path.startswith(term.scope + "/"))
         ]
         if not scoped:
             continue
@@ -168,8 +173,14 @@ def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> lis
             try:
                 tree = ast.parse(source, filename=path)
             except (SyntaxError, ValueError, UnicodeError) as error:
-                found.append(Finding(RULE, path, f"cannot parse head Python file: {error}",
-                                     "repair the Python source so rename residue can be checked"))
+                found.append(
+                    Finding(
+                        RULE,
+                        path,
+                        f"cannot parse head Python file: {error}",
+                        "repair the Python source so rename residue can be checked",
+                    )
+                )
                 continue
             visitor = DefinedNames()
             visitor.visit(tree)
@@ -179,18 +190,23 @@ def residue_findings(renames: list[Rename], head_files: dict[str, bytes]) -> lis
         for term in scoped:
             retired = words(term.old)
             leftovers = [name for name in identifiers if contains(words(name), retired)]
-            path_leftovers = [part for part in path_names if contains(words(part), retired)]
+            path_leftovers = [
+                part for part in path_names if contains(words(part), retired)
+            ]
             if path_leftovers:
                 leftovers.insert(0, path_leftovers[0])
             for identifier in leftovers:
-                found.append(Finding(
-                    RULE, path,
-                    f"defines `{identifier}`, which still uses `{term.old}` after this change "
-                    f"renamed `{term.old}` to `{term.new}` "
-                    f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
-                    "in one change, with no alias for the old name (naming.md)",
-                    f"Rename it to use `{term.new}`.",
-                ))
+                found.append(
+                    Finding(
+                        RULE,
+                        path,
+                        f"defines `{identifier}`, which still uses `{term.old}` after this change "
+                        f"renamed `{term.old}` to `{term.new}` "
+                        f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
+                        "in one change, with no alias for the old name (naming.md)",
+                        f"Rename it to use `{term.new}`.",
+                    )
+                )
     return list(dict.fromkeys(found))
 
 
@@ -200,23 +216,57 @@ class GitError(Exception):
 
 def git(repo: Path, *args: str) -> bytes:
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False)
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, check=False
+        )
     except OSError as error:
         raise GitError(str(error)) from error
     if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip() or "git command failed")
+        raise GitError(
+            result.stderr.decode(errors="replace").strip() or "git command failed"
+        )
     return result.stdout
 
 
-def commit_snapshot(repo: Path, profile: dict[str, Any], base: str, head: str) -> tuple[list[Rename], dict[str, bytes]]:
-    base_id = git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
-    head_id = git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}").decode().strip()
-    rows = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z",
-               f"--find-renames={RENAME_THRESHOLD}", "-l0", "--diff-filter=R", base_id, head_id, "--").decode().split("\0")
-    renames = [Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)]
+def commit_snapshot(
+    repo: Path, profile: dict[str, Any], base: str, head: str
+) -> tuple[list[Rename], dict[str, bytes]]:
+    base_id = (
+        git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}")
+        .decode()
+        .strip()
+    )
+    head_id = (
+        git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}")
+        .decode()
+        .strip()
+    )
+    rows = (
+        git(
+            repo,
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-status",
+            "-z",
+            f"--find-renames={RENAME_THRESHOLD}",
+            "-l0",
+            "--diff-filter=R",
+            base_id,
+            head_id,
+            "--",
+        )
+        .decode()
+        .split("\0")
+    )
+    renames = [
+        Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
+    ]
     exclusions = as_list(settings(profile, "check").get("exclude"))
     # Read the committed tree, not an index/worktree that may differ from --head.
-    paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
+    paths = (
+        git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
+    )
     owned_paths = [path for path in paths if path and not matches_any(path, exclusions)]
     terms = retired_terms(renames, owned_paths)
     files = {}
@@ -225,7 +275,11 @@ def commit_snapshot(repo: Path, profile: dict[str, Any], base: str, head: str) -
             path == term.scope or (term.directory and path.startswith(term.scope + "/"))
             for term in terms
         )
-        files[path] = git(repo, "show", f"{head_id}:{path}") if scoped and path.endswith(".py") else b""
+        files[path] = (
+            git(repo, "show", f"{head_id}:{path}")
+            if scoped and path.endswith(".py")
+            else b""
+        )
     return renames, files
 
 
@@ -237,7 +291,14 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         renames, files = commit_snapshot(repo, profile, args.base, args.head)
     except (GitError, UnicodeError) as error:
-        return [Finding(RULE, ".", str(error), "provide readable base and head commits in this repository")]
+        return [
+            Finding(
+                RULE,
+                ".",
+                str(error),
+                "provide readable base and head commits in this repository",
+            )
+        ]
     return residue_findings(renames, files)
 
 

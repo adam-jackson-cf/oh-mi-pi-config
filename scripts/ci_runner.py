@@ -11,6 +11,7 @@ is the default wait limit; --timeout overrides it.
 Exit codes: 0 success, 1 failure or error, 2 configuration error, 3 pending (status),
 124 built-in wait timed out; configured commands pass their own exit code through.
 """
+
 import argparse
 import json
 import os
@@ -34,7 +35,9 @@ def config_path() -> Path:
 
 
 def rollout_hint() -> str:
-    return f"run python3 {BASE / 'scripts' / 'device_rollout.py'} to write ci-runners.json"
+    return (
+        f"run python3 {BASE / 'scripts' / 'device_rollout.py'} to write ci-runners.json"
+    )
 
 
 def load_role(role: str) -> dict[str, Any]:
@@ -46,20 +49,39 @@ def load_role(role: str) -> dict[str, Any]:
     except (OSError, ValueError):
         raise ConfigError(f"{path} is not readable JSON; {rollout_hint()}") from None
     runners = document.get("runners") if isinstance(document, dict) else None
-    if not isinstance(document, dict) or document.get("schemaVersion") != 1 or not isinstance(runners, dict):
-        raise ConfigError(f"{path} is not a schemaVersion 1 runner config; {rollout_hint()}")
+    if (
+        not isinstance(document, dict)
+        or document.get("schemaVersion") != 1
+        or not isinstance(runners, dict)
+    ):
+        raise ConfigError(
+            f"{path} is not a schemaVersion 1 runner config; {rollout_hint()}"
+        )
     spec = runners.get(role)
     if not isinstance(spec, dict):
-        raise ConfigError(f"runner role {role!r} is not configured in {path}; {rollout_hint()}")
+        raise ConfigError(
+            f"runner role {role!r} is not configured in {path}; {rollout_hint()}"
+        )
     for operation in OPERATIONS:
         argv = spec.get(operation, "missing")
-        if argv is not None and (not isinstance(argv, list) or not argv
-                                 or any(not isinstance(arg, str) or not arg for arg in argv)):
-            raise ConfigError(f"runner role {role!r} has an invalid {operation!r} command in {path}; "
-                              f"{rollout_hint()}")
+        if argv is not None and (
+            not isinstance(argv, list)
+            or not argv
+            or any(not isinstance(arg, str) or not arg for arg in argv)
+        ):
+            raise ConfigError(
+                f"runner role {role!r} has an invalid {operation!r} command in {path}; "
+                f"{rollout_hint()}"
+            )
     timeout = spec.get("timeout")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-        raise ConfigError(f"runner role {role!r} has no positive timeout in {path}; {rollout_hint()}")
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or timeout <= 0
+    ):
+        raise ConfigError(
+            f"runner role {role!r} has no positive timeout in {path}; {rollout_hint()}"
+        )
     return spec
 
 
@@ -70,7 +92,9 @@ def substitute(argv: list[str], values: dict[str, str]) -> list[str]:
 
 
 def gh_json(path: str) -> Any:
-    result = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["gh", "api", path], capture_output=True, text=True, check=False
+    )
     if result.returncode:
         # gh output is not echoed: it can carry request details.
         raise RuntimeError(f"gh api {path} failed with exit code {result.returncode}")
@@ -83,15 +107,24 @@ def context_state(repo: str, sha: str, context: str) -> str:
     combined = gh_json(f"repos/{repo}/commits/{sha}/status")
     for status in combined.get("statuses") or []:
         if status.get("context") == context:
-            states.append({"success": "success", "pending": "pending"}.get(status.get("state"), "failure"))
-    runs = gh_json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100").get("check_runs") or []
+            states.append(
+                {"success": "success", "pending": "pending"}.get(
+                    status.get("state"), "failure"
+                )
+            )
+    runs = (
+        gh_json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100").get("check_runs")
+        or []
+    )
     named = [run for run in runs if run.get("name") == context]
     if named:
         latest = max(named, key=lambda run: run.get("id") or 0)
         if latest.get("status") != "completed":
             states.append("pending")
         else:
-            states.append("success" if latest.get("conclusion") == "success" else "failure")
+            states.append(
+                "success" if latest.get("conclusion") == "success" else "failure"
+            )
     if "failure" in states:
         return "failure"
     if "pending" in states or not states:
@@ -112,26 +145,35 @@ def poll(args: argparse.Namespace) -> int:
             return {"success": 0, "failure": 1}.get(state, 3)
         if time.monotonic() >= deadline:
             report(args.repo, args.sha, args.context, "timeout")
-            print(f"Timed out after {args.timeout:g}s waiting for {args.context} on {args.sha}",
-                  file=sys.stderr)
+            print(
+                f"Timed out after {args.timeout:g}s waiting for {args.context} on {args.sha}",
+                file=sys.stderr,
+            )
             return 124
         time.sleep(min(args.interval, max(deadline - time.monotonic(), 0)))
 
 
 def parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("operation", choices=OPERATIONS)
     parser.add_argument("role")
     parser.add_argument("repo")
     parser.add_argument("sha")
-    parser.add_argument("--context",
-                        help="the gate's ci.requiredContext; required by the built-in poller")
-    parser.add_argument("--timeout", type=float,
-                        help="wait limit in seconds (default: the role's configured timeout)")
+    parser.add_argument(
+        "--context",
+        help="the gate's ci.requiredContext; required by the built-in poller",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        help="wait limit in seconds (default: the role's configured timeout)",
+    )
     parser.add_argument("--tail", type=int, default=200, help="log lines to show")
-    parser.add_argument("--interval", type=float, default=10,
-                        help="built-in poller interval in seconds")
+    parser.add_argument(
+        "--interval", type=float, default=10, help="built-in poller interval in seconds"
+    )
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
         parser.error("repo must be OWNER/REPO")
@@ -139,8 +181,15 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
         parser.error("sha must be 40 lowercase hex characters")
     if args.context is not None and not args.context.strip():
         parser.error("--context must be non-empty")
-    if args.timeout is not None and not args.timeout >= 0 or args.tail < 0 or not args.interval > 0:
-        parser.error("--timeout and --tail must be non-negative and --interval positive")
+    if (
+        args.timeout is not None
+        and not args.timeout >= 0
+        or args.tail < 0
+        or not args.interval > 0
+    ):
+        parser.error(
+            "--timeout and --tail must be non-negative and --interval positive"
+        )
     return args
 
 
@@ -153,13 +202,20 @@ def builtin(args: argparse.Namespace) -> int:
         print(f"runner {args.role!r} has no logs command configured", file=sys.stderr)
         return 2
     if args.context is None:
-        print(f"runner {args.role!r} {args.operation} uses the built-in poller; "
-              "pass --context with the gate's ci.requiredContext", file=sys.stderr)
+        print(
+            f"runner {args.role!r} {args.operation} uses the built-in poller; "
+            "pass --context with the gate's ci.requiredContext",
+            file=sys.stderr,
+        )
         return 2
     try:
         return poll(args)
     except (RuntimeError, ValueError, OSError) as error:
-        message = str(error) if isinstance(error, RuntimeError) else "GitHub status lookup failed"
+        message = (
+            str(error)
+            if isinstance(error, RuntimeError)
+            else "GitHub status lookup failed"
+        )
         print(message, file=sys.stderr)
         return 1
 
@@ -176,12 +232,19 @@ def main(argv: list[str] | None = None) -> int:
         args.timeout = float(spec["timeout"])
     if command is None:
         return builtin(args)
-    values = {"repo": args.repo, "sha": args.sha, "timeout": f"{args.timeout:g}", "tail": str(args.tail)}
+    values = {
+        "repo": args.repo,
+        "sha": args.sha,
+        "timeout": f"{args.timeout:g}",
+        "tail": str(args.tail),
+    }
     try:
         return subprocess.run(substitute(command, values), check=False).returncode
     except OSError:
-        print(f"runner {args.role!r} {args.operation} command could not start: {command[0]}",
-              file=sys.stderr)
+        print(
+            f"runner {args.role!r} {args.operation} command could not start: {command[0]}",
+            file=sys.stderr,
+        )
         return 127
 
 

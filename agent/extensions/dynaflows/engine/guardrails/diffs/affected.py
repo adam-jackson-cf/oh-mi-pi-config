@@ -58,7 +58,9 @@ def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
 
 def t2_files(paths: list[str], profile: dict[str, Any]) -> list[str]:
     locations = as_list(section(section(profile, "tiers"), "t2").get("location"))
-    journeys = as_list(section(profile, "verification_surface").get("journey_file_pattern"))
+    journeys = as_list(
+        section(profile, "verification_surface").get("journey_file_pattern")
+    )
     return sorted(
         path
         for path in paths
@@ -83,14 +85,22 @@ def owner_of(path: str, profile: dict[str, Any]) -> str | None:
     directories = section(owners, "directories")
     best = None
     for prefix, owner in directories.items():
-        if isinstance(owner, str) and matches(path, str(prefix)) and (best is None or len(str(prefix)) > len(best[0])):
+        if (
+            isinstance(owner, str)
+            and matches(path, str(prefix))
+            and (best is None or len(str(prefix)) > len(best[0]))
+        ):
             best = (str(prefix), owner)
     return best[1] if best else None
 
 
 def is_production(path: str, profile: dict[str, Any]) -> bool:
     layout = section(profile, "layout")
-    holders = [value for value in (layout.get("fixtures_dir"), layout.get("support_dir")) if value]
+    holders = [
+        value
+        for value in (layout.get("fixtures_dir"), layout.get("support_dir"))
+        if value
+    ]
     scope = as_list(section(profile, "coverage").get("scope"))
     return (
         matches_any(path, scope)
@@ -99,7 +109,9 @@ def is_production(path: str, profile: dict[str, Any]) -> bool:
     )
 
 
-def select(changed: list[str], inventory: list[str], profile: dict[str, Any]) -> Selection:
+def select(
+    changed: list[str], inventory: list[str], profile: dict[str, Any]
+) -> Selection:
     candidates = t2_files(inventory, profile)
     production = [path for path in changed if is_production(path, profile)]
     unowned = [path for path in production if owner_of(path, profile) is None]
@@ -111,10 +123,14 @@ def select(changed: list[str], inventory: list[str], profile: dict[str, Any]) ->
     areas = {owner_of(path, profile) for path in production}
     changed_t2 = set(t2_files(changed, profile)) & set(candidates)
     picked = [
-        path for path in candidates if area_of_test(path, profile) in areas or path in changed_t2
+        path
+        for path in candidates
+        if area_of_test(path, profile) in areas or path in changed_t2
     ]
     named = ", ".join(sorted(area for area in areas if area)) or "none"
-    return Selection(tuple(picked), f"areas {named}; changed T2 files {len(changed_t2)}")
+    return Selection(
+        tuple(picked), f"areas {named}; changed T2 files {len(changed_t2)}"
+    )
 
 
 def affected(repo: Path, profile: dict[str, Any], argv: list[str]) -> Selection:

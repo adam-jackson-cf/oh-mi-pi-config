@@ -56,13 +56,17 @@ def parse_range(argv: list[str]) -> DiffRange:
     parser.add_argument("--head", default="HEAD")
     known, _ = parser.parse_known_args(argv)
     if not known.base:
-        raise DiffError("pass --base <ref> (and optionally --head <ref>) to name the diff range")
+        raise DiffError(
+            "pass --base <ref> (and optionally --head <ref>) to name the diff range"
+        )
     return DiffRange(known.base, known.head)
 
 
 def git(repo: Path, *args: str) -> str:
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False)
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, check=False
+        )
     except OSError as error:
         raise DiffError(f"cannot run git: {error}") from error
     if result.returncode != 0:
@@ -95,7 +99,16 @@ def hunks(repo: Path, diff: DiffRange, *paths: str) -> list[LineChanges]:
     whole-file deletion plus one whole-file addition.
     """
     output = git(
-        repo, "diff", "-U0", "-M", "--no-color", "--no-ext-diff", diff.base, diff.head, "--", *paths
+        repo,
+        "diff",
+        "-U0",
+        "-M",
+        "--no-color",
+        "--no-ext-diff",
+        diff.base,
+        diff.head,
+        "--",
+        *paths,
     )
     found: list[LineChanges] = []
     added: list[tuple[int, str]] = []

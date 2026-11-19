@@ -30,9 +30,20 @@ from guardrails.structure.inventory import InventoryError, repo_paths
 SHELL_SUFFIXES = (".sh", ".bash")
 OXLINT_FILES = (".oxlintrc.json", "oxlint.config.ts")
 ESLINT_FILES = (
-    "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts",
-    "eslint.config.mts", "eslint.config.cts", ".eslintrc", ".eslintrc.js", ".eslintrc.cjs",
-    ".eslintrc.json", ".eslintrc.yml", ".eslintrc.yaml", "biome.json", "biome.jsonc",
+    "eslint.config.js",
+    "eslint.config.mjs",
+    "eslint.config.cjs",
+    "eslint.config.ts",
+    "eslint.config.mts",
+    "eslint.config.cts",
+    ".eslintrc",
+    ".eslintrc.js",
+    ".eslintrc.cjs",
+    ".eslintrc.json",
+    ".eslintrc.yml",
+    ".eslintrc.yaml",
+    "biome.json",
+    "biome.jsonc",
 )
 GOLANGCI_FILES = (".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json")
 SHELLCHECK_FILES = (".shellcheckrc", "shellcheckrc")
@@ -75,14 +86,20 @@ def jsonc(text: str) -> object:
 
 
 def extends_target(repo: Path, folder: Path, base: str) -> Path:
-    root = folder / base if base.startswith((".", "/")) else repo / "node_modules" / base
+    root = (
+        folder / base if base.startswith((".", "/")) else repo / "node_modules" / base
+    )
     for candidate in (root, Path(f"{root}.json"), root / "tsconfig.json"):
         if candidate.is_file():
             return candidate
-    raise ConfigError(f"extends {base!r} cannot be read; install the repository's dependencies")
+    raise ConfigError(
+        f"extends {base!r} cannot be read; install the repository's dependencies"
+    )
 
 
-def compiler_options(repo: Path, path: Path, seen: frozenset[Path] = frozenset()) -> dict[str, Any]:
+def compiler_options(
+    repo: Path, path: Path, seen: frozenset[Path] = frozenset()
+) -> dict[str, Any]:
     """compilerOptions after every extends, bases first, as tsc merges them."""
     if path in seen:
         raise ConfigError(f"extends cycle at {path.name}")
@@ -126,7 +143,11 @@ def glob_pattern(glob: str) -> re.Pattern[str]:
             continue
         if char == "{" and "}" in glob[index:]:
             close = glob.index("}", index)
-            pattern += "(?:" + "|".join(map(re.escape, glob[index + 1 : close].split(","))) + ")"
+            pattern += (
+                "(?:"
+                + "|".join(map(re.escape, glob[index + 1 : close].split(",")))
+                + ")"
+            )
             index = close + 1
             continue
         pattern += {"*": "[^/]*", "?": "[^/]"}.get(char, re.escape(char))
@@ -161,12 +182,16 @@ def editorconfig_report(text: str, shfmt: dict[str, Any]) -> list[str]:
             editorconfig_values(text, f"script{suffix}").get(key) != wanted
             for suffix in SHELL_SUFFIXES
         ):
-            report.append(f"native: .editorconfig lacks SHFMT.{key} ({key} = {wanted} for shell files)")
+            report.append(
+                f"native: .editorconfig lacks SHFMT.{key} ({key} = {wanted} for shell files)"
+            )
     return report
 
 
 def render_tsconfig(data: dict[str, Any]) -> str:
-    return json.dumps({"compilerOptions": data["tsc"]["compilerOptions"]}, indent=2) + "\n"
+    return (
+        json.dumps({"compilerOptions": data["tsc"]["compilerOptions"]}, indent=2) + "\n"
+    )
 
 
 def render_oxlint(data: dict[str, Any]) -> str:
@@ -182,14 +207,18 @@ def render_golangci(data: dict[str, Any], module: str) -> str:
 def render_shellcheck(data: dict[str, Any]) -> str:
     rc = data["shellcheck"]
     lines = [HEADER.rstrip("\n"), *(f"enable={name}" for name in rc["enable"])]
-    lines.extend(f"{key}={setting_text(value)}" for key, value in rc.items() if key != "enable")
+    lines.extend(
+        f"{key}={setting_text(value)}" for key, value in rc.items() if key != "enable"
+    )
     return "\n".join(lines) + "\n"
 
 
 def render_editorconfig(data: dict[str, Any]) -> str:
     shfmt = data["shfmt"]
     lines = [HEADER.rstrip("\n"), "root = true", "", shfmt["section"]]
-    lines.extend(f"{key} = {setting_text(value)}" for key, value in shfmt["settings"].items())
+    lines.extend(
+        f"{key} = {setting_text(value)}" for key, value in shfmt["settings"].items()
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -198,10 +227,14 @@ def first_file(repo: Path, names: tuple[str, ...]) -> str | None:
 
 
 def shell_scripts(repo: Path) -> bool:
-    return any(PurePosixPath(path).suffix in SHELL_SUFFIXES for path in repo_paths(repo))
+    return any(
+        PurePosixPath(path).suffix in SHELL_SUFFIXES for path in repo_paths(repo)
+    )
 
 
-def typescript_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+def typescript_configs(
+    repo: Path, data: dict[str, Any]
+) -> tuple[dict[str, str], list[str]]:
     planned: dict[str, str] = {}
     report: list[str] = []
     if (repo / "tsconfig.json").is_file():
@@ -222,7 +255,9 @@ def go_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], list[s
         return {}, [f"native: kept the existing golangci-lint configuration in {kept}"]
     module = MODULE.search((repo / "go.mod").read_text(encoding="utf-8"))
     if module is None:
-        return {}, ["native: golangci-lint not proposed; go.mod declares no module path"]
+        return {}, [
+            "native: golangci-lint not proposed; go.mod declares no module path"
+        ]
     return {".golangci.json": render_golangci(data, module.group(1))}, []
 
 
@@ -236,7 +271,9 @@ def shell_configs(repo: Path, data: dict[str, Any]) -> tuple[dict[str, str], lis
         planned[".shellcheckrc"] = render_shellcheck(data)
     editorconfig = repo / ".editorconfig"
     if editorconfig.is_file():
-        report.extend(editorconfig_report(editorconfig.read_text(encoding="utf-8"), data["shfmt"]))
+        report.extend(
+            editorconfig_report(editorconfig.read_text(encoding="utf-8"), data["shfmt"])
+        )
     else:
         planned[".editorconfig"] = render_editorconfig(data)
     return planned, report
@@ -253,7 +290,10 @@ def planned_configs(repo: Path) -> tuple[dict[str, str], list[str]]:
         shell = False
         report.append(f"native: shell scripts not listed; {error}")
     selected = (
-        (typescript_configs, any((repo / name).is_file() for name in ("package.json", "tsconfig.json"))),
+        (
+            typescript_configs,
+            any((repo / name).is_file() for name in ("package.json", "tsconfig.json")),
+        ),
         (go_configs, (repo / "go.mod").is_file()),
         (shell_configs, shell),
     )

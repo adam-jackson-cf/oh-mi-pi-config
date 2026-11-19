@@ -51,9 +51,13 @@ class Discovery:
     notes: list[str] = field(default_factory=list)
 
     def report(self) -> list[str]:
-        jobs = ", ".join(f"{job.name} ({job.workflow})" for job in self.ci_jobs) or "none"
+        jobs = (
+            ", ".join(f"{job.name} ({job.workflow})" for job in self.ci_jobs) or "none"
+        )
         required = (
-            "unknown" if self.required_checks is None else ", ".join(self.required_checks) or "none"
+            "unknown"
+            if self.required_checks is None
+            else ", ".join(self.required_checks) or "none"
         )
         lines = [
             f"discovered: make targets: {', '.join(self.make_targets) or 'none'}",
@@ -62,7 +66,9 @@ class Discovery:
             f"discovered: required checks on the default branch: {required}",
         ]
         if self.pre_commit_hooks:
-            lines.insert(2, f"discovered: pre-commit hooks: {', '.join(self.pre_commit_hooks)}")
+            lines.insert(
+                2, f"discovered: pre-commit hooks: {', '.join(self.pre_commit_hooks)}"
+            )
         return lines + [f"discovered: {note}" for note in self.notes]
 
 
@@ -163,8 +169,12 @@ def gh_json(repo: Path, args: list[str], *, missing_ok: bool = False) -> object:
     if result.returncode:
         if missing_ok and "404" in result.stderr + result.stdout:
             return None
-        detail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
-        raise GhError(f"gh {' '.join(args[:2])} exited {result.returncode}: {detail[0]}")
+        detail = (result.stderr or result.stdout).strip().splitlines()[-1:] or [
+            "no output"
+        ]
+        raise GhError(
+            f"gh {' '.join(args[:2])} exited {result.returncode}: {detail[0]}"
+        )
     try:
         return json.loads(result.stdout)
     except ValueError as error:
@@ -181,7 +191,9 @@ def required_checks(repo: Path) -> list[str]:
     if not isinstance(slug, str) or not isinstance(branch, str):
         raise GhError("gh repo view returned no default branch")
     found: list[str] = []
-    rules = gh_json(repo, ["api", f"repos/{slug}/rules/branches/{branch}"], missing_ok=True)
+    rules = gh_json(
+        repo, ["api", f"repos/{slug}/rules/branches/{branch}"], missing_ok=True
+    )
     for rule in rules if isinstance(rules, list) else []:
         if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
             checks = (rule.get("parameters") or {}).get("required_status_checks") or []
@@ -194,7 +206,9 @@ def required_checks(repo: Path) -> list[str]:
     if isinstance(protection, dict):
         found.extend(str(item) for item in protection.get("contexts") or [])
         found.extend(
-            item["context"] for item in protection.get("checks") or [] if isinstance(item, dict)
+            item["context"]
+            for item in protection.get("checks") or []
+            if isinstance(item, dict)
         )
     return sorted(set(found))
 

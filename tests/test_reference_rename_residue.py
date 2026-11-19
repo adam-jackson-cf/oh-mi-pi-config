@@ -10,7 +10,9 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 from guardrails.structure import rename_residue as residue
 
@@ -22,7 +24,10 @@ class RenameResidueTests(unittest.TestCase):
     def test_oracle_to_verifier_reports_all_four_leftovers(self) -> None:
         renames = [
             residue.Rename("oracle/grader.py", "verifier/grader.py"),
-            residue.Rename("oracle/runtime/raidar_oracle_plugin.py", "verifier/runtime/raidar_oracle_plugin.py"),
+            residue.Rename(
+                "oracle/runtime/raidar_oracle_plugin.py",
+                "verifier/runtime/raidar_oracle_plugin.py",
+            ),
         ]
         files = {
             "verifier/grader.py": b"def run_oracle():\n    pass\n",
@@ -40,75 +45,111 @@ class RenameResidueTests(unittest.TestCase):
             ("verifier/runtime/raidar_oracle_plugin.py", "OraclePlugin"),
             ("verifier/runtime/raidar_oracle_plugin.py", "_take_oracle_environment"),
         }
-        assert {(item.path, item.message.split("`")[1]) for item in findings} == expected
+        assert {
+            (item.path, item.message.split("`")[1]) for item in findings
+        } == expected
         assert all(item.rule_id == "RENAME.residue" for item in findings)
         assert all("naming.md" in item.message for item in findings)
 
     def test_gate_effort_retires_the_compound_not_gate(self) -> None:
-        renames = [residue.Rename("scoring/gate_effort/scorer.py", "scoring/verification_effort/scorer.py")]
-        terms = residue.retired_terms(renames, ["scoring/verification_effort/scorer.py"])
-        assert [(term.old, term.new) for term in terms] == [("gate_effort", "verification_effort")]
-        files = {"scoring/verification_effort/scorer.py": (
-            b'"""verification-effort: what the gate/1 checks cost the agent."""\n'
-            b'GATE_KEY = "gate/1"\n'
-            b"class GateRunView:\n    pass\n"
-            b"class StepGate:\n    pass\n"
-        )}
+        renames = [
+            residue.Rename(
+                "scoring/gate_effort/scorer.py", "scoring/verification_effort/scorer.py"
+            )
+        ]
+        terms = residue.retired_terms(
+            renames, ["scoring/verification_effort/scorer.py"]
+        )
+        assert [(term.old, term.new) for term in terms] == [
+            ("gate_effort", "verification_effort")
+        ]
+        files = {
+            "scoring/verification_effort/scorer.py": (
+                b'"""verification-effort: what the gate/1 checks cost the agent."""\n'
+                b'GATE_KEY = "gate/1"\n'
+                b"class GateRunView:\n    pass\n"
+                b"class StepGate:\n    pass\n"
+            )
+        }
         assert residue.residue_findings(renames, files) == []
 
     def test_compound_leftovers_still_fail(self) -> None:
-        renames = [residue.Rename("gate_effort/scorer.py", "verification_effort/scorer.py")]
-        files = {"verification_effort/scorer.py": b"def read_gate_effort():\n    pass\n"}
+        renames = [
+            residue.Rename("gate_effort/scorer.py", "verification_effort/scorer.py")
+        ]
+        files = {
+            "verification_effort/scorer.py": b"def read_gate_effort():\n    pass\n"
+        }
         assert len(residue.residue_findings(renames, files)) == 1
 
     def test_prefix_homonym_outside_renamed_folder_is_not_residue(self) -> None:
-        renames = [residue.Rename("grading/prefix/store.py", "grading/pre_fix/store.py")]
+        renames = [
+            residue.Rename("grading/prefix/store.py", "grading/pre_fix/store.py")
+        ]
         files = {
             "grading/pre_fix/store.py": b"def store():\n    pass\n",
             "grading/sandbox.py": b"def coverage_prefix():\n    pass\n",
             "grading/pre_fixture/other.py": b"def prefix():\n    pass\n",
         }
-        assert [term.old for term in residue.retired_terms(renames, list(files))] == ["prefix"]
+        assert [term.old for term in residue.retired_terms(renames, list(files))] == [
+            "prefix"
+        ]
         assert residue.residue_findings(renames, files) == []
 
     def test_coverage_offline_regroup_retires_nothing(self) -> None:
-        renames = [residue.Rename("grading/coverage_offline.py", "grading/coverage/offline.py")]
+        renames = [
+            residue.Rename("grading/coverage_offline.py", "grading/coverage/offline.py")
+        ]
         assert residue.retired_terms(renames, ["grading/coverage/offline.py"]) == []
-        assert residue.residue_findings(renames, {"grading/coverage/offline.py": b"def coverage_offline():\n    pass\n"}) == []
+        assert (
+            residue.residue_findings(
+                renames,
+                {"grading/coverage/offline.py": b"def coverage_offline():\n    pass\n"},
+            )
+            == []
+        )
 
     def test_imports_strings_comments_docstrings_and_locals_are_ignored(self) -> None:
         renames = [residue.Rename("oracle/api.py", "verifier/api.py")]
-        files = {"verifier/api.py": (
-            b'"""oracle module documentation"""\n'
-            b"import oracle\n"
-            b"from external import OraclePlugin as oracle_plugin\n"
-            b"# oracle comment\n"
-            b'WIRE_NAME = "oracle"\n'
-            b"def run():\n"
-            b'    """oracle function documentation"""\n'
-            b"    oracle_local = 1\n"
-            b"    def oracle_inner():\n        pass\n"
-            b"class Plugin:\n"
-            b'    """oracle class documentation"""\n'
-            b"    def run(self):\n        oracle_local = 1\n"
-        )}
+        files = {
+            "verifier/api.py": (
+                b'"""oracle module documentation"""\n'
+                b"import oracle\n"
+                b"from external import OraclePlugin as oracle_plugin\n"
+                b"# oracle comment\n"
+                b'WIRE_NAME = "oracle"\n'
+                b"def run():\n"
+                b'    """oracle function documentation"""\n'
+                b"    oracle_local = 1\n"
+                b"    def oracle_inner():\n        pass\n"
+                b"class Plugin:\n"
+                b'    """oracle class documentation"""\n'
+                b"    def run(self):\n        oracle_local = 1\n"
+            )
+        }
         assert residue.residue_findings(renames, files) == []
 
     def test_module_and_class_bindings_are_definitions(self) -> None:
         renames = [residue.Rename("oracle/api.py", "verifier/api.py")]
-        files = {"verifier/api.py": (
-            b"ORACLE_KEY = 1\n"
-            b"class Plugin:\n"
-            b"    oracle_state: str\n"
-            b"    async def takeOracle(self):\n        pass\n"
-        )}
+        files = {
+            "verifier/api.py": (
+                b"ORACLE_KEY = 1\n"
+                b"class Plugin:\n"
+                b"    oracle_state: str\n"
+                b"    async def takeOracle(self):\n        pass\n"
+            )
+        }
         assert len(residue.residue_findings(renames, files)) == 3
 
-    def test_word_matching_is_case_insensitive_contiguous_and_not_substring(self) -> None:
+    def test_word_matching_is_case_insensitive_contiguous_and_not_substring(
+        self,
+    ) -> None:
         assert residue.words("HTTPOraclePlugin") == ("http", "oracle", "plugin")
         assert residue.words("gate-effort") == ("gate", "effort")
         assert residue.contains(residue.words("readGateEffort"), ("gate", "effort"))
-        assert not residue.contains(residue.words("gate_other_effort"), ("gate", "effort"))
+        assert not residue.contains(
+            residue.words("gate_other_effort"), ("gate", "effort")
+        )
         assert not residue.contains(residue.words("oracles"), ("oracle",))
         assert not residue.contains(residue.words("pre_fix"), ("prefix",))
 
@@ -122,9 +163,7 @@ class RenameResidueTests(unittest.TestCase):
 
     def test_split_preserves_an_owner_still_present_at_head(self) -> None:
         renames = [
-            residue.Rename(
-                "process_compliance/checks.py", "process_checks/checks.py"
-            )
+            residue.Rename("process_compliance/checks.py", "process_checks/checks.py")
         ]
         files = {
             "process_checks/checks.py": b"def process_compliance_checks():\n    pass\n",
@@ -134,7 +173,9 @@ class RenameResidueTests(unittest.TestCase):
         assert residue.residue_findings(renames, files) == []
 
     def test_retained_module_owner_uses_whole_case_insensitive_words(self) -> None:
-        renames = [residue.Rename("gate_effort/check.py", "verification_effort/check.py")]
+        renames = [
+            residue.Rename("gate_effort/check.py", "verification_effort/check.py")
+        ]
         files = {
             "verification_effort/check.py": b"def gate_effort():\n    pass\n",
             "metrics/GateEffort.py": b"",
@@ -142,7 +183,9 @@ class RenameResidueTests(unittest.TestCase):
         assert residue.residue_findings(renames, files) == []
 
     def test_retained_owner_does_not_match_a_partial_segment(self) -> None:
-        renames = [residue.Rename("gate_effort/check.py", "verification_effort/check.py")]
+        renames = [
+            residue.Rename("gate_effort/check.py", "verification_effort/check.py")
+        ]
         files = {
             "verification_effort/check.py": b"def gate_effort():\n    pass\n",
             "metrics/gate_effort_report.py": b"",
@@ -192,12 +235,17 @@ class RenameResidueCommandTests(unittest.TestCase):
 
     def git(self, *args: str) -> str:
         return subprocess.run(
-            ["git", "-C", str(self.repo), *args], check=True,
-            capture_output=True, text=True, timeout=10,
+            ["git", "-C", str(self.repo), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         ).stdout.strip()
 
     def write_profile(self) -> None:
-        (self.record / "profile.md").write_text("---\n" + json.dumps(self.profile) + "\n---\n")
+        (self.record / "profile.md").write_text(
+            "---\n" + json.dumps(self.profile) + "\n---\n"
+        )
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path
@@ -214,17 +262,33 @@ class RenameResidueCommandTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         (self.repo / old).rename(target)
 
-    def command(self, base: str, head: str = "HEAD") -> subprocess.CompletedProcess[str]:
+    def command(
+        self, base: str, head: str = "HEAD"
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
-                sys.executable, "-I", "-S", "-c",
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.cli import main; raise SystemExit(main())",
                 str(REFERENCE),
-                "rename-residue", "--repo", str(self.repo), "--record", str(self.record),
-                "--base", base, "--head", head,
+                "rename-residue",
+                "--repo",
+                str(self.repo),
+                "--record",
+                str(self.record),
+                "--base",
+                base,
+                "--head",
+                head,
             ],
-            cwd=REFERENCE, capture_output=True, text=True, check=False, timeout=20,
+            cwd=REFERENCE,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
         )
 
     def assert_clean(self, result: subprocess.CompletedProcess[str]) -> None:
@@ -232,7 +296,9 @@ class RenameResidueCommandTests(unittest.TestCase):
         assert "RENAME.residue:" not in result.stdout
 
     def test_oracle_to_verifier_reports_exactly_four_findings(self) -> None:
-        self.write("oracle/grader.py", "def run_oracle():\n    return 'grader result'\n")
+        self.write(
+            "oracle/grader.py", "def run_oracle():\n    return 'grader result'\n"
+        )
         self.write(
             "oracle/runtime/raidar_oracle_plugin.py",
             "class OraclePlugin:\n"
@@ -241,11 +307,16 @@ class RenameResidueCommandTests(unittest.TestCase):
         )
         base = self.commit("Oracle owner")
         self.move("oracle/grader.py", "verifier/grader.py")
-        self.move("oracle/runtime/raidar_oracle_plugin.py", "verifier/runtime/raidar_oracle_plugin.py")
+        self.move(
+            "oracle/runtime/raidar_oracle_plugin.py",
+            "verifier/runtime/raidar_oracle_plugin.py",
+        )
         self.commit("Rename oracle owner to verifier")
         result = self.command(base)
         assert result.returncode == 1, result.stdout + result.stderr
-        lines = [line for line in result.stdout.splitlines() if "RENAME.residue:" in line]
+        lines = [
+            line for line in result.stdout.splitlines() if "RENAME.residue:" in line
+        ]
         assert len(lines) == 4, result.stdout
         for path, identifier in [
             ("verifier/grader.py", "run_oracle"),
@@ -253,7 +324,10 @@ class RenameResidueCommandTests(unittest.TestCase):
             ("verifier/runtime/raidar_oracle_plugin.py", "OraclePlugin"),
             ("verifier/runtime/raidar_oracle_plugin.py", "_take_oracle_environment"),
         ]:
-            assert any(line.startswith(path + ":") and f"defines `{identifier}`" in line for line in lines), result.stdout
+            assert any(
+                line.startswith(path + ":") and f"defines `{identifier}`" in line
+                for line in lines
+            ), result.stdout
 
     def test_gate_effort_rename_keeps_gate_mechanism_valid(self) -> None:
         self.write(
@@ -264,27 +338,39 @@ class RenameResidueCommandTests(unittest.TestCase):
             "class StepGate:\n    pass\n",
         )
         base = self.commit("Gate effort metric")
-        self.move("scoring/gate_effort/scorer.py", "scoring/verification_effort/scorer.py")
+        self.move(
+            "scoring/gate_effort/scorer.py", "scoring/verification_effort/scorer.py"
+        )
         self.commit("Rename metric while preserving gate mechanism")
         self.assert_clean(self.command(base))
 
     def test_prefix_homonym_outside_renamed_folder_is_valid(self) -> None:
-        self.write("grading/prefix/store.py", "def store():\n    return 'prefix record'\n")
-        self.write("grading/sandbox.py", "def coverage_prefix():\n    return 'sandbox'\n")
+        self.write(
+            "grading/prefix/store.py", "def store():\n    return 'prefix record'\n"
+        )
+        self.write(
+            "grading/sandbox.py", "def coverage_prefix():\n    return 'sandbox'\n"
+        )
         base = self.commit("Prefix owner and unrelated homonym")
         self.move("grading/prefix/store.py", "grading/pre_fix/store.py")
         self.commit("Rename prefix owner only")
         self.assert_clean(self.command(base))
 
     def test_coverage_offline_regroup_is_valid(self) -> None:
-        self.write("grading/coverage_offline.py", "def coverage_offline():\n    return 'coverage'\n")
+        self.write(
+            "grading/coverage_offline.py",
+            "def coverage_offline():\n    return 'coverage'\n",
+        )
         base = self.commit("Coverage offline module")
         self.move("grading/coverage_offline.py", "grading/coverage/offline.py")
         self.commit("Group coverage without retiring its words")
         self.assert_clean(self.command(base))
 
     def test_split_with_remaining_process_compliance_owner_is_valid(self) -> None:
-        self.write("process_compliance/checks.py", "def process_compliance_checks():\n    return 'checks'\n")
+        self.write(
+            "process_compliance/checks.py",
+            "def process_compliance_checks():\n    return 'checks'\n",
+        )
         self.write("process_compliance/records.py", "CONTRACT = 'compliance records'\n")
         base = self.commit("Compliance owns checks and records")
         self.move("process_compliance/checks.py", "process_checks/checks.py")
@@ -292,7 +378,9 @@ class RenameResidueCommandTests(unittest.TestCase):
         self.assert_clean(self.command(base))
 
     def test_head_snapshot_ignores_dirty_worktree(self) -> None:
-        self.write("grading/oracle.py", "def run_oracle():\n    return 'renamed module'\n")
+        self.write(
+            "grading/oracle.py", "def run_oracle():\n    return 'renamed module'\n"
+        )
         base = self.commit("Existing module")
         self.move("grading/oracle.py", "grading/verifier.py")
         head = self.commit("Rename one module")
@@ -314,7 +402,9 @@ class RenameResidueCommandTests(unittest.TestCase):
         self.assert_clean(self.command(base))
 
     def test_pinned_rename_detection_overrides_disabled_repo_setting(self) -> None:
-        self.write("oracle/api.py", "def run_oracle():\n    return 'unique oracle source'\n")
+        self.write(
+            "oracle/api.py", "def run_oracle():\n    return 'unique oracle source'\n"
+        )
         base = self.commit("Existing owner")
         self.move("oracle/api.py", "verifier/api.py")
         self.commit("Rename owner")

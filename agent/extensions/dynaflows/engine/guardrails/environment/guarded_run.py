@@ -70,7 +70,9 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     return options, command
 
 
-def resolve_command(options: argparse.Namespace, command: list[str], profile: dict[str, Any]) -> list[str]:
+def resolve_command(
+    options: argparse.Namespace, command: list[str], profile: dict[str, Any]
+) -> list[str]:
     if command:
         return command
     if not options.tier:
@@ -157,7 +159,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         command = resolve_command(options, command, profile)
     except GuardError as error:
-        return [Finding(USER_DATA, PROFILE_PATH, str(error), "name the command to guard")]
+        return [
+            Finding(USER_DATA, PROFILE_PATH, str(error), "name the command to guard")
+        ]
     watched = as_list(config.get("watch"))
     if not watched:
         return [
@@ -186,9 +190,15 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             command = [*prefix, *command]
         before = snapshot(real_home, watched, ignore)
         try:
-            returncode = subprocess.run(command, cwd=repo, env=env, check=False).returncode
+            returncode = subprocess.run(
+                command, cwd=repo, env=env, check=False
+            ).returncode
         except OSError as error:
-            return [Finding(PROPAGATION, command[0], f"cannot start: {error}", "fix the command")]
+            return [
+                Finding(
+                    PROPAGATION, command[0], f"cannot start: {error}", "fix the command"
+                )
+            ]
         after = snapshot(real_home, watched, ignore)
     found = []
     changed = changed_entries(before, after)

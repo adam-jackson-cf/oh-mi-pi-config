@@ -7,6 +7,7 @@ because arms then ran with different tools.
 
 Usage: python3 aggregate.py <out-dir>
 """
+
 from __future__ import annotations
 
 import json
@@ -34,21 +35,27 @@ def row(label: str, recs: list[Record]) -> str:
     if not n:
         return f"| {label} | 0 | – | – | – | – | – | – | – |"
     full = sum(1 for r in ok if r["checkPassed"] and not r["scopeViolations"])
-    frac = statistics.mean(r["testsPassed"] / r["testsTotal"] if r["testsTotal"] else 0 for r in ok)
+    frac = statistics.mean(
+        r["testsPassed"] / r["testsTotal"] if r["testsTotal"] else 0 for r in ok
+    )
     scope = sum(1 for r in ok if r["scopeViolations"])
     out_tok = statistics.median(r["usage"]["output"] for r in ok)
     cost = statistics.mean(r["usage"]["cost"] for r in ok)
     wall = statistics.median(r["wallSeconds"] for r in ok)
     turns = statistics.median(r["assistantMessages"] for r in ok)
-    return (f"| {label} | {n} | {full}/{n} ({full / n:.0%}) | {frac:.3f} | {scope} | "
-            f"{out_tok:.0f} | ${cost:.4f} | {wall:.0f}s | {turns:.0f} |")
+    return (
+        f"| {label} | {n} | {full}/{n} ({full / n:.0%}) | {frac:.3f} | {scope} | "
+        f"{out_tok:.0f} | ${cost:.4f} | {wall:.0f}s | {turns:.0f} |"
+    )
 
 
 def report(recs: list[Record]) -> None:
     errors = [r for r in recs if "harnessError" in r]
-    header = ("| Group | n | Full pass | Mean test fraction | Scope violations | "
-              "Median output tokens | Mean API-equiv cost | Median wall | Median turns |\n"
-              "|---|---|---|---|---|---|---|---|---|")
+    header = (
+        "| Group | n | Full pass | Mean test fraction | Scope violations | "
+        "Median output tokens | Mean API-equiv cost | Median wall | Median turns |\n"
+        "|---|---|---|---|---|---|---|---|---|"
+    )
     by_arm: dict[str, list[Record]] = defaultdict(list)
     by_arm_kind: dict[tuple[str, str], list[Record]] = defaultdict(list)
     by_arm_fixture: dict[tuple[str, str], list[Record]] = defaultdict(list)
@@ -73,7 +80,11 @@ def report(recs: list[Record]) -> None:
 
 def main() -> None:
     out_dir = Path(sys.argv[1]).expanduser()
-    recs = [json.loads(line) for line in (out_dir / "results.jsonl").read_text().splitlines() if line.strip()]
+    recs = [
+        json.loads(line)
+        for line in (out_dir / "results.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
     groups: dict[tuple[str, str], list[Record]] = defaultdict(list)
     for r in recs:
         groups[label_of(r)].append(r)

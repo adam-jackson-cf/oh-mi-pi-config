@@ -40,7 +40,12 @@ SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
 
 
 def load_data() -> dict[str, Any]:
-    data = resources.files("guardrails.data").joinpath(DATA_FILE).read_text(encoding="utf-8")
+    data = (
+        resources
+        .files("guardrails.data")
+        .joinpath(DATA_FILE)
+        .read_text(encoding="utf-8")
+    )
     loaded: dict[str, Any] = json.loads(data)
     return loaded
 
@@ -97,17 +102,23 @@ def toml_key(key: str) -> str:
     return key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key)
 
 
-def render_ruff(data: dict[str, Any], version: tuple[int, int], first_party: list[str]) -> str:
+def render_ruff(
+    data: dict[str, Any], version: tuple[int, int], first_party: list[str]
+) -> str:
     ruff = data["ruff"]
     lines = [HEADER.rstrip("\n"), f'target-version = "py{version[0]}{version[1]}"']
-    lines.extend(f"{toml_key(key)} = {toml_value(value)}" for key, value in ruff["root"].items())
+    lines.extend(
+        f"{toml_key(key)} = {toml_value(value)}" for key, value in ruff["root"].items()
+    )
     for table, values in ruff.items():
         if table == "root":
             continue
         lines.extend(["", f"[{table}]"])
         if table == "lint.isort":
             lines.append(f"known-first-party = {toml_value(first_party)}")
-        lines.extend(f"{toml_key(key)} = {toml_value(value)}" for key, value in values.items())
+        lines.extend(
+            f"{toml_key(key)} = {toml_value(value)}" for key, value in values.items()
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -117,8 +128,14 @@ def ini_value(value: object) -> str:
     return str(value)
 
 
-def render_mypy(data: dict[str, Any], version: tuple[int, int], names: list[str], roots: list[str]) -> str:
-    lines = [HEADER.rstrip("\n"), "[mypy]", f"python_version = {version[0]}.{version[1]}"]
+def render_mypy(
+    data: dict[str, Any], version: tuple[int, int], names: list[str], roots: list[str]
+) -> str:
+    lines = [
+        HEADER.rstrip("\n"),
+        "[mypy]",
+        f"python_version = {version[0]}.{version[1]}",
+    ]
     lines.extend(f"{key} = {ini_value(value)}" for key, value in data["mypy"].items())
     lines.append(f"packages = {', '.join(names)}")
     lines.append(f"mypy_path = {', '.join(roots)}")
@@ -160,10 +177,14 @@ def existing(repo: Path, project: dict[str, Any], tool: str) -> str | None:
 
 
 def real_text(value: object) -> TypeGuard[str]:
-    return isinstance(value, str) and bool(value.strip()) and not PLACEHOLDER.search(value)
+    return (
+        isinstance(value, str) and bool(value.strip()) and not PLACEHOLDER.search(value)
+    )
 
 
-def planned_configs(repo: Path, profile: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+def planned_configs(
+    repo: Path, profile: dict[str, Any]
+) -> tuple[dict[str, str], list[str]]:
     """Files to write (path -> text) and report lines for the configs init leaves alone."""
     project = pyproject(repo)
     data = load_data()
@@ -176,21 +197,35 @@ def planned_configs(repo: Path, profile: dict[str, Any]) -> tuple[dict[str, str]
         if kept:
             report.append(f"native: kept the existing {tool} configuration in {kept}")
         elif version is None:
-            report.append(f"native: {tool} not proposed; set project.requires-python first")
+            report.append(
+                f"native: {tool} not proposed; set project.requires-python first"
+            )
         elif tool == "ruff":
             planned[path] = render_ruff(data, version, names)
         elif not names:
-            report.append("native: mypy not proposed; the repo has no package with __init__.py")
+            report.append(
+                "native: mypy not proposed; the repo has no package with __init__.py"
+            )
         else:
             planned[path] = render_mypy(data, version, names, roots)
-    structure: dict[str, Any] = profile["structure"] if isinstance(profile.get("structure"), dict) else {}
+    structure: dict[str, Any] = (
+        profile["structure"] if isinstance(profile.get("structure"), dict) else {}
+    )
     direction = structure.get("import_direction")
     package = direction.get("package") if isinstance(direction, dict) else None
-    tiers: list[Any] = structure["tiers"] if isinstance(structure.get("tiers"), list) else []
+    tiers: list[Any] = (
+        structure["tiers"] if isinstance(structure.get("tiers"), list) else []
+    )
     kept = existing(repo, project, "importlinter")
     if kept:
-        report.append(f"native: kept the existing import-linter configuration in {kept}")
-    elif real_text(package) and len(tiers) >= 2 and all(real_text(tier) for tier in tiers):
+        report.append(
+            f"native: kept the existing import-linter configuration in {kept}"
+        )
+    elif (
+        real_text(package)
+        and len(tiers) >= 2
+        and all(real_text(tier) for tier in tiers)
+    ):
         planned[".importlinter"] = render_importlinter(package, tiers)
     else:
         report.append(

@@ -10,6 +10,7 @@ Example:
     --arm P-low=openai-codex/gpt-5.6-sol:low --reps 2 \
     --out <output-dir>
 """
+
 from __future__ import annotations
 
 import argparse
@@ -77,7 +78,9 @@ def parse_arm(spec: str) -> Arm:
     name, _, selector = spec.partition("=")
     model, _, thinking = selector.rpartition(":")
     if not (name and model and thinking):
-        raise argparse.ArgumentTypeError(f"expected NAME=provider/model:effort, got {spec!r}")
+        raise argparse.ArgumentTypeError(
+            f"expected NAME=provider/model:effort, got {spec!r}"
+        )
     return Arm(name, model, thinking)
 
 
@@ -97,7 +100,14 @@ def parse_findings(texts: list[str]) -> list[Any] | None:
 
 
 def summarize_events(stdout: str) -> Record:
-    usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "cost": 0.0}
+    usage = {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "reasoning": 0,
+        "cost": 0.0,
+    }
     texts: list[str] = []
     models: set[str] = set()
     for line in stdout.splitlines():
@@ -114,21 +124,46 @@ def summarize_events(stdout: str) -> Record:
             usage[key] += u.get(key, 0)
         usage["reasoning"] += u.get("reasoningTokens", 0)
         usage["cost"] += (u.get("cost") or {}).get("total", 0.0)
-        text = "".join(c.get("text", "") for c in msg.get("content") or [] if c.get("type") == "text")
+        text = "".join(
+            c.get("text", "")
+            for c in msg.get("content") or []
+            if c.get("type") == "text"
+        )
         if text:
             texts.append(text)
-    return {"usage": usage, "assistantMessages": len(texts), "texts": texts, "effectiveModels": sorted(models)}
+    return {
+        "usage": usage,
+        "assistantMessages": len(texts),
+        "texts": texts,
+        "effectiveModels": sorted(models),
+    }
 
 
 def invoke(cmd: list[str], ws: Path) -> Invocation:
     """Run one trial process; a timeout keeps whatever it printed so far."""
     started = time.time()
     try:
-        proc = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=TRIAL_TIMEOUT_S)
-        stdout, stderr, code, timed_out = proc.stdout, proc.stderr, proc.returncode, False
+        proc = subprocess.run(
+            cmd,
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=TRIAL_TIMEOUT_S,
+        )
+        stdout, stderr, code, timed_out = (
+            proc.stdout,
+            proc.stderr,
+            proc.returncode,
+            False,
+        )
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        stdout = (
+            exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        )
+        stderr = (
+            exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        )
         code, timed_out = -1, True
     return Invocation(stdout, stderr, code, timed_out, time.time() - started)
 
@@ -152,21 +187,53 @@ def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> Record:
     run_dir.mkdir(parents=True)
     ws = WORKSPACES / run_id
     defects = build_workspace(case, ws)
-    before = subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True).stdout
+    before = subprocess.run(
+        ["git", "diff"], cwd=ws, capture_output=True, text=True
+    ).stdout
     prompt = PROMPT.format(plan=(FIXTURES / case.fixture / "task.md").read_text())
-    cmd = ["omp", "-p", "--no-session", "--no-extensions", "--no-title", "--approval-mode", "yolo",
-           "--model", arm.model, "--thinking", arm.thinking, "--mode", "json", "--cwd", str(ws), prompt]
+    cmd = [
+        "omp",
+        "-p",
+        "--no-session",
+        "--no-extensions",
+        "--no-title",
+        "--approval-mode",
+        "yolo",
+        "--model",
+        arm.model,
+        "--thinking",
+        arm.thinking,
+        "--mode",
+        "json",
+        "--cwd",
+        str(ws),
+        prompt,
+    ]
     run = invoke(cmd, ws)
     (run_dir / "events.jsonl").write_text(run.stdout)
     (run_dir / "stderr.txt").write_text(run.stderr)
-    after = subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True).stdout
+    after = subprocess.run(
+        ["git", "diff"], cwd=ws, capture_output=True, text=True
+    ).stdout
     events = summarize_events(run.stdout)
     texts = events.pop("texts")
     return {
-        "runId": run_id, "case": case.id, "fixture": case.fixture, "arm": arm.name, "rep": rep,
-        "model": arm.model, "thinking": arm.thinking, "exitCode": run.code, "timedOut": run.timed_out,
-        "failure": failure_of(run, texts), "wallSeconds": round(run.wall, 1), "defects": defects, "modifiedRepo": before != after,
-        "findings": parse_findings(texts), "finalText": texts[-1][-2000:] if texts else "", **events,
+        "runId": run_id,
+        "case": case.id,
+        "fixture": case.fixture,
+        "arm": arm.name,
+        "rep": rep,
+        "model": arm.model,
+        "thinking": arm.thinking,
+        "exitCode": run.code,
+        "timedOut": run.timed_out,
+        "failure": failure_of(run, texts),
+        "wallSeconds": round(run.wall, 1),
+        "defects": defects,
+        "modifiedRepo": before != after,
+        "findings": parse_findings(texts),
+        "finalText": texts[-1][-2000:] if texts else "",
+        **events,
     }
 
 
@@ -178,15 +245,26 @@ def outcome(fut: Future[Record], job: Record) -> Record:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--arm", dest="arms", type=parse_arm, action="append", required=True,
-                        help="NAME=provider/model:effort; repeatable")
-    parser.add_argument("--out", type=Path, required=True, help="artifact directory (outside the skill)")
+    parser.add_argument(
+        "--arm",
+        dest="arms",
+        type=parse_arm,
+        action="append",
+        required=True,
+        help="NAME=provider/model:effort; repeatable",
+    )
+    parser.add_argument(
+        "--out", type=Path, required=True, help="artifact directory (outside the skill)"
+    )
     parser.add_argument("--reps", type=int, default=2)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--seed", type=int, default=280926)
     parser.add_argument("--cases", nargs="*", help="case ids to run (default: all)")
-    parser.add_argument("--rerun-failed", action="store_true",
-                        help="re-run only (case, arm, rep) whose latest record failed or leaked")
+    parser.add_argument(
+        "--rerun-failed",
+        action="store_true",
+        help="re-run only (case, arm, rep) whose latest record failed or leaked",
+    )
     args = parser.parse_args()
 
     cases = [c for c in CASES if not args.cases or c.id in args.cases]
@@ -194,11 +272,19 @@ def main() -> None:
     label = toolset_label()  # one effective config per run; stored on every record
     if args.rerun_failed:
         latest = latest_records(args.out, label_of(label))
-        jobs = [(c, a, r) for c, a, r in jobs if (c.id, a.name, r) in latest and needs_rerun(latest[(c.id, a.name, r)], args.out)]
+        jobs = [
+            (c, a, r)
+            for c, a, r in jobs
+            if (c.id, a.name, r) in latest
+            and needs_rerun(latest[(c.id, a.name, r)], args.out)
+        ]
     random.Random(args.seed).shuffle(jobs)
     runs = args.out / "runs"
     runs.mkdir(parents=True, exist_ok=True)
-    with cf.ThreadPoolExecutor(args.workers) as pool, (args.out / "results.jsonl").open("a") as out:
+    with (
+        cf.ThreadPoolExecutor(args.workers) as pool,
+        (args.out / "results.jsonl").open("a") as out,
+    ):
         futures = {pool.submit(run_trial, c, a, r, runs): (c, a, r) for c, a, r in jobs}
         for fut in cf.as_completed(futures):
             case, arm, rep = futures[fut]
@@ -206,9 +292,17 @@ def main() -> None:
             out.write(json.dumps({**rec, **label}) + "\n")
             out.flush()
             found = rec.get("findings")
-            print(json.dumps({"case": rec["case"], "arm": rec["arm"], "rep": rec["rep"],
-                              "findings": None if found is None else len(found),
-                              "wall": rec.get("wallSeconds"), "err": rec.get("harnessError")}), flush=True)
+            print(
+                json.dumps({
+                    "case": rec["case"],
+                    "arm": rec["arm"],
+                    "rep": rec["rep"],
+                    "findings": None if found is None else len(found),
+                    "wall": rec.get("wallSeconds"),
+                    "err": rec.get("harnessError"),
+                }),
+                flush=True,
+            )
 
 
 if __name__ == "__main__":

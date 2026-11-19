@@ -22,7 +22,9 @@ class Finding:
 
 def format_findings(findings: list[Finding]) -> str:
     """Render findings sorted by path and rule, one per line, without duplicates."""
-    unique = sorted(set(findings), key=lambda item: (item.path, item.rule_id, item.message))
+    unique = sorted(
+        set(findings), key=lambda item: (item.path, item.rule_id, item.message)
+    )
     return "\n".join(item.render() for item in unique)
 
 

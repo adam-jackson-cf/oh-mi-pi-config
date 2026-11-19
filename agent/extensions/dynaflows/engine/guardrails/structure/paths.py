@@ -95,15 +95,22 @@ def framework_names(tree: ast.Module) -> tuple[bool, set[str], set[str]]:
                 if alias.name == "unittest":
                     unittest_names.add(alias.asname or alias.name)
         elif isinstance(node, ast.ImportFrom):
-            framework_imported |= (node.module or "").split(".")[0] in {"pytest", "unittest"}
+            framework_imported |= (node.module or "").split(".")[0] in {
+                "pytest",
+                "unittest",
+            }
             if node.module == "unittest":
                 testcase_names.update(
-                    alias.asname or alias.name for alias in node.names if alias.name == "TestCase"
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name == "TestCase"
                 )
     return framework_imported, testcase_names, unittest_names
 
 
-def is_test_class(node: ast.ClassDef, testcase_names: set[str], unittest_names: set[str]) -> bool:
+def is_test_class(
+    node: ast.ClassDef, testcase_names: set[str], unittest_names: set[str]
+) -> bool:
     return node.name.startswith("Test") or any(
         (isinstance(base, ast.Name) and base.id in testcase_names)
         or (
@@ -131,9 +138,13 @@ def defines_tests(repo: Path, path: str) -> bool:
     for node in tree.body:
         if isinstance(node, function_types) and node.name.startswith("test_"):
             return True
-        if isinstance(node, ast.ClassDef) and is_test_class(node, testcase_names, unittest_names) and any(
-            isinstance(method, function_types) and method.name.startswith("test_")
-            for method in node.body
+        if (
+            isinstance(node, ast.ClassDef)
+            and is_test_class(node, testcase_names, unittest_names)
+            and any(
+                isinstance(method, function_types) and method.name.startswith("test_")
+                for method in node.body
+            )
         ):
             return True
     return False
@@ -157,7 +168,9 @@ UNOWNED_T2 = (
 )
 
 
-def placement_problem(repo: Path, path: str, profile: dict[str, Any]) -> tuple[str, str] | None:
+def placement_problem(
+    repo: Path, path: str, profile: dict[str, Any]
+) -> tuple[str, str] | None:
     """``(message, fix)`` for a misplaced test file or test-defining module, else None."""
     layout_section = {**conventions.placement(path), **section(profile, "layout")}
     holders = [
@@ -166,7 +179,11 @@ def placement_problem(repo: Path, path: str, profile: dict[str, Any]) -> tuple[s
         if isinstance(d, str)
     ]
     in_holder = matches_any(path, holders)
-    if not tier_locations(profile) and layout_section.get("beside_code") and not in_holder:
+    if (
+        not tier_locations(profile)
+        and layout_section.get("beside_code")
+        and not in_holder
+    ):
         return None
     if not naming.is_test_file(path, profile):
         unplaced = (
@@ -180,15 +197,21 @@ def placement_problem(repo: Path, path: str, profile: dict[str, Any]) -> tuple[s
     if in_holder:
         return HELD_TEST
     tiers = [
-        key for key, locations in tier_locations(profile).items() if matches_any(path, locations)
+        key
+        for key, locations in tier_locations(profile).items()
+        if matches_any(path, locations)
     ]
     if not tiers:
         return UNTIERED_TEST
     areas = section(section(profile, "ownership_areas"), "map")
-    return UNOWNED_T2 if tiers == ["t2"] and not matches_any(path, list(areas)) else None
+    return (
+        UNOWNED_T2 if tiers == ["t2"] and not matches_any(path, list(areas)) else None
+    )
 
 
-def test_placement_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
+def test_placement_findings(
+    repo: Path, path: str, profile: dict[str, Any]
+) -> list[Finding]:
     """Runnable tests sit under a tier location, outside fixtures and support, and T2 files
     map to an ownership area. A file whose location several tiers share is left to the
     adapter's tier collection (TEST.tier-selectors)."""
@@ -202,7 +225,11 @@ def test_placement_findings(repo: Path, path: str, profile: dict[str, Any]) -> l
 def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
     direction, tiers = import_config(profile)
     package, source_root = direction.get("package"), direction.get("source_root")
-    if not (isinstance(package, str) and isinstance(source_root, str) and path.endswith(".py")):
+    if not (
+        isinstance(package, str)
+        and isinstance(source_root, str)
+        and path.endswith(".py")
+    ):
         return []
     if not matches_any(path, as_list(direction.get("scan")) or [source_root]):
         return []
@@ -210,8 +237,12 @@ def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[F
     if not source.is_file():
         return []
     inside = matches(path, source_root)
-    relative = PurePosixPath(path).relative_to(source_root.rstrip("/")) if inside else None
-    module = ".".join([package, *relative.with_suffix("").parts]) if relative else package
+    relative = (
+        PurePosixPath(path).relative_to(source_root.rstrip("/")) if inside else None
+    )
+    module = (
+        ".".join([package, *relative.with_suffix("").parts]) if relative else package
+    )
     try:
         tree = ast.parse(source.read_bytes(), filename=path)
         edges = imported_edges(tree, module, package)
@@ -238,7 +269,9 @@ def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[F
     return found
 
 
-def native_findings(repo: Path, paths: list[str], profile: dict[str, Any]) -> list[Finding]:
+def native_findings(
+    repo: Path, paths: list[str], profile: dict[str, Any]
+) -> list[Finding]:
     direction, _ = import_config(profile)
     native = direction.get("native")
     scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
@@ -269,24 +302,38 @@ def native_findings(repo: Path, paths: list[str], profile: dict[str, Any]) -> li
         except (OSError, subprocess.TimeoutExpired) as error:
             problem = f"cannot run the import-contract engine: {error}"
     return [
-        Finding(DIRECTION, path, problem, f"run {' '.join(command)} and remove forbidden edges")
+        Finding(
+            DIRECTION,
+            path,
+            problem,
+            f"run {' '.join(command)} and remove forbidden edges",
+        )
         for path in sources
     ]
 
 
 def path_findings(
-    repo: Path, raw: str, profile: dict[str, Any], *, existing_paths: set[str] | None = None,
+    repo: Path,
+    raw: str,
+    profile: dict[str, Any],
+    *,
+    existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     path = normalized_path(repo, raw)
     if path is None:
         return [
             Finding(
-                PLACEMENT, raw, "unsafe repository path", "use a repository path without traversal"
+                PLACEMENT,
+                raw,
+                "unsafe repository path",
+                "use a repository path without traversal",
             )
         ]
     if matches_any(path, as_list(settings(profile, "paths").get("skip"))):
         return []
-    problems = layout.path_findings(path, settings(profile, "structure"), existing_paths=existing_paths)
+    problems = layout.path_findings(
+        path, settings(profile, "structure"), existing_paths=existing_paths
+    )
     python_findings = []
     if "python" in section(profile, "guardrails"):
         from guardrails.python_policy import quality, scope as python_scope
@@ -324,21 +371,38 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         with scope.checkout(repo, selected) as root:
             found = [
-                finding for raw in selected.paths
-                for finding in path_findings(root, raw, profile, existing_paths=selected.existing_paths)
+                finding
+                for raw in selected.paths
+                for finding in path_findings(
+                    root, raw, profile, existing_paths=selected.existing_paths
+                )
             ]
             found.extend(native_findings(root, selected.paths, profile))
-            found.extend(scope.restrict(
-                layout.instance_findings(selected.inventory, settings(profile, "structure")),
-                selected.paths, selected.existing_paths,
-            ))
-            found.extend(layout.forbidden_import_findings(
-                root, selected.paths, settings(profile, "structure"),
-            ))
-            found.extend(scope.restrict(
-                import_graph_findings(root, profile, [], inventory=selected.inventory),
-                selected.paths, selected.existing_paths,
-            ))
+            found.extend(
+                scope.restrict(
+                    layout.instance_findings(
+                        selected.inventory, settings(profile, "structure")
+                    ),
+                    selected.paths,
+                    selected.existing_paths,
+                )
+            )
+            found.extend(
+                layout.forbidden_import_findings(
+                    root,
+                    selected.paths,
+                    settings(profile, "structure"),
+                )
+            )
+            found.extend(
+                scope.restrict(
+                    import_graph_findings(
+                        root, profile, [], inventory=selected.inventory
+                    ),
+                    selected.paths,
+                    selected.existing_paths,
+                )
+            )
     except InventoryError as error:
         return [Finding(PLACEMENT, ".", str(error), "provide a readable Git snapshot")]
     return apply_exceptions(found, profile)

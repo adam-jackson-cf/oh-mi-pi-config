@@ -36,15 +36,29 @@ from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
 
 RULE = "PROFILE.complete"
-SKIPPED_PARTS = frozenset({".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"})
+SKIPPED_PARTS = frozenset({
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+})
 DEFAULT_TIMEOUT_S = 60.0
 PYTHON_CANARY = (
     ("omp_lsp_canary.py", "def omp_lsp_canary():\n    return 1\n"),
-    ("omp_lsp_caller.py", "from omp_lsp_canary import omp_lsp_canary\n\nomp_lsp_canary()\n"),
+    (
+        "omp_lsp_caller.py",
+        "from omp_lsp_canary import omp_lsp_canary\n\nomp_lsp_canary()\n",
+    ),
 )
 TYPESCRIPT_CANARY = (
     ("omp-lsp-canary.ts", "export function ompLspCanary(): number {\n  return 1;\n}\n"),
-    ("omp-lsp-caller.ts", 'import { ompLspCanary } from "./omp-lsp-canary";\n\nompLspCanary();\n'),
+    (
+        "omp-lsp-caller.ts",
+        'import { ompLspCanary } from "./omp-lsp-canary";\n\nompLspCanary();\n',
+    ),
 )
 
 
@@ -98,7 +112,11 @@ class CanaryError(Exception):
 
 
 def detect(repo: Path) -> list[Stack]:
-    stacks = [stack for stack in STACKS if any((repo / name).is_file() for name in stack.markers)]
+    stacks = [
+        stack
+        for stack in STACKS
+        if any((repo / name).is_file() for name in stack.markers)
+    ]
     for index, stack in enumerate(stacks):
         if stack.name != "typescript":
             continue
@@ -119,7 +137,8 @@ def detect(repo: Path) -> list[Stack]:
 
 def notes(stacks: list[Stack]) -> list[dict[str, Any]]:
     return [
-        {"stack": stack.name, "server": stack.server, "install": stack.install} for stack in stacks
+        {"stack": stack.name, "server": stack.server, "install": stack.install}
+        for stack in stacks
     ]
 
 
@@ -236,7 +255,9 @@ class Session:
             raise CanaryError(f"no answer to {method} before the time limit") from error
         if message is None:
             code = self.process.wait()
-            raise CanaryError(f"the server exited (code {code}) before answering {method}")
+            raise CanaryError(
+                f"the server exited (code {code}) before answering {method}"
+            )
         return message
 
     def answer(self, message: dict[str, Any]) -> None:
@@ -260,7 +281,9 @@ class Session:
             self.process.wait()
 
 
-def query(server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: float) -> int:
+def query(
+    server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: float
+) -> int:
     session = Session(server, workspace, timeout, stack.arguments)
     try:
         session.request(
@@ -268,7 +291,9 @@ def query(server: str, workspace: Path, symbol: Symbol, stack: Stack, timeout: f
             {
                 "processId": os.getpid(),
                 "rootUri": workspace.as_uri(),
-                "workspaceFolders": [{"uri": workspace.as_uri(), "name": workspace.name}],
+                "workspaceFolders": [
+                    {"uri": workspace.as_uri(), "name": workspace.name}
+                ],
                 "capabilities": {},
             },
         )
@@ -307,7 +332,9 @@ def canary(repo: Path, stack: Stack, server: str, timeout: float) -> str:
     if symbol is not None:
         count = query(server, repo, symbol, stack, timeout)
         where = symbol.path.relative_to(repo).as_posix()
-        return f"references {where}:{symbol.line + 1} {symbol.name} -> {count} locations"
+        return (
+            f"references {where}:{symbol.line + 1} {symbol.name} -> {count} locations"
+        )
     with tempfile.TemporaryDirectory(prefix="omp-lsp-canary-") as scratch:
         workspace = Path(scratch).resolve()
         for marker in stack.markers:
@@ -337,10 +364,17 @@ def readiness(
         if not found:
             message = f"{stack.name} language server {stack.server} is not on PATH"
             if allow_missing:
-                lines.append(f"lsp: {message} (allowed by --allow-missing-lsp); {stack.install}")
+                lines.append(
+                    f"lsp: {message} (allowed by --allow-missing-lsp); {stack.install}"
+                )
             else:
                 findings.append(
-                    Finding(RULE, PROFILE_PATH, message, f"{stack.install}, then run init again")
+                    Finding(
+                        RULE,
+                        PROFILE_PATH,
+                        message,
+                        f"{stack.install}, then run init again",
+                    )
                 )
             continue
         try:
@@ -357,5 +391,7 @@ def readiness(
             continue
         lines.append(f"lsp: {stack.name} server {found} canary ok: {result}")
     if not stacks:
-        lines.append("lsp: no pyproject.toml, package.json or tsconfig.json in the repo root")
+        lines.append(
+            "lsp: no pyproject.toml, package.json or tsconfig.json in the repo root"
+        )
     return findings, lines

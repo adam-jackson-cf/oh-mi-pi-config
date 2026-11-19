@@ -47,7 +47,9 @@ def normalized_path(repo: Path, raw: str) -> str | None:
     relative = PurePosixPath(raw)
     if relative.is_absolute():
         try:
-            relative = PurePosixPath(Path(raw).resolve().relative_to(repo.resolve()).as_posix())
+            relative = PurePosixPath(
+                Path(raw).resolve().relative_to(repo.resolve()).as_posix()
+            )
         except ValueError:
             return None
     if ".." in relative.parts or not relative.parts or relative.parts == (".",):

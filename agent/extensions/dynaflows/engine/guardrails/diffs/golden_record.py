@@ -36,7 +36,8 @@ def changed_goldens(changes: list[Change], globs: list[str]) -> list[Change]:
     return [
         change
         for change in changes
-        if change.status != "A" and any(matches_any(path, globs) for path in change.paths)
+        if change.status != "A"
+        and any(matches_any(path, globs) for path in change.paths)
     ]
 
 

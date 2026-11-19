@@ -62,7 +62,12 @@ STEPS = (*DEFAULT_STEPS, "python-test-hygiene")
 UNOWNABLE = ("profile-check",)
 # Settings sections that only check steps read; other sections also serve diff checks or prove().
 STEP_SETTINGS = {
-    "python": ("python-quality", "python-fanout", "python-scalability", "python-test-hygiene"),
+    "python": (
+        "python-quality",
+        "python-fanout",
+        "python-scalability",
+        "python-test-hygiene",
+    ),
 }
 
 
@@ -90,7 +95,9 @@ def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Fin
     declared = settings(profile, CHECKER).get("repo")
     if declared is None:
         return {}, []
-    ownable = [step for step in (*STEPS, "naming", "structure") if step not in UNOWNABLE]
+    ownable = [
+        step for step in (*STEPS, "naming", "structure") if step not in UNOWNABLE
+    ]
     if not isinstance(declared, dict) or not declared:
         return {}, [
             record_finding(
@@ -119,7 +126,9 @@ def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Fin
     return (dict(declared), []) if not findings else ({}, findings)
 
 
-def dead_settings(profile: dict[str, Any], configured: list[str], owned: dict[str, list[str]]) -> list[Finding]:
+def dead_settings(
+    profile: dict[str, Any], configured: list[str], owned: dict[str, list[str]]
+) -> list[Finding]:
     """Settings sections whose configured steps are all owned by the repo."""
     findings = []
     for section, readers in STEP_SETTINGS.items():
@@ -163,7 +172,11 @@ def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
     try:
         listed = set(repo_paths(repo))
     except InventoryError as error:
-        return [Finding(RULE, "guardrails check", str(error), "run check inside a git checkout")]
+        return [
+            Finding(
+                RULE, "guardrails check", str(error), "run check inside a git checkout"
+            )
+        ]
     return [
         record_finding(
             f"guardrails.check.repo.{step} names {checker}, which is not in the repository",
@@ -213,4 +226,6 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     for step in [] if findings else steps:
         findings.extend(run_step(repo, profile, step))
     patterns = as_list(settings(profile, CHECKER).get("exclude"))
-    return integrity_findings + [finding for finding in findings if not excluded(finding, patterns)]
+    return integrity_findings + [
+        finding for finding in findings if not excluded(finding, patterns)
+    ]

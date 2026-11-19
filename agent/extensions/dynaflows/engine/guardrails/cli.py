@@ -57,7 +57,8 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "the whole-repo harness checks the agent rails run at commit (any finding blocks)",
     ),
     "profile-check": Subcommand(
-        ("guardrails.config.profile",), "PROFILE.complete: validate the record's profile.md"
+        ("guardrails.config.profile",),
+        "PROFILE.complete: validate the record's profile.md",
     ),
     "init": Subcommand(
         ("guardrails.init.command",),
@@ -113,7 +114,8 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "TEST.budget.* over the fast-tier duration report (local commit gate only)",
     ),
     "collection-check": Subcommand(
-        ("guardrails.test_evidence.collection",), "TEST.tier-selectors over tier collections"
+        ("guardrails.test_evidence.collection",),
+        "TEST.tier-selectors over tier collections",
     ),
     "diff-check": Subcommand(
         (
@@ -147,7 +149,9 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "lever-selftest": Subcommand(
         ("guardrails.surface.lever_selftest",), "SURFACE.lever-isolation"
     ),
-    "adapter": Subcommand((), "run the profile's test-framework adapter", prints_data=True),
+    "adapter": Subcommand(
+        (), "run the profile's test-framework adapter", prints_data=True
+    ),
 }
 
 
@@ -158,7 +162,9 @@ def usage() -> str:
         "",
         "subcommands:",
     ]
-    lines.extend(f"  {name.ljust(width)}  {item.summary}" for name, item in SUBCOMMANDS.items())
+    lines.extend(
+        f"  {name.ljust(width)}  {item.summary}" for name, item in SUBCOMMANDS.items()
+    )
     return "\n".join(lines)
 
 
@@ -225,7 +231,9 @@ def resolve_target(argv: list[str], needs_record: bool) -> tuple[Target, list[st
             )
         return Target(repo, None), rest
     if record == repo or record.is_relative_to(repo):
-        raise UsageError(f"--record {record} is inside the repository; records live in the harness")
+        raise UsageError(
+            f"--record {record} is inside the repository; records live in the harness"
+        )
     return Target(repo, record), rest
 
 
@@ -234,7 +242,9 @@ def module_names(name: str, profile: dict[str, Any]) -> tuple[str, ...]:
         return SUBCOMMANDS[name].modules
     adapter = profile.get("adapter")
     if not isinstance(adapter, str) or not adapter.isidentifier():
-        raise ProfileError("adapter must name an installed adapter package, e.g. 'pytest'")
+        raise ProfileError(
+            "adapter must name an installed adapter package, e.g. 'pytest'"
+        )
     return (f"{ADAPTER_PACKAGE}.{adapter}",)
 
 
@@ -284,8 +294,10 @@ def main(argv: list[str] | None = None) -> int:
     if name not in SUBCOMMANDS:
         print(f"unknown subcommand: {name}\n\n{usage()}", file=sys.stderr)
         return 2
-    if wants_help(rest) and name != "adapter" and (
-        SUBCOMMANDS[name].needs_profile or name == "structure-state"
+    if (
+        wants_help(rest)
+        and name != "adapter"
+        and (SUBCOMMANDS[name].needs_profile or name == "structure-state")
     ):
         print(subcommand_help(name))
         return 0
@@ -306,7 +318,10 @@ def main(argv: list[str] | None = None) -> int:
     if findings:
         print(format_findings(findings))
     else:
-        print(f"{name}: ok", file=sys.stderr if SUBCOMMANDS[name].prints_data else sys.stdout)
+        print(
+            f"{name}: ok",
+            file=sys.stderr if SUBCOMMANDS[name].prints_data else sys.stdout,
+        )
     return exit_code(findings)
 
 

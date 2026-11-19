@@ -14,7 +14,9 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+)
 
 
 from guardrails import cli
@@ -31,7 +33,9 @@ REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 
 REVISION = "0123456789abcdef0123456789abcdef01234567"
-PYTEST_LIKE = junit.Dialect(name="pytest-like", source_suffix=".py", xfail_markers=("pytest.xfail",))
+PYTEST_LIKE = junit.Dialect(
+    name="pytest-like", source_suffix=".py", xfail_markers=("pytest.xfail",)
+)
 GENERIC = junit.dialect_for(None)
 MACHINE = budgets.Machine("m-approved0001", "Linux x86_64", "python 3.12.4")
 
@@ -42,9 +46,17 @@ def profile(**evidence: object) -> dict[str, Any]:
         "tiers": {
             "t1": {"selector": "unit", "location": "tests/unit", "command": "run t1"},
             "t2": {"selector": "flow", "location": "tests/flow", "command": "run t2"},
-            "t3": {"selector": "explore", "location": "tests/explore", "command": "run t3"},
+            "t3": {
+                "selector": "explore",
+                "location": "tests/explore",
+                "command": "run t3",
+            },
         },
-        "layout": {"support_dir": "tests/support", "fixtures_dir": "tests/data", "test_file_patterns": ["test_*.py"]},
+        "layout": {
+            "support_dir": "tests/support",
+            "fixtures_dir": "tests/data",
+            "test_file_patterns": ["test_*.py"],
+        },
         "fast_tier_budget": {
             "duration_report_command": "run t1 --durations",
             "machines": [
@@ -66,7 +78,9 @@ def fixture(name: str, dialect: junit.Dialect = PYTEST_LIKE) -> junit.Report:
     return junit.parse_report(FIXTURES / name, dialect, name)
 
 
-def edited(name: str, old: str, new: str, dialect: junit.Dialect = PYTEST_LIKE) -> junit.Report:
+def edited(
+    name: str, old: str, new: str, dialect: junit.Dialect = PYTEST_LIKE
+) -> junit.Report:
     text = (FIXTURES / name).read_text()
     if old not in text:
         raise AssertionError(f"{old!r} is not in {name}")
@@ -80,7 +94,11 @@ def rules(findings: list[Any]) -> list[str]:
 class JunitNormalisationTests(unittest.TestCase):
     def test_pytest_like_dotted_classnames_become_file_and_class_ids(self) -> None:
         report = fixture("pytest-clean.xml")
-        assert [case.id for case in report.cases] == ["tests/test_parser.py::TestParse::test_reads_header", "tests/test_parser.py::TestParse::test_rejects_empty[blank]", "tests/unit/test_cli.py::test_help_exits_zero"]
+        assert [case.id for case in report.cases] == [
+            "tests/test_parser.py::TestParse::test_reads_header",
+            "tests/test_parser.py::TestParse::test_rejects_empty[blank]",
+            "tests/unit/test_cli.py::test_help_exits_zero",
+        ]
         assert [case.duration_s for case in report.cases] == [0.12, 0.03, 0.4]
         assert report.wall_s == 1.4
         assert report.properties["omp.runtime"] == "python 3.12.4"
@@ -88,7 +106,14 @@ class JunitNormalisationTests(unittest.TestCase):
 
     def test_pytest_like_outcomes_reasons_and_retries_are_normalised(self) -> None:
         cases = fixture("pytest-mixed.xml").cases
-        assert [(case.outcome, case.retries) for case in cases] == [("passed", 0), ("failed", 0), ("skipped", 0), ("xfail", 0), ("passed", 1), ("error", 0)]
+        assert [(case.outcome, case.retries) for case in cases] == [
+            ("passed", 0),
+            ("failed", 0),
+            ("skipped", 0),
+            ("xfail", 0),
+            ("passed", 1),
+            ("error", 0),
+        ]
         assert cases[2].reason == "needs locale"
         assert cases[5].id == "::tests.test_broken"
 
@@ -102,7 +127,12 @@ class JunitNormalisationTests(unittest.TestCase):
 
     def test_vitest_like_skips_and_retry_properties_are_normalised(self) -> None:
         cases = fixture("vitest-mixed.xml", GENERIC).cases
-        assert [case.outcome for case in cases] == ["passed", "failed", "skipped", "passed"]
+        assert [case.outcome for case in cases] == [
+            "passed",
+            "failed",
+            "skipped",
+            "passed",
+        ]
         assert cases[3].retries == 2
 
     def test_file_attribute_wins_over_the_classname(self) -> None:
@@ -122,11 +152,15 @@ class JunitNormalisationTests(unittest.TestCase):
             junit.parse_report(FIXTURES / "absent.xml", GENERIC)
 
     def test_malformed_times_normalise_to_none(self) -> None:
-        text = '<testsuite><testcase classname="a/b.ts" name="x" time="nan"/></testsuite>'
+        text = (
+            '<testsuite><testcase classname="a/b.ts" name="x" time="nan"/></testsuite>'
+        )
         assert junit.parse_text(text, GENERIC, "r.xml").cases[0].duration_s is None
 
     def test_profile_data_configures_the_generic_dialect(self) -> None:
-        dialect = junit.dialect_for("pytest-like", {"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]})
+        dialect = junit.dialect_for(
+            "pytest-like", {"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]}
+        )
         assert dialect.source_suffix == ".py"
         assert dialect.xfail_markers == ("pytest.xfail",)
         with self.assertRaisesRegex(junit.UsageError, "unknown fields"):
@@ -148,8 +182,14 @@ class JunitNormalisationTests(unittest.TestCase):
 
     def test_report_options_reject_bad_arguments(self) -> None:
         repo = Path("/repo")
-        parsed = junit.report_options(repo, ["--junit", "r.xml", "--exit-code=5", "--tier", "t1=x"])
-        assert (parsed.junit, parsed.exit_code, parsed.tier) == (repo / "r.xml", 5, "t1=x")
+        parsed = junit.report_options(
+            repo, ["--junit", "r.xml", "--exit-code=5", "--tier", "t1=x"]
+        )
+        assert (parsed.junit, parsed.exit_code, parsed.tier) == (
+            repo / "r.xml",
+            5,
+            "t1=x",
+        )
         for argv in (["--exit-code", "five"], ["--junit"]):
             with self.assertRaises(junit.UsageError):
                 junit.report_options(repo, argv)
@@ -162,7 +202,9 @@ class MachineProbeTests(unittest.TestCase):
         assert re.search(r"^m-[0-9a-f]{12}$", first)
         assert first == budgets.machine_id("python  3.12.4", **base)
         assert first != budgets.machine_id("python 3.13.0", **base)
-        assert first != budgets.machine_id("python 3.12.4", **{**base, "cpu": "Other CPU"})
+        assert first != budgets.machine_id(
+            "python 3.12.4", **{**base, "cpu": "Other CPU"}
+        )
 
     def test_the_local_probe_identifies_this_machine(self) -> None:
         machine = budgets.probe_machine("python 3.12.4")
@@ -171,7 +213,12 @@ class MachineProbeTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
-    def evaluate(self, report: junit.Report, machine: budgets.Machine = MACHINE, **evidence: object) -> budgets.BudgetResult:
+    def evaluate(
+        self,
+        report: junit.Report,
+        machine: budgets.Machine = MACHINE,
+        **evidence: object,
+    ) -> budgets.BudgetResult:
         return budgets.evaluate(report, profile(**evidence), REVISION, machine)
 
     def test_an_approved_machine_within_limits_passes(self) -> None:
@@ -182,7 +229,10 @@ class BudgetTests(unittest.TestCase):
         report = edited("pytest-clean.xml", 'time="0.400"', 'time="0.900"')
         findings = self.evaluate(report).findings
         assert rules(findings) == ["TEST.budget.per-test-time"]
-        assert "tests/unit/test_cli.py::test_help_exits_zero took 0.900s" in findings[0].message
+        assert (
+            "tests/unit/test_cli.py::test_help_exits_zero took 0.900s"
+            in findings[0].message
+        )
         assert "inject" not in findings[0].fix
         assert "never relabel" in findings[0].fix
 
@@ -209,9 +259,24 @@ class BudgetTests(unittest.TestCase):
     def test_invalid_or_stale_reports_are_fatal(self) -> None:
         cases = {
             "stale": ("pytest-clean.xml", REVISION, "f" * 40, "stale"),
-            "no revision": ("pytest-clean.xml", 'name="omp.revision"', 'name="other"', "omp.revision"),
-            "no runtime": ("pytest-clean.xml", 'name="omp.runtime"', 'name="other"', "omp.runtime"),
-            "untimed": ("pytest-clean.xml", 'time="0.120"', 'time="soon"', "lack a time"),
+            "no revision": (
+                "pytest-clean.xml",
+                'name="omp.revision"',
+                'name="other"',
+                "omp.revision",
+            ),
+            "no runtime": (
+                "pytest-clean.xml",
+                'name="omp.runtime"',
+                'name="other"',
+                "omp.runtime",
+            ),
+            "untimed": (
+                "pytest-clean.xml",
+                'time="0.120"',
+                'time="soon"',
+                "lack a time",
+            ),
             "no wall": ("vitest-clean.xml", 'time="0.912"', "", "wall time"),
             "empty": ("vitest-clean.xml", "<testcase", "<ignored", "no test cases"),
         }
@@ -256,7 +321,12 @@ class RepoTestCase(unittest.TestCase):
         (self.record / "profile.md").write_text(text)
 
     def copy_fixture(self, name: str, old: str = "", new: str = "") -> str:
-        self.write(f"reports/{name}", (FIXTURES / name).read_text().replace(old, new) if old else (FIXTURES / name).read_text())
+        self.write(
+            f"reports/{name}",
+            (FIXTURES / name).read_text().replace(old, new)
+            if old
+            else (FIXTURES / name).read_text(),
+        )
         return f"reports/{name}"
 
     def cli(self, *argv: str) -> tuple[int, str, str]:
@@ -269,19 +339,30 @@ class RepoTestCase(unittest.TestCase):
 
 class BudgetCommandTests(RepoTestCase):
     def test_report_check_never_reads_test_timing(self) -> None:
-        self.write_profile(profile(dialect={"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]}))
+        self.write_profile(
+            profile(dialect={"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]})
+        )
         report = self.copy_fixture("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        code, out, err = self.cli("report-check", "--junit", report, "--revision", "stale")
+        code, out, err = self.cli(
+            "report-check", "--junit", report, "--revision", "stale"
+        )
         assert (code, out.strip(), err) == (0, "report-check: ok", "")
 
     def test_each_check_blocks_a_missing_report_with_its_own_rule(self) -> None:
         self.write_profile(profile())
-        for subcommand, rule in (("report-check", "TEST.failure-propagation"), ("budget-check", "TEST.budget.fast-tier-time")):
+        for subcommand, rule in (
+            ("report-check", "TEST.failure-propagation"),
+            ("budget-check", "TEST.budget.fast-tier-time"),
+        ):
             with self.subTest(subcommand=subcommand):
                 code, out, _ = self.cli(subcommand, "--junit", "reports/absent.xml")
                 assert code == 1
                 assert rule in out
-                assert ("TEST.failure-propagation" if rule != "TEST.failure-propagation" else "TEST.budget") not in out
+                assert (
+                    "TEST.failure-propagation"
+                    if rule != "TEST.failure-propagation"
+                    else "TEST.budget"
+                ) not in out
 
     def test_budgets_skip_reports_of_slower_tiers(self) -> None:
         report = self.copy_fixture("pytest-clean.xml", 'value="t1"', 'value="t2"')
@@ -297,11 +378,28 @@ class BudgetCommandTests(RepoTestCase):
         git = ["git", "-C", str(self.repo)]
         subprocess.run([*git, "init", "-q"], check=True, timeout=30)
         subprocess.run(
-            [*git, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x"],
+            [
+                *git,
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "x",
+            ],
             check=True,
             timeout=30,
         )
-        head = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True, timeout=30).stdout.strip()
+        head = subprocess.run(
+            [*git, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout.strip()
         report = self.copy_fixture("pytest-clean.xml", REVISION, head)
         with contextlib.redirect_stderr(io.StringIO()) as err:
             assert budgets.run(self.repo, profile(), ["--junit", report]) == []
@@ -311,65 +409,132 @@ class BudgetCommandTests(RepoTestCase):
 class PropagationTests(unittest.TestCase):
     def test_a_clean_run_passes(self) -> None:
         assert propagation.evaluate(fixture("pytest-clean.xml"), profile(), None) == []
-        assert propagation.evaluate(fixture("vitest-clean.xml", GENERIC), profile(), 0) == []
+        assert (
+            propagation.evaluate(fixture("vitest-clean.xml", GENERIC), profile(), 0)
+            == []
+        )
 
     def test_failures_errors_skips_xfails_and_retries_are_refused(self) -> None:
         findings = propagation.evaluate(fixture("pytest-mixed.xml"), profile(), None)
         messages = {(item.rule_id, item.message.split(" ", 1)[1]) for item in findings}
-        assert ("TEST.failure-propagation", "failed: AssertionError: expected ValueError") in messages
-        assert ("TEST.failure-propagation", "errored (infrastructure or collection): collection failure") in messages
-        assert ("TEST.no-evasion", "is skipped without approval (needs locale)") in messages
-        assert ("TEST.no-evasion", "is xfail without approval (issue pending)") in messages
+        assert (
+            "TEST.failure-propagation",
+            "failed: AssertionError: expected ValueError",
+        ) in messages
+        assert (
+            "TEST.failure-propagation",
+            "errored (infrastructure or collection): collection failure",
+        ) in messages
+        assert (
+            "TEST.no-evasion",
+            "is skipped without approval (needs locale)",
+        ) in messages
+        assert (
+            "TEST.no-evasion",
+            "is xfail without approval (issue pending)",
+        ) in messages
         assert ("TEST.no-evasion", "passed only after 1 retries") in messages
         assert len(findings) == 5
 
     def test_vitest_like_failures_skips_and_retries_are_refused(self) -> None:
-        findings = propagation.evaluate(fixture("vitest-mixed.xml", GENERIC), profile(), None)
-        assert rules(findings) == ["TEST.failure-propagation", "TEST.no-evasion", "TEST.no-evasion"]
+        findings = propagation.evaluate(
+            fixture("vitest-mixed.xml", GENERIC), profile(), None
+        )
+        assert rules(findings) == [
+            "TEST.failure-propagation",
+            "TEST.no-evasion",
+            "TEST.no-evasion",
+        ]
 
     def test_approved_skips_pass_and_incomplete_approvals_do_not(self) -> None:
         report = fixture("pytest-mixed.xml")
-        entry = {"id": "tests/test_parser.py::test_unicode", "reason": "locale absent in CI", "approval": "ADR-12"}
+        entry = {
+            "id": "tests/test_parser.py::test_unicode",
+            "reason": "locale absent in CI",
+            "approval": "ADR-12",
+        }
         accepted = propagation.evaluate(report, profile(approved_skips=[entry]), None)
         assert not any("test_unicode" in item.message for item in accepted)
-        refused = propagation.evaluate(report, profile(approved_skips=[{**entry, "approval": " "}]), None)
+        refused = propagation.evaluate(
+            report, profile(approved_skips=[{**entry, "approval": " "}]), None
+        )
         assert any("test_unicode" in item.message for item in refused)
 
     def test_truncated_reports_are_refused(self) -> None:
         report = edited("pytest-clean.xml", 'tests="3"', 'tests="4"')
         findings = propagation.evaluate(report, profile(), None)
-        assert [item.message for item in findings] == ["suites declare 4 tests but the report holds 3"]
+        assert [item.message for item in findings] == [
+            "suites declare 4 tests but the report holds 3"
+        ]
 
     def test_runner_exit_codes_must_agree_with_the_cases(self) -> None:
         clean = fixture("pytest-clean.xml")
         assert "exited 5" in propagation.evaluate(clean, profile(), 5)[0].message
-        assert "exited 2" in propagation.evaluate(edited("pytest-clean.xml", 'value="0"', 'value="2"'), profile(), None)[0].message
-        failing = edited("vitest-clean.xml", 'time="0.004"/>', 'time="0.004"><failure message="x"/></testcase>', GENERIC)
-        assert any("exited 0" in item.message for item in propagation.evaluate(failing, profile(), 0))
+        assert (
+            "exited 2"
+            in propagation.evaluate(
+                edited("pytest-clean.xml", 'value="0"', 'value="2"'), profile(), None
+            )[0].message
+        )
+        failing = edited(
+            "vitest-clean.xml",
+            'time="0.004"/>',
+            'time="0.004"><failure message="x"/></testcase>',
+            GENERIC,
+        )
+        assert any(
+            "exited 0" in item.message
+            for item in propagation.evaluate(failing, profile(), 0)
+        )
 
     def test_empty_reports_never_pass(self) -> None:
         empty = junit.parse_text('<testsuites tests="0"/>', GENERIC, "r.xml")
-        assert [item.message for item in propagation.evaluate(empty, profile(), 0)] == ["run report holds no test cases"]
+        assert [item.message for item in propagation.evaluate(empty, profile(), 0)] == [
+            "run report holds no test cases"
+        ]
 
     def test_duplicate_ids_are_ambiguous_unless_they_are_a_retry_to_green(self) -> None:
         twice = '<testsuite><testcase classname="a/b.ts" name="x"/><testcase classname="a/b.ts" name="x"/></testsuite>'
-        assert "reported 2 times" in propagation.evaluate(junit.parse_text(twice, GENERIC, "r"), profile(), None)[0].message
+        assert (
+            "reported 2 times"
+            in propagation.evaluate(
+                junit.parse_text(twice, GENERIC, "r"), profile(), None
+            )[0].message
+        )
         retried = twice.replace('name="x"/>', 'name="x"><failure/></testcase>', 1)
-        rules_found = rules(propagation.evaluate(junit.parse_text(retried, GENERIC, "r"), profile(), None))
+        rules_found = rules(
+            propagation.evaluate(
+                junit.parse_text(retried, GENERIC, "r"), profile(), None
+            )
+        )
         assert rules_found == ["TEST.no-evasion"]
 
     def test_missing_reports_and_bad_arguments_are_findings(self) -> None:
         missing = propagation.run(Path("/nonexistent"), profile(), ["--junit", "r.xml"])
         assert missing[0].message == "run report does not exist"
-        assert "--junit" in propagation.run(Path("/nonexistent"), profile(), [])[0].message
-        assert "usage" in propagation.run(Path("/nonexistent"), profile(), ["--exit-code", "x"])[0].message
+        assert (
+            "--junit" in propagation.run(Path("/nonexistent"), profile(), [])[0].message
+        )
+        assert (
+            "usage"
+            in propagation.run(Path("/nonexistent"), profile(), ["--exit-code", "x"])[
+                0
+            ].message
+        )
 
 
 class CollectionTests(RepoTestCase):
     def setUp(self) -> None:
         super().setUp()
-        subprocess.run(["git", "-C", str(self.repo), "init", "-q"], check=True, timeout=30)
-        for path in ("tests/unit/test_core.py", "tests/flow/test_journey.py", "tests/explore/test_agent.py", "tests/support/helpers.py"):
+        subprocess.run(
+            ["git", "-C", str(self.repo), "init", "-q"], check=True, timeout=30
+        )
+        for path in (
+            "tests/unit/test_core.py",
+            "tests/flow/test_journey.py",
+            "tests/explore/test_agent.py",
+            "tests/support/helpers.py",
+        ):
             self.write(path, "")
 
     def lists(self, **tiers: str) -> list[str]:
@@ -390,34 +555,62 @@ class CollectionTests(RepoTestCase):
         assert collection.run(self.repo, profile(), self.lists(**self.clean())) == []
 
     def test_a_file_selected_by_two_tiers_is_refused(self) -> None:
-        tiers = {**self.clean(), "t2": "tests/flow/test_journey.py::test_checkout\ntests/unit/test_core.py::test_c\n"}
+        tiers = {
+            **self.clean(),
+            "t2": "tests/flow/test_journey.py::test_checkout\ntests/unit/test_core.py::test_c\n",
+        }
         findings = collection.run(self.repo, profile(), self.lists(**tiers))
-        assert [(f.rule_id, f.path, f.message) for f in findings] == [("TEST.tier-selectors", "tests/unit/test_core.py", "selected by tiers t1, t2")]
+        assert [(f.rule_id, f.path, f.message) for f in findings] == [
+            (
+                "TEST.tier-selectors",
+                "tests/unit/test_core.py",
+                "selected by tiers t1, t2",
+            )
+        ]
 
     def test_a_test_id_collected_twice_is_refused(self) -> None:
-        tiers = {**self.clean(), "t3": "tests/explore/test_agent.py::test_explore\n" * 2}
+        tiers = {
+            **self.clean(),
+            "t3": "tests/explore/test_agent.py::test_explore\n" * 2,
+        }
         findings = collection.run(self.repo, profile(), self.lists(**tiers))
-        assert [f.message for f in findings] == ["tests/explore/test_agent.py::test_explore is collected 2 times in tier t3"]
+        assert [f.message for f in findings] == [
+            "tests/explore/test_agent.py::test_explore is collected 2 times in tier t3"
+        ]
 
     def test_an_unselected_test_file_is_refused_unless_exempt(self) -> None:
         self.write("tests/unit/test_orphan.py", "")
         findings = collection.run(self.repo, profile(), self.lists(**self.clean()))
-        assert [(f.path, f.message) for f in findings] == [("tests/unit/test_orphan.py", "test file is selected by no tier")]
+        assert [(f.path, f.message) for f in findings] == [
+            ("tests/unit/test_orphan.py", "test file is selected by no tier")
+        ]
         exempt = profile(unselected_exempt=["tests/unit/test_orphan.py"])
         assert collection.run(self.repo, exempt, self.lists(**self.clean())) == []
 
     def test_empty_missing_and_absent_tier_lists_are_refused(self) -> None:
         tiers = {**self.clean(), "t2": "# nothing collected\n"}
         argv = self.lists(**tiers)
-        assert ("TEST.failure-propagation", "tier t2 collected no tests") in {(f.rule_id, f.message) for f in collection.run(self.repo, profile(), argv)}
-        argv = [*self.lists(t1=self.clean()["t1"], t2=self.clean()["t2"]), "--tier", "t3=lists/absent.txt"]
-        assert [f.message for f in collection.run(self.repo, profile(), argv)] == ["tier t3 collect-only list is missing"]
+        assert ("TEST.failure-propagation", "tier t2 collected no tests") in {
+            (f.rule_id, f.message) for f in collection.run(self.repo, profile(), argv)
+        }
+        argv = [
+            *self.lists(t1=self.clean()["t1"], t2=self.clean()["t2"]),
+            "--tier",
+            "t3=lists/absent.txt",
+        ]
+        assert [f.message for f in collection.run(self.repo, profile(), argv)] == [
+            "tier t3 collect-only list is missing"
+        ]
         argv = self.lists(t1=self.clean()["t1"], t2=self.clean()["t2"])
-        assert "tier t3 has no collect-only list" in [f.message for f in collection.run(self.repo, profile(), argv)]
+        assert "tier t3 has no collect-only list" in [
+            f.message for f in collection.run(self.repo, profile(), argv)
+        ]
 
     def test_unknown_tiers_and_bad_arguments_are_refused(self) -> None:
         argv = [*self.lists(**self.clean()), "--tier", "t9=lists/t1.txt"]
-        assert [f.message for f in collection.run(self.repo, profile(), argv)] == ["tier t9 is not a profile tier"]
+        assert [f.message for f in collection.run(self.repo, profile(), argv)] == [
+            "tier t9 is not a profile tier"
+        ]
         for bad in (["--tier", "t1"], ["--tier"], ["--tier", "t1=a", "--tier", "t1=b"]):
             with self.subTest(argv=bad):
                 assert "usage" in collection.run(self.repo, profile(), bad)[0].message
@@ -439,11 +632,17 @@ class MutationSensitivityTests(unittest.TestCase):
 
     @staticmethod
     def mutant(status: str, start: int = 3, end: int = 6) -> mutation.Mutant:
-        return mutation.Mutant(f"app.x_run__mutmut_{status}", "src/app.py", start, end, status)
+        return mutation.Mutant(
+            f"app.x_run__mutmut_{status}", "src/app.py", start, end, status
+        )
 
     def test_surviving_and_untested_mutants_in_changed_code_fail(self) -> None:
         found = mutation.check(
-            [self.mutant("survived"), self.mutant("no_tests"), self.mutant("incomplete")],
+            [
+                self.mutant("survived"),
+                self.mutant("no_tests"),
+                self.mutant("incomplete"),
+            ],
             self.ADDED,
         )
         assert [f.rule_id for f in found] == ["TEST.mutation-sensitivity"] * 3
@@ -461,7 +660,9 @@ class MutationSensitivityTests(unittest.TestCase):
     def test_missing_or_malformed_report_never_passes(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            assert "pass --report" in mutation.run(repo, {}, ["--base", "HEAD"])[0].message
+            assert (
+                "pass --report" in mutation.run(repo, {}, ["--base", "HEAD"])[0].message
+            )
             bad = repo / "report.json"
             bad.write_text(json.dumps({"version": 1, "mutants": [{"id": "x"}]}))
             found = mutation.run(repo, {}, ["--report", str(bad), "--base", "HEAD"])

@@ -39,7 +39,15 @@ if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
 RULES_PACKAGE = "guardrails.adapters.pytest"
-SKIPPED_PARTS = frozenset({".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"})
+SKIPPED_PARTS = frozenset({
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+})
 
 
 @dataclass(frozen=True)
@@ -101,7 +109,9 @@ def test_patterns(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
         for location in as_list(spec.get("location"))
     ]
     layout = profile.get("layout")
-    patterns = as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    patterns = (
+        as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
+    )
     return locations, patterns
 
 
@@ -175,7 +185,11 @@ def arguments(call: SgNode) -> list[SgNode]:
     node = call.field("arguments")
     if node is None:
         return []
-    return [child for child in node.children() if child.is_named() and child.kind() != "comment"]
+    return [
+        child
+        for child in node.children()
+        if child.is_named() and child.kind() != "comment"
+    ]
 
 
 def target_nodes(match: SgNode, target: str) -> list[SgNode]:
@@ -183,7 +197,9 @@ def target_nodes(match: SgNode, target: str) -> list[SgNode]:
         left = match.field("left")
         value = left.field("object") if left is not None else None
         return [value] if value is not None else []
-    positional = [item for item in arguments(match) if item.kind() != "keyword_argument"]
+    positional = [
+        item for item in arguments(match) if item.kind() != "keyword_argument"
+    ]
     if target == "first-argument":
         return positional[:1]
     if target.startswith("keyword:"):
@@ -191,7 +207,11 @@ def target_nodes(match: SgNode, target: str) -> list[SgNode]:
         found: list[SgNode] = []
         for item in arguments(match):
             name = item.field("name")
-            if item.kind() == "keyword_argument" and name is not None and name.text() in wanted:
+            if (
+                item.kind() == "keyword_argument"
+                and name is not None
+                and name.text() in wanted
+            ):
                 value = item.field("value")
                 if value is not None:
                     found.append(value)
@@ -199,7 +219,9 @@ def target_nodes(match: SgNode, target: str) -> list[SgNode]:
     raise ValueError(f"unknown rule target {target!r}")
 
 
-def owned_target(match: SgNode, target: str, imports: dict[str, str], owned: frozenset[str]) -> str | None:
+def owned_target(
+    match: SgNode, target: str, imports: dict[str, str], owned: frozenset[str]
+) -> str | None:
     for node in target_nodes(match, target):
         origin = resolve(node, imports)
         if origin and origin.split(".")[0] in owned:
@@ -211,7 +233,9 @@ def waived(rule_id: str, path: str, profile: dict[str, Any]) -> bool:
     return not apply_exceptions([Finding(rule_id, path, "", "")], profile)
 
 
-def file_findings(path: str, source: str, rules: list[Rule], owned: frozenset[str]) -> list[Finding]:
+def file_findings(
+    path: str, source: str, rules: list[Rule], owned: frozenset[str]
+) -> list[Finding]:
     from ast_grep_py import SgRoot
 
     root = SgRoot(source, "python").root()
@@ -227,7 +251,9 @@ def file_findings(path: str, source: str, rules: list[Rule], owned: frozenset[st
             line = match.range().start.line + 1
             snippet = " ".join(match.text().split())[:80]
             message = rule.message.format(target=target, match=snippet)
-            findings.append(Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix))
+            findings.append(
+                Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix)
+            )
     return findings
 
 
@@ -250,7 +276,11 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
             continue
         findings.extend(file_findings(path, source, scoped, owned))
     findings.extend(test_only_symbol_findings(repo, profile, production))
-    return [finding for finding in findings if not waived(finding.rule_id, finding.path, profile)]
+    return [
+        finding
+        for finding in findings
+        if not waived(finding.rule_id, finding.path, profile)
+    ]
 
 
 def is_owned(path: str, owned: frozenset[str]) -> bool:
@@ -264,7 +294,9 @@ def read_source(repo: Path, path: str) -> str | None:
         return None
 
 
-def test_only_symbol_findings(repo: Path, profile: dict[str, Any], reported: set[str]) -> list[Finding]:
+def test_only_symbol_findings(
+    repo: Path, profile: dict[str, Any], reported: set[str]
+) -> list[Finding]:
     """TEST.no-test-hooks over the whole repo's references, reported for the linted files."""
     if not reported:
         return []

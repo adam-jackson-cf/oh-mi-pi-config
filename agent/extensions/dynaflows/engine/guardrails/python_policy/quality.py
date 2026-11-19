@@ -91,7 +91,10 @@ def is_label(prefix: str, config: PythonSettings) -> bool:
 def below_root_dirs(relpath: str, depth: int) -> list[tuple[str, str]]:
     """``(segment, path up to it)`` for each directory below the matched maintained root."""
     parts = segments(relpath)
-    return [(parts[index], "/".join(parts[: index + 1])) for index in range(depth, len(parts) - 1)]
+    return [
+        (parts[index], "/".join(parts[: index + 1]))
+        for index in range(depth, len(parts) - 1)
+    ]
 
 
 # Structure rules (PYQ100-PYQ107) ------------------------------------------------------------
@@ -168,7 +171,9 @@ def test_group_findings(relpath: str, config: PythonSettings) -> list[Finding]:
 
 
 def skill_name_finding(relpath: str, skill: str) -> list[Finding]:
-    if house_style.matches_casing(skill, house_style.load_house_style()["asset_id"]["directory"]):
+    if house_style.matches_casing(
+        skill, house_style.load_house_style()["asset_id"]["directory"]
+    ):
         return []
     return [
         finding(
@@ -194,7 +199,9 @@ def skill_findings(
 
 
 def skill_directory_findings(
-    repo: Path, config: PythonSettings, selected: list[str],
+    repo: Path,
+    config: PythonSettings,
+    selected: list[str],
     existing_segments: Set[str] = frozenset(),
 ) -> list[Finding]:
     """Skill directories without any Python file still need kebab-case names."""
@@ -205,12 +212,15 @@ def skill_directory_findings(
         skill_root = repo / root
         if not skill_root.is_dir():
             continue
-        for directory in sorted(child for child in skill_root.iterdir() if child.is_dir()):
+        for directory in sorted(
+            child for child in skill_root.iterdir() if child.is_dir()
+        ):
             relpath = f"{root}/{directory.name}"
             if relpath in existing_segments:
                 continue
             if not selected or any(
-                root_depth(relpath, path) is not None or root_depth(path, relpath) is not None
+                root_depth(relpath, path) is not None
+                or root_depth(path, relpath) is not None
                 for path in selected
             ):
                 found.extend(skill_name_finding(relpath, directory.name))
@@ -218,7 +228,9 @@ def skill_directory_findings(
 
 
 def package_dir_findings(
-    relpath: str, depth: int, config: PythonSettings,
+    relpath: str,
+    depth: int,
+    config: PythonSettings,
     existing_segments: Set[str] = frozenset(),
 ) -> list[Finding]:
     if in_roots(relpath, config.paths("skill_roots")):
@@ -236,7 +248,9 @@ def package_dir_findings(
         if part not in ignored
         and prefix not in existing_segments
         and not is_label(prefix, config)
-        and not house_style.matches_casing(part, conventions.load_pack("python")["directory"])
+        and not house_style.matches_casing(
+            part, conventions.load_pack("python")["directory"]
+        )
     ]
 
 
@@ -258,7 +272,9 @@ def module_name_findings(relpath: str, config: PythonSettings) -> list[Finding]:
 
 
 def generic_name_findings(
-    relpath: str, depth: int, config: PythonSettings,
+    relpath: str,
+    depth: int,
+    config: PythonSettings,
     existing_segments: Set[str] = frozenset(),
 ) -> list[Finding]:
     allowed = set(config.paths("generic_name_allowlist"))
@@ -273,7 +289,9 @@ def generic_name_findings(
         )
         for part, prefix in below_root_dirs(relpath, depth)
         if prefix not in existing_segments
-        and house_style.is_banned_word(part) and prefix not in allowed and not is_label(prefix, config)
+        and house_style.is_banned_word(part)
+        and prefix not in allowed
+        and not is_label(prefix, config)
     ]
     stem = PurePosixPath(relpath).stem
     if house_style.is_banned_word(stem) and relpath not in allowed:
@@ -294,7 +312,10 @@ def generic_name_findings(
 
 
 def class_limits(config: PythonSettings) -> dict[str, Any]:
-    return {key: config.number("class_limits", key, value) for key, value in CLASS_LIMIT_DEFAULTS.items()}
+    return {
+        key: config.number("class_limits", key, value)
+        for key, value in CLASS_LIMIT_DEFAULTS.items()
+    }
 
 
 def init_arg_count(method: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
@@ -316,10 +337,16 @@ def self_attributes(class_node: ast.ClassDef) -> set[str]:
 
 
 def methods(class_node: ast.ClassDef) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
-    return [node for node in class_node.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return [
+        node
+        for node in class_node.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
 
 
-def class_shape_findings(node: ast.ClassDef, relpath: str, limits: dict[str, Any]) -> list[Finding]:
+def class_shape_findings(
+    node: ast.ClassDef, relpath: str, limits: dict[str, Any]
+) -> list[Finding]:
     measures = [
         (
             "PYQ200",
@@ -357,7 +384,13 @@ def class_shape_findings(node: ast.ClassDef, relpath: str, limits: dict[str, Any
                 method.lineno,
             ))
     return [
-        finding(rule, relpath, line, f"class '{node.name}' has {count} {label} > {limits[key]}", fix)
+        finding(
+            rule,
+            relpath,
+            line,
+            f"class '{node.name}' has {count} {label} > {limits[key]}",
+            fix,
+        )
         for rule, key, count, label, fix, line in measures
         if limits[key] is not None and count > limits[key]
     ]
@@ -372,7 +405,9 @@ def base_names(class_node: ast.ClassDef) -> set[str]:
     return names
 
 
-def analyzer_findings(node: ast.ClassDef, relpath: str, config: PythonSettings) -> list[Finding]:
+def analyzer_findings(
+    node: ast.ClassDef, relpath: str, config: PythonSettings
+) -> list[Finding]:
     found: list[Finding] = []
     bases = base_names(node)
     approved = set(as_list(config.raw.get("analyzer_bases")))
@@ -408,11 +443,13 @@ def analyzer_findings(node: ast.ClassDef, relpath: str, config: PythonSettings) 
 # Seams (PYQ220, PYQ221) ----------------------------------------------------------------------
 
 
-def seam_findings(tree: ast.Module, relpath: str, config: PythonSettings) -> list[Finding]:
+def seam_findings(
+    tree: ast.Module, relpath: str, config: PythonSettings
+) -> list[Finding]:
     process_scope = in_roots(relpath, config.scope("process_roots"))
-    dynamic_scope = in_roots(relpath, config.scope("dynamic_import_roots")) and relpath not in set(
-        config.paths("dynamic_import_adapters")
-    )
+    dynamic_scope = in_roots(
+        relpath, config.scope("dynamic_import_roots")
+    ) and relpath not in set(config.paths("dynamic_import_adapters"))
     if not process_scope and not dynamic_scope:
         return []
     allowed = set(as_list(config.mapping("subprocess_wrappers").get(relpath)))
@@ -469,9 +506,17 @@ def annotation_tree(annotation: ast.AST) -> ast.AST:
 def module_aliases(tree: ast.Module) -> dict[str, ast.AST]:
     aliases: dict[str, ast.AST] = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             aliases[node.targets[0].id] = node.value
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value:
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value
+        ):
             aliases[node.target.id] = node.value
         elif isinstance(node, TYPE_ALIAS) and isinstance(node.name, ast.Name):
             aliases[node.name.id] = node.value
@@ -490,13 +535,17 @@ def annotation_contains(
             return True
         if isinstance(part, ast.Constant) and isinstance(part.value, str):
             parsed = annotation_tree(part)
-            if parsed is not part and annotation_contains(parsed, names, aliases, wanted, seen):
+            if parsed is not part and annotation_contains(
+                parsed, names, aliases, wanted, seen
+            ):
                 return True
         if (
             isinstance(part, ast.Name)
             and part.id in aliases
             and part.id not in seen
-            and annotation_contains(aliases[part.id], names, aliases, wanted, seen | {part.id})
+            and annotation_contains(
+                aliases[part.id], names, aliases, wanted, seen | {part.id}
+            )
         ):
             return True
     return False
@@ -532,7 +581,9 @@ def collaborator_findings(
             )
         )
     is_json_record = pinned.get(binding) == ast.unparse(annotation_tree(annotation))
-    if not is_json_record and annotation_contains(annotation, names, aliases, ANY_NAMES):
+    if not is_json_record and annotation_contains(
+        annotation, names, aliases, ANY_NAMES
+    ):
         found.append(
             finding(
                 "PYQ231",
@@ -546,11 +597,17 @@ def collaborator_findings(
     return found
 
 
-def contract_findings(tree: ast.Module, relpath: str, config: PythonSettings) -> list[Finding]:
+def contract_findings(
+    tree: ast.Module, relpath: str, config: PythonSettings
+) -> list[Finding]:
     if relpath not in set(config.paths("contract_files")):
         return []
     pinned = config.mapping("contract_data_annotations").get(relpath)
-    context = (import_names(tree), module_aliases(tree), pinned if isinstance(pinned, dict) else {})
+    context = (
+        import_names(tree),
+        module_aliases(tree),
+        pinned if isinstance(pinned, dict) else {},
+    )
     found: list[Finding] = []
 
     def visit(node: ast.AST, owner: str) -> None:
@@ -560,12 +617,16 @@ def contract_findings(tree: ast.Module, relpath: str, config: PythonSettings) ->
             for arg in callable_arguments(node):
                 if arg.annotation:
                     found.extend(
-                        collaborator_findings(arg.annotation, f"{owner}.{arg.arg}", relpath, context)
+                        collaborator_findings(
+                            arg.annotation, f"{owner}.{arg.arg}", relpath, context
+                        )
                     )
             return
         if isinstance(node, ast.AnnAssign) and owner:
             binding = f"{owner}.{ast.unparse(node.target)}"
-            found.extend(collaborator_findings(node.annotation, binding, relpath, context))
+            found.extend(
+                collaborator_findings(node.annotation, binding, relpath, context)
+            )
         for child in ast.iter_child_nodes(node):
             visit(child, owner)
 
@@ -579,7 +640,11 @@ def contract_findings(tree: ast.Module, relpath: str, config: PythonSettings) ->
 def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Finding]:
     source = read_source(repo, relpath)
     if source.tree is None:
-        return [finding("PYQ299", relpath, None, source.error, "restore readable UTF-8 Python")]
+        return [
+            finding(
+                "PYQ299", relpath, None, source.error, "restore readable UTF-8 Python"
+            )
+        ]
     limits = class_limits(config)
     found: list[Finding] = []
     for node in ast.walk(source.tree):
@@ -595,7 +660,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     config = load_settings(profile)
     try:
         selected = event_scope.select(repo, argv)
-        content_paths = argv if argv and not any(raw.startswith("-") for raw in argv) else []
+        content_paths = (
+            argv if argv and not any(raw.startswith("-") for raw in argv) else []
+        )
         existing_segments = {
             "/".join(parts[:index])
             for path in selected.existing_paths or ()
@@ -603,7 +670,8 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             for index in range(1, len(parts) + 1)
         }
         files = [
-            path for path in selected.inventory
+            path
+            for path in selected.inventory
             if path.endswith(".py") and not is_excluded(path, config)
         ]
         roots = config.paths("maintained_roots")

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import ast
@@ -28,7 +27,6 @@ class Case:
 
 @dataclass(frozen=True)
 class Collected:
-
     cases: tuple[Case, ...]
     behaviours: Mapping[str, str | None]
 
@@ -160,12 +158,10 @@ def _parameter_rows(decorator: ast.Call) -> Dimension:
         values, explicit = _row_values(row, len(names))
         if explicit is None and isinstance(ids, (ast.List, ast.Tuple)):
             explicit = ids.elts[index]
-        result.append(
-            (
-                _row_id(names, values, index, explicit),
-                dict(zip(names, values, strict=True)),
-            )
-        )
+        result.append((
+            _row_id(names, values, index, explicit),
+            dict(zip(names, values, strict=True)),
+        ))
     return _unique_ids(result)
 
 
@@ -318,7 +314,9 @@ class Constants(ast.NodeTransformer):
         if isinstance(node.func, ast.Name) and not node.keywords:
             if node.func.id == "len" and len(node.args) == 1:
                 argument = node.args[0]
-                if isinstance(argument, ast.Constant) and isinstance(argument.value, (str, bytes)):
+                if isinstance(argument, ast.Constant) and isinstance(
+                    argument.value, (str, bytes)
+                ):
                     return ast.Constant(value=len(argument.value))
                 if isinstance(argument, (ast.List, ast.Tuple)):
                     return ast.Constant(value=len(argument.elts))
@@ -333,7 +331,8 @@ class Constants(ast.NodeTransformer):
                 values = [
                     argument.value
                     for argument in node.args
-                    if isinstance(argument, ast.Constant) and isinstance(argument.value, int)
+                    if isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, int)
                 ]
                 try:
                     resolved = range(*values)

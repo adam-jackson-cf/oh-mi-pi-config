@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import hashlib
@@ -46,7 +45,9 @@ def matches_casing(name: str, casings: list[str]) -> bool:
     return any(re.fullmatch(patterns[casing], name) for casing in casings)
 
 
-def version_problem(segment: str, *, last: bool, standalone_allowed: bool) -> str | None:
+def version_problem(
+    segment: str, *, last: bool, standalone_allowed: bool
+) -> str | None:
     """Why a path segment's version token breaks the rule, or None when it does not."""
     rules = load_house_style()["versioning"]
     name = stem(segment) if last else segment
@@ -126,7 +127,10 @@ def apply_exceptions(findings: list[Finding], profile: dict[str, Any]) -> list[F
     covered = [
         item
         for item in exceptions
-        if isinstance(item, dict) and item.get("reason") and item.get("rule") and item.get("path")
+        if isinstance(item, dict)
+        and item.get("reason")
+        and item.get("rule")
+        and item.get("path")
     ]
     return [
         finding

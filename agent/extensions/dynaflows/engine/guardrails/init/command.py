@@ -62,9 +62,12 @@ def parser() -> argparse.ArgumentParser:
         help="ci.requiredContext: status context or check run that must be green on the head",
     )
     command.add_argument(
-        "--runner", help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)"
+        "--runner",
+        help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)",
     )
-    command.add_argument("--settings", type=Path, help="JSON object of guardrails settings")
+    command.add_argument(
+        "--settings", type=Path, help="JSON object of guardrails settings"
+    )
     command.add_argument(
         "--offline", action="store_true", help="do not ask gh for the required checks"
     )
@@ -95,7 +98,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     return options
 
 
-def write_if_changed(path: Path, text: str | None, changes: list[str], label: str) -> None:
+def write_if_changed(
+    path: Path, text: str | None, changes: list[str], label: str
+) -> None:
     if text is None or (path.exists() and path.read_text(encoding="utf-8") == text):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,13 +201,17 @@ def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
     try:
         options = parse(argv)
         if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
-            raise UsageError(f"--record {record} must be a repo's record, {live}/<owner>/<name>")
+            raise UsageError(
+                f"--record {record} must be a repo's record, {live}/<owner>/<name>"
+            )
         lines, findings = initialise(repo, record, options)
     except UsageError as error:
         return [usage_finding(str(error))]
     except record_gate.GateError as error:
         return [record_gate.gate_finding(error)]
     except ProfileError as error:
-        return [Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")]
+        return [
+            Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")
+        ]
     print("\n".join(lines))
     return findings

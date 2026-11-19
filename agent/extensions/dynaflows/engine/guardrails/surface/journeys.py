@@ -106,7 +106,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         return [Finding(RULE, ".", str(error), "run inside a git repository")]
     journeys = [path for path in paths if name_matches(path, pattern)]
     references = lever_references(lever, profile)
-    linked, map_text = mapped_paths(repo, str(values.get("feature_map_path") or "").rstrip("/"))
+    linked, map_text = mapped_paths(
+        repo, str(values.get("feature_map_path") or "").rstrip("/")
+    )
     found: list[Finding] = []
     for journey in journeys:
         if not any(reference in read(repo / journey) for reference in references):

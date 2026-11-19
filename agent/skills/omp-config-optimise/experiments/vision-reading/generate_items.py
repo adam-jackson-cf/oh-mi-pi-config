@@ -8,6 +8,7 @@ Usage: uv run generate_items.py <out-dir>
 Writes <out-dir>/<item>.png and <out-dir>/items.json ({id, image, question, answer}).
 Every question has one short exact answer and a margin that keeps it unambiguous.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,20 @@ from matplotlib.figure import Figure
 
 SEED = 280926
 Item = tuple[str, str, str]
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+MONTHS = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
 
 
 def distinct_ints(rng: random.Random, n: int, lo: int, hi: int, gap: int) -> list[int]:
@@ -46,14 +60,28 @@ def save(fig: Figure, out: Path, name: str) -> str:
 
 
 def bar_max(rng: random.Random, out: Path) -> Item:
-    cats = ["Aster", "Birch", "Cedar", "Dahlia", "Elm", "Fern", "Gorse", "Holly", "Iris"]
+    cats = [
+        "Aster",
+        "Birch",
+        "Cedar",
+        "Dahlia",
+        "Elm",
+        "Fern",
+        "Gorse",
+        "Holly",
+        "Iris",
+    ]
     vals = distinct_ints(rng, len(cats), 12, 88, 4)
     fig, ax = plt.subplots(figsize=(7, 3.5))
     ax.bar(cats, vals, color="#4c72b0")
     ax.grid(axis="y", alpha=0.4)
     ax.set_title("Units shipped by site")
     second = sorted(zip(vals, cats, strict=True))[-2][1]
-    return save(fig, out, "bar-second"), "Which site has the second-highest bar?", second
+    return (
+        save(fig, out, "bar-second"),
+        "Which site has the second-highest bar?",
+        second,
+    )
 
 
 def bar_threshold(rng: random.Random, out: Path) -> Item:
@@ -63,19 +91,30 @@ def bar_threshold(rng: random.Random, out: Path) -> Item:
     ax.bar(cats, vals, color="#dd8452")
     ax.axhline(50, ls="--", color="black")
     ax.set_title("Latency p95 (ms) per test")
-    return save(fig, out, "bar-threshold"), "How many bars rise above the dashed line?", str(sum(v > 50 for v in vals))
+    return (
+        save(fig, out, "bar-threshold"),
+        "How many bars rise above the dashed line?",
+        str(sum(v > 50 for v in vals)),
+    )
 
 
 def line_cross(rng: random.Random, out: Path) -> Item:
     k = rng.randint(4, 9)
     cost = np.linspace(60, 75, 12) + np.array([rng.uniform(-1, 1) for _ in range(12)])
-    rev = np.array([cost[i] - rng.uniform(4, 10) if i < k else cost[i] + rng.uniform(4, 10) for i in range(12)])
+    rev = np.array([
+        cost[i] - rng.uniform(4, 10) if i < k else cost[i] + rng.uniform(4, 10)
+        for i in range(12)
+    ])
     fig, ax = plt.subplots(figsize=(7, 3.5))
     ax.plot(MONTHS, cost, marker="o", label="Cost")
     ax.plot(MONTHS, rev, marker="s", label="Revenue")
     ax.legend()
     ax.grid(alpha=0.3)
-    return save(fig, out, "line-cross"), "In which month does Revenue first exceed Cost? Give the month abbreviation.", MONTHS[k]
+    return (
+        save(fig, out, "line-cross"),
+        "In which month does Revenue first exceed Cost? Give the month abbreviation.",
+        MONTHS[k],
+    )
 
 
 def line_peak(rng: random.Random, out: Path) -> Item:
@@ -89,7 +128,11 @@ def line_peak(rng: random.Random, out: Path) -> Item:
         ax.plot(MONTHS, series, marker=".", label=name)
     ax.legend(ncol=4, fontsize=8)
     ax.grid(alpha=0.3)
-    return (save(fig, out, "line-peak"), f"Which region has the highest value in {MONTHS[month]}?", lead)
+    return (
+        save(fig, out, "line-peak"),
+        f"Which region has the highest value in {MONTHS[month]}?",
+        lead,
+    )
 
 
 def table_items(rng: random.Random, out: Path) -> list[Item]:
@@ -102,13 +145,22 @@ def table_items(rng: random.Random, out: Path) -> list[Item]:
         data[i][col] = v
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.axis("off")
-    table = ax.table(cellText=[[str(v) for v in r] for r in data], rowLabels=rows, colLabels=cols, loc="center")
+    table = ax.table(
+        cellText=[[str(v) for v in r] for r in data],
+        rowLabels=rows,
+        colLabels=cols,
+        loc="center",
+    )
     table.set_fontsize(8)
     image = save(fig, out, "table")
     r, c = rng.randrange(len(rows)), rng.randrange(len(cols))
     best = rows[max(range(len(rows)), key=lambda i: data[i][col])]
     return [
-        (image, f"What is the value in row {rows[r]}, column {cols[c]}?", str(data[r][c])),
+        (
+            image,
+            f"What is the value in row {rows[r]}, column {cols[c]}?",
+            str(data[r][c]),
+        ),
         (image, f"Which row has the largest value in column {cols[col]}?", best),
     ]
 
@@ -134,14 +186,22 @@ def pie_second(rng: random.Random, out: Path) -> Item:
     ax.pie(vals, startangle=rng.randint(0, 359))
     ax.legend(labels, loc="center left", bbox_to_anchor=(1, 0.5))
     second = sorted(zip(vals, labels, strict=True))[-2][1]
-    return save(fig, out, "pie-second"), "Which channel has the second-largest slice?", second
+    return (
+        save(fig, out, "pie-second"),
+        "Which channel has the second-largest slice?",
+        second,
+    )
 
 
 def stacked_year(rng: random.Random, out: Path) -> Item:
     years = [str(y) for y in range(2019, 2027)]
     segs = ["Cloud", "Licences", "Services"]
     cloud = distinct_ints(rng, len(years), 10, 60, 4)
-    data = {"Cloud": cloud, "Licences": [rng.randint(10, 40) for _ in years], "Services": [rng.randint(5, 30) for _ in years]}
+    data = {
+        "Cloud": cloud,
+        "Licences": [rng.randint(10, 40) for _ in years],
+        "Services": [rng.randint(5, 30) for _ in years],
+    }
     fig, ax = plt.subplots(figsize=(7, 3.5))
     bottom = np.zeros(len(years))
     for s in segs:
@@ -149,23 +209,41 @@ def stacked_year(rng: random.Random, out: Path) -> Item:
         bottom += np.array(data[s])
     ax.legend()
     best = years[max(range(len(years)), key=lambda i: cloud[i])]
-    return save(fig, out, "stacked"), "In which year is the Cloud segment tallest?", best
+    return (
+        save(fig, out, "stacked"),
+        "In which year is the Cloud segment tallest?",
+        best,
+    )
 
 
 def flow(rng: random.Random, out: Path) -> Item:
     names = ["Ingest", "Validate", "Enrich", "Score", "Route", "Archive"]
     order = names[:1] + rng.sample(names[1:], len(names) - 1)
-    pos = {n: (i % 3 * 3.0, -(i // 3) * 2.0) for i, n in enumerate(rng.sample(names, len(names)))}
+    pos = {
+        n: (i % 3 * 3.0, -(i // 3) * 2.0)
+        for i, n in enumerate(rng.sample(names, len(names)))
+    }
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.axis("off")
     for n, (x, y) in pos.items():
-        ax.text(x, y, n, ha="center", va="center", bbox={"boxstyle": "round", "fc": "#eef"})
+        ax.text(
+            x, y, n, ha="center", va="center", bbox={"boxstyle": "round", "fc": "#eef"}
+        )
     for a, b in pairwise(order):
-        ax.annotate("", xy=pos[b], xytext=pos[a], arrowprops={"arrowstyle": "->", "shrinkA": 22, "shrinkB": 22})
+        ax.annotate(
+            "",
+            xy=pos[b],
+            xytext=pos[a],
+            arrowprops={"arrowstyle": "->", "shrinkA": 22, "shrinkB": 22},
+        )
     ax.set_xlim(-1.5, 7.5)
     ax.set_ylim(-3, 1)
     src = rng.choice(order[:-1])
-    return save(fig, out, "flow"), f"Which box does the arrow from {src} point to?", order[order.index(src) + 1]
+    return (
+        save(fig, out, "flow"),
+        f"Which box does the arrow from {src} point to?",
+        order[order.index(src) + 1],
+    )
 
 
 def log_text(rng: random.Random, out: Path) -> list[Item]:
@@ -207,19 +285,33 @@ def heatmap(rng: random.Random, out: Path) -> Item:
     ax.set_xticks(range(6), [f"C{i}" for i in range(1, 7)])
     ax.set_yticks(range(6), [f"R{i}" for i in range(1, 7)])
     fig.colorbar(im)
-    return (save(fig, out, "heatmap"), "Which cell has the highest value? Answer as row,column labels, e.g. R1,C1.",
-            f"R{r + 1},C{c + 1}")
+    return (
+        save(fig, out, "heatmap"),
+        "Which cell has the highest value? Answer as row,column labels, e.g. R1,C1.",
+        f"R{r + 1},C{c + 1}",
+    )
 
 
 def form(rng: random.Random, out: Path) -> Item:
-    invoice = "".join(rng.choice(string.ascii_uppercase) for _ in range(2)) + "-" + str(rng.randint(10000, 99999))
-    fields = [("Customer", "Harbour & Finch Ltd"), ("Invoice #", invoice), ("Due", f"2026-{rng.randint(10, 12)}-{rng.randint(10, 28)}"),
-              ("PO", str(rng.randint(100000, 999999))), ("Terms", "Net 30")]
+    invoice = (
+        "".join(rng.choice(string.ascii_uppercase) for _ in range(2))
+        + "-"
+        + str(rng.randint(10000, 99999))
+    )
+    fields = [
+        ("Customer", "Harbour & Finch Ltd"),
+        ("Invoice #", invoice),
+        ("Due", f"2026-{rng.randint(10, 12)}-{rng.randint(10, 28)}"),
+        ("PO", str(rng.randint(100000, 999999))),
+        ("Terms", "Net 30"),
+    ]
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.axis("off")
     for i, (k, v) in enumerate(fields):
         ax.text(0.02, 0.9 - i * 0.18, k, fontsize=9, color="#555")
-        ax.text(0.35, 0.9 - i * 0.18, v, fontsize=9, bbox={"fc": "#f4f4f4", "ec": "#bbb"})
+        ax.text(
+            0.35, 0.9 - i * 0.18, v, fontsize=9, bbox={"fc": "#f4f4f4", "ec": "#bbb"}
+        )
     return save(fig, out, "form"), "What is the Invoice # value?", invoice
 
 
@@ -231,7 +323,11 @@ def histogram(rng: random.Random, out: Path) -> Item:
     fig, ax = plt.subplots(figsize=(7, 3.5))
     ax.bar([f"{a}-{a + 10}" for a in edges[:-1]], counts, width=1.0, edgecolor="black")
     ax.set_xlabel("Response time (ms)")
-    return save(fig, out, "histogram"), "Which bin has the most values? Give its label, e.g. 0-10.", f"{edges[peak]}-{edges[peak] + 10}"
+    return (
+        save(fig, out, "histogram"),
+        "Which bin has the most values? Give its label, e.g. 0-10.",
+        f"{edges[peak]}-{edges[peak] + 10}",
+    )
 
 
 def main() -> None:
@@ -240,12 +336,32 @@ def main() -> None:
     rng = random.Random(SEED)
     items: list[dict[str, str]] = []
     makers: tuple[Callable[[random.Random, Path], Item | list[Item]], ...] = (
-        bar_max, bar_threshold, line_cross, line_peak, table_items, scatter_count, pie_second,
-        stacked_year, flow, log_text, dual_axis, heatmap, form, histogram)
+        bar_max,
+        bar_threshold,
+        line_cross,
+        line_peak,
+        table_items,
+        scatter_count,
+        pie_second,
+        stacked_year,
+        flow,
+        log_text,
+        dual_axis,
+        heatmap,
+        form,
+        histogram,
+    )
     for fn in makers:
         produced = fn(rng, out)
-        for image, question, answer in produced if isinstance(produced, list) else [produced]:
-            items.append({"id": f"{Path(image).stem}-{len(items) + 1:02d}", "image": image, "question": question, "answer": answer})
+        for image, question, answer in (
+            produced if isinstance(produced, list) else [produced]
+        ):
+            items.append({
+                "id": f"{Path(image).stem}-{len(items) + 1:02d}",
+                "image": image,
+                "question": question,
+                "answer": answer,
+            })
     (out / "items.json").write_text(json.dumps(items, indent=2) + "\n")
     print(f"{len(items)} items -> {out}")
 
