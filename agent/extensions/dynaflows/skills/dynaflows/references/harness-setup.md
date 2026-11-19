@@ -1,6 +1,6 @@
 # Harness setup deltas
 
-Run [generic setup](../../../../../skills/setup-repo-proofs/SKILL.md) in order. This reference adds
+Run [generic setup](skill://setup-repo-proofs) in order. This reference adds
 only the DynaFlows-specific policy, engine commands, adapter and approval mechanics. The generic
 workflow remains usable without these additions; do not copy these mechanics into target repos.
 Use [the project setup playbook](playbooks/project-setup.md) for the six-stage delivery sequence.

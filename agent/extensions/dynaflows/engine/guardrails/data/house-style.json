@@ -107,7 +107,7 @@
       "contributed": "forbidden names utils, manager, new, old, legacy, compat, fallback; generic names common, helpers, misc, stuff, temp; attached suffix pattern (?<=.)[-_]?v\\d+$ with standalone <name>/v<N> allowed"
     },
     {
-      "source": "oh-mi-pi-config agent/skills/test-guidance/references/naming-and-layout.md",
+      "source": "oh-mi-pi-config agent/extensions/dynaflows/skills/test-guidance/references/naming-and-layout.md",
       "contributed": "test files mirror their owner and carry no ticket, version or date tokens; support and fixtures live at the profile's locations"
     }
   ]

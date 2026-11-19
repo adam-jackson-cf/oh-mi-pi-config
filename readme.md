@@ -14,7 +14,9 @@ when a design changes, and remove obsolete paths rather than carry them forward.
 `agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
 [delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md);
-`test-guidance` remains generic test practice, usable without dynaflows.
+The package also bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `jev-actions`
+and `codify-omp-workflow-corrections`; `git-tool` stays standalone because it serves dynaflows-off
+sessions too ([ADR 0013](docs/adr/0013-dynaflows-bundles-its-skills.md)).
 Retired delivery-guidance copies and the disabled standalone workflow entry have been removed;
 Git history retains them. The extension package is the only workflow skill source.
 The [workflow page](agent/extensions/dynaflows/docs/workflow.html)
@@ -331,8 +333,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/skills/setup-repo-proofs/` — generic repository verification setup, independent
-  of any assistant or harness.
+- `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
+- `agent/skills/git-tool/` — Git, PR and merge authority, used with dynaflows on or off.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.

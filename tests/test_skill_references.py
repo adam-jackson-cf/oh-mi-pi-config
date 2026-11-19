@@ -7,17 +7,21 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
 PACKAGE = ROOT / "agent/extensions/dynaflows"
-WORKFLOW = PACKAGE / "skills/dynaflows"
-CORE_SKILLS = ("dynaflows", "test-guidance", "git-tool")
+PACKAGE_SKILLS = PACKAGE / "skills"
+WORKFLOW = PACKAGE_SKILLS / "dynaflows"
+CORE_SKILLS = (
+    "dynaflows", "test-guidance", "setup-repo-proofs", "jev-actions",
+    "codify-omp-workflow-corrections", "git-tool",
+)
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 def skill_directory(name):
-    return WORKFLOW if name == "dynaflows" else SKILLS / name
+    return SKILLS / name if name == "git-tool" else PACKAGE_SKILLS / name
 
 
 class SkillReferenceTests(unittest.TestCase):
     def test_repository_setup_is_independent_of_the_assistant(self):
-        directory = SKILLS / "setup-repo-proofs"
+        directory = PACKAGE_SKILLS / "setup-repo-proofs"
         forbidden = re.compile(r"\b(?:omp|dynaflows|harness|freeze)\b", re.IGNORECASE)
         for source in sorted(directory.rglob("*.md")):
             with self.subTest(source=source.relative_to(ROOT)):
@@ -37,7 +41,7 @@ class SkillReferenceTests(unittest.TestCase):
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
             *(PACKAGE / "rules").glob("*.md"),
-            *(path for path in WORKFLOW.rglob("*")
+            *(path for path in PACKAGE_SKILLS.rglob("*")
               if path.suffix in {".md", ".py", ".html"} and path.is_file()),
         }
         references = defaultdict(set)
