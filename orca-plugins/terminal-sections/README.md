@@ -1,13 +1,13 @@
 # Terminal Sections
 
 Data-only Orca plugin contributing **Sections Dark** and **Sections Light**. Their background,
-foreground and ANSI colours follow the terminal palette chosen by `../chat-section-style/inject.mjs`.
+foreground and ANSI colours follow the terminal palette chosen by `../chat-section-style/inject.ts`.
 The companion omp themes also translate the chat layout mode into terminal colours and symbols.
 
 `terminal/dark.json` and `terminal/light.json` are generated runtime output and ignored by Git.
 `sh ../install.sh` generates them, loads this plugin and selects the omp themes. By hand, from the
 checkout root (the folder holding `install.sh`): run
-`node chat-section-style/inject.mjs --if-needed` before loading or validating this plugin. The same
+`node chat-section-style/inject.ts --if-needed` before loading or validating this plugin. The same
 run generates `~/.omp/agent/themes/orca-sections-{dark,light}.json`; never commit those files.
 
 ## One-time setup

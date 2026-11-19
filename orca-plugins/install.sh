@@ -12,7 +12,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 label=local.orca-chat-section-style
 orca_app=/Applications/Orca.app
 orca_cli="$orca_app/Contents/Resources/bin/orca"
-inject="$here/chat-section-style/inject.mjs"
+inject="$here/chat-section-style/inject.ts"
 skills_dir="$HOME/.omp/agent/skills"
 launch_agent="$HOME/Library/LaunchAgents/$label.plist"
 log=/tmp/orca-chat-section-style.log
@@ -25,9 +25,10 @@ step() { printf '%s\n' "- $1"; }
 xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
 os=$(uname -s)
-[ "$os" = Darwin ] || fail 'macOS only: inject.mjs drives the macOS Orca app'
-node=$(command -v node) || fail 'node not found on PATH; install Node 22.5 or later'
-"$node" -e "require('node:sqlite')" 2>/dev/null || fail "$node lacks node:sqlite; install Node 22.5 or later"
+[ "$os" = Darwin ] || fail 'macOS only: inject.ts drives the macOS Orca app'
+node=$(command -v node) || fail 'node not found on PATH; install Node 22.18 or later'
+"$node" -e "require('node:sqlite')" 2>/dev/null || fail "$node lacks node:sqlite; install Node 22.18 or later"
+"$node" -e "process.exit(process.features.typescript ? 0 : 1)" 2>/dev/null || fail "$node lacks TypeScript type stripping; install Node 22.18 or later"
 
 render_launch_agent() {
   node_xml=$(xml "$node")

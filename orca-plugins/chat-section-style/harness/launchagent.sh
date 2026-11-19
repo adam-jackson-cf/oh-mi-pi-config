@@ -5,7 +5,7 @@
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd -P)"
-inject="$(dirname "$here")/inject.mjs"
+inject="$(dirname "$here")/inject.ts"
 plist="$(mktemp -t orca-launchagent).plist"
 trap 'rm -f "$plist"' EXIT
 failed=0
@@ -36,7 +36,7 @@ stderr_path=$(extract StandardErrorPath)
 if plutil -extract ProgramArguments.3 raw "$plist" >/dev/null 2>&1; then trailing=present; else trailing=none; fi
 check 'Label is local.orca-chat-section-style' [ "$label" = local.orca-chat-section-style ]
 check 'ProgramArguments.0 is the node on PATH' [ "$node_argument" = "$node_path" ]
-check 'ProgramArguments.1 is this checkout'"'"'s inject.mjs' [ "$inject_argument" = "$inject" ]
+check 'ProgramArguments.1 is this checkout'"'"'s inject.ts' [ "$inject_argument" = "$inject" ]
 check 'ProgramArguments.2 is --if-needed' [ "$mode_argument" = --if-needed ]
 check 'nothing follows --if-needed' [ "$trailing" = none ]
 check 'RunAtLoad is true and StartInterval is 30' [ "$run_at_load-$interval" = true-30 ]

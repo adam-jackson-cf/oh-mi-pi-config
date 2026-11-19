@@ -1,6 +1,4 @@
 #!/usr/bin/env bun
-// Usage: bun chat-section-style/harness/choice-files.mjs
-// Git state checks plus isolated injector conformance; never runs against the real style directory.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,42 +9,41 @@ const harnessDir = dirname(fileURLToPath(import.meta.url))
 const styleDir = dirname(harnessDir)
 const choiceFiles = ['mode', 'palette', 'terminal-mode', 'terminal-palette']
 let failures = 0
-const fail = (context, message) => {
+const fail = (context: string, message: string) => {
   failures++
   console.error(`FAIL ${context}: ${message}`)
 }
-const equal = (context, got, want) => {
+const equal = (context: string, got: string | number | null, want: string | number) => {
   if (got !== want) fail(context, `${JSON.stringify(got)} != ${JSON.stringify(want)}`)
 }
-const run = (command, args, cwd) => {
+const run = (command: string, args: string[], cwd: string) => {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 10000 })
   if (result.error) throw result.error
   if (result.signal) throw new Error(`${command} terminated by ${result.signal}`)
   return result
 }
 
-// Paths relative to the style directory, so the check holds wherever the enclosing Git repository starts.
 for (const name of choiceFiles) {
   try {
     const ignored = run('git', ['check-ignore', '-q', name], styleDir)
     if (ignored.status !== 0) fail(name, `unignored (git check-ignore exited ${ignored.status})`)
     const tracked = run('git', ['ls-files', '--error-unmatch', name], styleDir)
     if (tracked.status === 0) fail(name, 'tracked (git ls-files --error-unmatch exited 0)')
-  } catch (error) { fail(name, error.message) }
+  } catch (error) { fail(name, String(error)) }
 }
 
-let temporary
+let temporary: string | undefined
 try {
   temporary = fs.mkdtempSync(join(tmpdir(), 'orca-choice-files-'))
   const copy = join(temporary, 'chat-section-style')
   const excludedPaths = new Set([harnessDir, ...choiceFiles.map(name => join(styleDir, name))])
   fs.cpSync(styleDir, copy, { recursive: true, filter: path => !excludedPaths.has(path) })
   const inject = () => {
-    const result = run('node', [join(copy, 'inject.mjs'), '--surface', 'terminal'], copy)
+    const result = run('node', [join(copy, 'inject.ts'), '--surface', 'terminal'], copy)
     equal('isolated/inject/exit', result.status, 2)
     if (result.status !== 2) fail('isolated/inject/diagnostic', result.stderr.trim())
   }
-  const checkDefault = (name, want) => {
+  const checkDefault = (name: string, want: string) => {
     const path = join(copy, name)
     if (!fs.existsSync(path)) fail(`isolated/${name}`, 'missing default creation')
     else equal(`isolated/${name}`, fs.readFileSync(path, 'utf8'), want)
@@ -64,7 +61,7 @@ try {
   inject()
   equal('isolated/mode/preserved', fs.readFileSync(join(copy, 'mode'), 'utf8'), 'editorial\n')
   checkOverrides()
-} catch (error) { fail('isolated/inject', error.message) }
+} catch (error) { fail('isolated/inject', String(error)) }
 finally { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }) }
 
 if (!failures) console.log('PASS choice files are machine-local; isolated defaults created and existing mode preserved')
