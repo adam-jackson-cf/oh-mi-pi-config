@@ -12,7 +12,7 @@ An empty list is valid: a PR with no behaviour change (refactor, docs, project s
 without new controls) freezes no proofs, and `prove()` still checks CI, rename residue and new-path naming/structure.
 A changed feature-map doc also needs a linked proof.
 Store the manifest at `<git-common-dir>/omp-manifests/<slug>.json`, outside tracked
-repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`;
+repository files. Freeze rejects every other destination;
 `previous=` may still read a manifest from a temporary location.
 `MAX_PROOFS = 16` is independent of `MAX_AGENTS = 16`. Both freeze and prove accept
 a positive integer `max_checks` (not bool), applied to current/previous manifests.
