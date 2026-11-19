@@ -7,10 +7,12 @@ the harness blocks too. Any finding blocks the commit until it is fixed. The com
 repository files and writes nothing anywhere.
 
 Steps are static: they read tracked files and need neither the repository's environment nor its
-test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``structure``, ``naming``,
-``python-quality``, ``python-fanout``, ``python-scalability``, ``surface-lint`` and the profile
-adapter's ``lint``. Diff, run-report, collection, mutation and lever checks need evidence from a
-test run or a commit range, so they are not steps.
+test run. The default steps (``DEFAULT_STEPS``) are ``profile-check``, ``python-quality``,
+``python-fanout``, ``python-scalability``, ``surface-lint`` and the profile adapter's ``lint``;
+``python-test-hygiene`` runs only when ``run`` selects it. Structure and naming are not steps:
+they judge only added and renamed paths, through ``path-check`` and ``structure`` over a commit
+range. Diff, run-report, collection, mutation and lever checks need evidence from a test run or a
+commit range, so they are not steps either.
 
 Settings (``guardrails.check`` in the record's ``profile.md``):
 
