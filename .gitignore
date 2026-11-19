@@ -112,6 +112,7 @@ tests/*
 !tests/dynaflows-extension.test.ts
 !tests/analyse.test.ts
 !tests/extension-health.test.ts
+!tests/orca-terminal-themes.test.ts
 !tests/test_check_paths.py
 !tests/test_check_coverage.py
 !tests/test_check_coverage_seams.py
