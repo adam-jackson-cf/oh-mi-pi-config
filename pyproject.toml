@@ -18,6 +18,7 @@ dev = [
   "matplotlib==3.11.2",
   "mypy==2.4.1",
   "numpy==2.4.6",
+  "pip-audit==2.10.1",
   "pytest==9.1.1",
   # Coverage of owned code over T1 and T2; the ci tier enforces the floors.
   "pytest-cov==7.1.0",
