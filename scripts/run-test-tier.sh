@@ -65,7 +65,7 @@ cd "$repo_root"
 # A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
 # would otherwise write into this repository's index.
 unset "${!GIT_@}"
-if command -v go >/dev/null; then
+if [[ "$tier" == t2 ]] && command -v go >/dev/null; then
   PATH="$(go env GOROOT)/bin:$PATH"
   export PATH
 fi
