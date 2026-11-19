@@ -672,6 +672,16 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(out.strip(), "None kept")
 
+    def test_run_check_stdout_only_preserves_failure_diagnostics(self):
+        for code in (0, 1):
+            with self.subTest(code=code):
+                cmd = [sys.executable, "-c",
+                       f"import sys; print('data'); print('status', file=sys.stderr); sys.exit({code})"]
+                ok, output = workflow.run_check(cmd, self.repo, stdout_only=True)
+                self.assertEqual(ok, code == 0)
+                self.assertEqual(output, "data\n" if ok else "data\nstatus\n")
+        self.assertEqual(workflow.run_check(cmd, self.repo), (False, "data\nstatus\n"))
+
     def test_freeze_formats_before_hashing_and_reports_changed_files(self):
         self.write("fmt.py", "from pathlib import Path\nfor name in ('proof.py', 'other.txt'):\n"
                    "    p = Path(name)\n    if p.exists() and not p.read_text().endswith('# formatted\\n'):\n"
@@ -1612,6 +1622,23 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(argv[:3], [sys.executable, "-I", "-S"])
         self.assertEqual(argv[-7:], ["structure-state", "--repo", str(self.repo),
                                     "--base", self.parent, "--head", self.head])
+        self.assertTrue(run.call_args.kwargs["stdout_only"])
+
+    def test_extractor_parses_real_structure_state_stdout_without_status_line(self):
+        source = self.repo / "src/orders/api.py"
+        source.parent.mkdir(parents=True)
+        source.write_text('"""Order API."""\nORDER_LIMIT = 10\n')
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "add order unit")
+        head = git(self.repo, "rev-parse", "HEAD")
+
+        states = workflow._structure_states(self.repo, self.parent, head)
+
+        self.assertEqual(set(states), {"src/orders"})
+        self.assertEqual(states["src/orders"]["folder_path"], "src/orders")
+        self.assertEqual(states["src/orders"]["files"], ["src/orders/api.py"])
+        self.assertEqual(states["src/orders"]["evidence_limits"]["base"], self.parent)
+        self.assertEqual(states["src/orders"]["evidence_limits"]["head"], head)
 
     def test_shadow_comment_updates_existing_marker_instead_of_posting_again(self):
         with patch.object(workflow, "_pr_at_head", return_value={"number": 12}), \
