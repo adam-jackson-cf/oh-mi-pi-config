@@ -1,10 +1,8 @@
 """Consumer contracts using real checkouts, fake Podman/systemd and local HTTP."""
 import base64
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import fcntl
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
@@ -13,28 +11,45 @@ import tempfile
 import threading
 import time
 import unittest
+from collections.abc import Callable
+from functools import partial
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
 
 SOURCE = Path(__file__).resolve().parents[1]
-# ci-gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
-HARNESS_FILES = ('scripts/ci-gate.py', 'scripts/ci-gate-repos.json', 'agent/lib/repo_record.py')
-HARNESS = SCRIPT = None
+# ci_gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
+HARNESS_FILES = ('scripts/ci_gate.py', 'scripts/ci-gate-repos.json', 'agent/lib/repo_record.py')
+HARNESS: Path
+SCRIPT: Path
+PROCESS_TIMEOUT = 60
 REPO = 'adam-jackson-cf/oh-mi-pi-config'
 TOKEN_ENV = 'NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'
 # A context other than 'gate' proves the status context comes from the record's gate.json.
 CONTEXT = 'exact-head-gate'
 
 
-def setUpModule():
+def setUpModule() -> None:
     global HARNESS, SCRIPT
     HARNESS = Path(tempfile.mkdtemp(prefix='ci-gate-harness-')).resolve()
     for name in HARNESS_FILES:
         (HARNESS / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(SOURCE / name, HARNESS / name)
-    SCRIPT = HARNESS / 'scripts/ci-gate.py'
+    SCRIPT = HARNESS / 'scripts/ci_gate.py'
 
 
-def tearDownModule():
+def tearDownModule() -> None:
     shutil.rmtree(HARNESS, ignore_errors=True)
+
+
+def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
+    """The ``error`` that ``action`` raises; fail the test when it raises none."""
+    try:
+        action()
+    except error as caught:
+        return caught
+    raise AssertionError(f"{error.__name__} not raised")
+
 
 FAKE = r'''#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, time
@@ -88,8 +103,10 @@ sys.exit(0)
 '''
 
 
-class CiGateTests(unittest.TestCase):
-    def setUp(self):
+class GateFixture(unittest.TestCase):
+    """A temp source repo, fake git/Podman/systemd/Infisical on the CI_GATE_* paths and a local status API."""
+
+    def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix='ci-gate-test-')
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
@@ -109,7 +126,7 @@ class CiGateTests(unittest.TestCase):
         (self.source / '.devcontainer/Containerfile').write_text('FROM test-image\n')
         (self.source / 'gate script.sh').write_text('exit "${GATE_EXIT:-0}"\n')
         self.sha = self.commit()
-        self.requests = []
+        self.requests: list[dict[str, Any]] = []
         requests = self.requests
         self.final_status_started = threading.Event()
         self.release_final_status = threading.Event()
@@ -118,7 +135,7 @@ class CiGateTests(unittest.TestCase):
         gate = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self):
+            def do_POST(self) -> None:
                 request = {'path': self.path, 'headers': dict(self.headers),
                            'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))}
                 final = request['body']['state'] != 'pending'
@@ -130,7 +147,7 @@ class CiGateTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b'{}')
 
-            def log_message(self, *args):
+            def log_message(self, *args: Any) -> None:
                 pass
 
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -141,112 +158,139 @@ class CiGateTests(unittest.TestCase):
         self.addCleanup(self.release_final_status.set)
         binary = self.root / 'bin'
         binary.mkdir()
+        real_git = shutil.which('git')
+        assert real_git is not None, 'the tests drive a real git'
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
             file = binary / name
             file.write_text(FAKE)
             file.chmod(0o755)
         self.env = {**os.environ, 'XDG_STATE_HOME': str(self.root / 'state'),
                     'XDG_DATA_HOME': str(self.root / 'data'), 'FAKE_ROOT': str(self.root),
-                    'FAKE_REPO': str(self.source), 'REAL_GIT': shutil.which('git'),
+                    'FAKE_REPO': str(self.source), 'REAL_GIT': real_git,
                     'CI_GATE_GITHUB_API': f'http://127.0.0.1:{server.server_port}',
                     'CI_GATE_INFISICAL_PROJECT': 'test-project', 'CI_GATE_INFISICAL_ENV': 'test-env',
                     TOKEN_ENV: 'test-super-secret-token'}
         for name in ('git', 'podman', 'systemd-run', 'infisical'):
             self.env['CI_GATE_' + name.upper().replace('-', '_')] = str(binary / name)
-        self.children = []
+        self.children: list[subprocess.Popen[str]] = []
         self.addCleanup(self.stop_children)
 
-    def stop_children(self):
+    def stop_children(self) -> None:
         for child in self.children:
             if child.poll() is None:
                 child.kill()
-            child.communicate()
+            child.communicate(timeout=PROCESS_TIMEOUT)
 
-    def git(self, *args):
-        return subprocess.check_output(['git', '-C', str(self.source), *args], text=True).strip()
+    def git(self, *args: str) -> str:
+        return subprocess.check_output(['git', '-C', str(self.source), *args], text=True, timeout=PROCESS_TIMEOUT).strip()
 
     @staticmethod
-    def gate(**fields):
+    def gate(**fields: object) -> dict[str, Any]:
         """A complete record gate.json; `fields` replace its defaults, None removes one."""
-        gate = {'schemaVersion': 2, 'checks': {'commit': ['true'], 'ci': ['true']},
+        gate: dict[str, Any] = {'schemaVersion': 2, 'checks': {'commit': ['true'], 'ci': ['true']},
                 'ownerOnlyPaths': [], 'ci': {'requiredContext': CONTEXT, 'runner': 'ci-gate'}, 'dynaflows': {'enabled': True}}
         gate.update(fields)
         return {key: value for key, value in gate.items() if value is not None}
 
-    def write_gate(self, gate):
+    def write_gate(self, gate: dict[str, Any] | None) -> None:
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / 'gate.json').write_text(json.dumps(gate))
 
-    def commit(self):
+    def commit(self) -> str:
         self.git('add', '.')
         self.git('commit', '--allow-empty', '-qm', 'fixture')
         return self.git('rev-parse', 'HEAD')
 
-    def cli(self, *args, expected=0, env=None):
+    def cli(self, *args: object, expected: int = 0, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], env=env or self.env,
                                 capture_output=True, text=True, timeout=20)
-        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+        assert result.returncode == expected, result.stdout + result.stderr
         return result
 
-    def job(self, sha=None):
+    def job(self, sha: str | None = None) -> Path:
         return self.root / 'state/ci-gate/jobs' / REPO / (sha or self.sha)
 
-    def submit(self, sha=None):
+    def submit(self, sha: str | None = None) -> subprocess.CompletedProcess[str]:
         return self.cli('submit', REPO, sha or self.sha)
 
-    def calls(self, name):
+    def calls(self, name: str) -> list[Any]:
         file = self.root / (name + '.jsonl')
         return [json.loads(line) for line in file.read_text().splitlines()] if file.exists() else []
 
-    def test_rejects_unlisted_repositories_and_malformed_shas_before_execution(self):
+    def start_run(self, sha: str) -> subprocess.Popen[str]:
+        child = subprocess.Popen([sys.executable, str(SCRIPT), 'run', str(self.job(sha))],
+                                 env={**self.env, 'BLOCK_RUN': '1'}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.children.append(child)
+        return child
+
+    def until(self, predicate: Callable[[], bool]) -> None:
+        deadline = time.monotonic() + 10
+        while not predicate():
+            assert time.monotonic() < deadline, 'Timed out waiting for fake process handshake'
+            time.sleep(.01)
+
+    def fetch_environment(self, mode: str, header: str) -> dict[str, str]:
+        """The submit environment for a fetch mode: the token from the shell, from Infisical or none."""
+        environment = {**self.env}
+        if mode != 'shell-private':
+            del environment[TOKEN_ENV]
+        if mode == 'infisical-private':
+            environment['FAKE_INFISICAL_TOKEN'] = self.env[TOKEN_ENV]
+        if mode != 'public':
+            environment['FAKE_REQUIRED_AUTH'] = header
+        return environment
+
+
+class CiGateTests(GateFixture):
+    def test_rejects_unlisted_repositories_and_malformed_shas_before_execution(self) -> None:
         for repo, sha in [('other/repo', self.sha), ('../repo', self.sha), (REPO, 'A' * 40), (REPO, 'a' * 39)]:
             self.cli('submit', repo, sha, expected=1)
-        self.assertEqual(self.calls('git'), [])
-        self.assertEqual(self.requests, [])
+        assert self.calls('git') == []
+        assert self.requests == []
 
-    def test_submit_run_status_and_credentials_boundary(self):
+    def test_submit_run_status_and_credentials_boundary(self) -> None:
         submitted = json.loads(self.submit().stdout)
-        self.assertEqual(submitted['job'], str(self.job()))
-        self.assertEqual(self.git('rev-parse', 'HEAD'), self.sha)
-        self.assertTrue((self.job() / 'src/.git').is_dir())
+        assert submitted['job'] == str(self.job())
+        assert self.git('rev-parse', 'HEAD') == self.sha
+        assert (self.job() / 'src/.git').is_dir()
         self.cli('run', self.job())
         result = json.loads(self.cli('status', REPO, self.sha).stdout)
-        self.assertEqual(result['state'], 'success')
-        self.assertEqual(result['sha'], self.sha)
-        self.assertEqual(result['exitCode'], 0)
-        self.assertEqual(result['context'], CONTEXT)
-        self.assertEqual(json.loads((self.job() / 'job.json').read_text())['context'], CONTEXT)
-        self.assertFalse((self.job() / 'src').exists())
-        self.assertEqual([r['body']['state'] for r in self.requests], ['pending', 'success'])
+        assert result['state'] == 'success'
+        assert result['sha'] == self.sha
+        assert result['exitCode'] == 0
+        assert result['context'] == CONTEXT
+        assert json.loads((self.job() / 'job.json').read_text())['context'] == CONTEXT
+        assert not (self.job() / 'src').exists()
+        assert [r['body']['state'] for r in self.requests] == ['pending', 'success']
         for request in self.requests:
-            self.assertEqual(request['body']['context'], CONTEXT)
-            self.assertLessEqual(len(request['body']['description']), 140)
-            self.assertEqual(request['headers']['Authorization'], 'Bearer ' + self.env[TOKEN_ENV])
-            self.assertEqual({k.lower(): v for k, v in request['headers'].items()}['x-github-api-version'], '2022-11-28')
-            self.assertIn(self.sha, request['path'])
+            assert request['body']['context'] == CONTEXT
+            assert len(request['body']['description']) <= 140
+            assert request['headers']['Authorization'] == 'Bearer ' + self.env[TOKEN_ENV]
+            assert {k.lower(): v for k, v in request['headers'].items()}['x-github-api-version'] == '2022-11-28'
+            assert self.sha in request['path']
         args = next(args for args in self.calls('podman') if args[0] == 'run')
-        self.assertIn('--runtime-flag=ignore-cgroups', args)
-        self.assertEqual(args[args.index('--runtime') + 1], '/usr/local/bin/runsc')
+        assert '--runtime-flag=ignore-cgroups' in args
+        assert args[args.index('--runtime') + 1] == '/usr/local/bin/runsc'
         build = next(argv for argv in self.calls('podman') if argv[0] == 'build')
-        self.assertNotIn('--runtime', build)
-        self.assertFalse(any(arg.startswith('--runtime') for arg in build))
-        self.assertNotIn('/usr/local/bin/runsc', build)
-        self.assertIn("echo 'setup words'", args[-1])
-        self.assertIn("exec bash 'gate script.sh' 'a'\"'\"'b'", args[-1])
-        self.assertNotIn('commit only.sh', json.dumps(args))
-        self.assertNotIn('-e', args)
-        self.assertNotIn('--env-host', args)
-        self.assertNotIn(self.env[TOKEN_ENV], json.dumps(self.calls('podman')) + (self.job() / 'log').read_text())
+        assert '--runtime' not in build
+        assert not any(arg.startswith('--runtime') for arg in build)
+        assert '/usr/local/bin/runsc' not in build
+        assert "echo 'setup words'" in args[-1]
+        assert "exec bash 'gate script.sh' 'a'\"'\"'b'" in args[-1]
+        assert 'commit only.sh' not in json.dumps(args)
+        assert '-e' not in args
+        assert '--env-host' not in args
+        assert self.env[TOKEN_ENV] not in json.dumps(self.calls('podman')) + (self.job() / 'log').read_text()
         for argv in self.calls('git'):
-            self.assertNotIn(self.env[TOKEN_ENV], json.dumps(argv))
-            self.assertFalse(any('Authorization:' in arg for arg in argv))
+            assert self.env[TOKEN_ENV] not in json.dumps(argv)
+            assert not any('Authorization:' in arg for arg in argv)
         self.cli('logs', REPO, self.sha, '--tail', 1)
         self.cli('wait', REPO, self.sha, '--timeout', 0)
         before = len(self.calls('systemd-run'))
-        self.assertEqual(json.loads(self.submit().stdout), result)
-        self.assertEqual(len(self.calls('systemd-run')), before)
+        assert json.loads(self.submit().stdout) == result
+        assert len(self.calls('systemd-run')) == before
 
-    def test_fetch_credentials_are_ephemeral_for_shell_and_infisical_tokens(self):
+    def test_fetch_credentials_are_ephemeral_for_shell_and_infisical_tokens(self) -> None:
         token = self.env[TOKEN_ENV]
         header = 'Authorization: Basic ' + base64.b64encode(('x-access-token:' + token).encode()).decode()
         inherited_config = {key: value for key, value in self.env.items() if key.startswith('GIT_CONFIG_')}
@@ -254,77 +298,63 @@ class CiGateTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 (self.source / 'fetch-mode').write_text(mode)
                 sha = self.commit()
-                environment = {**self.env}
-                if mode != 'shell-private':
-                    del environment[TOKEN_ENV]
-                if mode == 'infisical-private':
-                    environment['FAKE_INFISICAL_TOKEN'] = token
-                if mode != 'public':
-                    environment['FAKE_REQUIRED_AUTH'] = header
-                self.cli('submit', REPO, sha, env=environment)
-                self.assertEqual(subprocess.check_output(
-                    ['git', '-C', str(self.job(sha) / 'src'), 'rev-parse', 'HEAD'], text=True).strip(), sha)
+                self.cli('submit', REPO, sha, env=self.fetch_environment(mode, header))
+                assert subprocess.check_output(['git', '-C', str(self.job(sha) / 'src'), 'rev-parse', 'HEAD'], text=True, timeout=PROCESS_TIMEOUT).strip() == sha
                 fetch = next(call for call in self.calls('git-env')
                              if 'fetch' in call['args'] and call['args'][-1] == sha)
                 if mode == 'public':
-                    self.assertEqual(fetch['config'], inherited_config)
+                    assert fetch['config'] == inherited_config
                 else:
-                    self.assertEqual(fetch['config'], {**inherited_config,
-                        'GIT_CONFIG_COUNT': '1',
-                        'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader',
-                        'GIT_CONFIG_VALUE_0': header})
+                    assert fetch['config'] == {**inherited_config, 'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader', 'GIT_CONFIG_VALUE_0': header}
                 if mode != 'shell-private':
-                    self.assertTrue(all(call[:5] == ['run', '--projectId', 'test-project', '--env', 'test-env']
-                                        for call in self.calls('infisical')))
-                    self.assertTrue(any(call[call.index('--') + 1:] ==
-                                        [sys.executable, str(SCRIPT), 'fetch', str(self.job(sha))]
-                                        for call in self.calls('infisical')))
+                    assert all(call[:5] == ['run', '--projectId', 'test-project', '--env', 'test-env'] for call in self.calls('infisical'))
+                    assert any(call[call.index('--') + 1:] == [sys.executable, str(SCRIPT), 'fetch', str(self.job(sha))] for call in self.calls('infisical'))
                 if mode == 'infisical-private':
-                    self.assertEqual(self.requests[-1]['headers']['Authorization'], 'Bearer ' + token)
+                    assert self.requests[-1]['headers']['Authorization'] == 'Bearer ' + token
                 mirror = self.root / 'data/ci-gate/mirrors' / (REPO + '.git')
                 config = (mirror / 'config').read_text()
-                self.assertNotIn('extraheader', config.lower())
-                self.assertNotIn(token, config)
-                self.assertNotIn(header, config)
+                assert 'extraheader' not in config.lower()
+                assert token not in config
+                assert header not in config
                 for call in self.calls('git'):
-                    self.assertNotIn(token, json.dumps(call))
-                    self.assertNotIn(header, json.dumps(call))
-                    self.assertFalse(any('Authorization:' in arg for arg in call))
+                    assert token not in json.dumps(call)
+                    assert header not in json.dumps(call)
+                    assert not any('Authorization:' in arg for arg in call)
                 for call in self.calls('git-env'):
                     if 'fetch' not in call['args']:
-                        self.assertEqual(call['config'], inherited_config)
-                self.assertNotIn(token, (self.job(sha) / 'log').read_text())
-                self.assertNotIn(header, (self.job(sha) / 'log').read_text())
-        self.assertNotIn(token, json.dumps(self.calls('systemd-run')))
+                        assert call['config'] == inherited_config
+                assert token not in (self.job(sha) / 'log').read_text()
+                assert header not in (self.job(sha) / 'log').read_text()
+        assert token not in json.dumps(self.calls('systemd-run'))
 
-    def test_running_resubmit_and_wait_timeout_do_not_relaunch(self):
+    def test_running_resubmit_and_wait_timeout_do_not_relaunch(self) -> None:
         self.submit()
         self.cli('wait', REPO, self.sha, '--timeout', 0, expected=2)
         self.submit()
-        self.assertEqual(len(self.calls('systemd-run')), 1)
-        self.assertEqual(json.loads(self.cli('status', REPO, self.sha).stdout)['state'], 'running')
+        assert len(self.calls('systemd-run')) == 1
+        assert json.loads(self.cli('status', REPO, self.sha).stdout)['state'] == 'running'
 
-    def test_missing_record_is_an_error_naming_the_rollout(self):
+    def test_missing_record_is_an_error_naming_the_rollout(self) -> None:
         shutil.rmtree(self.record)
         self.submit()
         self.cli('run', self.job(), expected=1)
         result = json.loads(self.cli('wait', REPO, self.sha, expected=1).stdout)
-        self.assertEqual(result['state'], 'error')
-        self.assertIn('No per-repo record for ' + REPO, result['error'])
-        self.assertIn('device-rollout.py', (self.job() / 'log').read_text())
-        self.assertEqual(self.requests, [], 'no status may go to a guessed context')
+        assert result['state'] == 'error'
+        assert 'No per-repo record for ' + REPO in result['error']
+        assert 'device_rollout.py' in (self.job() / 'log').read_text()
+        assert self.requests == [], 'no status may go to a guessed context'
 
-    def test_nonzero_gate_is_failure(self):
+    def test_nonzero_gate_is_failure(self) -> None:
         self.submit()
         self.env['GATE_EXIT'] = '7'
         self.cli('run', self.job(), expected=1)
         result = json.loads(self.cli('wait', REPO, self.sha, expected=1).stdout)
-        self.assertEqual((result['state'], result['exitCode']), ('failure', 7))
-        self.assertEqual(self.requests[-1]['body']['state'], 'failure')
-        self.assertEqual(json.loads(self.submit().stdout), result)
-        self.assertEqual(len(self.calls('systemd-run')), 1)
+        assert (result['state'], result['exitCode']) == ('failure', 7)
+        assert self.requests[-1]['body']['state'] == 'failure'
+        assert json.loads(self.submit().stdout) == result
+        assert len(self.calls('systemd-run')) == 1
 
-    def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self):
+    def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(self) -> None:
         for stage in ('build', 'bootstrap'):
             with self.subTest(stage=stage):
                 (self.source / 'retry-stage').write_text(stage)
@@ -338,24 +368,23 @@ class CiGateTests(unittest.TestCase):
                 launches = len(self.calls('systemd-run'))
                 environment = {**self.env, **({'FAIL_BUILD': '1'} if stage == 'build' else {})}
                 self.cli('run', self.job(sha), expected=1, env=environment)
-                self.assertEqual(json.loads((self.job(sha) / 'result.json').read_text())['state'], 'error')
-                self.assertFalse((self.job(sha) / 'src').exists())
+                assert json.loads((self.job(sha) / 'result.json').read_text())['state'] == 'error'
+                assert not (self.job(sha) / 'src').exists()
                 retried = json.loads(self.submit(sha).stdout)
-                self.assertEqual(retried['state'], 'running')
-                self.assertFalse((self.job(sha) / 'result.json').exists())
-                self.assertTrue((self.job(sha) / 'src/.git').is_dir())
-                self.assertEqual(len(self.calls('systemd-run')), launches + 1)
+                assert retried['state'] == 'running'
+                assert not (self.job(sha) / 'result.json').exists()
+                assert (self.job(sha) / 'src/.git').is_dir()
+                assert len(self.calls('systemd-run')) == launches + 1
                 units = [argv[argv.index('--unit') + 1] for argv in self.calls('systemd-run')]
-                self.assertNotEqual(units[-2], units[-1])
+                assert units[-2] != units[-1]
                 if stage == 'bootstrap':
                     (self.job(sha) / 'src/bootstrap-ready').touch()
                 self.cli('run', self.job(sha))
                 result = json.loads(self.cli('wait', REPO, sha).stdout)
-                self.assertEqual((result['state'], result['sha']), ('success', sha))
-                self.assertEqual([request['body']['state'] for request in self.requests][-4:],
-                                 ['pending', 'error', 'pending', 'success'])
+                assert (result['state'], result['sha']) == ('success', sha)
+                assert [request['body']['state'] for request in self.requests][-4:] == ['pending', 'error', 'pending', 'success']
 
-    def test_infrastructure_failures_are_errors(self):
+    def test_infrastructure_failures_are_errors(self) -> None:
         for failure in ('missing-ci', 'build', 'podman', 'bootstrap-string', 'bootstrap-array'):
             with self.subTest(failure=failure):
                 gate = self.gate(checks={'commit': ['true']} if failure == 'missing-ci'
@@ -379,14 +408,14 @@ class CiGateTests(unittest.TestCase):
                     environment['GATE_EXIT'] = '125'
                 self.cli('run', self.job(sha), expected=1, env=environment)
                 result = json.loads(self.cli('wait', REPO, sha, expected=1).stdout)
-                self.assertEqual(result['state'], 'error')
-                self.assertEqual(self.requests[-1]['body']['state'], 'error')
-                self.assertEqual(self.requests[-1]['body']['context'], CONTEXT)
+                assert result['state'] == 'error'
+                assert self.requests[-1]['body']['state'] == 'error'
+                assert self.requests[-1]['body']['context'] == CONTEXT
                 if failure.startswith('bootstrap-'):
-                    self.assertIn('Container bootstrap failed', result['error'])
-                self.assertEqual(list(self.job(sha).glob('execute-*')), [])
+                    assert 'Container bootstrap failed' in result['error']
+                assert list(self.job(sha).glob('execute-*')) == []
 
-    def test_gate_without_required_context_is_an_unpublished_error(self):
+    def test_gate_without_required_context_is_an_unpublished_error(self) -> None:
         for failure in ('missing-gate', 'missing-context', 'unknown-schema', 'unknownField',
                         'checks', 'ownerOnlyPaths'):
             with self.subTest(failure=failure):
@@ -402,30 +431,30 @@ class CiGateTests(unittest.TestCase):
                 sha = self.commit()
                 before = len(self.requests)
                 self.submit(sha)
-                self.assertNotIn('context', json.loads((self.job(sha) / 'job.json').read_text()))
+                assert 'context' not in json.loads((self.job(sha) / 'job.json').read_text())
                 self.cli('run', self.job(sha), expected=1)
                 waited = self.cli('wait', REPO, sha, expected=1)
                 result = json.loads(waited.stdout)
-                self.assertEqual(result['state'], 'error')
-                self.assertIn('ci.requiredContext', result['publicationError'])
+                assert result['state'] == 'error'
+                assert 'ci.requiredContext' in result['publicationError']
                 if failure in ('unknownField', 'checks', 'ownerOnlyPaths'):
                     # The run's error names the field the strict record schema rejected.
-                    self.assertIn('checks.commit' if failure == 'checks' else failure, result['error'])
-                self.assertIn('ci.requiredContext', waited.stderr)
-                self.assertEqual(len(self.requests), before, 'no status may go to a guessed context')
+                    assert ('checks.commit' if failure == 'checks' else failure) in result['error']
+                assert 'ci.requiredContext' in waited.stderr
+                assert len(self.requests) == before, 'no status may go to a guessed context'
 
-    def test_submit_fails_before_job_state_without_infisical_settings(self):
+    def test_submit_fails_before_job_state_without_infisical_settings(self) -> None:
         for name in ('CI_GATE_INFISICAL_PROJECT', 'CI_GATE_INFISICAL_ENV'):
             with self.subTest(missing=name):
                 environment = {key: value for key, value in self.env.items() if key != name}
                 result = self.cli('submit', REPO, self.sha, expected=1, env=environment)
-                self.assertIn(name + ' not set', result.stderr)
-                self.assertIn('device-rollout.py', result.stderr)
-                self.assertFalse(self.job().exists())
-                self.assertEqual(self.calls('git'), [])
-                self.assertEqual(self.requests, [])
+                assert name + ' not set' in result.stderr
+                assert 'device_rollout.py' in result.stderr
+                assert not self.job().exists()
+                assert self.calls('git') == []
+                assert self.requests == []
 
-    def test_publication_failure_preserves_gate_result_but_wait_fails(self):
+    def test_publication_failure_preserves_gate_result_but_wait_fails(self) -> None:
         for failure in ('missing-token', 'http-error'):
             with self.subTest(failure=failure):
                 (self.source / 'publication-failure').write_text(failure)
@@ -439,17 +468,17 @@ class CiGateTests(unittest.TestCase):
                     self.final_status_code = 503
                     message = 'GitHub status publication failed'
                 result = self.cli('run', self.job(sha), expected=1, env=environment)
-                self.assertIn(message, result.stderr)
+                assert message in result.stderr
                 waited = self.cli('wait', REPO, sha, '--timeout', 0, expected=1)
-                self.assertIn(message, waited.stderr)
+                assert message in waited.stderr
                 saved = json.loads(waited.stdout)
-                self.assertEqual(saved['state'], 'success')
-                self.assertIn(message, saved['publicationError'])
-                self.assertFalse((self.job(sha) / 'src').exists())
+                assert saved['state'] == 'success'
+                assert message in saved['publicationError']
+                assert not (self.job(sha) / 'src').exists()
                 self.cli('status', REPO, sha, expected=1)
                 self.cli('run', self.job(sha), expected=1)
 
-    def test_resubmit_republishes_failed_final_status_without_rerunning_gate(self):
+    def test_resubmit_republishes_failed_final_status_without_rerunning_gate(self) -> None:
         for mode in ('shell', 'infisical'):
             with self.subTest(mode=mode):
                 (self.source / 'publication-retry').write_text(mode)
@@ -458,8 +487,8 @@ class CiGateTests(unittest.TestCase):
                 self.final_status_code = 503
                 self.cli('run', self.job(sha), expected=1)
                 saved = json.loads((self.job(sha) / 'result.json').read_text())
-                self.assertEqual(saved['state'], 'success')
-                self.assertIn('GitHub status publication failed', saved['publicationError'])
+                assert saved['state'] == 'success'
+                assert 'GitHub status publication failed' in saved['publicationError']
                 self.cli('wait', REPO, sha, '--timeout', 0, expected=1)
                 before = len(self.requests)
                 launches = len(self.calls('systemd-run'))
@@ -470,25 +499,19 @@ class CiGateTests(unittest.TestCase):
                     del environment[TOKEN_ENV]
                     environment['FAKE_INFISICAL_TOKEN'] = self.env[TOKEN_ENV]
                 retried = json.loads(self.cli('submit', REPO, sha, env=environment).stdout)
-                self.assertEqual(len(self.requests), before + 1,
-                                 'resubmit must POST the cached final status again')
-                self.assertEqual(self.requests[-1]['body']['state'], 'success')
-                self.assertEqual(self.requests[-1]['body']['description'],
-                                 f"success: gate ({saved['durationSeconds']:.1f}s)")
-                self.assertNotIn('publicationError', retried)
-                self.assertEqual(retried, {key: value for key, value in saved.items()
-                                           if key != 'publicationError'})
-                self.assertEqual(json.loads((self.job(sha) / 'result.json').read_text()), retried)
-                self.assertEqual(json.loads(self.cli('wait', REPO, sha, '--timeout', 0).stdout), retried)
-                self.assertEqual(len(self.calls('systemd-run')), launches)
-                self.assertEqual(len([call for call in self.calls('podman') if call[0] == 'run']), runs)
+                assert len(self.requests) == before + 1, 'resubmit must POST the cached final status again'
+                assert self.requests[-1]['body']['state'] == 'success'
+                assert self.requests[-1]['body']['description'] == f"success: gate ({saved['durationSeconds']:.1f}s)"
+                assert 'publicationError' not in retried
+                assert retried == {key: value for key, value in saved.items() if key != 'publicationError'}
+                assert json.loads((self.job(sha) / 'result.json').read_text()) == retried
+                assert json.loads(self.cli('wait', REPO, sha, '--timeout', 0).stdout) == retried
+                assert len(self.calls('systemd-run')) == launches
+                assert len([call for call in self.calls('podman') if call[0] == 'run']) == runs
                 if mode == 'infisical':
-                    self.assertTrue(any(call[call.index('--') + 1:] ==
-                                        [sys.executable, str(SCRIPT), 'publish', str(self.job(sha)),
-                                         'success', f"success: gate ({saved['durationSeconds']:.1f}s)"]
-                                        for call in self.calls('infisical')))
+                    assert any(call[call.index('--') + 1:] == [sys.executable, str(SCRIPT), 'publish', str(self.job(sha)), 'success', f"success: gate ({saved['durationSeconds']:.1f}s)"] for call in self.calls('infisical'))
 
-    def test_wait_finishes_after_final_status_publication(self):
+    def test_wait_finishes_after_final_status_publication(self) -> None:
         for exit_code, state in ((0, 'success'), (7, 'failure'), (125, 'error')):
             with self.subTest(state=state):
                 (self.source / 'publication-state').write_text(state)
@@ -501,43 +524,31 @@ class CiGateTests(unittest.TestCase):
                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 self.children.append(runner)
                 try:
-                    self.assertTrue(self.final_status_started.wait(timeout=10))
+                    assert self.final_status_started.wait(timeout=10)
                     # The server has received the final POST but has not accepted it.
                     self.cli('wait', REPO, sha, '--timeout', 0, expected=2)
-                    self.assertEqual(self.requests[-1]['body']['state'], 'pending')
-                    self.assertFalse((self.job(sha) / 'result.json').exists())
+                    assert self.requests[-1]['body']['state'] == 'pending'
+                    assert not (self.job(sha) / 'result.json').exists()
                 finally:
                     self.release_final_status.set()
                 waited = self.cli('wait', REPO, sha, '--timeout', 10, expected=0 if state == 'success' else 1)
-                self.assertEqual(json.loads(waited.stdout)['state'], state)
-                self.assertEqual(self.requests[-1]['body']['state'], state)
-                self.assertEqual(runner.communicate(timeout=10)[1], '')
-                self.assertEqual(runner.returncode, 0 if state == 'success' else 1)
+                assert json.loads(waited.stdout)['state'] == state
+                assert self.requests[-1]['body']['state'] == state
+                assert runner.communicate(timeout=10)[1] == ''
+                assert runner.returncode == (0 if state == 'success' else 1)
 
-    def test_unchanged_dockerfile_reuses_image(self):
+    def test_unchanged_dockerfile_reuses_image(self) -> None:
         self.submit()
         self.cli('run', self.job())
         (self.source / 'new-file').write_text('changed source, same Dockerfile')
         sha = self.commit()
         self.submit(sha)
         self.cli('run', self.job(sha))
-        self.assertEqual(len([a for a in self.calls('podman') if a[0] == 'build']), 1)
+        assert len([a for a in self.calls('podman') if a[0] == 'build']) == 1
         images = [json.loads((self.job(s) / 'result.json').read_text())['image'] for s in (self.sha, sha)]
-        self.assertEqual(images[0], images[1])
+        assert images[0] == images[1]
 
-    def start_run(self, sha):
-        child = subprocess.Popen([sys.executable, str(SCRIPT), 'run', str(self.job(sha))],
-                                 env={**self.env, 'BLOCK_RUN': '1'}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.children.append(child)
-        return child
-
-    def until(self, predicate):
-        deadline = time.monotonic() + 10
-        while not predicate():
-            self.assertLess(time.monotonic(), deadline, 'Timed out waiting for fake process handshake')
-            time.sleep(.01)
-
-    def test_global_slot_serializes_runs(self):
+    def test_global_slot_serializes_runs(self) -> None:
         self.submit()
         (self.source / 'second').write_text('second')
         second = self.commit()
@@ -547,37 +558,36 @@ class CiGateTests(unittest.TestCase):
         other = self.start_run(second)
         # The second process is alive but cannot enter podman before the first releases.
         self.until(lambda: (self.job(second) / 'run.lock').exists())
-        self.assertFalse((self.root / ('entered-' + second)).exists())
+        assert not (self.root / ('entered-' + second)).exists()
         with (self.root / 'state/ci-gate/locks/slot-0').open('a') as held_slot:
-            with self.assertRaises(BlockingIOError):
-                fcntl.flock(held_slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        self.assertEqual(len(list((self.root / 'state/ci-gate/locks').glob('slot-*'))), 1)
+            raised(BlockingIOError, partial(fcntl.flock, held_slot, fcntl.LOCK_EX | fcntl.LOCK_NB))
+        assert len(list((self.root / 'state/ci-gate/locks').glob('slot-*'))) == 1
         (self.root / ('release-' + self.sha)).touch()
         self.until(lambda: (self.root / ('entered-' + second)).exists())
         (self.root / ('release-' + second)).touch()
-        self.assertEqual(first.communicate(timeout=10)[1], '')
-        self.assertEqual(other.communicate(timeout=10)[1], '')
-        self.assertEqual((first.returncode, other.returncode), (0, 0))
+        assert first.communicate(timeout=10)[1] == ''
+        assert other.communicate(timeout=10)[1] == ''
+        assert (first.returncode, other.returncode) == (0, 0)
 
-    def test_image_configuration_without_build(self):
+    def test_image_configuration_without_build(self) -> None:
         (self.source / '.devcontainer/devcontainer.json').write_text(json.dumps({'image': 'example/pinned:tag'}))
         sha = self.commit()
         self.submit(sha)
         self.cli('run', self.job(sha))
-        self.assertFalse(any(a[0] == 'build' for a in self.calls('podman')))
-        self.assertEqual(json.loads((self.job(sha) / 'result.json').read_text())['image'], 'example/pinned:tag')
+        assert not any(a[0] == 'build' for a in self.calls('podman'))
+        assert json.loads((self.job(sha) / 'result.json').read_text())['image'] == 'example/pinned:tag'
 
-    def test_sigterm_records_timeout_and_removes_container(self):
+    def test_sigterm_records_timeout_and_removes_container(self) -> None:
         self.submit()
         child = self.start_run(self.sha)
         self.until(lambda: (self.root / ('entered-' + self.sha)).exists())
         child.send_signal(signal.SIGTERM)
         child.communicate(timeout=10)
-        self.assertEqual(child.returncode, 1)
+        assert child.returncode == 1
         result = json.loads((self.job() / 'result.json').read_text())
-        self.assertEqual((result['state'], result['error']), ('error', 'timeout'))
-        self.assertEqual(self.requests[-1]['body']['state'], 'error')
-        self.assertTrue(any(a[:2] == ['rm', '--force'] for a in self.calls('podman')))
+        assert (result['state'], result['error']) == ('error', 'timeout')
+        assert self.requests[-1]['body']['state'] == 'error'
+        assert any(a[:2] == ['rm', '--force'] for a in self.calls('podman'))
 
 
 if __name__ == '__main__':

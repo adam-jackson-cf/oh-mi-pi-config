@@ -130,7 +130,7 @@ Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/ext
 `agent/agents/**`, rules, its bundled skills), or the git-tool skill, or to other skills in
 skills-directory, are not finished at merge:
 roll out to every device in the same task.
-Run `python3 ~/.omp/scripts/device-rollout.py` from the Mac; it fast-forwards remote `~/.agents`
+Run `python3 ~/.omp/scripts/device_rollout.py` from the Mac; it fast-forwards remote `~/.agents`
 and starts the NUC deploy service. Done only when every row is `current` and it exits 0.
 Never run Git in or copy into the NUC's `~/.omp`; `omp-config-pull.service` deploys it from `nuc-config`.
 Restart OMP sessions on each device after rails or extension changes; old sessions keep the old rails.

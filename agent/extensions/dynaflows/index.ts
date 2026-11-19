@@ -31,8 +31,8 @@ const prCiSchema = z.object({
 const harnessVariables = ["AGENT"];
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
-// Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci-runner.py.
-const ciRunnerPath = fileURLToPath(new URL("../../../scripts/ci-runner.py", import.meta.url));
+// Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci_runner.py.
+const ciRunnerPath = fileURLToPath(new URL("../../../scripts/ci_runner.py", import.meta.url));
 function shellWord(value: string): string {
 	return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }

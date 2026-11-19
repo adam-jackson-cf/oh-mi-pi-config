@@ -31,12 +31,12 @@
 !scripts/
 scripts/*
 !scripts/run-ci-quality-gates.sh
-!scripts/check-paths.py
-!scripts/ci-gate.py
+!scripts/check_paths.py
+!scripts/ci_gate.py
 !scripts/ci-gate-repos.json
-!scripts/ci-runner.py
-# ci-runners.json is machine config written by device-rollout.py; it stays untracked.
-!scripts/device-rollout.py
+!scripts/ci_runner.py
+# ci-runners.json is machine config written by device_rollout.py; it stays untracked.
+!scripts/device_rollout.py
 !scripts/device-rollout-hosts.json
 
 !tools/

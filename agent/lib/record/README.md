@@ -64,7 +64,7 @@ authorization.
 `success` on the exact PR head, normally `gate`. `ci.runner` is an owner-chosen role,
 not a host or account. Each device resolves the role to submit, wait, status and logs
 commands in machine-level `ci-runners.json`, written by device setup.
-Agents use `ci-runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
+Agents use `ci_runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
 [the Git CI runbook](../../skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
 
 The `github-actions` role runs `checks.ci` on every push and pull request in a job named

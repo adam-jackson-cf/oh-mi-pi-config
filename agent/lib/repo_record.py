@@ -14,9 +14,11 @@ The TypeScript twin is ``repo-record.ts`` in this directory; keep both in step.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import subprocess
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any, cast
 
 GATE_FILE = "gate.json"
 PROFILE_FILE = "profile.md"
@@ -101,11 +103,11 @@ GATE_FIELDS = frozenset({"schemaVersion", "checks", "ownerOnlyPaths", "agentMerg
 CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 
 
-def _argv(value) -> bool:
+def _argv(value: object) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
 
 
-def owner_path_problem(path) -> str | None:
+def owner_path_problem(path: object) -> str | None:
     """Why ``path`` is not an owner-only path, or None when it is one.
 
     A repo-relative POSIX path with no leading slash, no empty, ``.`` or ``..`` component, no
@@ -115,28 +117,18 @@ def owner_path_problem(path) -> str | None:
     if not isinstance(path, str):
         return "ownerOnlyPaths entries must be strings"
     body = path[:-1] if path.endswith("/") else path
-    if not body or "\\" in path or "\0" in path or any(part in ("", ".", "..") for part in body.split("/")):
+    if not body or "\\" in path or "\0" in path or any(part in {"", ".", ".."} for part in body.split("/")):
         return f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)"
     return None
 
 
-def owner_only(path: str, owned) -> bool:
+def owner_only(path: str, owned: Iterable[str]) -> bool:
     """True when the repo-relative ``path`` is, or lies under, one of the owner-only ``owned`` entries."""
     return any(path.startswith(entry) if entry.endswith("/") else path == entry for entry in owned)
 
 
-def gate_reason(gate) -> str | None:
-    """Why rails would reject this gate.json object, or None when it is accepted.
-
-    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` and
-    ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
-    """
-    if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
-        return "unsupported gate schemaVersion"
-    unknown = sorted(set(gate) - GATE_FIELDS)
-    if unknown:
-        return f"unknown field {', '.join(unknown)} must be removed"
-    checks = gate.get("checks")
+def _checks_reason(checks: object) -> str | None:
+    """Why the gate's ``checks`` object is rejected, or None."""
     if not isinstance(checks, dict):
         return "checks must be an object with checks.commit"
     unknown = sorted(set(checks) - CHECK_FIELDS)
@@ -147,7 +139,11 @@ def gate_reason(gate) -> str | None:
     for key in ("ci", "format", "profile"):
         if key in checks and not _argv(checks[key]):
             return f"checks.{key} must be argv"
-    owned = gate.get("ownerOnlyPaths")
+    return None
+
+
+def _owned_reason(owned: object) -> str | None:
+    """Why the gate's ``ownerOnlyPaths`` list is rejected, or None."""
     if not isinstance(owned, list):
         return "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"
     for path in owned:
@@ -156,11 +152,21 @@ def gate_reason(gate) -> str | None:
             return problem
     if len(set(owned)) != len(owned):
         return "ownerOnlyPaths entries must be unique"
+    return None
+
+
+def _ci_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's optional ``ci`` object is rejected, or None."""
     ci = gate.get("ci")
-    if "ci" in gate:
-        if not isinstance(ci, dict) or any(not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner")):
-            return "ci must declare nonblank requiredContext and runner"
-    if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
+    if "ci" in gate and (not isinstance(ci, dict) or any(
+            not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner"))):
+        return "ci must declare nonblank requiredContext and runner"
+    return None
+
+
+def _settings_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's ``agentMerge`` or ``dynaflows`` setting is rejected, or None."""
+    if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
     dynaflows = gate.get("dynaflows")
     if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
@@ -168,7 +174,22 @@ def gate_reason(gate) -> str | None:
     return None
 
 
-def load_gate(record: str | Path) -> dict:
+def gate_reason(gate: object) -> str | None:
+    """Why rails would reject this gate.json object, or None when it is accepted.
+
+    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` and
+    ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
+    """
+    if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
+        return "unsupported gate schemaVersion"
+    unknown = sorted(set(gate) - GATE_FIELDS)
+    if unknown:
+        return f"unknown field {', '.join(unknown)} must be removed"
+    return (_checks_reason(gate.get("checks")) or _owned_reason(gate.get("ownerOnlyPaths"))
+            or _ci_reason(gate) or _settings_reason(gate))
+
+
+def load_gate(record: str | Path) -> dict[str, Any]:
     """The record's ``gate.json`` object; an unreadable gate or one ``gate_reason`` rejects raises."""
     path = Path(record) / GATE_FILE
     try:
@@ -178,7 +199,7 @@ def load_gate(record: str | Path) -> dict:
     reason = gate_reason(gate)
     if reason is not None:
         raise RecordError(f"{path}: {reason}")
-    return gate
+    return cast("dict[str, Any]", gate)
 
 
 def dynaflows_enabled(repo: str | Path, root: str | Path | None = None) -> bool:
@@ -186,4 +207,4 @@ def dynaflows_enabled(repo: str | Path, root: str | Path | None = None) -> bool:
     record = find_record(repo, root)
     if record is None:
         return False
-    return load_gate(record)["dynaflows"]["enabled"]
+    return load_gate(record)["dynaflows"]["enabled"] is True

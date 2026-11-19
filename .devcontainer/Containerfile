@@ -3,7 +3,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git && rm -rf /var/lib/apt/lists/*
 # The guardrails reference's pytest extra, exactly as pinned in
 # agent/extensions/dynaflows/engine/requirements-pytest.lock.
-# ci-gate.py builds from this folder and tags the image by this file's hash, so the lock is
+# ci_gate.py builds from this folder and tags the image by this file's hash, so the lock is
 # inlined here; tests/test_reference_adapter_pytest.py fails when the two differ.
 # The venv comes first on PATH, so the gate's python3 runs the adapter tests with the extra.
 RUN python3 -m venv /opt/guardrails \
