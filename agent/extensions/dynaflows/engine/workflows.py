@@ -1461,6 +1461,12 @@ def prove(
         result["blocking"].append(str(exc))
     except INFRASTRUCTURE_ERRORS as exc:
         result["blocking"].append(f"infrastructure: {exc}")
+    except Exception as exc:
+        # A bug still leaves a fail result and PR comment explaining it, then propagates.
+        result["blocking"].append(f"unexpected {type(exc).__name__}: {exc}")
+        if published is not None:
+            _publish_result(result, *published)
+        raise
     if published is not None:
         _publish_result(result, *published)
     return result
@@ -2441,13 +2447,25 @@ async def structure_review(
             await judgment.judge_group(eligible, group)
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"infrastructure: {exc}")
+    except Exception as exc:
+        # A bug still leaves an incomplete result and PR comment explaining it, then propagates.
+        result["errors"].append(f"unexpected {type(exc).__name__}: {exc}")
+        _finish_structure(repo, head, published, result)
+        raise
+    _finish_structure(repo, head, published, result)
+    return result
+
+
+def _finish_structure(
+    repo: StrPath, head: str, published: Any, result: dict[str, Any]
+) -> None:
+    """Derive halt and status from findings and errors, then publish when the head resolved."""
     result["halt"] = any(item["status"] == "ready" for item in result["findings"])
     result["status"] = (
         "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
     )
     if published is not None:
-        _publish_structure(repo, head, published, result)
-    return result
+        _publish_structure(Path(repo), head, published, result)
 
 
 def _structure_units(

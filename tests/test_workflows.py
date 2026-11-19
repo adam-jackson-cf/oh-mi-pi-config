@@ -1368,6 +1368,28 @@ class FeatureMapTests(RepositoryCase):
         assert self.stored_status() == "fail"
         assert self.comment.call_args.args[2]["status"] == "fail"
 
+    def test_unexpected_bug_publishes_a_fail_result_then_propagates(self) -> None:
+        self.gate()
+        path, digest = self.freeze([], base=self.parent)
+        self.write("docs.md", "Documentation-only change.\n")
+        self.head = self.commit("docs")
+        with (
+            patch.object(workflow, "load_manifest", side_effect=AttributeError("bug")),
+            pytest.raises(AttributeError, match="bug"),
+        ):
+            workflow.prove(
+                self.repo,
+                self.parent,
+                self.head,
+                (path, digest),
+                "update docs",
+                target_ref=self.parent,
+            )
+        assert self.stored_status() == "fail"
+        posted = self.comment.call_args.args[2]
+        assert posted["status"] == "fail"
+        assert "unexpected AttributeError: bug" in posted["blocking"]
+
     def test_precheck_launches_without_site_or_repo_imports(self) -> None:
         self.gate()
         path, digest = self.freeze([], base=self.parent)
