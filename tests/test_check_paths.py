@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check-paths.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_paths.py"
 
 
 class CheckPathsTests(unittest.TestCase):

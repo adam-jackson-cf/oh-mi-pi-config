@@ -1,4 +1,4 @@
-"""ci-runner.py against fake runner commands and a fake gh on PATH, plus the runner parity check."""
+"""ci_runner.py against fake runner commands and a fake gh on PATH, plus the runner parity check."""
 import json
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci-runner.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci_runner.py"
 REPO = "owner/repo"
 SHA = "a" * 40
 # Fake gh: answers `gh api <path>` from $FAKE_GH/<n>.json responses, advancing one
@@ -105,7 +105,7 @@ class CiRunnerTests(Fixture):
     def test_missing_config_and_role_exit_2_with_rollout_hint(self):
         result = self.cli("submit", "ci-gate", REPO, SHA)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("scripts/device-rollout.py to write ci-runners.json", result.stderr)
+        self.assertIn("scripts/device_rollout.py to write ci-runners.json", result.stderr)
         self.write_config({"github-actions": {"submit": None, "wait": None, "status": None,
                                               "logs": None}})
         result = self.cli("submit", "ci-gate", REPO, SHA)

@@ -267,7 +267,7 @@ class DraftRecordTests(InitCase):
             self.assertIn("must not be empty", output)
 
     def test_repo_path_command_flag_is_refused_without_writing_the_record(self) -> None:
-        code, output = self.init("--path-command", "python3 scripts/check-paths.py")
+        code, output = self.init("--path-command", "python3 scripts/check_paths.py")
         self.assertEqual(code, 1)
         self.assertIn("invalid init arguments: --offline --path-command", output)
         self.assertFalse(self.record.exists())

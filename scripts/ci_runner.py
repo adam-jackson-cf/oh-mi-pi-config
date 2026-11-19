@@ -2,7 +2,7 @@
 """Run a CI runner role's submit, wait, status or logs command for one exact revision.
 
 Roles map to commands in the machine config `<omp base>/ci-runners.json` (override the
-path with OMP_CI_RUNNERS), written per device by `scripts/device-rollout.py`. A null
+path with OMP_CI_RUNNERS), written per device by `scripts/device_rollout.py`. A null
 submit means the runner starts on push. A null wait or status uses the built-in GitHub
 poller for --context: the required context must be a `success` commit status or a
 successful check run on the exact SHA, whoever posts it. Each role's `timeout` (seconds)
@@ -33,7 +33,7 @@ def config_path():
 
 
 def rollout_hint():
-    return f"run python3 {BASE / 'scripts' / 'device-rollout.py'} to write ci-runners.json"
+    return f"run python3 {BASE / 'scripts' / 'device_rollout.py'} to write ci-runners.json"
 
 
 def load_role(role):

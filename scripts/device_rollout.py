@@ -8,7 +8,7 @@ each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles
 gitignored per-repo records (`<omp base>/repos/<owner>/<name>/`) one way from this checkout to
 every remote device that runs omp, refusing to overwrite a target record that is newer.
 The registry's `infisical` project and environment serve both the judge key and the
-`ci-gate` runner commands, which pass them to ci-gate.py as CI_GATE_INFISICAL_* settings.
+`ci-gate` runner commands, which pass them to ci_gate.py as CI_GATE_INFISICAL_* settings.
 """
 import argparse
 import base64
@@ -143,7 +143,7 @@ GITHUB_LOGS = ("gh run list --repo \"$1\" --commit \"$2\" --json databaseId --jq
 
 
 def infisical_settings(infisical):
-    """Return ci-gate.py's CI_GATE_INFISICAL_* assignments from the registry's `infisical` setting."""
+    """Return ci_gate.py's CI_GATE_INFISICAL_* assignments from the registry's `infisical` setting."""
     values = (infisical or {}).get("project"), (infisical or {}).get("environment")
     if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", value) for value in values):
         raise ValueError("ci-gate runners need the registry's infisical project and environment")
@@ -163,10 +163,10 @@ def runner_document(definition, device, base, infisical=None):
                 raise ValueError("ciRunners ci-gate host must be an ssh alias")
             settings = infisical_settings(infisical)
             if device == host:
-                commands = {name: ["env", *settings, "python3", base + "/scripts/ci-gate.py", *args]
+                commands = {name: ["env", *settings, "python3", base + "/scripts/ci_gate.py", *args]
                             for name, args in CI_GATE_ARGS.items()}
             else:
-                script = remote_base + "/scripts/ci-gate.py"
+                script = remote_base + "/scripts/ci_gate.py"
                 commands = {name: ["ssh", "-o", "BatchMode=yes", host,
                                    'bash -lc "' + " ".join(settings) + " python3 " + script + " "
                                    + " ".join(args) + '"']
@@ -409,7 +409,7 @@ class Rollout:
             except (ValueError, KeyError, TypeError):
                 state = "failed"
         if state in ("missing", "stale") and self.check:
-            self.notes.append(f"{device}: ci-runners.json {state}; run device-rollout.py without --check")
+            self.notes.append(f"{device}: ci-runners.json {state}; run device_rollout.py without --check")
         self.rows.append([device, "ci-runners", "-", "-", "-", state])
 
     def records(self, host, config, start):
@@ -432,7 +432,7 @@ class Rollout:
                 if copy and self.check:
                     state = "stale"
                     self.notes.append(f"{host}: {len(copy)} record file(s) to copy; "
-                                      "run device-rollout.py without --check")
+                                      "run device_rollout.py without --check")
                 else:
                     changed = []
                     if copy:

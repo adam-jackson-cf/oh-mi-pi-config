@@ -75,7 +75,7 @@ def record_gate(repo):
     """Return the gate.json object of the allowlisted repo's per-repo record, validated strictly."""
     record = repo_record.record_dir(repo, SELF.parents[1])
     if not (record / repo_record.GATE_FILE).is_file():
-        raise RuntimeError(f'No per-repo record for {repo}; run scripts/device-rollout.py to copy records '
+        raise RuntimeError(f'No per-repo record for {repo}; run scripts/device_rollout.py to copy records '
                            'to this device (no ci.requiredContext)')
     try:
         return repo_record.load_gate(record)
@@ -138,12 +138,12 @@ def repo_lock(repo):
 
 
 def infisical():
-    """Return the Infisical prefix; device-rollout writes both settings into ci-runners.json."""
+    """Return the Infisical prefix; device_rollout.py writes both settings into ci-runners.json."""
     settings = {name: os.environ.get(name, '').strip()
                 for name in ('CI_GATE_INFISICAL_PROJECT', 'CI_GATE_INFISICAL_ENV')}
     missing = [name for name, value in settings.items() if not value]
     if missing:
-        raise RuntimeError(' and '.join(missing) + ' not set; run scripts/device-rollout.py to write '
+        raise RuntimeError(' and '.join(missing) + ' not set; run scripts/device_rollout.py to write '
                            'ci-runners.json from the device-rollout-hosts.json infisical setting')
     return [executable('infisical'), 'run', '--projectId', settings['CI_GATE_INFISICAL_PROJECT'],
             '--env', settings['CI_GATE_INFISICAL_ENV'], '--']

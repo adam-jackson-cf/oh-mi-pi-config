@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
-MODULE = Path(__file__).resolve().parents[1] / "scripts/device-rollout.py"
+MODULE = Path(__file__).resolve().parents[1] / "scripts/device_rollout.py"
 spec = importlib.util.spec_from_file_location("device_rollout", MODULE)
 assert spec is not None and spec.loader is not None
 rollout = importlib.util.module_from_spec(spec)
@@ -276,7 +276,7 @@ class DeviceRolloutTests(unittest.TestCase):
             rows = [item for item in deployment.rows if item[1] == "ci-runners"]
             self.assertEqual([item[0] for item in rows], ["mac-cf3", "mac-cf2", "codex-omarchy-nuc"])
             self.assertEqual({item[5] for item in rows}, {state})
-            self.assertIn(f"mac-cf2: ci-runners.json {state}; run device-rollout.py without --check",
+            self.assertIn(f"mac-cf2: ci-runners.json {state}; run device_rollout.py without --check",
                           deployment.report())
             writes = [cmd for cmd in runner.commands if "ci-runners.json" in " ".join(cmd)]
             self.assertEqual(len(writes), 3)
@@ -306,10 +306,10 @@ class DeviceRolloutTests(unittest.TestCase):
         settings = ["CI_GATE_INFISICAL_PROJECT=test-project", "CI_GATE_INFISICAL_ENV=test-env"]
         on_host = rollout.runner_document(definition, host, "~/.omp", infisical)["runners"]
         self.assertEqual(on_host["ci-gate"]["wait"],
-                         ["env", *settings, "python3", "~/.omp/scripts/ci-gate.py", "wait", "{repo}",
+                         ["env", *settings, "python3", "~/.omp/scripts/ci_gate.py", "wait", "{repo}",
                           "{sha}", "--timeout", "{timeout}"])
         elsewhere = rollout.runner_document(definition, "mac-cf3", "/base", infisical)["runners"]
-        prefix = 'bash -lc "' + " ".join(settings) + " python3 ~/.omp/scripts/ci-gate.py "
+        prefix = 'bash -lc "' + " ".join(settings) + " python3 ~/.omp/scripts/ci_gate.py "
         self.assertEqual(elsewhere["ci-gate"]["submit"],
                          ["ssh", "-o", "BatchMode=yes", host, prefix + 'submit {repo} {sha}"'])
         self.assertEqual(elsewhere["ci-gate"]["logs"][-1], prefix + 'logs {repo} {sha} --tail {tail}"')
@@ -341,7 +341,7 @@ class DeviceRolloutTests(unittest.TestCase):
                       runners["runners"]["ci-gate"]["submit"][-1])
         self.assertNotIn(HOSTS["infisical"]["project"], MODULE.read_text())
         self.assertNotIn(HOSTS["infisical"]["project"],
-                         MODULE.with_name("ci-gate.py").read_text())
+                         MODULE.with_name("ci_gate.py").read_text())
 
     def test_missing_infisical_setting_fails_key_and_runner_rows(self):
         hosts = {key: value for key, value in HOSTS.items() if key != "infisical"}
@@ -384,7 +384,7 @@ class DeviceRolloutTests(unittest.TestCase):
             deployment.check = False
             deployment.runners("dev", 0)
             self.assertEqual(target.read_text(), written)
-            cli = MODULE.with_name("ci-runner.py")
+            cli = MODULE.with_name("ci_runner.py")
             result = subprocess.run([sys.executable, str(cli), "submit", "github-actions", "o/r",
                                      "a" * 40], capture_output=True, text=True, check=False,
                                     env={"PATH": "/usr/bin:/bin", "OMP_CI_RUNNERS": str(target)})
@@ -402,7 +402,7 @@ class DeviceRolloutTests(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), "written")
             written = json.loads(Path(home, ".omp/ci-runners.json").read_text())
             self.assertEqual(written["runners"]["ci-gate"]["submit"][4],
-                             home + "/.omp/scripts/ci-gate.py")
+                             home + "/.omp/scripts/ci_gate.py")
 
     def test_credential_builder_emits_auth_import_document(self):
         env = {"PATH": "/usr/bin:/bin", "FAKE_JUDGE_KEY": "fake-value"}

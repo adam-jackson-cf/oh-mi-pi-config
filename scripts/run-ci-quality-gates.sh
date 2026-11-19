@@ -116,7 +116,7 @@ if "$run_seams"; then
 else
   printf 'Python seam suites skipped: no staged path reaches them.\n'
 fi
-(unset "${!GIT_@}"; python3 scripts/check-paths.py)
+(unset "${!GIT_@}"; python3 scripts/check_paths.py)
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do

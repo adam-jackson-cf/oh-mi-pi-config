@@ -266,7 +266,7 @@ function forbidGh(h: PrCiHarness) {
 }
 
 const ciGate = { requiredContext: "gate", runner: "ci-gate" };
-const ciRunner = resolve(import.meta.dir, "../scripts/ci-runner.py");
+const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 async function originRemote(h: { origin(url: string): Promise<void> }, remote = defaultOrigin) {
 	await h.origin(remote);
 }

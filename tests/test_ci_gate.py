@@ -15,8 +15,8 @@ import time
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1]
-# ci-gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
-HARNESS_FILES = ('scripts/ci-gate.py', 'scripts/ci-gate-repos.json', 'agent/lib/repo_record.py')
+# ci_gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
+HARNESS_FILES = ('scripts/ci_gate.py', 'scripts/ci-gate-repos.json', 'agent/lib/repo_record.py')
 HARNESS = SCRIPT = None
 REPO = 'adam-jackson-cf/oh-mi-pi-config'
 TOKEN_ENV = 'NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'
@@ -30,7 +30,7 @@ def setUpModule():
     for name in HARNESS_FILES:
         (HARNESS / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(SOURCE / name, HARNESS / name)
-    SCRIPT = HARNESS / 'scripts/ci-gate.py'
+    SCRIPT = HARNESS / 'scripts/ci_gate.py'
 
 
 def tearDownModule():
@@ -311,7 +311,7 @@ class CiGateTests(unittest.TestCase):
         result = json.loads(self.cli('wait', REPO, self.sha, expected=1).stdout)
         self.assertEqual(result['state'], 'error')
         self.assertIn('No per-repo record for ' + REPO, result['error'])
-        self.assertIn('device-rollout.py', (self.job() / 'log').read_text())
+        self.assertIn('device_rollout.py', (self.job() / 'log').read_text())
         self.assertEqual(self.requests, [], 'no status may go to a guessed context')
 
     def test_nonzero_gate_is_failure(self):
@@ -420,7 +420,7 @@ class CiGateTests(unittest.TestCase):
                 environment = {key: value for key, value in self.env.items() if key != name}
                 result = self.cli('submit', REPO, self.sha, expected=1, env=environment)
                 self.assertIn(name + ' not set', result.stderr)
-                self.assertIn('device-rollout.py', result.stderr)
+                self.assertIn('device_rollout.py', result.stderr)
                 self.assertFalse(self.job().exists())
                 self.assertEqual(self.calls('git'), [])
                 self.assertEqual(self.requests, [])

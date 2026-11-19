@@ -8,15 +8,15 @@ what is true of this repository.
 
 This repository's record `repos/adam-jackson-cf/oh-mi-pi-config/gate.json` (personal,
 gitignored) declares `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`.
-The `ci-gate` role is `scripts/ci-gate.py` on the owner's NUC. Each device's
-`~/.omp/ci-runners.json`, written by `scripts/device-rollout.py`, maps that role to
+The `ci-gate` role is `scripts/ci_gate.py` on the owner's NUC. Each device's
+`~/.omp/ci-runners.json`, written by `scripts/device_rollout.py`, maps that role to
 local or ssh-wrapped commands. Use the repository and exact 40-hex SHA:
 
 ```sh
-python3 ~/.omp/scripts/ci-runner.py submit ci-gate adam-jackson-cf/oh-mi-pi-config SHA
-python3 ~/.omp/scripts/ci-runner.py wait ci-gate adam-jackson-cf/oh-mi-pi-config SHA
-python3 ~/.omp/scripts/ci-runner.py status ci-gate adam-jackson-cf/oh-mi-pi-config SHA
-python3 ~/.omp/scripts/ci-runner.py logs ci-gate adam-jackson-cf/oh-mi-pi-config SHA --tail 100
+python3 ~/.omp/scripts/ci_runner.py submit ci-gate adam-jackson-cf/oh-mi-pi-config SHA
+python3 ~/.omp/scripts/ci_runner.py wait ci-gate adam-jackson-cf/oh-mi-pi-config SHA
+python3 ~/.omp/scripts/ci_runner.py status ci-gate adam-jackson-cf/oh-mi-pi-config SHA
+python3 ~/.omp/scripts/ci_runner.py logs ci-gate adam-jackson-cf/oh-mi-pi-config SHA --tail 100
 ```
 
 `ci-gate` executes `checks.ci` and publishes the required GitHub commit status `gate`
