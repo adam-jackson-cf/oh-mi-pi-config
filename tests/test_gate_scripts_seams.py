@@ -48,7 +48,7 @@ def checkout() -> Any:
             (root / name).write_text("x\n")
         binary = Path(scratch) / "bin"
         binary.mkdir()
-        for name in ("uv", "bun", "bunx"):
+        for name in ("uv", "bun", "bunx", "go"):
             (binary / name).write_text(FAKE.format(python=sys.executable))
             (binary / name).chmod(0o755)
         env = {
@@ -120,6 +120,7 @@ def test_t1_runs_fast_pytest_under_the_guards_and_bun_files_outside_the_seams(
     root, env = checkout
     code, output, calls = run(root, env, "scripts/run-test-tier.sh", "t1")
     assert code == 0, output
+    assert [call for call in calls if call[0] == "go"] == []
     [bun] = bun_runs(calls)
     assert bun[2] == "--preload"
     assert bun[4:] == ["./tests/unit.test.ts"]
@@ -144,6 +145,7 @@ def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
         root, env, "scripts/run-test-tier.sh", "t2", "--coverage", "/cov"
     )
     assert code == 0, output
+    assert ["go", "env", "GOROOT"] in calls
     [bun] = bun_runs(calls)
     assert bun[2:5] == [
         "--coverage",
