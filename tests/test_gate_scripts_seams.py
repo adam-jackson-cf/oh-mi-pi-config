@@ -135,7 +135,7 @@ def test_t1_runs_fast_pytest_under_the_guards_and_bun_files_outside_the_seams(
     )
 
 
-def test_t2_with_coverage_runs_only_seams_and_writes_both_reports(
+def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
     checkout: Any,
 ) -> None:
     root, env = checkout
@@ -144,14 +144,19 @@ def test_t2_with_coverage_runs_only_seams_and_writes_both_reports(
     )
     assert code == 0, output
     [bun] = bun_runs(calls)
-    assert bun[2:] == [
+    assert bun[2:5] == [
         "--coverage",
         "--coverage-reporter=lcov",
         "--coverage-dir=/cov/bun-t2",
-        "./tests/flow-seams.test.ts",
     ]
+    assert bun[5] == "--preload"
+    assert bun[6].endswith("/bun-t2.preload.mjs")
+    assert bun[7:] == ["./tests/flow-seams.test.ts"]
     [pytest_call] = pytest_runs(calls)
-    assert pytest_call[-6:] == [
+    assert pytest_call[-9:] == [
+        "-p",
+        "guardrails.commands.adapters.pytest.plugin",
+        "--omp-guard=user-data",
         "-m",
         "seam",
         "--cov",

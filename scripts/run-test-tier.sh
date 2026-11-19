@@ -65,26 +65,27 @@ cd "$repo_root"
 # A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
 # would otherwise write into this repository's index.
 unset "${!GIT_@}"
+if command -v go >/dev/null; then
+  PATH="$(go env GOROOT)/bin:$PATH"
+  export PATH
+fi
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapters/bun_test/preload.ts"
 
 run_bun() {
   local args=() file file_tier
-  if [[ "$tier" == t1 ]]; then
-    # The entry starts the Bun preload's run mode for T1; it journals beside itself.
-    local entry="$scratch/bun-t1.preload.mjs"
-    python3 - "$preload" "$scratch/bun-t1.journal.jsonl" >"$entry" <<'EOF'
+  local entry="$scratch/bun-$tier.preload.mjs"
+  python3 - "$preload" "$tier" "$scratch/bun-$tier.journal.jsonl" >"$entry" <<'EOF'
 import json
 import pathlib
 import sys
 
-settings = {"mode": "run", "tier": "t1", "journal": sys.argv[2]}
+settings = {"mode": "run", "tier": sys.argv[2], "journal": sys.argv[3]}
 print(f"import {{ start }} from {json.dumps(pathlib.Path(sys.argv[1]).as_uri())};")
 print(f"start({json.dumps(settings)});")
 EOF
-    args+=(--preload "$entry")
-  fi
+  args+=(--preload "$entry")
   # The tier's Bun test files, tracked or new; Bun treats ./ arguments as paths.
   git ls-files -z -co --exclude-standard -- 'tests/*.test.ts' >"$scratch/bun-files"
   while IFS= read -r -d '' file; do
@@ -117,7 +118,7 @@ run_pytest() {
   if [[ "$tier" == t1 ]]; then
     args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=fast-tier,user-data' -m fast)
   else
-    args+=(-m seam)
+    args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=user-data' -m seam)
   fi
   if [[ -n "$coverage" ]]; then
     COVERAGE_FILE="$coverage/python.coverage" uv run --locked pytest "${args[@]}" \
