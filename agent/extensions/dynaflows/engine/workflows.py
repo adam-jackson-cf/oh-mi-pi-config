@@ -576,31 +576,41 @@ def load_manifest(
 def _command_files(proof: dict[str, Any], roots: tuple[StrPath, ...]) -> None:
     for arg in proof["cmd"]:
         for token in (arg, arg.split("=", 1)[1]) if "=" in arg else (arg,):
-            candidate = Path(token)
-            if candidate.is_absolute():
-                for root in roots:
-                    if (
-                        candidate.resolve().is_relative_to(Path(root).resolve())
-                        or candidate.absolute().is_relative_to(Path(root).absolute())
-                        or (candidate.parent.resolve() / candidate.name).is_relative_to(
-                            Path(root).resolve()
-                        )
-                    ):
-                        raise WorkflowError(
-                            f"{proof['id']}: absolute command reference into worktree: {token}"
-                        )
-                continue
-            name = token.removeprefix("./")
-            try:
-                _canonical(name)
-            except WorkflowError:
-                continue
-            for root in roots:
-                path = _proof_path(root, name)
-                if path.is_file() and name not in proof["files"]:
-                    raise WorkflowError(
-                        f"{proof['id']}: command file not frozen: {name}; unchanged runners must also be frozen"
-                    )
+            _command_token(proof, token, roots)
+
+
+def _inside_roots(candidate: Path, roots: tuple[StrPath, ...]) -> bool:
+    return any(
+        candidate.resolve().is_relative_to(Path(root).resolve())
+        or candidate.absolute().is_relative_to(Path(root).absolute())
+        or (candidate.parent.resolve() / candidate.name).is_relative_to(
+            Path(root).resolve()
+        )
+        for root in roots
+    )
+
+
+def _command_token(
+    proof: dict[str, Any], token: str, roots: tuple[StrPath, ...]
+) -> None:
+    candidate = Path(token)
+    if candidate.is_absolute():
+        if _inside_roots(candidate, roots):
+            raise WorkflowError(
+                f"{proof['id']}: absolute command reference into worktree: {token}"
+            )
+        return
+    name = token.removeprefix("./")
+    try:
+        _canonical(name)
+    except WorkflowError:
+        return
+    for root in roots:
+        path = _proof_path(root, name)
+        if path.is_file() and name not in proof["files"]:
+            raise WorkflowError(
+                f"{proof['id']}: command file not frozen: {name}; unchanged runners must also be frozen"
+            )
 
 
 def _commit(repo: StrPath, ref: str) -> str:
@@ -1377,6 +1387,15 @@ def _write_result(result: dict[str, Any], repo: StrPath, head: str) -> Exception
     return None
 
 
+def _truncate_outputs(runs: list[dict[str, Any]], tail: int) -> None:
+    for record in runs:
+        output = record.get("output", "")
+        if len(output) > tail:
+            record["output"] = f"[TRUNCATED to last {tail} chars]" + (
+                output[-tail:] if tail else ""
+            )
+
+
 def _result_comment(result: dict[str, Any]) -> str:
     """PR comment body: the machine result as JSON, with long proof outputs tail-truncated to fit GitHub's limit."""
     header = (
@@ -1391,12 +1410,7 @@ def _result_comment(result: dict[str, Any]) -> str:
             else {}
         )
         for runs in proofs.values():
-            for record in runs:
-                output = record.get("output", "")
-                if len(output) > tail:
-                    record["output"] = f"[TRUNCATED to last {tail} chars]" + (
-                        output[-tail:] if tail else ""
-                    )
+            _truncate_outputs(runs, tail)
         body = f"{header}```json\n{json.dumps(compact, indent=2)}\n```\n"
         if len(body) <= COMMENT_LIMIT:
             return body
