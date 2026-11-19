@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import io
+import itertools
 import json
 import sys
 import tempfile
@@ -27,11 +28,16 @@ from test_reference_structure import FIXTURES
 
 from guardrails.commands import cli
 from guardrails.commands.structure import layout, naming, paths
+from guardrails.foundation.findings import Finding
 
 pytestmark = pytest.mark.seam
 
 
 CLEAN = json.loads((FIXTURES / "clean-repo.json").read_text())
+
+
+def rule_paths(findings: list[Finding], rule_id: str) -> set[str]:
+    return {finding.path for finding in findings if finding.rule_id == rule_id}
 
 
 class CheckerCase(unittest.TestCase):
@@ -326,29 +332,32 @@ class CheckerCliTests(CheckerCase):
     def test_native_import_direction_checks_non_python_sources(self) -> None:
         source = "src/orders/engine/runner.ts"
         self.write(source, "export const ready = true;\n")
-        for scope in ({"scan": ["src/**/*.ts"]}, {"source_root": "src"}):
-            for exit_code in (1, 0):
-                self.profile["structure"]["import_direction"] = {
-                    **scope,
-                    "native": {
-                        "command": [
-                            sys.executable,
-                            "-c",
-                            f"raise SystemExit({exit_code})",
-                        ],
-                        "timeout_s": 5,
-                        "cwd": ".",
-                    },
-                }
-                self.write_profile()
-                for name in ("path-check", "structure"):
-                    with self.subTest(scope=scope, exit_code=exit_code, command=name):
-                        code, out = self.run_cli(name, source)
-                        assert code == exit_code
-                        if exit_code:
-                            assert f"{source}: STRUCT.dependency-direction:" in out
-                        else:
-                            assert out == f"{name}: ok\n"
+        scopes: tuple[dict[str, Any], ...] = (
+            {"scan": ["src/**/*.ts"]},
+            {"source_root": "src"},
+        )
+        for scope, exit_code in itertools.product(scopes, (1, 0)):
+            self.profile["structure"]["import_direction"] = {
+                **scope,
+                "native": {
+                    "command": [
+                        sys.executable,
+                        "-c",
+                        f"raise SystemExit({exit_code})",
+                    ],
+                    "timeout_s": 5,
+                    "cwd": ".",
+                },
+            }
+            self.write_profile()
+            for name in ("path-check", "structure"):
+                with self.subTest(scope=scope, exit_code=exit_code, command=name):
+                    code, out = self.run_cli(name, source)
+                    assert code == exit_code
+                    if exit_code:
+                        assert f"{source}: STRUCT.dependency-direction:" in out
+                    else:
+                        assert out == f"{name}: ok\n"
 
     def test_native_import_direction_ignores_paths_outside_scan(self) -> None:
         self.profile["structure"]["import_direction"] = {
@@ -527,29 +536,27 @@ class ImportGraphTests(unittest.TestCase):
         return repo, record
 
     def test_graph_rules_have_violating_and_conforming_public_outcomes(self) -> None:
-        for case in self.FIXTURE["cases"]:
-            for outcome in ("violating", "conforming"):
-                with self.subTest(case=case["name"], outcome=outcome):
-                    profile = copy.deepcopy(self.FIXTURE["profile"])
-                    repo, record = self.make_repo(case[outcome], profile)
-                    expected = set(case["paths"]) if outcome == "violating" else set()
-                    for checker in (layout, paths):
-                        findings = checker.run(repo, profile, ["--all"])
-                        assert {
-                            f.path for f in findings if f.rule_id == case["rule"]
-                        } == expected
-                    for command in ("structure", "path-check"):
-                        output = io.StringIO()
-                        with contextlib.redirect_stdout(output):
-                            cli.main([
-                                command,
-                                "--repo",
-                                str(repo),
-                                "--record",
-                                str(record),
-                                "--all",
-                            ])
-                        assert (case["rule"] in output.getvalue()) == bool(expected)
+        outcomes = ("violating", "conforming")
+        for case, outcome in itertools.product(self.FIXTURE["cases"], outcomes):
+            with self.subTest(case=case["name"], outcome=outcome):
+                profile = copy.deepcopy(self.FIXTURE["profile"])
+                repo, record = self.make_repo(case[outcome], profile)
+                expected = set(case["paths"]) if outcome == "violating" else set()
+                for checker in (layout, paths):
+                    findings = checker.run(repo, profile, ["--all"])
+                    assert rule_paths(findings, case["rule"]) == expected
+                for command in ("structure", "path-check"):
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        cli.main([
+                            command,
+                            "--repo",
+                            str(repo),
+                            "--record",
+                            str(record),
+                            "--all",
+                        ])
+                    assert (case["rule"] in output.getvalue()) == bool(expected)
 
     def test_no_import_settings_means_no_graph_findings(self) -> None:
         case = self.FIXTURE["cases"][0]

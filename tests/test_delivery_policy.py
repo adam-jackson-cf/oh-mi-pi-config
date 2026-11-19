@@ -21,6 +21,42 @@ ENFORCED = re.compile(
 JUDGED = re.compile(r"Judged by ([a-z-]+)/([a-z_-]+)\.")
 
 
+def assert_policy_line(
+    name: str,
+    line: str,
+    rules: dict[str, set[str]],
+    native_rules: set[str],
+    decisions: dict[str, object],
+) -> None:
+    enforced = list(ENFORCED.finditer(line))
+    judged = list(JUDGED.finditer(line))
+    guidance = line.count("Guidance only.")
+    assert len(re.findall(r"Enforced by|Judged by|Guidance only", line)) == 1, line
+    assert len(enforced) + len(judged) + guidance == 1, line
+    assert line.endswith("."), line
+    for match in enforced:
+        rule, commands = match.groups()
+        assert rule in rules
+        if rules[rule]:
+            assert set(commands.split(", ")) <= rules[rule]
+        else:
+            assert rule in native_rules
+            assert commands == "toolchain-parity"
+        assert match.end() == len(line)
+    for match in judged:
+        judgment, decision = match.groups()
+        if name == "structure-and-naming.md":
+            assert judgment == "structure-naming"
+            assert decision in decisions
+        else:
+            assert (judgment, decision) in {
+                ("main", "implementation-integrity"),
+                ("dynaflows", "clean-cutovers"),
+                ("dynaflows", "regression-coverage"),
+            }
+        assert match.end() == len(line)
+
+
 class DeliveryPolicyTests(unittest.TestCase):
     def test_policy_rules_have_exactly_one_valid_status(self) -> None:
         catalogue = json.loads(CATALOGUE.read_text(encoding="utf-8"))
@@ -42,36 +78,7 @@ class DeliveryPolicyTests(unittest.TestCase):
             assert rule_lines, name
             for number, line in rule_lines:
                 with self.subTest(source=name, line=number):
-                    enforced = list(ENFORCED.finditer(line))
-                    judged = list(JUDGED.finditer(line))
-                    guidance = line.count("Guidance only.")
-                    assert (
-                        len(re.findall(r"Enforced by|Judged by|Guidance only", line))
-                        == 1
-                    ), line
-                    assert len(enforced) + len(judged) + guidance == 1, line
-                    assert line.endswith("."), line
-                    for match in enforced:
-                        rule, commands = match.groups()
-                        assert rule in rules
-                        if rules[rule]:
-                            assert set(commands.split(", ")) <= rules[rule]
-                        else:
-                            assert rule in native_rules
-                            assert commands == "toolchain-parity"
-                        assert match.end() == len(line)
-                    for match in judged:
-                        judgment, decision = match.groups()
-                        if name == "structure-and-naming.md":
-                            assert judgment == "structure-naming"
-                            assert decision in decisions
-                        else:
-                            assert (judgment, decision) in {
-                                ("main", "implementation-integrity"),
-                                ("dynaflows", "clean-cutovers"),
-                                ("dynaflows", "regression-coverage"),
-                            }
-                        assert match.end() == len(line)
+                    assert_policy_line(name, line, rules, native_rules, decisions)
 
     def test_style_lists_have_one_canonical_data_home(self) -> None:
         style_path = CATALOGUE.with_name("house-style.json")

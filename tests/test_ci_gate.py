@@ -51,6 +51,10 @@ def tearDownModule() -> None:
     shutil.rmtree(HARNESS, ignore_errors=True)
 
 
+def mentions(call: list[str], text: str) -> bool:
+    return any(text in arg for arg in call)
+
+
 FAKE = r"""#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, time
 name = pathlib.Path(sys.argv[0]).name
@@ -409,7 +413,7 @@ class CiGateTests(GateFixture):
                 for call in self.calls("git"):
                     assert token not in json.dumps(call)
                     assert header not in json.dumps(call)
-                    assert not any("Authorization:" in arg for arg in call)
+                    assert not mentions(call, "Authorization:")
                 for call in self.calls("git-env"):
                     if "fetch" not in call["args"]:
                         assert call["config"] == inherited_config

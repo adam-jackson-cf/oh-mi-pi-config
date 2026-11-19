@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import importlib.util
+import itertools
 import json
 import re
 import sys
@@ -722,39 +723,41 @@ class TriageTests(unittest.TestCase):
         assert state["advisory"]["text"] == "arbitrary code execution through full_load"
 
     def test_low_or_medium_routes_by_fix_availability(self) -> None:
-        for answer, severity in (
+        ratings = (
             (answers(impact="dos", reached=0.02), "low"),
             (answers(impact="dos"), "medium"),
+        )
+        for (answer, severity), blocker in itertools.product(
+            ratings, (None, BLOCKED_FIX)
         ):
-            for blocker in (None, BLOCKED_FIX):
-                with self.subTest(severity=severity, blocker=blocker):
-                    result = self.run_triage(
-                        {"PyYAML": answer, "black": answer},
-                        {
-                            self.keys[0]: evidence(blocked_fix=blocker),
-                            self.keys[1]: evidence(),
-                        },
-                    )
-                    assert result["halt"] == (blocker is not None)
-                    assert [item["key"] for item in result["owner"]] == (
-                        [self.keys[0]] if blocker is not None else []
-                    )
-                    assert [item["key"] for item in result["fix"]] == (
-                        [self.keys[1]] if blocker is not None else self.keys
-                    )
-                    assert all(
-                        item["severity"] == severity
-                        for item in result["owner"] + result["fix"]
-                    )
-                    if blocker is None:
-                        assert result["report"] == ""
-                    else:
-                        for text in (
-                            *blocker.values(),
-                            "dated exception",
-                            "Pinned dependent",
-                        ):
-                            assert text in result["report"]
+            with self.subTest(severity=severity, blocker=blocker):
+                result = self.run_triage(
+                    {"PyYAML": answer, "black": answer},
+                    {
+                        self.keys[0]: evidence(blocked_fix=blocker),
+                        self.keys[1]: evidence(),
+                    },
+                )
+                assert result["halt"] == (blocker is not None)
+                assert [item["key"] for item in result["owner"]] == (
+                    [self.keys[0]] if blocker is not None else []
+                )
+                assert [item["key"] for item in result["fix"]] == (
+                    [self.keys[1]] if blocker is not None else self.keys
+                )
+                assert all(
+                    item["severity"] == severity
+                    for item in result["owner"] + result["fix"]
+                )
+                if blocker is None:
+                    assert result["report"] == ""
+                else:
+                    for text in (
+                        *blocker.values(),
+                        "dated exception",
+                        "Pinned dependent",
+                    ):
+                        assert text in result["report"]
 
     def test_exception_file_failures_halt_for_the_owner(self) -> None:
         self.found["failures"].append({
