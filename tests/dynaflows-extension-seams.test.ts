@@ -749,39 +749,42 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 	} finally { h.cleanup(); }
 });
 
-for (const scenario of [
+test.each([
 	{ name: "failed CheckRun", rollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }], fragment: "test: COMPLETED/FAILURE" },
 	{ name: "pending CheckRun", rollup: [{ __typename: "CheckRun", name: "test", status: "IN_PROGRESS", conclusion: null }], fragment: "test: IN_PROGRESS" },
 	{ name: "failed StatusContext", rollup: [{ __typename: "StatusContext", context: "external", state: "FAILURE" }], fragment: "external: FAILURE" },
 	{ name: "pending StatusContext", rollup: [{ __typename: "StatusContext", context: "external", state: "PENDING" }], fragment: "external: PENDING" },
-	{ name: "only skipped", rollup: [{ __typename: "CheckRun", name: "unused", status: "COMPLETED", conclusion: "SKIPPED" }], fragment: ciHead },
-	{ name: "empty declared CI", rollup: [], boundary: "gate", fragment: `no CI checks reported for ${ciHead}` },
-	{ name: "empty workflow directory", rollup: [], boundary: "workflows", fragment: `no CI checks reported for ${ciHead}` },
+	{ name: "only skipped", rollup: [{ __typename: "CheckRun", name: "unused", status: "COMPLETED", conclusion: "SKIPPED" }], fragment: "no SUCCESS check reported" },
+	{ name: "empty declared CI", rollup: [], boundary: "gate", fragment: "no CI checks reported for" },
+	{ name: "empty workflow directory", rollup: [], boundary: "workflows", fragment: "no CI checks reported for" },
 	{ name: "empty no-CI boundary", rollup: [] },
-	{ name: "green", rollup: greenCi },
-] as const) {
-	test(`merge CI rule: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			if ("boundary" in scenario && scenario.boundary === "gate") h.gate({ schemaVersion: 2, checks: { commit: ["true"], ci: ["bun", "ci"] } });
-			if ("boundary" in scenario && scenario.boundary === "workflows") mkdirSync(join(h.root, ".github/workflows"), { recursive: true });
-			h.dynaflows(true);
-			proveResult(h);
-			structureResult(h);
-			mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3" });
-			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-			if ("fragment" in scenario) {
-				assert.equal(isBlocked(result), true);
-				assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
-				assert.equal(reasonOf(result).includes(ciHead), true, "diagnostic identifies the PR head");
-			} else assert.equal(result, undefined);
-		} finally { h.cleanup(); }
-	});
-}
+	{ name: "green", rollup: [
+		{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+		{ __typename: "CheckRun", name: "optional", status: "COMPLETED", conclusion: "NEUTRAL" },
+		{ __typename: "CheckRun", name: "unused", status: "COMPLETED", conclusion: "SKIPPED" },
+		{ __typename: "StatusContext", context: "external", state: "SUCCESS" },
+	] },
+])("merge CI rule: $name", async scenario => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		if ("boundary" in scenario && scenario.boundary === "gate") h.gate({ schemaVersion: 2, checks: { commit: ["true"], ci: ["bun", "ci"] } });
+		if ("boundary" in scenario && scenario.boundary === "workflows") mkdirSync(join(h.root, ".github/workflows"), { recursive: true });
+		h.dynaflows(true);
+		proveResult(h);
+		structureResult(h);
+		mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3" });
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		if ("fragment" in scenario) {
+			assert.equal(isBlocked(result), true);
+			assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
+			assert.equal(reasonOf(result).includes(ciHead), true, "diagnostic identifies the PR head");
+		} else assert.equal(result, undefined);
+	} finally { h.cleanup(); }
+});
 
 const requiredRefusal = (state: string) => `Agent rails: required CI context "gate" is ${state} for ${ciHead} in base-owner/base-repo (runner ci-gate). Submit and wait: python3 ${ciRunner} submit ci-gate base-owner/base-repo ${ciHead}, then python3 ${ciRunner} wait ci-gate base-owner/base-repo ${ciHead} --context gate; see skill://git-tool/references/merge-and-recover.md for failures.`;
-for (const scenario of [
+test.each([
 	{ name: "missing among other green checks", rollup: [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], state: "missing" },
 	{ name: "missing with no checks", rollup: [], state: "missing" },
 	{ name: "pending StatusContext", rollup: [{ __typename: "StatusContext", context: "gate", state: "PENDING" }], state: "PENDING" },
@@ -798,25 +801,23 @@ for (const scenario of [
 		{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" },
 		{ __typename: "StatusContext", context: "docs-preview", state: "PENDING" },
 	] },
-] as const) {
-	test(`required context merge: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			await originRemote(h, "git@github.com:base-owner/base-repo.git");
-			h.gate({ schemaVersion: 2, ci: ciGate });
-			h.dynaflows(true);
-			proveResult(h);
-			structureResult(h);
-			mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3", url: "https://github.com/base-owner/base-repo/pull/3" });
-			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-			if ("state" in scenario) {
-				assert.equal(isBlocked(result), true, "the required context must block");
-				assert.equal(result?.reason, requiredRefusal(scenario.state));
-			} else assert.equal(result, undefined);
-		} finally { h.cleanup(); }
-	});
-}
+])("required context merge: $name", async scenario => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		await originRemote(h, "git@github.com:base-owner/base-repo.git");
+		h.gate({ schemaVersion: 2, ci: ciGate });
+		h.dynaflows(true);
+		proveResult(h);
+		structureResult(h);
+		mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3", url: "https://github.com/base-owner/base-repo/pull/3" });
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		if ("state" in scenario) {
+			assert.equal(isBlocked(result), true, "the required context must block");
+			assert.equal(result?.reason, requiredRefusal(scenario.state));
+		} else assert.equal(result, undefined);
+	} finally { h.cleanup(); }
+});
 
 test("without a ci block every reported check still decides the merge", async () => {
 	const h = harness();
@@ -879,24 +880,22 @@ test("a gate with every optional check and a ci block allows publishing", async 
 	} finally { h.cleanup(); }
 });
 
-for (const remote of ["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"]) {
-	test(`PR URL repository: ${remote}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			await originRemote(h, remote);
-			h.gate({ schemaVersion: 2, ci: ciGate });
-			h.dynaflows(true);
-			proveResult(h);
-			structureResult(h);
-			const url = "https://github.com/other/checkout/pull/3";
-			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], { head: ciHead, selector: url, url });
-			const result = await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` });
-			assert.equal(isBlocked(result), true, "cross-repo URL must not use checkout policy");
-			assert.ok(reasonOf(result).includes("run from a checkout of other/checkout"), result?.reason ?? "missing refusal reason");
-		} finally { h.cleanup(); }
-	});
-}
+test.each(["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"])("PR URL repository: %s", async remote => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		await originRemote(h, remote);
+		h.gate({ schemaVersion: 2, ci: ciGate });
+		h.dynaflows(true);
+		proveResult(h);
+		structureResult(h);
+		const url = "https://github.com/other/checkout/pull/3";
+		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], { head: ciHead, selector: url, url });
+		const result = await h.call("bash", { command: `gh pr merge ${url} --match-head-commit ${ciHead}` });
+		assert.equal(isBlocked(result), true, "cross-repo URL must not use checkout policy");
+		assert.ok(reasonOf(result).includes("run from a checkout of other/checkout"), result?.reason ?? "missing refusal reason");
+	} finally { h.cleanup(); }
+});
 
 test("PR URL selector accepts the checkout repository case-insensitively", async () => {
 	const h = harness();
@@ -961,27 +960,25 @@ test("a merge reports a gh failure while reading the PR", async () => {
 	} finally { h.cleanup(); }
 });
 
-for (const scenario of ["head mismatch", "red CI", "green CI"] as const) {
-	test(`merge CI gate: ${scenario}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			h.dynaflows(true);
-			proveResult(h);
-			structureResult(h);
-			const head = scenario === "head mismatch" ? "b".repeat(40) : ciHead;
-			mockPrCi(h, scenario === "red CI"
-				? [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }] : greenCi, { head, selector: "3" });
-			const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
-			if (scenario === "green CI") assert.equal(result, undefined);
-			else {
-				assert.equal(isBlocked(result), true);
-				const fragment = scenario === "head mismatch" ? `PR head is ${head}, not ${ciHead}; prove() the current head` : "test: COMPLETED/FAILURE";
-				assert.equal(reasonOf(result).includes(fragment), true, fragment);
-			}
-		} finally { h.cleanup(); }
-	});
-}
+test.each(["head mismatch", "red CI", "green CI"])("merge CI gate: %s", async scenario => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(true);
+		proveResult(h);
+		structureResult(h);
+		const head = scenario === "head mismatch" ? "b".repeat(40) : ciHead;
+		mockPrCi(h, scenario === "red CI"
+			? [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }] : greenCi, { head, selector: "3" });
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		if (scenario === "green CI") assert.equal(result, undefined);
+		else {
+			assert.equal(isBlocked(result), true);
+			const fragment = scenario === "head mismatch" ? `PR head is ${head}, not ${ciHead}; prove() the current head` : "test: COMPLETED/FAILURE";
+			assert.equal(reasonOf(result).includes(fragment), true, fragment);
+		}
+	} finally { h.cleanup(); }
+});
 
 test("dynaflows off: merges have no guard, even with a declared gate.ci", async () => {
 	const h = harness();
@@ -995,25 +992,34 @@ test("dynaflows off: merges have no guard, even with a declared gate.ci", async 
 	} finally { h.cleanup(); }
 });
 
-for (const scenario of [
+test.each([
 	{ name: "missing flag", args: "", fragment: "requires --match-head-commit <40-hex verified SHA>" },
 	{ name: "bare variable", args: "--match-head-commit $H", fragment: "received unexpanded shell text `$H`; rails check the literal command, so pass the 40-hex SHA itself" },
 	{ name: "quoted variable", args: '--match-head-commit "$H"', fragment: "received unexpanded shell text `$H`; rails check the literal command, so pass the 40-hex SHA itself" },
 	{ name: "non-hex", args: "--match-head-commit nope", fragment: "must be a lowercase 40-hex SHA, got nope" },
-	{ name: "missing prove() result", args: `--match-head-commit ${ciHead}`, fragment: `no prove() pass for ${ciHead}` },
-] as const) {
-	test(`merge diagnostics gate: ${scenario.name}`, async () => {
-		const h = harness();
-		try {
-			await h.read("skill://git-tool");
-			h.dynaflows(true);
-			mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
-			const result = await h.call("bash", { command: `gh pr merge 3 ${scenario.args}` });
-			assert.equal(isBlocked(result), true);
-			assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
-		} finally { h.cleanup(); }
-	});
-}
+])("merge diagnostics gate: $name", async scenario => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(true);
+		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
+		const result = await h.call("bash", { command: `gh pr merge 3 ${scenario.args}` });
+		assert.equal(isBlocked(result), true);
+		assert.equal(reasonOf(result).includes(scenario.fragment), true, scenario.fragment);
+	} finally { h.cleanup(); }
+});
+
+test("merge diagnostics gate: missing prove() result", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		h.dynaflows(true);
+		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
+		const result = await h.call("bash", { command: `gh pr merge 3 --match-head-commit ${ciHead}` });
+		assert.equal(isBlocked(result), true);
+		assert.equal(reasonOf(result).includes(`no prove() pass for ${ciHead}`), true);
+	} finally { h.cleanup(); }
+});
 
 test("path checks canonicalize a symlinked repository root before executing", async () => {
 	const h = harness();
@@ -1190,34 +1196,32 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 	} finally { h.cleanup(); target.cleanup(); }
 });
 
-for (const record of ["absent", "off", "on"] as const) {
-	test(`repo-scoped harness process follows dynaflows (${record}) while Git reads always apply`, async () => {
-		const h = harness();
-		try {
-			if (record !== "absent") h.dynaflows(record === "on");
-			h.pathFailure("path policy violation");
-			const edit = await h.call("write", { path: "tests/new.test.ts" });
-			if (record === "on") {
-				assert.equal(isBlocked(edit), true);
-				for (const url of [integrity, structure, tiers, enforcement]) assert.ok(reasonOf(edit).includes(url));
-				await h.read(integrity, structure, tiers, enforcement);
-				writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
-				assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path policy violation"));
-				assert.equal((await h.emit("session_stop"))?.decision, "block");
-				h.pathFailure();
-				assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
-				await h.read(verification);
-			} else {
-				assert.equal(edit, undefined);
-				assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			}
-			assert.equal(await h.emit("session_stop"), undefined);
-			const git = await h.call("bash", { command: "git push" });
-			assert.equal(isBlocked(git), true);
-			assert.ok(reasonOf(git).includes("skill://git-tool"));
-		} finally { h.cleanup(); }
-	});
-}
+test.each(["absent", "off", "on"])("repo-scoped harness process follows dynaflows (%s) while Git reads always apply", async record => {
+	const h = harness();
+	try {
+		if (record !== "absent") h.dynaflows(record === "on");
+		h.pathFailure("path policy violation");
+		const edit = await h.call("write", { path: "tests/new.test.ts" });
+		if (record === "on") {
+			assert.equal(isBlocked(edit), true);
+			for (const url of [integrity, structure, tiers, enforcement]) assert.ok(reasonOf(edit).includes(url));
+			await h.read(integrity, structure, tiers, enforcement);
+			writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
+			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path policy violation"));
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			h.pathFailure();
+			assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
+			await h.read(verification);
+		} else {
+			assert.equal(edit, undefined);
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+		}
+		assert.equal(await h.emit("session_stop"), undefined);
+		const git = await h.call("bash", { command: "git push" });
+		assert.equal(isBlocked(git), true);
+		assert.ok(reasonOf(git).includes("skill://git-tool"));
+	} finally { h.cleanup(); }
+});
 
 test("edit and handoff policy follows each edited repo, not the session cwd", async () => {
 	const h = harness();
@@ -1238,26 +1242,24 @@ test("edit and handoff policy follows each edited repo, not the session cwd", as
 	} finally { h.cleanup(); other.cleanup(); }
 });
 
-for (const enabled of [undefined, false, true]) {
-	test(`native judged rules follow session dynaflows (${enabled ?? "no record"}) and preserve user exclusions`, async () => {
-		const h = harness();
-		try {
-			if (enabled !== undefined) h.dynaflows(enabled);
-			const rules = lookup("ttsr.disabledRules");
-			assert.ok(rules);
-			rules.override(h.api.pi.settings, ["user-disabled-rule"]);
-			const config = z.object({ dynaflowsRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-			for (const name of config.dynaflowsRules) {
-				assert.ok(existsSync(join(import.meta.dir, "../agent/extensions/dynaflows/rules", `${name}.md`)), `configured native rule exists: ${name}`);
-			}
-			await h.emit("session_start");
-			assert.deepEqual(rules.get(h.api.pi.settings), enabled
-				? ["user-disabled-rule"]
-				: ["user-disabled-rule", ...config.dynaflowsRules]);
-			await h.emit("session_start");
-			assert.deepEqual(rules.get(h.api.pi.settings), enabled
-				? ["user-disabled-rule"]
-				: ["user-disabled-rule", ...config.dynaflowsRules], "restarting the session does not duplicate exclusions");
-		} finally { h.cleanup(); }
-	});
-}
+test.each(["no record", "off", "on"])("native judged rules follow session dynaflows (%s) and preserve user exclusions", async record => {
+	const h = harness();
+	try {
+		if (record !== "no record") h.dynaflows(record === "on");
+		const rules = lookup("ttsr.disabledRules");
+		assert.ok(rules);
+		rules.override(h.api.pi.settings, ["user-disabled-rule"]);
+		const config = z.object({ dynaflowsRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+		for (const name of config.dynaflowsRules) {
+			assert.ok(existsSync(join(import.meta.dir, "../agent/extensions/dynaflows/rules", `${name}.md`)), `configured native rule exists: ${name}`);
+		}
+		await h.emit("session_start");
+		assert.deepEqual(rules.get(h.api.pi.settings), record === "on"
+			? ["user-disabled-rule"]
+			: ["user-disabled-rule", ...config.dynaflowsRules]);
+		await h.emit("session_start");
+		assert.deepEqual(rules.get(h.api.pi.settings), record === "on"
+			? ["user-disabled-rule"]
+			: ["user-disabled-rule", ...config.dynaflowsRules], "restarting the session does not duplicate exclusions");
+	} finally { h.cleanup(); }
+});
