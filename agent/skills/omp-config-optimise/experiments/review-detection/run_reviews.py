@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import itertools
 import json
 import random
 import re
@@ -270,7 +271,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cases = [c for c in CASES if not args.cases or c.id in args.cases]
-    jobs = [(c, a, r) for c in cases for a in args.arms for r in range(args.reps)]
+    jobs = list(itertools.product(cases, args.arms, range(args.reps)))
     label = toolset_label()  # one effective config per run; stored on every record
     if args.rerun_failed:
         latest = latest_records(args.out, label_of(label))

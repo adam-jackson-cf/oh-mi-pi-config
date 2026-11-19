@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import itertools
 import json
 import random
 import re
@@ -155,6 +156,10 @@ def run_trial(items_dir: Path, item: Record, arm: Arm, rep: int, runs: Path) -> 
     }
 
 
+def correct_count(records: list[Record], item: str) -> int:
+    return sum(r.get("correct", False) for r in records if r.get("item") == item)
+
+
 def analyze(out: Path) -> None:
     recs = [
         json.loads(line) for line in (out / "results.jsonl").read_text().splitlines()
@@ -183,12 +188,7 @@ def analyze(out: Path) -> None:
     arms = sorted(by_arm)
     lines += ["", "| Item | " + " | ".join(arms) + " |", "|---|" + "---|" * len(arms)]
     for item in items:
-        cells = [
-            str(
-                sum(r.get("correct", False) for r in by_arm[a] if r.get("item") == item)
-            )
-            for a in arms
-        ]
+        cells = [str(correct_count(by_arm[a], item)) for a in arms]
         lines.append(f"| {item} | " + " | ".join(cells) + " |")
     text = "\n".join(lines)
     (out / "analysis.md").write_text(text + "\n")
@@ -215,7 +215,7 @@ def main() -> None:
         analyze(args.analyze)
         return
     items = json.loads((args.items / "items.json").read_text())
-    jobs = [(i, a, r) for i in items for a in args.arms for r in range(args.reps)]
+    jobs = list(itertools.product(items, args.arms, range(args.reps)))
     random.Random(args.seed).shuffle(jobs)
     runs = args.out / "runs"
     runs.mkdir(parents=True, exist_ok=True)

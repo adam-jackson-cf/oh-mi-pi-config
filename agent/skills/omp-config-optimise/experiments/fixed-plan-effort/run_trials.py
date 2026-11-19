@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import itertools
 import json
 import random
 import shutil
@@ -281,7 +282,7 @@ def main() -> None:
     fixture_ids = args.fixtures or sorted(
         p.name for p in FIXTURES.iterdir() if (p / "task.md").exists()
     )
-    jobs = [(f, a, r) for f in fixture_ids for a in args.arms for r in range(args.reps)]
+    jobs = list(itertools.product(fixture_ids, args.arms, range(args.reps)))
     label = toolset_label()  # one effective config per run; stored on every record
     random.Random(args.seed).shuffle(
         jobs

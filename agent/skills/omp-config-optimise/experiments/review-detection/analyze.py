@@ -145,6 +145,37 @@ def credits_of(rec: Record) -> float | None:
     )
 
 
+def nearby_arms(
+    items: list[tuple[str, int, str, int | None]],
+    arm: str,
+    file: str,
+    line: int | None,
+) -> set[str]:
+    return {
+        a
+        for a, _, f2, l2 in items
+        if a != arm
+        and f2 == file
+        and line is not None
+        and l2 is not None
+        and abs(l2 - line) <= WINDOW
+    }
+
+
+def detections(defect: str, records: list[Record]) -> int:
+    return sum(
+        defect in r["score"]["detected"] for r in records if defect in r["defects"]
+    )
+
+
+def ever_detected(records: list[Record]) -> set[str]:
+    detected: set[str] = set()
+    for r in records:
+        if r["defects"]:
+            detected.update(r["score"]["detected"])
+    return detected
+
+
 def shared_clusters(clean: list[Record]) -> set[TrialKey]:
     """(case, arm, finding index) for clean-case findings that ≥2 arms reported at the same place."""
     by_case: dict[str, list[tuple[str, int, str, int | None]]] = defaultdict(list)
@@ -160,16 +191,7 @@ def shared_clusters(clean: list[Record]) -> set[TrialKey]:
     shared: set[TrialKey] = set()
     for case, items in by_case.items():
         for arm, i, file, line in items:
-            others = {
-                a
-                for a, _, f2, l2 in items
-                if a != arm
-                and f2 == file
-                and line is not None
-                and l2 is not None
-                and abs(l2 - line) <= WINDOW
-            }
-            if others:
+            if nearby_arms(items, arm, file, line):
                 shared.add((case, arm, i))
     return shared
 
@@ -262,18 +284,7 @@ def defect_lines(
     ]
     for d in sorted({d for r in valid for d in r["defects"]}):
         lines.append(
-            f"| {d} | "
-            + " | ".join(
-                str(
-                    sum(
-                        d in r["score"]["detected"]
-                        for r in by_arm[a]
-                        if d in r["defects"]
-                    )
-                )
-                for a in arms
-            )
-            + " |"
+            f"| {d} | " + " | ".join(str(detections(d, by_arm[a])) for a in arms) + " |"
         )
     return lines
 
@@ -317,9 +328,7 @@ def analyse(
         )
         row, summary[arm] = arm_row(arm, by_arm[arm], invalid, expected, shared)
         lines.append(row)
-        ever[arm] = {
-            d for r in by_arm[arm] if r["defects"] for d in r["score"]["detected"]
-        }
+        ever[arm] = ever_detected(by_arm[arm])
 
     lines += defect_lines(valid, by_arm, arms)
     lines += discordance_lines(ever, arms)

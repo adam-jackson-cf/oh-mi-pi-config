@@ -197,6 +197,12 @@ def pooled(per_fold: list[Counts], beta: float) -> Metrics:
     return from_counts(tp, fp, fn, beta)
 
 
+def split_fold(rows: list[Row], test_idx: list[int]) -> tuple[list[Row], list[Row]]:
+    test_set = set(test_idx)
+    train = [row for i, row in enumerate(rows) if i not in test_set]
+    return train, [rows[i] for i in test_idx]
+
+
 def tune(rows: list[Row], fold_sets: list[list[list[int]]], opts: Options) -> Result:
     tuned: list[Counts] = []
     default: list[Counts] = []
@@ -204,9 +210,7 @@ def tune(rows: list[Row], fold_sets: list[list[list[int]]], opts: Options) -> Re
     thresholds: list[float] = []
     for r, folds in enumerate(fold_sets):
         for n, test_idx in enumerate(folds):
-            test_set = set(test_idx)
-            train = [row for i, row in enumerate(rows) if i not in test_set]
-            test = [rows[i] for i in test_idx]
+            train, test = split_fold(rows, test_idx)
             default.append(counts(test, 0.5))
             t = choose(train, opts)
             where = f"repeat {r} fold {n}" if len(fold_sets) > 1 else f"fold {n}"
