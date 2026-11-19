@@ -8,7 +8,6 @@ import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { harness as createHarness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig } from "./agent-rails-seams.test";
 
-// Most cases exercise the co-registered extensions; isolated package cases select dynaflows only.
 const harness = (options: Parameters<typeof createHarness>[0] = {}) => createHarness({ extensions: "both", ...options });
 const proofs = "skill://dynaflows/references/proofs.md";
 
@@ -74,30 +73,28 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	for (const dynaflows of [false, true]) {
-		test(`handoff needs only the verification read after code edits, never a check run (dynaflows ${dynaflows ? "on" : "off"})`, async () => {
-			const h = harness();
-			try {
-				h.dynaflows(dynaflows);
-				h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
-				await h.emit("session_start");
-				writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
-				writeFileSync(join(h.root, "session.log"), "growing log\n");
-				assert.equal(await h.emit("session_stop"), undefined, "tree changes outside this session's edits never block");
-				await h.read(integrity, structure);
-				await h.call("edit", { path: "existing.ts" });
-				const blocked = await h.emit("session_stop");
-				if (dynaflows) {
-					assert.equal(blocked?.decision, "block");
-					assert.ok(reasonOf(blocked).includes(verification));
-					assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
-				} else assert.equal(blocked, undefined);
-				await h.read(verification);
-				writeFileSync(join(h.root, "session.log"), "grew again\n");
-				assert.equal(await h.emit("session_stop"), undefined);
-			} finally { h.cleanup(); }
-		});
-	}
+	test.each([false, true])("handoff needs only the verification read after code edits, never a check run (dynaflows %p)", async dynaflows => {
+		const h = harness();
+		try {
+			h.dynaflows(dynaflows);
+			h.gate({ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
+			await h.emit("session_start");
+			writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
+			writeFileSync(join(h.root, "session.log"), "growing log\n");
+			assert.equal(await h.emit("session_stop"), undefined, "tree changes outside this session's edits never block");
+			await h.read(integrity, structure);
+			await h.call("edit", { path: "existing.ts" });
+			const blocked = await h.emit("session_stop");
+			if (dynaflows) {
+				assert.equal(blocked?.decision, "block");
+				assert.ok(reasonOf(blocked).includes(verification));
+				assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
+			} else assert.equal(blocked, undefined);
+			await h.read(verification);
+			writeFileSync(join(h.root, "session.log"), "grew again\n");
+			assert.equal(await h.emit("session_stop"), undefined);
+		} finally { h.cleanup(); }
+	});
 
 	test("discovery tools are never gated by reference reads, before or after compaction", async () => {
 		const h = harness();
@@ -133,7 +130,6 @@ describe("dynaflows extension", () => {
 	test("dynaflows commits run the record's checks.commit, then the whole-repo harness checks, without AGENT", async () => {
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-commit-")));
 		const log = join(scratch, "runs.log");
-		// Appends its label, argv and AGENT to the log, then exits with $FAIL_<label> (default 0).
 		const script = join(scratch, "check.sh");
 		writeFileSync(script, `#!/bin/sh\nlabel=$1; shift\necho "$label $* AGENT=\${AGENT-unset}" >> '${log}'\necho "$label finding: src/x.py" >&2\neval "exit \\\${FAIL_$label:-0}"\n`, { mode: 0o755 });
 		const h = harness({ guardrailsCommand: [script, "harness"] });
@@ -433,30 +429,25 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		try {
 			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
-			// No record: setup starts at Step 0, drafting the switch on; nothing is written and no error shows.
 			const setup = await start("init $dynaflows");
 			assert.ok(setup.includes("Start skill://dynaflows/references/harness-setup.md setup now, from Step 0") && setup.includes("owner/repo"), setup);
 			assert.ok(setup.includes('\\"dynaflows\\": {\\"enabled\\": true}'), setup);
 			assert.equal(existsSync(h.recordDir()), false, "enabling never creates a record");
 			assert.ok(h.notes.some(note => note.includes("starting repository setup")), h.notes.join("; "));
 			assert.deepEqual(h.errors, [], "no record is a stage, not an error");
-			// A refused record: setup resumes and names the reason.
 			h.rawGate('{"schemaVersion":2,"dynaflows":{"enabled":false}}');
 			const resume = await start("$dynaflows enable");
 			assert.ok(resume.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && resume.includes("checks"), resume);
 			h.rawGate("{broken");
 			const broken = await start("$dynaflows enable");
 			assert.ok(broken.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && broken.includes("is refused: "), broken);
-			// A valid record and a directive-only prompt: assess the stage and start it.
 			h.gate({ schemaVersion: 2 });
 			const kickoff = await start("$dynaflows on");
 			assert.ok(kickoff.includes("Dynaflows on for owner/repo") && kickoff.includes("skill://dynaflows"), kickoff);
 			assert.ok(kickoff.includes("Report the stage you found and start it") && kickoff.includes("ask the owner for the task"), kickoff);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the kickoff counts as the pointer");
-			// A directive beside a task: the prompt's task is routed.
 			const route = await start("enable $dynaflows\nfix the login bug");
 			assert.ok(route.includes("Dynaflows on. Route this work with skill://dynaflows") && !route.includes("Report the stage"), route);
-			// The machine default keeps it off and says so.
 			h.machineDynaflows(false);
 			const kept = await start("$dynaflows");
 			assert.ok(kept.includes("Dynaflows off for owner/repo: the machine default") && kept.includes("Do not apply dynaflows"), kept);
@@ -668,7 +659,6 @@ test("path checks keep ignored files excluded when a path crosses a symlink", as
 		const ignored = join(h.root, "node_modules/pkg/index.js");
 		writeFileSync(ignored, "module.exports = true;\n");
 		writeFileSync(join(outside, "file"), "live\n");
-		// An escaping symlink retains its lexical path when rails prepares the Git query.
 		symlinkSync(outside, join(h.root, "link"), "dir");
 		const checked: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
@@ -759,7 +749,6 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 	} finally { h.cleanup(); }
 });
 
-// The generic CI rule (no ci block declared) on a dynaflows merge with prove() passed.
 for (const scenario of [
 	{ name: "failed CheckRun", rollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" }], fragment: "test: COMPLETED/FAILURE" },
 	{ name: "pending CheckRun", rollup: [{ __typename: "CheckRun", name: "test", status: "IN_PROGRESS", conclusion: null }], fragment: "test: IN_PROGRESS" },
@@ -791,7 +780,6 @@ for (const scenario of [
 	});
 }
 
-// gate.ci: the declared context must be SUCCESS on the exact head, as a commit status or a check run.
 const requiredRefusal = (state: string) => `Agent rails: required CI context "gate" is ${state} for ${ciHead} in base-owner/base-repo (runner ci-gate). Submit and wait: python3 ${ciRunner} submit ci-gate base-owner/base-repo ${ciHead}, then python3 ${ciRunner} wait ci-gate base-owner/base-repo ${ciHead} --context gate; see skill://git-tool/references/merge-and-recover.md for failures.`;
 for (const scenario of [
 	{ name: "missing among other green checks", rollup: [{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" }], state: "missing" },
@@ -805,7 +793,6 @@ for (const scenario of [
 		{ __typename: "CheckRun", name: "audit-packages", status: "COMPLETED", conclusion: "SUCCESS" },
 	] },
 	{ name: "success as CheckRun", rollup: [{ __typename: "CheckRun", name: "gate", status: "COMPLETED", conclusion: "SUCCESS" }] },
-	// Only the declared context decides: optional checks, red or pending, never block.
 	{ name: "success while other checks are red or pending", rollup: [
 		{ __typename: "StatusContext", context: "gate", state: "SUCCESS" },
 		{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" },
@@ -1103,7 +1090,6 @@ test("toggle asks ignore mentions without a verb and reject contradictions and n
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
 			assert.deepEqual(h.record(), record, prompt);
 		}
-		// Prose around a directive makes it a sentence, which the agent judges instead.
 		for (const prompt of ["please $dynaflows on", "please enable $dynaflows", "`$dynaflows init`", "$dynaflows on."]) {
 			await h.emit("before_agent_start", { reason: "prompt", prompt });
 			assert.deepEqual(h.record(), record, prompt);
@@ -1138,7 +1124,6 @@ test("linked worktrees resolve the main checkout's record", async () => {
 });
 
 test("Python proof gates and rails accept the same schema fixtures", async () => {
-	// Each case sits over a complete dynaflows-off record; a case's undefined value drops the field.
 	const record = { checks: { commit: ["true"] }, ownerOnlyPaths: [], dynaflows: { enabled: false } };
 	const cases: object[] = [
 		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, checks: undefined },
