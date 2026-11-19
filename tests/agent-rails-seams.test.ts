@@ -28,7 +28,13 @@ type Event = {
 };
 type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object; model?: string[] };
 type Handler = Function;
-type Tool = { name: string; execute(id: string, params: { enabled: boolean }, signal: undefined, onUpdate: undefined, ctx: ExtensionContext): Promise<{ content: { text: string }[] }> };
+type FixtureContext = {
+	cwd: string; agent: ExtensionContext["agent"];
+	ui: { notify(message: string, level?: string): void };
+	sessionManager: { getSessionId(): string; getBranch(): object[] };
+};
+type Tool = { name: string; execute: Function };
+const toolResultSchema = z.object({ content: z.array(z.object({ text: z.string() })) });
 const execFailureSchema = z.object({
 	code: z.number().optional().catch(undefined),
 	killed: z.boolean().optional(),
@@ -57,10 +63,8 @@ const wrappedPublishing = [
 
 const railsConfig = join(import.meta.dir, "../agent/rails.yml");
 const defaultOrigin = "git@github.com:owner/repo.git";
-// A record's gate.json as tests read it back: the switch typed, every other field kept.
 const recordGateSchema = z.object({ dynaflows: z.object({ enabled: z.boolean() }) }).passthrough();
 
-// Rails run every repo command as `env -u AGENT -- <argv>`; this returns <argv> and fails otherwise.
 function repoCommand(command: string, args: string[]): [string, string[]] {
 	if (command === "env") {
 		assert.deepEqual(args.slice(0, 3), ["-u", "AGENT", "--"], "repo commands run without the harness variables");
@@ -78,9 +82,6 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 	return [command, args];
 }
 
-// A temp repo whose origin names a per-repo record under a temp config root (never the real one).
-// `configRoot` shares another harness's records; `guardrailsCommand: "default"` keeps the real
-// guardrails invocation, otherwise the harness checks are `true`.
 type ExtensionOptions = NonNullable<Parameters<typeof agentRails>[1]> & NonNullable<Parameters<typeof dynaflowsExtension>[1]>;
 type CommandChoices = { configPath: string | undefined; ompCommand: string[] | undefined; guardrailsCommand: string[] | "default" };
 
@@ -113,14 +114,12 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	let sessionId = "first";
 	let pathFailure: string | undefined;
 	const identity: ExtensionContext["agent"] = { kind: "main", id: root, name: "main", depth: 0 };
-	const context = {
+	const context: FixtureContext = {
 		cwd: root,
 		agent: identity,
 		ui: { notify(message: string, level?: string) { notes.push(message); if (level === "error") errors.push(message); } },
 		sessionManager: { getSessionId: () => sessionId, getBranch: () => branch },
 	};
-	// SAFETY: this fixture supplies every context surface consumed by the registered policies.
-	const extensionContext = context as ExtensionContext;
 	const api = {
 		pi: { settings: Settings.isolated() },
 		on(name: string, handler: Handler) {
@@ -152,11 +151,9 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	};
 	const options = extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand });
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
-	// SAFETY: this fixture supplies the API surfaces consumed by both extension registrations.
-	const extensionApi = api as Parameters<typeof dynaflowsExtension>[0] & Parameters<typeof agentRails>[0];
+	const extensionApi: Parameters<typeof dynaflowsExtension>[0] & Parameters<typeof agentRails>[0] = api;
 	if (extensions !== "dynaflows") agentRails(extensionApi, options);
 	if (extensions !== "generic") dynaflowsExtension(extensionApi, options);
-	// The record's gate.json: the fixture over a dynaflows-off default; `dynaflows()` wins.
 	let fixture: GateFixture | undefined;
 	let enabled: boolean | undefined;
 	let slug = parseOrigin(remote);
@@ -172,7 +169,6 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		writeFileSync(join(recordDir(), "gate.json"), text);
 	};
 	const writeGate = () => {
-		// A complete record: checks.commit defaults to `true`, ownerOnlyPaths to none.
 		const gate = { checks: { commit: ["true"] }, ownerOnlyPaths: [], dynaflows: { enabled: false }, ...(fixture ?? { schemaVersion: 2 }) };
 		if (enabled !== undefined) gate.dynaflows = { enabled };
 		writeRecord(JSON.stringify(gate));
@@ -181,7 +177,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
 		let combined: Result | undefined;
 		for (const handler of handlers.get(name) ?? []) {
-			const result: Result | void = await handler({ type: name, ...event }, extensionContext);
+			const result: Result | void = await handler({ type: name, ...event }, context);
 			if (result?.block || result?.decision === "block") return result;
 			if (result) combined = mergeResults(combined, result);
 		}
@@ -192,19 +188,16 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		pathFailure(message?: string) { pathFailure = message; },
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
-		// Runs a registered tool as the current agent and returns its text.
 		async tool(name: string, params: { enabled: boolean }) {
 			const tool = tools.get(name);
 			assert.ok(tool, `missing tool ${name}`);
-			return (await tool.execute("tool-1", params, undefined, undefined, extensionContext)).content.map(part => part.text).join("");
+			return toolResultSchema.parse(await tool.execute("tool-1", params, undefined, undefined, context)).content.map(part => part.text).join("");
 		},
 		gate(value: GateFixture) { fixture = value; writeGate(); },
 		worktreeBase(value: string) { writeFileSync(join(machine, "worktree-base"), `${value}\n`); },
 		dynaflows(value: boolean) { enabled = value; writeGate(); },
-		// Raw gate.json text, for invalid fixtures.
 		rawGate(text: string) { writeRecord(text); },
 		record() { return recordGateSchema.parse(JSON.parse(readFileSync(join(recordDir(), "gate.json"), "utf8"))); },
-		// Moves origin; an existing record moves with it, as a re-pointed clone keeps its record.
 		async origin(url: string) {
 			const previous = slug ? join(records, "repos", slug) : undefined;
 			await execute("git", ["remote", "set-url", "origin", url], { cwd: root });
@@ -302,7 +295,6 @@ type PrCiHarness = {
 	};
 };
 
-// Fakes `gh pr view`; every other command runs for real.
 type PrView = { head?: string; selector?: string; failure?: string; url?: string };
 
 function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
@@ -321,7 +313,6 @@ function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
 	};
 }
 
-// Refuses every gh call: plain publishing (no ci block, dynaflows off) must never query GitHub.
 function forbidGh(h: PrCiHarness) {
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
@@ -336,7 +327,6 @@ async function originRemote(h: { origin(url: string): Promise<void> }, remote = 
 	await h.origin(remote);
 }
 
-// prove()'s result file for `head`, the one pass signal the merge guard reads.
 function proveResult(h: { root: string }, head = ciHead, status = "pass") {
 	mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
 	writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
@@ -484,7 +474,6 @@ export type { Input };
 			assert.equal(await h.call("bash", { command: `git -C '${other.root}' push` }), undefined);
 			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			assert.equal(await bashBlocked(h, `git -C '${other.root}' push`), true);
-			// cwd-changing commands must select the destination repo, not the session repo.
 			for (const action of ["git push", "gh pr create", "gh pr merge 7"]) await checkDestinationRepository(h, other, action);
 			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
 				h.rawGate(invalid);
@@ -510,7 +499,6 @@ export type { Input };
 				"LEFTHOOK=0 sh -c 'cd . && git commit -m x'", "export HUSKY=0; git commit -m x",
 				"env -S 'SKIP=x' git commit -m x", "export HUSKY=1; HUSKY=0; git commit -m x",
 				"HUSKY=0; export HUSKY; git commit -m x", "unset HUSKY; export HUSKY; HUSKY=0; git commit -m x",
-				// Conservative: the command touches a skip variable, so the value and later shell state are ignored.
 				"LEFTHOOK=1 git commit -m x", "export HUSKY=0; export -n HUSKY; git commit -m x",
 				"export HUSKY=0; unset HUSKY; git commit -m x", "(export HUSKY=0); git commit -m x",
 				"env 'HUSKY'=0 git commit -m x", `env HUS"KY"=0 git commit -m x`, `export HUS"KY"=0; git commit -m x`,
