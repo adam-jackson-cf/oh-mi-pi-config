@@ -7,8 +7,9 @@ record after each phase).
 
 - ``fast-tier`` blocks process creation (``subprocess.Popen``, ``os.system``, ``os.exec*``,
   ``os.posix_spawn``, ``os.spawn*``, ``os.fork``, ``os.forkpty``) and IP network traffic
-  (``socket.connect``/``sendto``/``sendmsg`` on ``AF_INET``/``AF_INET6`` sockets). Unix-domain
-  sockets stay allowed: they carry in-process IPC, not network traffic.
+  (``socket.connect``/``sendto``/``sendmsg`` on ``AF_INET``/``AF_INET6`` sockets), including host
+  name resolution (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyaddr``, ``getnameinfo``).
+  Unix-domain sockets stay allowed: they carry in-process IPC, not network traffic.
 - ``user-data`` blocks writes, deletes, renames and metadata changes under the user's real home
   directory, except inside the allowed roots (the redirected temporary home, pytest's base temp
   directory and the project root). Reads stay allowed.
@@ -41,6 +42,13 @@ PROCESS_EVENTS = frozenset({
     "os.forkpty",
 })
 NETWORK_EVENTS = frozenset({"socket.connect", "socket.sendto", "socket.sendmsg"})
+# Name resolution queries DNS (or another resolver service) before any socket opens.
+RESOLVER_EVENTS = frozenset({
+    "socket.getaddrinfo",
+    "socket.gethostbyname",
+    "socket.gethostbyaddr",
+    "socket.getnameinfo",
+})
 IP_FAMILIES = frozenset({socket.AF_INET, socket.AF_INET6})
 # Audit events that change the file system, mapped to the argument positions holding paths.
 WRITE_EVENTS = {
@@ -150,6 +158,9 @@ def fast_tier_violation(event: str, args: tuple[Any, ...]) -> str | None:
     ):
         address = args[1] if len(args) > 1 else ""
         return f"{rule}: the fast tier may not use the network ({event} {address!r})"
+    if event in RESOLVER_EVENTS:
+        name = args[0] if args else ""
+        return f"{rule}: the fast tier may not resolve host names ({event} {name!r})"
     return None
 
 
