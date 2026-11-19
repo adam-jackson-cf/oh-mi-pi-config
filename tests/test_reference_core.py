@@ -18,6 +18,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails import cli
 from guardrails.config import profile as profile_module
 from guardrails.findings import Finding, exit_code, format_findings
@@ -90,7 +92,7 @@ class ProfileLoadingTests(unittest.TestCase):
             with self.subTest(name=name):
                 if text is not None:
                     self.write_profile(text)
-                with self.assertRaises(profile_module.ProfileError):
+                with pytest.raises(profile_module.ProfileError):
                     profile_module.load_profile(self.record)
 
 

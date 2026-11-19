@@ -19,6 +19,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails import cli
 from guardrails.test_evidence import (
     budgets,
@@ -144,11 +146,11 @@ class JunitNormalisationTests(unittest.TestCase):
         assert case.id == "tests/test_a.py::TestA::test_x"
 
     def test_unusable_reports_raise_report_errors(self) -> None:
-        with self.assertRaisesRegex(junit.ReportError, "well-formed"):
+        with pytest.raises(junit.ReportError, match="well-formed"):
             junit.parse_text("<testsuite>", GENERIC, "r.xml")
-        with self.assertRaisesRegex(junit.ReportError, "root"):
+        with pytest.raises(junit.ReportError, match="root"):
             junit.parse_text("<html/>", GENERIC, "r.xml")
-        with self.assertRaisesRegex(junit.ReportError, "does not exist"):
+        with pytest.raises(junit.ReportError, match="does not exist"):
             junit.parse_report(FIXTURES / "absent.xml", GENERIC)
 
     def test_malformed_times_normalise_to_none(self) -> None:
@@ -163,7 +165,7 @@ class JunitNormalisationTests(unittest.TestCase):
         )
         assert dialect.source_suffix == ".py"
         assert dialect.xfail_markers == ("pytest.xfail",)
-        with self.assertRaisesRegex(junit.UsageError, "unknown fields"):
+        with pytest.raises(junit.UsageError, match="unknown fields"):
             junit.dialect_for(None, {"suffix": ".py"})
 
     def test_an_adapter_without_a_dialect_module_uses_the_generic_dialect(self) -> None:
@@ -191,7 +193,7 @@ class JunitNormalisationTests(unittest.TestCase):
             "t1=x",
         )
         for argv in (["--exit-code", "five"], ["--junit"]):
-            with self.assertRaises(junit.UsageError):
+            with pytest.raises(junit.UsageError):
                 junit.report_options(repo, argv)
 
 

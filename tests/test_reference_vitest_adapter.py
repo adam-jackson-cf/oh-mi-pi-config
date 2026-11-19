@@ -15,6 +15,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails.adapters import vitest
 from guardrails.adapters.vitest import mutation, tiers
 from guardrails.config.profile import GUARDRAILS_SECTIONS
@@ -71,22 +73,22 @@ class VitestAdapterTests(unittest.TestCase):
             assert tiers.collected_ids(repo, entries) == [
                 "tests/total.test.ts::total > sums"
             ]
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError, match="duplicate IDs"):
                 tiers.collected_ids(repo, entries * 2)
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError, match="foreign.test.ts"):
                 tiers.collected_ids(
                     repo, [{"file": "../foreign.test.ts", "name": "foreign"}]
                 )
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError, match="must be an array"):
                 tiers.collected_ids(repo, {})
 
     def test_missing_runner_and_selector_are_blocking(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             assert tiers.collect_tier(repo, {}, "t1", repo.parent / "evidence")
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError, match="locked Vitest dependency"):
                 tiers.command(repo, {})
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError, match="nonempty argv list"):
                 tiers.command(
                     repo, {"guardrails": {"adapter_vitest": {"command": "vitest"}}}
                 )

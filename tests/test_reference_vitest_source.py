@@ -16,6 +16,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails.adapters.vitest import cases, lint
 from guardrails.diffs.growth import Snapshot, duplicate_findings, growth_findings
 from guardrails.findings import Finding
@@ -153,7 +155,7 @@ class StaticCases(unittest.TestCase):
             "test('same', () => {}); test('same', () => {});",
             "test('broken', () => {",
         ]:
-            with self.subTest(source=source), self.assertRaises(cases.CollectionError):
+            with self.subTest(source=source), pytest.raises(cases.CollectionError):
                 self.collect(source)
 
 

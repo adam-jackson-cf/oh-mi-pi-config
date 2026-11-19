@@ -22,6 +22,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails import child_env, cli
 from guardrails.catalogue import (
     rules as catalogue_rules,
@@ -597,7 +599,7 @@ class VersionMatchingTests(unittest.TestCase):
 
     def test_unsupported_input_raises(self) -> None:
         for text in ("", "pkg >> 1", "pkg~=1"):
-            with self.subTest(text=text), self.assertRaises(versions.VersionError):
+            with self.subTest(text=text), pytest.raises(versions.VersionError):
                 versions.parse_requirement(text).admits("1.0")
 
 

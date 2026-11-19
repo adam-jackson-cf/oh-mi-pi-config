@@ -1,15 +1,14 @@
 """Per-repo record resolution against real git clones, worktrees and temp records."""
 
 import json
-import re
 import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/lib"))
 import repo_record
@@ -49,15 +48,6 @@ def gate(**fields: object) -> dict[str, Any]:
     """GATE with `fields` replacing its values; a None value removes the field."""
     merged = {**GATE, **fields}
     return {key: value for key, value in merged.items() if value is not None}
-
-
-def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
-    """The ``error`` that ``action`` raises; fail the test when it raises none."""
-    try:
-        action()
-    except error as caught:
-        return caught
-    raise AssertionError(f"{error.__name__} not raised")
 
 
 def git(*args: str) -> None:
@@ -212,15 +202,11 @@ class Resolve(unittest.TestCase):
         record = self.write_record("owner/name", gate(dynaflows={"enabled": False}))
         assert not repo_record.dynaflows_enabled(self.repo, self.config)
         (record / "gate.json").write_text(json.dumps({"schemaVersion": 2}))
-        raised(
-            repo_record.RecordError,
-            partial(repo_record.dynaflows_enabled, self.repo, self.config),
-        )
+        with pytest.raises(repo_record.RecordError):
+            repo_record.dynaflows_enabled(self.repo, self.config)
         (record / "gate.json").write_text("{")
-        raised(
-            repo_record.RecordError,
-            partial(repo_record.dynaflows_enabled, self.repo, self.config),
-        )
+        with pytest.raises(repo_record.RecordError):
+            repo_record.dynaflows_enabled(self.repo, self.config)
 
     def test_a_record_missing_a_required_field_or_carrying_an_unknown_one_does_not_load(
         self,
@@ -246,26 +232,10 @@ class Resolve(unittest.TestCase):
         ):
             with self.subTest(named=named):
                 (record / "gate.json").write_text(json.dumps(invalid))
-                assert re.search(
-                    named,
-                    str(
-                        raised(
-                            repo_record.RecordError,
-                            partial(repo_record.load_gate, record),
-                        )
-                    ),
-                )
-                assert re.search(
-                    named,
-                    str(
-                        raised(
-                            repo_record.RecordError,
-                            partial(
-                                repo_record.dynaflows_enabled, self.repo, self.config
-                            ),
-                        )
-                    ),
-                )
+                with pytest.raises(repo_record.RecordError, match=named):
+                    repo_record.load_gate(record)
+                with pytest.raises(repo_record.RecordError, match=named):
+                    repo_record.dynaflows_enabled(self.repo, self.config)
 
     def test_default_root_is_the_checkout_holding_the_module(self) -> None:
         assert repo_record.config_root() == ROOT

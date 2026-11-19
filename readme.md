@@ -298,6 +298,11 @@ uv run mypy
 uv run pytest
 ```
 
+`scripts/run-ci-quality-gates.sh` runs `ruff check`, `ruff format --check` and `mypy` over the
+whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the gate. It runs the
+Python suites with `uv run --locked python -m unittest`, so the suites can import pytest. The
+CI-tier container installs uv by hash and syncs the locked environment in its `postCreateCommand`.
+
 ## Repository map
 
 - `agent/config.yml` — model-role routing and OMP runtime defaults.

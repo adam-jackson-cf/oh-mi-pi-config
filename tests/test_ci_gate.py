@@ -13,10 +13,11 @@ import threading
 import time
 import unittest
 from collections.abc import Callable
-from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 SOURCE = Path(__file__).resolve().parents[1]
 # ci_gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
@@ -45,15 +46,6 @@ def setUpModule() -> None:
 
 def tearDownModule() -> None:
     shutil.rmtree(HARNESS, ignore_errors=True)
-
-
-def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
-    """The ``error`` that ``action`` raises; fail the test when it raises none."""
-    try:
-        action()
-    except error as caught:
-        return caught
-    raise AssertionError(f"{error.__name__} not raised")
 
 
 FAKE = r"""#!/usr/bin/env python3
@@ -756,11 +748,11 @@ class CiGateTests(GateFixture):
         # The second process is alive but cannot enter podman before the first releases.
         self.until(lambda: (self.job(second) / "run.lock").exists())
         assert not (self.root / ("entered-" + second)).exists()
-        with (self.root / "state/ci-gate/locks/slot-0").open("a") as held_slot:
-            raised(
-                BlockingIOError,
-                partial(fcntl.flock, held_slot, fcntl.LOCK_EX | fcntl.LOCK_NB),
-            )
+        with (
+            (self.root / "state/ci-gate/locks/slot-0").open("a") as held_slot,
+            pytest.raises(BlockingIOError),
+        ):
+            fcntl.flock(held_slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert len(list((self.root / "state/ci-gate/locks").glob("slot-*"))) == 1
         (self.root / ("release-" + self.sha)).touch()
         self.until(lambda: (self.root / ("entered-" + second)).exists())

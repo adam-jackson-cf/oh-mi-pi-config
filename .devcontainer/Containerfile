@@ -61,5 +61,21 @@ RUN python3 -m venv /opt/guardrails \
   && /opt/guardrails/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: \
     -r /tmp/requirements-pytest.lock \
   && rm /tmp/requirements-pytest.lock
-ENV PATH="/opt/guardrails/bin:${PATH}" OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1
+# uv, pinned by hash, runs the gate's Python tooling from the repository's pyproject.toml and
+# uv.lock; the devcontainer's postCreateCommand syncs that locked environment.
+RUN python3 -m venv /opt/uv \
+  && printf '%s\n' \
+    "uv==0.13.7 \
+      --hash=sha256:2c9bdc4a872b60a93c5f26c0791089ea11585a4f9d3b3c017d78eb8487505e25 \
+      --hash=sha256:8b8ac028ae4ebb2a3f9d04907c61794f2cf8d7a7002bfbb4019a3dee28351fb2 \
+      --hash=sha256:a90f5d95716ab83091f0f73a8e7ec64e557abf2a28537fcd719b2ac88e6f725a \
+      --hash=sha256:08f16fd463926786b702b497473511deae4b3e17a2fa6d22180950d6059a120d" \
+    > /tmp/requirements-uv.lock \
+  && /opt/uv/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: \
+    -r /tmp/requirements-uv.lock \
+  && ln -s /opt/uv/bin/uv /usr/local/bin/uv \
+  && rm /tmp/requirements-uv.lock
+# The locked environment uses the image's python3; uv never downloads an interpreter.
+ENV PATH="/opt/guardrails/bin:${PATH}" OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1 \
+  UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
 WORKDIR /work

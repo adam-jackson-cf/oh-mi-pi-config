@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Never
 from unittest.mock import patch
 
+import pytest
+
 MODULE = (
     Path(__file__).resolve().parents[1]
     / "agent/extensions/dynaflows/engine/workflows.py"
@@ -268,9 +270,9 @@ class ProofRunTests(RepositoryCase):
                 tempfile.TemporaryDirectory(dir=root) as scratch,
             ):
                 self.manifest_path = Path(scratch) / "manifest.json"
-                with self.assertRaisesRegex(
+                with pytest.raises(
                     workflow.WorkflowError,
-                    re.escape("<git-common-dir>/omp-manifests/<slug>.json"),
+                    match=re.escape("<git-common-dir>/omp-manifests/<slug>.json"),
                 ):
                     self.freeze([proof])
                 assert not self.manifest_path.exists()
@@ -308,9 +310,9 @@ class ProofRunTests(RepositoryCase):
         for code in ("assert True\n", "print('no assertion')\n"):
             with (
                 self.subTest(code=code),
-                self.assertRaisesRegex(
+                pytest.raises(
                     workflow.WorkflowError,
-                    "P1: passes at baseline; a proof must fail at base",
+                    match="P1: passes at baseline; a proof must fail at base",
                 ),
             ):
                 self.freeze([self.proof(code=code)])
@@ -560,7 +562,7 @@ class ProofRunTests(RepositoryCase):
         proof = self.proof(code="import time; time.sleep(2)\n")
         with (
             patch.object(workflow, "CHECK_TIMEOUT", 0.01),
-            self.assertRaisesRegex(workflow.WorkflowError, "infrastructure: timeout"),
+            pytest.raises(workflow.WorkflowError, match="infrastructure: timeout"),
         ):
             self.freeze([proof])
 
@@ -715,10 +717,10 @@ class FreezeTests(RepositoryCase):
         self.write("value", "fixed")
         self.commit("implementation")
         for kwargs in ({"base": "HEAD"}, {"setup": ["true"]}):
-            with self.assertRaisesRegex(workflow.WorkflowError, "immutable"):
+            with pytest.raises(workflow.WorkflowError, match="immutable"):
                 self.freeze([proof], previous=retained, **kwargs)
         modified = dict(proof, criterion="specific value")
-        with self.assertRaisesRegex(workflow.WorkflowError, "silent proof change"):
+        with pytest.raises(workflow.WorkflowError, match="silent proof change"):
             self.freeze([modified], previous=retained)
         updated = self.freeze(
             [modified], previous=retained, revise={"P1": "clarify criterion"}
@@ -733,13 +735,13 @@ class FreezeTests(RepositoryCase):
         proof = self.proof()
         self.write("value", "fixed")
         self.commit("defective implementation")
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "defective implementation commit as parent"
+        with pytest.raises(
+            workflow.WorkflowError, match="defective implementation commit as parent"
         ):
             self.freeze([proof])
         revisions: tuple[object, ...] = ({"P1": " "}, {"unknown": "reason"}, [])
         for revise in revisions:
-            with self.assertRaises(workflow.WorkflowError):
+            with pytest.raises(workflow.WorkflowError):
                 self.freeze([proof], revise=revise)
 
     def test_freeze_paths_command_files_and_option_guards(self) -> None:
@@ -758,20 +760,20 @@ class FreezeTests(RepositoryCase):
         ):
             with self.subTest(token=token):
                 candidate = dict(proof, cmd=[sys.executable, token])
-                with self.assertRaises(workflow.WorkflowError):
+                with pytest.raises(workflow.WorkflowError):
                     self.freeze([candidate])
 
     def test_freeze_ignored_symlink_and_check_ignore_error(self) -> None:
         proof = self.proof()
         self.write(".gitignore", "proof.py\n")
         self.commit("ignore")
-        with self.assertRaisesRegex(workflow.WorkflowError, "ignored"):
+        with pytest.raises(workflow.WorkflowError, match="ignored"):
             self.freeze([proof])
         self.write(".gitignore", "")
         self.commit("unignore")
         (self.repo / "proof.py").unlink(missing_ok=True)
         (self.repo / "proof.py").symlink_to(self.repo / "value")
-        with self.assertRaisesRegex(workflow.WorkflowError, "symlink"):
+        with pytest.raises(workflow.WorkflowError, match="symlink"):
             self.freeze([proof])
         (self.repo / "proof.py").unlink()
         proof = self.proof()
@@ -784,23 +786,21 @@ class FreezeTests(RepositoryCase):
 
         with (
             patch.object(workflow.subprocess, "run", side_effect=fail_ignore),
-            self.assertRaisesRegex(
-                workflow.WorkflowError, "check-ignore infrastructure"
-            ),
+            pytest.raises(workflow.WorkflowError, match="check-ignore infrastructure"),
         ):
             self.freeze([proof])
 
     def test_caps_are_proof_specific(self) -> None:
         proofs = [self.proof(f"proof{i}.py", ident=f"P{i}") for i in range(17)]
         self.freeze(proofs, max_checks=17)
-        with self.assertRaises(workflow.WorkflowError):
+        with pytest.raises(workflow.WorkflowError):
             self.freeze(proofs)
         self.change(proofs=proofs)
         assert self.prove(max_checks=17)["status"] == "pass"
         self.assert_block(self.prove(), "within max_checks")
         self.assert_block(self.prove(max_checks=1), "within max_checks")
         for cap in (0, -1, True, 1.5, "2"):
-            with self.assertRaises(workflow.WorkflowError):
+            with pytest.raises(workflow.WorkflowError):
                 self.freeze(proofs, max_checks=cap)
             self.assert_block(self.prove(max_checks=cap), "positive integer")
 
@@ -819,7 +819,7 @@ class FreezeTests(RepositoryCase):
                     "_git",
                     side_effect=AssertionError("Git ran before draft validation"),
                 ),
-                self.assertRaises(workflow.WorkflowError),
+                pytest.raises(workflow.WorkflowError),
             ):
                 self.freeze(invalid)
 
@@ -846,7 +846,7 @@ class FreezeTests(RepositoryCase):
         previous = self.freeze([first, second])
         old_second = json.loads(previous[0].read_text())["proofs"][1]
         self.commit("frozen proofs")
-        with self.assertRaisesRegex(workflow.WorkflowError, "silent proof change"):
+        with pytest.raises(workflow.WorkflowError, match="silent proof change"):
             self.freeze([first], previous=previous)
         self.freeze(
             [first], previous=previous, revise={"P2": "remove duplicate criterion"}
@@ -877,12 +877,12 @@ class FreezeTests(RepositoryCase):
     def test_freeze_parent_before_base_and_slug_change(self) -> None:
         proof = self.proof()
         previous = self.freeze([proof])
-        with self.assertRaisesRegex(workflow.WorkflowError, "immutable"):
+        with pytest.raises(workflow.WorkflowError, match="immutable"):
             workflow.freeze(
                 self.repo, self.manifest_path, [proof], "different", previous=previous
             )
         self.commit("later base")
-        with self.assertRaisesRegex(workflow.WorkflowError, "at or after base"):
+        with pytest.raises(workflow.WorkflowError, match="at or after base"):
             self.freeze([dict(proof, parent=self.parent)], base="HEAD")
 
     def test_result_file_is_the_one_merge_signal_in_the_common_git_directory(
@@ -991,9 +991,7 @@ class RecordGateTests(RepositoryCase):
         ):
             with self.subTest(text=text):
                 (self.record / "gate.json").write_text(text)
-                with self.assertRaisesRegex(
-                    workflow.WorkflowError, re.escape(fragment)
-                ):
+                with pytest.raises(workflow.WorkflowError, match=re.escape(fragment)):
                     workflow.read_record(self.repo)
 
     def test_record_with_an_unknown_field_blocks_freeze_and_prove(self) -> None:
@@ -1011,12 +1009,14 @@ class RecordGateTests(RepositoryCase):
                         field: value,
                     })
                 )
-                with self.assertRaisesRegex(
-                    workflow.WorkflowError, f"unknown field {field} must be removed"
+                with pytest.raises(
+                    workflow.WorkflowError,
+                    match=f"unknown field {field} must be removed",
                 ):
                     workflow.read_record(self.repo)
-                with self.assertRaisesRegex(
-                    workflow.WorkflowError, f"unknown field {field} must be removed"
+                with pytest.raises(
+                    workflow.WorkflowError,
+                    match=f"unknown field {field} must be removed",
                 ):
                     self.freeze([self.proof()])
                 assert not self.manifest_path.exists()
@@ -1024,12 +1024,12 @@ class RecordGateTests(RepositoryCase):
     def test_freeze_without_record_refuses_unless_project_setup(self) -> None:
         (self.record / "gate.json").unlink()
         no_record = f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}"
-        with self.assertRaises(workflow.WorkflowError) as raised:
+        with pytest.raises(workflow.WorkflowError) as raised:
             self.freeze([self.proof()])
-        assert str(raised.exception) == no_record
+        assert str(raised.value) == no_record
         assert not self.manifest_path.exists()
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, re.escape(workflow.FEATURE_MAP_SETUP)
+        with pytest.raises(
+            workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
         ):
             self.freeze([self.proof()], project_setup=True)
         assert not self.manifest_path.exists(), (
@@ -1038,8 +1038,8 @@ class RecordGateTests(RepositoryCase):
         (self.repo / "proof.py").unlink()
         self.freeze([], project_setup=True)
         assert self.manifest_path.exists()
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "project_setup must be a bool"
+        with pytest.raises(
+            workflow.WorkflowError, match="project_setup must be a bool"
         ):
             self.freeze([self.proof()], project_setup="yes")
 
@@ -1090,9 +1090,7 @@ class RecordGateTests(RepositoryCase):
             self.repo / "proof.py"
         )
         assert workflow._sha(path) == digest
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "unfrozen change: other.txt"
-        ):
+        with pytest.raises(workflow.WorkflowError, match="unfrozen change: other.txt"):
             self.freeze([proof])
         git(self.repo, "commit", "-qm", "commit formatter output", "--", "other.txt")
         assert self.freeze([proof]).formatted == []
@@ -1106,8 +1104,8 @@ class RecordGateTests(RepositoryCase):
             ]
         )
         self.rebase_parent()
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "checks.format failed:\n(.|\n)*cannot format"
+        with pytest.raises(
+            workflow.WorkflowError, match="checks.format failed:\n(.|\n)*cannot format"
         ):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
@@ -1128,9 +1126,9 @@ class FeatureMapTests(RepositoryCase):
             code="from pathlib import Path\nprint('DOCTOR: database not reachable')\n"
             + RED_AT_BASE
         )
-        with self.assertRaisesRegex(
+        with pytest.raises(
             workflow.WorkflowError,
-            "P1: red came from the environment doctor, not the behaviour",
+            match="P1: red came from the environment doctor, not the behaviour",
         ):
             self.freeze([doctor])
         assert not self.manifest_path.exists()
@@ -1152,8 +1150,8 @@ class FeatureMapTests(RepositoryCase):
                 path.unlink()
         self.write_profile("---\n{not json\n---\n")
         self.rebase_parent("broken profile")
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "front matter is not valid JSON"
+        with pytest.raises(
+            workflow.WorkflowError, match="front matter is not valid JSON"
         ):
             self.freeze([self.proof()], base=self.parent)
 
@@ -1161,9 +1159,9 @@ class FeatureMapTests(RepositoryCase):
         self.write(f"{MAP_PATH}/value.md", map_doc("../../journey.py"))
         self.rebase_parent("map links only the journey")
         unmapped = self.proof("unmapped.py")
-        with self.assertRaisesRegex(
+        with pytest.raises(
             workflow.WorkflowError,
-            re.escape(
+            match=re.escape(
                 f"proof files not linked from any feature-map document under {MAP_PATH}: P1: unmapped.py"
             ),
         ):
@@ -1174,8 +1172,8 @@ class FeatureMapTests(RepositoryCase):
             f"{MAP_PATH}/value.md", map_doc("../../journey.py") + "\nSee unmapped.py.\n"
         )
         self.rebase_parent("prose mention")
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "not linked from any feature-map document"
+        with pytest.raises(
+            workflow.WorkflowError, match="not linked from any feature-map document"
         ):
             self.freeze([unmapped])
 
@@ -1198,8 +1196,8 @@ class FeatureMapTests(RepositoryCase):
         ):
             with self.subTest(surface=surface):
                 self.profile(None, **surface)
-                with self.assertRaisesRegex(
-                    workflow.WorkflowError, re.escape(workflow.FEATURE_MAP_SETUP)
+                with pytest.raises(
+                    workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
                 ):
                     self.freeze([self.proof()])
                 assert not self.manifest_path.exists()
@@ -1210,11 +1208,11 @@ class FeatureMapTests(RepositoryCase):
             })
             + "\n---\n"
         )
-        with self.assertRaisesRegex(workflow.WorkflowError, "project-setup"):
+        with pytest.raises(workflow.WorkflowError, match="project-setup"):
             self.freeze([self.proof()])
         self.profile(None, feature_map_path="docs/missing")
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "feature map docs/missing .* does not exist"
+        with pytest.raises(
+            workflow.WorkflowError, match="feature map docs/missing .* does not exist"
         ):
             self.freeze([self.proof()])
         (self.repo / "proof.py").unlink()
@@ -1699,7 +1697,7 @@ class JourneyAndResultTests(RepositoryCase):
         assert '"status": "pass"' in bodies[0]
         with (
             patch.object(workflow, "_github", return_value=[]),
-            self.assertRaisesRegex(workflow.WorkflowError, "no unique open PR"),
+            pytest.raises(workflow.WorkflowError, match="no unique open PR"),
         ):
             workflow._post_result_comment(
                 self.repo, head, {"status": "pass", "head": head}
@@ -1748,7 +1746,7 @@ class SchemaTests(unittest.TestCase):
         for key, value in mutations:
             with (
                 self.subTest(key=key, value=value),
-                self.assertRaises(workflow.WorkflowError),
+                pytest.raises(workflow.WorkflowError),
             ):
                 self.load(dict(self.data, **{key: value}))
         for key, value in (
@@ -1764,11 +1762,11 @@ class SchemaTests(unittest.TestCase):
             data["proofs"][0][key] = value
             with (
                 self.subTest(key=key, value=value),
-                self.assertRaises(workflow.WorkflowError),
+                pytest.raises(workflow.WorkflowError),
             ):
                 self.load(data)
         self.path.write_text("{")
-        with self.assertRaises(workflow.WorkflowError):
+        with pytest.raises(workflow.WorkflowError):
             workflow.load_manifest(self.path, workflow._sha(self.path))
 
     def test_zero_proofs_are_valid(self) -> None:
@@ -1781,16 +1779,16 @@ class SchemaTests(unittest.TestCase):
             data["proofs"][0][key] = value
             with (
                 self.subTest(key=key),
-                self.assertRaisesRegex(
-                    workflow.WorkflowError, f"P: unknown proof field {key}"
+                pytest.raises(
+                    workflow.WorkflowError, match=f"P: unknown proof field {key}"
                 ),
             ):
                 self.load(data)
 
     def test_unknown_manifest_fields_are_refused_by_name(self) -> None:
         data = dict(self.data, unknownField=2)
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "unknown manifest field unknownField"
+        with pytest.raises(
+            workflow.WorkflowError, match="unknown manifest field unknownField"
         ):
             self.load(data)
 
@@ -1811,7 +1809,7 @@ class SchemaTests(unittest.TestCase):
         ):
             data = copy.deepcopy(self.data)
             data["proofs"][0].update(files=[name], sha256={name: "b" * 64})
-            with self.subTest(name=name), self.assertRaises(workflow.WorkflowError):
+            with self.subTest(name=name), pytest.raises(workflow.WorkflowError):
                 self.load(data)
         with patch.object(
             workflow.tempfile,
@@ -1850,15 +1848,13 @@ class SchemaTests(unittest.TestCase):
             assert self.load(data) == data
         data = copy.deepcopy(self.data)
         data["proofs"][0]["journey"] = "yes"
-        with self.assertRaisesRegex(
-            workflow.WorkflowError, "journey must be a boolean"
-        ):
+        with pytest.raises(workflow.WorkflowError, match="journey must be a boolean"):
             self.load(data)
 
     def test_harness_root_survives_a_later_kernel_load(self) -> None:
         loaded: dict[str, Any] = {"__name__": "kernel"}
         exec(compile(MODULE.read_text(), "<cell>", "exec"), loaded)
-        with self.assertRaisesRegex(loaded["WorkflowError"], "without __file__"):
+        with pytest.raises(loaded["WorkflowError"], match="without __file__"):
             loaded["_harness_root"]()
         # The eval kernel's %load sets __file__ in the shared namespace; a later %load replaces it.
         kernel: dict[str, Any] = {"__name__": "kernel", "__file__": str(MODULE)}
@@ -1942,16 +1938,16 @@ class LabelTests(unittest.TestCase):
     def test_inputs_validated_before_spawn(self) -> None:
         for cases in (None, [{"id": ""}], [{"id": "a"}, {"id": "a"}], [{"id": 1}]):
             self.path.write_text(json.dumps(cases))
-            with self.assertRaises(workflow.WorkflowError):
+            with pytest.raises(workflow.WorkflowError):
                 workflow.blind_label([self.path], "rubric", ["yes"])
         for selectors in (
             ("scout", "task"),
             ("scout", "scout"),
             ("designer", "reviewer"),
         ):
-            with self.assertRaises(workflow.WorkflowError):
+            with pytest.raises(workflow.WorkflowError):
                 workflow.blind_label([], "rubric", ["yes"], selectors)
-        with self.assertRaises(workflow.WorkflowError):
+        with pytest.raises(workflow.WorkflowError):
             workflow.blind_label([self.path] * 9, "rubric", ["yes"])
         self.agent.assert_not_called()
 
@@ -2091,12 +2087,12 @@ class DependencyAuditParsingTests(unittest.TestCase):
         ):
             with (
                 self.subTest(line=line),
-                self.assertRaisesRegex(
-                    workflow.WorkflowError, "SECURITY.dependency-audit"
+                pytest.raises(
+                    workflow.WorkflowError, match="SECURITY.dependency-audit"
                 ),
             ):
                 workflow.parse_dependency_audit(line)
-        with self.assertRaisesRegex(workflow.WorkflowError, "truncated"):
+        with pytest.raises(workflow.WorkflowError, match="truncated"):
             workflow.parse_dependency_audit("…" + ADVISORY)
 
     def test_the_parser_matches_the_catalogue_contract(self) -> None:
@@ -2205,7 +2201,7 @@ class SeverityRubricTests(unittest.TestCase):
         assert (rated["severity"], rated["route"]) == ("low", "owner")
         assert "dated exception" in rated["reasons"][0]
         assert rated["suggested_fix"] == "replace node-serialize with JSON.parse"
-        with self.assertRaisesRegex(workflow.WorkflowError, "fix_options"):
+        with pytest.raises(workflow.WorkflowError, match="fix_options"):
             self.rate(answers(), advisory=self.no_fix)
 
     def test_invalid_judgment_answers_or_evidence_raise(self) -> None:
@@ -2217,14 +2213,14 @@ class SeverityRubricTests(unittest.TestCase):
             None,
             {**answers(), "impact": {"probabilities": {"rce": 1.0}}},
         ):
-            with self.subTest(answer=answer), self.assertRaises(workflow.WorkflowError):
+            with self.subTest(answer=answer), pytest.raises(workflow.WorkflowError):
                 self.rate(answer)
         bad = evidence()
         bad["scope"] = "test"
-        with self.assertRaisesRegex(workflow.WorkflowError, "scope"):
+        with pytest.raises(workflow.WorkflowError, match="scope"):
             workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
         bad = {**evidence(), "extra": 1}
-        with self.assertRaisesRegex(workflow.WorkflowError, "evidence needs"):
+        with pytest.raises(workflow.WorkflowError, match="evidence needs"):
             workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
         for invalid in (
             {},
@@ -2233,12 +2229,9 @@ class SeverityRubricTests(unittest.TestCase):
             {**BLOCKED_FIX, "constraint_source": "http://example.org"},
             {**BLOCKED_FIX, "unexpected": "value"},
         ):
-            with (
-                self.subTest(blocker=invalid),
-                self.assertRaises(workflow.WorkflowError),
-            ):
+            with self.subTest(blocker=invalid), pytest.raises(workflow.WorkflowError):
                 self.rate(answers(), blocked_fix=invalid)
-        with self.assertRaises(workflow.WorkflowError):
+        with pytest.raises(workflow.WorkflowError):
             self.rate(
                 answers(),
                 advisory=self.no_fix,
@@ -2454,9 +2447,9 @@ class TriageTests(unittest.TestCase):
         assert result["owner"] == [], "the low advisories themselves stay in-flow fixes"
 
     def test_missing_evidence_or_a_failed_judgment_never_passes(self) -> None:
-        with self.assertRaisesRegex(workflow.WorkflowError, "missing"):
+        with pytest.raises(workflow.WorkflowError, match="missing"):
             self.run_triage({}, {self.keys[0]: evidence()})
-        with self.assertRaisesRegex(workflow.WorkflowError, "severity judgment failed"):
+        with pytest.raises(workflow.WorkflowError, match="severity judgment failed"):
             self.run_triage(
                 {"PyYAML": RuntimeError("judge offline"), "black": answers()},
                 {key: evidence() for key in self.keys},

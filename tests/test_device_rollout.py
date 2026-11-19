@@ -9,12 +9,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 PROCESS_TIMEOUT = 60
 MODULE = Path(__file__).resolve().parents[1] / "scripts/device_rollout.py"
@@ -112,15 +112,6 @@ class Pipeline:
     ) -> tuple[int, int, str]:
         self.calls.append((producer, consumer))
         return (*self.codes, self.reason)
-
-
-def raised(error: type[Exception], action: Callable[[], object]) -> Exception:
-    """The ``error`` that ``action`` raises; fail the test when it raises none."""
-    try:
-        action()
-    except error as caught:
-        return caught
-    raise AssertionError(f"{error.__name__} not raised")
 
 
 def execute(
@@ -487,17 +478,30 @@ class RunnerConfigTests(unittest.TestCase):
             ] * 3
             assert "--log-failed" in actions["logs"][2]
             assert actions["logs"][-3:] == ["{repo}", "{sha}", "{tail}"]
-        for bad in (
-            {**definition, "remoteBase": "/abs; rm"},
-            {**definition, "roles": {"x": {"kind": "ci-gate", "host": "a b"}}},
-            {**definition, "roles": {"x": {"kind": "other"}}},
-            {**definition, "roles": {"x": {"kind": "github-actions"}}},
-            {**definition, "roles": {"x": {"kind": "github-actions", "timeout": 0}}},
+        for bad, named in (
+            ({**definition, "remoteBase": "/abs; rm"}, "remoteBase"),
+            (
+                {**definition, "roles": {"x": {"kind": "ci-gate", "host": "a b"}}},
+                "ssh alias",
+            ),
+            (
+                {**definition, "roles": {"x": {"kind": "other"}}},
+                "unknown ciRunners kind",
+            ),
+            (
+                {**definition, "roles": {"x": {"kind": "github-actions"}}},
+                "positive timeout",
+            ),
+            (
+                {
+                    **definition,
+                    "roles": {"x": {"kind": "github-actions", "timeout": 0}},
+                },
+                "positive timeout",
+            ),
         ):
-            raised(
-                ValueError,
-                partial(rollout.runner_document, bad, "mac-cf3", "/base", infisical),
-            )
+            with self.subTest(named=named), pytest.raises(ValueError, match=named):
+                rollout.runner_document(bad, "mac-cf3", "/base", infisical)
         for setting in (
             None,
             {},
@@ -505,14 +509,11 @@ class RunnerConfigTests(unittest.TestCase):
             {"project": "p; rm", "environment": "e"},
             {"project": "p", "environment": ""},
         ):
-            with self.subTest(infisical=setting):
-                error = raised(
-                    ValueError,
-                    partial(
-                        rollout.runner_document, definition, "mac-cf3", "/base", setting
-                    ),
-                )
-                assert "infisical" in str(error)
+            with (
+                self.subTest(infisical=setting),
+                pytest.raises(ValueError, match="infisical"),
+            ):
+                rollout.runner_document(definition, "mac-cf3", "/base", setting)
 
     def test_registry_holds_infisical_project_once_for_key_and_runners(self) -> None:
         text = MODULE.with_name("device-rollout-hosts.json").read_text()

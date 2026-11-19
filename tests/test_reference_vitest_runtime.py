@@ -20,6 +20,8 @@ sys.path.insert(
 )
 
 
+import pytest
+
 from guardrails.adapters.vitest import conformance
 from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments
 from guardrails.test_evidence.junit import parse_text
@@ -159,7 +161,7 @@ if (result.status !== 0) throw new Error('t2 process unexpectedly blocked');
             assert entry.parent == report.parent.resolve()
             assert json.dumps(str(report.resolve())) in entry.read_text()
             assert {item.name for item in report.parent.iterdir()} == {entry.name}
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError, match="unknown Vitest tier"):
             junit_arguments("unknown", "unused.xml")
 
     def test_dialect_preserves_native_names_durations_skips_expected_failures_and_retries(
@@ -218,7 +220,7 @@ if (result.status !== 0) throw new Error('t2 process unexpectedly blocked');
             not result.passed and "installed locally" in result.detail
             for result in results
         )
-        with self.assertRaisesRegex(ValueError, "unknown conformance"):
+        with pytest.raises(ValueError, match="unknown conformance"):
             conformance.run_conformance(["not-a-case"])
 
 
