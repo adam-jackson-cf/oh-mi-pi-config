@@ -29,7 +29,7 @@ PRESENT = importlib.util.find_spec("ast_grep_py") is not None
 REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
 PROFILE: dict[str, Any] = {
     "public_entry_points": {"shop/core.ts": ["checkout"]},
-    "tiers": {"t1": {"location": "tests"}},
+    "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
     "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
 }
 
@@ -40,7 +40,8 @@ def findings(
     rules = [
         rule
         for rule in lint.load_rules()
-        if rule.scope == ("tests" if lint.is_test(path, profile) else "production")
+        if rule.scope
+        == ("tests" if lint.is_test(path, profile, "vitest") else "production")
     ]
     return lint.file_findings(path, source, rules, lint.owned_roots(profile))
 

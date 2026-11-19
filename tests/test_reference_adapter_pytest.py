@@ -30,8 +30,10 @@ sys.path.insert(
 from guardrails import cli
 from guardrails.adapters import pytest as adapter
 from guardrails.adapters.pytest import guards, mutation, symbol_usage
+from guardrails.adapters.pytest.cases import collect as collect_cases
 from guardrails.adapters.pytest.dialect import DIALECT
 from guardrails.findings import Finding
+from guardrails.test_evidence.collection import read_ids
 from guardrails.test_evidence.junit import dialect_for, parse_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +93,9 @@ def containerfile_lock() -> dict[str, frozenset[str]]:
 
 # Each repository's record: a directory outside it, removed when the module's tests finish.
 RECORDS: dict[str, Path] = {}
+
+
+PYTEST_ONLY: dict[str, Any] = {"adapters": [{"name": "pytest", "tiers": {}}]}
 
 
 def write_profile(repo: Path, profile: dict[str, Any]) -> Path:
@@ -236,12 +241,13 @@ class StandardLibraryTests(unittest.TestCase):
     def test_cli_prints_tier_arguments_and_mutation_tool(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            write_profile(repo, {"adapter": "pytest"})
+            write_profile(repo, PYTEST_ONLY)
             report = Path(scratch).parent / "reports/t1.xml"
             code, out = run_cli(
                 "adapter",
                 "--repo",
                 str(repo),
+                "pytest",
                 "junit-args",
                 "--tier",
                 "t1",
@@ -257,6 +263,7 @@ class StandardLibraryTests(unittest.TestCase):
                     "adapter",
                     "--repo",
                     str(repo),
+                    "pytest",
                     "junit-args",
                     "--tier",
                     "t1",
@@ -265,7 +272,9 @@ class StandardLibraryTests(unittest.TestCase):
                 )
                 assert code == 1
                 assert "GUARDRAILS.output-outside-repo" in out
-            code, out = run_cli("adapter", "--repo", str(repo), "mutation-tool")
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "pytest", "mutation-tool"
+            )
             assert code == 0
             assert out.startswith("mutmut ")
 
@@ -289,7 +298,7 @@ class MutationTests(unittest.TestCase):
         self.repo.mkdir()
         self.out.mkdir()
         self.report = str(self.out / "m.json")
-        write_profile(self.repo, {"adapter": "pytest"})
+        write_profile(self.repo, PYTEST_ONLY)
         source = FIXTURES / "mutmut-run"
         self.core = self.repo / "src/ledger/core.py"
         self.core.parent.mkdir(parents=True)
@@ -318,7 +327,13 @@ class MutationTests(unittest.TestCase):
 
     def test_mutmut_results_normalise_to_function_spans(self) -> None:
         code, out = run_cli(
-            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+            "adapter",
+            "--repo",
+            str(self.repo),
+            "pytest",
+            "mutation-report",
+            "--out",
+            self.report,
         )
         assert code == 0, out
         report = json.loads(Path(self.report).read_text())
@@ -336,7 +351,13 @@ class MutationTests(unittest.TestCase):
 
     def test_surviving_mutant_in_changed_code_fails_the_check(self) -> None:
         run_cli(
-            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+            "adapter",
+            "--repo",
+            str(self.repo),
+            "pytest",
+            "mutation-report",
+            "--out",
+            self.report,
         )
         code, out = run_cli(
             "mutation-check",
@@ -358,7 +379,13 @@ class MutationTests(unittest.TestCase):
         data["exit_code_by_key"] = dict.fromkeys(data["exit_code_by_key"], 1)
         meta.write_text(json.dumps(data))
         run_cli(
-            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+            "adapter",
+            "--repo",
+            str(self.repo),
+            "pytest",
+            "mutation-report",
+            "--out",
+            self.report,
         )
         code, out = run_cli(
             "mutation-check",
@@ -374,7 +401,13 @@ class MutationTests(unittest.TestCase):
     def test_missing_mutmut_results_are_a_finding(self) -> None:
         (self.repo / "mutants/src/ledger/core.py.meta").unlink()
         code, out = run_cli(
-            "adapter", "--repo", str(self.repo), "mutation-report", "--out", self.report
+            "adapter",
+            "--repo",
+            str(self.repo),
+            "pytest",
+            "mutation-report",
+            "--out",
+            self.report,
         )
         assert code == 1
         assert "no mutmut results" in out
@@ -454,16 +487,19 @@ class TestOnlySymbolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             profile = {
-                "adapter": "pytest",
                 **self.PROFILE,
-                "tiers": {"t1": {"location": "tests"}},
+                "adapters": [
+                    {"name": "pytest", "tiers": {"t1": {"location": "tests"}}}
+                ],
                 "layout": {"test_file_patterns": ["test_*.py"]},
             }
             write_profile(repo, profile)
             for path, text in {**self.PRODUCTION, **self.TESTS}.items():
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
                 (repo / path).write_text(text)
-            code, out = run_cli("adapter", "--repo", str(repo), "lint", "shop/cart.py")
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "pytest", "lint", "shop/cart.py"
+            )
         assert code == 1
         assert "production symbol 'reset_cache_for_tests' is used only by tests" in out
 
@@ -474,11 +510,19 @@ def adapter_lint_rules() -> list[dict[str, Any]]:
 
 
 SHOP_PROFILE = {
-    "adapter": "pytest",
+    "adapters": [
+        {
+            "name": "pytest",
+            "tiers": {
+                "t1": {"selector": "fast", "location": "tests"},
+                "t2": {"selector": "slow", "location": "tests"},
+            },
+        }
+    ],
     "public_entry_points": {"shop": "shop.core:Basket"},
     "tiers": {
-        "t1": {"selector": "fast", "location": "tests", "command": "pytest -m fast"},
-        "t2": {"selector": "slow", "location": "tests", "command": "pytest -m slow"},
+        "t1": {"command": "pytest -m fast"},
+        "t2": {"command": "pytest -m slow"},
     },
     "layout": {"test_file_patterns": ["test_*.py"]},
     "house_style": {"version": 1},
@@ -549,7 +593,7 @@ class ExtraTests(unittest.TestCase):
                 "    monkeypatch.setattr('shop.core.price', lambda q: 0)\n"
             )
             repo = shop_repository(Path(scratch), source)
-            code, out = run_cli("adapter", "--repo", str(repo), "lint")
+            code, out = run_cli("adapter", "--repo", str(repo), "pytest", "lint")
             assert code == 1
             assert "tests/test_shop.py: TEST.no-self-mocking: line 17" in out
 
@@ -559,7 +603,7 @@ class ExtraTests(unittest.TestCase):
             repo = shop_repository(Path(scratch))
             out_dir = Path(scratch, "collections")
             code, out = run_cli(
-                "adapter", "--repo", str(repo), "tiers", "--out", str(out_dir)
+                "adapter", "--repo", str(repo), "pytest", "tiers", "--out", str(out_dir)
             )
             assert code == 0, out
             listing = (out_dir / "t1.txt").read_text()
@@ -621,6 +665,97 @@ class ExtraTests(unittest.TestCase):
                 "tests/test_shop.py::test_price_doubles"
             ]
             assert adapter.guard_evidence(report, "t1") == []
+
+    @needs_extra
+    def test_unittest_suites_take_tier_markers_and_run_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch), UNITTEST_SHOP_TEST)
+            (repo / "tests/test_shop_module.py").write_text(UNITTEST_MODULE_TEST)
+            out_dir = Path(scratch, "collections")
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "pytest", "tiers", "--out", str(out_dir)
+            )
+            assert code == 0, out
+            assert read_ids(out_dir / "t1.txt") == [
+                "tests/test_shop.py::FastPrices::test_price_doubles"
+            ]
+            assert read_ids(out_dir / "t2.txt") == [
+                "tests/test_shop.py::SlowPrices::test_price_of_zero",
+                "tests/test_shop_module.py::ModulePrices::test_price_of_one",
+            ]
+            report = Path(scratch, "t1.xml")
+            environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
+            environment.pop("PYTEST_ADDOPTS", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "-m",
+                    "fast",
+                    *adapter.tier_arguments("t1", str(report)),
+                    "tests",
+                ],
+                cwd=repo,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            parsed = parse_report(report, DIALECT)
+            assert [(case.id, case.outcome) for case in parsed.cases] == [
+                ("tests/test_shop.py::FastPrices::test_price_doubles", "passed")
+            ]
+            assert adapter.guard_evidence(report, "t1") == []
+
+    def test_static_collection_reads_testcase_classes_of_any_name(self) -> None:
+        collected = collect_cases("tests/test_shop.py", UNITTEST_SHOP_TEST)
+        assert set(collected.behaviours) == {
+            "tests/test_shop.py::FastPrices::test_price_doubles",
+            "tests/test_shop.py::SlowPrices::test_price_of_zero",
+        }
+
+
+UNITTEST_SHOP_TEST = """\
+import unittest
+
+import pytest
+
+from shop.core import price
+
+
+@pytest.mark.fast
+class FastPrices(unittest.TestCase):
+    def test_price_doubles(self):
+        self.assertEqual(price(3), 6)
+
+
+class PriceCase(unittest.TestCase):
+    pytestmark = pytest.mark.slow
+
+
+class SlowPrices(PriceCase):
+    def test_price_of_zero(self):
+        self.assertEqual(price(0), 0)
+"""
+UNITTEST_MODULE_TEST = """\
+from unittest import TestCase
+
+import pytest
+
+from shop.core import price
+
+pytestmark = pytest.mark.slow
+
+
+class ModulePrices(TestCase):
+    def test_price_of_one(self):
+        self.assertEqual(price(1), 2)
+"""
 
 
 if __name__ == "__main__":

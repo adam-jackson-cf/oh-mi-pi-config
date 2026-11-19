@@ -24,7 +24,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import child_env, cli
+from guardrails import adapters, child_env, cli
 from guardrails.catalogue import (
     rules as catalogue_rules,
     toolchain_parity,
@@ -137,7 +137,7 @@ class PackagedCatalogueTests(unittest.TestCase):
                     assert set(item) == {"subcommand", "module"}
                     assert subcommand in cli.SUBCOMMANDS
                     if subcommand == "adapter":
-                        assert module.startswith(cli.ADAPTER_PACKAGE + ".")
+                        assert module.startswith(adapters.PACKAGE + ".")
                     else:
                         assert module in cli.SUBCOMMANDS[subcommand].modules
                     sources = module_sources(module)

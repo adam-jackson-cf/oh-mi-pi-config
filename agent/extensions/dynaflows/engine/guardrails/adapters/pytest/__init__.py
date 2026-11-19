@@ -1,6 +1,6 @@
 """The pytest adapter: evidence and source patterns for the shared test checkers (plan §1.12).
 
-``guardrails adapter <action>`` with the profile's ``adapter`` set to ``pytest``:
+``guardrails adapter pytest <action>`` when the profile's ``adapters`` include ``pytest``:
 
 - ``lint [PATH ...]`` (default): ast-grep rules for TEST.no-self-mocking, TEST.no-test-hooks,
   TEST.no-evasion (static skip, xfail and retry markers) and TEST.property-seed.
@@ -13,8 +13,8 @@
   guards were armed (T1: fast-tier and user-data; T2 and T3: user-data) and ``omp.tier`` names
   the tier.
 - ``affected --base REF [--head REF]``: the pytest arguments that run the affected T2 tests
-  (shared selection in ``guardrails.diffs.affected``); prints nothing when none are
-  affected, and the reason on standard error.
+  (shared selection in ``guardrails.diffs.affected``, narrowed to the Python files this adapter
+  runs); prints nothing when none are affected, and the reason on standard error.
 - ``mutation-tool``: prints the mutation tool for TEST.mutation-sensitivity (mutmut, pinned by
   the ``mutation`` extra). It runs only in T3 (nightly); the adapter never runs it in CI.
 - ``mutation-report --out FILE``: after ``mutmut run``, writes mutmut's results as the shared
@@ -34,9 +34,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from guardrails.adapters import adapter_tiers, claimed
 from guardrails.findings import Finding
 
 NAME = "pytest"
+SUFFIXES = (".py",)
 MUTATION_TOOL = "mutmut"
 MUTATION_TIER = "t3"
 PLUGIN = "guardrails.adapters.pytest.plugin"
@@ -72,7 +74,9 @@ def output_finding(repo: Path, out: object) -> Finding | None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="guardrails adapter", description=__doc__)
+    root = argparse.ArgumentParser(
+        prog="guardrails adapter pytest", description=__doc__
+    )
     actions = root.add_subparsers(dest="action")
     lint = actions.add_parser("lint")
     lint.add_argument("paths", nargs="*")
@@ -125,20 +129,17 @@ def affected_arguments(
     except DiffError as error:
         return [range_finding(RULE, error)]
     print(f"selection: {selection.reason}", file=sys.stderr)
-    if selection.paths:
+    paths = claimed(profile, NAME, "t2", selection.paths, SUFFIXES)
+    if paths:
         from guardrails.adapters.pytest.tiers import selector_arguments
 
-        tiers: dict[str, Any] = (
-            profile["tiers"] if isinstance(profile.get("tiers"), dict) else {}
-        )
-        t2: dict[str, Any] = tiers["t2"] if isinstance(tiers.get("t2"), dict) else {}
-        selector = t2.get("selector")
+        selector = adapter_tiers(profile, NAME).get("t2", {}).get("selector")
         chosen = (
             selector_arguments(selector)
             if isinstance(selector, str) and selector
             else []
         )
-        print(shlex.join([*chosen, "--", *selection.paths]))
+        print(shlex.join([*chosen, "--", *paths]))
     return []
 
 

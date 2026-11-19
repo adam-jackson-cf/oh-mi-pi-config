@@ -14,6 +14,8 @@ Every module exposes ``run(repo: Path, profile: dict, argv: list[str]) -> list[F
 Exit codes: 0 no findings, 1 findings, 2 usage error (including a missing ``--record``).
 ``guardrails <subcommand> --help`` prints the subcommand's module documentation without
 reading the profile; ``init`` and ``adapter`` parse their own options and print their own help.
+``adapter`` takes the adapter's name first (``guardrails adapter pytest tiers --out DIR``): a
+profile may declare several frameworks, so the caller always names one.
 ``init`` drafts the record itself, so it is the one subcommand that writes: directly into a live
 record or a draft directory. ``--enable-dynaflows`` drafts dynaflows on.
 """
@@ -27,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from guardrails import adapters
 from guardrails.config.profile import (
     PROFILE_FILE,
     PROFILE_PATH,
@@ -47,9 +50,6 @@ class Subcommand:
     # standard error, so ``$(guardrails ...)`` captures only the data.
     prints_data: bool = False
 
-
-# The adapter subcommand resolves its module from the profile's ``adapter`` value.
-ADAPTER_PACKAGE = "guardrails.adapters"
 
 SUBCOMMANDS: dict[str, Subcommand] = {
     "check": Subcommand(
@@ -150,7 +150,9 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         ("guardrails.surface.lever_selftest",), "SURFACE.lever-isolation"
     ),
     "adapter": Subcommand(
-        (), "run the profile's test-framework adapter", prints_data=True
+        (),
+        "run one of the profile's test-framework adapters: adapter <name> <action>",
+        prints_data=True,
     ),
 }
 
@@ -240,12 +242,29 @@ def resolve_target(argv: list[str], needs_record: bool) -> tuple[Target, list[st
 def module_names(name: str, profile: dict[str, Any]) -> tuple[str, ...]:
     if name != "adapter":
         return SUBCOMMANDS[name].modules
-    adapter = profile.get("adapter")
-    if not isinstance(adapter, str) or not adapter.isidentifier():
+    return tuple(adapters.module_name(item) for item in declared_adapters(profile))
+
+
+def declared_adapters(profile: dict[str, Any]) -> list[str]:
+    """The profile's adapter names; a profile without one cannot run an adapter."""
+    found = adapters.names(profile)
+    if not found:
         raise ProfileError(
-            "adapter must name an installed adapter package, e.g. 'pytest'"
+            "adapters must list the repository's test frameworks, e.g. "
+            '[{"name": "pytest", "tiers": {...}}]'
         )
-    return (f"{ADAPTER_PACKAGE}.{adapter}",)
+    return found
+
+
+def adapter_module(profile: dict[str, Any], argv: list[str]) -> tuple[str, list[str]]:
+    """``adapter <name> <action> ...``: the named adapter's module and its own arguments."""
+    declared = declared_adapters(profile)
+    if not argv or argv[0] not in declared:
+        given = repr(argv[0]) if argv else "no adapter"
+        raise ProfileError(
+            f"adapter takes one of the profile's adapters {declared} first, got {given}"
+        )
+    return adapters.module_name(argv[0]), argv[1:]
 
 
 def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
@@ -259,7 +278,11 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
     assert target.record is not None
     try:
         profile = load_profile(target.record)
-        modules = module_names(name, profile)
+        if name == "adapter":
+            module, argv = adapter_module(profile, argv)
+            modules: tuple[str, ...] = (module,)
+        else:
+            modules = module_names(name, profile)
     except ProfileError as error:
         return [profile_finding(error)]
     return run_modules(modules, target.repo, profile, argv)

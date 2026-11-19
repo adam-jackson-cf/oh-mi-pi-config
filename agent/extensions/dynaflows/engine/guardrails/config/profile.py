@@ -6,6 +6,12 @@ record is ``<oh-mi-pi-config root>/repos/<owner>/<name>/`` and the caller passes
 The harness schema and template live at ``agent/lib/record/profile.md``; the generic
 test-guidance template does not define harness adapter, structure or guardrail settings.
 
+Adapters: ``adapters`` lists one entry per test framework the repository uses (an adapter belongs
+to a framework, not a tier). Each entry names an installed adapter package and, for each tier it
+takes part in, its native ``selector`` and ``location``. Names are unique, every entry takes
+part in at least one tier and every tier has at least one adapter. A tier itself records only
+its run ``command``, which runs every framework the tier holds.
+
 Format choice: ``profile.md`` starts with a front-matter block between two ``---``
 lines that holds one JSON object. JSON is valid YAML flow syntax, so Markdown and YAML tools
 treat the block as ordinary front matter, while this package reads it with the standard
@@ -108,7 +114,12 @@ MACHINE = {
     "per_test_limit_s": "positive",
     "approval": "text",
 }
-TIER = {"selector": "text", "location": "texts", "command": "text"}
+TIER = {"command": "text"}
+ADAPTER_TIER = {"selector": "text", "location": "texts"}
+ADAPTER = {
+    "name": "text",
+    "tiers": {"t1?": ADAPTER_TIER, "t2?": ADAPTER_TIER, "t3?": ADAPTER_TIER},
+}
 EXCEPTION = {"rule": "text", "path": "text", "reason": "text", "check?": "text"}
 SCHEMA: dict[str, Any] = {
     "tiers": {"t1": TIER, "t2": TIER, "t3": TIER},
@@ -156,13 +167,14 @@ SCHEMA: dict[str, Any] = {
         "interpretation": "text",
         "lsp?": "value",
     },
-    "adapter": "text",
+    "adapters": ("records", ADAPTER),
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
     "house_style": {"version": "integer"},
 }
 # One settings section per checker that reads ``guardrails.<section>``. Settings may hold
 # regular expressions, so only their names and shape are checked here.
 GUARDRAILS_SECTIONS = (
+    "adapter_bun_test",
     "adapter_pytest",
     "adapter_vitest",
     "check",
@@ -212,6 +224,7 @@ def validate_profile(profile: dict[str, Any]) -> list[Finding]:
         if key in profile:
             check_value(profile[key], spec, key, problems)
     problems.extend(house_style_version_problems(profile))
+    problems.extend(adapter_problems(profile))
     return [
         Finding(
             RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value"
@@ -237,6 +250,43 @@ def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str
             "review the house-style changes and record the new version",
         )
     ]
+
+
+def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
+    """Cross-entry rules for ``adapters`` that the per-field schema cannot express."""
+    from guardrails.adapters import TIER_KEYS, installed
+
+    entries = profile.get("adapters")
+    if not isinstance(entries, list):
+        return []
+    problems: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    covered: set[str] = set()
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        key = f"adapters[{index}]"
+        name = entry.get("name")
+        if isinstance(name, str) and not is_missing_text(name):
+            if name in seen:
+                problems.append((f"{key}.name", f"repeats adapter {name!r}"))
+            elif not installed(name):
+                problems.append((
+                    f"{key}.name",
+                    f"{name!r} is not an installed adapter package",
+                ))
+            seen.add(name)
+        tiers = entry.get("tiers")
+        if isinstance(tiers, dict):
+            if not tiers:
+                problems.append((f"{key}.tiers", "needs at least one tier"))
+            covered.update(tier for tier in tiers if tier in TIER_KEYS)
+    problems.extend(
+        ("adapters", f"no adapter takes part in tier {tier}")
+        for tier in TIER_KEYS
+        if tier not in covered
+    )
+    return problems
 
 
 def check_value(

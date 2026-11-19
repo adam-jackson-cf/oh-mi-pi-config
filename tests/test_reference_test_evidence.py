@@ -44,15 +44,20 @@ MACHINE = budgets.Machine("m-approved0001", "Linux x86_64", "python 3.12.4")
 
 def profile(**evidence: object) -> dict[str, Any]:
     return {
-        "adapter": "pytest-like",
+        "adapters": [
+            {
+                "name": "pytest_like",
+                "tiers": {
+                    "t1": {"selector": "unit", "location": "tests/unit"},
+                    "t2": {"selector": "flow", "location": "tests/flow"},
+                    "t3": {"selector": "explore", "location": "tests/explore"},
+                },
+            }
+        ],
         "tiers": {
-            "t1": {"selector": "unit", "location": "tests/unit", "command": "run t1"},
-            "t2": {"selector": "flow", "location": "tests/flow", "command": "run t2"},
-            "t3": {
-                "selector": "explore",
-                "location": "tests/explore",
-                "command": "run t3",
-            },
+            "t1": {"command": "run t1"},
+            "t2": {"command": "run t2"},
+            "t3": {"command": "run t3"},
         },
         "layout": {
             "support_dir": "tests/support",
@@ -74,6 +79,17 @@ def profile(**evidence: object) -> dict[str, Any]:
         },
         "guardrails": {"test_evidence": evidence},
     }
+
+
+def bun_profile() -> dict[str, Any]:
+    """The same tiers with a second framework's tests beside pytest's in t1."""
+    base = profile()
+    base["layout"]["test_file_patterns"] = ["test_*.py", "*.test.ts"]
+    base["adapters"].append({
+        "name": "bun_test",
+        "tiers": {"t1": {"selector": "-t unit", "location": "tests/unit"}},
+    })
+    return base
 
 
 def fixture(name: str, dialect: junit.Dialect = PYTEST_LIKE) -> junit.Report:
@@ -556,6 +572,16 @@ class CollectionTests(RepoTestCase):
     def test_disjoint_tiers_selecting_every_test_file_pass(self) -> None:
         assert collection.run(self.repo, profile(), self.lists(**self.clean())) == []
 
+    def test_a_tier_joins_the_lists_of_every_adapter_in_it(self) -> None:
+        self.write("tests/unit/core.test.ts", "")
+        self.write("lists/t1-bun.txt", "tests/unit/core.test.ts::totals add up\n")
+        argv = [*self.lists(**self.clean()), "--tier", "t1=lists/t1-bun.txt"]
+        assert collection.run(self.repo, bun_profile(), argv) == []
+        self.write("lists/t1-bun.txt", "")
+        assert [f.message for f in collection.run(self.repo, bun_profile(), argv)] == [
+            "test file is selected by no tier"
+        ]
+
     def test_a_file_selected_by_two_tiers_is_refused(self) -> None:
         tiers = {
             **self.clean(),
@@ -613,7 +639,7 @@ class CollectionTests(RepoTestCase):
         assert [f.message for f in collection.run(self.repo, profile(), argv)] == [
             "tier t9 is not a profile tier"
         ]
-        for bad in (["--tier", "t1"], ["--tier"], ["--tier", "t1=a", "--tier", "t1=b"]):
+        for bad in (["--tier", "t1"], ["--tier"], ["--tier", "t1=a", "--tier", "t1=a"]):
             with self.subTest(argv=bad):
                 assert "usage" in collection.run(self.repo, profile(), bad)[0].message
 

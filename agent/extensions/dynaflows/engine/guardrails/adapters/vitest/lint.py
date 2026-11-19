@@ -1,4 +1,9 @@
-"""AST source checks for Vitest and fast-check, with shared repository inventory."""
+"""AST source checks for JavaScript test runners and fast-check, with shared repository inventory.
+
+The rules are shared by every runner with Vitest's ``test``/``describe`` API; a ``Vocabulary``
+holds one runner's mock, focus and skip names. Vitest uses ``VITEST``; the Bun adapter passes
+its own (``guardrails.adapters.bun_test.lint``).
+"""
 
 from __future__ import annotations
 
@@ -20,12 +25,14 @@ from guardrails.structure.inventory import (
 )
 
 from .cases import (
+    SUFFIXES,
     CollectionError,
     arguments,
     children,
     imports,
     parse,
     qualified,
+    runner_api,
     string,
     walk,
 )
@@ -33,7 +40,6 @@ from .cases import (
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
-SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 SKIPPED = frozenset({".git", "node_modules", "dist", "build", ".venv", "coverage"})
 
 
@@ -77,8 +83,19 @@ def source_files(repo: Path, paths: list[str]) -> list[str]:
     })
 
 
-def is_test(path: str, profile: dict[str, Any]) -> bool:
-    locations, patterns = test_patterns(profile)
+@dataclass(frozen=True)
+class Vocabulary:
+    """One runner's names for the shared rules: its adapter, mock calls and evasion flags."""
+
+    adapter: str
+    mock_calls: frozenset[str]
+    evasion_flags: frozenset[str]
+    # Registrars that skip by their own name, such as Bun's ``xtest``.
+    skipping_registrars: frozenset[str] = frozenset()
+
+
+def is_test(path: str, profile: dict[str, Any], adapter: str) -> bool:
+    locations, patterns = test_patterns(profile, adapter)
     return matches_any(path, locations) or any(
         name_matches(path, item) for item in patterns
     )
@@ -141,9 +158,7 @@ def owned_origin(path: str, origin: str, roots: tuple[str, ...]) -> bool:
 
 
 def api(node: SgNode | None, aliases: Mapping[str, str]) -> str:
-    return (
-        qualified(node, aliases).replace("vitest#", "vitest.").removeprefix("vitest.")
-    )
+    return runner_api(qualified(node, aliases))
 
 
 def object_pairs(node: SgNode | None) -> dict[str, SgNode | None]:
@@ -200,6 +215,7 @@ class Site:
     aliases: Mapping[str, str]
     roots: tuple[str, ...]
     seeded: bool
+    vocabulary: Vocabulary
 
 
 HOOK_DECLARATIONS = frozenset({
@@ -218,6 +234,7 @@ MOCK_CALLS = frozenset({
     "vi.mocked",
 })
 EVASION_FLAGS = frozenset({"skip", "skipIf", "runIf", "only", "fails", "todo", "retry"})
+VITEST = Vocabulary("vitest", MOCK_CALLS, EVASION_FLAGS)
 PROPERTY_RUNNERS = frozenset({
     "fast-check.assert",
     "fast-check.check",
@@ -254,7 +271,10 @@ def mock_assignment_violation(node: SgNode, site: Site) -> str | None:
 
 def mock_call_violation(node: SgNode, site: Site) -> str | None:
     args = arguments(node)
-    if api(node.field("function"), site.aliases) not in MOCK_CALLS or not args:
+    if (
+        api(node.field("function"), site.aliases) not in site.vocabulary.mock_calls
+        or not args
+    ):
         return None
     origin = mock_origin(args[0], site.aliases)
     return origin if origin and owned_origin(site.path, origin, site.roots) else None
@@ -262,9 +282,12 @@ def mock_call_violation(node: SgNode, site: Site) -> str | None:
 
 def evasion_violation(node: SgNode, site: Site) -> str | None:
     name = api(node.field("function"), site.aliases)
+    vocabulary = site.vocabulary
+    if name.split(".")[0] in vocabulary.skipping_registrars:
+        return name
     if name.split(".")[0] not in {"test", "it", "describe", "suite"}:
         return None
-    if set(name.split(".")) & EVASION_FLAGS:
+    if set(name.split(".")) & vocabulary.evasion_flags:
         return name
     for arg in arguments(node):
         retry = object_pairs(arg).get("retry")
@@ -322,7 +345,11 @@ def configured_seeds(root: SgNode, aliases: Mapping[str, str]) -> list[int]:
 
 
 def file_findings(
-    path: str, source: str, rules: list[Rule], owned: tuple[str, ...]
+    path: str,
+    source: str,
+    rules: list[Rule],
+    owned: tuple[str, ...],
+    vocabulary: Vocabulary = VITEST,
 ) -> list[Finding]:
     root = parse(path, source)
     aliases = imports(root)
@@ -332,7 +359,9 @@ def file_findings(
     for rule in rules:
         for node in root.find_all(rule.config):
             seeded = any(end < node.range().start.index for end in configured)
-            target = violation(rule, node, Site(path, aliases, owned, seeded))
+            target = violation(
+                rule, node, Site(path, aliases, owned, seeded, vocabulary)
+            )
             if target is not None:
                 findings.append(
                     Finding(
@@ -380,12 +409,15 @@ def declarations(root: SgNode) -> Iterator[SgNode]:
 
 
 def production_definitions(
-    trees: Mapping[str, SgNode], profile: dict[str, Any], roots: tuple[str, ...]
+    trees: Mapping[str, SgNode],
+    profile: dict[str, Any],
+    roots: tuple[str, ...],
+    adapter: str,
 ) -> Definitions:
     """``(path, name) -> (declaration, name node)`` for owned production declarations."""
     definitions: Definitions = {}
     for path, root in trees.items():
-        if is_test(path, profile) or not owned_path(path, roots):
+        if is_test(path, profile, adapter) or not owned_path(path, roots):
             continue
         for candidate in declarations(root):
             name = candidate.field("name")
@@ -468,14 +500,15 @@ def hook_findings(
     profile: dict[str, Any],
     reported: set[str],
     roots: tuple[str, ...] | None = None,
+    adapter: str = VITEST.adapter,
 ) -> list[Finding]:
     """Resolve imported references to declarations; same-spelled unrelated symbols do not count."""
     roots = owned_roots(profile) if roots is None else roots
     trees = {path: parse(path, text) for path, text in sources.items()}
-    definitions = production_definitions(trees, profile, roots)
+    definitions = production_definitions(trees, profile, roots, adapter)
     uses: dict[tuple[str, str], set[bool]] = {key: set() for key in definitions}
     for path, root in trees.items():
-        record_uses(path, root, is_test(path, profile), definitions, uses)
+        record_uses(path, root, is_test(path, profile, adapter), definitions, uses)
     public = public_symbols(profile)
     return [
         Finding(
@@ -491,21 +524,31 @@ def hook_findings(
     ]
 
 
-def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
+def lint(
+    repo: Path,
+    profile: dict[str, Any],
+    paths: list[str],
+    vocabulary: Vocabulary = VITEST,
+) -> list[Finding]:
+    adapter = vocabulary.adapter
     all_paths = source_files(repo, [])
     selected = set(source_files(repo, paths)) if paths else set(all_paths)
     roots = owned_roots(profile, repo)
     sources = {}
     findings = []
     for path in all_paths:
-        if not is_test(path, profile) and not owned_path(path, roots):
+        if not is_test(path, profile, adapter) and not owned_path(path, roots):
             continue
         try:
             source = (repo / path).read_text(encoding="utf-8")
             parse(path, source)
             sources[path] = source
         except (OSError, UnicodeError) as error:
-            rule = "TEST.no-evasion" if is_test(path, profile) else "TEST.no-test-hooks"
+            rule = (
+                "TEST.no-evasion"
+                if is_test(path, profile, adapter)
+                else "TEST.no-test-hooks"
+            )
             findings.append(
                 Finding(
                     rule,
@@ -515,7 +558,11 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
                 )
             )
         except CollectionError as error:
-            rule = "TEST.no-evasion" if is_test(path, profile) else "TEST.no-test-hooks"
+            rule = (
+                "TEST.no-evasion"
+                if is_test(path, profile, adapter)
+                else "TEST.no-test-hooks"
+            )
             findings.append(
                 Finding(
                     rule,
@@ -529,7 +576,7 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
     for path in sorted(selected):
         if path not in sources:
             continue
-        if is_test(path, profile):
+        if is_test(path, profile, adapter):
             scope = "tests"
         elif owned_path(path, roots):
             scope = "production"
@@ -542,9 +589,10 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
                 sources[path],
                 [rule for rule in rules if rule.scope == scope],
                 roots,
+                vocabulary,
             )
         )
-    findings.extend(hook_findings(sources, profile, production, roots))
+    findings.extend(hook_findings(sources, profile, production, roots, adapter))
     return [
         finding
         for finding in findings

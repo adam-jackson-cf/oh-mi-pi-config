@@ -1,7 +1,9 @@
-"""Static Vitest collection; never imports or executes the target's JavaScript.
+"""Static JavaScript/TypeScript test collection; never imports or executes the target's code.
 
 Selectors use the shared ``path::suite::test[row]`` convention. Dynamic registration
-is rejected rather than silently losing cases from growth and duplicate checks.
+is rejected rather than silently losing cases from growth and duplicate checks. The runner
+module (``vitest`` or Bun's ``bun:test``) is stripped from imported names, so both frameworks'
+``test``/``it``/``describe`` registrations collect alike.
 """
 
 from __future__ import annotations
@@ -15,6 +17,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
+SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
+# The modules whose exports are the test runner's API.
+RUNNER_MODULES = ("vitest", "bun:test")
 REGISTRARS = frozenset({"test", "it", "describe", "suite"})
 TEST_REGISTRARS = frozenset({"test", "it"})
 SUITE_REGISTRARS = frozenset({"describe", "suite"})
@@ -143,12 +148,17 @@ def qualified(node: SgNode | None, aliases: Mapping[str, str]) -> str:
     return ""
 
 
-def api_name(node: SgNode | None, aliases: Mapping[str, str]) -> str:
-    name = qualified(node, aliases)
-    for prefix in ("vitest#", "vitest."):
-        if name.startswith(prefix):
-            return name[len(prefix) :]
+def runner_api(name: str) -> str:
+    """``name`` without a leading runner module (``vitest#test`` or ``bun:test.test`` -> ``test``)."""
+    for module in RUNNER_MODULES:
+        for prefix in (f"{module}#", f"{module}."):
+            if name.startswith(prefix):
+                return name[len(prefix) :]
     return name
+
+
+def api_name(node: SgNode | None, aliases: Mapping[str, str]) -> str:
+    return runner_api(qualified(node, aliases))
 
 
 def literal(
@@ -287,7 +297,7 @@ class _Normalizer:
         origin = qualified(node, self.aliases)
         head = qualified(node.field("object"), self.aliases)
         if head and any(head.startswith(module) for module in self.aliases.values()):
-            return ["identifier", origin.replace("#", ".").removeprefix("vitest.")]
+            return ["identifier", runner_api(origin.replace("#", "."))]
         return None
 
     def _identifier(self, node: SgNode) -> Any:
@@ -299,7 +309,7 @@ class _Normalizer:
             result = self.node(value)
             self.temporaries[name] = value
             return result
-        origin = self.aliases.get(name, name).removeprefix("vitest#")
+        origin = runner_api(self.aliases.get(name, name))
         return ["identifier", self.local.get(name, origin.replace("#", "."))]
 
 
@@ -316,7 +326,7 @@ def _call_order(node: SgNode, aliases: Mapping[str, str], calls: list[str]) -> N
         ):
             prop = function.field("property")
             origin = prop.text() if prop is not None else ""
-        calls.append(origin.removeprefix("vitest."))
+        calls.append(runner_api(origin))
 
 
 def _body(callback: SgNode) -> SgNode:

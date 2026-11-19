@@ -1,7 +1,7 @@
 """Normalise mutmut results into the shared mutation report (adapter item 5).
 
 The pytest adapter's mutation tool is mutmut, pinned by this package's ``mutation`` extra. After
-``mutmut run`` in the repo root, ``guardrails adapter mutation-report --out FILE`` reads
+``mutmut run`` in the repo root, ``guardrails adapter pytest mutation-report --out FILE`` reads
 mutmut's per-file results (``mutants/<source path>.meta``: ``exit_code_by_key`` maps each mutant
 name to its test-run exit code) and writes the version 1 report that
 ``guardrails mutation-check`` reads.

@@ -1,4 +1,7 @@
-"""Native Vitest collect-only IDs using record selectors, never a test run."""
+"""Native Vitest collect-only IDs using record selectors, never a test run.
+
+The Vitest entry of the profile's ``adapters`` gives each tier's selector and locations.
+"""
 
 from __future__ import annotations
 
@@ -10,10 +13,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.adapters import adapter_tiers
 from guardrails.child_env import repo_environment
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, settings
 
+NAME = "vitest"
 RULE = "TEST.failure-propagation"
 
 
@@ -67,10 +72,12 @@ def collected_ids(repo: Path, entries: object) -> list[str]:
 def collect_tier(
     repo: Path, profile: dict[str, Any], tier: str, out: Path
 ) -> list[Finding]:
-    spec = profile.get("tiers", {}).get(tier)
+    spec = adapter_tiers(profile, NAME).get(tier)
     try:
         if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
-            raise ValueError(f"tiers.{tier} requires a native Vitest selector")
+            raise ValueError(
+                f"the vitest adapter needs a native Vitest selector for tier {tier}"
+            )
         timeout = settings(profile, "adapter_vitest").get("collect_timeout_s", 120)
         if (
             isinstance(timeout, bool)
@@ -135,6 +142,6 @@ def list_tiers(
     repo: Path, profile: dict[str, Any], tiers: list[str], out: Path
 ) -> list[Finding]:
     findings = []
-    for tier in tiers or sorted(profile.get("tiers", {})):
+    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
         findings.extend(collect_tier(repo, profile, tier, out))
     return findings

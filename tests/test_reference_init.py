@@ -205,7 +205,10 @@ class DraftRecordTests(InitCase):
                 "install": lsp.STACKS[0].install,
             }
         ]
-        assert profile["tiers"]["t1"]["selector"] == "<selector>"
+        assert profile["tiers"]["t1"] == {
+            "command": "<command that runs every framework in the tier>"
+        }
+        assert profile["adapters"][0]["tiers"]["t1"]["selector"] == "<native selector>"
         assert "discovered: make targets: check-paths, gate-ci, gate-commit" in output
         assert (
             "discovered: CI jobs: gate (.github/workflows/gate.yml), Build docs"
@@ -250,7 +253,12 @@ class DraftRecordTests(InitCase):
         }
         self.write_record("gate.json", json.dumps(gate))
         values = {
-            "adapter": "pytest",
+            "adapters": [
+                {
+                    "name": "pytest",
+                    "tiers": {"t1": {"selector": "fast", "location": "t"}},
+                }
+            ],
             "verification_surface": {
                 "none": "library without a UI",
                 "approval": "ADR-7",
@@ -276,6 +284,7 @@ class DraftRecordTests(InitCase):
         )
         profile = load_profile(self.record)
         assert profile["verification_surface"]["approval"] == "ADR-7"
+        assert [entry["name"] for entry in profile["adapters"]] == ["pytest"]
         assert profile["guardrails"]["naming"] == {"roots": ["src"], "extra": 1}
         assert (self.record / "profile.md").read_text().endswith("# Our profile\n")
 
@@ -436,7 +445,12 @@ class ExistingRecordTests(InitCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.write_record("profile.md", '---\n{"adapter": "pytest"}\n---\n')
+        adapters = [
+            {"name": "pytest", "tiers": {"t1": {"selector": "fast", "location": "t"}}}
+        ]
+        self.write_record(
+            "profile.md", f"---\n{json.dumps({'adapters': adapters})}\n---\n"
+        )
 
     def test_drafts_the_missing_required_fields(self) -> None:
         self.write_record(

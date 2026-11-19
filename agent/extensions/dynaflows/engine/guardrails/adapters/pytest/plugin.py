@@ -1,6 +1,6 @@
 """pytest plugin: tier guards, run-report properties and collect-only ID listing.
 
-Load it with ``-p guardrails.adapters.pytest.plugin``. ``guardrails adapter junit-args``
+Load it with ``-p guardrails.adapters.pytest.plugin``. ``guardrails adapter pytest junit-args``
 prints the full argument list for a tier.
 
 - ``--omp-guard fast-tier`` (TEST.fast-tier-isolation): blocks process creation and IP network

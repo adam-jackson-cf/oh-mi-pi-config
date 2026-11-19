@@ -37,9 +37,35 @@ dependencies. The pytest adapter's `tiers` and `conformance` actions need the
 `pytest` extra (`requirements-pytest.lock` pins it with hashes for the
 container). The T3 mutation run adds the `mutation` extra.
 
-The Vitest adapter uses the inspected repository's locked, installed Vitest;
-it never downloads a runner or adds files to that repository. Set `adapter` to
-`vitest` in the record. Tier `selector` values are native Vitest CLI arguments,
+## Adapters
+
+An adapter belongs to a test framework, not to a tier. The record's `adapters`
+list holds one entry per framework the repository uses, and every tier may hold
+tests from several frameworks:
+
+```json
+"adapters": [
+  {"name": "pytest", "tiers": {"t2": {"selector": "-m seam", "location": "tests"}}},
+  {"name": "bun_test", "tiers": {"t1": {"selector": "--test-name-pattern .", "location": "tests"}}}
+]
+```
+
+Each entry gives, per tier it takes part in, the framework's native `selector`
+and the `location` handed to that framework; a tier's locations are the union of
+its adapters' locations, and `tiers.<tier>.command` runs the whole tier.
+`guardrails adapter <name> <action>` runs one adapter; `check`'s `adapter lint`
+step runs every declared adapter's `lint`. Give each adapter its own
+`tiers --out` directory and pass every list to `collection-check`, one
+`--tier <tier>=<list>` per adapter. `report-check` and `budget-check` need
+`--dialect <name>` when the record declares more than one adapter.
+
+pytest also collects `unittest.TestCase` classes whatever their name, so a
+repository's unittest suites run unchanged; a marker selector reaches them
+through a class decorator (`@pytest.mark.fast`) or a class or module
+`pytestmark`, which subclasses inherit.
+
+The Vitest adapter (`vitest`) uses the inspected repository's locked, installed Vitest;
+it never downloads a runner or adds files to that repository. Selectors are native Vitest CLI arguments,
 for example `--config config/vitest.config.ts --testNamePattern totals`;
 `location` values are Vitest file filters. Prose descriptions are not selectors.
 `guardrails.adapter_vitest.command` may supply an argv list instead of the
@@ -48,21 +74,47 @@ default `node <repo>/node_modules/vitest/vitest.mjs`.
 unless recorded otherwise). Each `tiers --out` listing uses
 `<relative-file>::<full test name>` IDs and rejects empty or duplicate collections.
 
-`adapter junit-args --tier t1 --out <external report>` emits the arguments for
+`adapter vitest junit-args --tier t1 --out <external report>` emits the arguments for
 a guarded Vitest run and creates its reporter shim beside that external report.
 Pass those arguments to the repository's Vitest command together with its tier
 selector. `guard-evidence <report> --tier t1` verifies the recorded guard evidence.
 The harness setup covers setup, call and teardown, including swallowed guard
 errors; collection, reports and reporter shims remain outside the checkout.
-`adapter conformance` runs the canonical cases using the installed native runner;
+`adapter vitest conformance` runs the canonical cases using the installed native runner;
 missing dependencies fail rather than silently skipping a case.
 
 Vitest mutation evidence uses `@stryker-mutator/core@9.4.0` JSON reports.
-`adapter mutation-report --input <stryker.json> --out <external report>` converts
+`adapter vitest mutation-report --input <stryker.json> --out <external report>` converts
 them to the shared schema. The input defaults to `reports/mutation/mutation.json`
 and can be recorded in `guardrails.adapter_vitest.mutation_report`.
 Unknown Stryker statuses and malformed locations fail; ignored, pending and
 tool-error mutants remain incomplete, never counted as killed.
+
+The Bun adapter (`bun_test`) drives Bun's built-in `bun test` with the
+repository's own `bun` (or `guardrails.adapter_bun_test.command`). Selectors are
+native `bun test` arguments such as `--test-name-pattern fast`; locations are
+`bun test` path filters. Its preload, loaded with `--preload` from outside the
+checkout, replaces `bun:test` with recording registrars:
+
+- `tiers` runs `bun test` with every test body and hook a no-op, so only module
+  top level runs, and lists `<file>::<suite> > <title>` IDs from Bun's JUnit.
+- `junit-args` adds the preload and `--reporter=junit`. In-process, the preload
+  blocks child processes (`node:child_process`, `Bun.spawn`, `Bun.$`), network
+  (`node:net`, `fetch`, `Bun.connect`, `Bun.serve` and the rest) in T1, blocks
+  writes under the real home in every tier, and redirects `HOME` and the
+  temporary directory. It journals registrations, attempts, armed guards and
+  violations beside the report.
+- The `bun_test` dialect completes Bun's lossy JUnit from that journal:
+  expected failures, retries, registered skips, suite-ordered IDs and guard
+  violations. Bun leaves a test file that fails to load out of its report, so
+  `report-check` requires `--exit-code` for this dialect.
+- Mutation uses `@stryker-mutator/core@9.4.0` with Stryker's built-in command
+  test runner (`commandRunner.command: "bun test"`, `coverageAnalysis: "off"`);
+  Stryker has no Bun runner. `mutation-report` converts its JSON as for Vitest.
+- Bun has no in-body skip: a runtime skip is `test.skipIf(<condition read at run
+  time>)`, and the normalised reason is the test's title.
+
+`adapter bun_test conformance` passes every canonical case.
 
 Each finding prints as `path: RULE: message; fix`. A finding about the record
 names it `record:profile.md` or `record:gate.json`. The exit code is `0` with
@@ -95,14 +147,16 @@ and YAML must invoke that pinned formatter.
 ## Language coverage
 
 Convention packs (`guardrails/data/conventions/`) against the verification layers. The
-`tooling` pack holds no source code, so only its fixed names apply.
+`tooling` pack holds no source code, so only its fixed names apply. A repository declares
+one adapter per framework it uses, so one stack can use several adapters.
 
 | Layer       | python          | typescript                 | go           | shell                |
 | ----------- | --------------- | -------------------------- | ------------ | -------------------- |
 | Tool rules  | RUFF, MYPY      | TSC, OXLINT, PRETTIER      | GOLANGCI (1) | SHELLCHECK, SHFMT    |
 | Init config | ruff, mypy (2)  | tsconfig (3), oxlintrc     | golangci     | rc, editorconfig (3) |
 | Parity      | python_pins, uv | node_pins, package_manager | go           | gap (4)              |
-| Adapter     | pytest          | vitest                     | gap (5)      | n/a (6)              |
+| Adapter     | pytest (12)     | vitest, bun_test           | gap (5)      | n/a (6)              |
+| Mutation    | mutmut          | Stryker (13)               | gap (5)      | n/a (6)              |
 | Timeouts    | subprocess      | gap (7)                    | repo (8)     | n/a (9)              |
 | Fan-out     | FANOUT          | repo (8)                   | gap (10)     | n/a (9)              |
 | Quality     | PYQ, PYS        | n/a (11)                   | n/a (11)     | n/a (11)             |
@@ -124,6 +178,10 @@ Convention packs (`guardrails/data/conventions/`) against the verification layer
 9. Shell scripts run processes by design and have no imports.
 10. golangci-lint has no import-count linter.
 11. PYQ and PYS judge Python class and analyzer shapes; size limits are the `LIMIT` rows.
+12. pytest also runs `unittest.TestCase` suites unchanged; tier markers reach them by class
+    decorator or `pytestmark`.
+13. StrykerJS JSON reports for both adapters. Stryker has no Bun runner, so Bun runs through
+    Stryker's built-in command runner, which reports no per-test coverage.
 
 ## Rule coverage
 

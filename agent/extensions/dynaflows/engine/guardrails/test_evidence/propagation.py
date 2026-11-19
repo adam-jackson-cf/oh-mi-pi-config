@@ -8,7 +8,9 @@
 4. the runner exit code (``--exit-code``, else the ``omp.exit_code`` property) is non-zero
    while every case passed, which is a failure outside the test cases (setup, collection,
    empty selection such as pytest exit 5 or vitest "no tests", or a crashed runner);
-5. the exit code is zero while a case failed: the runner masked a failure.
+5. the exit code is zero while a case failed: the runner masked a failure;
+6. the report's dialect requires the exit code (its native report can omit a test file that
+   fails to load) and neither ``--exit-code`` nor ``omp.exit_code`` gives one.
 
 It also applies the run-report hygiene in ``collection.report_findings``: empty reports,
 duplicate IDs, unapproved skips or xfails, and retries to green. It never reads test timing:
@@ -118,6 +120,16 @@ def evaluate(
 ) -> list[Finding]:
     if exit_code is None:
         exit_code = as_int(report.properties.get("omp.exit_code"))
+    if exit_code is None and report.requires_exit_code:
+        return [
+            Finding(
+                RULE,
+                report.source,
+                "this runner's report omits failures outside the test cases, such as a test "
+                "file that fails to load, and no exit code was given",
+                "pass the runner's exit code with --exit-code",
+            )
+        ]
     return [
         *outcome_findings(report),
         *truncation_findings(report),

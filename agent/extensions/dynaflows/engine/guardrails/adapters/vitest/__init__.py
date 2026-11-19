@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from guardrails.adapters import adapter_tiers, claimed
 from guardrails.findings import Finding
 
 NAME = "vitest"
@@ -32,7 +33,9 @@ def output_finding(repo: Path, out: object) -> Finding | None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="guardrails adapter", description=__doc__)
+    root = argparse.ArgumentParser(
+        prog="guardrails adapter vitest", description=__doc__
+    )
     actions = root.add_subparsers(dest="action")
     lint = actions.add_parser("lint")
     lint.add_argument("paths", nargs="*")
@@ -77,9 +80,12 @@ def affected_arguments(
     except DiffError as error:
         return [range_finding(RULE, error)]
     print(f"selection: {selection.reason}", file=sys.stderr)
-    if selection.paths:
-        selector = profile.get("tiers", {}).get("t2", {}).get("selector", "")
-        print(shlex.join([*selector_arguments(selector), "--", *selection.paths]))
+    from guardrails.adapters.vitest.cases import SUFFIXES
+
+    paths = claimed(profile, NAME, "t2", selection.paths, SUFFIXES)
+    if paths:
+        selector = adapter_tiers(profile, NAME).get("t2", {}).get("selector", "")
+        print(shlex.join([*selector_arguments(selector), "--", *paths]))
     return []
 
 

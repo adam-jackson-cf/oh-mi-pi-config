@@ -23,11 +23,19 @@ from guardrails.findings import Finding
 CASE_TIMEOUT_S = 300
 FIXTURES = Path(__file__).with_name("fixtures")
 BASE_PROFILE: dict[str, Any] = {
-    "adapter": "vitest",
+    "adapters": [
+        {
+            "name": "vitest",
+            "tiers": {
+                "t1": {
+                    "location": "tests",
+                    "selector": "--testNamePattern test_fast_total",
+                }
+            },
+        }
+    ],
     "public_entry_points": {"shop/core.ts": ["publicApi"]},
-    "tiers": {
-        "t1": {"location": "tests", "selector": "--testNamePattern test_fast_total"}
-    },
+    "tiers": {"t1": {"command": "vitest run"}},
     "layout": {
         "test_file_patterns": ["*.test.ts"],
         "support_dir": "tests",

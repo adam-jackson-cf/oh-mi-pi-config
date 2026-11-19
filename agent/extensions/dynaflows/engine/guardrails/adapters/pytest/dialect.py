@@ -9,7 +9,7 @@ per-test budget measures. The plugin adds the run properties the shared checkers
 ``omp.guards``, the tier guards it armed.
 
 Dialect: ``guardrails.test_evidence.junit`` loads ``DIALECT`` from this module when the
-profile's ``adapter`` is ``pytest``. pytest needs no hook overrides: the generic dialect already
+report's adapter is ``pytest`` (``--dialect pytest``, or the profile's only adapter). pytest needs no hook overrides: the generic dialect already
 reads ``file``, writes an expected failure as ``<skipped type="pytest.xfail">`` (normalised to
 ``xfail``), keeps the skip reason in the ``message`` attribute and counts rerun elements as
 retries. ``source_suffix`` lets an ``xunit2`` report without ``file`` still resolve its files.

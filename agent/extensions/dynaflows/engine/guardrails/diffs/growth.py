@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from guardrails import adapters
 from guardrails.config.house_style import apply_exceptions
 from guardrails.config.profile import PROFILE_PATH, is_missing_text
 from guardrails.diffs.changes import (
@@ -18,11 +19,11 @@ from guardrails.diffs.changes import (
     range_finding,
 )
 from guardrails.findings import Finding
+from guardrails.structure.inventory import matches_any
 from guardrails.structure.naming import is_test_file
 
 GROWTH = "TEST.growth.justified"
 DUPLICATE = "TEST.duplicate-path"
-ADAPTER_NAME = re.compile(r"[a-z][a-z0-9_]*")
 BEHAVIOUR_FIX = "name the test after the behavior it proves, or remove the test"
 DUPLICATE_FIX = "merge or remove one of the duplicate tests"
 
@@ -59,16 +60,60 @@ class CollectedFile(Protocol):
 Collector = Callable[[str, str], CollectedFile]
 
 
-def adapter_collector(profile: dict[str, Any]) -> Collector | None:
-    """The adapter's ``cases.collect``, or None when the adapter ships no static collector."""
-    name = profile.get("adapter")
-    if not isinstance(name, str) or not ADAPTER_NAME.fullmatch(name):
-        return None
-    try:
-        module = importlib.import_module(f"guardrails.adapters.{name}.cases")
-    except ModuleNotFoundError:
-        return None
-    return getattr(module, "collect", None)
+@dataclass(frozen=True)
+class FrameworkCollector:
+    """One declared adapter's static collector and the test files it reads."""
+
+    name: str
+    locations: tuple[str, ...]
+    suffixes: tuple[str, ...]
+    collect: Collector
+
+
+def framework_collectors(profile: dict[str, Any]) -> list[FrameworkCollector]:
+    """Each declared adapter's ``cases.collect`` and ``cases.SUFFIXES``; ValueError when one lacks them."""
+    found = []
+    for name in adapters.names(profile):
+        if not adapters.installed(name):
+            raise ValueError(f"adapter {name!r} is not installed")
+        try:
+            module = importlib.import_module(f"{adapters.module_name(name)}.cases")
+        except ModuleNotFoundError as error:
+            raise ValueError(
+                f"adapter {name!r} has no static test-case collector"
+            ) from error
+        found.append(
+            FrameworkCollector(
+                name,
+                tuple(adapters.locations(profile, name)),
+                tuple(module.SUFFIXES),
+                module.collect,
+            )
+        )
+    return found
+
+
+def adapter_collector(profile: dict[str, Any]) -> Collector:
+    """Collect a test file with the one adapter whose locations and file types cover it."""
+    frameworks = framework_collectors(profile)
+
+    def collect(path: str, text: str) -> CollectedFile:
+        owners = [
+            framework
+            for framework in frameworks
+            if matches_any(path, list(framework.locations))
+            and path.endswith(framework.suffixes)
+        ]
+        if len(owners) != 1:
+            named = [framework.name for framework in owners]
+            raise ValueError(
+                "no adapter's locations and file types cover this test file"
+                if not owners
+                else f"adapters {named} all cover this test file; give them disjoint locations"
+            )
+        return owners[0].collect(path, text)
+
+    return collect
 
 
 def test_blobs(repo: Path, ref: str, profile: dict[str, Any]) -> dict[str, str]:
@@ -172,14 +217,15 @@ def check(repo: Path, profile: dict[str, Any], diff: DiffRange) -> list[Finding]
     changed_paths = {path for change in changes for path in change.paths}
     if not any(is_test_file(path, profile) for path in changed_paths):
         return []
-    collect = adapter_collector(profile)
-    if collect is None:
+    try:
+        collect = adapter_collector(profile)
+    except ValueError as error:
         return [
             Finding(
                 GROWTH,
                 PROFILE_PATH,
-                f"adapter {profile.get('adapter')!r} has no static test-case collector",
-                "name an adapter that ships one, or add 'cases.collect' to the adapter",
+                str(error),
+                "declare installed adapters that ship 'cases.collect' and 'cases.SUFFIXES'",
             )
         ]
     cache: dict[str, CollectedFile | ValueError] = {}

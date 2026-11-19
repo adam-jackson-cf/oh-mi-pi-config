@@ -27,8 +27,15 @@ JUnit dialects differ in where they put the file, how they mark xfail and how th
 retries. ``Dialect`` holds those choices as data, so most frameworks are configured, not
 adapted: profile ``guardrails.test_evidence.dialect`` may be an object with the ``Dialect``
 fields below. An adapter whose dialect needs code subclasses ``Dialect``, overrides a hook
-(``case_file``, ``case_name``, ``outcome``, ``retries``) and calls ``register_dialect``, or
-exposes ``DIALECT`` from ``guardrails.adapters.<name>.dialect``.
+(``case_file``, ``case_name``, ``outcome``, ``retries``, ``complete``) and calls
+``register_dialect``, or exposes ``DIALECT`` from ``guardrails.adapters.<name>.dialect``.
+``complete(path, report)`` receives the parsed report and its file, for a framework whose native
+JUnit needs evidence the run wrote beside it. A dialect whose native report can omit failures
+outside the test cases (a test file that fails to load) sets ``requires_exit_code``; the report
+then never passes without the runner's exit code.
+
+Which dialect: ``--dialect <name>``, else the profile's only adapter. A profile that declares
+several adapters needs ``--dialect`` naming the adapter that wrote the report.
 
 File resolution (``Dialect.case_file``), first match wins:
 
@@ -78,6 +85,8 @@ class Report:
     properties: dict[str, str] = field(default_factory=dict)
     wall_s: float | None = None
     declared: dict[str, int] = field(default_factory=dict)
+    # The dialect's native report can omit failures, so the runner's exit code is required.
+    requires_exit_code: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +103,7 @@ class Dialect:
         "flakyError",
     )
     retry_properties: tuple[str, ...] = ("retries", "retry")
+    requires_exit_code: bool = False
 
     def case_file(self, case: ElementTree.Element) -> str:
         explicit = case.get("file", "").strip()
@@ -132,6 +142,11 @@ class Dialect:
             xfail = any(item.lower() in marker for item in self.xfail_markers)
             return ("xfail" if xfail else "skipped"), message(skipped)
         return "passed", ""
+
+    def complete(self, path: Path, report: Report) -> Report:
+        """The finished report; a dialect adds evidence its runner wrote beside ``path``."""
+        del path
+        return report
 
     def retries(self, case: ElementTree.Element) -> int:
         count = sum(1 for child in case if child.tag in self.retry_tags)
@@ -208,7 +223,7 @@ def parse_report(path: Path, dialect: Dialect, source: str | None = None) -> Rep
         raise ReportError("run report does not exist") from error
     except (OSError, UnicodeError) as error:
         raise ReportError(f"run report cannot be read: {error}") from error
-    return parse_text(text, dialect, source or path.as_posix())
+    return dialect.complete(path, parse_text(text, dialect, source or path.as_posix()))
 
 
 def parse_text(text: str, dialect: Dialect, source: str) -> Report:
@@ -230,7 +245,14 @@ def parse_text(text: str, dialect: Dialect, source: str) -> Report:
                         "value", item.text or ""
                     )
     wall = properties.get("omp.wall_s", root.get("time"))
-    return Report(source, cases, properties, as_seconds(wall), declared_counts(root))
+    return Report(
+        source,
+        cases,
+        properties,
+        as_seconds(wall),
+        declared_counts(root),
+        dialect.requires_exit_code,
+    )
 
 
 def normalise(case: ElementTree.Element, dialect: Dialect) -> Case:
@@ -311,17 +333,29 @@ def evidence_settings(profile: dict[str, Any]) -> dict[str, Any]:
 def load_run_report(
     repo: Path, profile: dict[str, Any], options: ReportOptions
 ) -> Report:
-    """Parse ``--junit`` with the dialect named by ``--dialect``, settings or the adapter."""
+    """Parse ``--junit`` with the dialect named by ``--dialect``, settings or the only adapter."""
     if options.junit is None:
         raise ReportError("no run report given; pass --junit <path>")
     settings = evidence_settings(profile)
-    adapter = (
-        profile.get("adapter") if isinstance(profile.get("adapter"), str) else None
+    dialect = dialect_for(
+        options.dialect or report_adapter(profile), settings.get("dialect")
     )
-    dialect = dialect_for(options.dialect or adapter, settings.get("dialect"))
     return parse_report(
         options.junit, dialect, display_path(repo, options.junit, "run report")
     )
+
+
+def report_adapter(profile: dict[str, Any]) -> str | None:
+    """The profile's only adapter; several adapters need ``--dialect`` to name the report's."""
+    from guardrails import adapters
+
+    declared = adapters.names(profile)
+    if len(declared) > 1:
+        raise UsageError(
+            f"the profile declares adapters {declared}; pass --dialect <adapter> naming "
+            "the one that wrote this report"
+        )
+    return declared[0] if declared else None
 
 
 def display_path(repo: Path, path: Path | None, subcommand: str) -> str:

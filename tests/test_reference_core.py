@@ -78,7 +78,9 @@ class ProfileLoadingTests(unittest.TestCase):
 
     def test_front_matter_json_is_returned_as_a_dict(self) -> None:
         self.write_profile((FIXTURES / "complete-profile.md").read_text())
-        assert profile_module.load_profile(self.record)["adapter"] == "pytest"
+        assert (
+            profile_module.load_profile(self.record)["adapters"][0]["name"] == "pytest"
+        )
 
     def test_unreadable_profiles_raise_profile_errors(self) -> None:
         cases = {
@@ -356,13 +358,13 @@ class CliTests(unittest.TestCase):
             "profile-check: ok\n",
         )
         broken = complete_profile()
-        broken["adapter"] = "TBD"
+        broken["adapters"][0]["name"] = "TBD"
         self.write_profile(broken)
         code, out, _ = self.run_cli(
             "profile-check", f"--record={self.record}", f"--repo={self.repo}"
         )
         assert code == 1
-        assert "record:profile.md: PROFILE.complete: adapter is missing" in out
+        assert "record:profile.md: PROFILE.complete: adapters[0].name is missing" in out
 
     def test_exception_records_reject_obsolete_location_with_migration_error(
         self,
@@ -466,11 +468,21 @@ class CliTests(unittest.TestCase):
     def test_unknown_subcommand_and_missing_adapter_are_usage_errors(self) -> None:
         assert self.run_cli("lint-everything")[0] == 2
         profile = copy.deepcopy(complete_profile())
-        profile["adapter"] = "framework_without_adapter"
+        profile["adapters"][0]["name"] = "framework_without_adapter"
         self.write_profile(profile)
-        code, _, err = self.run_cli(*self.located("adapter"))
+        code, _, err = self.run_cli(
+            *self.located("adapter"), "framework_without_adapter", "lint"
+        )
         assert code == 2
         assert "cannot import guardrails.adapters" in err
+
+    def test_adapter_takes_a_declared_adapter_name_first(self) -> None:
+        self.write_profile(complete_profile())
+        for argv in ([], ["vitest", "lint"], ["lint"]):
+            with self.subTest(argv=argv):
+                code, out, _ = self.run_cli(*self.located("adapter"), *argv)
+                assert code == 1
+                assert "adapter takes one of the profile's adapters ['pytest']" in out
 
 
 if __name__ == "__main__":

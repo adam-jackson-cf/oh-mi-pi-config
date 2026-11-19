@@ -52,7 +52,8 @@ Draft the record from the harness, shadow-run repo-owned steps and prepare harne
   guard, fast-tier isolation), `surface-lint` and `lever-selftest` (verification surface), `profile-check`
   (`PROFILE.complete`), `adapter` (self-mocking, test hooks, evasion markers, property seeds) and, in T3 only,
   `mutation-check` after the adapter's `mutation-report`. Affected T2 selection uses
-  `guardrails adapter affected --base <ref>`, reading the record's Ownership areas. None is wired into the target.
+  `guardrails adapter <name> affected --base <ref>`, once per adapter the record declares, reading the record's
+  Ownership areas. None is wired into the target.
 - The repo-side controls (check-only full runner, CI wiring, commit target) default the required context to `gate`.
   For GitHub Actions, the parallel-CI aggregate runs with `if: ${{ always() }}`. None of these files names omp,
   dynaflows or the record.

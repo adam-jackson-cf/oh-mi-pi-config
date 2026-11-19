@@ -9,8 +9,9 @@ Run report (called by ``propagation`` under ``report-check``, on the commit and 
   is a retry to green: ``TEST.no-evasion``.
 
 Tier collections (``guardrails collection-check --tier t1=PATH --tier t2=PATH ...``):
-each PATH is the adapter's collect-only list for that tier, one normalised test ID
-(``<repo-relative file>::<name>``) per line; blank lines and ``#`` comments are ignored.
+each PATH is an adapter's collect-only list for that tier, one normalised test ID
+(``<repo-relative file>::<name>``) per line; blank lines and ``#`` comments are ignored. A tier
+that several adapters take part in gets one ``--tier`` per adapter; its lists are joined.
 
 - Every profile tier needs a list; a missing or unreadable list, or an empty one, is
   ``TEST.failure-propagation`` (empty collection never passes).
@@ -119,8 +120,8 @@ def report_findings(report: Report, profile: dict[str, Any]) -> list[Finding]:
     return found
 
 
-def tier_arguments(argv: list[str]) -> dict[str, str]:
-    lists: dict[str, str] = {}
+def tier_arguments(argv: list[str]) -> dict[str, list[str]]:
+    lists: dict[str, list[str]] = {}
     index = 0
     while index < len(argv):
         flag, _, inline = argv[index].partition("=")
@@ -130,9 +131,9 @@ def tier_arguments(argv: list[str]) -> dict[str, str]:
             tier, sep, path = value.partition("=")
             if not sep or not tier or not path:
                 raise UsageError("--tier takes <tier>=<collect-only list path>")
-            if tier in lists:
-                raise UsageError(f"--tier {tier} given twice")
-            lists[tier] = path
+            if path in lists.get(tier, []):
+                raise UsageError(f"--tier {tier}={path} given twice")
+            lists.setdefault(tier, []).append(path)
         index += 1
     return lists
 
@@ -144,6 +145,17 @@ def read_ids(path: Path) -> list[str] | None:
         return None
     lines = (line.strip() for line in text.splitlines())
     return [line for line in lines if line and not line.startswith("#")]
+
+
+def joined_ids(repo: Path, paths: list[str]) -> list[str] | None:
+    """One tier's IDs across its adapters' lists; None when any list is missing."""
+    joined: list[str] = []
+    for path in paths:
+        ids = read_ids(repo / path)
+        if ids is None:
+            return None
+        joined.extend(ids)
+    return joined
 
 
 def id_file(test_id: str) -> str:
@@ -267,7 +279,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 SELECTORS, "collection-check", f"usage: {error}", "fix the arguments"
             )
         ]
-    collections = {tier: read_ids(repo / path) for tier, path in lists.items()}
+    collections = {tier: joined_ids(repo, paths) for tier, paths in lists.items()}
     try:
         test_files = repository_test_files(repo, profile)
     except InventoryError as error:

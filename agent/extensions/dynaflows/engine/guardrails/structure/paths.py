@@ -22,6 +22,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails import adapters
 from guardrails.child_env import repo_environment
 from guardrails.config import conventions
 from guardrails.config.house_style import apply_exceptions
@@ -44,7 +45,6 @@ from guardrails.structure.inventory import (
 PLACEMENT = "STRUCT.folder-placement"
 DIRECTION = "STRUCT.dependency-direction"
 TEST_PLACEMENT = "TEST.placement"
-TIER_KEYS = ("t1", "t2", "t3")
 
 
 def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
@@ -75,12 +75,8 @@ def ownership_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
 
 
 def tier_locations(profile: dict[str, Any]) -> dict[str, list[str]]:
-    tiers = section(profile, "tiers")
-    return {
-        key: as_list(tiers[key].get("location"))
-        for key in TIER_KEYS
-        if isinstance(tiers.get(key), dict)
-    }
+    """Tier -> the test locations every adapter taking part in it declares."""
+    return adapters.tier_locations(profile)
 
 
 def framework_names(tree: ast.Module) -> tuple[bool, set[str], set[str]]:

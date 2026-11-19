@@ -103,7 +103,15 @@ BASE_PROFILE: dict[str, Any] = {
         "fixtures_dir": "tests/fixtures",
         "test_file_patterns": ["test_*.py"],
     },
-    "tiers": {"t1": {"location": "tests/unit"}, "t2": {"location": "tests/journeys"}},
+    "adapters": [
+        {
+            "name": "pytest",
+            "tiers": {
+                "t1": {"location": "tests/unit"},
+                "t2": {"location": "tests/journeys"},
+            },
+        }
+    ],
     "identity_artefacts": {"migrations/*.sql": "never edit an applied migration"},
     "guardrails": {
         "golden_record": {
@@ -430,11 +438,15 @@ class TimeoutIncreaseTests(unittest.TestCase):
 
 AFFECTED_PROFILE: dict[str, Any] = {
     **BASE_PROFILE,
-    "adapter": "pytest",
-    "tiers": {
-        "t1": {"location": "tests/unit"},
-        "t2": {"location": "tests/boundary", "selector": "boundary"},
-    },
+    "adapters": [
+        {
+            "name": "pytest",
+            "tiers": {
+                "t1": {"location": "tests/unit"},
+                "t2": {"location": "tests/boundary", "selector": "boundary"},
+            },
+        }
+    ],
     "coverage": {"scope": ["src/shop"], "line_floor": 90, "branch_floor": 80},
     "verification_surface": {"journey_file_pattern": "journeys/*.journey.py"},
     "ownership_areas": {
@@ -505,7 +517,7 @@ class AffectedSelectionTests(unittest.TestCase):
     def test_cli_and_adapter_print_the_selection(self) -> None:
         self.repo.commit({"src/shop/cart.py": "x = 2\n"})
         location = ["--repo", str(self.repo.path), "--record", str(self.repo.record)]
-        args = [*location, "affected", "--base", self.base]
+        args = [*location, "pytest", "affected", "--base", self.base]
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = cli.main(["affected", *location, "--base", self.base])
@@ -519,7 +531,7 @@ class AffectedSelectionTests(unittest.TestCase):
         ]
 
 
-GROWTH_PROFILE = {**BASE_PROFILE, "adapter": "pytest"}
+GROWTH_PROFILE = BASE_PROFILE
 CART_TEST = (
     "from shop.cart import total\n\n\n"
     "def test_empty_cart_totals_zero():\n    assert total([]) == 0\n"
@@ -635,8 +647,37 @@ class TestGrowthTests(unittest.TestCase):
 
     def test_changed_tests_without_a_collector_adapter_are_reported(self) -> None:
         self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
-        findings = self.check({**BASE_PROFILE, "adapter": "uninstalled_adapter"})
+        profile = {
+            **BASE_PROFILE,
+            "adapters": [
+                {"name": "uninstalled_adapter", "tiers": {"t1": {"location": "tests"}}}
+            ],
+        }
+        findings = self.check(profile)
         assert rules(findings) == [("TEST.growth.justified", "record:profile.md")]
+
+    def test_each_changed_test_file_is_collected_by_its_own_framework(self) -> None:
+        profile = {
+            **BASE_PROFILE,
+            "layout": {
+                **BASE_PROFILE["layout"],
+                "test_file_patterns": ["test_*.py", "*.test.ts"],
+            },
+            "adapters": [
+                {"name": "pytest", "tiers": {"t1": {"location": "tests/unit"}}},
+                {"name": "bun_test", "tiers": {"t1": {"location": "tests/unit"}}},
+            ],
+        }
+        self.repo.commit({
+            "tests/unit/test_cart.py": CART_TEST + "\n" + SUMMED.format(comment=""),
+            "tests/unit/cart.test.ts": (
+                "import { test, expect } from 'bun:test';\n"
+                "test('sum', () => { expect(1 + 1).toBe(2); });\n"
+            ),
+        })
+        findings = self.check(profile)
+        assert rules(findings) == [("TEST.growth.justified", "tests/unit/cart.test.ts")]
+        assert "tests/unit/cart.test.ts::sum has no descriptive" in findings[0].message
 
 
 class DiffCheckCliTests(unittest.TestCase):
