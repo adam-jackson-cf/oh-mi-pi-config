@@ -56,7 +56,7 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/agent-rails.yml
+!agent/rails.yml
 !agent/lib/
 agent/lib/*
 !agent/lib/repo_record.py

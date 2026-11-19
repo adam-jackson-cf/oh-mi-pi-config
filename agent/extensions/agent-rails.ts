@@ -12,7 +12,7 @@ import {
 export default function agentRails(
 	pi: ExtensionAPI,
 	{
-		configPath = fileURLToPath(new URL("../agent-rails.yml", import.meta.url)),
+		configPath = fileURLToPath(new URL("../rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),
 		ompCommand = ["omp"],
 	}: { configPath?: string; configRoot?: string; ompCommand?: string[] } = {},
@@ -25,7 +25,7 @@ export default function agentRails(
 		if (!parsed.success) throw new Error(`invalid mappings: ${parsed.error.message}`);
 		map = parsed.data;
 	} catch (error) {
-		loadError = `Agent rails: cannot load agent-rails.yml: ${String(error)}`;
+		loadError = `Agent rails: cannot load rails.yml: ${String(error)}`;
 	}
 	const stateFor = (ctx: ExtensionContext) => {
 		const id = ctx.sessionManager.getSessionId();
