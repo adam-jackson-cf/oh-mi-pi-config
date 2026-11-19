@@ -1673,6 +1673,7 @@
           "unapproved_none"
         ],
         "exemptable_sections": [
+          "tiers.t3",
           "verification_surface",
           "run_events.nightly_scheduler",
           "identity_artefacts"
@@ -1690,7 +1691,7 @@
         },
         "prove_prerequisite": true
       },
-      "summary": "Require every repo test profile value, allowing only three approved exemptions.",
+      "summary": "Require every repo test profile value, allowing only four approved exemptions.",
       "reference": [
         { "subcommand": "profile-check", "module": "guardrails.config.profile" }
       ]

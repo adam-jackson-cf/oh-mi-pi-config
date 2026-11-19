@@ -16,12 +16,6 @@ Format choice: ``profile.md`` starts with a front-matter block between two ``---
 lines that holds one JSON object. JSON is valid YAML flow syntax, so Markdown and YAML tools
 treat the block as ordinary front matter, while this package reads it with the standard
 library's ``json`` module and needs no YAML parser. The human sections follow the block.
-
-PROFILE.complete: every required value is present and real. Template placeholders
-(``<...>``), ``n/a``, ``TBD``, empty values and a bare ``none`` count as missing. Only
-``verification_surface``, ``run_events.nightly_scheduler`` and ``identity_artefacts`` may be
-``{"none": "<reason>", "approval": "<reference>"}``, and only with both fields filled. A
-``null`` anywhere inside a free-form value counts as missing too.
 """
 
 from __future__ import annotations
@@ -30,7 +24,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from guardrails.findings import Finding
 
@@ -40,6 +34,7 @@ PROFILE_PATH = "record:profile.md"
 RULE = "PROFILE.complete"
 FENCE = "---"
 EXEMPTABLE = frozenset({
+    "tiers.t3",
     "verification_surface",
     "run_events.nightly_scheduler",
     "identity_artefacts",
@@ -252,6 +247,19 @@ def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str
     ]
 
 
+def is_exemption(value: object) -> TypeGuard[dict[str, Any]]:
+    return isinstance(value, dict) and "none" in value
+
+
+def exempt_tiers(profile: dict[str, Any]) -> frozenset[str]:
+    tiers = profile.get("tiers")
+    return frozenset(
+        tier
+        for tier, value in (tiers.items() if isinstance(tiers, dict) else ())
+        if f"tiers.{tier}" in EXEMPTABLE and is_exemption(value)
+    )
+
+
 def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
     """Cross-entry rules for ``adapters`` that the per-field schema cannot express."""
     from guardrails.adapters import TIER_KEYS, installed
@@ -259,6 +267,7 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
     entries = profile.get("adapters")
     if not isinstance(entries, list):
         return []
+    exempt = exempt_tiers(profile)
     problems: list[tuple[str, str]] = []
     seen: set[str] = set()
     covered: set[str] = set()
@@ -281,10 +290,17 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
             if not tiers:
                 problems.append((f"{key}.tiers", "needs at least one tier"))
             covered.update(tier for tier in tiers if tier in TIER_KEYS)
+            problems.extend(
+                (
+                    f"{key}.tiers.{tier}",
+                    f"takes part in tier {tier}, which the profile exempts",
+                )
+                for tier in sorted(exempt.intersection(tiers))
+            )
     problems.extend(
         ("adapters", f"no adapter takes part in tier {tier}")
         for tier in TIER_KEYS
-        if tier not in covered
+        if tier not in covered and tier not in exempt
     )
     return problems
 
@@ -292,7 +308,7 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
 def check_value(
     value: object, spec: Any, key: str, problems: list[tuple[str, str]]
 ) -> None:
-    if key in EXEMPTABLE and isinstance(value, dict) and "none" in value:
+    if key in EXEMPTABLE and is_exemption(value):
         check_exemption(value, key, problems)
         return
     if isinstance(spec, dict):

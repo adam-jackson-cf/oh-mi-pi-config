@@ -103,6 +103,8 @@ This template adds only the harness fields below, and splits the generic tiers b
   tier the framework takes part in, the generic tier's `selector` (in that framework's native
   syntax) and `location`. Names are unique, each entry takes part in at least one tier and each
   tier has at least one adapter. `tiers.<tier>` keeps only the `command` that runs the tier.
+- `tiers.t3` may be the owner-approved exemption `{"none": "<reason>", "approval": "<reference>"}`
+  in place of its `command`. An exempt T3 needs no adapter, and no adapter may declare `t3`.
 - `structure` holds capability owners, tiers (lowest first; empty for a flat package) and
   import direction.
 - `house_style.version` records the installed house-style version.
