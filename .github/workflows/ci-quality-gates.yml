@@ -17,4 +17,5 @@ jobs:
         with:
           version: 0.13.7
       - run: bun install --frozen-lockfile
+      - run: git config core.hooksPath .githooks
       - run: bash scripts/run-ci-quality-gates.sh

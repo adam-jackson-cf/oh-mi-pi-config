@@ -293,6 +293,7 @@ class BuiltInPollerTests(Fixture):
 GATES_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/run-ci-quality-gates.sh"
 # Stops the run right after the parity check, before any lint, type or test tool starts.
 STOP = "#!/bin/sh\nexit 42\n"
+HOOK_COMMAND = "exec bash scripts/run-ci-quality-gates.sh --tier commit"
 
 
 class RunnerParityTests(unittest.TestCase):
@@ -309,6 +310,11 @@ class RunnerParityTests(unittest.TestCase):
             ["git", "init", "-q", str(self.repo)], check=True, timeout=PROCESS_TIMEOUT
         )
         # macOS bash 3.2 treats an empty array as unbound under `set -u`: track one Markdown file.
+        run_attached(
+            ["git", "-C", str(self.repo), "config", "core.hooksPath", ".githooks"],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
         (self.repo / "readme.md").write_text("# fixture\n")
         run_attached(
             ["git", "-C", str(self.repo), "add", "readme.md"],
@@ -327,10 +333,10 @@ class RunnerParityTests(unittest.TestCase):
         }
         self.env["PATH"] = str(binary) + os.pathsep + self.env["PATH"]
 
-    def hook(self, command: str) -> None:
-        (self.repo / ".githooks/pre-commit").write_text(
-            f"#!/usr/bin/env bash\nexec {command}\n"
-        )
+    def hook(self, command: str = HOOK_COMMAND, mode: int = 0o755) -> None:
+        hook = self.repo / ".githooks/pre-commit"
+        hook.write_text(f"#!/usr/bin/env bash\n{command}\n")
+        hook.chmod(mode)
 
     def run_script(self) -> subprocess.CompletedProcess[str]:
         return run_text(
@@ -340,15 +346,17 @@ class RunnerParityTests(unittest.TestCase):
             timeout=30,
         )
 
-    def test_hook_using_the_runner_satisfies_parity_without_a_workflow(self) -> None:
-        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage")
+    def test_an_installed_hook_running_the_commit_tier_passes_without_a_workflow(
+        self,
+    ) -> None:
+        self.hook()
         result = self.run_script()
-        assert "Runner parity check passed." in result.stdout
+        assert "Commit hook check passed." in result.stdout
         assert result.returncode == 42, "the run must continue to the quality tools"
         assert not (self.repo / ".github").exists()
 
     def test_shell_checks_cover_extension_and_shebang_scripts(self) -> None:
-        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage")
+        self.hook()
         (self.repo / "tool.sh").write_text("echo tool\n")
         (self.repo / "notes").write_text("plain text\n")
         (self.repo / "run").write_text("#!/usr/bin/env python3\nprint(1)\n")
@@ -377,7 +385,7 @@ class RunnerParityTests(unittest.TestCase):
         ]
 
     def test_prettier_checks_owned_data_files_outside_fixtures(self) -> None:
-        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit")
+        self.hook()
         names = ["a.yml", "b.json", "c.css", "tests/fixtures/d.json"]
         for name in names:
             (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -398,7 +406,7 @@ class RunnerParityTests(unittest.TestCase):
         ]
 
     def test_oxlint_denies_warnings_on_owned_code_outside_fixtures(self) -> None:
-        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit")
+        self.hook()
         names = [
             "a.ts",
             "tests/fixtures/b.ts",
@@ -428,14 +436,44 @@ class RunnerParityTests(unittest.TestCase):
         result = self.run_script()
         assert result.returncode == 1
         assert (
-            "Runner parity check failed: .githooks/pre-commit must reference"
+            "Commit hook check failed: .githooks/pre-commit must be executable"
             in result.stderr
         )
+
+    def test_a_hook_whose_argv_differs_from_the_commit_tier_fails(self) -> None:
+        self.hook(f"{HOOK_COMMAND} --fix --stage")
+        result = self.run_script()
+        assert result.returncode == 1
+        assert f"hold the line: {HOOK_COMMAND}" in result.stderr
+
+    def test_a_hook_that_cannot_execute_fails(self) -> None:
+        self.hook(mode=0o644)
+        result = self.run_script()
+        assert result.returncode == 1
+        assert "must be executable" in result.stderr
 
     def test_missing_hook_fails(self) -> None:
         result = self.run_script()
         assert result.returncode == 1
         assert ".githooks/pre-commit" in result.stderr
+
+    def test_a_clone_without_the_relative_hooks_path_fails(self) -> None:
+        self.hook()
+        for value in (None, str(self.repo / ".githooks")):
+            with self.subTest(value=value):
+                argv = ["git", "-C", str(self.repo), "config"]
+                argv += (
+                    ["--unset", "core.hooksPath"]
+                    if value is None
+                    else ["core.hooksPath", value]
+                )
+                run_attached(argv, check=True, timeout=PROCESS_TIMEOUT)
+                result = self.run_script()
+                assert result.returncode == 1
+                assert (
+                    f"core.hooksPath is {value or 'unset'}; install the hook with: "
+                    "git config core.hooksPath .githooks"
+                ) in result.stderr
 
 
 if __name__ == "__main__":
