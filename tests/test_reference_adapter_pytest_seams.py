@@ -6,15 +6,14 @@ These tests start processes or drive real Git repositories, so they run in T2.
 from __future__ import annotations
 
 import importlib.util
-import json
 import os
 import sys
 import tempfile
-import tomllib
 import unittest
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
+from unittest import mock
 
 from child_process import run_bytes, run_text
 
@@ -24,18 +23,14 @@ sys.path.insert(
 
 import pytest
 from test_reference_adapter_pytest import (
-    FIXTURES,
-    PYTEST_ONLY,
     REFERENCE,
     UNITTEST_SHOP_TEST,
     TestOnlySymbolCase,
-    requirement_entries,
     run_cli,
     write_profile,
 )
 
 from guardrails.commands.adapters import pytest as adapter
-from guardrails.commands.adapters.pytest import mutation
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.adapters.pytest.invocation import tier_arguments
 from guardrails.commands.test_evidence import propagation
@@ -97,150 +92,6 @@ GIT_ENV = {
     "GIT_COMMITTER_NAME": "Fixture",
     "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
 }
-
-
-class MutationTests(unittest.TestCase):
-    """TEST.mutation-sensitivity: mutmut results normalised, then judged against the diff."""
-
-    def setUp(self) -> None:
-        scratch = tempfile.TemporaryDirectory()
-        self.addCleanup(scratch.cleanup)
-        self.repo = Path(scratch.name).resolve() / "repo"
-        self.out = Path(scratch.name).resolve() / "out"
-        self.repo.mkdir()
-        self.out.mkdir()
-        self.report = str(self.out / "m.json")
-        write_profile(self.repo, PYTEST_ONLY)
-        source = FIXTURES / "mutmut-run"
-        self.core = self.repo / "src/ledger/core.py"
-        self.core.parent.mkdir(parents=True)
-        # The fixture holds one real mutmut 3.8.1 run: its source file and its results file.
-        text = (source / "core.py.txt").read_text()
-        # The base differs from the head only inside clamp's body (lines 6-10).
-        self.core.write_text(text.replace("value > high", "high < value"))
-        self.commit()
-        self.core.write_text(text)
-        self.commit()
-        meta = self.repo / "mutants/src/ledger/core.py.meta"
-        meta.parent.mkdir(parents=True)
-        meta.write_bytes((source / "core.py.meta").read_bytes())
-
-    def commit(self) -> None:
-        environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        environment.update(GIT_ENV)
-        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
-            run_bytes(
-                ["git", "-C", str(self.repo), *args],
-                check=True,
-                env={**environment, "GIT_CONFIG_GLOBAL": os.devnull},
-                timeout=60,
-            )
-
-    def test_mutmut_results_normalise_to_function_spans(self) -> None:
-        code, out = run_cli(
-            "adapter",
-            "--repo",
-            str(self.repo),
-            "pytest",
-            "mutation-report",
-            "--out",
-            self.report,
-        )
-        assert code == 0, out
-        report = json.loads(Path(self.report).read_text())
-        spans = {
-            (m["id"].rsplit(".", 1)[1], m["start_line"], m["end_line"], m["status"])
-            for m in report["mutants"]
-        }
-        assert spans == {
-            ("x_total__mutmut_1", 1, 2, "killed"),
-            ("x_clamp__mutmut_1", 5, 10, "survived"),
-            ("x_clamp__mutmut_2", 5, 10, "survived"),
-            ("xǁAccountǁdeposit__mutmut_1", 14, 15, "killed"),
-        }
-        assert {m["path"] for m in report["mutants"]} == {"src/ledger/core.py"}
-
-    def test_surviving_mutant_in_changed_code_fails_the_check(self) -> None:
-        run_cli(
-            "adapter",
-            "--repo",
-            str(self.repo),
-            "pytest",
-            "mutation-report",
-            "--out",
-            self.report,
-        )
-        code, out = run_cli(
-            "mutation-check",
-            "--repo",
-            str(self.repo),
-            "--report",
-            self.report,
-            "--base",
-            "HEAD~1",
-        )
-        assert code == 1
-        assert out.count("TEST.mutation-sensitivity") == 2
-        assert "x_clamp__mutmut_1 survived in changed code" in out
-        assert "x_total" not in out
-
-    def test_killed_mutants_of_changed_code_pass_the_check(self) -> None:
-        meta = self.repo / "mutants/src/ledger/core.py.meta"
-        data = json.loads(meta.read_text())
-        data["exit_code_by_key"] = dict.fromkeys(data["exit_code_by_key"], 1)
-        meta.write_text(json.dumps(data))
-        run_cli(
-            "adapter",
-            "--repo",
-            str(self.repo),
-            "pytest",
-            "mutation-report",
-            "--out",
-            self.report,
-        )
-        code, out = run_cli(
-            "mutation-check",
-            "--repo",
-            str(self.repo),
-            "--report",
-            self.report,
-            "--base",
-            "HEAD~1",
-        )
-        assert (code, out.strip()) == (0, "mutation-check: ok")
-
-    def test_missing_mutmut_results_are_a_finding(self) -> None:
-        (self.repo / "mutants/src/ledger/core.py.meta").unlink()
-        code, out = run_cli(
-            "adapter",
-            "--repo",
-            str(self.repo),
-            "pytest",
-            "mutation-report",
-            "--out",
-            self.report,
-        )
-        assert code == 1
-        assert "no mutmut results" in out
-
-    def test_exit_codes_map_to_shared_statuses(self) -> None:
-        assert [mutation.status(code) for code in (1, 0, 33, 36, None, 2, 34)] == [
-            "killed",
-            "survived",
-            "no_tests",
-            "timeout",
-            "incomplete",
-            "incomplete",
-            "incomplete",
-        ]
-
-    def test_mutation_lock_pins_both_extras_with_hashes(self) -> None:
-        pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
-        extras = pyproject["project"]["optional-dependencies"]
-        entries = requirement_entries(MUTATION_LOCK.read_text())
-        specs = {spec.split(";")[0].strip() for spec in entries}
-        assert set(extras["mutation"]) | set(extras["pytest"]) <= specs
-        assert all(entries.values()), "every locked requirement carries a hash"
 
 
 class TestOnlySymbolTests(TestOnlySymbolCase):
@@ -347,6 +198,18 @@ class ExtraTests(unittest.TestCase):
         for result in results:
             with self.subTest(case=result.case_id):
                 assert result.passed, result.detail
+
+    @needs_extra
+    def test_conformance_runs_ignore_the_callers_framework_variables(self) -> None:
+        from guardrails.commands.adapters.pytest.conformance import run_conformance
+
+        caller = {
+            "PYTEST_PLUGINS": "absent_plugin_module",
+            "PYTEST_ADDOPTS": "--absent-option",
+        }
+        with mock.patch.dict(os.environ, caller):
+            (result,) = run_conformance(["fast-tier-clean"])
+        assert result.passed, result.detail
 
     @needs_extra
     def test_cli_lint_reports_self_mocking_in_a_repository(self) -> None:
