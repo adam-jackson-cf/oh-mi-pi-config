@@ -150,6 +150,6 @@ orca-plugins/chat-section-style/terminal-palette
 **/.pytest_cache/
 **/.ruff_cache/
 **/*.egg-info/
-agent/extensions/dynaflows/guardrails/build/
+agent/extensions/dynaflows/engine/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/

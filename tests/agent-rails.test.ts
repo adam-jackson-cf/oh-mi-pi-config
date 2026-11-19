@@ -10,9 +10,9 @@ import agentRails from "../agent/extensions/agent-rails";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
 import { parseOrigin } from "../agent/lib/repo-record.ts";
 
-const integrity = "skill://omp-dyna-workflows/references/delivery-principles.md";
-const structure = "skill://omp-dyna-workflows/references/structure-and-naming.md";
-const enforcement = "skill://omp-dyna-workflows/references/test-enforcement.md";
+const integrity = "skill://dynaflows/references/delivery-principles.md";
+const structure = "skill://dynaflows/references/structure-and-naming.md";
+const enforcement = "skill://dynaflows/references/test-enforcement.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://test-guidance/references/before-commit.md";
 type GateFixture = {
@@ -61,7 +61,7 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 	}
 	if (command === "uv" && args[4] === "path-check") {
 		assert.deepEqual(args.slice(0, 6), ["run", "--project",
-			resolve(import.meta.dir, "../agent/extensions/dynaflows/guardrails"), "omp-guardrails", "path-check", "--repo"]);
+			resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"), "guardrails", "path-check", "--repo"]);
 		assert.equal(args[7], "--record");
 		assert.match(args[8], /\/repos\/[^/]+\/[^/]+$/);
 		return ["path-check", args.slice(9)];
@@ -71,7 +71,7 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 
 // A temp repo whose origin names a per-repo record under a temp config root (never the real one).
 // `configRoot` shares another harness's records; `guardrailsCommand: "default"` keeps the real
-// omp-guardrails invocation, otherwise the harness checks are `true`.
+// guardrails invocation, otherwise the harness checks are `true`.
 function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, extensions = "generic" }: {
 	extensions?: "generic" | "dynaflows" | "both";
 	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
@@ -121,8 +121,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			if (name === "path-check") {
 				assert.equal(command, "env");
 				assert.deepEqual(args, ["-u", "AGENT", "--", "uv", "run", "--project",
-					resolve(import.meta.dir, "../agent/extensions/dynaflows/guardrails"),
-					"omp-guardrails", "path-check", "--repo", options.cwd, "--record", recordDir(), ...paths]);
+					resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"),
+					"guardrails", "path-check", "--repo", options.cwd, "--record", recordDir(), ...paths]);
 				return { code: pathFailure ? 1 : 0, killed: false, stdout: "",
 					stderr: pathFailure ? `${paths.join("\n")}: ${pathFailure}` : "" };
 			}

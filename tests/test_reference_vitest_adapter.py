@@ -10,13 +10,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.adapters import vitest
-from omp_guardrails.adapters.vitest import mutation, tiers
-from omp_guardrails.config.profile import GUARDRAILS_SECTIONS
-from omp_guardrails.test_evidence.mutation import load_report
+from guardrails.adapters import vitest
+from guardrails.adapters.vitest import mutation, tiers
+from guardrails.config.profile import GUARDRAILS_SECTIONS
+from guardrails.test_evidence.mutation import load_report
 
 
 class VitestAdapterTests(unittest.TestCase):

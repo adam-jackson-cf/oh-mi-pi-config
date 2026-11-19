@@ -22,18 +22,18 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 LOCK = REFERENCE / "requirements-pytest.lock"
 MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
 CONTAINERFILE = ROOT / ".devcontainer/Containerfile"
 FIXTURES = ROOT / "tests/fixtures/reference/adapter_pytest"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.adapters import pytest as adapter  # noqa: E402
-from omp_guardrails.adapters.pytest import guards, mutation, symbol_usage  # noqa: E402
-from omp_guardrails.adapters.pytest.dialect import DIALECT  # noqa: E402
-from omp_guardrails.test_evidence.junit import dialect_for, parse_report  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.adapters import pytest as adapter  # noqa: E402
+from guardrails.adapters.pytest import guards, mutation, symbol_usage  # noqa: E402
+from guardrails.adapters.pytest.dialect import DIALECT  # noqa: E402
+from guardrails.test_evidence.junit import dialect_for, parse_report  # noqa: E402
 
 EXTRA_PRESENT = all(importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py"))
 EXTRA_REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
@@ -129,7 +129,7 @@ class PinnedExtraTests(unittest.TestCase):
         self.assertEqual(containerfile_lock(), requirement_entries(LOCK.read_text()))
         text = CONTAINERFILE.read_text()
         self.assertIn("--require-hashes", text)
-        self.assertRegex(text, r'ENV PATH="/opt/omp-guardrails/bin:\$\{PATH\}"')
+        self.assertRegex(text, r'ENV PATH="/opt/guardrails/bin:\$\{PATH\}"')
         self.assertIn("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1", text)
 
 
@@ -138,9 +138,9 @@ class StandardLibraryTests(unittest.TestCase):
         code = (
             "import sys\n"
             f"sys.path.insert(0, {str(REFERENCE)!r})\n"
-            "import omp_guardrails.adapters.pytest, omp_guardrails.adapters.pytest.dialect\n"
-            "import omp_guardrails.adapters.pytest.guards, omp_guardrails.adapters.pytest.tiers\n"
-            "import omp_guardrails.adapters.pytest.lint\n"
+            "import guardrails.adapters.pytest, guardrails.adapters.pytest.dialect\n"
+            "import guardrails.adapters.pytest.guards, guardrails.adapters.pytest.tiers\n"
+            "import guardrails.adapters.pytest.lint\n"
             "assert 'pytest' not in sys.modules and 'ast_grep_py' not in sys.modules\n"
         )
         result = subprocess.run(
@@ -397,7 +397,7 @@ class TestOnlySymbolTests(unittest.TestCase):
 
 
 def adapter_lint_rules() -> list[dict]:
-    folder = REFERENCE / "omp_guardrails/adapters/pytest/rules"
+    folder = REFERENCE / "guardrails/adapters/pytest/rules"
     return [json.loads(path.read_text()) for path in sorted(folder.glob("*.yml"))]
 
 
@@ -446,7 +446,7 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
 class ExtraTests(unittest.TestCase):
     @needs_extra
     def test_every_conformance_case_passes(self):
-        from omp_guardrails.adapters.pytest.conformance import load_cases, run_conformance
+        from guardrails.adapters.pytest.conformance import load_cases, run_conformance
 
         results = run_conformance()
         self.assertEqual(len(results), len(load_cases()))

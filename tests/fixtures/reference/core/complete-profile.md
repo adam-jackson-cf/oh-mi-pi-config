@@ -29,13 +29,13 @@
   "guards": {
     "process": "tests/unit/conftest.py",
     "network": "tests/unit/conftest.py",
-    "user_data": "omp-guardrails guard-run"
+    "user_data": "guardrails guard-run"
   },
   "environments": {"required": ["postgres"], "require_flag": "--require-env", "readiness_probe": "make doctor"},
   "verification_surface": {"none": "library without a runnable app", "approval": "ADR-0009"},
   "ownership_areas": {
     "map": {"tests/boundary/test_ledger_*.py": "ledger"},
-    "affected_t2_selection": "omp-guardrails adapter affected"
+    "affected_t2_selection": "guardrails adapter affected"
   },
   "identity_artefacts": {"none": "no identity-bearing files", "approval": "ADR-0009"},
   "layout": {

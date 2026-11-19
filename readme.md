@@ -12,12 +12,12 @@ risk, and clean cutovers over compatibility layers. Changes should solve the
 underlying problem, preserve canonical wording where it matters, migrate callers
 when a design changes, and remove obsolete paths rather than carry them forward.
 `agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
-[delivery principles](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/delivery-principles.md)
-and [structure and naming](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md);
+[delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
+and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md);
 `test-guidance` remains generic test practice, usable without dynaflows.
 Retired delivery-guidance copies and the disabled standalone workflow entry have been removed;
 Git history retains them. The extension package is the only workflow skill source.
-The [workflow page](agent/extensions/dynaflows/skills/omp-dyna-workflows/workflow.html)
+The [workflow page](agent/extensions/dynaflows/docs/workflow.html)
 is an explanatory view of the canonical skill contracts.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
@@ -66,7 +66,7 @@ With dynaflows on for the edited path's repo, targeted integrity/new-code/test r
 fire before edits. All-session handoff, including subagents, stays blocked until
 verification references are read after that session's code edits in an enabled repo
 and failed harness `path-check` paths pass on retry. Rails run
-`omp-guardrails path-check --repo <worktree> --record <record dir>` from the harness.
+`guardrails path-check --repo <worktree> --record <record dir>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
 untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
@@ -86,8 +86,8 @@ Repository checks follow the test tiers. The record's `gate.json` (schema versio
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. With
 dynaflows on, each agent commit refuses changes to record `ownerOnlyPaths` and
-runs harness `omp-guardrails path-check` with repo and record arguments,
-then `checks.commit`, and then `omp-guardrails check`, also run from this checkout with
+runs harness `guardrails path-check` with repo and record arguments,
+then `checks.commit`, and then `guardrails check`, also run from this checkout with
 `--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the record.
 The CI runner named by `ci.runner` runs
@@ -106,8 +106,8 @@ with `git config core.hooksPath .githooks`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its
-[canonical six-stage workflow](agent/extensions/dynaflows/skills/omp-dyna-workflows/SKILL.md)
-is available as `skill://omp-dyna-workflows`.
+[canonical six-stage workflow](agent/extensions/dynaflows/skills/dynaflows/SKILL.md)
+is available as `skill://dynaflows`.
 Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `init $dynaflows`,
 `$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
 `$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
@@ -130,7 +130,7 @@ feature map (the record profile's `verification_surface.feature_map_path`): `fre
 proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
 proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
 and a test, then a re-freeze. Helper contracts live in
-[patterns](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/patterns.md).
+[patterns](agent/extensions/dynaflows/skills/dynaflows/references/patterns.md).
 `skill://git-tool` owns Git/PR/CI/merge authority.
 
 Native judged reply rules live inside the package. At session start its extension appends the
@@ -177,7 +177,7 @@ Worktrees resolve to the same record as their main checkout.
 
 `/repos/` is gitignored: records are never committed, because they mean nothing to
 anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. Dynaflows [harness setup](agent/extensions/dynaflows/skills/omp-dyna-workflows/references/harness-setup.md)
+devices. Dynaflows [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md)
 adds record configuration to the generic `skill://setup-repo-proofs` workflow.
 Agents write records directly, with approval fields only as the owner stated them in the chat;
 records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit
@@ -333,8 +333,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
   evidence-driven process for re-tuning `agent/config.yml`.
 - `agent/skills/setup-repo-proofs/` — generic repository verification setup, independent
   of any assistant or harness.
-- `agent/extensions/dynaflows/guardrails/` — harness-side checkers and the rule catalogue
-  (`omp_guardrails/data/guardrail-rules.json`), run outside inspected repositories.
+- `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
+  (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
 - `agent/lib/record/` — per-repo harness configuration documentation, schema and examples.
 - `agent/lib/repo_record.py` and `agent/lib/repo-record.ts` — the origin-to-record

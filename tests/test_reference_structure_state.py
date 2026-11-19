@@ -13,10 +13,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "agent/extensions/dynaflows/guardrails"))
+sys.path.insert(0, str(ROOT / "agent/extensions/dynaflows/engine"))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.structure import state  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.structure import state  # noqa: E402
 
 
 class StructureStateTests(unittest.TestCase):

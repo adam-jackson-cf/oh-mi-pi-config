@@ -10,4 +10,4 @@ scope: text
 ---
 # Clean cutover
 
-Read skill://omp-dyna-workflows/references/delivery-principles.md before changing the existing design.
+Read skill://dynaflows/references/delivery-principles.md before changing the existing design.

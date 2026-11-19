@@ -6,17 +6,17 @@ dynaflowsRules:
   - dynaflows-regression-coverage
 references:
   firstEdit:
-    - skill://omp-dyna-workflows/references/delivery-principles.md
+    - skill://dynaflows/references/delivery-principles.md
   newFile:
-    - skill://omp-dyna-workflows/references/structure-and-naming.md
+    - skill://dynaflows/references/structure-and-naming.md
   test:
     - skill://test-guidance/references/tiers.md
-    - skill://omp-dyna-workflows/references/test-enforcement.md
-    - skill://omp-dyna-workflows/references/proofs.md
+    - skill://dynaflows/references/test-enforcement.md
+    - skill://dynaflows/references/proofs.md
   verification:
     - skill://test-guidance/references/before-commit.md
   workflow:
-    - skill://omp-dyna-workflows
+    - skill://dynaflows
   git:
     - skill://git-tool
 testGlobs:
