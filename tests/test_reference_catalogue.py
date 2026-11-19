@@ -24,8 +24,9 @@ from guardrails import child_env, cli  # noqa: E402
 from guardrails.catalogue import rules as catalogue_rules  # noqa: E402
 from guardrails.catalogue import toolchain_parity, versions  # noqa: E402
 
-# Tool rules whose values tests/test_reference_init.py NativeConfigTests checks.
-NATIVE_PREFIXES = ("RUFF.", "MYPY.")
+# Tool rules whose values tests/test_reference_init.py NativeConfigTests and
+# LanguageNativeConfigTests check against the data init writes.
+NATIVE_PREFIXES = ("RUFF.", "MYPY.", "TSC.", "OXLINT.", "GOLANGCI.", "SHELLCHECK.", "SHFMT.")
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -138,8 +139,8 @@ class PackagedCatalogueTests(unittest.TestCase):
             if not catalogue_rules.proven_by_package(rule):
                 continue
             with self.subTest(rule=rule["id"]):
-                # RUFF.* and MYPY.* tool rules: init writes the native config the tool
-                # enforces, and NativeConfigTests checks it against every such catalogue row.
+                # Native tool rules: init writes the native config the tool enforces, and
+                # the native config tests check it against every such catalogue row.
                 native = rule["kind"] == "tool" and rule["id"].startswith(NATIVE_PREFIXES)
                 self.assertTrue(native or rule["id"] in texts, f"no skill test names {rule['id']}")
 
@@ -395,6 +396,56 @@ class ToolchainParityTests(RepoCase):
         lock["packages"]["node_modules/other/node_modules/prettier"] = {"version": "3.9.9"}
         self.write("package-lock.json", json.dumps(lock))
         self.assertEqual(rules_of(self.parity(options)), ["PRETTIER.version"])
+
+    def test_node_pins_must_be_exact_equal_and_match_the_running_node(self) -> None:
+        running = toolchain_parity.node_version(self.repo)
+        self.write(".nvmrc", f"v{running}\n")
+        self.write(".node-version", f"v{running}\n")
+        options = {"node_pins": [".nvmrc", ".node-version"]}
+        self.assertEqual(self.parity(options), [])
+        self.write(".node-version", "lts/*\n")
+        findings = self.parity(options)
+        self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"] * 2)
+        self.assertIn("not one exact X.Y.Z", findings[1].message)
+        self.write(".nvmrc", "1.0.0\n")
+        self.write(".node-version", "1.0.0\n")
+        self.assertIn("running Node", self.parity(options)[0].message)
+
+    def test_package_manager_pin_selects_the_only_lockfile(self) -> None:
+        options = {"package_manager": {"package_json": "package.json"}}
+        self.write("package.json", json.dumps({"packageManager": "bun@1.3.0"}))
+        self.write("bun.lock", "{}\n")
+        self.assertEqual(self.parity(options), [])
+        self.write("package-lock.json", "{}\n")
+        self.write("bun.lockb", "")
+        findings = self.parity(options)
+        self.assertEqual(rules_of(findings), ["PARITY.package-manager"] * 2)
+        self.assertEqual([f.path for f in findings], ["package-lock.json", "bun.lockb"])
+        (self.repo / "bun.lock").unlink()
+        self.assertIn("bun.lock", [f.path for f in self.parity(options)])
+        for declared in ("bun@^1.3", "bun", "deno@2.0.0", None):
+            with self.subTest(declared=declared):
+                self.write("package.json", json.dumps({"packageManager": declared}))
+                findings = self.parity(options)
+                self.assertEqual(rules_of(findings), ["PARITY.package-manager"])
+                self.assertIn("not one exact", findings[0].message)
+
+    def test_go_toolchain_in_go_mod_matches_every_ci_go_version(self) -> None:
+        options = {"go": {"ci_sources": [".github/workflows/*.yml"]}}
+        self.write("go.mod", "module example.com/shop\n\ngo 1.24.0\n\ntoolchain go1.24.4\n")
+        self.write(".github/workflows/ci.yml", "    - uses: actions/setup-go@v5\n      with:\n        go-version-file: go.mod\n")
+        self.assertEqual(self.parity(options), [])
+        self.write(".github/workflows/lint.yml", "    container: golang:1.24.4\n    - with:\n        go-version: '1.23.1'\n")
+        findings = self.parity(options)
+        self.assertEqual(rules_of(findings), ["GATE.local-ci-parity"])
+        self.assertIn("CI Go 1.23.1 differs from go.mod 1.24.4", findings[0].message)
+        self.write(".github/workflows/lint.yml", "    go-version-file: tools/go.mod\n")
+        self.assertIn("is not go.mod", self.parity(options)[0].message)
+        self.write(".github/workflows/lint.yml", "")
+        self.write(".github/workflows/ci.yml", "    - run: go test ./...\n")
+        self.assertIn("set no Go version", self.parity(options)[0].message)
+        self.write("go.mod", "module example.com/shop\n\ngo 1.24\n")
+        self.assertIn("no exact goX.Y.Z toolchain", self.parity(options)[0].message)
 
     def test_unconfigured_sections_never_pass_silently(self) -> None:
         self.assertEqual(rules_of(self.parity({})), ["GATE.local-ci-parity"])

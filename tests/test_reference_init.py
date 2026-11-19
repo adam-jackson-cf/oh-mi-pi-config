@@ -22,7 +22,7 @@ sys.path.insert(0, str(REFERENCE))
 from guardrails import cli, harness  # noqa: E402
 from guardrails.config.house_style import load_house_style  # noqa: E402
 from guardrails.config.profile import load_profile  # noqa: E402
-from guardrails.init import command, discovery, lsp, native_config  # noqa: E402
+from guardrails.init import command, discovery, lsp, native_config, native_languages  # noqa: E402
 
 CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
@@ -571,6 +571,165 @@ class NativeConfigTests(InitCase):
         }
         for name, text in rendered.items():
             self.assertNotRegex(text.lower(), r"\bomp|guardrails", name)
+
+
+def language_contracts() -> dict[str, dict]:
+    rules = json.loads(CATALOGUE.read_text())["rules"]
+    return {rule["id"]: rule["contract"] for rule in rules if rule["id"].startswith(LANGUAGE_PREFIXES)}
+
+
+LANGUAGE_PREFIXES = ("TSC.", "OXLINT.", "GOLANGCI.", "SHELLCHECK.", "SHFMT.")
+SHELL_EDITORCONFIG = "root = true\n\n[*]\nindent_style = space\n\n[*.{sh,bash}]\nindent_size = 2\n\n[*.sh]\nswitch_case_indent = true\n"
+
+
+class LanguageNativeConfigTests(InitCase):
+    def test_language_data_mirrors_the_catalogue_contracts(self) -> None:
+        data, contracts = native_config.load_data(), language_contracts()
+        tsc, oxlint, golangci = data["tsc"]["compilerOptions"], data["oxlint"], data["golangci"]
+        families: dict[str, dict] = {family: {} for family in LANGUAGE_PREFIXES}
+        for rule_id, contract in contracts.items():
+            family = next(prefix for prefix in LANGUAGE_PREFIXES if rule_id.startswith(prefix))
+            families[family][rule_id.removeprefix(family)] = contract
+        tsc_rows = {key: row["value"] for key, row in families["TSC."].items() if "value" in row}
+        self.assertEqual(tsc_rows, tsc)
+        ox = families["OXLINT."]
+        self.assertEqual(ox["plugins"]["value"], oxlint["plugins"])
+        self.assertEqual(
+            {key.removeprefix("CATEGORY."): row["value"] for key, row in ox.items() if key.startswith("CATEGORY.")},
+            oxlint["categories"],
+        )
+        self.assertEqual({row["rule"]: row["value"] for row in ox.values() if "rule" in row}, oxlint["rules"])
+        for rule in oxlint["rules"]:
+            self.assertIn(rule.split("/")[0], oxlint["plugins"], rule)
+        go = families["GOLANGCI."]
+        self.assertEqual(go["version"]["value"], golangci["version"])
+        self.assertEqual(go["run.tests"]["value"], golangci["run"]["tests"])
+        self.assertEqual(go["linters.default"]["value"], golangci["linters"]["default"])
+        enabled = {key.removeprefix("ENABLE.") for key in go if key.startswith("ENABLE.")}
+        self.assertEqual(enabled, set(golangci["linters"]["enable"]))
+        formatters = {key.removeprefix("FORMAT.") for key in go if key.startswith("FORMAT.")}
+        self.assertEqual(formatters, set(golangci["formatters"]["enable"]))
+        settings = golangci["linters"]["settings"]
+        for key, row in go.items():
+            if key.startswith("LIMIT.") and row["linter"] != "revive":
+                self.assertEqual(settings[row["linter"]][row["setting"]], row["value"], key)
+            if key.startswith(("LIMIT.", "RULE.")):
+                self.assertIn(row["linter"], enabled, key)
+        revive = {item["name"]: item["arguments"] for item in settings["revive"]["rules"]}
+        self.assertEqual(revive["argument-limit"], [go["LIMIT.revive.argument-limit"]["value"]])
+        self.assertEqual(go["RULE.forbidigo.exec-command"]["value"], settings["forbidigo"]["forbid"])
+        self.assertEqual(go["RULE.nolintlint"]["value"], settings["nolintlint"])
+        self.assertEqual(
+            {key: row["value"] for key, row in families["SHELLCHECK."].items() if "value" in row},
+            data["shellcheck"],
+        )
+        shfmt = families["SHFMT."]
+        self.assertEqual({key: row["value"] for key, row in shfmt.items()}, data["shfmt"]["settings"])
+        self.assertEqual({row["section"] for row in shfmt.values()}, {data["shfmt"]["section"]})
+
+    def test_limits_mirror_the_python_thresholds(self) -> None:
+        rules = {rule["id"]: rule["contract"] for rule in json.loads(CATALOGUE.read_text())["rules"]}
+        for rule_id in (
+            "OXLINT.LIMIT.complexity", "OXLINT.LIMIT.max-params", "OXLINT.LIMIT.max-statements",
+            "OXLINT.LIMIT.max-dependencies", "GOLANGCI.LIMIT.gocyclo.min-complexity",
+            "GOLANGCI.LIMIT.funlen.statements", "GOLANGCI.LIMIT.revive.argument-limit",
+        ):
+            with self.subTest(rule=rule_id):
+                contract = rules[rule_id]
+                limit = contract["value"][1]["max"] if rule_id.startswith("OXLINT.") else contract["value"]
+                mirrored = rules[contract["mirrors"]]
+                expected = mirrored.get("value", mirrored.get("max_non_stdlib_dependencies"))
+                self.assertEqual(limit, expected)
+
+    def test_proposes_typescript_go_and_shell_configs_in_the_record(self) -> None:
+        self.write("package.json", "{}\n")
+        self.write("go.mod", "module example.com/shop\n\ngo 1.24\n")
+        self.write("scripts/release.sh", "#!/bin/sh\necho release\n")
+        before = snapshot(self.repo)
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertEqual(snapshot(self.repo), before)
+        proposed = self.record / "proposed"
+        for name in ("tsconfig.json", ".oxlintrc.json", ".golangci.json", ".shellcheckrc", ".editorconfig"):
+            self.assertIn(f"record:proposed/{name} (apply it to the repository as a fix)", output)
+        tsconfig = json.loads((proposed / "tsconfig.json").read_text())
+        self.assertIs(tsconfig["compilerOptions"]["exactOptionalPropertyTypes"], True)
+        golangci = json.loads((proposed / ".golangci.json").read_text())
+        self.assertEqual(golangci["formatters"]["settings"]["goimports"]["local-prefixes"], ["example.com/shop"])
+        self.assertIn("enable=check-set-e-suppressed\n", (proposed / ".shellcheckrc").read_text())
+        self.assertIn("[*.{sh,bash}]\nindent_style = space\n", (proposed / ".editorconfig").read_text())
+        self.assert_second_run_changes_nothing()
+
+    def test_proposed_oxlint_config_is_read_by_the_pinned_oxlint(self) -> None:
+        self.write("package.json", "{}\n")
+        self.assertEqual(self.init()[0], 0)
+        source = self.write("wide.ts", "export function wide(a: number, b: number, c: number, d: number, e: number, f: number): number {\n  return a + b + c + d + e + f;\n}\n")
+        result = subprocess.run(
+            [str(ROOT / "node_modules/.bin/oxlint"), "-c", str(self.record / "proposed/.oxlintrc.json"), str(source)],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("eslint(max-params)", result.stdout)
+
+    def test_existing_tsconfig_and_editorconfig_report_each_missing_rule(self) -> None:
+        self.write("tsconfig.base.json", '{"compilerOptions": {"strict": true, "noUnusedLocals": true}}')
+        self.write(
+            "tsconfig.json",
+            '// project config\n{\n  "extends": "./tsconfig.base.json",\n'
+            '  "compilerOptions": {"noUncheckedIndexedAccess": true, /* kept */ "noUnusedLocals": false,},\n}\n',
+        )
+        self.write("scripts/release.sh", "#!/bin/sh\n")
+        self.write(".editorconfig", SHELL_EDITORCONFIG)
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.record / "proposed/tsconfig.json").exists())
+        self.assertFalse((self.record / "proposed/.editorconfig").exists())
+        self.assertNotIn("lacks TSC.strict ", output)
+        self.assertNotIn("lacks TSC.noUncheckedIndexedAccess ", output)
+        self.assertIn("native: tsconfig.json lacks TSC.noUnusedLocals (compilerOptions.noUnusedLocals: true)", output)
+        self.assertIn("native: tsconfig.json lacks TSC.exactOptionalPropertyTypes", output)
+        self.assertNotIn("lacks SHFMT.indent_style", output)
+        self.assertNotIn("lacks SHFMT.indent_size", output)
+        self.assertIn("native: .editorconfig lacks SHFMT.binary_next_line (binary_next_line = true for shell files)", output)
+        self.assertIn("native: .editorconfig lacks SHFMT.switch_case_indent", output, ".bash files lack it")
+
+    def test_unreadable_tsconfig_base_is_reported_not_passed(self) -> None:
+        self.write("tsconfig.json", '{"extends": "@tsconfig/strictest/tsconfig.json"}')
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertIn("native: tsc settings not verified; tsconfig.json: extends '@tsconfig/strictest/tsconfig.json' cannot be read", output)
+        self.write("node_modules/@tsconfig/strictest/tsconfig.json", '{"compilerOptions": {"strict": true}}')
+        self.assertIn("lacks TSC.noImplicitOverride", self.init()[1])
+
+    def test_existing_linters_are_kept_and_never_doubled(self) -> None:
+        self.write("package.json", "{}\n")
+        self.write("eslint.config.js", "export default [];\n")
+        self.write("go.mod", "module example.com/shop\n")
+        self.write(".golangci.yml", "version: \"2\"\n")
+        self.write("run.bash", "#!/bin/bash\n")
+        self.write(".shellcheckrc", "disable=SC1091\n")
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        for name in (".oxlintrc.json", ".golangci.json", ".shellcheckrc"):
+            self.assertFalse((self.record / "proposed" / name).exists(), name)
+        self.assertIn("native: kept the existing lint configuration in eslint.config.js", output)
+        self.assertIn("native: kept the existing golangci-lint configuration in .golangci.yml", output)
+        self.assertIn("native: kept the existing shellcheck configuration in .shellcheckrc", output)
+
+    def test_go_module_without_a_path_leaves_golangci_unproposed(self) -> None:
+        self.write("go.mod", "go 1.24\n")
+        code, output = self.init()
+        self.assertEqual(code, 0, output)
+        self.assertIn("native: golangci-lint not proposed; go.mod declares no module path", output)
+
+    def test_language_proposals_never_name_the_harness(self) -> None:
+        data = native_config.load_data()
+        for text in (
+            native_languages.render_tsconfig(data), native_languages.render_oxlint(data),
+            native_languages.render_golangci(data, "example.com/shop"),
+            native_languages.render_shellcheck(data), native_languages.render_editorconfig(data),
+        ):
+            self.assertNotRegex(text.lower(), r"\bomp|guardrails")
 
 
 if __name__ == "__main__":

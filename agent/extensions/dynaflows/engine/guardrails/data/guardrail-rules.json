@@ -1553,6 +1553,494 @@
       "reference": [
         {"subcommand": "lever-selftest", "module": "guardrails.surface.lever_selftest"}
       ]
+    },
+    {
+      "id": "TSC.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.strict to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUncheckedIndexedAccess",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUncheckedIndexedAccess to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.exactOptionalPropertyTypes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.exactOptionalPropertyTypes to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitOverride",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitOverride to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitReturns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitReturns to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noFallthroughCasesInSwitch",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noFallthroughCasesInSwitch to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noPropertyAccessFromIndexSignature",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noPropertyAccessFromIndexSignature to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedLocals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedLocals to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedParameters",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedParameters to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnreachableCode",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnreachableCode to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnusedLabels",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnusedLabels to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.forceConsistentCasingInFileNames",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.forceConsistentCasingInFileNames to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.project-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_typescript_files_must_be_checked": true,
+        "third_party_types_from_upstream_packages": true,
+        "in_repo_third_party_declaration_shims_forbidden": true
+      },
+      "summary": "Type-check every maintained TypeScript file with the repository's tsc; third-party types come from the package or a published @types package."
+    },
+    {
+      "id": "OXLINT.plugins",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": ["eslint", "typescript", "unicorn", "oxc", "import"]
+      },
+      "summary": "Enable oxlint's default plugins plus import, which carries the dependency fan-out limit."
+    },
+    {
+      "id": "OXLINT.CATEGORY.correctness",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint correctness rule as an error."
+    },
+    {
+      "id": "OXLINT.CATEGORY.suspicious",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint suspicious rule as an error."
+    },
+    {
+      "id": "OXLINT.LIMIT.complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/complexity",
+        "value": ["error", {"max": 10}],
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Enable oxlint eslint/complexity as RUFF.SETTING.mccabe.max-complexity does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-params",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-params",
+        "value": ["error", {"max": 5}],
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Enable oxlint eslint/max-params as RUFF.LIMIT.max-args does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-statements",
+        "value": ["error", {"max": 50}],
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Enable oxlint eslint/max-statements as RUFF.LIMIT.max-statements does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-dependencies",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "import/max-dependencies",
+        "value": ["error", {"max": 10}],
+        "mirrors": "FANOUT.general"
+      },
+      "summary": "Enable oxlint import/max-dependencies as FANOUT.general does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-empty",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/no-empty",
+        "value": ["error", {"allowEmptyCatch": false}],
+        "mirrors": "RUFF.SELECT.S110"
+      },
+      "summary": "Enable oxlint eslint/no-empty as RUFF.SELECT.S110 does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.ban-ts-comment",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/ban-ts-comment",
+        "value": "error",
+        "mirrors": "RUFF.SELECT.PGH"
+      },
+      "summary": "Enable oxlint typescript/ban-ts-comment as RUFF.SELECT.PGH does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-explicit-any",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/no-explicit-any",
+        "value": "error",
+        "mirrors": "MYPY.strict"
+      },
+      "summary": "Enable oxlint typescript/no-explicit-any as MYPY.strict does for Python."
+    },
+    {
+      "id": "GOLANGCI.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "2"
+      },
+      "summary": "Use the golangci-lint v2 configuration format."
+    },
+    {
+      "id": "GOLANGCI.run.tests",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Lint test files with the same linters as production code."
+    },
+    {
+      "id": "GOLANGCI.linters.default",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "standard",
+        "includes": ["errcheck", "govet", "ineffassign", "staticcheck", "unused"]
+      },
+      "summary": "Keep the standard linter set, which runs go vet (govet), errcheck, staticcheck, unused and ineffassign."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.gocyclo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo"
+      },
+      "summary": "Enable the golangci-lint gocyclo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.funlen",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen"
+      },
+      "summary": "Enable the golangci-lint funlen linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.revive",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive"
+      },
+      "summary": "Enable the golangci-lint revive linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.forbidigo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo"
+      },
+      "summary": "Enable the golangci-lint forbidigo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint"
+      },
+      "summary": "Enable the golangci-lint nolintlint linter."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.gocyclo.min-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo",
+        "setting": "min-complexity",
+        "value": 10,
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Report Go functions whose cyclomatic complexity exceeds 10."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "statements",
+        "value": 50,
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Report Go functions with more than 50 statements."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.lines",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "lines",
+        "value": -1
+      },
+      "summary": "Judge Go function size by statements only; line counts are off."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.revive.argument-limit",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive",
+        "setting": "argument-limit",
+        "value": 5,
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Report Go functions with more than 5 parameters."
+    },
+    {
+      "id": "GOLANGCI.RULE.forbidigo.exec-command",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo",
+        "value": [{"pattern": "^exec\\.Command$", "msg": "use exec.CommandContext with a deadline so a hung process cannot stall the run"}],
+        "mirrors": "TEST.subprocess-timeouts"
+      },
+      "summary": "Forbid exec.Command; every process call takes a context with a deadline (exec.CommandContext)."
+    },
+    {
+      "id": "GOLANGCI.RULE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint",
+        "value": {"require-explanation": true, "require-specific": true},
+        "mirrors": "RUFF.IGNORES"
+      },
+      "summary": "Every //nolint names its linter and explains why."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.gofmt",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "gofmt"
+      },
+      "summary": "Enforce gofmt formatting through golangci-lint fmt."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.goimports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "goimports",
+        "target_module_path_local_prefix_required": true,
+        "mirrors": "RUFF.ISORT.known-first-party"
+      },
+      "summary": "Enforce goimports grouping with the repository's module path as the local prefix."
+    },
+    {
+      "id": "SHELLCHECK.enable",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": ["avoid-nullary-conditions", "check-extra-masked-returns", "check-set-e-suppressed", "check-unassigned-uppercase", "deprecate-which", "quote-safe-variables"]
+      },
+      "summary": "Enable shellcheck's optional checks for masked returns, suppressed set -e, unassigned uppercase variables, nullary conditions, which and unquoted variables."
+    },
+    {
+      "id": "SHELLCHECK.external-sources",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Let shellcheck follow sourced files."
+    },
+    {
+      "id": "SHELLCHECK.source-path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "SCRIPTDIR"
+      },
+      "summary": "Resolve sourced files relative to the script's own directory."
+    },
+    {
+      "id": "SHELLCHECK.coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "all_maintained_shell_scripts_must_be_checked": true,
+        "scope_source": "git ls-files",
+        "extensionless_scripts_by_shebang": true
+      },
+      "summary": "Run shellcheck over every maintained shell script, including extensionless scripts with a shell shebang."
+    },
+    {
+      "id": "SHFMT.indent_style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": "space"
+      },
+      "summary": "Set shfmt indent_style to space in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.indent_size",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": 2
+      },
+      "summary": "Set shfmt indent_size to 2 in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.binary_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt binary_next_line to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.switch_case_indent",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt switch_case_indent to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.function_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": false
+      },
+      "summary": "Set shfmt function_next_line to false in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "PARITY.package-manager",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "exact_package_manager_pin": true,
+        "lock_matches_package_manager": true,
+        "foreign_lockfiles_forbidden": true
+      },
+      "summary": "Declare one exact packageManager pin and commit only that manager's lockfile.",
+      "reference": [
+        {"subcommand": "toolchain-parity", "module": "guardrails.catalogue.toolchain_parity"}
+      ]
     }
   ]
 }

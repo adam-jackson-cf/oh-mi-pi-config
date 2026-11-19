@@ -1,5 +1,7 @@
 """Proposed native-tool configs for Python repos, generated from the reference's data and the repo.
 
+TypeScript, Go and shell proposals live in ``native_languages``.
+
 Native engines stay native and their configs belong to the repository, so init never writes
 them there: it writes each proposed config to the record's ``proposed/`` folder and the report
 names it. The owner applies a proposal to the repository as an ordinary fix. Proposals:
