@@ -1,8 +1,3 @@
-"""House-style verdicts and the structure, naming and path checkers of the guardrails reference: the T2 seams.
-
-These tests start processes or drive real Git repositories, so they run in T2.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -89,8 +84,6 @@ class CheckerCase(unittest.TestCase):
 
 
 class CheckerTests(CheckerCase):
-    """Layout, naming and path checks over a planted repository."""
-
     def test_clean_repository_has_no_findings(self) -> None:
         assert self.all_findings() == set()
 
@@ -238,6 +231,15 @@ class CheckerTests(CheckerCase):
                 expected = {("TEST.placement", path)} if collected else set()
                 assert self.findings(paths, [path]) == expected
 
+    def test_path_check_reports_a_directory_outside_git_as_a_gate_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="omp-path-check-") as scratch:
+            found = paths.run(Path(scratch), {}, [])
+        assert [(finding.rule_id, finding.path) for finding in found] == [
+            ("GATE.path-check", ".")
+        ]
+
     def test_path_check_refuses_paths_outside_the_repository(self) -> None:
         assert self.findings(paths, ["../outside.py", "/etc/hosts"]) == {
             ("STRUCT.folder-placement", "../outside.py"),
@@ -289,8 +291,6 @@ class CheckerTests(CheckerCase):
 
 
 class CheckerCliTests(CheckerCase):
-    """The CLI runs the checkers against the record profile."""
-
     def write_profile(self) -> None:
         text = f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n"
         (self.record / "profile.md").write_text(text)
@@ -319,7 +319,6 @@ class CheckerCliTests(CheckerCase):
         return code, out.getvalue()
 
     def test_path_check_reports_one_actionable_line_per_named_path(self) -> None:
-        """GATE.path-check: changed paths as arguments, exit 0 clean, one error line per file."""
         self.write_profile()
         self.write("src/orders/engine/misc.py")
         assert self.run_cli("path-check", "src/orders/engine/runner.py")[0] == 0

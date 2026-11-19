@@ -1,20 +1,3 @@
-"""GATE.path-check: placement, ownership, naming, test placement and import direction per path.
-
-``guardrails path-check [path ...]`` checks the named paths, or the whole inventory. It reads:
-
-- ``structure.owners``: ``{"files": {"<path>": "<owner>"}, "directories": {"<dir>/": "<owner>"},
-  "patterns": {"<glob>": "<owner>"}}``. A directory owner covers files directly inside it.
-- ``structure.tiers``: tier package names, lowest first; ``structure.import_direction``:
-  ``{"package": "<import name>", "source_root": "<dir>", "scan": ["<dir>", ...],
-  "native": {"command": [...], "cwd": "<dir>", "timeout_s": N}}``. A file may import its own
-  tier or a lower one; ``native`` runs the repo's import-contract engine (e.g. import-linter).
-- ``tiers.*.location``, ``layout`` and ``ownership_areas.map`` for test placement.
-- ``guardrails.paths``: ``skip`` (patterns left unchecked) and ``directory_extensions``
-  (suffixes a directory owner covers; default every file).
-
-Layout allowlists come from ``guardrails.structure`` (see ``layout``) and names from ``naming``.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
@@ -43,6 +26,7 @@ from guardrails.foundation.inventory import (
 )
 
 PLACEMENT = "STRUCT.folder-placement"
+GATE = "GATE.path-check"
 
 
 def ownership_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
@@ -104,7 +88,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
     except InventoryError as error:
-        return [Finding(PLACEMENT, ".", str(error), "run inside a Git work tree")]
+        return [Finding(GATE, ".", str(error), "run inside a Git work tree")]
     if not selected.paths:
         return []
     try:
@@ -143,5 +127,5 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 )
             )
     except InventoryError as error:
-        return [Finding(PLACEMENT, ".", str(error), "provide a readable Git snapshot")]
+        return [Finding(GATE, ".", str(error), "provide a readable Git snapshot")]
     return apply_exceptions(found, profile)
