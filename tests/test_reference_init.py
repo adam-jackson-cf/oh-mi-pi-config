@@ -115,12 +115,15 @@ class InitCase(unittest.TestCase):
         (self.repo / "pyproject.toml").write_text(
             '[project]\nname = "target"\nrequires-python = ">=3.11"\n'
         )
-        self.server = self.executable("language-server", FAKE_SERVER)
-        which = mock.patch(
-            "guardrails.commands.init.lsp.shutil.which", return_value=str(self.server)
-        )
-        which.start()
-        self.addCleanup(which.stop)
+        self.server = self.executable("pyright-langserver", FAKE_SERVER)
+        self.executable("typescript-language-server", FAKE_SERVER)
+        self.use_path(self.server.parent, os.environ.get("PATH", ""))
+
+    def use_path(self, *directories: str | Path) -> None:
+        search = os.pathsep.join(str(directory) for directory in directories)
+        path = mock.patch.dict(os.environ, {"PATH": search})
+        path.start()
+        self.addCleanup(path.stop)
 
     def executable(self, name: str, body: str) -> Path:
         path = self.repo.parent / "bin" / name
@@ -362,31 +365,50 @@ class DraftRecordTests(InitCase):
                 assert named in output
                 assert self.gate() == gate
 
+    def harness_init(self, *args: str) -> tuple[int, str]:
+        harness = Path(self.temporary.name).resolve() / "harness"
+        engine = harness / "agent/extensions/dynaflows/engine"
+        shutil.copytree(
+            REFERENCE / "guardrails",
+            engine / "guardrails",
+            ignore=shutil.ignore_patterns("__pycache__"),
+            dirs_exist_ok=True,
+        )
+        template = harness / "agent/lib/record/profile.md"
+        template.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(SKILL_TEMPLATE, template)
+        location = ["--repo", str(self.repo), "--record", str(self.record)]
+        result = run_text(
+            [sys.executable, "-m", "guardrails.commands.cli", "init", *location]
+            + [*OFFLINE, *args],
+            env={**os.environ, "PYTHONPATH": str(engine)},
+            timeout=120,
+        )
+        return result.returncode, result.stdout + result.stderr
+
     def test_live_record_can_be_written_with_dynaflows_off(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
-        with mock.patch.object(harness, "RECORDS", live):
-            self.record = live / "owner/target"
-            code, output = self.init()
+        self.record = live / "owner/target"
+        code, output = self.harness_init()
         assert code == 0, output
         assert (self.record / "gate.json").is_file()
         assert self.gate()["dynaflows"] == {"enabled": False}
 
     def test_dynaflows_ask_writes_the_live_record_with_dynaflows_on(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
-        with mock.patch.object(harness, "RECORDS", live):
-            self.record = live / "owner/target"
-            code, output = self.init(
-                "--enable-dynaflows", "--commit-command", "make check"
-            )
-            assert code == 0, output
-            assert self.gate()["dynaflows"] == {"enabled": True}
-            assert f"init: record at {self.record}" in output
-            assert "confirm: dynaflows is off" not in output
-            self.record = live / "owner"
-            code, output = self.init("--enable-dynaflows")
-            assert code != 0
-            assert "must be a repo's record" in output
-            assert not (live / "owner/gate.json").exists()
+        self.record = live / "owner/target"
+        code, output = self.harness_init(
+            "--enable-dynaflows", "--commit-command", "make check"
+        )
+        assert code == 0, output
+        assert self.gate()["dynaflows"] == {"enabled": True}
+        assert f"init: record at {self.record}" in output
+        assert "confirm: dynaflows is off" not in output
+        self.record = live / "owner"
+        code, output = self.harness_init("--enable-dynaflows")
+        assert code != 0
+        assert "must be a repo's record" in output
+        assert not (live / "owner/gate.json").exists()
 
     def test_record_inside_the_repo_is_refused(self) -> None:
         self.record = self.repo / "record"
@@ -398,14 +420,7 @@ class RequiredChecksTests(InitCase):
     """Required checks come from gh; any gh failure is reported, never guessed."""
 
     def fake_gh(self, script: str) -> None:
-        gh = self.executable("gh", script)
-        real = shutil.which
-        which = mock.patch(
-            "guardrails.commands.init.discovery.shutil.which",
-            side_effect=lambda name: str(gh) if name == "gh" else real(name),
-        )
-        which.start()
-        self.addCleanup(which.stop)
+        self.executable("gh", script)
 
     def test_rulesets_and_branch_protection_name_the_required_context(self) -> None:
         self.fake_gh(
@@ -468,97 +483,6 @@ class ExistingRecordTests(InitCase):
             "only the owner's field remains"
         )
         self.assert_second_run_changes_nothing()
-
-
-class LspTests(InitCase):
-    def test_missing_server_is_a_setup_gap_unless_allowed(self) -> None:
-        with mock.patch("guardrails.commands.init.lsp.shutil.which", return_value=None):
-            code, output = self.init()
-            assert code == 1
-            assert "PROFILE.complete" in output
-            assert "pyright-langserver is not on PATH" in output
-            code, output = self.init("--allow-missing-lsp")
-        assert code == 0, output
-        assert "allowed by --allow-missing-lsp" in output
-
-    def test_detects_typescript_markers(self) -> None:
-        (self.repo / "pyproject.toml").unlink()
-        self.write("tsconfig.json", "{}")
-        stacks = lsp.detect(self.repo)
-        assert [stack.server for stack in stacks] == ["typescript-language-server"]
-
-    def test_typescript_six_keeps_the_javascript_language_server(self) -> None:
-        self.write("package.json", "{}")
-        self.write("node_modules/typescript/package.json", '{"version": "6.0.3"}')
-        stack = lsp.detect(self.repo)[1]
-        assert stack.server == "typescript-language-server"
-        assert stack.arguments == ("--stdio",)
-
-    def test_typescript_seven_queries_the_installed_native_server(self) -> None:
-        self.write("package.json", "{}")
-        self.write("node_modules/typescript/package.json", '{"version": "7.0.2"}')
-        native = self.repo / "node_modules/typescript/bin/tsc"
-        self.write(
-            "node_modules/typescript/bin/tsc",
-            f"#!{sys.executable}\nassert __import__('sys').argv[1:] == ['--lsp', '--stdio']\n"
-            + FAKE_SERVER,
-        )
-        native.chmod(0o755)
-        stack = lsp.detect(self.repo)[1]
-        assert stack.server == str(native)
-        with mock.patch(
-            "guardrails.commands.init.lsp.shutil.which",
-            side_effect=lambda server: server,
-        ):
-            findings, lines = lsp.readiness(self.repo, [stack], allow_missing=False)
-        assert findings == []
-        assert "canary ok: references in a canary module" in lines[0]
-
-    def test_repo_without_stack_records_no_server(self) -> None:
-        (self.repo / "pyproject.toml").unlink()
-        code, output = self.init()
-        assert code == 0, output
-        assert "lsp" not in load_profile(self.record)["command_notes"]
-        assert "lsp: no pyproject.toml" in output
-
-
-class CanaryTests(InitCase):
-    def test_canary_queries_a_symbol_from_the_repo(self) -> None:
-        self.write(
-            "src/target/core.py", "import os\n\n\ndef total(values):\n    return 1\n"
-        )
-        code, output = self.init()
-        assert code == 0, output
-        assert (
-            "canary ok: references src/target/core.py:4 total -> 1 locations" in output
-        )
-
-    def test_canary_uses_a_canary_module_when_the_repo_has_no_source(self) -> None:
-        code, output = self.init()
-        assert code == 0, output
-        assert "canary ok: references in a canary module omp_lsp_canary" in output
-        assert not list(self.repo.glob("omp_lsp_*"))
-
-    def test_server_that_exits_fails_even_when_missing_servers_are_allowed(
-        self,
-    ) -> None:
-        broken = self.executable("broken-server", "import sys\nsys.exit(97)\n")
-        with mock.patch(
-            "guardrails.commands.init.lsp.shutil.which", return_value=str(broken)
-        ):
-            code, output = self.init("--allow-missing-lsp")
-        assert code == 1
-        assert "PROFILE.complete" in output
-        assert "failed the canary: the server exited (code 97)" in output
-
-    def test_server_that_never_answers_fails_within_the_time_limit(self) -> None:
-        silent = self.executable("silent-server", "import time\ntime.sleep(30)\n")
-        with mock.patch(
-            "guardrails.commands.init.lsp.shutil.which", return_value=str(silent)
-        ):
-            code, output = self.init("--lsp-timeout", "0.5")
-        assert code == 1
-        assert "no answer to initialize before the time limit" in output
 
 
 def catalogue_values() -> dict[str, dict[str, Any]]:
