@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import dataclasses
 import importlib.util
 import json
 import subprocess
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from itertools import combinations
 from pathlib import Path, PurePosixPath
@@ -65,6 +67,18 @@ CAPS = {
 }
 
 
+def _path_words(path: str) -> set[str]:
+    return {
+        word
+        for part in PurePosixPath(path).parts
+        for word in words(PurePosixPath(part).stem)
+    }
+
+
+def _names_words(names: list[str]) -> set[str]:
+    return {word for name in names for word in words(name)}
+
+
 class TopLevelNames(DefinedNames):
     """Keep module control-flow bindings, but not class or function locals."""
 
@@ -75,22 +89,43 @@ def compact_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _clipped_row(row: Any) -> Any:
+    if not isinstance(row, dict):
+        return row[: CAPS["limit_text_chars"]]
+    return {
+        key: value[: CAPS["limit_text_chars"]] if isinstance(value, str) else value
+        for key, value in row.items()
+    }
+
+
+def _field_candidates(
+    field: str, value: dict[str, Any]
+) -> list[tuple[int, str, str | None]]:
+    return [
+        (len(compact_json(rows).encode()), field, key)
+        for key, rows in value.items()
+        if rows
+    ]
+
+
+def _cut_candidates(state: dict[str, Any]) -> list[tuple[int, str, str | None]]:
+    candidates: list[tuple[int, str, str | None]] = []
+    for field, value in state.items():
+        if field in {"folder_path", "evidence_limits"}:
+            continue
+        if field in {"import_edges", "change"}:
+            candidates.extend(_field_candidates(field, value))
+        elif value:
+            candidates.append((len(compact_json(value).encode()), field, None))
+    return candidates
+
+
 def _bounded(state: dict[str, Any]) -> dict[str, Any]:
     """Keep the schema while dropping largest evidence collections to fit bytes."""
     limits = state["evidence_limits"]
     for field in ("truncations", "parse_errors", "excluded_paths"):
         rows = limits[field]
-        limits[field] = [
-            {
-                key: value[: CAPS["limit_text_chars"]]
-                if isinstance(value, str)
-                else value
-                for key, value in row.items()
-            }
-            if isinstance(row, dict)
-            else row[: CAPS["limit_text_chars"]]
-            for row in rows[: CAPS["limit_rows"]]
-        ]
+        limits[field] = [_clipped_row(row) for row in rows[: CAPS["limit_rows"]]]
         limits[field + "_omitted_rows"] = max(0, len(rows) - CAPS["limit_rows"])
     while len(compact_json(limits).encode()) > CAPS["state_bytes"] // 3:
         field = max(
@@ -106,18 +141,7 @@ def _bounded(state: dict[str, Any]) -> dict[str, Any]:
     cuts: dict[str, int] = dict(limits.get("state_budget_omissions", {}))
     limits["state_budget_omissions"] = cuts
     while len(compact_json(state).encode()) > CAPS["state_bytes"]:
-        candidates: list[tuple[int, str, str | None]] = []
-        for field, value in state.items():
-            if field in {"folder_path", "evidence_limits"}:
-                continue
-            if field in {"import_edges", "change"}:
-                candidates.extend(
-                    (len(compact_json(rows).encode()), field, key)
-                    for key, rows in value.items()
-                    if rows
-                )
-            elif value:
-                candidates.append((len(compact_json(value).encode()), field, None))
+        candidates = _cut_candidates(state)
         if not candidates:
             raise ValueError("unit metadata exceeds structure state byte cap")
         _, field, key = max(
@@ -211,18 +235,24 @@ def _owned_blobs(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
     return objects
 
 
+def _stored_names(targets: Sequence[ast.expr]) -> list[str]:
+    names: list[str] = []
+    for target in targets:
+        names.extend(
+            item.id
+            for item in ast.walk(target)
+            if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+        )
+    return names
+
+
 def _string_constants(tree: ast.Module) -> dict[str, str]:
     """Upper-case module bindings to short string literals."""
     constants: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            bindings = [
-                item.id
-                for target in targets
-                for item in ast.walk(target)
-                if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
-            ]
+            bindings = _stored_names(targets)
             value = node.value
             if (
                 isinstance(value, ast.Constant)
@@ -267,71 +297,93 @@ def _resolved(imported: str, modules: dict[str, list[str]], path: str) -> list[s
     return []
 
 
+@dataclass(frozen=True)
+class CommitWindow:
+    base: str
+    head: str
+    candidate_base: str | None = None
+
+
+@dataclass
+class EvidenceLog:
+    truncations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    parse_errors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    global_truncations: int = 0
+
+
+@dataclass(frozen=True)
+class Changes:
+    renames: list[Rename]
+    added: set[str]
+    candidate_added: set[str]
+
+
+@dataclass
+class SourceIndex:
+    sources: dict[str, bytes]
+    trees: dict[str, ast.Module] = dataclasses.field(default_factory=dict)
+    symbols: dict[str, list[str]] = dataclasses.field(default_factory=dict)
+    docs: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
+    constants: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
+
+
+def _directories(repo: Path, revision: str) -> set[str]:
+    listing = git(repo, "ls-tree", "-r", "--name-only", "-z", revision).decode()
+    return {
+        parent.as_posix()
+        for path in listing.split("\0")
+        if path
+        for parent in PurePosixPath(path).parents
+    }
+
+
+def _tree(repo: Path, revision: str) -> str:
+    return (
+        git(repo, "rev-parse", "--verify", "--end-of-options", revision + "^{tree}")
+        .decode()
+        .strip()
+    )
+
+
 class Snapshot:
     def __init__(
-        self,
-        repo: Path,
-        base: str,
-        head: str,
-        profile: dict[str, Any],
-        candidate_base: str | None = None,
+        self, repo: Path, window: CommitWindow, profile: dict[str, Any]
     ) -> None:
         self.repo, self.profile = repo, profile
-        self.head = _commit(repo, head)
-        self.base = (
-            git(repo, "merge-base", _commit(repo, base), self.head).decode().strip()
+        head = _commit(repo, window.head)
+        base = (
+            git(repo, "merge-base", _commit(repo, window.base), head).decode().strip()
         )
-        self.existing_directories = {
-            parent.as_posix()
-            for path in git(repo, "ls-tree", "-r", "--name-only", "-z", self.base)
-            .decode()
-            .split("\0")
-            if path
-            for parent in PurePosixPath(path).parents
-        }
-        self.candidate_base = (
-            git(
-                repo,
-                "rev-parse",
-                "--verify",
-                "--end-of-options",
-                candidate_base + "^{tree}",
-            )
-            .decode()
-            .strip()
-            if candidate_base
-            else self.base
+        candidate_base = (
+            _tree(repo, window.candidate_base) if window.candidate_base else base
         )
-        self.truncations: list[dict[str, Any]] = []
-        self.parse_errors: list[dict[str, Any]] = []
-        self.global_truncations = 0
+        self.window = CommitWindow(base, head, candidate_base)
+        self.existing_directories = _directories(repo, base)
+        self.log = EvidenceLog()
         self.excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
             settings(profile, "python").get("excluded_paths")
         )
-        objects = _owned_blobs(repo, self.head, self.excluded)
+        objects = _owned_blobs(repo, head, self.excluded)
         self.owned_paths = set(objects)
         self.paths = self.cap(sorted(objects), "tree_files", "tree")
-        self.renames, self.added = _changes(repo, self.base, self.head)
-        _, self.candidate_added = _changes(repo, self.candidate_base, self.head)
-        self.sources = self.read_sources(objects)
-        self.trees: dict[str, ast.Module] = {}
-        self.symbols: dict[str, list[str]] = {}
-        self.docs: dict[str, dict[str, str]] = {}
-        self.constants: dict[str, dict[str, str]] = {}
-        for path, source in self.sources.items():
+        renames, added = _changes(repo, base, head)
+        _, candidate_added = _changes(repo, candidate_base, head)
+        self.changes = Changes(renames, added, candidate_added)
+        self.parsed = SourceIndex(self.read_sources(objects))
+        for path, source in self.parsed.sources.items():
             self.index(path, source)
         self.edges = self.imports()
-        self.clusters = _groups(self.paths, self.candidate_added, profile)
-        self.global_truncations = len(self.truncations)
+        self.clusters = _groups(self.paths, candidate_added, profile)
+        self.log.global_truncations = len(self.log.truncations)
 
     def index(self, path: str, source: bytes) -> None:
         """Parse one source and record its top-level symbols, first docstring lines and constants."""
         try:
             tree = ast.parse(source, filename=path)
         except (SyntaxError, ValueError, UnicodeError) as error:
-            self.parse_errors.append({"path": path, "error": str(error)})
+            self.log.parse_errors.append({"path": path, "error": str(error)})
             return
-        self.trees[path] = tree
+        self.parsed.trees[path] = tree
         visitor = TopLevelNames()
         visitor.visit(tree)
         docs: dict[str, str] = {}
@@ -344,15 +396,15 @@ class Snapshot:
                 if doc:
                     docs[node.name] = self.doc(doc.splitlines()[0], path)
         constants = _string_constants(tree)
-        self.symbols[path] = self.cap(
+        self.parsed.symbols[path] = self.cap(
             sorted(set(visitor.names)), "symbols_per_file", path
         )
         doc_names = self.cap(sorted(docs), "symbols_per_file", path + ":docstrings")
-        self.docs[path] = {name: docs[name] for name in doc_names}
+        self.parsed.docs[path] = {name: docs[name] for name in doc_names}
         constant_names = self.cap(
             sorted(constants), "symbols_per_file", path + ":constants"
         )
-        self.constants[path] = {name: constants[name] for name in constant_names}
+        self.parsed.constants[path] = {name: constants[name] for name in constant_names}
 
     def read_sources(self, objects: dict[str, str]) -> dict[str, bytes]:
         paths = [path for path in self.paths if path.endswith(".py")]
@@ -375,7 +427,7 @@ class Snapshot:
                 size > CAPS["python_file_bytes"]
                 or total + size > CAPS["python_total_bytes"]
             ):
-                self.truncations.append({
+                self.log.truncations.append({
                     "field": "python_source",
                     "path": path,
                     "omitted_bytes": size,
@@ -406,7 +458,7 @@ class Snapshot:
     def cap(self, values: list[Any], cap: str, field: str) -> list[Any]:
         limit = CAPS[cap]
         if len(values) > limit:
-            self.truncations.append({
+            self.log.truncations.append({
                 "field": field,
                 "limit": limit,
                 "omitted": len(values) - limit,
@@ -415,7 +467,7 @@ class Snapshot:
 
     def doc(self, value: str, path: str) -> str:
         if len(value) > CAPS["docstring_chars"]:
-            self.truncations.append({
+            self.log.truncations.append({
                 "field": "docstrings",
                 "path": path,
                 "omitted_chars": len(value) - CAPS["docstring_chars"],
@@ -433,7 +485,7 @@ class Snapshot:
             for name in names:
                 modules.setdefault(name, []).append(path)
         edges: list[dict[str, Any]] = []
-        for path, tree in self.trees.items():
+        for path, tree in self.parsed.trees.items():
             module = aliases[path][0]
             parent = (
                 module
@@ -468,7 +520,7 @@ class Snapshot:
             "folder_path": folder,
             "files": paths,
             "top_level_symbols": {
-                p: self.symbols[p] for p in paths if p in self.symbols
+                p: self.parsed.symbols[p] for p in paths if p in self.parsed.symbols
             },
         }
 
@@ -510,7 +562,7 @@ class Snapshot:
             "--format=%x1e",
             "--name-only",
             "-z",
-            self.head,
+            self.window.head,
             "--",
             *sorted(members),
         ).decode()
@@ -531,7 +583,7 @@ class Snapshot:
         return result
 
     def unit(self, folder: str) -> dict[str, Any]:
-        start = len(self.truncations)
+        start = len(self.log.truncations)
         paths = self.cap(
             [p for p in self.paths if _inside(p, folder)],
             "unit_files",
@@ -540,23 +592,25 @@ class Snapshot:
         selected = set(paths)
         siblings = self.cap(self.siblings(folder), "context_units", "sibling_context")
         renames = [
-            r for r in self.renames if _inside(r.old, folder) or _inside(r.new, folder)
+            r
+            for r in self.changes.renames
+            if _inside(r.old, folder) or _inside(r.new, folder)
         ]
         related = sorted(
             {str(PurePosixPath(p).parent) for r in renames for p in (r.old, r.new)}
             - {folder}
         )
         related = self.cap(related, "context_units", "related_context")
-        terms = retired_terms(self.renames, self.paths)
+        terms = retired_terms(self.changes.renames, self.paths)
         terms = [
             term
             for term in terms
             if _inside(term.scope, folder) or _inside(folder, term.scope)
         ]
-        files = {p: self.sources.get(p, b"") for p in self.paths}
+        files = {p: self.parsed.sources.get(p, b"") for p in self.paths}
         residue = [
             asdict(f)
-            for f in residue_findings(self.renames, files)
+            for f in residue_findings(self.changes.renames, files)
             if _inside(f.path, folder)
         ]
         owners = self.term_owners(folder, paths)
@@ -566,12 +620,12 @@ class Snapshot:
             "folder_path": folder,
             "files": paths,
             "introduced_paths": self.cap(
-                sorted(selected & self.added), "change_rows", "introduced_paths"
+                sorted(selected & self.changes.added), "change_rows", "introduced_paths"
             ),
             "introduced_directories": self.cap(
                 sorted({
                     parent.as_posix()
-                    for path in selected & self.added
+                    for path in selected & self.changes.added
                     for parent in PurePosixPath(path).parents
                     if parent.as_posix() not in self.existing_directories
                     and parent.as_posix() != "."
@@ -580,7 +634,7 @@ class Snapshot:
                 "introduced_directories",
             ),
             "top_level_symbols": {
-                p: self.symbols[p] for p in paths if p in self.symbols
+                p: self.parsed.symbols[p] for p in paths if p in self.parsed.symbols
             },
             "import_edges": {
                 kind: self.cap(rows, "edges", "import_edges." + kind)
@@ -588,9 +642,13 @@ class Snapshot:
             },
             "sibling_context": [self.context(p) for p in siblings],
             "related_context": [self.context(p) for p in related],
-            "docstrings": {p: self.docs[p] for p in paths if self.docs.get(p)},
+            "docstrings": {
+                p: self.parsed.docs[p] for p in paths if self.parsed.docs.get(p)
+            },
             "constant_values": {
-                p: self.constants[p] for p in paths if self.constants.get(p)
+                p: self.parsed.constants[p]
+                for p in paths
+                if self.parsed.constants.get(p)
             },
             "term_owners": {
                 term: self.cap(
@@ -617,15 +675,15 @@ class Snapshot:
             ],
         }
         state["evidence_limits"] = {
-            "base": self.base,
-            "head": self.head,
-            "candidate_base": self.candidate_base,
+            "base": self.window.base,
+            "head": self.window.head,
+            "candidate_base": self.window.candidate_base,
             "scope": "owned committed regular blobs; recursive unit, direct-file contexts; Python AST only",
             "excluded_paths": self.excluded,
             "caps": dict(CAPS),
-            "truncations": self.truncations[: self.global_truncations]
-            + self.truncations[start:],
-            "parse_errors": self.parse_errors,
+            "truncations": self.log.truncations[: self.log.global_truncations]
+            + self.log.truncations[start:],
+            "parse_errors": self.log.parse_errors,
             "import_resolution": "static module roots; unresolved or external imports have empty to; no runtime or star expansion",
             "co_change": "bounded head history, current member paths only; no rename following",
         }
@@ -646,18 +704,10 @@ class Snapshot:
 
     def term_owners(self, folder: str, paths: list[str]) -> dict[str, set[str]]:
         """Paths outside the unit whose names repeat a word of the unit's paths or symbols."""
-        unit_words = {
-            word
-            for p in paths
-            for part in PurePosixPath(p).parts
-            for word in words(PurePosixPath(part).stem)
-        }
-        unit_words.update(
-            word
-            for p in paths
-            for name in self.symbols.get(p, [])
-            for word in words(name)
-        )
+        unit_words: set[str] = set()
+        for p in paths:
+            unit_words.update(_path_words(p))
+            unit_words.update(_names_words(self.parsed.symbols.get(p, [])))
         owners: dict[str, set[str]] = {}
         for path in self.paths:
             if _inside(path, folder):
@@ -696,7 +746,9 @@ class Snapshot:
                 "folder_path": folder,
                 "files": legacy,
                 "top_level_symbols": {
-                    path: self.symbols[path] for path in legacy if path in self.symbols
+                    path: self.parsed.symbols[path]
+                    for path in legacy
+                    if path in self.parsed.symbols
                 },
             })
         state["files"] = sorted(introduced)
@@ -728,15 +780,6 @@ class Snapshot:
         return _bounded(state)
 
 
-@dataclass(frozen=True)
-class CommitWindow:
-    """The reviewed range; ``candidate_base`` may select a past introduction window."""
-
-    base: str
-    head: str
-    candidate_base: str | None = None
-
-
 def extract_unit(
     repo: Path, window: CommitWindow, unit: str, profile: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -744,19 +787,15 @@ def extract_unit(
     folder = PurePosixPath(unit).as_posix()
     if PurePosixPath(folder).is_absolute() or ".." in PurePosixPath(folder).parts:
         raise ValueError("unit must be a repository-relative folder")
-    snapshot = Snapshot(
-        repo, window.base, window.head, profile or {}, window.candidate_base
-    )
-    snapshot.global_truncations = len(snapshot.truncations)
-    return snapshot.unit(folder)
+    return Snapshot(repo, window, profile or {}).unit(folder)
 
 
 def extract(
     repo: Path, base: str, head: str, profile: dict[str, Any] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Extract destination folders of added/renamed/moved owned files only."""
-    snapshot = Snapshot(repo, base, head, profile or {})
-    introduced = snapshot.added & snapshot.owned_paths
+    snapshot = Snapshot(repo, CommitWindow(base, head), profile or {})
+    introduced = snapshot.changes.added & snapshot.owned_paths
     folders = {str(PurePosixPath(path).parent) for path in introduced}
     folders.update(
         parent.as_posix()
@@ -765,7 +804,7 @@ def extract(
         if parent.as_posix() not in snapshot.existing_directories
         and parent.as_posix() != "."
     )
-    snapshot.global_truncations = len(snapshot.truncations)
+    snapshot.log.global_truncations = len(snapshot.log.truncations)
     return {folder: snapshot.judgment_unit(folder) for folder in sorted(folders)}
 
 
@@ -773,9 +812,15 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--unit")
+    parser.add_argument("--candidate-base")
     args = parser.parse_args(argv)
     try:
-        result = extract(repo, args.base, args.head, profile)
+        if args.unit is None:
+            result = extract(repo, args.base, args.head, profile)
+        else:
+            window = CommitWindow(args.base, args.head, args.candidate_base)
+            result = {args.unit: extract_unit(repo, window, args.unit, profile)}
     except (GitError, UnicodeError, ValueError) as error:
         return [
             Finding(
