@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-MODULE = Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/skills/omp-dyna-workflows/templates/workflows.py"
+MODULE = Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine/workflows.py"
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
 workflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workflow)
@@ -1214,7 +1214,7 @@ class LabelTests(unittest.TestCase):
 
 
 CATALOGUE = Path(__file__).resolve().parents[1] / (
-    "agent/extensions/dynaflows/guardrails/omp_guardrails/data/guardrail-rules.json")
+    "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json")
 ADVISORY = ("SECURITY.dependency-audit lock=uv.lock ecosystem=PyPI package=PyYAML version=5.3.1 "
             "advisory=GHSA-8q59-q68h-6hv4 aliases=CVE-2020-14343,PYSEC-2021-142 fix=5.4")
 NO_FIX = ("SECURITY.dependency-audit lock=web/package-lock.json ecosystem=npm package=node-serialize version=0.0.4 "

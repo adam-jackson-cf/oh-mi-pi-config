@@ -13,14 +13,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 TEMPLATE = ROOT / "agent/lib/record/profile.md"
 FIXTURES = ROOT / "tests/fixtures/reference/core"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.config import profile as profile_module  # noqa: E402
-from omp_guardrails.findings import Finding, exit_code, format_findings  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.config import profile as profile_module  # noqa: E402
+from guardrails.findings import Finding, exit_code, format_findings  # noqa: E402
 
 CONTRACT_SUBCOMMANDS = {
     "check",
@@ -287,7 +287,7 @@ class CliTests(unittest.TestCase):
         # The child blocks pytest and ast_grep_py imports, as an install without the extra would.
         entry = (
             "import sys; sys.modules['pytest'] = None; sys.modules['ast_grep_py'] = None; "
-            "from omp_guardrails import cli; raise SystemExit(cli.main(sys.argv[1:]))"
+            "from guardrails import cli; raise SystemExit(cli.main(sys.argv[1:]))"
         )
         for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter"}):
             with self.subTest(subcommand=name):
@@ -303,9 +303,9 @@ class CliTests(unittest.TestCase):
 
     def test_checker_modules_are_imported_only_when_their_subcommand_runs(self) -> None:
         probe = (
-            "import sys; from omp_guardrails import cli; "
+            "import sys; from guardrails import cli; "
             "listed = {m for item in cli.SUBCOMMANDS.values() for m in item.modules}; "
-            "print(sorted(listed & set(sys.modules) - {'omp_guardrails.config.profile'}))"
+            "print(sorted(listed & set(sys.modules) - {'guardrails.config.profile'}))"
         )
         result = subprocess.run(
             [sys.executable, "-c", probe], cwd=REFERENCE, capture_output=True, text=True, check=True
@@ -350,7 +350,7 @@ class CliTests(unittest.TestCase):
         self.write_profile(profile)
         code, _, err = self.run_cli(*self.located("adapter"))
         self.assertEqual(code, 2)
-        self.assertIn("cannot import omp_guardrails.adapters", err)
+        self.assertIn("cannot import guardrails.adapters", err)
 
 
 if __name__ == "__main__":

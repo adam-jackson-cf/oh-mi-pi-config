@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardrails"
+version = "3.0.0"
+description = "Harness-side checkers for the dynaflows rule catalogue."
+requires-python = ">=3.11"
+# The harness runs this project with `uv run --project <this folder>`; repositories never install
+# it. `check` needs ast-grep for the adapter lint step, so it is a base dependency.
+dependencies = ["ast-grep-py==0.51.0"]
+
+[project.optional-dependencies]
+# The pytest adapter's tiers and conformance actions.
+pytest = ["pytest==9.1.1"]
+# TEST.mutation-sensitivity runs in T3 only.
+mutation = ["mutmut==3.8.1"]
+
+[project.scripts]
+guardrails = "guardrails.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["guardrails*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yml", "*.md", "*.mjs", "*.txt"]

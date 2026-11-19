@@ -7,12 +7,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
 PACKAGE = ROOT / "agent/extensions/dynaflows"
-WORKFLOW = PACKAGE / "skills/omp-dyna-workflows"
-CORE_SKILLS = ("omp-dyna-workflows", "test-guidance", "git-tool")
+WORKFLOW = PACKAGE / "skills/dynaflows"
+CORE_SKILLS = ("dynaflows", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 def skill_directory(name):
-    return WORKFLOW if name == "omp-dyna-workflows" else SKILLS / name
+    return WORKFLOW if name == "dynaflows" else SKILLS / name
 
 
 class SkillReferenceTests(unittest.TestCase):

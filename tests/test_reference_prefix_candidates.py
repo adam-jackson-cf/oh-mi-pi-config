@@ -12,10 +12,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.structure import prefix_candidates  # noqa: E402
+from guardrails.structure import prefix_candidates  # noqa: E402
 
 
 class PrefixCandidateTests(unittest.TestCase):

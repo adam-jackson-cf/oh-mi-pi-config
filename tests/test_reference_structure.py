@@ -13,13 +13,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURES = ROOT / "tests/fixtures/reference/structure"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.config import house_style  # noqa: E402
-from omp_guardrails.structure import layout, naming, paths  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.config import house_style  # noqa: E402
+from guardrails.structure import layout, naming, paths  # noqa: E402
 
 CLEAN = json.loads((FIXTURES / "clean-repo.json").read_text())
 VERDICTS = json.loads((FIXTURES / "house-style-verdicts.json").read_text())
@@ -381,7 +381,7 @@ class CheckerTests(unittest.TestCase):
         code, out = self.run_cli("check")
         self.assertEqual(code, 1)
         self.assertIn("record:profile.md: PROFILE.complete: guardrails.check.run names", out)
-        from omp_guardrails import whole_repo
+        from guardrails import whole_repo
 
         steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
         self.assertEqual((steps, problems), (list(whole_repo.DEFAULT_STEPS), []))
@@ -392,7 +392,7 @@ class CheckerTests(unittest.TestCase):
 
 
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
-        from omp_guardrails import whole_repo
+        from guardrails import whole_repo
 
         owned = {"guardrails": {"check": {"repo": {"naming": ["src/orders/cli/main.py"]}}}}
         steps, problems = whole_repo.configured_steps(owned)

@@ -10,11 +10,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.adapters.vitest import cases, lint  # noqa: E402
-from omp_guardrails.diffs.growth import Snapshot, duplicate_findings, growth_findings  # noqa: E402
+from guardrails.adapters.vitest import cases, lint  # noqa: E402
+from guardrails.diffs.growth import Snapshot, duplicate_findings, growth_findings  # noqa: E402
 
 PRESENT = importlib.util.find_spec("ast_grep_py") is not None
 REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"

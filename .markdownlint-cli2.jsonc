@@ -7,8 +7,8 @@
   "overrides": [
     {
       "filter": [
-        "agent/extensions/dynaflows/skills/omp-dyna-workflows/references/*-principles.md",
-        "agent/extensions/dynaflows/skills/omp-dyna-workflows/references/structure-and-naming.md",
+        "agent/extensions/dynaflows/skills/dynaflows/references/*-principles.md",
+        "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md",
         "agent/skills/test-guidance/**",
         "agent/skills/git-tool/**"
       ],

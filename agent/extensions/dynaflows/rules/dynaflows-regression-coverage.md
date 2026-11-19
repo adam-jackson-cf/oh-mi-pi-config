@@ -10,5 +10,5 @@ scope: text
 ---
 # Regression coverage
 
-Read skill://omp-dyna-workflows/references/delivery-principles.md and
+Read skill://dynaflows/references/delivery-principles.md and
 skill://test-guidance/references/case-selection.md before implementing the fix.

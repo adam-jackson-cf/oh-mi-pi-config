@@ -84,13 +84,13 @@ off. Write `true` only when the owner asked for it in chat; otherwise write `fal
 A later owner request can enable it. Off means plain omp, git-tool and generic Git safety,
 not bypassing declared merge or CI policy.
 
-When enabled, rails run `omp-guardrails path-check --repo <worktree> --record <record dir>`
+When enabled, rails run `guardrails path-check --repo <worktree> --record <record dir>`
 after edits and before commit. Required `guardrails.structure`, `guardrails.naming` and
 `guardrails.paths` configure this harness-owned per-edit contract, even where repo checks
 overlap; see [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
 At commit, rails then run `checks.commit` in the worktree followed by
-`omp-guardrails check --repo <worktree> --record <record dir>` over the whole repository.
-Run the engine from `agent/extensions/dynaflows/guardrails` using `uv run --project`.
+`guardrails check --repo <worktree> --record <record dir>` over the whole repository.
+Run the engine from `agent/extensions/dynaflows/engine` using `uv run --project`.
 Any finding blocks; no baselines or diff scope apply to whole-repo checks.
 CI retains the repo's own required context and gate. There is no pre-push hook or
 separate handoff check.
@@ -119,9 +119,9 @@ CI never measures or reports test timing.
 
 - `guardrails.<checker>` holds per-checker settings; examples include `guardrails.python`,
   `guardrails.structure` and `guardrails.naming`. Unknown section names outside
-  `GUARDRAILS_SECTIONS` in `omp_guardrails/config/profile.py` fail `profile-check`.
+  `GUARDRAILS_SECTIONS` in `guardrails/config/profile.py` fail `profile-check`.
 - `guardrails.check.run` selects whole-repo steps; absent selection means all
-  `DEFAULT_STEPS` in `omp_guardrails/whole_repo.py`.
+  `DEFAULT_STEPS` in `guardrails/whole_repo.py`.
 - `guardrails.check.exclude` lists generated, vendored and fixture paths to exclude.
 - `guardrails.check.repo` maps each repo-owned step to checker files that jointly enforce
   every rule it reports, for example
@@ -129,7 +129,7 @@ CI never measures or reports test timing.
   those checkers, so the harness leaves that step out, never running a duplicate.
   Remove settings only delegated steps read; `guardrails.python` is rejected when every
   configured Python step belongs to the repo.
-- `house_style.version` records the shipped `omp_guardrails/data/house-style.json` version.
+- `house_style.version` records the shipped `guardrails/data/house-style.json` version.
   Exceptions are `{rule, path, adr}` objects; an exception without an ADR is ignored.
 - `structure.import_direction.native` runs the repo's import-contract command for paths
   matching `scan` or `source_root`, regardless of extension, in both `path-check` and
@@ -145,7 +145,7 @@ tools through the repo's own package manager.
 
 ## Drafts, approvals and application
 
-`omp-guardrails init --repo <clone> --record <record dir>` drafts directly in a live record
+`guardrails init --repo <clone> --record <record dir>` drafts directly in a live record
 or a draft directory for owner confirmation, without writing into the repo. During setup,
 keep the candidate draft outside the live records directory and start extend mode with a
 copy of the existing record. Init discovers make targets, hook managers, CI jobs and
@@ -182,7 +182,7 @@ before applying them.
   tests.
 [^n2]: Optional nonempty argv array for the repo's full T1 and T2 gate. CI runs this as one gate.
 [^n3]: Optional nonempty argv array for the formatter `freeze()` runs before hashing proofs.
-[^n4]: Optional nonempty argv array for profile completeness, normally `omp-guardrails
+[^n4]: Optional nonempty argv array for profile completeness, normally `guardrails
   profile-check`; `prove()` does not run it.
 [^n5]: Required list of unique repo-relative POSIX paths; `[]` when none. A trailing `/` covers a
   directory.

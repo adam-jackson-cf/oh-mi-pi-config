@@ -10,11 +10,11 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FAKE_LEVER = ROOT / "tests/fixtures/reference/surface/fake-lever"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.surface import feature_map, journeys, lever_selftest  # noqa: E402
+from guardrails.surface import feature_map, journeys, lever_selftest  # noqa: E402
 
 LEVER = "scripts/lever"
 DOCTOR_MARKER = "LEVER-DOCTOR-FAILED"

@@ -11,10 +11,10 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.environment import guarded_run  # noqa: E402
+from guardrails.environment import guarded_run  # noqa: E402
 
 
 def python(code: str) -> list[str]:

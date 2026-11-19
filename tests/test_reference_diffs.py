@@ -14,11 +14,11 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.diffs import (  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.diffs import (  # noqa: E402
     affected,
     coverage_ratchet,
     golden_record,

@@ -57,17 +57,17 @@ function fresh(): State {
 		pointed: false, proposal: [],
 	};
 }
-// The harness checks: omp-guardrails run from the harness's own reference project (never installed
+// The harness checks: guardrails run from the harness's own reference project (never installed
 // into the repo), over the whole repo, with the record as config. Rails append
 // `--repo <worktree> --record <record dir>`.
-const guardrailsProject = fileURLToPath(new URL("./guardrails", import.meta.url));
-const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "check"];
-const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "omp-guardrails", "path-check"];
+const guardrailsProject = fileURLToPath(new URL("./engine", import.meta.url));
+const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
+const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
 	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: route to project setup (skill://omp-dyna-workflows/references/harness-setup.md, adopt mode) to " +
+	"code to the harness copy: route to project setup (skill://dynaflows/references/harness-setup.md, adopt mode) to " +
 	"draft guardrails.check.repo for the owner to save.";
 
 // The dynaflows directive is a whole prompt line, case-insensitive: `$dynaflows` alone, or with an
@@ -374,7 +374,7 @@ export default function dynaflows(
 		if (failed) return `${failed}\nFix the findings, then commit again.`;
 		const runs: [string, string[]][] = [
 			[`checks.commit (${record.gate.commit.join(" ")})`, record.gate.commit],
-			["harness checks (omp-guardrails)", [...guardrailsCommand, "--repo", root, "--record", record.dir]],
+			["harness checks (guardrails)", [...guardrailsCommand, "--repo", root, "--record", record.dir]],
 		];
 		for (const [label, argv] of runs) {
 			const result = await repoExec(argv, root);
@@ -582,12 +582,12 @@ export default function dynaflows(
 			// No record yet: setup starts at Step 0 and the agent writes the record, switch on, itself.
 			return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
 				`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
-				"Start skill://omp-dyna-workflows/references/harness-setup.md setup now, from Step 0. Write the record " +
+				"Start skill://dynaflows/references/harness-setup.md setup now, from Step 0. Write the record " +
 				`yourself at ${recordPath} as setup reaches each file, with gate.json setting ` +
 				'"dynaflows": {"enabled": true}, so dynaflows is on once the record is complete. Never ask the owner to save a file.' };
 		}
 		const resume = (reason: string) => `The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
-			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://omp-dyna-workflows/references/harness-setup.md setup now and repair ` +
+			`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://dynaflows/references/harness-setup.md setup now and repair ` +
 			'the record yourself in place, with "dynaflows": {"enabled": true}. ' +
 			"Never ask the owner to save a file.";
 		let notice: string;
@@ -598,12 +598,12 @@ export default function dynaflows(
 			notice = notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
 			return { notice, content: enabled ? resume(reason) : undefined };
 		}
-		if (!enabled) return { notice, content: "Dynaflows off: do not apply omp-dyna-workflows." };
+		if (!enabled) return { notice, content: "Dynaflows off: do not apply dynaflows." };
 		const at = await dynaflowsAt(ctx);
 		if (at.invalid) return { notice, content: resume(at.off ?? "invalid record") };
 		if (!at.on) {
 			const off = sentence(at.off ?? "dynaflows off");
-			return { notice: notify(`Agent rails: ${off}`), content: `${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply omp-dyna-workflows.` };
+			return { notice: notify(`Agent rails: ${off}`), content: `${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply dynaflows.` };
 		}
 		state.pointed = true;
 		if (task) return { notice, content: `Dynaflows on. Route this work with ${map.references.workflow.join(" and ")}.` };
