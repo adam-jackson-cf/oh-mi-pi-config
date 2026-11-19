@@ -43,6 +43,7 @@ const Usage = z.object({
 const args = process.argv.slice(2);
 const configIndex = args.indexOf("--config");
 const configPath = configIndex >= 0 ? args[configIndex + 1] : `${homedir()}/.omp/agent/config.yml`;
+if (configPath === undefined) throw new Error("--config needs a path");
 const withStats = !args.includes("--no-stats");
 
 const config = Config.parse(Bun.YAML.parse(await Bun.file(configPath).text()));
@@ -53,7 +54,7 @@ console.log(`# OMP routing snapshot — ${new Date().toISOString()}\n`);
 console.log(`defaultThinkingLevel: \`${config.defaultThinkingLevel ?? "(unset)"}\`\n`);
 console.log("## Roles\n\n| Role | Model | Effort | In $/M | Out $/M | Cache $/M | Supported efforts |\n|---|---|---|---|---|---|---|");
 const unresolved: string[] = [];
-for (const [role, selector] of Object.entries(config.modelRoles).sort(([a], [b]) => a.localeCompare(b))) {
+for (const [role, selector] of Object.entries(config.modelRoles).toSorted(([a], [b]) => a.localeCompare(b))) {
   const match = /^(.*?)(?::(minimal|low|medium|high|xhigh|max|off))?$/.exec(selector);
   const model = match?.[1] ?? selector;
   const effort = match?.[2] ?? "–";
@@ -68,7 +69,7 @@ if (Object.keys(tiers).length) console.log(`\nService-tier overrides: ${Object.e
 
 console.log("\n## Catalog prices for subscription families ($/M, API list)\n\n| Model | In | Out | Cache read |\n|---|---|---|---|");
 const priced = catalog.flatMap(m => (m.cost && ["anthropic", "openai-codex"].includes(m.provider) ? [{ ...m, cost: m.cost }] : []));
-for (const m of priced.sort((a, b) => b.cost.output - a.cost.output)) {
+for (const m of priced.toSorted((a, b) => b.cost.output - a.cost.output)) {
   console.log(`| \`${m.provider}/${m.id}\` | ${m.cost.input} | ${m.cost.output} | ${m.cost.cacheRead} |`);
 }
 

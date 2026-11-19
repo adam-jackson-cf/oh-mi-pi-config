@@ -6,7 +6,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "ES2022"
+    "target": "ES2023"
   },
   "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
   "exclude": ["agent/extensions/orca*.ts"]

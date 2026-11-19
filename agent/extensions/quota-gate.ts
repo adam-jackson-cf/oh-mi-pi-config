@@ -200,6 +200,18 @@ export function registerQuotaGate(
     }
   };
 
+  const noteMissingReadings = (ctx: ExtensionContext, missing: string[]): void => {
+    if (missing.length === 0) {
+      failureNotified = false;
+    } else if (!failureNotified) {
+      ctx.ui.notify(
+        `${missing.join(" and ")} quota usage is unavailable or ambiguous; the quota gate does not cover it until it is.`,
+        "warning",
+      );
+      failureNotified = true;
+    }
+  };
+
   const poll = async (ctx: ExtensionContext): Promise<void> => {
     if (gateState !== "open" || checking) {
       return;
@@ -219,16 +231,7 @@ export function registerQuotaGate(
         }
       }
 
-      const missing = readings.filter(reading => !reading.sample).map(reading => PROVIDER_NAMES[reading.provider]);
-      if (missing.length === 0) {
-        failureNotified = false;
-      } else if (!failureNotified) {
-        ctx.ui.notify(
-          `${missing.join(" and ")} quota usage is unavailable or ambiguous; the quota gate does not cover it until it is.`,
-          "warning",
-        );
-        failureNotified = true;
-      }
+      noteMissingReadings(ctx, readings.filter(reading => !reading.sample).map(reading => PROVIDER_NAMES[reading.provider]));
 
       const tripped = readings.find(reading => reading.sample !== undefined && reading.sample.usedFraction >= thresholdFraction);
       if (tripped?.sample) {
@@ -300,6 +303,7 @@ export function registerQuotaGate(
     if (gateState === "latched") {
       return { block: true, reason: BLOCK_REASON };
     }
+    return undefined;
   });
 }
 
