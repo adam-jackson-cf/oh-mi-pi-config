@@ -1,0 +1,10 @@
+# ShellCheck settings for every owned shell script; the gate runs ShellCheck over them in both
+# tiers. Values follow the harness catalogue's SHELLCHECK.* rules.
+enable=avoid-nullary-conditions
+enable=check-extra-masked-returns
+enable=check-set-e-suppressed
+enable=check-unassigned-uppercase
+enable=deprecate-which
+enable=quote-safe-variables
+external-sources=true
+source-path=SCRIPTDIR

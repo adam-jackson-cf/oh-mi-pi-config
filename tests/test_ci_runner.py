@@ -353,6 +353,35 @@ class RunnerParityTests(unittest.TestCase):
         assert result.returncode == 42, "the run must continue to the quality tools"
         assert not (self.repo / ".github").exists()
 
+    def test_shell_checks_cover_extension_and_shebang_scripts(self) -> None:
+        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage")
+        (self.repo / "tool.sh").write_text("echo tool\n")
+        (self.repo / "notes").write_text("plain text\n")
+        (self.repo / "run").write_text("#!/usr/bin/env python3\nprint(1)\n")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "add",
+                ".githooks/pre-commit",
+                "tool.sh",
+                "notes",
+                "run",
+            ],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        calls = self.repo.parent / "uv-calls"
+        uv = self.repo.parent / "bin/uv"
+        uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\nexit 42\n')
+        uv.chmod(0o755)
+        result = self.run_script()
+        assert result.returncode == 42, result.stderr
+        assert calls.read_text().splitlines() == [
+            "run --locked shellcheck -- .githooks/pre-commit tool.sh"
+        ]
+
     def test_hook_without_runner_fails_even_when_workflow_references_it(self) -> None:
         self.hook("make check")
         workflow = self.repo / ".github/workflows/ci-quality-gates.yml"

@@ -19,8 +19,8 @@ usage() {
 
 tier="${1:-}"
 case "$tier" in
-  t1|t2) shift ;;
-  -h|--help)
+  t1 | t2) shift ;;
+  -h | --help)
     usage
     exit 0
     ;;
@@ -35,7 +35,7 @@ while (($#)); do
   case "$1" in
     --framework)
       case "${2:-}" in
-        bun|pytest) frameworks=("$2") ;;
+        bun | pytest) frameworks=("$2") ;;
         *)
           usage >&2
           exit 2
@@ -86,6 +86,7 @@ EOF
     args+=(--preload "$entry")
   fi
   # The tier's Bun test files, tracked or new; Bun treats ./ arguments as paths.
+  git ls-files -z -co --exclude-standard -- 'tests/*.test.ts' >"$scratch/bun-files"
   while IFS= read -r -d '' file; do
     case "$file" in
       *-seams.test.ts) file_tier=t2 ;;
@@ -94,7 +95,7 @@ EOF
     if [[ "$file_tier" == "$tier" ]]; then
       args+=("./$file")
     fi
-  done < <(git ls-files -z -co --exclude-standard -- 'tests/*.test.ts')
+  done <"$scratch/bun-files"
   if [[ -n "$coverage" ]]; then
     args=(--coverage --coverage-reporter=lcov "--coverage-dir=$coverage/bun-$tier" "${args[@]}")
   fi
@@ -114,7 +115,7 @@ run_pytest() {
     exit 1
   fi
   if [[ "$tier" == t1 ]]; then
-    args+=(-p guardrails.adapters.pytest.plugin --omp-guard=fast-tier,user-data -m fast)
+    args+=(-p guardrails.adapters.pytest.plugin '--omp-guard=fast-tier,user-data' -m fast)
   else
     args+=(-m seam)
   fi

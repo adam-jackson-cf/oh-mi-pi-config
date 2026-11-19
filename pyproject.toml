@@ -22,6 +22,9 @@ dev = [
   # Coverage of owned code over T1 and T2; the ci tier enforces the floors.
   "pytest-cov==7.1.0",
   "ruff==0.17.5",
+  # Shell scripts: ShellCheck and shfmt, run by the gate over every owned shell script.
+  "shellcheck-py==0.11.0.1",
+  "shfmt-py==4.2.0",
 ]
 
 [tool.uv]
