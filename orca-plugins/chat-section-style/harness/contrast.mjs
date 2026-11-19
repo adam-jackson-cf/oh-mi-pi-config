@@ -14,7 +14,7 @@ const modes = process.argv.length > 3 ? process.argv.slice(3) : ['document', 'sp
 if (!palette) { console.error('Usage: bun harness/contrast.mjs <palette> [mode ...]'); process.exit(2) }
 
 const version = (await $`plutil -extract CFBundleShortVersionString raw /Applications/Orca.app/Contents/Info.plist`.text()).trim()
-const pagePath = `${(process.env.TMPDIR || '/tmp/').replace(/\/?$/, '/')}orca-harness-${version}/out/renderer/harness.html`
+const pagePath = `${(process.env.TMPDIR || '/tmp/').replace(/\/?$/, '/')}orca-harness-${version}/out/renderer/transcript.html`
 if (!(await Bun.file(pagePath).exists())) { console.error(`Missing ${pagePath}; run harness/shoot.sh first`); process.exit(2) }
 
 const profile = `/tmp/orca-contrast-chrome-${process.pid}`
