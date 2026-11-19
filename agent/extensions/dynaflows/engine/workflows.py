@@ -867,7 +867,8 @@ def _publish_result(result, repo, head):
 
 def prove(repo, parent, head, manifest_path, manifest_sha256, objective, *, target_ref, max_checks=MAX_PROOFS):
     """At the PR event: refuse unless the record's required CI context is green on head, then check
-    rename residue and frozen proofs at head (unchanged bytes, every run passing).
+    rename residue, new-path path-check and structure over parent..head, feature-map coverage, and
+    frozen proofs at head (unchanged bytes, every run passing).
 
     The result is written to result_path(repo, head), the merge signal rails reads, and posted on the PR at head.
     """
