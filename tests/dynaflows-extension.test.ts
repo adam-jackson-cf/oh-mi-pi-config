@@ -211,8 +211,8 @@ describe("dynaflows extension", () => {
 			writeFileSync(join(h.root, "untracked.ts"), "export {};\n");
 			assert.equal(await h.call("bash", { command: "git commit -am x" }), undefined);
 			assert.deepEqual(order, ["path check", "commit"], "the path check runs before checks.commit");
-			assert.deepEqual(checked.sort(), [join(h.root, "existing.ts"), join(h.root, "staged.ts")],
-				"staged and unstaged tracked changes are checked; untracked files are not");
+			assert.deepEqual(checked, ["--event", "staged"],
+				"the checker derives added and renamed names from the index, not unstaged or untracked paths");
 			pathFails = true;
 			order.length = 0;
 			const blocked = await h.call("bash", { command: "git commit -am x" });
@@ -601,7 +601,7 @@ test("path checks forget deleted and ignored failures without skipping live repo
 		h.dynaflows(true);
 		await h.read(integrity, structure);
 		await h.call("edit", { paths: ["existing.ts", "ignored.ts", "deleted.ts"] });
-		assert.deepEqual(checked, [[join(h.root, "existing.ts")]]);
+		assert.deepEqual(checked, [["--event", "edit", join(h.root, "existing.ts")]]);
 		rmSync(join(h.root, "existing.ts"));
 		await h.call("edit", { path: "ignored.ts" });
 		await h.read(verification);
@@ -628,11 +628,11 @@ test("path checks exclude Git directory internals while checking live files", as
 		h.dynaflows(true);
 		await h.read(integrity, structure);
 		await h.call("edit", { paths: [internal, live] });
-		assert.deepEqual(checked, [[live]], "git directory paths must not reach the path check");
+		assert.deepEqual(checked, [["--event", "edit", live]], "git directory paths must not reach the path check");
 	} finally { h.cleanup(); }
 });
 
-test("path checks forget failures for files restored to HEAD", async () => {
+test("path checks ignore content edits to existing tracked names", async () => {
 	const h = harness();
 	try {
 		const path = join(h.root, "existing.ts");
@@ -650,13 +650,12 @@ test("path checks forget failures for files restored to HEAD", async () => {
 		h.gate({ schemaVersion: 2 });
 		h.dynaflows(true);
 		await h.read(integrity, structure);
-		const failure = await h.call("edit", { path });
-		assert.ok(failure?.additionalContext?.includes("bad tracked path"));
-		assert.deepEqual(checked, [[path]]);
+		assert.equal(await h.call("edit", { path }), undefined);
+		assert.deepEqual(checked, []);
 		writeFileSync(path, committed);
 		await h.read(verification);
-		assert.equal(await h.emit("session_stop"), undefined, "a file restored to HEAD must clear its path check failure");
-		assert.deepEqual(checked, [[path]], "a file restored to HEAD must clear its path check failure");
+		assert.equal(await h.emit("session_stop"), undefined);
+		assert.deepEqual(checked, []);
 	} finally { h.cleanup(); }
 });
 
@@ -1055,7 +1054,7 @@ test("path checks canonicalize a symlinked repository root before executing", as
 			if (name === "path-check") {
 				checked = true;
 				assert.equal(options.cwd, h.root);
-				assert.deepEqual(rest, [join(h.root, "existing.ts")]);
+				assert.deepEqual(rest, ["--event", "edit", join(h.root, "existing.ts")]);
 				return { code: 0, killed: false, stdout: "", stderr: "" };
 			}
 			return exec(command, args, options);

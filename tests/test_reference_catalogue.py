@@ -89,6 +89,17 @@ class PackagedCatalogueTests(unittest.TestCase):
         self.assertEqual(contract["success_exit_code"], 0)
         self.assertTrue(contract["violation_exit_nonzero"])
 
+    def test_naming_contract_limits_events_to_new_path_segments(self) -> None:
+        rules = {rule["id"]: rule["contract"] for rule in self.catalogue["rules"]}
+        self.assertIn("content edits do not trigger naming", rules["NAME.conventions"]["event_scope"])
+        self.assertIn("legacy parent", rules["NAME.conventions"]["segment_scope"])
+        self.assertIn("full scans", rules["NAME.test-files"]["event_scope"])
+        exceptions = rules["PROFILE.complete"]["guardrail_exceptions"]
+        self.assertEqual(exceptions["field"], "guardrails.exceptions")
+        self.assertEqual(exceptions["required_fields"], ["rule", "path", "reason"])
+        self.assertEqual(exceptions["optional_fields"], ["check"])
+        self.assertTrue(exceptions["unknown_fields_rejected"])
+
     def test_references_name_subcommands_whose_modules_emit_the_rule(self) -> None:
         for rule in self.catalogue["rules"]:
             for item in rule.get("reference", []):

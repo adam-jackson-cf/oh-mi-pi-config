@@ -47,15 +47,19 @@ first.
    on disk untouched until a final owner-signed-off cleanup PR; this is not a compatibility path.
    When the harness surfaces many failures in a repository, the
    job is to clean them up, never to soften the check.
-5. **Whole repo, always blocking.** Commit checks cover the whole repository, with no baselines
-   (harness-owned or repo-owned) and no diff scope. Per-edit path checks cover edited paths and
-   outstanding changed-path failures. Drift introduced without the harness blocks the next agent commit.
-   Exception: PR-time structure judgment and its deterministic pre-checks are scoped to folders
-   the PR adds, renames or moves files into; existing debt is fixed when a PR touches it.
-   See [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+5. **Quality gates block; new names have new-path scope.** Repository quality gates and
+   other harness commit checks cover the whole repository, without baselines. Automatic
+   NAME.*, STRUCT.* and path-check judge only added/renamed paths: worktree additions
+   (including untracked) after edits, staged additions/renames at commit, merge-base/head
+   additions/renames at PR/prove. Only new segments are judged, never a legacy parent
+   name or a content-only edit. Placement never requires moving existing code.
+   Full naming/structure scans are explicit requests, never automatic commit steps.
+   See [ADR 0012](../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md),
+   extending [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 6. **Events trigger checks, with no ceremony.**
-   - After edits and before commit, rails run harness `guardrails path-check` with record config.
-     At commit it is followed by `checks.commit`, then the whole-repo harness checks.
+   - After edits and before commit, rails run harness `guardrails path-check` with record
+     config and the event's new-path scope. At commit it is followed by `checks.commit`,
+     then whole-repo harness checks excluding naming, structure and path-check.
    - CI reruns the gates offline on the events the repository chose. CI has no time budget.
    - Pulling or merging commits into a branch needs no proof. A commit that results from it runs
      the normal checks.
@@ -76,8 +80,8 @@ first.
    - Quality checkers run at commit, never inside `prove()`, and there is no separate proof
      command for them. The repo's own tests prove the repo's checkers, and `guardrails`' tests
      prove the harness checkers.
-   - Exception: deterministic structure pre-checks run inside `prove()` at PR time under
-     [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
+   - Exception: new-path deterministic naming/structure pre-checks run inside `prove()`
+     at PR time under [ADR 0012](../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
      Main then calls `structure_review()` on that PR range. Provisional structure/naming
      findings and infrastructure errors are shadow-only, never proof or merge blockers.
      A finding from an explicitly `ready` decision sets `halt`; callers must include

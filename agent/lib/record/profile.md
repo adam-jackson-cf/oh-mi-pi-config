@@ -70,10 +70,11 @@
     "import_direction": {"package": "<import name>", "source_root": "<directory>"}
   },
   "house_style": {
-    "version": "<installed house-style version>",
-    "exceptions": [{"rule": "<rule id>", "path": "<path>", "adr": "<ADR reference>"}]
+    "version": "<installed house-style version>"
   },
-  "guardrails": {}
+  "guardrails": {
+    "exceptions": [{"rule": "<rule id>", "path": "<path or glob>", "reason": "<owner-approved reason>"}]
+  }
 }
 ---
 
@@ -98,8 +99,14 @@ reads as ordinary front matter. Keep it and the sections below in step.
 - Write limits and floors as numbers: `wall_limit_s` and `per_test_limit_s` in seconds,
   `line_floor` and `branch_floor` in percent.
 - Approval = the owner's decision. Document approval fields only as the owner stated them.
-- `structure.tiers` may be empty for a flat package; `house_style.exceptions` may be empty.
-  Each style exception needs an ADR reference.
+- `structure.tiers` may be empty for a flat package; `guardrails.exceptions` may be empty
+  or omitted. Each exception requires `rule`, `path` and a nonempty `reason`; optional
+  `check` restricts suppression to one sub-check. Unknown fields are rejected.
+  `path` uses shared profile matching: globs use `fnmatchcase`, while plain paths match
+  themselves and descendants. For example, `{"rule": "NAME.conventions",
+  "check": "child-repeats-parent", "path": "internal/**/*_test.go",
+  "reason": "Go test files retain the package naming convention"}`.
+  Without `check`, the entire rule is suppressed at matching paths. Exceptions require owner approval.
 - `adapter`, `structure`, `house_style` and `guardrails` are harness record fields.
 - `guardrails` holds per-checker settings; required `guardrails.structure`,
   `guardrails.naming` and `guardrails.paths` configure harness-owned per-edit path checks.
@@ -175,7 +182,7 @@ reads as ordinary front matter. Keep it and the sections below in step.
 
 - Capability owners: `<files and directories with their owners>`.
 - Tiers, lowest first, and import direction: `<tier packages and source root>`.
-- House-style version and ADR-backed exceptions: `<version and exceptions>`.
+- House-style version and reason-backed guardrail exceptions: `<version and exceptions>`.
 
 ## Command notes
 

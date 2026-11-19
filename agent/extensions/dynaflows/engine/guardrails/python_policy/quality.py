@@ -35,10 +35,11 @@ else comes from the profile's ``guardrails.python`` section (patterns as in ``sc
 from __future__ import annotations
 
 import ast
+from collections.abc import Set
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
-from guardrails.config import house_style
+from guardrails.config import conventions, house_style
 from guardrails.findings import Finding
 from guardrails.python_policy.call_names import (
     DYNAMIC_IMPORT_CALLS,
@@ -51,9 +52,9 @@ from guardrails.python_policy.scope import (
     finding,
     in_roots,
     inventory_finding,
+    is_excluded,
     load_settings,
     matched_root,
-    parse_paths,
     python_files,
     read_source,
     root_depth,
@@ -63,8 +64,9 @@ from guardrails.structure.inventory import (
     GLOB_CHARACTERS,
     InventoryError,
     as_list,
-    normalized_path,
+    matches_any,
 )
+from guardrails.structure import scope as event_scope
 
 CLASS_LIMIT_DEFAULTS = {
     "max_lines": 700,
@@ -76,10 +78,6 @@ CALLABLE_NAMES = {"typing.Callable", "collections.abc.Callable", "Callable"}
 ANY_NAMES = {"typing.Any", "Any"}
 # ``type X = ...`` statements (ast.TypeAlias) exist from Python 3.12; 3.11 cannot parse them.
 TYPE_ALIAS = getattr(ast, "TypeAlias", ())
-
-
-def casing(kind: str, ecosystem: str = "python") -> list[str]:
-    return house_style.ecosystem(ecosystem)[kind]
 
 
 def is_label(prefix: str, config: PythonSettings) -> bool:
@@ -98,7 +96,11 @@ def below_root_dirs(relpath: str, depth: int) -> list[tuple[str, str]]:
 # Structure rules (PYQ100-PYQ107) ------------------------------------------------------------
 
 
-def structure_findings(relpath: str, config: PythonSettings) -> list[Finding]:
+def structure_findings(
+    relpath: str, config: PythonSettings, existing_segments: Set[str] = frozenset()
+) -> list[Finding]:
+    if relpath in existing_segments:
+        return []
     depth = matched_root(relpath, config.paths("maintained_roots"))
     if depth is None:
         return [
@@ -115,10 +117,10 @@ def structure_findings(relpath: str, config: PythonSettings) -> list[Finding]:
     return [
         *script_findings(relpath, config),
         *test_group_findings(relpath, config),
-        *skill_findings(relpath, config),
-        *package_dir_findings(relpath, depth, config),
+        *skill_findings(relpath, config, existing_segments),
+        *package_dir_findings(relpath, depth, config, existing_segments),
         *module_name_findings(relpath, config),
-        *generic_name_findings(relpath, depth, config),
+        *generic_name_findings(relpath, depth, config, existing_segments),
     ]
 
 
@@ -129,7 +131,9 @@ def script_findings(relpath: str, config: PythonSettings) -> list[Finding]:
         return []
     name = PurePosixPath(relpath).name
     approved = name in as_list(config.raw.get("script_names"))
-    if approved and house_style.matches_casing(PurePosixPath(name).stem, casing("file", "asset_id")):
+    if approved and house_style.matches_casing(
+        PurePosixPath(name).stem, house_style.load_house_style()["asset_id"]["file"]
+    ):
         return []
     return [
         finding(
@@ -163,7 +167,7 @@ def test_group_findings(relpath: str, config: PythonSettings) -> list[Finding]:
 
 
 def skill_name_finding(relpath: str, skill: str) -> list[Finding]:
-    if house_style.matches_casing(skill, casing("directory", "asset_id")):
+    if house_style.matches_casing(skill, house_style.load_house_style()["asset_id"]["directory"]):
         return []
     return [
         finding(
@@ -176,15 +180,22 @@ def skill_name_finding(relpath: str, skill: str) -> list[Finding]:
     ]
 
 
-def skill_findings(relpath: str, config: PythonSettings) -> list[Finding]:
+def skill_findings(
+    relpath: str, config: PythonSettings, existing_segments: Set[str] = frozenset()
+) -> list[Finding]:
     for root in config.paths("skill_roots"):
         depth = root_depth(relpath, root)
         if depth is not None and len(segments(relpath)) > depth + 1:
+            if "/".join(segments(relpath)[: depth + 1]) in existing_segments:
+                return []
             return skill_name_finding(relpath, segments(relpath)[depth])
     return []
 
 
-def skill_directory_findings(repo: Path, config: PythonSettings, selected: list[str]) -> list[Finding]:
+def skill_directory_findings(
+    repo: Path, config: PythonSettings, selected: list[str],
+    existing_segments: Set[str] = frozenset(),
+) -> list[Finding]:
     """Skill directories without any Python file still need kebab-case names."""
     found: list[Finding] = []
     for root in config.paths("skill_roots"):
@@ -195,6 +206,8 @@ def skill_directory_findings(repo: Path, config: PythonSettings, selected: list[
             continue
         for directory in sorted(child for child in skill_root.iterdir() if child.is_dir()):
             relpath = f"{root}/{directory.name}"
+            if relpath in existing_segments:
+                continue
             if not selected or any(
                 root_depth(relpath, path) is not None or root_depth(path, relpath) is not None
                 for path in selected
@@ -203,7 +216,10 @@ def skill_directory_findings(repo: Path, config: PythonSettings, selected: list[
     return found
 
 
-def package_dir_findings(relpath: str, depth: int, config: PythonSettings) -> list[Finding]:
+def package_dir_findings(
+    relpath: str, depth: int, config: PythonSettings,
+    existing_segments: Set[str] = frozenset(),
+) -> list[Finding]:
     if in_roots(relpath, config.paths("skill_roots")):
         return []
     ignored = set(as_list(config.raw.get("non_package_dirs")))
@@ -217,8 +233,9 @@ def package_dir_findings(relpath: str, depth: int, config: PythonSettings) -> li
         )
         for part, prefix in below_root_dirs(relpath, depth)
         if part not in ignored
+        and prefix not in existing_segments
         and not is_label(prefix, config)
-        and not house_style.matches_casing(part, casing("directory"))
+        and not house_style.matches_casing(part, conventions.load_pack("python")["directory"])
     ]
 
 
@@ -226,7 +243,7 @@ def module_name_findings(relpath: str, config: PythonSettings) -> list[Finding]:
     if in_roots(relpath, config.paths("script_roots")):
         return []
     stem = PurePosixPath(relpath).stem
-    if house_style.matches_casing(stem, casing("file")):
+    if house_style.matches_casing(stem, conventions.load_pack("python")["file"]):
         return []
     return [
         finding(
@@ -239,7 +256,10 @@ def module_name_findings(relpath: str, config: PythonSettings) -> list[Finding]:
     ]
 
 
-def generic_name_findings(relpath: str, depth: int, config: PythonSettings) -> list[Finding]:
+def generic_name_findings(
+    relpath: str, depth: int, config: PythonSettings,
+    existing_segments: Set[str] = frozenset(),
+) -> list[Finding]:
     allowed = set(config.paths("generic_name_allowlist"))
     found = [
         finding(
@@ -251,7 +271,8 @@ def generic_name_findings(relpath: str, depth: int, config: PythonSettings) -> l
             "guardrails.python.generic_name_allowlist",
         )
         for part, prefix in below_root_dirs(relpath, depth)
-        if house_style.is_banned_word(part) and prefix not in allowed and not is_label(prefix, config)
+        if prefix not in existing_segments
+        and house_style.is_banned_word(part) and prefix not in allowed and not is_label(prefix, config)
     ]
     stem = PurePosixPath(relpath).stem
     if house_style.is_banned_word(stem) and relpath not in allowed:
@@ -570,18 +591,36 @@ def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Find
 
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
-    selected = parse_paths("python-quality", argv)
     config = load_settings(profile)
     try:
-        files = python_files(repo, config, selected)
+        selected = event_scope.select(repo, argv)
+        content_paths = argv if argv and not any(raw.startswith("-") for raw in argv) else []
+        existing_segments = {
+            "/".join(parts[:index])
+            for path in selected.existing_paths or ()
+            for parts in (segments(path),)
+            for index in range(1, len(parts) + 1)
+        }
+        files = [
+            path for path in selected.inventory
+            if path.endswith(".py") and not is_excluded(path, config)
+        ]
+        roots = config.paths("maintained_roots")
+        found: list[Finding] = []
+        with event_scope.checkout(repo, selected) as snapshot:
+            for relpath in files:
+                if not (snapshot / relpath).is_file():
+                    continue
+                if matches_any(relpath, selected.paths):
+                    found.extend(structure_findings(relpath, config, existing_segments))
+            found.extend(
+                skill_directory_findings(
+                    snapshot, config, selected.paths, existing_segments
+                )
+            )
+        for relpath in python_files(repo, config, content_paths):
+            if in_roots(relpath, roots):
+                found.extend(code_findings(repo, relpath, config))
     except InventoryError as error:
         return [inventory_finding("PYQ100", error)]
-    roots = config.paths("maintained_roots")
-    found: list[Finding] = []
-    for relpath in files:
-        found.extend(structure_findings(relpath, config))
-        if in_roots(relpath, roots):
-            found.extend(code_findings(repo, relpath, config))
-    scope = [path for raw in selected if (path := normalized_path(repo, raw)) is not None]
-    found.extend(skill_directory_findings(repo, config, scope))
     return house_style.apply_exceptions(found, profile)

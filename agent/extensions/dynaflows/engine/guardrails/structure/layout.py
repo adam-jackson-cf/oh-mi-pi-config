@@ -23,13 +23,13 @@ from pathlib import Path, PurePosixPath
 from guardrails.config.house_style import apply_exceptions
 from guardrails.config.profile import PROFILE_PATH
 from guardrails.findings import Finding
+from guardrails.structure import scope
 from guardrails.structure.import_graph import run as import_graph_findings
 from guardrails.structure.inventory import (
     InventoryError,
     as_list,
     matches,
     matches_any,
-    selected_paths,
     settings,
 )
 
@@ -188,13 +188,15 @@ def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
     return names
 
 
-def path_findings(path: str, config: dict) -> list[Finding]:
+def path_findings(
+    path: str, config: dict, *, existing_paths: set[str] | None = None,
+) -> list[Finding]:
     """Per-path allowlist findings, shared with the changed-path check."""
-    return [
+    return scope.restrict([
         *root_findings(path, config),
         *area_findings(path, config),
         *package_findings(path, config),
-    ]
+    ], [path], existing_paths)
 
 
 def configuration_findings(config: dict) -> list[Finding]:
@@ -220,14 +222,26 @@ def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
 
     config = settings(profile, "structure")
     try:
-        paths = [path for path in selected_paths(repo, argv) if not skipped(path, config)]
+        selected = scope.select(repo, argv)
+        paths = [path for path in selected.paths if not skipped(path, config)]
     except InventoryError as error:
         return [placement(".", str(error), "run inside a Git work tree")]
+    if not paths and selected.existing_paths is not None:
+        return []
     found = configuration_findings(config)
-    found.extend(import_graph_findings(repo, profile, []))
-    for path in paths:
-        found.extend(path_findings(path, config))
-    found.extend(instance_findings(paths, config))
-    found.extend(forbidden_import_findings(repo, paths, config))
-    found.extend(native_findings(repo, paths, profile))
+    try:
+        with scope.checkout(repo, selected) as root:
+            found.extend(scope.restrict(
+                import_graph_findings(root, profile, [], inventory=selected.inventory),
+                paths, selected.existing_paths,
+            ))
+            for path in paths:
+                found.extend(path_findings(path, config, existing_paths=selected.existing_paths))
+            found.extend(scope.restrict(
+                instance_findings(selected.inventory, config), paths, selected.existing_paths,
+            ))
+            found.extend(forbidden_import_findings(root, paths, config))
+            found.extend(native_findings(root, paths, profile))
+    except InventoryError as error:
+        return [placement(".", str(error), "provide a readable Git snapshot")]
     return apply_exceptions(sorted(set(found), key=lambda item: (item.path, item.message)), profile)

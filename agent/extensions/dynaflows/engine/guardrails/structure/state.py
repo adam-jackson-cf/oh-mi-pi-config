@@ -24,6 +24,13 @@ from guardrails.structure.rename_residue import (
     DefinedNames, GitError, Rename, git, residue_findings, retired_terms, words,
 )
 
+DIRECTORY_QUESTIONS = frozenset({
+    "technical_kind_grouping", "folder_name_coverage",
+    "overlapping_responsibilities", "sibling_naming_pattern",
+})
+FILE_QUESTIONS = frozenset({
+    "one_name_per_concept", "runtime_data_in_code", "entry_point_placement",
+})
 CAPS = {
     "tree_files": 4096, "unit_files": 256,
     "python_file_bytes": 262144, "python_total_bytes": 8388608,
@@ -67,7 +74,7 @@ def _bounded(state: dict) -> dict:
         retained = len(rows) // 2
         limits[field] = rows[:retained]
         limits[field + "_omitted_rows"] += len(rows) - retained
-    cuts: dict[str, int] = {}
+    cuts: dict[str, int] = dict(limits.get("state_budget_omissions", {}))
     limits["state_budget_omissions"] = cuts
     while len(compact_json(state).encode()) > CAPS["state_bytes"]:
         candidates = []
@@ -136,7 +143,14 @@ class Snapshot:
     def __init__(self, repo: Path, base: str, head: str, profile: dict,
                  candidate_base: str | None = None) -> None:
         self.repo, self.profile = repo, profile
-        self.base, self.head = _commit(repo, base), _commit(repo, head)
+        self.head = _commit(repo, head)
+        self.base = git(repo, "merge-base", _commit(repo, base), self.head).decode().strip()
+        self.existing_directories = {
+            parent.as_posix()
+            for path in git(repo, "ls-tree", "-r", "--name-only", "-z", self.base).decode().split("\0")
+            if path
+            for parent in PurePosixPath(path).parents
+        }
         self.candidate_base = (
             git(repo, "rev-parse", "--verify", "--end-of-options", candidate_base + "^{tree}").decode().strip()
             if candidate_base else self.base
@@ -354,6 +368,13 @@ class Snapshot:
                 edge_groups["inbound"].append(edge)
         state = {
             "folder_path": folder, "files": paths,
+            "introduced_paths": self.cap(sorted(selected & self.added), "change_rows", "introduced_paths"),
+            "introduced_directories": self.cap(sorted({
+                parent.as_posix()
+                for path in selected & self.added
+                for parent in PurePosixPath(path).parents
+                if parent.as_posix() not in self.existing_directories and parent.as_posix() != "."
+            }), "change_rows", "introduced_directories"),
             "top_level_symbols": {p: self.symbols[p] for p in paths if p in self.symbols},
             "import_edges": {kind: self.cap(rows, "edges", "import_edges." + kind) for kind, rows in edge_groups.items()},
             "sibling_context": [self.context(p) for p in siblings],
@@ -377,6 +398,35 @@ class Snapshot:
         }
         return _bounded(state)
 
+    def judgment_unit(self, folder: str) -> dict:
+        state = self.unit(folder)
+        introduced = set(state["introduced_paths"])
+        legacy = [path for path in state["files"] if path not in introduced]
+        if legacy:
+            state["related_context"].append({
+                "unit_path": folder, "folder_path": folder, "files": legacy,
+                "top_level_symbols": {path: self.symbols[path] for path in legacy if path in self.symbols},
+            })
+        state["files"] = sorted(introduced)
+        for field in ("top_level_symbols", "docstrings", "constant_values"):
+            state[field] = {path: value for path, value in state[field].items() if path in introduced}
+        state["import_edges"] = {
+            kind: [edge for edge in edges
+                   if edge["from"] in introduced or introduced.intersection(edge["to"])]
+            for kind, edges in state["import_edges"].items()
+        }
+        state["cluster"] = [
+            cluster for cluster in state["cluster"]
+            if cluster["members"] and set(cluster["members"]).issubset(introduced)
+        ]
+        questions = set(FILE_QUESTIONS) if introduced else set()
+        if folder in state["introduced_directories"]:
+            questions.update(DIRECTORY_QUESTIONS)
+        if state["cluster"]:
+            questions.add("prefix_should_be_folder")
+        state["judgment_questions"] = sorted(questions)
+        return _bounded(state)
+
 
 
 def extract_unit(repo: Path, base: str, head: str, unit: str, profile: dict | None = None,
@@ -393,9 +443,16 @@ def extract_unit(repo: Path, base: str, head: str, unit: str, profile: dict | No
 def extract(repo: Path, base: str, head: str, profile: dict | None = None) -> dict[str, dict]:
     """Extract destination folders of added/renamed/moved owned files only."""
     snapshot = Snapshot(repo, base, head, profile or {})
-    folders = sorted({str(PurePosixPath(p).parent) for p in snapshot.added if p in snapshot.owned_paths})
+    introduced = snapshot.added & snapshot.owned_paths
+    folders = {str(PurePosixPath(path).parent) for path in introduced}
+    folders.update(
+        parent.as_posix()
+        for path in introduced
+        for parent in PurePosixPath(path).parents
+        if parent.as_posix() not in snapshot.existing_directories and parent.as_posix() != "."
+    )
     snapshot.global_truncations = len(snapshot.truncations)
-    return {folder: snapshot.unit(folder) for folder in folders}
+    return {folder: snapshot.judgment_unit(folder) for folder in sorted(folders)}
 
 
 def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:

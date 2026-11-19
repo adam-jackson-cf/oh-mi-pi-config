@@ -102,7 +102,7 @@ MACHINE = {
     "approval": "text",
 }
 TIER = {"selector": "text", "location": "texts", "command": "text"}
-EXCEPTION = {"rule": "text", "path": "text", "adr": "text"}
+EXCEPTION = {"rule": "text", "path": "text", "reason": "text", "check?": "text"}
 SCHEMA: dict[str, Any] = {
     "tiers": {"t1": TIER, "t2": TIER, "t3": TIER},
     "public_entry_points": "map",
@@ -136,7 +136,7 @@ SCHEMA: dict[str, Any] = {
     "command_notes": {"working_directory": "text", "interpretation": "text", "lsp?": "value"},
     "adapter": "text",
     "structure": {"owners": "value", "tiers": "list", "import_direction": "value"},
-    "house_style": {"version": "integer", "exceptions": ("optional_records", EXCEPTION)},
+    "house_style": {"version": "integer"},
 }
 # One settings section per checker that reads ``guardrails.<section>``. Settings may hold
 # regular expressions, so only their names and shape are checked here.
@@ -159,7 +159,12 @@ GUARDRAILS_SECTIONS = (
     "test_evidence",
     "toolchain_parity",
 )
-OPTIONAL = {"guardrails": {f"{section}{OPTIONAL_MARK}": "object" for section in GUARDRAILS_SECTIONS}}
+OPTIONAL = {
+    "guardrails": {
+        **{f"{section}{OPTIONAL_MARK}": "object" for section in GUARDRAILS_SECTIONS},
+        "exceptions?": ("optional_records", EXCEPTION),
+    }
+}
 
 
 def is_missing_text(value: object) -> bool:
@@ -238,7 +243,13 @@ def check_section(value: object, spec: dict, key: str, problems: list[tuple[str,
         return
     names = {child.removesuffix(OPTIONAL_MARK): child for child in spec}
     for extra in sorted(set(value) - set(names)):
-        problems.append((f"{key}.{extra}", "is not a profile key; remove it or fix its spelling"))
+        problem = (
+            "is obsolete; move entries to guardrails.exceptions and replace the old justification "
+            "field with reason"
+            if key == "house_style" and extra == "exceptions"
+            else "is not a profile key; remove it or fix its spelling"
+        )
+        problems.append((f"{key}.{extra}", problem))
     for name, child in names.items():
         if child.endswith(OPTIONAL_MARK) and name not in value:
             continue

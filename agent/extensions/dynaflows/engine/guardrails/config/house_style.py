@@ -1,9 +1,3 @@
-"""Read the shipped house-style data and give word, casing, version and test-name verdicts.
-
-``guardrails/data/house-style.json`` is the one source of style truth (plan §1.2). Repos
-never copy or edit it; they record its ``version`` and any ADR-backed ``exceptions`` in their
-profile's ``house_style`` section. Stacks without this package pin ``digest()``.
-"""
 
 from __future__ import annotations
 
@@ -12,9 +6,10 @@ import json
 import re
 from functools import cache
 from importlib import resources
-from pathlib import PurePosixPath
 
 from guardrails.findings import Finding
+from guardrails.config import conventions
+from guardrails.structure.inventory import matches
 
 DATA_FILE = "house-style.json"
 
@@ -49,10 +44,6 @@ def matches_casing(name: str, casings: list[str]) -> bool:
     return any(re.fullmatch(patterns[casing], name) for casing in casings)
 
 
-def ecosystem(name: str) -> dict:
-    return load_house_style()["casing"][name]
-
-
 def version_problem(segment: str, *, last: bool, standalone_allowed: bool) -> str | None:
     """Why a path segment's version token breaks the rule, or None when it does not."""
     rules = load_house_style()["versioning"]
@@ -71,17 +62,26 @@ def _name_tokens(name: str) -> tuple[str, ...]:
     return tuple(token.lower() for token in re.split(r"[_\-.]+", name) if token)
 
 
-def child_repeats_parent(parts: tuple[str, ...]) -> str | None:
-    """Return the first repeating child: directory tokens, but exact file-stem equality."""
+def child_repeats_parent(
+    parts: tuple[str, ...], *, existing_paths: set[str] | None = None
+) -> str | None:
     if load_house_style()["child_repeats_parent"] != "banned":
         return None
     for index in range(1, len(parts)):
-        if index == len(parts) - 1:
-            if stem(parts[index]) == parts[index - 1]:
-                return parts[index]
+        last = index == len(parts) - 1
+        child = stem(parts[index]) if last else parts[index]
+        segment_path = "/".join(parts[: index + 1])
+        if existing_paths is not None and any(
+            item == segment_path or item.startswith(segment_path + "/")
+            for item in existing_paths
+        ):
+            continue
+        if (last and conventions.fixed_file("/".join(parts))) or (
+            not last and conventions.fixed_folder("/".join(parts), parts[index])
+        ):
             continue
         parent_tokens = _name_tokens(parts[index - 1])
-        child_tokens = _name_tokens(parts[index])
+        child_tokens = _name_tokens(child)
         width = len(parent_tokens)
         if width and any(
             child_tokens[start : start + width] == parent_tokens
@@ -97,7 +97,7 @@ def is_catalogue_plural(name: str) -> bool:
 
 def test_name_problems(file_name: str) -> list[str]:
     """Ticket, version, date and generic-only problems in a test file's name."""
-    rules = load_house_style()["test_roots"]["name_tokens"]
+    rules = load_house_style()["test_names"]
     tokens = [token for token in re.split(r"[-_.]+", stem(file_name).lower()) if token]
     behaviour = [token for token in tokens if token not in rules["ignored"]]
     problems = []
@@ -119,22 +119,20 @@ def test_name_problems(file_name: str) -> list[str]:
 
 
 def apply_exceptions(findings: list[Finding], profile: dict) -> list[Finding]:
-    """Drop findings covered by the profile's ADR-backed ``house_style.exceptions``."""
-    section = profile.get("house_style")
+    section = profile.get("guardrails")
     exceptions = section.get("exceptions", []) if isinstance(section, dict) else []
     covered = [
-        (item["rule"], item["path"].rstrip("/"))
+        item
         for item in exceptions
-        if isinstance(item, dict) and item.get("adr") and item.get("rule") and item.get("path")
+        if isinstance(item, dict) and item.get("reason") and item.get("rule") and item.get("path")
     ]
     return [
         finding
         for finding in findings
         if not any(
-            finding.rule_id == rule and is_within(finding.path, path) for rule, path in covered
+            finding.rule_id == item["rule"]
+            and matches(finding.path, item["path"])
+            and ("check" not in item or item["check"] == finding.check)
+            for item in covered
         )
     ]
-
-
-def is_within(path: str, scope: str) -> bool:
-    return path == scope or PurePosixPath(path).is_relative_to(scope)

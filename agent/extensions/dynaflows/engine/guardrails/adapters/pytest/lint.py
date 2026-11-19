@@ -17,8 +17,8 @@ symbols defined in the linted production files.
 Owned packages (D2) are the top-level packages that own the profile's ``public_entry_points``
 keys. Test files are files under a tier ``location``, files matching ``layout.test_file_patterns``
 and ``conftest.py`` files. Production files are the other Python files with an owned package
-in their path. A finding is waived where ``house_style.exceptions`` holds an entry whose ``rule``
-is the finding's rule and whose ``path`` matches the file.
+in their path. A finding is waived where ``guardrails.exceptions`` holds a reason-backed entry
+whose ``rule`` and optional ``check`` match the finding and whose ``path`` matches the file.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ from __future__ import annotations
 import ast
 import json
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path, PurePosixPath
 
 from guardrails.adapters.pytest.symbol_usage import test_only_findings
+from guardrails.config.house_style import apply_exceptions
 from guardrails.findings import Finding
 from guardrails.structure.inventory import as_list, matches_any, name_matches
 
@@ -203,15 +203,7 @@ def owned_target(match: object, target: str, imports: dict[str, str], owned: fro
 
 
 def waived(rule_id: str, path: str, profile: dict) -> bool:
-    house_style = profile.get("house_style")
-    exceptions = house_style.get("exceptions") if isinstance(house_style, dict) else None
-    for entry in exceptions if isinstance(exceptions, list) else []:
-        if not isinstance(entry, dict) or entry.get("rule") != rule_id:
-            continue
-        pattern = str(entry.get("path", ""))
-        if path == pattern or fnmatchcase(path, pattern):
-            return True
-    return False
+    return not apply_exceptions([Finding(rule_id, path, "", "")], profile)
 
 
 def file_findings(path: str, source: str, rules: list[Rule], owned: frozenset[str]):

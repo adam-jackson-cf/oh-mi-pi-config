@@ -87,6 +87,3 @@ def settings(profile: dict, checker: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def selected_paths(repo: Path, argv: list[str]) -> list[str]:
-    """Paths named on the command line, or the whole inventory when none are named."""
-    return list(argv) if argv else repo_paths(repo)

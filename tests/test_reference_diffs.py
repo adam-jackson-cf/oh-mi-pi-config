@@ -390,7 +390,7 @@ class TimeoutIncreaseTests(unittest.TestCase):
         )
         self.assertEqual(self.check(), [])
 
-    def test_adr_backed_exception_waives_the_increase(self) -> None:
+    def test_reason_backed_exception_waives_the_increase(self) -> None:
         self.repo.commit(
             {
                 "tests/unit/test_sync.py": (
@@ -399,8 +399,11 @@ class TimeoutIncreaseTests(unittest.TestCase):
                 )
             }
         )
-        exception = {"rule": "TEST.no-evasion", "path": "tests/unit/test_sync.py", "adr": "ADR-4"}
-        waived = {**BASE_PROFILE, "house_style": {"version": 1, "exceptions": [exception]}}
+        exception = {
+            "rule": "TEST.no-evasion", "path": "tests/unit/test_sync.py",
+            "reason": "Owner-approved external sync deadline",
+        }
+        waived = {**BASE_PROFILE, "guardrails": {"exceptions": [exception]}}
         self.assertEqual(self.check(waived), [])
 
 

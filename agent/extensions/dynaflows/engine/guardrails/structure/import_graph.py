@@ -56,14 +56,15 @@ def part(module: str, package: str, tiers: list[str]) -> tuple[str, str] | None:
     return components[0], components[1]
 
 
-def run(repo: Path, profile: dict, argv: list[str]) -> list[Finding]:
-    """Always inspect the full inventory, even when the caller supplies named paths."""
+def run(
+    repo: Path, profile: dict, argv: list[str], *, inventory: list[str] | None = None,
+) -> list[Finding]:
     direction, tiers = import_config(profile)
     package, root = direction.get("package"), direction.get("source_root")
     if not (isinstance(package, str) and isinstance(root, str) and tiers):
         return []
     try:
-        paths = repo_paths(repo)
+        paths = repo_paths(repo) if inventory is None else inventory
     except InventoryError as error:
         return [Finding(DIRECTION, ".", str(error), "run inside a Git work tree")]
     scan = as_list(direction.get("scan")) or [root]
