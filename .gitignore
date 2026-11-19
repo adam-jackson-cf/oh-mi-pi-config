@@ -29,7 +29,6 @@
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/ci-quality-gates.yml
-!.github/workflows/package-audit.yml
 
 !scripts/
 scripts/*
@@ -37,6 +36,7 @@ scripts/*
 !scripts/check_paths.py
 !scripts/check_coverage.py
 !scripts/run-test-tier.sh
+!scripts/audit-dependencies.sh
 !scripts/ci_gate.py
 !scripts/ci-gate-repos.json
 !scripts/ci_runner.py

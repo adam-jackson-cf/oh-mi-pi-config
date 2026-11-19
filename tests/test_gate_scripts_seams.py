@@ -19,10 +19,14 @@ name = pathlib.Path(sys.argv[0]).name
 entry = [name, *sys.argv[1:]]
 if os.environ.get("COVERAGE_FILE"):
     entry.append("COVERAGE_FILE=" + os.environ["COVERAGE_FILE"])
+if "audit" in sys.argv or "pip-audit" in sys.argv:
+    entry.append("cwd=" + os.getcwd())
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(entry) + "\\n")
 if name == "uv" and "--collect-only" in sys.argv:
     sys.exit(int(os.environ.get("FAKE_COLLECT", "5")))
+if os.environ.get("FAKE_AUDIT_FAIL") in entry:
+    sys.exit(1)
 """
 
 
@@ -33,6 +37,7 @@ def checkout() -> Any:
         for name in (
             "scripts/run-ci-quality-gates.sh",
             "scripts/run-test-tier.sh",
+            "scripts/audit-dependencies.sh",
             "scripts/check_paths.py",
             ".githooks/pre-commit",
         ):
@@ -199,3 +204,107 @@ def test_commit_tier_runs_the_t2_seams_a_staged_path_reaches(
     assert (
         any("./tests/flow-seams.test.ts" in call for call in bun_runs(calls)) is bun_t2
     )
+
+
+def audit_calls(calls: list[list[str]]) -> list[list[str]]:
+    return [call for call in calls if call[-1].startswith("cwd=")]
+
+
+def track(root: Path, env: dict[str, str], *paths: str) -> None:
+    for path in paths:
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text("x\n")
+    git(root, env, "add", *paths)
+
+
+def test_dependency_audit_audits_every_discovered_lock_where_it_lives(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    track(
+        root,
+        env,
+        "bun.lock",
+        "uv.lock",
+        "engine/uv.lock",
+        "engine/requirements-pytest.lock",
+        "tests/fixtures/frozen/bun.lock",
+    )
+    code, output, calls = run(root, env, "scripts/audit-dependencies.sh")
+    assert code == 0, output
+    real = root.resolve()
+    assert sorted(audit_calls(calls)) == sorted([
+        ["bun", "audit", f"cwd={real}"],
+        [
+            "uv",
+            "audit",
+            "--locked",
+            "--preview-features",
+            "audit-command",
+            f"cwd={real}",
+        ],
+        [
+            "uv",
+            "audit",
+            "--locked",
+            "--preview-features",
+            "audit-command",
+            f"cwd={real / 'engine'}",
+        ],
+        [
+            "uv",
+            "run",
+            "--locked",
+            "pip-audit",
+            "--requirement",
+            "engine/requirements-pytest.lock",
+            "--require-hashes",
+            "--disable-pip",
+            "--progress-spinner",
+            "off",
+            f"cwd={real}",
+        ],
+    ])
+    assert "Dependency audit passed." in output
+
+
+def test_one_failing_audit_fails_the_step_after_every_lock_is_audited(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    track(root, env, "bun.lock", "engine/uv.lock", "uv.lock")
+    failing = f"cwd={(root / 'engine').resolve()}"
+    code, output, calls = run(
+        root, {**env, "FAKE_AUDIT_FAIL": failing}, "scripts/audit-dependencies.sh"
+    )
+    assert code == 1
+    assert len(audit_calls(calls)) == 3
+    assert "Dependency audit failed for: engine/uv.lock" in output
+
+
+def test_a_lock_no_auditor_reads_fails_the_audit(checkout: Any) -> None:
+    root, env = checkout
+    track(root, env, "web/package-lock.json")
+    code, output, _ = run(root, env, "scripts/audit-dependencies.sh")
+    assert code == 1
+    assert "No dependency auditor for web/package-lock.json." in output
+
+
+@pytest.mark.parametrize("tier", ["commit", "ci"])
+def test_both_gate_tiers_block_on_the_dependency_audit(
+    checkout: Any, tier: str
+) -> None:
+    root, env = checkout
+    track(root, env, "bun.lock")
+    failing = f"cwd={root.resolve()}"
+    code, output, calls = run(
+        root,
+        {**env, "FAKE_AUDIT_FAIL": failing},
+        "scripts/run-ci-quality-gates.sh",
+        "--tier",
+        tier,
+    )
+    assert code == 1
+    assert ["bun", "audit", failing] in calls
+    assert "Dependency audit failed for: bun.lock" in output
+    assert bun_runs(calls) == []

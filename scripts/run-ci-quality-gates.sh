@@ -182,6 +182,7 @@ else
   uv run --locked ruff format --check .
 fi
 uv run --locked mypy
+bash scripts/audit-dependencies.sh
 # Tests run through scripts/run-test-tier.sh, one tier at a time, with every framework:
 # - commit: all T1, then T2 for each framework a staged path reaches;
 # - ci: all T1 and all T2, with coverage of owned code checked against its floors.
