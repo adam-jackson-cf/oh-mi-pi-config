@@ -9,7 +9,7 @@ references:
     - skill://dynaflows/references/delivery-principles.md
   newFile:
     - skill://dynaflows/references/structure-and-naming.md
-  test:
+  testFile:
     - skill://test-guidance/references/tiers.md
     - skill://dynaflows/references/test-enforcement.md
     - skill://dynaflows/references/proofs.md

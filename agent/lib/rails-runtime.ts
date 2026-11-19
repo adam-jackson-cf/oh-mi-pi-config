@@ -13,7 +13,7 @@ const regexpSource = z.string().refine(value => {
 });
 const mappingSchema = z.object({
 	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
-		for (const key of ["firstEdit", "newFile", "test", "verification", "workflow", "git"]) {
+		for (const key of ["firstEdit", "newFile", "testFile", "verification", "workflow", "git"]) {
 			const urls = references[key];
 			if (!urls?.length || urls.some(url => !url.startsWith("skill://"))) {
 				ctx.addIssue({ code: "custom", message: `invalid references.${key}` });

@@ -233,7 +233,7 @@ def read_journal(path: Path) -> Journal:
             armed.append(set(event.get("guards", [])))
         elif kind == "violation":
             violations.append(str(event.get("reason", "")))
-        elif kind == "test":
+        elif kind == "case":
             registrations.append(
                 Registration(
                     str(event.get("file", "")),

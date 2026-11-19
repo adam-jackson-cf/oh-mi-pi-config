@@ -516,7 +516,7 @@ export default function dynaflows(
 				if (!state.edits.has(root) && matches(rel, map.codeGlobs)) triggers.push("firstEdit");
 				// New-file reads apply only to code files inside a repository, not scratch paths.
 				if (root && matches(rel, map.codeGlobs) && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
-				if (matches(rel, map.testGlobs)) triggers.push("test");
+				if (matches(rel, map.testGlobs)) triggers.push("testFile");
 				for (const url of missing(state, map, triggers)) required.add(url);
 			}
 			if (required.size) return { block: true, reason: readReason([...required]) };
