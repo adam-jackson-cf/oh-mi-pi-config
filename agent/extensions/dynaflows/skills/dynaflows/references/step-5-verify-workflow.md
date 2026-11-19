@@ -15,9 +15,9 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
 4. Set `parent` to `git merge-base <target_ref> <head>`, never `HEAD~1`; it must be a strict ancestor of head.
 5. Call `prove(repo, parent, head, manifest_path, manifest_sha256, objective, target_ref=target_ref)` under the
    [prove contract](prove.md). `repo` is the dedicated source worktree on its named branch at head, not main's
-   possibly different checkout. It checks exact-head CI, rename residue, feature-map coverage and the frozen proofs.
+   possibly different checkout. It checks exact-head CI, rename residue, new-path naming/structure, map coverage and frozen proofs.
 6. A PR with no behaviour change (refactor, docs, project setup without new controls, a Dependabot bump) uses a manifest
-   frozen with no proofs; with no changed map doc, `prove()` checks CI and rename residue.
+   frozen with no proofs; with no changed map doc, `prove()` checks CI, rename residue and new-path naming/structure.
 7. The result file `<git-common-dir>/omp-prove/<head>.result.json` with `status: pass` for the exact head is the
    prove pass signal; `prove()` also posts it on the PR.
 8. On `fail`, return the blocking evidence (commands, output, expected outcome) to the assigned writer.

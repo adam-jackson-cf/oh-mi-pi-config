@@ -9,7 +9,7 @@ freeze(worktree, manifest_path, proofs, slug, *, base=None, setup=None,
 
 `proofs` are draft records without `sha256`; the return is `(Path, manifest_sha256)`.
 An empty list is valid: a PR with no behaviour change (refactor, docs, project setup
-without new controls) freezes no proofs, and `prove()` still checks CI and rename residue.
+without new controls) freezes no proofs, and `prove()` still checks CI, rename residue and new-path naming/structure.
 A changed feature-map doc also needs a linked proof.
 Store the manifest at `<git-common-dir>/omp-manifests/<slug>.json`, outside tracked
 repository files. Freeze rejects destinations under resolved `$TMPDIR` or `/tmp`;
