@@ -110,10 +110,16 @@ def snapshot(real_home: Path, watched: list[str], ignore: list[str]) -> Snapshot
         root = real_home / relative
         record(real_home, root, ignore, entries)
         if root.is_dir() and not root.is_symlink():
-            for directory, folders, files in os.walk(root):
-                for name in [*folders, *files]:
-                    record(real_home, Path(directory) / name, ignore, entries)
+            record_tree(real_home, root, ignore, entries)
     return entries
+
+
+def record_tree(
+    real_home: Path, root: Path, ignore: list[str], entries: Snapshot
+) -> None:
+    for directory, folders, files in os.walk(root):
+        for name in [*folders, *files]:
+            record(real_home, Path(directory) / name, ignore, entries)
 
 
 def record(real_home: Path, path: Path, ignore: list[str], entries: Snapshot) -> None:

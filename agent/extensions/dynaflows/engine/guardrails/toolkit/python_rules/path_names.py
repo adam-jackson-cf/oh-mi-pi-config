@@ -130,6 +130,13 @@ def skill_findings(
     return []
 
 
+def near_selection(relpath: str, selected: list[str]) -> bool:
+    return any(
+        root_depth(relpath, path) is not None or root_depth(path, relpath) is not None
+        for path in selected
+    )
+
+
 def skill_directory_findings(
     repo: Path,
     config: PythonSettings,
@@ -149,11 +156,7 @@ def skill_directory_findings(
             relpath = f"{root}/{directory.name}"
             if relpath in existing_segments:
                 continue
-            if not selected or any(
-                root_depth(relpath, path) is not None
-                or root_depth(path, relpath) is not None
-                for path in selected
-            ):
+            if not selected or near_selection(relpath, selected):
                 found.extend(skill_name_finding(relpath, directory.name))
     return found
 

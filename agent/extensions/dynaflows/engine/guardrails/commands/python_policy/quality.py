@@ -51,6 +51,7 @@ from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
     matches_any,
+    path_prefixes,
 )
 from guardrails.toolkit.python_rules.path_names import (
     skill_directory_findings,
@@ -65,7 +66,6 @@ from guardrails.toolkit.python_rules.scope import (
     load_settings,
     python_files,
     read_source,
-    segments,
 )
 
 CLASS_LIMIT_DEFAULTS = {
@@ -435,12 +435,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         content_paths = (
             argv if argv and not any(raw.startswith("-") for raw in argv) else []
         )
-        existing_segments = {
-            "/".join(parts[:index])
-            for path in selected.existing_paths or ()
-            for parts in (segments(path),)
-            for index in range(1, len(parts) + 1)
-        }
+        existing_segments = path_prefixes(selected.existing_paths or ())
         files = [
             path
             for path in selected.inventory

@@ -160,24 +160,32 @@ def forbidden_import_findings(
 ) -> list[Finding]:
     found = []
     for rule in config.get("forbidden_imports", []):
-        banned = set(as_list(rule.get("modules")))
-        for path in paths:
-            if not (path.endswith(".py") and matches(path, rule["root"])):
-                continue
-            tree = parse_python(repo, path)
-            if isinstance(tree, Finding):
-                found.append(tree)
-                continue
-            found.extend(
-                Finding(
-                    DIRECTION,
-                    path,
-                    f"line {line}: files under {rule['root']} never import {name}",
-                    "move the dependency behind a lower-tier contract",
-                )
-                for line, name in imported_modules(tree)
-                if name.split(".")[0] in banned
+        found.extend(rule_import_findings(repo, paths, rule))
+    return found
+
+
+def rule_import_findings(
+    repo: Path, paths: list[str], rule: dict[str, Any]
+) -> list[Finding]:
+    banned = set(as_list(rule.get("modules")))
+    found = []
+    for path in paths:
+        if not (path.endswith(".py") and matches(path, rule["root"])):
+            continue
+        tree = parse_python(repo, path)
+        if isinstance(tree, Finding):
+            found.append(tree)
+            continue
+        found.extend(
+            Finding(
+                DIRECTION,
+                path,
+                f"line {line}: files under {rule['root']} never import {name}",
+                "move the dependency behind a lower-tier contract",
             )
+            for line, name in imported_modules(tree)
+            if name.split(".")[0] in banned
+        )
     return found
 
 

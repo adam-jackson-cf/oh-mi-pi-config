@@ -83,6 +83,10 @@ def adapter_tiers(profile: dict[str, Any], name: str) -> dict[str, dict[str, Any
     return {}
 
 
+def extend_unique(bucket: list[str], items: list[str]) -> None:
+    bucket.extend(item for item in items if item not in bucket)
+
+
 def tier_locations(
     profile: dict[str, Any], name: str | None = None
 ) -> dict[str, list[str]]:
@@ -92,10 +96,7 @@ def tier_locations(
         if name is not None and entry.name != name:
             continue
         for tier, spec in entry.tiers.items():
-            bucket = found.setdefault(tier, [])
-            bucket.extend(
-                item for item in as_texts(spec.get("location")) if item not in bucket
-            )
+            extend_unique(found.setdefault(tier, []), as_texts(spec.get("location")))
     return {tier: found[tier] for tier in TIER_KEYS if tier in found}
 
 

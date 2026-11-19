@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -88,3 +89,11 @@ def settings(profile: dict[str, Any], checker: str) -> dict[str, Any]:
     section = profile.get("guardrails")
     value = section.get(checker) if isinstance(section, dict) else None
     return value if isinstance(value, dict) else {}
+
+
+def path_prefixes(paths: Iterable[str]) -> set[str]:
+    prefixes: set[str] = set()
+    for path in paths:
+        parts = PurePosixPath(path).parts
+        prefixes.update("/".join(parts[:index]) for index in range(1, len(parts) + 1))
+    return prefixes

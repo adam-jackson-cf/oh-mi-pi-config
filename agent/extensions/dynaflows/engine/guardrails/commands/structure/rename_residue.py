@@ -185,29 +185,41 @@ def residue_findings(
             visitor = DefinedNames()
             visitor.visit(tree)
             identifiers = list(dict.fromkeys(visitor.names))
-        parts = PurePosixPath(path).parts
-        path_names = (*parts[:-1], PurePosixPath(path).stem)
-        for term in scoped:
-            retired = words(term.old)
-            leftovers = [name for name in identifiers if contains(words(name), retired)]
-            path_leftovers = [
-                part for part in path_names if contains(words(part), retired)
-            ]
-            if path_leftovers:
-                leftovers.insert(0, path_leftovers[0])
-            for identifier in leftovers:
-                found.append(
-                    Finding(
-                        RULE,
-                        path,
-                        f"defines `{identifier}`, which still uses `{term.old}` after this change "
-                        f"renamed `{term.old}` to `{term.new}` "
-                        f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
-                        "in one change, with no alias for the old name (naming.md)",
-                        f"Rename it to use `{term.new}`.",
-                    )
-                )
+        found.extend(term_findings(path, scoped, identifiers))
     return list(dict.fromkeys(found))
+
+
+def term_leftovers(
+    term: RetiredTerm, identifiers: list[str], path_names: tuple[str, ...]
+) -> list[str]:
+    retired = words(term.old)
+    leftovers = [name for name in identifiers if contains(words(name), retired)]
+    path_leftovers = [part for part in path_names if contains(words(part), retired)]
+    if path_leftovers:
+        leftovers.insert(0, path_leftovers[0])
+    return leftovers
+
+
+def term_findings(
+    path: str, scoped: list[RetiredTerm], identifiers: list[str]
+) -> list[Finding]:
+    parts = PurePosixPath(path).parts
+    path_names = (*parts[:-1], PurePosixPath(path).stem)
+    found = []
+    for term in scoped:
+        for identifier in term_leftovers(term, identifiers, path_names):
+            found.append(
+                Finding(
+                    RULE,
+                    path,
+                    f"defines `{identifier}`, which still uses `{term.old}` after this change "
+                    f"renamed `{term.old}` to `{term.new}` "
+                    f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
+                    "in one change, with no alias for the old name (naming.md)",
+                    f"Rename it to use `{term.new}`.",
+                )
+            )
+    return found
 
 
 class GitError(Exception):

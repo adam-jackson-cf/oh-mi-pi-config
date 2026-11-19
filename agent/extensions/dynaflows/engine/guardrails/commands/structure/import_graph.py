@@ -161,17 +161,20 @@ def reader_sets(
     return readers, tier_readers
 
 
+def tier_populated(graph: Graph, tier: str) -> bool:
+    for module in graph.modules:
+        owner = graph.part(module)
+        if owner is not None and owner[0] == tier:
+            return True
+    return False
+
+
 def tier_findings(
     graph: Graph, tier_readers: dict[str, set[tuple[str, str]]]
 ) -> list[Finding]:
     found = []
     for tier, users in tier_readers.items():
-        populated = any(
-            owner is not None and owner[0] == tier
-            for module in graph.modules
-            for owner in [graph.part(module)]
-        )
-        if populated and len(users) < 2:
+        if tier_populated(graph, tier) and len(users) < 2:
             found.append(
                 Finding(
                     TIER,

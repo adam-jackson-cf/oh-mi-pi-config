@@ -44,6 +44,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.catalogue.versions import (
+    Requirement,
     VersionError,
     canonical_name,
     parse_requirement,
@@ -244,6 +245,10 @@ def locked_versions(lock_toml: str) -> dict[str, set[str]]:
     return packages
 
 
+def admits_every(requirement: Requirement, versions: set[str]) -> bool:
+    return all(requirement.admits(version) for version in versions)
+
+
 def lock_version_findings(
     projects: Mapping[str, str], lock_path: str, lock_toml: str
 ) -> list[Finding]:
@@ -256,9 +261,7 @@ def lock_version_findings(
             seen.add(raw)
             requirement = parse_requirement(raw)
             versions = packages.get(requirement.name, set())
-            if not versions or not all(
-                requirement.admits(version) for version in versions
-            ):
+            if not versions or not admits_every(requirement, versions):
                 findings.append(
                     Finding(
                         LOCK_VERSION,
@@ -494,6 +497,14 @@ def go_toolchain(go_mod: str) -> str | None:
     return wanted if re.fullmatch(r"\d+\.\d+\.\d+", wanted) else None
 
 
+def ci_go_versions(text: str) -> list[str]:
+    return [
+        match.group(1)
+        for pattern in (CI_GO_VERSION, CI_GO_IMAGE)
+        for match in pattern.finditer(text)
+    ]
+
+
 def go_findings(
     go_mod_path: str, go_mod: str, sources: Mapping[str, str]
 ) -> list[Finding]:
@@ -505,32 +516,24 @@ def go_findings(
                 LOCAL_CI, go_mod_path, "go.mod names no exact goX.Y.Z toolchain", fix
             )
         ]
-    findings = []
+    findings: list[Finding] = []
     declared = False
     for path, text in sources.items():
-        for pattern in (CI_GO_VERSION, CI_GO_IMAGE):
-            for match in pattern.finditer(text):
-                declared = True
-                if match.group(1).removeprefix("go") != wanted:
-                    findings.append(
-                        Finding(
-                            LOCAL_CI,
-                            path,
-                            f"CI Go {match.group(1)} differs from go.mod {wanted}",
-                            fix,
-                        )
-                    )
-        for match in CI_GO_FILE.finditer(text):
-            declared = True
-            if match.group(1).removeprefix("./") != go_mod_path:
-                findings.append(
-                    Finding(
-                        LOCAL_CI,
-                        path,
-                        f"go-version-file {match.group(1)} is not {go_mod_path}",
-                        fix,
-                    )
-                )
+        versions = ci_go_versions(text)
+        files = [match.group(1) for match in CI_GO_FILE.finditer(text)]
+        declared = declared or bool(versions or files)
+        findings.extend(
+            Finding(
+                LOCAL_CI, path, f"CI Go {version} differs from go.mod {wanted}", fix
+            )
+            for version in versions
+            if version.removeprefix("go") != wanted
+        )
+        findings.extend(
+            Finding(LOCAL_CI, path, f"go-version-file {file} is not {go_mod_path}", fix)
+            for file in files
+            if file.removeprefix("./") != go_mod_path
+        )
     if not declared:
         findings.append(
             Finding(

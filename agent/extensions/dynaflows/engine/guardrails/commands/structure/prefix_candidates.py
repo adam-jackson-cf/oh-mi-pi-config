@@ -53,6 +53,35 @@ def _added_or_moved(repo: Path, base: str, head: str) -> set[str]:
     return found
 
 
+def _prefix_members(paths: list[str]) -> dict[tuple[str, ...], list[str]]:
+    prefixes: dict[tuple[str, ...], list[str]] = defaultdict(list)
+    for path in paths:
+        words = _words(PurePosixPath(path).stem)
+        for length in range(1, len(words) + 1):
+            prefixes[words[:length]].append(path)
+    return prefixes
+
+
+def _owner_module(imported: str, modules: dict[str, str]) -> str | None:
+    while imported:
+        if imported in modules:
+            return modules[imported]
+        imported = imported.rpartition(".")[0]
+    return None
+
+
+def _importers(members: list[str], edges: set[tuple[str, str]]) -> dict[str, list[str]]:
+    inside = set(members)
+    return {
+        member: sorted(
+            source
+            for source, target in edges
+            if target == member and source not in inside
+        )
+        for member in members
+    }
+
+
 def _groups(
     paths: list[str], added: set[str], profile: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -71,11 +100,7 @@ def _groups(
     clusters: list[dict[str, Any]] = []
     touched = {PurePosixPath(path).parent.as_posix() for path in added}
     for folder in sorted(touched):
-        prefixes: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for path in siblings.get(folder, []):
-            words = _words(PurePosixPath(path).stem)
-            for length in range(1, len(words) + 1):
-                prefixes[words[:length]].append(path)
+        prefixes = _prefix_members(siblings.get(folder, []))
         clusters.extend(
             {
                 "folder": folder,
@@ -166,13 +191,9 @@ def _import_edges(
             else module.rpartition(".")[0]
         )
         for imported in _imported_names(tree, path, parent):
-            while imported:
-                if imported in modules:
-                    target = modules[imported]
-                    if target != path:
-                        edges.add((path, target))
-                    break
-                imported = imported.rpartition(".")[0]
+            target = _owner_module(imported, modules)
+            if target is not None and target != path:
+                edges.add((path, target))
     return edges
 
 
@@ -216,14 +237,7 @@ def candidates(
             for source, target in sorted(edges)
             if source in members and target in members
         ]
-        cluster["importers"] = {
-            member: sorted(
-                source
-                for source, target in edges
-                if target == member and source not in members
-            )
-            for member in cluster["members"]
-        }
+        cluster["importers"] = _importers(cluster["members"], edges)
         cluster["co_change"] = [
             {"members": [left, right], "count": counts[left, right]}
             for left, right in combinations(cluster["members"], 2)
