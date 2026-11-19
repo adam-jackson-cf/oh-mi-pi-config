@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
 from child_process import run_text
 
@@ -50,6 +50,24 @@ class StructureStateTests(unittest.TestCase):
         target = self.repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
+
+    def write_many(self, folder: str, count: int) -> None:
+        target = self.repo / folder
+        target.mkdir(parents=True, exist_ok=True)
+        for index in range(count):
+            (target / f"part_{index:05}.json").write_text("{}")
+
+    def unit(
+        self, base: str, head: str, folder: str, candidate_base: str | None = None
+    ) -> dict[str, Any]:
+        argv = ["--base", base, "--head", head, "--unit", folder]
+        if candidate_base is not None:
+            argv += ["--candidate-base", candidate_base]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            assert state.run(self.repo, self.profile, argv) == []
+        units: dict[str, dict[str, Any]] = json.loads(output.getvalue())
+        return units[folder]
 
     def commit(self, subject: str) -> str:
         self.git("add", ".")
@@ -171,12 +189,7 @@ def gate_cost():
         )
         head = self.commit("Introduce producer and store")
         empty_tree = self.git("rev-parse", empty + "^{tree}")
-        unit = state.extract_unit(
-            self.repo,
-            state.CommitWindow(head, head, empty_tree),
-            "src/shop",
-            self.profile,
-        )
+        unit = self.unit(head, head, "src/shop", empty_tree)
         assert unit["change"] == {"renames": [], "retired_terms": [], "residue": []}
         (cluster,) = unit["cluster"]
         assert cluster["prefix"] == "coverage"
@@ -191,51 +204,41 @@ def gate_cost():
         ]
         assert len(cluster["internal_edges"]) == 1
         assert cluster["eligible"]
-        assert (
-            state.extract_unit(
-                self.repo, state.CommitWindow(head, head), "src/shop", self.profile
-            )["cluster"]
-            == []
-        )
+        assert self.unit(head, head, "src/shop")["cluster"] == []
         assert state.extract(self.repo, head, head) == {}
 
     def test_limits_record_omissions_and_parse_failures(self) -> None:
         base = self.commit("Empty")
-        self.write(
-            "src/shop/a.py",
-            '"""Long explanatory module docstring."""\nA = "a"\nB = "b"\n',
-        )
+        docstring = "Long explanatory module docstring " * 20
+        self.write("src/shop/a.py", f'"""{docstring}"""\nA = "a"\nB = "b"\n')
         self.write("src/shop/b.py", "not valid python !!!")
-        self.write("src/shop/c.py", "x = 1\n" * 30)
+        self.write("src/shop/c.py", "x = 1\n" * 50000)
         head = self.commit("Evidence requiring limits")
-        caps = dict(
-            state.CAPS, symbols_per_file=1, docstring_chars=8, python_file_bytes=100
-        )
-        with patch.dict(state.CAPS, caps):
-            unit = state.extract(self.repo, base, head)["src/shop"]
+        unit = state.extract(self.repo, base, head)["src/shop"]
         fields = {row["field"] for row in unit["evidence_limits"]["truncations"]}
         assert "docstrings" in fields
         assert "python_source" in fields
         assert unit["evidence_limits"]["parse_errors"][0]["path"] == "src/shop/b.py"
-        assert unit["docstrings"]["src/shop/a.py"]["<module>"] == "Long exp"
+        assert (
+            unit["docstrings"]["src/shop/a.py"]["<module>"]
+            == docstring[: state.CAPS["docstring_chars"]]
+        )
         assert "src/shop/c.py" not in unit["top_level_symbols"]
         assert "src/shop/c.py" in unit["files"]
 
     def test_tree_unit_and_history_caps_are_declared(self) -> None:
         base = self.commit("Empty")
-        self.write("src/shop/cross_mode.py", "A = 1\n")
-        self.write("src/shop/cross_mode_metrics.py", "B = 1\n")
-        head = self.commit("Pair")
-        with patch.dict(state.CAPS, unit_files=1, history_commits=0):
-            unit = state.extract_unit(
-                self.repo, state.CommitWindow(base, head), "src/shop"
-            )
-        assert len(unit["files"]) == 1
-        assert unit["evidence_limits"]["truncations"]
-        with patch.dict(state.CAPS, tree_files=1):
-            unit = state.extract_unit(
-                self.repo, state.CommitWindow(base, head), "src/shop"
-            )
+        self.write_many("src/shop", state.CAPS["unit_files"] + 1)
+        head = self.commit("More files than one unit holds")
+        unit = self.unit(base, head, "src/shop")
+        assert len(unit["files"]) == state.CAPS["unit_files"]
+        assert any(
+            row["field"] == "src/shop:files"
+            for row in unit["evidence_limits"]["truncations"]
+        )
+        self.write_many("src/bulk", state.CAPS["tree_files"])
+        head = self.commit("More files than the tree evidence holds")
+        unit = self.unit(base, head, "src/shop")
         assert any(
             row["field"] == "tree" for row in unit["evidence_limits"]["truncations"]
         )
@@ -281,13 +284,13 @@ def gate_cost():
         assert [f.rule_id for f in findings] == ["STRUCTURE.state"]
 
     def test_every_destination_is_emitted_even_beyond_tree_evidence_cap(self) -> None:
-        base = self.commit("Empty")
+        self.write_many("bulk", state.CAPS["tree_files"])
+        base = self.commit("A tree at the evidence cap")
         folders = [f"src/owner_{index:03}" for index in range(70)]
         for folder in folders:
             self.write(folder + "/contract.json", "{}")
         head = self.commit("Seventy destination owners")
-        with patch.dict(state.CAPS, tree_files=1):
-            result = state.extract(self.repo, base, head)
+        result = state.extract(self.repo, base, head)
         assert list(result) == ["src", *folders]
         assert result[folders[-1]]["files"] == []
         assert any(
