@@ -37,9 +37,10 @@ from pathlib import Path
 
 import pytest
 from _pytest.junitxml import xml_key
+from _pytest.subtests import SubtestReport
 
 from guardrails.adapters.pytest import guards
-from guardrails.adapters.pytest.dialect import GUARDS_PROPERTY
+from guardrails.adapters.pytest.dialect import GUARDS_PROPERTY, SUBTEST_PROPERTIES
 
 VIOLATIONS = pytest.StashKey[dict[str, list[str]]]()
 STARTED = pytest.StashKey[float]()
@@ -124,8 +125,28 @@ class GuardSession:
 SESSION_KEY = pytest.StashKey[GuardSession]()
 
 
+class SubtestTally:
+    def __init__(self) -> None:
+        self.counts = dict.fromkeys(SUBTEST_PROPERTIES, 0)
+
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        if not isinstance(report, SubtestReport):
+            return
+        if report.passed and report.when != "call":
+            return
+        self.counts["tests"] += 1
+        if report.failed:
+            self.counts["failures" if report.when == "call" else "errors"] += 1
+
+
+SUBTESTS_KEY = pytest.StashKey[SubtestTally]()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.stash[STARTED] = time.monotonic()
+    tally = SubtestTally()
+    config.stash[SUBTESTS_KEY] = tally
+    config.pluginmanager.register(tally, "omp-subtest-tally")
     armed = armed_guards(config)
     if armed:
         session = GuardSession(config, armed)
@@ -209,6 +230,10 @@ def run_properties(config: pytest.Config, exit_status: int) -> dict[str, str]:
         "omp.wall_s": f"{time.monotonic() - config.stash[STARTED]:.3f}",
         "omp.exit_code": str(int(exit_status)),
         GUARDS_PROPERTY: ",".join(sorted(session.armed)) if session else "",
+        **{
+            SUBTEST_PROPERTIES[key]: str(count)
+            for key, count in config.stash[SUBTESTS_KEY].counts.items()
+        },
     }
     return {name: value for name, value in values.items() if value is not None}
 

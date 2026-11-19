@@ -20,10 +20,30 @@ run pytest from the repository root.
 
 from __future__ import annotations
 
-from guardrails.test_evidence.junit import Dialect
+from dataclasses import dataclass, replace
+from pathlib import Path
 
-DIALECT = Dialect(name="pytest", source_suffix=".py")
+from guardrails.test_evidence.junit import Dialect, Report, as_int
+
 GUARDS_PROPERTY = "omp.guards"
+SUBTEST_PROPERTIES = {
+    "tests": "omp.subtests.tests",
+    "failures": "omp.subtests.failures",
+    "errors": "omp.subtests.errors",
+}
+
+
+@dataclass(frozen=True)
+class PytestDialect(Dialect):
+    def complete(self, path: Path, report: Report) -> Report:
+        declared = {
+            key: count - (as_int(report.properties.get(SUBTEST_PROPERTIES[key])) or 0)
+            for key, count in report.declared.items()
+        }
+        return replace(report, declared=declared)
+
+
+DIALECT = PytestDialect(name="pytest", source_suffix=".py")
 
 
 def junit_arguments(report_path: str) -> list[str]:

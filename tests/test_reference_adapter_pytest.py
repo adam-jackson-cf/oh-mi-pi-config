@@ -31,7 +31,8 @@ from guardrails.adapters.pytest import guards, symbol_usage
 from guardrails.adapters.pytest.cases import collect as collect_cases
 from guardrails.adapters.pytest.dialect import DIALECT
 from guardrails.findings import Finding
-from guardrails.test_evidence.junit import dialect_for, parse_report
+from guardrails.test_evidence import propagation
+from guardrails.test_evidence.junit import dialect_for, parse_report, parse_text
 
 pytestmark = pytest.mark.fast
 
@@ -156,6 +157,24 @@ class StandardLibraryTests(unittest.TestCase):
         assert report.properties["omp.tier"] == "t1"
         assert report.properties["omp.runtime"] == "python 3.11.2"
         assert report.wall_s == 0.512
+
+    def test_subtests_the_suite_counts_are_not_read_as_a_truncated_report(
+        self,
+    ) -> None:
+        tallied = subtest_report(
+            '<property name="omp.subtests.tests" value="7"/>'
+            '<property name="omp.subtests.failures" value="1"/>'
+            '<property name="omp.subtests.errors" value="0"/>'
+        )
+        assert tallied.declared == {"tests": 2, "failures": 0, "errors": 0}
+        assert propagation.truncation_findings(tallied) == []
+        untallied = subtest_report("")
+        assert [
+            item.message for item in propagation.truncation_findings(untallied)
+        ] == [
+            "suites declare 1 failures but the report holds 0",
+            "suites declare 9 tests but the report holds 2",
+        ]
 
     def test_guard_evidence_accepts_a_fully_guarded_fast_tier(self) -> None:
         assert adapter.guard_evidence(FIXTURES / "guards-t1-armed.xml", "t1") == []
@@ -317,6 +336,20 @@ class ExtraTests(unittest.TestCase):
             "tests/test_shop.py::FastPrices::test_price_doubles",
             "tests/test_shop.py::SlowPrices::test_price_of_zero",
         }
+
+
+SUBTEST_REPORT = """\
+<testsuites><testsuite tests="9" failures="1" errors="0">
+<properties>{properties}</properties>
+<testcase classname="tests.test_shop.Prices" name="test_rows" file="tests/test_shop.py"/>
+<testcase classname="tests.test_shop.Prices" name="test_total" file="tests/test_shop.py"/>
+</testsuite></testsuites>
+"""
+
+
+def subtest_report(properties: str) -> Any:
+    text = SUBTEST_REPORT.format(properties=properties)
+    return DIALECT.complete(Path("report.xml"), parse_text(text, DIALECT, "report.xml"))
 
 
 UNITTEST_SHOP_TEST = """\
