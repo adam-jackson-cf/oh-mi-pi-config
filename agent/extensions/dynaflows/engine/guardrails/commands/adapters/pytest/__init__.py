@@ -34,11 +34,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.pytest.dialect import DIALECT, GUARDS_PROPERTY
 from guardrails.commands.adapters.pytest.invocation import TIER_GUARDS, tier_arguments
-from guardrails.context.config.adapter_declarations import adapter_tiers, claimed
 from guardrails.foundation.findings import Finding
 
-NAME = "pytest"
+NAME = DIALECT.name
 SUFFIXES = (".py",)
 MUTATION_TOOL = "mutmut"
 MUTATION_TIER = "t3"
@@ -97,32 +97,23 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def t2_arguments(selector: object, paths: list[str]) -> list[str]:
+    from guardrails.commands.adapters.pytest.tiers import selector_arguments
+
+    chosen = (
+        selector_arguments(selector) if isinstance(selector, str) and selector else []
+    )
+    return [*chosen, "--", *paths]
+
+
 def affected_arguments(
     repo: Path, profile: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
     """Print the affected T2 files with the T2 marker selector as pytest arguments."""
-    import sys
+    from guardrails.commands.adapters.affected import TierCommand, print_affected
 
-    from guardrails.commands.adapters.affected import RULE, affected
-    from guardrails.context.changes import DiffError, range_finding
-
-    try:
-        selection = affected(repo, profile, ["--base", base, "--head", head])
-    except DiffError as error:
-        return [range_finding(RULE, error)]
-    print(f"selection: {selection.reason}", file=sys.stderr)
-    paths = claimed(profile, NAME, "t2", selection.paths, SUFFIXES)
-    if paths:
-        from guardrails.commands.adapters.pytest.tiers import selector_arguments
-
-        selector = adapter_tiers(profile, NAME).get("t2", {}).get("selector")
-        chosen = (
-            selector_arguments(selector)
-            if isinstance(selector, str) and selector
-            else []
-        )
-        print(shlex.join([*chosen, "--", *paths]))
-    return []
+    command = TierCommand(NAME, SUFFIXES, t2_arguments)
+    return print_affected(repo, profile, command, base, head)
 
 
 def report_finding(report: Path, error: Exception) -> Finding:
@@ -135,7 +126,6 @@ def report_finding(report: Path, error: Exception) -> Finding:
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    from guardrails.commands.adapters.pytest.dialect import DIALECT, GUARDS_PROPERTY
     from guardrails.toolkit.test_report.junit import ReportError, parse_report
 
     try:
