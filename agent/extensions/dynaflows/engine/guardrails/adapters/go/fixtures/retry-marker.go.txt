@@ -1,0 +1,16 @@
+package tests
+
+import (
+	"testing"
+
+	"example.com/project/shop"
+	"github.com/hashicorp/consul/sdk/testutil/retry"
+)
+
+func TestTotalEventuallyMatches(t *testing.T) {
+	retry.Run(t, func(r *retry.R) {
+		if shop.PublicAPI() != 42 {
+			r.Fatal("total differs")
+		}
+	})
+}

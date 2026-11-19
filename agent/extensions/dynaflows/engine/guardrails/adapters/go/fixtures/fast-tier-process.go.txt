@@ -1,0 +1,13 @@
+package tests
+
+import (
+	"os"
+	"os/exec"
+	"testing"
+)
+
+func TestTotalFromProcess(t *testing.T) {
+	if err := exec.Command(os.Args[0], "-test.list=^$").Run(); err != nil {
+		t.Fatal(err)
+	}
+}

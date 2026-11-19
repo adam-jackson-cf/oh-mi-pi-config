@@ -1,0 +1,13 @@
+package tests
+
+import (
+	"os"
+	"os/exec"
+	"testing"
+)
+
+func TestTotalWithProcessTeardown(t *testing.T) {
+	t.Cleanup(func() {
+		_ = exec.Command(os.Args[0], "-test.list=^$").Run()
+	})
+}

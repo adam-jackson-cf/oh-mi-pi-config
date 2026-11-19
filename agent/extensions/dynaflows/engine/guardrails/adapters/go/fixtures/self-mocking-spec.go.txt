@@ -1,0 +1,13 @@
+package tests
+
+import (
+	"testing"
+
+	"example.com/project/shop/mocks"
+	"go.uber.org/mock/gomock"
+)
+
+func TestMockedBasketTotal(t *testing.T) {
+	basket := mocks.NewMockBasket(gomock.NewController(t))
+	basket.EXPECT().Total().Return(1)
+}

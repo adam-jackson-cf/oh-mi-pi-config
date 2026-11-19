@@ -170,6 +170,7 @@ SCHEMA: dict[str, Any] = {
 # regular expressions, so only their names and shape are checked here.
 GUARDRAILS_SECTIONS = (
     "adapter_bun_test",
+    "adapter_go",
     "adapter_pytest",
     "adapter_vitest",
     "check",

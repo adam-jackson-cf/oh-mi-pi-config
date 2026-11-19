@@ -1,0 +1,14 @@
+package tests
+
+import (
+	"reflect"
+	"testing"
+
+	"example.com/project/shop"
+	"github.com/agiledragon/gomonkey/v2"
+)
+
+func TestPatchedBasketTotal(t *testing.T) {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(shop.Basket{}), "Total", func(shop.Basket) int { return 1 })
+	defer patches.Reset()
+}
