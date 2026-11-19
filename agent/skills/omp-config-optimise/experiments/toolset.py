@@ -10,7 +10,8 @@ import hashlib
 import json
 import subprocess
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 
 PRE_FIND = ("pre-find", "-")
 
@@ -29,7 +30,7 @@ def find_available(enabled: str, judge: str | None) -> bool:
     return bool(judge) and enabled != "off"
 
 
-def config_hash(settings: dict) -> str:
+def config_hash(settings: Mapping[str, Any]) -> str:
     """Hash the effective settings omp resolved (defaults plus every layer), not one file.
 
     `auth.*` keys are dropped so a credential rotation does not split trial groups; values
@@ -40,7 +41,7 @@ def config_hash(settings: dict) -> str:
     return hashlib.sha256(json.dumps(effective, sort_keys=True).encode()).hexdigest()
 
 
-def toolset_label(run: Callable[[list[str], str], str] = _omp) -> dict:
+def toolset_label(run: Callable[[list[str], str], str] = _omp) -> dict[str, Any]:
     """Read the effective global config from a neutral cwd (trial workspaces carry no .omp layer)."""
     with tempfile.TemporaryDirectory() as cwd:
         settings = json.loads(run(["config", "list", "--json"], cwd))
@@ -50,7 +51,7 @@ def toolset_label(run: Callable[[list[str], str], str] = _omp) -> dict:
             "configHash": config_hash(settings)}
 
 
-def label_of(rec: dict) -> tuple[str, str]:
+def label_of(rec: Mapping[str, Any]) -> tuple[str, str]:
     if "findAvailable" not in rec:
         return PRE_FIND
     return ("find" if rec["findAvailable"] else "no-find", str(rec.get("configHash", "-"))[:12])
@@ -64,5 +65,5 @@ def warn_if_mixed(labels: set[tuple[str, str]]) -> str | None:
     if len(labels) < 2:
         return None
     return ("WARNING: results span different toolsets ("
-            + ", ".join(describe(l) for l in sorted(labels))
+            + ", ".join(describe(label) for label in sorted(labels))
             + "). Compare arms only within one toolset group.")
