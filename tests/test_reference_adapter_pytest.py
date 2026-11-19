@@ -193,6 +193,17 @@ class StandardLibraryTests(unittest.TestCase):
         assert "TEST.fast-tier-isolation" in process
         assert guards.fast_tier_violation("open", ("x", "r", 0)) is None
 
+    def test_fast_tier_guard_blocks_host_name_resolution(self) -> None:
+        for event, args in (
+            ("socket.getaddrinfo", ("example.com", 443, 0, 0, 0)),
+            ("socket.gethostbyname", ("example.com",)),
+            ("socket.gethostbyaddr", ("192.0.2.1",)),
+            ("socket.getnameinfo", (("192.0.2.1", 443), 0)),
+        ):
+            reason = guards.fast_tier_violation(event, args)
+            assert reason is not None, event
+            assert "TEST.fast-tier-isolation" in reason
+
     def test_rules_load_with_catalogue_ids_and_known_scopes(self) -> None:
         rules = adapter_lint_rules()
         assert {rule["id"] for rule in rules} == RULE_IDS
