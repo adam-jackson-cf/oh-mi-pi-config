@@ -17,10 +17,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.adapters import vitest
-from guardrails.adapters.vitest import mutation, tiers
-from guardrails.config.profile import GUARDRAILS_SECTIONS
-from guardrails.test_evidence.mutation import load_report
+from guardrails.commands.adapters import vitest
+from guardrails.commands.adapters.vitest import mutation, tiers
+from guardrails.commands.test_evidence.mutation import load_report
+from guardrails.context.config.profile import GUARDRAILS_SECTIONS
 
 pytestmark = pytest.mark.fast
 

@@ -30,7 +30,7 @@ guardrails --help
 - guardrails writes nothing into the repository. Output files (`--out`)
   must lie outside the checkout, and child processes write no bytecode there.
 - Child processes that run repository code never see harness variables such
-  as `AGENT` (`guardrails/child_env.py`).
+  as `AGENT` (`guardrails/foundation/child_env.py`).
 
 `uv.lock` locks the harness environment. `check` needs only the base
 dependencies. The pytest adapter's `tiers` and `conformance` actions need the

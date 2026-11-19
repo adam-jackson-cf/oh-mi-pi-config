@@ -12,11 +12,11 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.adapters.go.evidence import guard_evidence, load_report
-from guardrails.adapters.go.guard import HOOKS, GuardError, write_overlay
-from guardrails.adapters.go.packages import Package
-from guardrails.adapters.go.report import convert, read_stream, write_junit
-from guardrails.test_evidence import propagation
+from guardrails.commands.adapters.go.evidence import guard_evidence, load_report
+from guardrails.commands.adapters.go.guard import HOOKS, GuardError, write_overlay
+from guardrails.commands.adapters.go.packages import Package
+from guardrails.commands.adapters.go.report import convert, read_stream, write_junit
+from guardrails.commands.test_evidence import propagation
 
 pytestmark = pytest.mark.fast
 

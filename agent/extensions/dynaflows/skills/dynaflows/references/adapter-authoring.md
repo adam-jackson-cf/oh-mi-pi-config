@@ -54,7 +54,7 @@ adapter. Per-repo values go in the record, never in adapter code.
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the pytest
 adapter's
-[`conformance/cases.json`](../../../engine/guardrails/adapters/pytest/conformance/cases.json).
+[`conformance/cases.json`](../../../engine/guardrails/commands/adapters/pytest/conformance/cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -80,7 +80,7 @@ depend on any framework.
 ## Where the adapter lives
 
 - The adapter lives in the harness from its first repo: under
-  `agent/extensions/dynaflows/engine/guardrails/adapters/<framework>/`
+  `agent/extensions/dynaflows/engine/guardrails/commands/adapters/<framework>/`
   in oh-mi-pi-config, with conformance fixtures as the engine's own tests.
   The harness owns the adapter; the target repository has no awareness of it.
 - The harness runs the adapter against the target from outside its tree; JUnit

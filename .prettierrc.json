@@ -2,8 +2,8 @@
   "overrides": [
     {
       "files": [
-        "agent/extensions/dynaflows/engine/guardrails/adapters/pytest/rules/*.yml",
-        "agent/extensions/dynaflows/engine/guardrails/adapters/vitest/patterns.yml"
+        "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/rules/*.yml",
+        "agent/extensions/dynaflows/engine/guardrails/commands/adapters/vitest/patterns.yml"
       ],
       "options": {
         "parser": "json"

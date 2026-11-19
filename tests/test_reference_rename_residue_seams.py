@@ -82,7 +82,7 @@ class RenameResidueCommandTests(unittest.TestCase):
                 "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-                "from guardrails.cli import main; raise SystemExit(main())",
+                "from guardrails.commands.cli import main; raise SystemExit(main())",
                 str(REFERENCE),
                 "rename-residue",
                 "--repo",

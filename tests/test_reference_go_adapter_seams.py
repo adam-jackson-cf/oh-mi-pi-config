@@ -15,10 +15,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.adapters.go.conformance import load_cases, run_conformance
-from guardrails.adapters.go.process import run_command
-from guardrails.test_evidence.collection import read_ids
+from guardrails.commands import cli
+from guardrails.commands.adapters.go.conformance import load_cases, run_conformance
+from guardrails.commands.adapters.go.process import run_command
+from guardrails.toolkit.test_report.collection import read_ids
 
 pytestmark = pytest.mark.seam
 

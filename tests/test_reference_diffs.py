@@ -21,17 +21,17 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.diffs import (
-    affected,
+from guardrails.commands import cli
+from guardrails.commands.adapters import affected
+from guardrails.commands.check import integrity
+from guardrails.commands.diffs import (
     coverage_ratchet,
     golden_record,
     growth,
     identity_artefacts,
-    integrity,
     timeouts,
 )
-from guardrails.findings import Finding
+from guardrails.foundation.findings import Finding
 
 pytestmark = pytest.mark.seam
 

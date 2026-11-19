@@ -16,9 +16,9 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.adapters.vitest import cases, lint
-from guardrails.diffs.growth import Snapshot, duplicate_findings, growth_findings
-from guardrails.findings import Finding
+from guardrails.commands.adapters.vitest import cases, lint
+from guardrails.foundation.findings import Finding
+from guardrails.toolkit.growth import Snapshot, duplicate_findings, growth_findings
 
 pytestmark = pytest.mark.fast
 

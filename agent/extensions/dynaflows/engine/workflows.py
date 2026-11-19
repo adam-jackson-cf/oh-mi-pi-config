@@ -164,8 +164,10 @@ def _surface() -> list[ModuleType]:
             )
         sys.path.insert(0, str(reference))
         try:
-            feature_map = importlib.import_module("guardrails.surface.feature_map")
-            journeys = importlib.import_module("guardrails.surface.journeys")
+            feature_map = importlib.import_module(
+                "guardrails.commands.surface.feature_map"
+            )
+            journeys = importlib.import_module("guardrails.commands.surface.journeys")
         except (OSError, SyntaxError, ImportError) as exc:
             raise WorkflowError(f"cannot load the feature-map checker: {exc}") from exc
         finally:
@@ -1542,7 +1544,7 @@ def _harness_check_findings(
                 "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-                "from guardrails.cli import main; raise SystemExit(main())",
+                "from guardrails.commands.cli import main; raise SystemExit(main())",
                 str(_harness_root() / GUARDRAILS_REFERENCE),
                 checker,
                 "--repo",
@@ -2318,7 +2320,7 @@ def _structure_states(
             "-S",
             "-c",
             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-            "from guardrails.cli import main; raise SystemExit(main())",
+            "from guardrails.commands.cli import main; raise SystemExit(main())",
             str(_harness_root() / GUARDRAILS_REFERENCE),
             "structure-state",
             "--repo",

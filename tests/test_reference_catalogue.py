@@ -18,11 +18,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import adapters, child_env, cli
-from guardrails.catalogue import (
-    rules as catalogue_rules,
-    versions,
-)
+from guardrails.commands.catalogue import rules as catalogue_rules, versions
+from guardrails.context.config import adapter_declarations
+from guardrails.foundation import child_env
+from guardrails.toolkit import dispatch
 
 pytestmark = pytest.mark.fast
 
@@ -94,11 +93,11 @@ class PackagedCatalogueTests(unittest.TestCase):
                 subcommand, module = item["subcommand"], item["module"]
                 with self.subTest(rule=rule["id"], module=module):
                     assert set(item) == {"subcommand", "module"}
-                    assert subcommand in cli.SUBCOMMANDS
+                    assert subcommand in dispatch.SUBCOMMANDS
                     if subcommand == "adapter":
-                        assert module.startswith(adapters.PACKAGE + ".")
+                        assert module.startswith(adapter_declarations.PACKAGE + ".")
                     else:
-                        assert module in cli.SUBCOMMANDS[subcommand].modules
+                        assert module in dispatch.SUBCOMMANDS[subcommand].modules
                     sources = module_sources(module)
                     assert sources, f"missing module {module}"
                     sources += [
@@ -123,7 +122,7 @@ class PackagedCatalogueTests(unittest.TestCase):
             for path in sorted(sources)
             if path.is_file() and path.suffix in {".py", ".json", ".md", ".xml"}
         )
-        conformance = REFERENCE / "guardrails/adapters/pytest/conformance"
+        conformance = REFERENCE / "guardrails/commands/adapters/pytest/conformance"
         texts += "".join(
             path.read_text(encoding="utf-8") for path in conformance.glob("*.json")
         )
@@ -157,7 +156,7 @@ class DependencyAuditContractTests(unittest.TestCase):
         assert self.row["applicability"] == "always"
         assert self.contract["setup_outcomes"] == ["repo", "grow"]
         assert self.contract["harness_copy_forbidden"]
-        assert "dependency-audit" not in "".join(cli.SUBCOMMANDS)
+        assert "dependency-audit" not in "".join(dispatch.SUBCOMMANDS)
 
     def test_scope_is_whole_repo_and_fails_closed(self) -> None:
         assert (

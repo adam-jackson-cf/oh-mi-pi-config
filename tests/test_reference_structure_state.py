@@ -18,8 +18,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.structure import state
+from guardrails.commands import cli
+from guardrails.commands.structure import state
 
 pytestmark = pytest.mark.seam
 

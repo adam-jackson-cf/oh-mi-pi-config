@@ -13,7 +13,7 @@ Collect the inputs the record needs and the rule-ID evidence that decides each c
 - When the record exists, read its `profile.md` and record its tiers, entry points, ownership areas, affected-T2
   selection, verification surface and per-machine budget approvals.
 - For each bespoke checker, name the `guardrails check` step whose rule family it enforces (`STEPS` in
-  `guardrails/whole_repo.py`), the rule IDs it enforces with the source line for each, the `checks.commit` chain that
+  `guardrails/commands/check/whole_repo.py`), the rule IDs it enforces with the source line for each, the `checks.commit` chain that
   runs it (for example make target to script) and how it lists files.
 - A step's rule IDs are the catalogue rows (`guardrails/data/guardrail-rules.json`) whose `reference.subcommand`
   names it. Search the repo's checkers for every rule ID of every step and record a source line or `absent` for each.

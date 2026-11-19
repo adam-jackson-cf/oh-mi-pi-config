@@ -24,14 +24,15 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli, whole_repo
-from guardrails.findings import Finding
-from guardrails.python_policy import (
+from guardrails.commands import cli
+from guardrails.commands.check import whole_repo
+from guardrails.commands.python_policy import (
     fanout,
     quality,
     scalability,
     subprocess_timeouts,
 )
+from guardrails.foundation.findings import Finding
 
 pytestmark = pytest.mark.seam
 

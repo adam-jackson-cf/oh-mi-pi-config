@@ -26,10 +26,8 @@ from test_reference_test_evidence import (
     profile,
 )
 
-from guardrails.test_evidence import (
-    budgets,
-    collection,
-)
+from guardrails.commands.test_evidence import budgets
+from guardrails.toolkit.test_report import collection
 
 pytestmark = pytest.mark.seam
 

@@ -17,7 +17,7 @@
       "reference": [
         {
           "subcommand": "rename-residue",
-          "module": "guardrails.structure.rename_residue"
+          "module": "guardrails.commands.structure.rename_residue"
         }
       ]
     },
@@ -35,7 +35,7 @@
       "reference": [
         {
           "subcommand": "prefix-candidates",
-          "module": "guardrails.structure.prefix_candidates"
+          "module": "guardrails.commands.structure.prefix_candidates"
         }
       ]
     },
@@ -52,8 +52,14 @@
       },
       "summary": "Reject dependencies outside the target's declared layer direction.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" },
-        { "subcommand": "structure", "module": "guardrails.structure.layout" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -70,8 +76,14 @@
       },
       "summary": "Require files to live under their declared capability owner.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" },
-        { "subcommand": "structure", "module": "guardrails.structure.layout" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -87,8 +99,14 @@
       },
       "summary": "Require at least two distinct parts to read each populated shared tier.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" },
-        { "subcommand": "structure", "module": "guardrails.structure.layout" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -104,8 +122,14 @@
       },
       "summary": "Move a shared-tier module read by exactly one part under that owner.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" },
-        { "subcommand": "structure", "module": "guardrails.structure.layout" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -121,8 +145,14 @@
       },
       "summary": "Reject imports between distinct parts on the same tier.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" },
-        { "subcommand": "structure", "module": "guardrails.structure.layout" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -148,7 +178,10 @@
       },
       "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
       "reference": [
-        { "subcommand": "naming", "module": "guardrails.structure.naming" }
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure.naming"
+        }
       ]
     },
     {
@@ -165,7 +198,10 @@
       },
       "summary": "Place tests with their declared behavior owner and test tier.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        }
       ]
     },
     {
@@ -190,7 +226,7 @@
       "reference": [
         {
           "subcommand": "budget-check",
-          "module": "guardrails.test_evidence.budgets"
+          "module": "guardrails.commands.test_evidence.budgets"
         }
       ]
     },
@@ -217,7 +253,7 @@
       "reference": [
         {
           "subcommand": "budget-check",
-          "module": "guardrails.test_evidence.budgets"
+          "module": "guardrails.commands.test_evidence.budgets"
         }
       ]
     },
@@ -238,7 +274,10 @@
       },
       "summary": "Require every added test function to name the behavior it proves.",
       "reference": [
-        { "subcommand": "diff-check", "module": "guardrails.diffs.growth" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.growth"
+        }
       ]
     },
     {
@@ -255,7 +294,10 @@
       },
       "summary": "Reject new tests duplicating an existing call path and assertion.",
       "reference": [
-        { "subcommand": "diff-check", "module": "guardrails.diffs.growth" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.growth"
+        }
       ]
     },
     {
@@ -284,7 +326,7 @@
       "reference": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.catalogue.toolchain_parity"
+          "module": "guardrails.commands.catalogue.toolchain_parity"
         }
       ]
     },
@@ -320,7 +362,10 @@
       },
       "summary": "Run harness-owned changed-path checks over record settings with actionable per-file errors.",
       "reference": [
-        { "subcommand": "path-check", "module": "guardrails.structure.paths" }
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        }
       ]
     },
     {
@@ -335,7 +380,7 @@
       "reference": [
         {
           "subcommand": "python-fanout",
-          "module": "guardrails.python_policy.fanout"
+          "module": "guardrails.commands.python_policy.fanout"
         }
       ]
     },
@@ -352,7 +397,7 @@
       "reference": [
         {
           "subcommand": "python-fanout",
-          "module": "guardrails.python_policy.fanout"
+          "module": "guardrails.commands.python_policy.fanout"
         }
       ]
     },
@@ -460,7 +505,7 @@
       "reference": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.catalogue.toolchain_parity"
+          "module": "guardrails.commands.catalogue.toolchain_parity"
         }
       ]
     },
@@ -473,7 +518,7 @@
       "reference": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.catalogue.toolchain_parity"
+          "module": "guardrails.commands.catalogue.toolchain_parity"
         }
       ]
     },
@@ -489,7 +534,7 @@
       "reference": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.catalogue.toolchain_parity"
+          "module": "guardrails.commands.catalogue.toolchain_parity"
         }
       ]
     },
@@ -514,7 +559,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -530,7 +575,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -546,7 +591,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -562,7 +607,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -578,7 +623,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -593,7 +638,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -608,7 +653,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -623,7 +668,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -638,7 +683,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -653,7 +698,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -668,7 +713,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -683,7 +728,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -698,7 +743,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -713,7 +758,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -728,7 +773,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -743,7 +788,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -758,7 +803,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -773,7 +818,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -788,7 +833,7 @@
       "reference": [
         {
           "subcommand": "python-quality",
-          "module": "guardrails.python_policy.quality"
+          "module": "guardrails.commands.python_policy.quality"
         }
       ]
     },
@@ -803,7 +848,7 @@
       "reference": [
         {
           "subcommand": "python-scalability",
-          "module": "guardrails.python_policy.scalability"
+          "module": "guardrails.commands.python_policy.scalability"
         }
       ]
     },
@@ -818,7 +863,7 @@
       "reference": [
         {
           "subcommand": "python-scalability",
-          "module": "guardrails.python_policy.scalability"
+          "module": "guardrails.commands.python_policy.scalability"
         }
       ]
     },
@@ -834,7 +879,7 @@
       "reference": [
         {
           "subcommand": "python-scalability",
-          "module": "guardrails.python_policy.scalability"
+          "module": "guardrails.commands.python_policy.scalability"
         }
       ]
     },
@@ -850,7 +895,7 @@
       "reference": [
         {
           "subcommand": "python-scalability",
-          "module": "guardrails.python_policy.scalability"
+          "module": "guardrails.commands.python_policy.scalability"
         }
       ]
     },
@@ -866,7 +911,7 @@
       "reference": [
         {
           "subcommand": "python-scalability",
-          "module": "guardrails.python_policy.scalability"
+          "module": "guardrails.commands.python_policy.scalability"
         }
       ]
     },
@@ -1118,8 +1163,14 @@
       },
       "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives.",
       "reference": [
-        { "subcommand": "diff-check", "module": "guardrails.diffs.integrity" },
-        { "subcommand": "check", "module": "guardrails.whole_repo" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1139,8 +1190,14 @@
       },
       "summary": "Block whole-function placeholder bodies, excluding declarations.",
       "reference": [
-        { "subcommand": "diff-check", "module": "guardrails.diffs.integrity" },
-        { "subcommand": "check", "module": "guardrails.whole_repo" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1171,8 +1228,14 @@
       },
       "summary": "Keep mock libraries and mock calls out of product code.",
       "reference": [
-        { "subcommand": "diff-check", "module": "guardrails.diffs.integrity" },
-        { "subcommand": "check", "module": "guardrails.whole_repo" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1400,11 +1463,11 @@
       "reference": [
         {
           "subcommand": "report-check",
-          "module": "guardrails.test_evidence.propagation"
+          "module": "guardrails.commands.test_evidence.propagation"
         },
         {
           "subcommand": "collection-check",
-          "module": "guardrails.test_evidence.collection"
+          "module": "guardrails.toolkit.test_report.collection"
         }
       ]
     },
@@ -1423,7 +1486,7 @@
       "reference": [
         {
           "subcommand": "python-test-hygiene",
-          "module": "guardrails.python_policy.subprocess_timeouts"
+          "module": "guardrails.commands.python_policy.subprocess_timeouts"
         }
       ]
     },
@@ -1440,7 +1503,10 @@
       },
       "summary": "Reject tests that mock, stub, fake or patch the repository's own code.",
       "reference": [
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" }
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1456,7 +1522,10 @@
       },
       "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
       "reference": [
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" }
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1476,12 +1545,18 @@
       },
       "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
       "reference": [
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
         {
           "subcommand": "report-check",
-          "module": "guardrails.test_evidence.propagation"
+          "module": "guardrails.commands.test_evidence.propagation"
         },
-        { "subcommand": "diff-check", "module": "guardrails.diffs.timeouts" }
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.timeouts"
+        }
       ]
     },
     {
@@ -1501,9 +1576,12 @@
       "reference": [
         {
           "subcommand": "guard-run",
-          "module": "guardrails.environment.guarded_run"
+          "module": "guardrails.commands.environment.guarded_run"
         },
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" }
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1520,7 +1598,7 @@
       "reference": [
         {
           "subcommand": "guard-run",
-          "module": "guardrails.environment.guarded_run"
+          "module": "guardrails.commands.environment.guarded_run"
         }
       ]
     },
@@ -1540,7 +1618,7 @@
       "reference": [
         {
           "subcommand": "collection-check",
-          "module": "guardrails.test_evidence.collection"
+          "module": "guardrails.toolkit.test_report.collection"
         }
       ]
     },
@@ -1559,7 +1637,7 @@
       "reference": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.diffs.coverage_ratchet"
+          "module": "guardrails.commands.diffs.coverage_ratchet"
         }
       ]
     },
@@ -1576,7 +1654,7 @@
       "reference": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.diffs.golden_record"
+          "module": "guardrails.commands.diffs.golden_record"
         }
       ]
     },
@@ -1595,7 +1673,7 @@
       "reference": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.diffs.identity_artefacts"
+          "module": "guardrails.commands.diffs.identity_artefacts"
         }
       ]
     },
@@ -1610,7 +1688,10 @@
       },
       "summary": "Require property tests to set or report their seed.",
       "reference": [
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" }
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1629,10 +1710,13 @@
       },
       "summary": "Fail when a mutation of changed code leaves every test green.",
       "reference": [
-        { "subcommand": "adapter", "module": "guardrails.adapters.pytest" },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
         {
           "subcommand": "mutation-check",
-          "module": "guardrails.test_evidence.mutation"
+          "module": "guardrails.commands.test_evidence.mutation"
         }
       ]
     },
@@ -1653,7 +1737,10 @@
       },
       "summary": "Require test file names to match the profile patterns without ticket, version or date tokens.",
       "reference": [
-        { "subcommand": "naming", "module": "guardrails.structure.naming" }
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure.naming"
+        }
       ]
     },
     {
@@ -1693,7 +1780,10 @@
       },
       "summary": "Require every repo test profile value, allowing only four approved exemptions.",
       "reference": [
-        { "subcommand": "profile-check", "module": "guardrails.config.profile" }
+        {
+          "subcommand": "profile-check",
+          "module": "guardrails.context.config.profile"
+        }
       ]
     },
     {
@@ -1716,7 +1806,7 @@
       "reference": [
         {
           "subcommand": "surface-lint",
-          "module": "guardrails.surface.feature_map"
+          "module": "guardrails.commands.surface.feature_map"
         }
       ]
     },
@@ -1734,7 +1824,7 @@
       "reference": [
         {
           "subcommand": "surface-lint",
-          "module": "guardrails.surface.journeys"
+          "module": "guardrails.commands.surface.journeys"
         }
       ]
     },
@@ -1755,7 +1845,7 @@
       "reference": [
         {
           "subcommand": "lever-selftest",
-          "module": "guardrails.surface.lever_selftest"
+          "module": "guardrails.commands.surface.lever_selftest"
         }
       ]
     },
@@ -2264,7 +2354,7 @@
       "reference": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.catalogue.toolchain_parity"
+          "module": "guardrails.commands.catalogue.toolchain_parity"
         }
       ]
     }

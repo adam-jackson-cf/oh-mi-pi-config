@@ -23,10 +23,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli, harness
-from guardrails.config.house_style import load_house_style
-from guardrails.config.profile import load_profile
-from guardrails.init import lsp, native_config, native_languages
+from guardrails.commands import cli
+from guardrails.commands.init import harness, lsp, native_config, native_languages
+from guardrails.context.config.house_style import load_house_style
+from guardrails.context.config.profile import load_profile
 
 pytestmark = pytest.mark.seam
 
@@ -118,7 +118,7 @@ class InitCase(unittest.TestCase):
         )
         self.server = self.executable("language-server", FAKE_SERVER)
         which = mock.patch(
-            "guardrails.init.lsp.shutil.which", return_value=str(self.server)
+            "guardrails.commands.init.lsp.shutil.which", return_value=str(self.server)
         )
         which.start()
         self.addCleanup(which.stop)
@@ -246,7 +246,7 @@ class DraftRecordTests(InitCase):
 
     def test_template_is_the_test_guidance_skill_template(self) -> None:
         assert harness.PROFILE_TEMPLATE == SKILL_TEMPLATE
-        assert not (REFERENCE / "guardrails/init/test-profile.md").exists()
+        assert not (REFERENCE / "guardrails/commands/init/test-profile.md").exists()
 
     def test_recorded_values_and_approvals_are_kept(self) -> None:
         gate = {
@@ -402,7 +402,7 @@ class RequiredChecksTests(InitCase):
         gh = self.executable("gh", script)
         real = shutil.which
         which = mock.patch(
-            "guardrails.init.discovery.shutil.which",
+            "guardrails.commands.init.discovery.shutil.which",
             side_effect=lambda name: str(gh) if name == "gh" else real(name),
         )
         which.start()
@@ -473,7 +473,7 @@ class ExistingRecordTests(InitCase):
 
 class LspTests(InitCase):
     def test_missing_server_is_a_setup_gap_unless_allowed(self) -> None:
-        with mock.patch("guardrails.init.lsp.shutil.which", return_value=None):
+        with mock.patch("guardrails.commands.init.lsp.shutil.which", return_value=None):
             code, output = self.init()
             assert code == 1
             assert "PROFILE.complete" in output
@@ -508,7 +508,8 @@ class LspTests(InitCase):
         stack = lsp.detect(self.repo)[1]
         assert stack.server == str(native)
         with mock.patch(
-            "guardrails.init.lsp.shutil.which", side_effect=lambda server: server
+            "guardrails.commands.init.lsp.shutil.which",
+            side_effect=lambda server: server,
         ):
             findings, lines = lsp.readiness(self.repo, [stack], allow_missing=False)
         assert findings == []
@@ -543,7 +544,9 @@ class CanaryTests(InitCase):
         self,
     ) -> None:
         broken = self.executable("broken-server", "import sys\nsys.exit(97)\n")
-        with mock.patch("guardrails.init.lsp.shutil.which", return_value=str(broken)):
+        with mock.patch(
+            "guardrails.commands.init.lsp.shutil.which", return_value=str(broken)
+        ):
             code, output = self.init("--allow-missing-lsp")
         assert code == 1
         assert "PROFILE.complete" in output
@@ -551,7 +554,9 @@ class CanaryTests(InitCase):
 
     def test_server_that_never_answers_fails_within_the_time_limit(self) -> None:
         silent = self.executable("silent-server", "import time\ntime.sleep(30)\n")
-        with mock.patch("guardrails.init.lsp.shutil.which", return_value=str(silent)):
+        with mock.patch(
+            "guardrails.commands.init.lsp.shutil.which", return_value=str(silent)
+        ):
             code, output = self.init("--lsp-timeout", "0.5")
         assert code == 1
         assert "no answer to initialize before the time limit" in output

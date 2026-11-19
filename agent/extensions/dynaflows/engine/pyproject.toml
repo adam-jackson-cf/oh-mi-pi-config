@@ -18,7 +18,7 @@ pytest = ["pytest==9.1.1"]
 mutation = ["mutmut==3.8.1"]
 
 [project.scripts]
-guardrails = "guardrails.cli:main"
+guardrails = "guardrails.commands.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["guardrails*"]
