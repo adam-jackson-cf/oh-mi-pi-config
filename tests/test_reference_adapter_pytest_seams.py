@@ -36,6 +36,7 @@ from test_reference_adapter_pytest import (
 from guardrails.adapters import pytest as adapter
 from guardrails.adapters.pytest import mutation
 from guardrails.adapters.pytest.dialect import DIALECT
+from guardrails.test_evidence import propagation
 from guardrails.test_evidence.collection import read_ids
 from guardrails.test_evidence.junit import parse_report
 
@@ -432,6 +433,37 @@ class ExtraTests(unittest.TestCase):
             assert adapter.guard_evidence(report, "t1") == []
 
     @needs_extra
+    def test_a_clean_run_with_unittest_subtests_passes_report_check(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch), UNITTEST_SUBTEST_TEST)
+            report = Path(scratch, "t1.xml")
+            environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
+            environment.pop("PYTEST_ADDOPTS", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "-m",
+                    "fast",
+                    *adapter.tier_arguments("t1", str(report)),
+                    "tests",
+                ],
+                cwd=repo,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            parsed = parse_report(report, DIALECT)
+            assert propagation.evaluate(parsed, SHOP_PROFILE, None) == []
+            assert parsed.properties["omp.subtests.tests"] == "3"
+
+    @needs_extra
     def test_unittest_suites_take_tier_markers_and_run_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch), UNITTEST_SHOP_TEST)
@@ -476,6 +508,22 @@ class ExtraTests(unittest.TestCase):
                 ("tests/test_shop.py::FastPrices::test_price_doubles", "passed")
             ]
             assert adapter.guard_evidence(report, "t1") == []
+
+
+UNITTEST_SUBTEST_TEST = """\
+import unittest
+
+import pytest
+
+from shop.core import price
+
+@pytest.mark.fast
+class FastPrices(unittest.TestCase):
+    def test_price_doubles_every_quantity(self):
+        for quantity in (0, 1, 3):
+            with self.subTest(quantity=quantity):
+                self.assertEqual(price(quantity), quantity * 2)
+"""
 
 
 UNITTEST_MODULE_TEST = """\
