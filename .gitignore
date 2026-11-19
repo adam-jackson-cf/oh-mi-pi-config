@@ -68,12 +68,6 @@ agent/rules/*
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/jev-actions/
-!agent/skills/jev-actions/**
-!agent/skills/setup-repo-proofs/
-!agent/skills/setup-repo-proofs/**
-!agent/skills/test-guidance/
-!agent/skills/test-guidance/**
 !agent/skills/git-tool/
 !agent/skills/git-tool/**
 

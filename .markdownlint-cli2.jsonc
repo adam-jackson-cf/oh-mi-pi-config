@@ -7,9 +7,7 @@
   "overrides": [
     {
       "filter": [
-        "agent/extensions/dynaflows/skills/dynaflows/references/*-principles.md",
-        "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md",
-        "agent/skills/test-guidance/**",
+        "agent/extensions/dynaflows/skills/**",
         "agent/skills/git-tool/**"
       ],
       "config": {

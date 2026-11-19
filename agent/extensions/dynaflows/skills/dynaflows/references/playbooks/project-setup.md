@@ -1,6 +1,6 @@
 # Project setup playbook
 
-Use [generic setup](../../../../../../skills/setup-repo-proofs/SKILL.md) for inventory,
+Use [generic setup](skill://setup-repo-proofs) for inventory,
 rule mapping, candidate preparation, dry run, owner approval, application and verification.
 Apply [harness setup deltas](../harness-setup.md) at the corresponding steps, not as a second
 setup system. [Record documentation](../../../../../../lib/record/README.md) owns the local gate and

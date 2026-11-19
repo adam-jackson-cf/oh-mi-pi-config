@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = ROOT / "agent/skills"
+SKILLS = ROOT / "agent/extensions/dynaflows/skills"
 INDEX = ROOT / "agent/extensions/dynaflows/skills/dynaflows/references/test-enforcement.md"
 POINTER = re.compile(
     r"^- ([A-Z]+\.[A-Za-z0-9.-]+) \(guardrails ([a-z-]+(?:, [a-z-]+)*)\)"
@@ -49,7 +49,7 @@ RULE_FACTS = {
 
 class TestEnforcementTests(unittest.TestCase):
     def test_every_enforcement_pointer_resolves_to_a_catalogue_rule_command_and_guidance_anchor(self):
-        catalogue = json.loads((SKILLS / "../extensions/dynaflows/engine/guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
+        catalogue = json.loads((ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json").read_text(encoding="utf-8"))
         commands = {
             row["id"]: {item["subcommand"] for item in row.get("reference", [])}
             for row in catalogue["rules"]

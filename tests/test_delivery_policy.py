@@ -4,9 +4,8 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = ROOT / "agent/skills"
 POLICY = ROOT / "agent/extensions/dynaflows/skills/dynaflows/references"
-CATALOGUE = SKILLS / "../extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
+CATALOGUE = ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
 THRESHOLDS = ROOT / "agent/extensions/dynaflows/judgments/structure-naming/thresholds.json"
 ENFORCED = re.compile(r"Enforced by ([A-Z]+\.[A-Za-z0-9.-]+) \(guardrails ([a-z-]+(?:, [a-z-]+)*)\)\.")
 JUDGED = re.compile(r"Judged by ([a-z-]+)/([a-z_-]+)\.")
