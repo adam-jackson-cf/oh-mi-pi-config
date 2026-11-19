@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -60,9 +59,7 @@ def framework_collectors(profile: dict[str, Any]) -> list[FrameworkCollector]:
         if not adapter_declarations.installed(name):
             raise ValueError(f"adapter {name!r} is not installed")
         try:
-            module = importlib.import_module(
-                f"{adapter_declarations.module_name(name)}.cases"
-            )
+            module = adapter_declarations.adapter_part(name, "cases")
         except ModuleNotFoundError as error:
             raise ValueError(
                 f"adapter {name!r} has no static test-case collector"

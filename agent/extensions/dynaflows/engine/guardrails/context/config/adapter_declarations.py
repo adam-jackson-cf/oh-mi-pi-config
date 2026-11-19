@@ -22,8 +22,10 @@ This module reads the declaration for every consumer; ``guardrails profile-check
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Any
 
 from guardrails.foundation.inventory import matches_any
@@ -127,6 +129,10 @@ def claimed(
 
 def module_name(name: str) -> str:
     return f"{PACKAGE}.{name}"
+
+
+def adapter_part(name: str, part: str) -> ModuleType:
+    return importlib.import_module(f"{module_name(name)}.{part}")
 
 
 def installed(name: str) -> bool:

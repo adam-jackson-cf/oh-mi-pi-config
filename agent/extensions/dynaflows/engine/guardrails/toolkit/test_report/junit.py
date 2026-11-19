@@ -49,7 +49,6 @@ File resolution (``Dialect.case_file``), first match wins:
 
 from __future__ import annotations
 
-import importlib
 import math
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
@@ -204,9 +203,9 @@ def dialect_for(name: str | None, configured: object = None) -> Dialect:
         return Dialect(name=name or "configured", **values)
     if not name or name in DIALECTS:
         return DIALECTS[name or "generic"]
-    module_name = f"guardrails.commands.adapters.{name}.dialect"
+    module_name = f"{adapter_declarations.module_name(name)}.dialect"
     try:
-        module = importlib.import_module(module_name)
+        module = adapter_declarations.adapter_part(name, "dialect")
     except ModuleNotFoundError as error:
         if error.name and module_name.startswith(error.name):
             return DIALECTS["generic"]
