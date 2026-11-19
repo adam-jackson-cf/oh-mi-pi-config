@@ -372,22 +372,17 @@ export type { Input };
 		}
 	});
 
-	const caseProbe = mkdtempSync(join(tmpdir(), "agent-rails-case-"));
-	let caseInsensitive: boolean;
-	try {
-		mkdirSync(join(caseProbe, "MixedCase"));
-		caseInsensitive = existsSync(join(caseProbe, "mixedcase"));
-	} finally { rmSync(caseProbe, { recursive: true, force: true }); }
-	test.skipIf(!caseInsensitive)("worktree paths canonicalize mixed case on case-insensitive filesystems", async () => {
+	test("worktree paths canonicalize through the filesystem's own spelling of the base", async () => {
 		const h = harness();
 		const previous = process.env.OMP_WORKTREE_DIR;
 		delete process.env.OMP_WORKTREE_DIR;
 		try {
 			const base = join(h.root, "Worktrees");
 			mkdirSync(join(base, "repo"), { recursive: true });
+			symlinkSync(base, join(h.root, "alias"));
 			await h.read("skill://git-tool");
 			h.worktreeBase(base);
-			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/worktrees/REPO/x'` }), undefined);
+			assert.equal(await h.call("bash", { command: `git worktree add '${h.root}/alias/repo/x'` }), undefined);
 		} finally {
 			if (previous === undefined) delete process.env.OMP_WORKTREE_DIR; else process.env.OMP_WORKTREE_DIR = previous;
 			h.cleanup();
