@@ -30,13 +30,12 @@ from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, name_matches
-
-NAME = "pytest"
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode

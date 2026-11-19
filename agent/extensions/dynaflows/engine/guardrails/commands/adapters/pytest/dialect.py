@@ -43,7 +43,8 @@ class PytestDialect(Dialect):
         return replace(report, declared=declared)
 
 
-DIALECT = PytestDialect(name="pytest", source_suffix=".py")
+NAME = __name__.split(".")[-2]
+DIALECT = PytestDialect(name=NAME, source_suffix=".py")
 
 
 def junit_arguments(report_path: str) -> list[str]:

@@ -33,6 +33,7 @@ from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_text
 
@@ -47,7 +48,7 @@ BASE_PROFILE: dict[str, Any] = {
     "public_entry_points": {"shop": "shop.core:Basket"},
     "adapters": [
         {
-            "name": "pytest",
+            "name": NAME,
             "tiers": {
                 "t1": {"selector": "fast", "location": "tests"},
                 "t2": {"selector": "slow", "location": "tests"},
@@ -159,8 +160,12 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     home, scratch, report = root / "home", root / "tmp", root / "report.xml"
     home.mkdir()
     scratch.mkdir()
-    environment = package_environment()
-    environment.pop("PYTEST_ADDOPTS", None)
+    framework_prefix = NAME.upper() + "_"
+    environment = {
+        key: value
+        for key, value in package_environment().items()
+        if not key.startswith(framework_prefix)
+    }
     environment["PYTHONPATH"] = os.pathsep.join([
         environment["PYTHONPATH"],
         str(root / "project"),
@@ -173,7 +178,7 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     command = [
         sys.executable,
         "-m",
-        "pytest",
+        NAME,
         "-q",
         "-p",
         "no:cacheprovider",

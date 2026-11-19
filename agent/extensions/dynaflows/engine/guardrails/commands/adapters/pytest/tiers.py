@@ -29,6 +29,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
@@ -36,7 +37,6 @@ from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, settings
 from guardrails.host.process import run_text
 
-NAME = "pytest"
 ENGINE_ROOT = Path(__file__).resolve().parents[4]
 PLUGIN = "guardrails.commands.adapters.pytest.plugin"
 SETTINGS = "adapter_pytest"
@@ -55,7 +55,7 @@ def collect_command(locations: list[str], selector: str, out_file: Path) -> list
     return [
         sys.executable,
         "-m",
-        "pytest",
+        NAME,
         "--collect-only",
         "-q",
         "-p",
