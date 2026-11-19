@@ -10,10 +10,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.structure import rename_residue as residue  # noqa: E402
+from guardrails.structure import rename_residue as residue  # noqa: E402
 
 
 class RenameResidueTests(unittest.TestCase):
@@ -222,7 +222,7 @@ class RenameResidueCommandTests(unittest.TestCase):
             [
                 sys.executable, "-I", "-S", "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-                "from omp_guardrails.cli import main; raise SystemExit(main())",
+                "from guardrails.cli import main; raise SystemExit(main())",
                 str(REFERENCE),
                 "rename-residue", "--repo", str(self.repo), "--record", str(self.record),
                 "--base", base, "--head", head,

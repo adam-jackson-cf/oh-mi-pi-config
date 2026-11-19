@@ -13,12 +13,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURE = json.loads((ROOT / "tests/fixtures/reference/python_policy/shop-repo.json").read_text())
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.python_policy import (  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.python_policy import (  # noqa: E402
     fanout,
     quality,
     scalability,

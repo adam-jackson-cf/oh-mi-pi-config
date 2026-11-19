@@ -13,12 +13,12 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.test_evidence import (  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.test_evidence import (  # noqa: E402
     budgets,
     collection,
     junit,

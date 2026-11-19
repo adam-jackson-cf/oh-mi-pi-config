@@ -17,12 +17,12 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import child_env, cli  # noqa: E402
-from omp_guardrails.catalogue import rules as catalogue_rules  # noqa: E402
-from omp_guardrails.catalogue import toolchain_parity, versions  # noqa: E402
+from guardrails import child_env, cli  # noqa: E402
+from guardrails.catalogue import rules as catalogue_rules  # noqa: E402
+from guardrails.catalogue import toolchain_parity, versions  # noqa: E402
 
 # Tool rules whose values tests/test_reference_init.py NativeConfigTests checks.
 NATIVE_PREFIXES = ("RUFF.", "MYPY.")
@@ -83,7 +83,7 @@ class PackagedCatalogueTests(unittest.TestCase):
         rule = next(rule for rule in self.catalogue["rules"] if rule["id"] == "GATE.path-check")
         contract = rule["contract"]
         self.assertEqual(contract["configuration"], "record:profile.md")
-        self.assertEqual(contract["harness_subcommand"], "omp-guardrails path-check")
+        self.assertEqual(contract["harness_subcommand"], "guardrails path-check")
         self.assertNotIn("required_command_field", contract)
         self.assertTrue(contract["changed_paths_appended_as_arguments"])
         self.assertEqual(contract["success_exit_code"], 0)
@@ -121,7 +121,7 @@ class PackagedCatalogueTests(unittest.TestCase):
             for path in sorted(sources)
             if path.is_file() and path.suffix in {".py", ".json", ".md", ".xml"}
         )
-        conformance = REFERENCE / "omp_guardrails/adapters/pytest/conformance"
+        conformance = REFERENCE / "guardrails/adapters/pytest/conformance"
         texts += "".join(path.read_text(encoding="utf-8") for path in conformance.glob("*.json"))
         for rule in self.catalogue["rules"]:
             if not catalogue_rules.proven_by_package(rule):
@@ -222,14 +222,14 @@ def module_sources(module: str) -> list[Path]:
 
 
 def reference_imports(sources: list[Path]) -> set[str]:
-    """``omp_guardrails`` modules imported by the given Python sources."""
+    """``guardrails`` modules imported by the given Python sources."""
     imported: set[str] = set()
     for source in sources:
         if source.suffix != ".py":
             continue
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
-                "omp_guardrails."
+                "guardrails."
             ):
                 imported.add(node.module)
     return imported

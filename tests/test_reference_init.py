@@ -1,4 +1,4 @@
-"""omp-guardrails init: drafts the repo's personal record and writes nothing into the repo."""
+"""guardrails init: drafts the repo's personal record and writes nothing into the repo."""
 
 from __future__ import annotations
 
@@ -15,16 +15,16 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 SKILL_TEMPLATE = ROOT / "agent/lib/record/profile.md"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli, harness  # noqa: E402
-from omp_guardrails.config.house_style import load_house_style  # noqa: E402
-from omp_guardrails.config.profile import load_profile  # noqa: E402
-from omp_guardrails.init import command, discovery, lsp, native_config  # noqa: E402
+from guardrails import cli, harness  # noqa: E402
+from guardrails.config.house_style import load_house_style  # noqa: E402
+from guardrails.config.profile import load_profile  # noqa: E402
+from guardrails.init import command, discovery, lsp, native_config  # noqa: E402
 
-CATALOGUE = REFERENCE / "omp_guardrails/data/guardrail-rules.json"
+CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
 # A language server speaking just enough LSP over stdio: it asks the client for configuration
 # (which the client must answer) before it answers a references query with one location.
@@ -216,7 +216,7 @@ class DraftRecordTests(InitCase):
 
     def test_template_is_the_test_guidance_skill_template(self) -> None:
         self.assertEqual(harness.PROFILE_TEMPLATE, SKILL_TEMPLATE)
-        self.assertFalse((REFERENCE / "omp_guardrails/init/test-profile.md").exists())
+        self.assertFalse((REFERENCE / "guardrails/init/test-profile.md").exists())
 
     def test_recorded_values_and_approvals_are_kept(self) -> None:
         gate = {

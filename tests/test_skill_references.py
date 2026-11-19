@@ -7,12 +7,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/skills"
 PACKAGE = ROOT / "agent/extensions/dynaflows"
-WORKFLOW = PACKAGE / "skills/omp-dyna-workflows"
-CORE_SKILLS = ("omp-dyna-workflows", "test-guidance", "git-tool")
+WORKFLOW = PACKAGE / "skills/dynaflows"
+CORE_SKILLS = ("dynaflows", "test-guidance", "git-tool")
 REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 def skill_directory(name):
-    return WORKFLOW if name == "omp-dyna-workflows" else SKILLS / name
+    return WORKFLOW if name == "dynaflows" else SKILLS / name
 
 
 class SkillReferenceTests(unittest.TestCase):
@@ -31,6 +31,9 @@ class SkillReferenceTests(unittest.TestCase):
             ROOT / "agent/agent-rails.yml",
             ROOT / "agent/extensions/agent-rails.ts",
             PACKAGE / "index.ts",
+            PACKAGE / "AGENTS.md",
+            PACKAGE / "docs/workflow.html",
+            PACKAGE / "engine/workflows.py",
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
             *(PACKAGE / "rules").glob("*.md"),
@@ -84,6 +87,15 @@ class SkillReferenceTests(unittest.TestCase):
                         )
         if unresolved:
             self.fail("\n".join(unresolved))
+
+    def test_workflow_page_relative_links_resolve_after_layout_moves(self):
+        source = PACKAGE / "docs/workflow.html"
+        for target in re.findall(r'href="([^"]+)"', source.read_text(encoding="utf-8")):
+            if target.startswith("#") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
+                continue
+            with self.subTest(target=target):
+                self.assertTrue((source.parent / target.split("#", 1)[0]).is_file())
+
 
     def test_core_skill_frontmatter_names_match_directories(self):
         for name in CORE_SKILLS:

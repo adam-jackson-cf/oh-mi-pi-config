@@ -10,7 +10,7 @@ import { harness as createHarness, execute, repoCommand, defaultOrigin, integrit
 
 // Most cases exercise the co-registered extensions; isolated package cases select dynaflows only.
 const harness = (options: Parameters<typeof createHarness>[0] = {}) => createHarness({ extensions: "both", ...options });
-const proofs = "skill://omp-dyna-workflows/references/proofs.md";
+const proofs = "skill://dynaflows/references/proofs.md";
 
 describe("dynaflows extension", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
@@ -163,7 +163,7 @@ describe("dynaflows extension", () => {
 			process.env.FAIL_harness = "1";
 			blocked = await commit();
 			assert.equal(blocked?.block, true);
-			assert.ok(blocked?.reason?.includes(`harness checks (omp-guardrails) failed in ${h.root} (exit 1)`), blocked?.reason);
+			assert.ok(blocked?.reason?.includes(`harness checks (guardrails) failed in ${h.root} (exit 1)`), blocked?.reason);
 			assert.ok(blocked?.reason?.includes("harness finding: src/x.py"), blocked?.reason);
 			assert.ok(blocked?.reason?.includes("checks.commit passed. If a repo checker already enforces a failing step's rules"),
 				"a harness-only finding points at adopt mode before the agent reshapes repo code");
@@ -283,7 +283,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("the default harness check is omp-guardrails from the harness's own reference project", async () => {
+	test("the default harness check is guardrails from the harness's own reference project", async () => {
 		const h = harness({ guardrailsCommand: "default" });
 		try {
 			await h.read("skill://git-tool");
@@ -298,8 +298,8 @@ describe("dynaflows extension", () => {
 				return { code: 0, killed: false, stdout: "", stderr: "" };
 			};
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
-			const project = resolve(import.meta.dir, "../agent/extensions/dynaflows/guardrails");
-			assert.deepEqual(seen, [["run", "--project", project, "omp-guardrails", "check", "--repo", h.root, "--record", h.recordDir()]]);
+			const project = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine");
+			assert.deepEqual(seen, [["run", "--project", project, "guardrails", "check", "--repo", h.root, "--record", h.recordDir()]]);
 		} finally { h.cleanup(); }
 	});
 
@@ -385,16 +385,16 @@ describe("dynaflows extension", () => {
 			h.dynaflows(true);
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
-			assert.ok(pointer.includes("skill://omp-dyna-workflows"), "the record turns it on");
+			assert.ok(pointer.includes("skill://dynaflows"), "the record turns it on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
-			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://omp-dyna-workflows"));
+			assert.ok(off.includes("Dynaflows off") && !off.includes("skill://dynaflows"));
 			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, ownerOnlyPaths: [], dynaflows: { enabled: false }, schemaVersion: 2 },
 				"only the switch changes");
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://omp-dyna-workflows"));
+			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://dynaflows"));
 			h.setSession("machine-off");
 			h.machineDynaflows(false);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "machine off beats record on");
@@ -435,7 +435,7 @@ describe("dynaflows extension", () => {
 			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
 			// No record: setup starts at Step 0, drafting the switch on; nothing is written and no error shows.
 			const setup = await start("init $dynaflows");
-			assert.ok(setup.includes("Start skill://omp-dyna-workflows/references/harness-setup.md setup now, from Step 0") && setup.includes("owner/repo"), setup);
+			assert.ok(setup.includes("Start skill://dynaflows/references/harness-setup.md setup now, from Step 0") && setup.includes("owner/repo"), setup);
 			assert.ok(setup.includes('\\"dynaflows\\": {\\"enabled\\": true}'), setup);
 			assert.equal(existsSync(h.recordDir()), false, "enabling never creates a record");
 			assert.ok(h.notes.some(note => note.includes("starting repository setup")), h.notes.join("; "));
@@ -443,23 +443,23 @@ describe("dynaflows extension", () => {
 			// A refused record: setup resumes and names the reason.
 			h.rawGate('{"schemaVersion":2,"dynaflows":{"enabled":false}}');
 			const resume = await start("$dynaflows enable");
-			assert.ok(resume.includes("Resume skill://omp-dyna-workflows/references/harness-setup.md setup now") && resume.includes("checks"), resume);
+			assert.ok(resume.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && resume.includes("checks"), resume);
 			h.rawGate("{broken");
 			const broken = await start("$dynaflows enable");
-			assert.ok(broken.includes("Resume skill://omp-dyna-workflows/references/harness-setup.md setup now") && broken.includes("is refused: "), broken);
+			assert.ok(broken.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && broken.includes("is refused: "), broken);
 			// A valid record and a directive-only prompt: assess the stage and start it.
 			h.gate({ schemaVersion: 2 });
 			const kickoff = await start("$dynaflows on");
-			assert.ok(kickoff.includes("Dynaflows on for owner/repo") && kickoff.includes("skill://omp-dyna-workflows"), kickoff);
+			assert.ok(kickoff.includes("Dynaflows on for owner/repo") && kickoff.includes("skill://dynaflows"), kickoff);
 			assert.ok(kickoff.includes("Report the stage you found and start it") && kickoff.includes("ask the owner for the task"), kickoff);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the kickoff counts as the pointer");
 			// A directive beside a task: the prompt's task is routed.
 			const route = await start("enable $dynaflows\nfix the login bug");
-			assert.ok(route.includes("Dynaflows on. Route this work with skill://omp-dyna-workflows") && !route.includes("Report the stage"), route);
+			assert.ok(route.includes("Dynaflows on. Route this work with skill://dynaflows") && !route.includes("Report the stage"), route);
 			// The machine default keeps it off and says so.
 			h.machineDynaflows(false);
 			const kept = await start("$dynaflows");
-			assert.ok(kept.includes("Dynaflows off for owner/repo: the machine default") && kept.includes("Do not apply omp-dyna-workflows"), kept);
+			assert.ok(kept.includes("Dynaflows off for owner/repo: the machine default") && kept.includes("Do not apply dynaflows"), kept);
 			assert.deepEqual(h.record().dynaflows, { enabled: true });
 		} finally { h.cleanup(); }
 	});
@@ -518,7 +518,7 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		try {
 			h.dynaflows(true);
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://omp-dyna-workflows"));
+			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://dynaflows"));
 			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
 			h.setSession("no-origin");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
@@ -897,7 +897,7 @@ test("a gate with every optional check and a ci block allows publishing", async 
 	const h = harness();
 	try {
 		await h.read("skill://git-tool");
-		h.gate({ schemaVersion: 2, ci: ciGate, checks: { commit: ["true"], format: ["ruff", "format"], profile: ["omp-guardrails", "profile-check"] } });
+		h.gate({ schemaVersion: 2, ci: ciGate, checks: { commit: ["true"], format: ["ruff", "format"], profile: ["guardrails", "profile-check"] } });
 		assert.equal(await h.call("bash", { command: "git push" }), undefined);
 	} finally { h.cleanup(); }
 });
@@ -1177,7 +1177,7 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 			h.rawGate(JSON.stringify(value));
 			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
 		}
-		const modulePath = join(import.meta.dir, "../agent/extensions/dynaflows/skills/omp-dyna-workflows/templates/workflows.py");
+		const modulePath = join(import.meta.dir, "../agent/extensions/dynaflows/engine/workflows.py");
 		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
 		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
 		assert.deepEqual(JSON.parse(result.stdout), rails);

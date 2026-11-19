@@ -13,13 +13,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 FIXTURES = ROOT / "tests/fixtures/reference/structure"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails import cli  # noqa: E402
-from omp_guardrails.config import house_style  # noqa: E402
-from omp_guardrails.structure import layout, naming, paths  # noqa: E402
+from guardrails import cli  # noqa: E402
+from guardrails.config import house_style  # noqa: E402
+from guardrails.structure import layout, naming, paths  # noqa: E402
 
 CLEAN = json.loads((FIXTURES / "clean-repo.json").read_text())
 VERDICTS = json.loads((FIXTURES / "house-style-verdicts.json").read_text())
@@ -63,6 +63,49 @@ class HouseStyleVerdictTests(unittest.TestCase):
             with self.subTest(case=case):
                 problems = house_style.test_name_problems(case["name"])
                 self.assertEqual(bool(problems), case["violates"], problems)
+
+    def test_child_directories_repeat_parent_by_whole_token_sequence(self) -> None:
+        repeated_paths = (
+            "guardrails/guardrails.py",
+            "guardrails/omp_guardrails/entry.py",
+            "guardrails/guardrails-core/entry.py",
+            "guardrails/omp.guardrails/entry.py",
+            "guardrails/ompGuardrails/entry.ts",
+            "guardrails/GuardrailsCore/entry.ts",
+            "HTTPServer/omp_http_server/entry.py",
+            "audit-log/omp_audit_log_core/entry.py",
+            "audit.log/ompAuditLog/entry.py",
+            "guardrails/_guardrails_/entry.py",
+            "guardrails/guardrails.test.py",
+            "guardrails/.guardrails/entry.py",
+        )
+        for path in repeated_paths:
+            with self.subTest(path=path):
+                self.assertIsNotNone(house_style.child_repeats_parent(tuple(path.split("/"))))
+        allowed_paths = (
+            "rail/guardrails/entry.py",
+            "guardrails/guardrailsish/entry.py",
+            "audit-log/audit/entry.py",
+            "audit-log/log_audit/entry.py",
+            "audit-log/audit_event_log/entry.py",
+            "guardrails/role.guardrails.py",
+            "audit.log/audit.py",
+            "guardrails/omp_guardrails.py",
+            "guardrails/guardrails-core.ts",
+            "guardrails/Guardrails.py",
+            "guardrails/.guardrails",
+            "foo/foo_test.go",
+            "init/__init__.py",
+            "___/role.py",
+            "entry.py",
+        )
+        for path in allowed_paths:
+            with self.subTest(path=path):
+                self.assertIsNone(house_style.child_repeats_parent(tuple(path.split("/"))))
+        self.assertEqual(
+            house_style.child_repeats_parent(("guardrails", "omp_guardrails", "guardrails.py")),
+            "omp_guardrails",
+        )
 
     def test_test_roots(self) -> None:
         roots = house_style.load_house_style()["test_roots"]
@@ -143,6 +186,7 @@ class CheckerTests(unittest.TestCase):
             "src/orders/engine/utils.py": "",
             "src/orders/engine/runner_v2.py": "",
             "src/orders/engine/engine.py": "",
+            "src/orders/engine/engine-core/entry.py": "",
             "src/orders/engine/BadName.py": "",
             "src/orders/engine/shapes.py": "class bad_shape: ...\n\n\ndef BuildShape(): ...\n",
             "docs/Design.md": "",
@@ -381,7 +425,7 @@ class CheckerTests(unittest.TestCase):
         code, out = self.run_cli("check")
         self.assertEqual(code, 1)
         self.assertIn("record:profile.md: PROFILE.complete: guardrails.check.run names", out)
-        from omp_guardrails import whole_repo
+        from guardrails import whole_repo
 
         steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
         self.assertEqual((steps, problems), (list(whole_repo.DEFAULT_STEPS), []))
@@ -392,7 +436,7 @@ class CheckerTests(unittest.TestCase):
 
 
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
-        from omp_guardrails import whole_repo
+        from guardrails import whole_repo
 
         owned = {"guardrails": {"check": {"repo": {"naming": ["src/orders/cli/main.py"]}}}}
         steps, problems = whole_repo.configured_steps(owned)

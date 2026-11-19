@@ -14,14 +14,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/guardrails"
+REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 sys.path.insert(0, str(REFERENCE))
 
-from omp_guardrails.adapters.vitest import conformance  # noqa: E402
-from omp_guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments  # noqa: E402
-from omp_guardrails.test_evidence.junit import parse_text  # noqa: E402
+from guardrails.adapters.vitest import conformance  # noqa: E402
+from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments  # noqa: E402
+from guardrails.test_evidence.junit import parse_text  # noqa: E402
 
-RUNTIME = REFERENCE / "omp_guardrails/adapters/vitest/runtime.mjs"
+RUNTIME = REFERENCE / "guardrails/adapters/vitest/runtime.mjs"
 
 
 class VitestRuntimeTests(unittest.TestCase):
