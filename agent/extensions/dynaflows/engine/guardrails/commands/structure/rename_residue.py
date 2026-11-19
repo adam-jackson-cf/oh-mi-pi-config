@@ -1,10 +1,3 @@
-"""RENAME.residue: retired whole names in owned files under renamed paths.
-
-Rename detection is pinned at 50% similarity, independent of Git's rename-limit setting.
-Only paths and Python names defined at module/class scope count, never imports or text.
-The record's documented ``guardrails.check.exclude`` paths are not owned input.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -19,6 +12,7 @@ from guardrails.context.config.profile import ProfileError, load_profile
 from guardrails.foundation.findings import Finding, exit_code, format_findings
 from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
+from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "RENAME.residue"
 RENAME_THRESHOLD = "50%"
@@ -40,7 +34,6 @@ class RetiredTerm:
 
 
 def words(name: str) -> tuple[str, ...]:
-    """Split snake, kebab and camel names without treating substrings as words."""
     name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
     return tuple(re.findall(r"[a-z0-9]+", name.lower()))
@@ -54,7 +47,6 @@ def contains(sequence: tuple[str, ...], term: tuple[str, ...]) -> bool:
 
 
 def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[RetiredTerm]:
-    """Retire whole old segments only when no owned head path still names that owner."""
     retained = {
         words(segment)
         for raw_path in owned_paths
@@ -74,7 +66,6 @@ def retired_terms(renames: list[Rename], owned_paths: list[str]) -> list[Retired
 
 
 def rename_terms(rename: Rename) -> list[RetiredTerm]:
-    """Old directory segments and the old stem that the new path no longer names."""
     found = []
 
     old = PurePosixPath(rename.old)
@@ -102,12 +93,23 @@ def rename_terms(rename: Rename) -> list[RetiredTerm]:
 
 
 class DefinedNames(ast.NodeVisitor):
-    """Collect module/class bindings, stopping before function-local scopes."""
-
     descend_classes = True
+    non_defining_nodes = (
+        ast.Import,
+        ast.ImportFrom,
+        ast.Lambda,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+    )
 
     def __init__(self) -> None:
         self.names: list[str] = []
+
+    def visit(self, node: ast.AST) -> None:
+        if not isinstance(node, self.non_defining_nodes):
+            super().visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.names.append(node.name)
@@ -125,27 +127,6 @@ class DefinedNames(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Store):
             self.names.append(node.id)
 
-    def visit_Import(self, node: ast.Import) -> None:
-        pass
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        pass
-
-    def visit_Lambda(self, node: ast.Lambda) -> None:
-        pass
-
-    def visit_ListComp(self, node: ast.ListComp) -> None:
-        pass
-
-    def visit_SetComp(self, node: ast.SetComp) -> None:
-        pass
-
-    def visit_DictComp(self, node: ast.DictComp) -> None:
-        pass
-
-    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
-        pass
-
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
             self.names.append(node.name)
@@ -156,7 +137,6 @@ class DefinedNames(ast.NodeVisitor):
 def residue_findings(
     renames: list[Rename], head_files: dict[str, bytes]
 ) -> list[Finding]:
-    """Inspect an owned head snapshot; non-Python values need not contain file bytes."""
     terms = retired_terms(renames, list(head_files))
     found: list[Finding] = []
     for path, source in sorted(head_files.items()):
@@ -223,7 +203,7 @@ def term_findings(
 
 
 class GitError(Exception):
-    """The requested commit snapshot could not be read."""
+    pass
 
 
 def git(repo: Path, *args: str) -> bytes:
@@ -273,7 +253,6 @@ def commit_snapshot(
         Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
     ]
     exclusions = as_list(settings(profile, "check").get("exclude"))
-    # Read the committed tree, not an index/worktree that may differ from --head.
     paths = (
         git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
     )
@@ -294,7 +273,7 @@ def commit_snapshot(
 
 
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=SUBCOMMANDS["rename-residue"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
@@ -313,7 +292,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=SUBCOMMANDS["rename-residue"].summary)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--base", required=True)
