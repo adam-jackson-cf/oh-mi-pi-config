@@ -64,13 +64,26 @@ def version_problem(segment: str, *, last: bool, standalone_allowed: bool) -> st
     return None
 
 
+def _name_tokens(name: str) -> tuple[str, ...]:
+    """Split separators, lower-to-upper transitions and acronym-to-word transitions."""
+    name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    return tuple(token.lower() for token in re.split(r"[_\-.]+", name) if token)
+
+
 def child_repeats_parent(parts: tuple[str, ...]) -> str | None:
-    """The first segment that repeats its parent folder's name (a file compares by stem)."""
+    """Return the first child containing its parent's complete, contiguous token sequence."""
     if load_house_style()["child_repeats_parent"] != "banned":
         return None
     for index in range(1, len(parts)):
         child = stem(parts[index]) if index == len(parts) - 1 else parts[index]
-        if child == parts[index - 1]:
+        parent_tokens = _name_tokens(parts[index - 1])
+        child_tokens = _name_tokens(child)
+        width = len(parent_tokens)
+        if width and any(
+            child_tokens[start : start + width] == parent_tokens
+            for start in range(len(child_tokens) - width + 1)
+        ):
             return parts[index]
     return None
 
