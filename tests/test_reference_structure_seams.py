@@ -24,8 +24,8 @@ sys.path.insert(
 import pytest
 from test_reference_structure import FIXTURES
 
-from guardrails import cli
-from guardrails.structure import layout, naming, paths
+from guardrails.commands import cli
+from guardrails.commands.structure import layout, naming, paths
 
 pytestmark = pytest.mark.seam
 
@@ -404,7 +404,7 @@ class CheckerCliTests(CheckerCase):
         code, out = self.run_cli("check")
         assert code == 1
         assert "record:profile.md: PROFILE.complete: guardrails.check.run names" in out
-        from guardrails import whole_repo
+        from guardrails.commands.check import whole_repo
 
         steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
         assert (steps, problems) == (list(whole_repo.DEFAULT_STEPS), [])
@@ -414,7 +414,7 @@ class CheckerCliTests(CheckerCase):
         assert "check takes no paths or options" in out
 
     def test_check_leaves_out_the_steps_the_repo_checkers_own(self) -> None:
-        from guardrails import whole_repo
+        from guardrails.commands.check import whole_repo
 
         owned = {
             "guardrails": {

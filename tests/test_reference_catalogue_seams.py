@@ -22,9 +22,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.catalogue import (
-    toolchain_parity,
-)
+from guardrails.commands.catalogue import toolchain_parity
 
 pytestmark = pytest.mark.seam
 

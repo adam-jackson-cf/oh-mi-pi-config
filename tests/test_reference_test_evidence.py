@@ -19,14 +19,9 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.test_evidence import (
-    budgets,
-    collection,
-    junit,
-    mutation,
-    propagation,
-)
+from guardrails.commands import cli
+from guardrails.commands.test_evidence import budgets, mutation, propagation
+from guardrails.toolkit.test_report import collection, junit
 
 pytestmark = pytest.mark.fast
 

@@ -29,7 +29,7 @@ class CliTests(CliCase):
         # The child blocks pytest and ast_grep_py imports, as an install without the extra would.
         entry = (
             "import sys; sys.modules['pytest'] = None; sys.modules['ast_grep_py'] = None; "
-            "from guardrails import cli; raise SystemExit(cli.main(sys.argv[1:]))"
+            "from guardrails.commands import cli; raise SystemExit(cli.main(sys.argv[1:]))"
         )
         for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter"}):
             with self.subTest(subcommand=name):
@@ -46,9 +46,9 @@ class CliTests(CliCase):
 
     def test_checker_modules_are_imported_only_when_their_subcommand_runs(self) -> None:
         probe = (
-            "import sys; from guardrails import cli; "
+            "import sys; from guardrails.commands import cli; "
             "listed = {m for item in cli.SUBCOMMANDS.values() for m in item.modules}; "
-            "print(sorted(listed & set(sys.modules) - {'guardrails.config.profile'}))"
+            "print(sorted(listed & set(sys.modules) - {'guardrails.context.config.profile'}))"
         )
         result = subprocess.run(
             [sys.executable, "-c", probe],

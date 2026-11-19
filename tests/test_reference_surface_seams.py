@@ -19,7 +19,7 @@ sys.path.insert(
 import pytest
 from test_reference_surface import LEVER, LeverSelftestCase, surface_profile
 
-from guardrails.surface import feature_map, journeys
+from guardrails.commands.surface import feature_map, journeys
 
 pytestmark = pytest.mark.seam
 

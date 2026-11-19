@@ -14,7 +14,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.config import conventions, house_style
+from guardrails.context.config import house_style
+from guardrails.foundation import conventions
 
 pytestmark = pytest.mark.fast
 

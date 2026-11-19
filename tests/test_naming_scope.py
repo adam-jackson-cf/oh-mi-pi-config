@@ -17,9 +17,9 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.findings import Finding
-from guardrails.structure import layout
+from guardrails.commands.structure import layout
+from guardrails.foundation.findings import Finding
+from guardrails.toolkit import dispatch
 
 pytestmark = pytest.mark.seam
 
@@ -74,8 +74,8 @@ class NamingScopeCase(unittest.TestCase):
         self.git("commit", "-qm", "fixture")
 
     def findings(self, *args: str) -> list[Finding]:
-        return cli.run_modules(
-            cli.module_names("path-check", self.profile),
+        return dispatch.run_modules(
+            dispatch.module_names("path-check", self.profile),
             self.repo,
             self.profile,
             list(args),
@@ -193,7 +193,7 @@ class ChangedPathScopeTests(NamingScopeCase):
     def test_commit_check_cannot_select_automatic_full_naming_or_structure(
         self,
     ) -> None:
-        from guardrails import whole_repo
+        from guardrails.commands.check import whole_repo
 
         for checker in ("naming", "structure", "path-check"):
             with self.subTest(checker=checker):
@@ -260,9 +260,9 @@ class StructureScopeTests(NamingScopeCase):
 
     def test_naming_command_shares_event_and_full_scan_scope(self) -> None:
         self.write("legacyUtils/misc.py", "VALUE = 2\n")
-        modules = cli.module_names("naming", self.profile)
+        modules = dispatch.module_names("naming", self.profile)
         assert (
-            cli.run_modules(
+            dispatch.run_modules(
                 modules,
                 self.repo,
                 self.profile,
@@ -272,13 +272,15 @@ class StructureScopeTests(NamingScopeCase):
         )
         self.write("catalogue/misc.py")
         self.git("add", "catalogue/misc.py")
-        found = cli.run_modules(modules, self.repo, self.profile, ["--event", "staged"])
+        found = dispatch.run_modules(
+            modules, self.repo, self.profile, ["--event", "staged"]
+        )
         assert any(
             f.path == "catalogue/misc.py" and f.rule_id == "NAME.conventions"
             for f in found
         )
         assert not any("legacyUtils" in f.path for f in found)
-        found = cli.run_modules(modules, self.repo, self.profile, ["--all"])
+        found = dispatch.run_modules(modules, self.repo, self.profile, ["--all"])
         assert any(
             "legacyUtils" in f.path and f.rule_id == "NAME.conventions" for f in found
         )
@@ -422,7 +424,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_structure_judgment_payload_marks_introductions_and_keeps_legacy_as_context(
         self,
     ) -> None:
-        from guardrails.structure import state
+        from guardrails.commands.structure import state
 
         self.write("legacyUtils/reader.py")
         self.write("legacyUtils/shipping/writer.py")
@@ -456,7 +458,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_structure_dispatch_judges_new_ancestor_directories_but_not_legacy_parents(
         self,
     ) -> None:
-        from guardrails.structure import state
+        from guardrails.commands.structure import state
 
         self.write("catalogue/shipping/parcel/reader.py")
         self.commit()
@@ -470,7 +472,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_structure_dispatch_does_not_require_legacy_prefix_members_to_move(
         self,
     ) -> None:
-        from guardrails.structure import state
+        from guardrails.commands.structure import state
 
         self.write("catalogue/audit_reader.py")
         self.commit()
@@ -523,7 +525,7 @@ class ProveScopeTests(NamingScopeCase):
         assert not any(f.rule_id == "PYQ105" and "legacyUtils" in f.path for f in found)
 
     def test_path_check_reuses_python_path_rules_without_content_quality(self) -> None:
-        from guardrails.python_policy import quality
+        from guardrails.commands.python_policy import quality
 
         self.profile["guardrails"]["python"] = {
             "maintained_roots": ["catalogue"],

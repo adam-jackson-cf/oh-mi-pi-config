@@ -67,7 +67,7 @@ cd "$repo_root"
 unset "${!GIT_@}"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/adapters/bun_test/preload.mjs"
+preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapters/bun_test/preload.mjs"
 
 run_bun() {
   local args=() file file_tier
@@ -115,7 +115,7 @@ run_pytest() {
     exit 1
   fi
   if [[ "$tier" == t1 ]]; then
-    args+=(-p guardrails.adapters.pytest.plugin '--omp-guard=fast-tier,user-data' -m fast)
+    args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=fast-tier,user-data' -m fast)
   else
     args+=(-m seam)
   fi

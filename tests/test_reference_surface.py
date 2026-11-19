@@ -15,7 +15,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.surface import lever_selftest
+from guardrails.commands.surface import lever_selftest
 
 pytestmark = pytest.mark.fast
 

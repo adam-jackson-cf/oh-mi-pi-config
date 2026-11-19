@@ -1,0 +1,7 @@
+"""``guardrails init``: draft a repository's personal per-repo record for owner confirmation.
+
+Init writes only into the record directory (``--record``): ``gate.json``, ``profile.md`` and,
+under ``proposed/``, native-tool configs the owner may apply to the repository as a fix. It
+writes nothing into the repository. The profile template is ``agent/lib/record/profile.md``,
+read from the harness (``guardrails.commands.init.harness``).
+"""

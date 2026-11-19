@@ -25,14 +25,14 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.adapters import pytest as adapter
-from guardrails.adapters.pytest import guards, symbol_usage
-from guardrails.adapters.pytest.cases import collect as collect_cases
-from guardrails.adapters.pytest.dialect import DIALECT
-from guardrails.findings import Finding
-from guardrails.test_evidence import propagation
-from guardrails.test_evidence.junit import dialect_for, parse_report, parse_text
+from guardrails.commands import cli
+from guardrails.commands.adapters import pytest as adapter
+from guardrails.commands.adapters.pytest import guards, symbol_usage
+from guardrails.commands.adapters.pytest.cases import collect as collect_cases
+from guardrails.commands.adapters.pytest.dialect import DIALECT
+from guardrails.commands.test_evidence import propagation
+from guardrails.foundation.findings import Finding
+from guardrails.toolkit.test_report.junit import dialect_for, parse_report, parse_text
 
 pytestmark = pytest.mark.fast
 
@@ -325,7 +325,7 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
 
 
 def adapter_lint_rules() -> list[dict[str, Any]]:
-    folder = REFERENCE / "guardrails/adapters/pytest/rules"
+    folder = REFERENCE / "guardrails/commands/adapters/pytest/rules"
     return [json.loads(path.read_text()) for path in sorted(folder.glob("*.yml"))]
 
 

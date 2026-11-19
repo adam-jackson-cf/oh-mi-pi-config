@@ -18,7 +18,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.structure import prefix_candidates
+from guardrails.commands.structure import prefix_candidates
 
 pytestmark = pytest.mark.seam
 

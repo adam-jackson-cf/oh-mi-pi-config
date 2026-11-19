@@ -125,10 +125,10 @@ CI never measures or reports test timing.
 
 - `guardrails.<checker>` holds per-checker settings; examples include `guardrails.python`,
   `guardrails.structure` and `guardrails.naming`. Apart from `guardrails.exceptions`,
-  unknown section names outside `GUARDRAILS_SECTIONS` in `guardrails/config/profile.py`
+  unknown section names outside `GUARDRAILS_SECTIONS` in `guardrails/context/config/profile.py`
   fail `profile-check`.
 - `guardrails.check.run` selects whole-repo steps; absent selection means all
-  `DEFAULT_STEPS` in `guardrails/whole_repo.py`.
+  `DEFAULT_STEPS` in `guardrails/commands/check/whole_repo.py`.
 - `guardrails.check.exclude` lists generated, vendored and fixture paths to exclude.
 - `guardrails.check.repo` maps each repo-owned step to checker files that jointly enforce
   every rule it reports, for example

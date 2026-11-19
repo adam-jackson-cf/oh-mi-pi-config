@@ -307,7 +307,7 @@ whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the g
 
 - T1 tests start no process, open no network, write no real home and drive no real Git,
   worktree or container. Bun runs `tests/*.test.ts` except `*-seams.test.ts`; pytest runs
-  modules marked `fast`. In-process guards from `agent/extensions/dynaflows/engine/guardrails/adapters/`
+  modules marked `fast`. In-process guards from `agent/extensions/dynaflows/engine/guardrails/commands/adapters/`
   (the Bun preload and the pytest plugin) fail any T1 test that starts a process, opens a
   network connection or writes under the real home.
 - T2 tests are the seams: Bun runs `tests/*-seams.test.ts`; pytest runs modules marked `seam`.

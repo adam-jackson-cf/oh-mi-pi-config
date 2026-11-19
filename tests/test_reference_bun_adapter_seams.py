@@ -23,16 +23,19 @@ sys.path.insert(
 import pytest
 from test_reference_bun_adapter import PROFILE
 
-from guardrails import cli
-from guardrails.adapters.bun_test.conformance import load_cases, run_conformance
-from guardrails.adapters.bun_test.dialect import (
+from guardrails.commands import cli
+from guardrails.commands.adapters.bun_test.conformance import (
+    load_cases,
+    run_conformance,
+)
+from guardrails.commands.adapters.bun_test.dialect import (
     DIALECT,
     guard_evidence,
     junit_arguments,
 )
-from guardrails.test_evidence import propagation
-from guardrails.test_evidence.collection import read_ids
-from guardrails.test_evidence.junit import parse_report
+from guardrails.commands.test_evidence import propagation
+from guardrails.toolkit.test_report.collection import read_ids
+from guardrails.toolkit.test_report.junit import parse_report
 
 pytestmark = pytest.mark.seam
 

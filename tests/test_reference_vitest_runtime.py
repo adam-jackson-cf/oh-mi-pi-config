@@ -21,9 +21,13 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.adapters.vitest import conformance
-from guardrails.adapters.vitest.dialect import DIALECT, guard_evidence, junit_arguments
-from guardrails.test_evidence.junit import parse_text
+from guardrails.commands.adapters.vitest import conformance
+from guardrails.commands.adapters.vitest.dialect import (
+    DIALECT,
+    guard_evidence,
+    junit_arguments,
+)
+from guardrails.toolkit.test_report.junit import parse_text
 
 pytestmark = pytest.mark.fast
 
@@ -31,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
-RUNTIME = REFERENCE / "guardrails/adapters/vitest/runtime.mjs"
+RUNTIME = REFERENCE / "guardrails/commands/adapters/vitest/runtime.mjs"
 
 
 class VitestRuntimeCase(unittest.TestCase):

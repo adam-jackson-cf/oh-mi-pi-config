@@ -12,10 +12,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.python_policy import (
-    quality,
-    scope,
-)
+from guardrails.commands.python_policy import quality
+from guardrails.toolkit.python_rules import scope
 
 pytestmark = pytest.mark.fast
 

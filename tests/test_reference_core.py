@@ -18,9 +18,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails import cli
-from guardrails.config import profile as profile_module
-from guardrails.findings import Finding, exit_code, format_findings
+from guardrails.commands import cli
+from guardrails.context.config import profile as profile_module
+from guardrails.foundation.findings import Finding, exit_code, format_findings
+from guardrails.toolkit import dispatch
 
 pytestmark = pytest.mark.fast
 
@@ -346,7 +347,7 @@ class CliCase(unittest.TestCase):
 
 class CliTests(CliCase):
     def test_every_contract_subcommand_is_listed(self) -> None:
-        assert set(cli.SUBCOMMANDS) == CONTRACT_SUBCOMMANDS
+        assert set(dispatch.SUBCOMMANDS) == CONTRACT_SUBCOMMANDS
         code, out, _ = self.run_cli("--help")
         assert code == 0
         for name in CONTRACT_SUBCOMMANDS:
@@ -475,7 +476,7 @@ class CliTests(CliCase):
             *self.located("adapter"), "framework_without_adapter", "lint"
         )
         assert code == 2
-        assert "cannot import guardrails.adapters" in err
+        assert "cannot import guardrails.commands.adapters" in err
 
     def test_adapter_takes_a_declared_adapter_name_first(self) -> None:
         self.write_profile(complete_profile())

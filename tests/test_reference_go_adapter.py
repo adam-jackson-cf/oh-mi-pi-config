@@ -13,14 +13,14 @@ sys.path.insert(
 
 import pytest
 
-import guardrails.adapters.go.lint as go_lint
-from guardrails.adapters import installed
-from guardrails.adapters.go.cases import collect
-from guardrails.adapters.go.mutation import normalise
-from guardrails.adapters.go.packages import build_arguments
-from guardrails.adapters.go.source import imports, package_patterns, parse
-from guardrails.adapters.go.tiers import flag_value, listed_names, top_level
-from guardrails.diffs.growth import Snapshot, growth_findings
+import guardrails.commands.adapters.go.lint as go_lint
+from guardrails.commands.adapters.go.cases import collect
+from guardrails.commands.adapters.go.mutation import normalise
+from guardrails.commands.adapters.go.packages import build_arguments
+from guardrails.commands.adapters.go.source import imports, package_patterns, parse
+from guardrails.commands.adapters.go.tiers import flag_value, listed_names, top_level
+from guardrails.context.config.adapter_declarations import installed
+from guardrails.toolkit.growth import Snapshot, growth_findings
 
 pytestmark = pytest.mark.fast
 

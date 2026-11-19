@@ -33,12 +33,13 @@ from test_reference_adapter_pytest import (
     write_profile,
 )
 
-from guardrails.adapters import pytest as adapter
-from guardrails.adapters.pytest import mutation
-from guardrails.adapters.pytest.dialect import DIALECT
-from guardrails.test_evidence import propagation
-from guardrails.test_evidence.collection import read_ids
-from guardrails.test_evidence.junit import parse_report
+from guardrails.commands.adapters import pytest as adapter
+from guardrails.commands.adapters.pytest import mutation
+from guardrails.commands.adapters.pytest.dialect import DIALECT
+from guardrails.commands.adapters.pytest.invocation import tier_arguments
+from guardrails.commands.test_evidence import propagation
+from guardrails.toolkit.test_report.collection import read_ids
+from guardrails.toolkit.test_report.junit import parse_report
 
 pytestmark = pytest.mark.seam
 
@@ -81,9 +82,9 @@ class StandardLibraryTests(unittest.TestCase):
         code = (
             "import sys\n"
             f"sys.path.insert(0, {str(REFERENCE)!r})\n"
-            "import guardrails.adapters.pytest, guardrails.adapters.pytest.dialect\n"
-            "import guardrails.adapters.pytest.guards, guardrails.adapters.pytest.tiers\n"
-            "import guardrails.adapters.pytest.lint\n"
+            "import guardrails.commands.adapters.pytest, guardrails.commands.adapters.pytest.dialect\n"
+            "import guardrails.commands.adapters.pytest.guards, guardrails.commands.adapters.pytest.tiers\n"
+            "import guardrails.commands.adapters.pytest.lint\n"
             "assert 'pytest' not in sys.modules and 'ast_grep_py' not in sys.modules\n"
         )
         result = subprocess.run(
@@ -342,7 +343,10 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
 class ExtraTests(unittest.TestCase):
     @needs_extra
     def test_every_conformance_case_passes(self) -> None:
-        from guardrails.adapters.pytest.conformance import load_cases, run_conformance
+        from guardrails.commands.adapters.pytest.conformance import (
+            load_cases,
+            run_conformance,
+        )
 
         results = run_conformance()
         assert len(results) == len(load_cases())
@@ -402,7 +406,7 @@ class ExtraTests(unittest.TestCase):
                 "no:cacheprovider",
                 "-m",
                 "fast",
-                *adapter.tier_arguments("t1", str(report)),
+                *tier_arguments("t1", str(report)),
                 "tests",
             ]
             environment = {**os.environ, "PYTHONPATH": str(REFERENCE)}
@@ -449,7 +453,7 @@ class ExtraTests(unittest.TestCase):
                     "no:cacheprovider",
                     "-m",
                     "fast",
-                    *adapter.tier_arguments("t1", str(report)),
+                    *tier_arguments("t1", str(report)),
                     "tests",
                 ],
                 cwd=repo,
@@ -493,7 +497,7 @@ class ExtraTests(unittest.TestCase):
                     "no:cacheprovider",
                     "-m",
                     "fast",
-                    *adapter.tier_arguments("t1", str(report)),
+                    *tier_arguments("t1", str(report)),
                     "tests",
                 ],
                 cwd=repo,

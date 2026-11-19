@@ -16,7 +16,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.environment import guarded_run
+from guardrails.commands.environment import guarded_run
 
 pytestmark = pytest.mark.fast
 
