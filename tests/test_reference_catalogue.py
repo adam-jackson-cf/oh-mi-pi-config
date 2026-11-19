@@ -6,10 +6,13 @@ Every rule the package proves is named by a test here.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import sys
 import unittest
+from importlib import resources
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 sys.path.insert(
@@ -18,7 +21,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.catalogue import rules as catalogue_rules, versions
+from guardrails.commands.catalogue import versions
 from guardrails.context.config import adapter_declarations
 from guardrails.foundation import child_env
 from guardrails.toolkit import dispatch
@@ -42,11 +45,21 @@ NATIVE_PREFIXES = (
 )
 
 
+def packaged_catalogue() -> dict[str, Any]:
+    data = resources.files("guardrails.data").joinpath("guardrail-rules.json")
+    catalogue: dict[str, Any] = json.loads(data.read_bytes())
+    return catalogue
+
+
+def proven_by_package(rule: dict[str, Any]) -> bool:
+    return rule.get("kind") == "tool" or bool(rule.get("reference"))
+
+
 class PackagedCatalogueTests(unittest.TestCase):
     """The catalogue ships in the package; its reference rules resolve to emitting modules."""
 
     def setUp(self) -> None:
-        self.catalogue = catalogue_rules.packaged_catalogue()
+        self.catalogue = packaged_catalogue()
 
     def test_catalogue_ships_as_package_data(self) -> None:
         assert self.catalogue["schema_version"] == 1
@@ -127,7 +140,7 @@ class PackagedCatalogueTests(unittest.TestCase):
             path.read_text(encoding="utf-8") for path in conformance.glob("*.json")
         )
         for rule in self.catalogue["rules"]:
-            if not catalogue_rules.proven_by_package(rule):
+            if not proven_by_package(rule):
                 continue
             with self.subTest(rule=rule["id"]):
                 # Native tool rules: init writes the native config the tool enforces, and
@@ -144,7 +157,7 @@ class DependencyAuditContractTests(unittest.TestCase):
     """SECURITY.dependency-audit belongs to the repo's checker; the catalogue states its contract."""
 
     def setUp(self) -> None:
-        rows = catalogue_rules.packaged_catalogue()["rules"]
+        rows = packaged_catalogue()["rules"]
         self.row = next(
             rule for rule in rows if rule["id"] == "SECURITY.dependency-audit"
         )
@@ -152,7 +165,7 @@ class DependencyAuditContractTests(unittest.TestCase):
 
     def test_the_repo_checker_owns_the_rule_and_the_harness_runs_no_copy(self) -> None:
         assert "reference" not in self.row
-        assert not catalogue_rules.proven_by_package(self.row)
+        assert not proven_by_package(self.row)
         assert self.row["applicability"] == "always"
         assert self.contract["setup_outcomes"] == ["repo", "grow"]
         assert self.contract["harness_copy_forbidden"]

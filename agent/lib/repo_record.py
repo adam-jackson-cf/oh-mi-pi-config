@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -151,14 +150,6 @@ def owner_path_problem(path: object) -> str | None:
     return None
 
 
-def owner_only(path: str, owned: Iterable[str]) -> bool:
-    """True when the repo-relative ``path`` is, or lies under, one of the owner-only ``owned`` entries."""
-    return any(
-        path.startswith(entry) if entry.endswith("/") else path == entry
-        for entry in owned
-    )
-
-
 def _checks_reason(checks: object) -> str | None:
     """Why the gate's ``checks`` object is rejected, or None."""
     if not isinstance(checks, dict):
@@ -247,11 +238,3 @@ def load_gate(record: str | Path) -> dict[str, Any]:
     if reason is not None:
         raise RecordError(f"{path}: {reason}")
     return cast("dict[str, Any]", gate)
-
-
-def dynaflows_enabled(repo: str | Path, root: str | Path | None = None) -> bool:
-    """True only when the clone has a record whose ``dynaflows.enabled`` is true."""
-    record = find_record(repo, root)
-    if record is None:
-        return False
-    return load_gate(record)["dynaflows"]["enabled"] is True
