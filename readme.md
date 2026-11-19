@@ -98,9 +98,13 @@ hook-skip variables are blocked even without a Git action, closing the earlier p
 assignment bypass. Quoted messages are not assignments; inherited external shell state is not a
 sandbox guarantee. Only schema version 2 is accepted.
 
-This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
-(`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
-with `git config core.hooksPath .githooks`.
+This repository's hook is `.githooks/pre-commit`, which runs exactly the record's `checks.commit`
+(`bash scripts/run-ci-quality-gates.sh --tier commit`). Install it once per clone with
+`git config core.hooksPath .githooks`; the devcontainer's `postCreateCommand` and the GitHub
+Actions workflow do this. The relative path makes every worktree that shares the clone's
+`.git/config` run its own `.githooks/pre-commit`. Both gate tiers fail when `core.hooksPath` is
+not `.githooks` or the hook does not run that command. Run the formatters with
+`bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its
@@ -276,8 +280,9 @@ gate execution stays inside gVisor. Images are cached by Dockerfile-content hash
 
 `.github/workflows/ci-quality-gates.yml` is the documented GitHub Actions fallback:
 a weekly Monday 04:23 UTC run plus manual `workflow_dispatch`, not push/PR CI and
-not a required context. The runner parity check in `run-ci-quality-gates.sh` reads
-only `.githooks/pre-commit`, so the workflow can change or go without breaking the gate.
+not a required context. The commit hook check in `run-ci-quality-gates.sh` reads
+only `.githooks/pre-commit` and `core.hooksPath`, so the workflow can change or go without
+breaking the gate.
 Dispatch manually from Actions → CI quality gates → Run workflow, or:
 
 ```sh

@@ -48,16 +48,18 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# The commit tier runs through .githooks/pre-commit, which must use this runner; the CI tier
-# command lives in the owner's personal record, outside this repository. The GitHub Actions
-# workflow is an optional manual fallback and is not part of the parity check.
-runner_base='scripts/run-ci-quality-gates'
-config=.githooks/pre-commit
-if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
-  printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
+hook=.githooks/pre-commit
+hook_command='exec bash scripts/run-ci-quality-gates.sh --tier commit'
+if [[ ! -x "$hook" ]] || ! grep -Fxq "$hook_command" "$hook"; then
+  printf 'Commit hook check failed: %s must be executable and hold the line: %s\n' "$hook" "$hook_command" >&2
   exit 1
 fi
-printf 'Runner parity check passed.\n'
+hooks_path="$(git config --get core.hooksPath || true)"
+if [[ "$hooks_path" != .githooks ]]; then
+  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: git config core.hooksPath .githooks\n' "${hooks_path:-unset}" >&2
+  exit 1
+fi
+printf 'Commit hook check passed.\n'
 
 # File lists and coverage data live in one scratch directory, removed on exit.
 scratch="$(mktemp -d)"
