@@ -9,8 +9,12 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
 
+import pytest
+
 from guardrails.config import conventions
 from guardrails.structure import naming
+
+pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 

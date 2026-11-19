@@ -21,10 +21,14 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
 
+import pytest
+
 from guardrails import cli, harness
 from guardrails.config.house_style import load_house_style
 from guardrails.config.profile import load_profile
 from guardrails.init import lsp, native_config, native_languages
+
+pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"

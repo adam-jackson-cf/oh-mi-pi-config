@@ -19,6 +19,8 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
 
+import pytest
+
 from guardrails import cli
 from guardrails.diffs import (
     affected,
@@ -30,6 +32,8 @@ from guardrails.diffs import (
     timeouts,
 )
 from guardrails.findings import Finding
+
+pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"

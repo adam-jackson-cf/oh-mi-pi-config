@@ -22,6 +22,8 @@ from guardrails.adapters.vitest import mutation, tiers
 from guardrails.config.profile import GUARDRAILS_SECTIONS
 from guardrails.test_evidence.mutation import load_report
 
+pytestmark = pytest.mark.fast
+
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 

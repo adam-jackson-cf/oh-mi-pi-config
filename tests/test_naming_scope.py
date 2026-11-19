@@ -15,9 +15,13 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
 
+import pytest
+
 from guardrails import cli
 from guardrails.findings import Finding
 from guardrails.structure import layout
+
+pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
 

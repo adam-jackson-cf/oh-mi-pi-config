@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.seam
+
 SOURCE = Path(__file__).resolve().parents[1]
 # ci_gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
 HARNESS_FILES = (

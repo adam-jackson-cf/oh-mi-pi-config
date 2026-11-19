@@ -3,6 +3,10 @@ import re
 import unittest
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.fast
+
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "agent/extensions/dynaflows/skills/dynaflows/references"
 CATALOGUE = (
