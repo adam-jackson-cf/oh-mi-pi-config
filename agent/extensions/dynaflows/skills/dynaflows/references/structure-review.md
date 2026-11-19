@@ -3,7 +3,7 @@
 ## Signature
 
 ```python
-proof = prove(repo, parent, head, manifest_path, digest, objective, target_ref=target_ref)
+proof = prove(repo, parent, head, (manifest_path, digest), objective, target_ref=target_ref)
 structure = await structure_review(repo, parent, head, target_ref=target_ref)
 # Rails require both exact-head files before git-tool's merge contract.
 ```
