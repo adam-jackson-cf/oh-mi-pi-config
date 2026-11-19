@@ -80,6 +80,27 @@ class LanguagePackTests(unittest.TestCase):
             self.assertEqual(naming.path_findings(repo, "account/v2/snapshot.json", {}), [])
             self.assertEqual(naming.path_findings(repo, "account/v2.json", {}), [])
 
+    def test_every_fixed_name_cites_its_tool_source(self) -> None:
+        for pack in conventions.packs():
+            sources = pack["convention_sources"].get("fixed_files", {})
+            for name in pack["fixed_files"]:
+                with self.subTest(pack=pack["name"], name=name):
+                    self.assertTrue(sources.get(name, "").startswith("https://"))
+
+    def test_lockfile_and_tool_config_names_are_fixed(self) -> None:
+        paths = (
+            "uv/uv.lock", "bun/bun.lock", "pnpm/pnpm-lock.yaml", "yarn/yarn.lock", "go/go.work",
+            "go/go.work.sum", "requirements/requirements.txt", "ruff/ruff.toml", "mypy/mypy.ini",
+            "golangci/.golangci.yml", "shellcheckrc/.shellcheckrc", "biome/biome.json",
+            "eslint/eslint.config.mjs", "oxlint/oxlint.config.ts", "oxlintrc/.oxlintrc.json",
+            "vitest/vitest.config.ts", "importlinter/.importlinter",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for path in paths:
+                with self.subTest(path=path):
+                    self.assertTrue(conventions.fixed_file(path))
+                    self.assertEqual(naming.path_findings(Path(directory), path, {}), [])
+
     def test_every_pack_cites_upstream_conventions(self) -> None:
         for pack in conventions.packs():
             self.assertTrue(pack["sources"])
