@@ -212,6 +212,23 @@ class ExtraTests(unittest.TestCase):
         assert result.passed, result.detail
 
     @needs_extra
+    def test_the_conformance_module_reports_each_case_and_exits_zero(self) -> None:
+        result = run_text(
+            [
+                sys.executable,
+                "-m",
+                "guardrails.commands.adapters.pytest.conformance",
+                "fast-tier-clean",
+            ],
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.splitlines() == [
+            "pass fast-tier-clean (TEST.fast-tier-isolation)",
+            "1/1 conformance cases pass",
+        ]
+
+    @needs_extra
     def test_cli_lint_reports_self_mocking_in_a_repository(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             source = SHOP_TEST + (

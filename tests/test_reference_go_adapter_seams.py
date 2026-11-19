@@ -14,6 +14,7 @@ sys.path.insert(
 )
 
 import pytest
+from test_reference_diffs import FixtureRepo
 
 from guardrails.commands import cli
 from guardrails.commands.adapters.go.conformance import load_cases, run_conformance
@@ -107,6 +108,49 @@ class GoAdapterTests(unittest.TestCase):
             assert read_ids(listing / "t1.txt") == [
                 "shop/total_test.go::TestBasketTotalSumsPrices"
             ]
+
+
+AFFECTED_PROFILE = {
+    **PROFILE,
+    "adapters": [
+        {
+            "name": "go",
+            "tiers": {
+                "t1": {"selector": "-run ^TestBasket", "location": "shop"},
+                "t2": {"selector": "-run ^TestReport", "location": "shop"},
+            },
+        }
+    ],
+    "coverage": {"scope": ["shop"]},
+    "ownership_areas": {"map": {"shop/total_test.go": "shop"}},
+    "structure": {"owners": {"files": {}, "directories": {"shop/": "shop"}}},
+}
+
+
+class GoAffectedTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = FixtureRepo(self)
+        self.base = self.repo.commit(MODULE, AFFECTED_PROFILE)
+        self.located = [
+            "--repo",
+            str(self.repo.path),
+            "--record",
+            str(self.repo.record),
+        ]
+
+    def test_a_changed_package_prints_its_t2_selector_and_package(self) -> None:
+        self.repo.commit({"shop/total.go": MODULE["shop/total.go"] + "\n"})
+        code, out = run_cli(
+            "adapter", *self.located, "go", "affected", "--base", self.base
+        )
+        assert (code, out.splitlines()) == (0, ["-run '^TestReport' ./shop"])
+
+    def test_an_unknown_base_is_a_finding(self) -> None:
+        code, out = run_cli(
+            "adapter", *self.located, "go", "affected", "--base", "no-such-ref"
+        )
+        assert code == 1
+        assert "no-such-ref" in out
 
 
 if __name__ == "__main__":
