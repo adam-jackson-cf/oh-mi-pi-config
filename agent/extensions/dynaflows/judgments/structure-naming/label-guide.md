@@ -45,8 +45,10 @@ label to improve agreement.
 
 SN038, SN040, SN042 and SN044 are no **decided in code**: PREFIX.candidates finds no cluster, so
 the judge is never asked and they are excluded from scores. SN005 is an abstention for
-insufficient evidence, not a negative, and is also excluded. The other 56 rows are scored once
-each, only on their labelled question. There is no calibration, tuning or held-out accuracy claim.
+insufficient evidence, not a negative, and is also excluded. The other 56 original rows were scored
+once each, only on their labelled question. SN062 and SN063 add two owner-confirmed positive replay
+cases on 2026-11-19, bringing the collection to 63 cases and 58 scored rows. There is no calibration,
+tuning or held-out accuracy claim.
 
 ## Replay base rule
 
@@ -70,6 +72,26 @@ held-out cases.
 An explicit-unit extractor API regenerates historical units even when they are not destination
 folders in a present PR. Production uses only CLI-selected destination folders in the actual
 parent..head diff.
+
+### Additional owner-confirmed replay cases
+
+SN062 labels `one_name_per_concept` yes for
+`agent/extensions/dynaflows/guardrails/omp_guardrails`; SN063 labels `folder_name_coverage` yes for
+`agent/extensions/dynaflows/skills/omp-dyna-workflows/templates`, whose `workflows.py` is a
+1,494-line orchestration implementation. Both states come directly from `structure-state` over
+`8e757085762fdc47a41fb1a392891880b4bf8334..cc6e079dc394010b415f2267229e5d6119aeb71c`,
+with the original extractor caps and no checkout or execution of historical code.
+
+The scoring batch reported `openrouter/typesafe/jev-1.14`, not the dated identity recorded for
+the original rows. The two new CSV rows record that observed model identity per row; their
+question hashes are retained as directed by the owner. Their raw labelled-question scores are
+0.38 and 0.30 respectively: both miss the confirmed positives at provisional 0.7. Do not pool
+these model identities for accuracy or calibration claims. `questions.json`, `thresholds.json`
+and all decision digests are unchanged; the threshold report describes the original 61-case run.
+
+TODO: Each of these two decisions now has four confirmed positive and five negative cases.
+Collect 26 more positive and 25 more negative cases per decision before tuning, with independent
+dev/test groups and a consistent scoring model. Every decision remains provisional and shadow-only.
 
 ## Deterministic extraction caps
 
