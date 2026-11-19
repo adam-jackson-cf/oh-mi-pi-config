@@ -20,6 +20,8 @@ from guardrails.adapters.vitest import cases, lint
 from guardrails.diffs.growth import Snapshot, duplicate_findings, growth_findings
 from guardrails.findings import Finding
 
+pytestmark = pytest.mark.fast
+
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 

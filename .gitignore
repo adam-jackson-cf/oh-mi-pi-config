@@ -32,6 +32,8 @@
 scripts/*
 !scripts/run-ci-quality-gates.sh
 !scripts/check_paths.py
+!scripts/check_coverage.py
+!scripts/run-test-tier.sh
 !scripts/ci_gate.py
 !scripts/ci-gate-repos.json
 !scripts/ci_runner.py
@@ -101,7 +103,9 @@ agent/extensions/*
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/agent-rails.test.ts
+!tests/agent-rails-seams.test.ts
+!tests/dynaflows-extension-seams.test.ts
+!tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
 !tests/test_check_paths.py
 !tests/test_ci_gate.py
@@ -120,6 +124,10 @@ tests/fixtures/*
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
 !tests/test_workflows.py
+!tests/test_workflows_seams.py
+!tests/test_device_rollout_seams.py
+!tests/test_repo_record_seams.py
+!tests/test_skill_references_seams.py
 
 !.omp/
 .omp/*

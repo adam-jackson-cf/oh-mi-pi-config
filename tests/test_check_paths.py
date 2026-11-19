@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.seam
+
 PROCESS_TIMEOUT = 60
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_paths.py"
 

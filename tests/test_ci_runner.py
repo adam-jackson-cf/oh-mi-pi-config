@@ -11,6 +11,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+pytestmark = pytest.mark.seam
+
 PROCESS_TIMEOUT = 60
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci_runner.py"
 REPO = "owner/repo"
