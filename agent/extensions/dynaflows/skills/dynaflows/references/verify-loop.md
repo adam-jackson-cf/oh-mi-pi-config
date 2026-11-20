@@ -16,6 +16,9 @@ Define the ready PR a writer returns and the fix rounds that follow a failed che
   exact-head CI; main then calls `prove()` and `structure_review()` on the new head.
 - No re-freeze is needed after a head change unless a proof file changed or a discovery added a proof.
 - A map-coverage block returns to the writer: add the outcome test, link it from the changed map doc, and main re-freezes.
+- Grade each review or gap finding that proposes a test, edge case, guard or handling path with the scenario rubric
+  (`skill://test-guidance/references/case-selection.md#scenario-rubric`) before a fix round acts on it. Act on keep and extend-existing;
+  report each drop with its failing criterion and evidence. Failed `prove()`, CI and `halt` results are not graded.
 - A fix round is one writer repair cycle returning a new head after a failed `prove()` or red CI.
 - After three fix rounds, unresolved failures stop the unit: escalate with the PR and head, failed checks,
   attempted fixes and decisions needed.
