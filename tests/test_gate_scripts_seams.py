@@ -169,12 +169,14 @@ def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
     assert bun[6].endswith("/bun-t2.preload.mjs")
     assert bun[7:] == ["./tests/flow-seams.test.ts", "NODE_V8_COVERAGE=/cov/node"]
     [pytest_call] = pytest_runs(calls)
-    assert pytest_call[-9:] == [
+    assert pytest_call[-11:] == [
         "-p",
         "guardrails.commands.adapters.pytest.plugin",
         "--omp-guard=user-data",
         "-m",
         "seam",
+        "-n",
+        "auto",
         "--cov",
         "--cov-append",
         "--cov-report=",
@@ -222,7 +224,10 @@ def test_commit_tier_runs_the_t2_seams_a_staged_path_reaches(
     assert (
         "T2 pytest seams skipped: no staged path reaches them." not in output
     ) is pytest_t2
-    assert any(call[-2:] == ["-m", "seam"] for call in pytest_runs(calls)) is pytest_t2
+    assert (
+        any(call[-4:] == ["-m", "seam", "-n", "auto"] for call in pytest_runs(calls))
+        is pytest_t2
+    )
     assert (
         any("./tests/flow-seams.test.ts" in call for call in bun_runs(calls)) is bun_t2
     )
