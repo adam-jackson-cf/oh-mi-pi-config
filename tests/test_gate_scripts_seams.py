@@ -200,6 +200,7 @@ def test_test_tier_usage_errors_exit_two(checkout: Any, argv: list[str]) -> None
         ("orca-plugins/chat.css", False, False),
         ("tests/test_extra.py", False, True),
         ("tests/extra.test.ts", True, False),
+        ("tools/oxlint/anti-slop/rules/extra.ts", True, False),
         ("agent/extensions/new.ts", True, True),
     ],
 )
