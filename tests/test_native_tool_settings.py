@@ -1,4 +1,5 @@
 import json
+import re
 import tomllib
 import unittest
 from pathlib import Path
@@ -105,3 +106,29 @@ class NativeToolSettingsTests(unittest.TestCase):
             key: editorconfig_value(value)
             for key, value in expected["settings"].items()
         }
+
+    def test_prettier_and_markdownlint_are_pinned_exactly_once(self) -> None:
+        package = json_settings("package.json")
+        sections = [package.get("dependencies", {}), package.get("devDependencies", {})]
+        for tool in ("prettier", "markdownlint-cli2"):
+            with self.subTest(tool=tool):
+                pins = [section[tool] for section in sections if tool in section]
+                assert len(pins) == 1
+                assert re.fullmatch(r"\d+\.\d+\.\d+", pins[0])
+
+    def test_prettier_overrides_name_existing_files(self) -> None:
+        for override in json_settings(".prettierrc.json")["overrides"]:
+            for pattern in override["files"]:
+                with self.subTest(pattern=pattern):
+                    assert list(ROOT.glob(pattern))
+
+    def test_markdownlint_settings_hold_the_line_length_and_name_existing_trees(
+        self,
+    ) -> None:
+        text = (ROOT / ".markdownlint-cli2.jsonc").read_text(encoding="utf-8")
+        settings = json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+        assert settings["config"]["MD013"] == {"line_length": 100}
+        for override in settings["overrides"]:
+            for pattern in override["filter"]:
+                with self.subTest(pattern=pattern):
+                    assert (ROOT / pattern.removesuffix("/**")).is_dir()
