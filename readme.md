@@ -99,11 +99,12 @@ assignment bypass. Quoted messages are not assignments; inherited external shell
 sandbox guarantee. Only schema version 2 is accepted.
 
 This repository's hook is `.githooks/pre-commit`, which runs exactly the record's `checks.commit`
-(`bash scripts/run-ci-quality-gates.sh --tier commit`). Install it once per clone with
-`git config core.hooksPath .githooks`; the devcontainer's `postCreateCommand` and the GitHub
-Actions workflow do this. The relative path makes every worktree that shares the clone's
+(`bash scripts/run-ci-quality-gates.sh --tier commit`). Set up every clone with
+`bash scripts/bootstrap.sh`: it installs the locked Bun and uv dependencies and sets
+`core.hooksPath` to `.githooks`. The devcontainer's `postCreateCommand` and the GitHub Actions
+workflow run it. The relative path makes every worktree that shares the clone's
 `.git/config` run its own `.githooks/pre-commit`. Both gate tiers fail when `core.hooksPath` is
-not `.githooks` or the hook does not run that command. Run the formatters with
+not `.githooks` or the hook differs from the expected text. Run the formatters with
 `bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
@@ -296,7 +297,7 @@ file. The ruff and mypy settings mirror the harness catalogue,
 `agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
 
 ```bash
-uv sync
+uv sync --locked
 uv run ruff check     # fix = true applies safe fixes; add --no-fix to report only
 uv run ruff format --check
 uv run mypy

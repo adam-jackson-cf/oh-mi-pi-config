@@ -41,6 +41,7 @@ def checkout() -> Any:
             "scripts/run-test-tier.sh",
             "scripts/audit-dependencies.sh",
             "scripts/check_paths.py",
+            "scripts/bootstrap.sh",
             ".githooks/pre-commit",
         ):
             (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -349,6 +350,51 @@ def test_both_gate_tiers_fail_on_an_ignored_test_file(checkout: Any, tier: str) 
     code, output, _ = run(root, env, "scripts/run-ci-quality-gates.sh", "--tier", tier)
     assert code == 1
     assert "tests/ignored.test.ts: ignored by the .gitignore allowlist" in output
+
+
+def test_a_hook_that_exits_before_running_the_gate_fails_both_tiers(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    hook = root / ".githooks/pre-commit"
+    original = hook.read_text()
+    hook.write_text(
+        original.replace("set -euo pipefail\n", "set -euo pipefail\nexit 0\n")
+    )
+    git(root, env, "add", ".githooks/pre-commit")
+    for tier in ("commit", "ci"):
+        code, output, calls = run(
+            root, env, "scripts/run-ci-quality-gates.sh", "--tier", tier
+        )
+        assert code == 1
+        assert "Commit hook check failed" in output
+        assert calls == []
+
+
+def test_bootstrap_installs_the_locked_dependencies_and_the_hook(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    git(root, env, "config", "--unset", "core.hooksPath")
+    code, output, calls = run(root, env, "scripts/bootstrap.sh")
+    assert code == 0, output
+    assert calls == [
+        ["bun", "install", "--frozen-lockfile"],
+        ["uv", "sync", "--locked"],
+    ]
+    hooks = run_text(
+        ["git", "-C", str(root), "config", "--get", "core.hooksPath"],
+        env=env,
+        timeout=PROCESS_TIMEOUT,
+    )
+    assert hooks.stdout.strip() == ".githooks"
+
+
+def test_every_clone_setup_runs_the_bootstrap() -> None:
+    devcontainer = json.loads((SOURCE / ".devcontainer/devcontainer.json").read_text())
+    workflow = (SOURCE / ".github/workflows/ci-quality-gates.yml").read_text()
+    assert devcontainer["postCreateCommand"] == "bash scripts/bootstrap.sh"
+    assert "      - run: bash scripts/bootstrap.sh\n" in workflow
 
 
 def test_every_local_module_a_test_imports_is_tracked() -> None:

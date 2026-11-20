@@ -295,6 +295,7 @@ GATES_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/run-ci-quality-gat
 # Stops the run right after the parity check, before any lint, type or test tool starts.
 STOP = "#!/bin/sh\nexit 42\n"
 HOOK_COMMAND = "exec bash scripts/run-ci-quality-gates.sh --tier commit"
+HOOK = (Path(__file__).resolve().parents[1] / ".githooks/pre-commit").read_text()
 
 
 class RunnerParityTests(unittest.TestCase):
@@ -336,7 +337,7 @@ class RunnerParityTests(unittest.TestCase):
 
     def hook(self, command: str = HOOK_COMMAND, mode: int = 0o755) -> None:
         hook = self.repo / ".githooks/pre-commit"
-        hook.write_text(f"#!/usr/bin/env bash\n{command}\n")
+        hook.write_text(HOOK.replace(HOOK_COMMAND, command))
         hook.chmod(mode)
 
     def run_script(self) -> subprocess.CompletedProcess[str]:
@@ -445,7 +446,7 @@ class RunnerParityTests(unittest.TestCase):
         self.hook(f"{HOOK_COMMAND} --fix --stage")
         result = self.run_script()
         assert result.returncode == 1
-        assert f"hold the line: {HOOK_COMMAND}" in result.stderr
+        assert "must be executable and match the hook text" in result.stderr
 
     def test_a_hook_that_cannot_execute_fails(self) -> None:
         self.hook(mode=0o644)
@@ -473,7 +474,7 @@ class RunnerParityTests(unittest.TestCase):
                 assert result.returncode == 1
                 assert (
                     f"core.hooksPath is {value or 'unset'}; install the hook with: "
-                    "git config core.hooksPath .githooks"
+                    "bash scripts/bootstrap.sh"
                 ) in result.stderr
 
 
