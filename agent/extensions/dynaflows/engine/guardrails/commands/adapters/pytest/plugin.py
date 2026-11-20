@@ -9,6 +9,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 from _pytest.junitxml import xml_key
@@ -24,6 +25,12 @@ from guardrails.host.process import run_text
 VIOLATIONS = pytest.StashKey[dict[str, list[str]]]()
 STARTED = pytest.StashKey[float]()
 XDG_VARIABLES = ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME")
+PROTECTED_HOME = "omp_protected_home"
+
+
+class WorkerNode(Protocol):
+    config: pytest.Config
+    workerinput: dict[str, object]
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -65,12 +72,14 @@ class GuardSession:
         self.armed = armed
         self.saved_environment: dict[str, str | None] = {}
         self.temporary_home: str | None = None
+        self.protected_home: str | None = None
 
     def start(self) -> None:
         protected = None
         allowed = [str(self.config.rootpath)]
         if guards.USER_DATA in self.armed:
-            protected = os.path.expanduser("~")
+            protected = real_home(self.config)
+            self.protected_home = protected
             self.temporary_home = tempfile.mkdtemp(prefix="omp-guarded-home-")
             allowed.extend([self.temporary_home, tempfile.gettempdir()])
             basetemp = self.config.getoption("basetemp", None)
@@ -100,6 +109,20 @@ class GuardSession:
 
 
 SESSION_KEY = pytest.StashKey[GuardSession]()
+
+
+def real_home(config: pytest.Config) -> str:
+    workerinput = getattr(config, "workerinput", None)
+    if workerinput is None:
+        return os.path.expanduser("~")
+    return str(workerinput[PROTECTED_HOME])
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: WorkerNode) -> None:
+    session = node.config.stash.get(SESSION_KEY, None)
+    if session is not None and session.protected_home is not None:
+        node.workerinput[PROTECTED_HOME] = session.protected_home
 
 
 class SubtestTally:

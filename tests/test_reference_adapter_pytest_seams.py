@@ -279,6 +279,49 @@ class ExtraTests(unittest.TestCase):
             ]
             assert adapter.guard_evidence(report, "t1") == []
 
+    def test_parallel_workers_guard_the_real_home_of_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            home, temporary, project = root / "home", root / "tmp", root / "project"
+            for folder in (home, temporary, project / "tests"):
+                folder.mkdir(parents=True)
+            (project / "tests/test_home.py").write_text(
+                "import os\nfrom pathlib import Path\n\n\n"
+                "def test_writes_the_real_home():\n"
+                '    Path(os.environ["REAL_HOME"], "note.txt").write_text("x")\n',
+                encoding="utf-8",
+            )
+            environment = {
+                **os.environ,
+                "PYTHONPATH": str(REFERENCE),
+                "HOME": str(home),
+                "TMPDIR": str(temporary),
+                "REAL_HOME": str(home),
+            }
+            environment.pop("PYTEST_ADDOPTS", None)
+            result = run_text(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "-p",
+                    "guardrails.commands.adapters.pytest.plugin",
+                    "--omp-guard=user-data",
+                    "-n",
+                    "2",
+                    "tests",
+                ],
+                cwd=project,
+                env=environment,
+                timeout=300,
+            )
+            assert result.returncode == 1, result.stdout + result.stderr
+            assert "TEST.user-data-guard" in result.stdout
+            assert not (home / "note.txt").exists()
+
     def test_a_clean_run_with_unittest_subtests_passes_report_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch), UNITTEST_SUBTEST_TEST)

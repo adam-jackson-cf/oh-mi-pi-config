@@ -103,7 +103,7 @@ run_pytest() {
   if [[ "$tier" == t1 ]]; then
     args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=fast-tier,user-data' -m fast)
   else
-    args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=user-data' -m seam)
+    args+=(-p guardrails.commands.adapters.pytest.plugin '--omp-guard=user-data' -m seam -n auto)
   fi
   if [[ -n "$coverage" ]]; then
     COVERAGE_FILE="$coverage/python.coverage" uv run --locked pytest "${args[@]}" \
