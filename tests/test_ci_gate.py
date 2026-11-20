@@ -345,7 +345,11 @@ class CiGateTests(GateFixture):
         assert "--network=none" not in args
         assert "--network=none" in gate
         mounted = args.index("-v") + 2
-        assert gate[: mounted + 1] == [*args[:mounted], "--network=none"]
+        assert gate[: mounted + 2] == [
+            *args[:mounted],
+            "--network=none",
+            "--runtime-flag=network=none",
+        ]
         assert "--runtime-flag=ignore-cgroups" in args
         assert args[args.index("--runtime") + 1] == "/usr/local/bin/runsc"
         build = next(argv for argv in self.calls("podman") if argv[0] == "build")

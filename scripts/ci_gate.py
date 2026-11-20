@@ -471,6 +471,11 @@ def runtime_flags(*, build: bool = False) -> list[str]:
     return flags
 
 
+def offline_flags(flags: list[str]) -> list[str]:
+    sandboxed = any("runsc" in flag for flag in flags)
+    return ["--network=none", *(["--runtime-flag=network=none"] if sandboxed else [])]
+
+
 def checkout_file(src: Path, relative: str) -> Path:
     path = (src / relative).resolve()
     if not path.is_relative_to(src.resolve()):
@@ -693,7 +698,7 @@ def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None
         return
     attempt.code, _ = container_exit(
         attempt.job,
-        [*run_argv, "--network=none"],
+        [*run_argv, *offline_flags(runtime_flags())],
         image,
         "exec " + shlex.join(gate),
         log,
