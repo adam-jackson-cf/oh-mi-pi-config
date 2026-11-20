@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -25,6 +26,11 @@ if "audit" in sys.argv or "pip-audit" in sys.argv:
     entry.append("cwd=" + os.getcwd())
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(entry) + "\\n")
+if name == "uv" and sys.argv[1:5] in (
+    ["run", "--locked", "python", "scripts/check_paths.py"],
+    ["run", "--locked", "python", "-"],
+):
+    os.execv(sys.executable, [sys.executable, *sys.argv[4:]])
 if name == "uv" and "--collect-only" in sys.argv:
     sys.exit(int(os.environ.get("FAKE_COLLECT", "5")))
 if os.environ.get("FAKE_AUDIT_FAIL") in entry:
@@ -54,6 +60,8 @@ def checkout() -> Any:
         for name in ("uv", "bun", "bunx", "go"):
             (binary / name).write_text(FAKE.format(python=sys.executable))
             (binary / name).chmod(0o755)
+        (binary / "python3").write_text("#!/bin/sh\nexit 97\n")
+        (binary / "python3").chmod(0o755)
         env = {
             key: value
             for key, value in os.environ.items()
@@ -395,6 +403,23 @@ def test_every_clone_setup_runs_the_bootstrap() -> None:
     workflow = (SOURCE / ".github/workflows/ci-quality-gates.yml").read_text()
     assert devcontainer["postCreateCommand"] == "bash scripts/bootstrap.sh"
     assert "      - run: bash scripts/bootstrap.sh\n" in workflow
+
+
+def test_gate_scripts_run_python_only_through_the_locked_environment(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    code, output, calls = run(
+        root, env, "scripts/run-ci-quality-gates.sh", "--tier", "commit"
+    )
+    assert code == 0, output
+    assert ["uv", "run", "--locked", "python", "scripts/check_paths.py"] in calls
+    assert any(call[:5] == ["uv", "run", "--locked", "python", "-"] for call in calls)
+
+
+def test_the_locked_environment_runs_the_pinned_interpreter() -> None:
+    pinned = (SOURCE / ".python-version").read_text().strip()
+    assert platform.python_version() == pinned
 
 
 def test_every_local_module_a_test_imports_is_tracked() -> None:

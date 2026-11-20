@@ -62,7 +62,7 @@ preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapte
 run_bun() {
   local args=() file file_tier
   local entry="$scratch/bun-$tier.preload.mjs"
-  python3 - "$preload" "$tier" "$scratch/bun-$tier.journal.jsonl" >"$entry" <<'EOF'
+  uv run --locked python - "$preload" "$tier" "$scratch/bun-$tier.journal.jsonl" >"$entry" <<'EOF'
 import json
 import pathlib
 import sys
