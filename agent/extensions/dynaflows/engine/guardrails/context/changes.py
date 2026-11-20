@@ -62,7 +62,11 @@ def git(repo: Path, *args: str) -> str:
 
 
 def changed_files(repo: Path, diff: DiffRange) -> list[Change]:
-    output = git(repo, "diff", "--name-status", "-z", "-M", diff.base, diff.head, "--")
+    return name_changes(repo, diff.base, diff.head)
+
+
+def name_changes(repo: Path, *revisions: str) -> list[Change]:
+    output = git(repo, "diff", "--name-status", "-z", "-M", *revisions, "--")
     tokens = [token for token in output.split("\0") if token]
     changes: list[Change] = []
     index = 0
