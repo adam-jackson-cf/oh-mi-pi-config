@@ -439,15 +439,6 @@
       "summary": "Preserve or deliberately adapt mypy setting python_version."
     },
     {
-      "id": "MYPY.SETTING.show_error_codes",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "value": "True"
-      },
-      "summary": "Preserve or deliberately adapt mypy setting show_error_codes."
-    },
-    {
       "id": "MYPY.follow_imports",
       "kind": "tool",
       "applicability": "conditional",

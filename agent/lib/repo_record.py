@@ -118,7 +118,7 @@ GATE_FIELDS = frozenset({
     "ci",
     "dynaflows",
 })
-CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
+CHECK_FIELDS = frozenset({"commit", "ci", "audit", "format", "profile"})
 
 
 def _argv(value: object) -> bool:
@@ -138,7 +138,7 @@ def _checks_reason(checks: object) -> str | None:
         return f"unknown field {', '.join(f'checks.{key}' for key in unknown)} must be removed"
     if not _argv(checks.get("commit")):
         return "checks.commit must be argv"
-    for key in ("ci", "format", "profile"):
+    for key in ("ci", "audit", "format", "profile"):
         if key in checks and not _argv(checks[key]):
             return f"checks.{key} must be argv"
     return None

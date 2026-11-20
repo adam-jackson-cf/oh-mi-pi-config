@@ -7,7 +7,16 @@ on:
 
 jobs:
   quality-gates:
+    name: ${{ matrix.check }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: dependency-audit
+            run: bash scripts/audit-dependencies.sh
+          - check: quality-gates
+            run: bash scripts/run-ci-quality-gates.sh
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -16,5 +25,9 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: 1.26.10
+          cache: false
       - run: bash scripts/install-quality-gates.sh
-      - run: bash scripts/run-ci-quality-gates.sh
+      - run: ${{ matrix.run }}

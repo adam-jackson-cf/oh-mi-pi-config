@@ -4,8 +4,6 @@
 The gate policy (checks.ci and ci.requiredContext) comes from the repo's personal per-repo record,
 <harness root>/repos/<owner>/<name>/gate.json beside this checkout, never from the repo tree.
 The device rollout copies records to every device.
-Bootstrap/install failures before checks.ci starts are retryable infrastructure errors.
-Once checks.ci starts, its nonzero result is a cached gate failure.
 """
 
 import argparse
@@ -105,20 +103,19 @@ def record_gate(repo: str) -> dict[str, Any]:
         ) from None
 
 
-def ci_argv(policy: object) -> list[str]:
-    """Return the CI argv from record gate.json schema version 2: checks.ci."""
+def check_argv(policy: object, name: str) -> list[str]:
     checks = (
         policy.get("checks")
         if isinstance(policy, dict) and policy.get("schemaVersion") == 2
         else None
     )
-    argv = checks.get("ci") if isinstance(checks, dict) else None
+    argv = checks.get(name) if isinstance(checks, dict) else None
     if (
         not isinstance(argv, list)
         or not argv
         or any(not isinstance(arg, str) or not arg.strip() for arg in argv)
     ):
-        raise RuntimeError("Invalid gate argv")
+        raise RuntimeError(f"Invalid gate.json checks.{name} argv")
     return argv
 
 
@@ -603,21 +600,17 @@ def prepare_image(
     return image
 
 
-def bootstrap_command(post: str, gate: list[str]) -> str:
-    """The container shell script: bootstrap, then mark the gate started and exec it."""
-    # Keep the phase marker outside the checkout: bootstrap and gate share one
-    # shell/container, including exported variables and installed dependencies.
+def bootstrap_command(post: str, audit: list[str]) -> str:
     return ((post + "\n") if post else "") + (
         "bootstrap_status=$?\n"
         'if (( bootstrap_status )); then exit "$bootstrap_status"; fi\n'
-        ": > /ci-gate-state/gate-started && exec " + shlex.join(gate)
+        ": > /ci-gate-state/bootstrapped && exec " + shlex.join(audit)
     )
 
 
-def gate_exit(
+def container_exit(
     job: Path, run_argv: list[str], image: str, command: str, log: TextIO
-) -> int:
-    """Run the gate container; its exit code once the gate started, else raise an infrastructure error."""
+) -> tuple[int, bool]:
     with tempfile.TemporaryDirectory(prefix="execute-", dir=job) as phase:
         code = container_command(
             [
@@ -635,9 +628,26 @@ def gate_exit(
         )
         if code in {125, 126, 127} or code < 0:
             raise RuntimeError("Podman execution failed")
-        if not (Path(phase) / "gate-started").is_file():
-            raise RuntimeError(f"Container bootstrap failed (exit {code})")
-        return code
+        return code, (Path(phase) / "bootstrapped").is_file()
+
+
+def user_mapping(podman: str, image: str) -> list[str]:
+    inspected = subprocess.run(
+        [podman, "image", "inspect", "--format", "{{.Config.User}}", image],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if inspected.returncode:
+        raise RuntimeError("Podman image inspection failed")
+    user = inspected.stdout.strip()
+    uid, _, gid = user.partition(":")
+    if user in {"", "root", "0", "0:0"}:
+        return []
+    if not re.fullmatch(r"[0-9]+", uid) or not re.fullmatch(r"[0-9]*", gid):
+        raise RuntimeError(f"Container image user {user} must be numeric")
+    return [f"--userns=keep-id:uid={uid},gid={gid or uid}"]
 
 
 def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None:
@@ -646,7 +656,8 @@ def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None
     policy = record_gate(attempt.metadata["repo"])
     attempt.metadata = {**attempt.metadata, "context": required_context(policy)}
     save(attempt.job / "job.json", attempt.metadata)
-    gate = ci_argv(policy)
+    audit = check_argv(policy, "audit")
+    gate = check_argv(policy, "ci")
     config = load(checkout_file(src, ".devcontainer/devcontainer.json"))
     post = post_create(config)
     with lock(repo_lock(attempt.metadata["repo"])):
@@ -661,11 +672,24 @@ def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None
         "--name",
         container,
         *runtime_flags(),
+        *user_mapping(podman, image),
         "-v",
         str(src) + ":/work:rw",
     ]
-    attempt.code = gate_exit(
-        attempt.job, run_argv, image, bootstrap_command(post, gate), log
+    attempt.code, bootstrapped = container_exit(
+        attempt.job, run_argv, image, bootstrap_command(post, audit), log
+    )
+    if not bootstrapped:
+        raise RuntimeError(f"Container bootstrap failed (exit {attempt.code})")
+    if attempt.code:
+        attempt.state, attempt.reason = "failure", "dependency audit failed"
+        return
+    attempt.code, _ = container_exit(
+        attempt.job,
+        [*run_argv, "--network=none"],
+        image,
+        "exec " + shlex.join(gate),
+        log,
     )
     attempt.state = "success" if attempt.code == 0 else "failure"
 

@@ -89,6 +89,15 @@ describe("record resolution", () => {
 		} finally { f.cleanup(); }
 	});
 
+	test("a record declaring the dependency audit argv loads", async () => {
+		const f = fixture();
+		try {
+			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
+			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, checks: { commit: ["make"], audit: ["make", "audit"] } }));
+			assert.equal(await dynaflowsEnabled(f.repo, f.config), true);
+		} finally { f.cleanup(); }
+	});
+
 	test("a record missing a required field or carrying an unknown one does not load", async () => {
 		const f = fixture();
 		try {
@@ -99,6 +108,7 @@ describe("record resolution", () => {
 				[{ ...completeGate, extraField: 1000 }, "extraField"], [{ ...completeGate, otherField: "github" }, "otherField"],
 				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],
 				[{ ...completeGate, ownerOnlyPaths: [] }, "ownerOnlyPaths"],
+				[{ ...completeGate, checks: { commit: ["make"], audit: [] } }, "audit"],
 			] as const) {
 				f.writeRecord("owner/name", JSON.stringify(invalid));
 				await assert.rejects(dynaflowsEnabled(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);

@@ -14,6 +14,7 @@ dependencies = []
 dev = [
   # The engine and its pytest extra, so mypy sees its real dependencies.
   "guardrails[pytest]",
+  "hadolint-py==2.15.1.3",
   # The vision-reading experiment's inline script dependencies.
   "matplotlib==3.11.2",
   "mypy==2.4.1",
@@ -25,13 +26,67 @@ dev = [
   "ruff==0.17.5",
   "shellcheck-py==0.11.0.1",
   "shfmt-py==4.2.0",
+  "tombi==1.11.3",
 ]
 
-[tool.uv]
-package = false
+[tool.coverage.run]
+branch = true
+patch = ["subprocess"]
+source = [
+  "agent/extensions/dynaflows",
+  "agent/lib",
+  "agent/skills/omp-config-optimise",
+  "scripts",
+]
+omit = [
+  "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
+  "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
+]
 
-[tool.uv.sources]
-guardrails = { path = "agent/extensions/dynaflows/engine", editable = true }
+[tool.coverage.report]
+include_namespace_packages = true
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+follow_imports = "normal"
+# The owned Python roots, as the .gitignore allowlist tracks them.
+files = [
+  "agent/extensions/dynaflows",
+  "agent/lib",
+  "agent/skills/omp-config-optimise",
+  "scripts",
+  "tests",
+]
+# Script folders run with their own directory on sys.path; each is a module root.
+explicit_package_bases = true
+mypy_path = [
+  "agent/extensions/dynaflows/engine",
+  "agent/extensions/dynaflows/skills/jev-actions/scripts",
+  "agent/lib",
+  "agent/skills/omp-config-optimise/experiments",
+  "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",
+  "agent/skills/omp-config-optimise/experiments/review-detection",
+  "agent/skills/omp-config-optimise/experiments/vision-reading",
+  "tests",
+]
+# Intentional test-fixture trees and generated output only.
+exclude = [
+  "^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
+  "^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/",
+  "^tests/fixtures/",
+  "/build/",
+  "/node_modules/",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers"]
+markers = [
+  "fast: T1: no process, network, real-home write or real Git, worktree or container",
+  "seam: T2: real processes, Git repositories, worktrees or containers",
+]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
@@ -117,62 +172,9 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
-[tool.mypy]
-python_version = "3.11"
-strict = true
-warn_unused_ignores = true
-follow_imports = "normal"
-show_error_codes = true
-# The owned Python roots, as the .gitignore allowlist tracks them.
-files = [
-  "agent/extensions/dynaflows",
-  "agent/lib",
-  "agent/skills/omp-config-optimise",
-  "scripts",
-  "tests",
-]
-# Script folders run with their own directory on sys.path; each is a module root.
-explicit_package_bases = true
-mypy_path = [
-  "agent/extensions/dynaflows/engine",
-  "agent/extensions/dynaflows/skills/jev-actions/scripts",
-  "agent/lib",
-  "agent/skills/omp-config-optimise/experiments",
-  "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",
-  "agent/skills/omp-config-optimise/experiments/review-detection",
-  "agent/skills/omp-config-optimise/experiments/vision-reading",
-  "tests",
-]
-# Intentional test-fixture trees and generated output only.
-exclude = [
-  '^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/',
-  '^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/',
-  '^tests/fixtures/',
-  '/build/',
-  '/node_modules/',
-]
+[tool.uv]
+package = false
+required-version = "==0.13.7"
 
-[tool.coverage.run]
-branch = true
-patch = ["subprocess"]
-source = [
-  "agent/extensions/dynaflows",
-  "agent/lib",
-  "agent/skills/omp-config-optimise",
-  "scripts",
-]
-omit = [
-  "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
-  "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
-]
-
-[tool.coverage.report]
-include_namespace_packages = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = ["--strict-markers"]
-markers = [
-  "fast: T1: no process, network, real-home write or real Git, worktree or container",
-  "seam: T2: real processes, Git repositories, worktrees or containers",
-]
+[tool.uv.sources]
+guardrails = { path = "agent/extensions/dynaflows/engine", editable = true }

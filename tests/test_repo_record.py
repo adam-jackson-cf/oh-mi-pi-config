@@ -66,6 +66,7 @@ class GateReason(unittest.TestCase):
                 checks={
                     "commit": ["c"],
                     "ci": ["true"],
+                    "audit": ["bash", "scripts/audit-dependencies.sh"],
                     "format": ["ruff", "format"],
                     "profile": ["p"],
                 },
@@ -91,6 +92,10 @@ class GateReason(unittest.TestCase):
             (
                 gate(checks={"commit": ["c"], "profile": []}),
                 "checks.profile must be argv",
+            ),
+            (
+                gate(checks={"commit": ["c"], "audit": ["c", " "]}),
+                "checks.audit must be argv",
             ),
             (
                 gate(checks={"commit": ["c"], "lint": ["x"]}),
