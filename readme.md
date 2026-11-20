@@ -184,7 +184,7 @@ and generated telemetry configuration. Never run Git or mirror with deletion in
 `~/.omp`. The source checkout stays clean; agent-introspection applies its managed
 telemetry overlay only to the runtime.
 
-`scripts/omp-config-sync.py` replaces the copy-only `~/.local/bin/omp-config-pull`
+`scripts/omp_config_sync.py` replaces the copy-only `~/.local/bin/omp-config-pull`
 script. It locks syncs, requires a clean `nuc-config` checkout, and pulls with
 `--ff-only`. It refuses local edits to tracked runtime files using stored SHA-256 hashes, then
 copies source changes without `.git` and removes retired tracked
@@ -217,11 +217,11 @@ managed overlay. Never adopt unknown runtime bytes automatically.
 The CLI deploys only to `~/.omp`; it is not a staging command because telemetry
 configuration targets the home runtime.
 
-Requirements: Python 3, Git, Bun **1.3.0** at
-`~/.local/share/mise/installs/bun/1.3.0/bin/bun`, and
+Requirements: Python 3, Git, Bun **1.4.4** at
+`~/.local/share/mise/installs/bun/1.4.4/bin/bun`, and
 `~/.local/bin/agent-introspection`. Dependency installation uses the explicit Bun
 path, adds it to `PATH`, and sets `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. The repository's
-OMP development dependency is **18.16.0**; keep the separately installed NUC OMP
+OMP development dependency is **19.0.0**; keep the separately installed NUC OMP
 binary at or above that version. Check with `omp --version` and update with
 `mise upgrade github:can1357/oh-my-pi`. The helper does not update the OMP binary.
 Restart existing OMP sessions after a successful deployment.

@@ -181,8 +181,9 @@ agent/extensions/dynaflows/engine/build/
 orca-plugins/terminal-sections/terminal/
 
 # Versioned Linux NUC deployment tooling.
-!scripts/omp-config-sync.py
+!scripts/omp_config_sync.py
 !scripts/systemd/
 !scripts/systemd/omp-config-pull.service
 !scripts/systemd/omp-config-pull.timer
 !tests/test_omp_config_sync.py
+!tests/test_omp_config_sync_seams.py
