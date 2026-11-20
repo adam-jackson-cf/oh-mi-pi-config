@@ -48,15 +48,16 @@ context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.enabled: 
 
 Git-tool reads `agentMerge` and `ci` independently of the harness process switch.
 `agentMerge: disabled` requires the owner's approval to merge; `allowed` never waives CI.
-Follow [git-tool](../../skills/git-tool/references/authority-and-safety.md), not setup, for Git
-authorization.
+Follow
+[git-tool](../../extensions/dynaflows/skills/git-tool/references/authority-and-safety.md),
+not setup, for Git authorization.
 
 `ci.requiredContext` is the commit-status context or check-run name that must report
 `success` on the exact PR head, normally `gate`. `ci.runner` is an owner-chosen role,
 not a host or account. Each device resolves the role to submit, wait, status and logs
 commands in machine-level `ci-runners.json`, written by device setup.
 Agents use `ci_runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
-[the Git CI runbook](../../skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
+[the Git CI runbook](../../extensions/dynaflows/skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
 
 The `github-actions` role runs `checks.ci` on every push and pull request in a job named
 for the required context; push triggers it, so no submission is needed. Another role

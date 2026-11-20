@@ -61,7 +61,7 @@ files = [
 explicit_package_bases = true
 mypy_path = [
   "agent/extensions/dynaflows/engine",
-  "agent/extensions/dynaflows/skills/jev-actions/scripts",
+  "agent/skills/jev-actions/scripts",
   "agent/lib",
   "agent/skills/omp-config-optimise/experiments",
   "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",

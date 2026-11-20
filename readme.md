@@ -11,10 +11,10 @@ The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-dir
 design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md),
-and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `jev-actions` and
-`codify-omp-workflow-corrections`. `git-tool` stays standalone because it serves dynaflows-off
-sessions too ([ADR 0013](docs/adr/0013-dynaflows-bundles-its-skills.md)). Git history retains the
-retired delivery-guidance copies and standalone workflow entry. The
+and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
+`codify-omp-workflow-corrections`. `git-tool` serves both dynaflows modes; its merge, CI and recovery
+runbook applies in structured mode only. `jev-actions` is a standalone skill in `agent/skills/`.
+Git history retains the retired delivery-guidance copies and standalone workflow entry. The
 [workflow page](agent/extensions/dynaflows/docs/workflow.html) is an explanatory view of the
 canonical skill contracts.
 
@@ -337,7 +337,7 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
 - `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
-- `agent/skills/git-tool/` — Git, PR and merge authority, used with dynaflows on or off.
+- `agent/skills/jev-actions/` — TypeSafe Jev judgment design, threshold tuning and calibration.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.

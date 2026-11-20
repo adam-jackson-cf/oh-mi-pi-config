@@ -14,7 +14,7 @@
 - The profile's JSON front matter is authoritative for `freeze()` and `guardrails profile-check`
   (`PROFILE.complete`); keep prose in step. Agents write records directly, with approval fields only
   as the owner stated in chat. Git-tool's
-  [record authority](skill://git-tool/references/merge-and-recover.md#who-writes-records)
+  [record authority](skill://git-tool/references/authority-and-safety.md#who-writes-records)
   applies independently of dynaflows.
 - The template's `structure` supplies capability owners, tiers and import direction;
   `house_style` supplies the installed version; `guardrails` supplies per-checker settings

@@ -1,8 +1,21 @@
 # Merge and recover
 
+**Structured mode only.** Read this runbook only when the repo's dynaflows `mode` is `structured`.
+In minimal mode rails refuse `gh pr merge` and pushes to the default branch; the owner merges and recovers.
+
 Units target the default resolved in [branch-and-integrate](branch-and-integrate.md) and use rebase-merge,
 never squash or merge commits, unless the repository's project instructions document a target/merge-method exception.
 Authority and approval boundaries remain in [authority-and-safety](authority-and-safety.md).
+
+## Merge authority
+
+- The orchestrating (main) agent owns each change from branch to merge; the owner reviews merged PRs afterwards
+  when he chooses. The assigned writer waits for exact-head green CI before handing off.
+- Main checks exact-head CI, coordinates fixes and merges; independent units merge independently.
+- Granted in every repository unless its record's `gate.json` has `"agentMerge": "disabled"`: merge `agent/*` PRs
+  once required CI is green on the exact head. This grant overrides recommend-before-acting for merging only.
+- `agentMerge: disabled` requires owner approval to merge; an absent field defaults to allowed, never permission to skip CI.
+  Missing protection alone never waives existing CI.
 
 ## Merge one pull request
 
@@ -45,7 +58,7 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The record's [`gate.json` CI policy](../../../lib/record/README.md#merge-and-ci-policy) declares
+The record's [`gate.json` CI policy](../../../../../lib/record/README.md#merge-and-ci-policy) declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
@@ -80,14 +93,6 @@ Repositories whose record declares `ci` never qualify for the no-CI exception. O
 **no checks at all** and the repository has **no CI workflow** may exact-head local `checks.ci` replace CI.
 Record commands, outputs, SHA, host-query evidence and `no CI / no protection` in a PR comment.
 Without a declared local CI command, or with unknown host state, stop and resolve/escalate.
-
-### Who writes records
-
-The [repo's record](../../../lib/record/README.md) (`<harness>/repos/<owner>/<name>/`:
-`gate.json`, `profile.md` and anything else there) holds its
-checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
-Agents write records directly. Write approval fields only as the owner stated them in the chat.
-Record-write authority does not approve repository fixes that separately require owner approval.
 
 ## Recover a red default branch
 

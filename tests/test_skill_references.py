@@ -33,7 +33,7 @@ REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
 
 
 def skill_directory(name: str) -> Path:
-    return SKILLS / name if name == "git-tool" else PACKAGE_SKILLS / name
+    return SKILLS / name if name == "jev-actions" else PACKAGE_SKILLS / name
 
 
 def citing_sources(

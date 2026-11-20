@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""Tune a decision threshold and check calibration from saved scores.
-
-Reads a CSV with columns `case_id, label, score`, where `label` is 1 when the
-condition holds. Optional columns:
-
-- `model`, `question_version`: each combination is reported separately.
-- `split`: `dev` or `test`. Tuning and cross-validation use `dev` only; `test` is
-  scored once at the shipped threshold. Without the column, every row is `dev`.
-- `stratum`: per-stratum precision and recall at the shipped threshold.
-
-Uses only saved scores; makes no model calls. Exits 0 on a report, 1 on invalid
-input or a failed self-test, and 2 on a usage error.
-
-Example:
-    python3 -B scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.8
-    python3 -B scripts/tune_threshold.py scores.csv --beta 0.5 --repeats 5 --calibration --errors
-    python3 -B scripts/tune_threshold.py --self-test
-"""
 
 from __future__ import annotations
 
@@ -35,6 +17,30 @@ from typing import Any, TextIO, TypedDict
 EPS = 1e-6
 Z95 = 1.959964
 
+USAGE = """\
+Reads a CSV with columns `case_id, label, score`, where `label` is 1 when the
+condition holds and `score` is a raw probability in [0, 1]. Optional columns:
+
+- `model`, `question_version`: each combination is reported separately. Groups
+  that do not share the same cases, labels, splits and units are flagged as not
+  comparable.
+- `split`: `dev` or `test`. Tuning and cross-validation use `dev` only; `test` is
+  scored once at the shipped threshold. Without the column, every row is `dev`.
+- `unit`: the independent unit a case came from, such as a session, user,
+  repository or conversation. Cross-validation keeps each unit in one fold, and a
+  unit may not appear in both `dev` and `test`. Without the column, each case is
+  its own unit.
+- `stratum`: per-stratum precision and recall at the shipped threshold.
+
+Uses only saved scores; makes no model calls. Exits 0 on a report, 1 on invalid
+input or a failed self-test, and 2 on a usage error.
+
+Example:
+    python3 -B scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.8
+    python3 -B scripts/tune_threshold.py scores.csv --beta 0.5 --repeats 5 --calibration --errors
+    python3 -B scripts/tune_threshold.py --self-test
+"""
+
 Row = tuple[int, float]
 Counts = tuple[int, int, int]
 Result = dict[str, Any]
@@ -42,6 +48,7 @@ Result = dict[str, Any]
 
 class Case(TypedDict):
     id: str
+    unit: str
     y: int
     s: float
     split: str
@@ -63,8 +70,6 @@ class StratumMetrics(Metrics):
 
 @dataclass(frozen=True)
 class Options:
-    """The tuning and reporting settings shared by every model group."""
-
     min_precision: float
     min_recall: float
     conservative: bool
@@ -98,17 +103,48 @@ def parse(f: TextIO) -> dict[str, list[Case]]:
         split = (row.get("split") or "dev").strip().lower()
         if split not in ("dev", "test"):
             sys.exit(f"split must be dev or test, got {row['split']!r}")
+        score = float(row["score"])
+        if not (math.isfinite(score) and 0.0 <= score <= 1.0):
+            sys.exit(
+                f"score must be a finite probability in [0, 1], got {row['score']!r}"
+            )
         name = row.get("model") or "model"
         if row.get("question_version"):
             name += f" @ {row['question_version']}"
+        case_id = row.get("case_id") or str(n)
         groups[name].append({
-            "id": row.get("case_id") or str(n),
+            "id": case_id,
+            "unit": row.get("unit") or case_id,
             "y": label,
-            "s": float(row["score"]),
+            "s": score,
             "split": split,
             "stratum": row.get("stratum") or "",
         })
+    for name, cases in groups.items():
+        check_group(name, cases)
     return groups
+
+
+def check_group(name: str, cases: list[Case]) -> None:
+    seen: set[str] = set()
+    unit_split: dict[str, str] = {}
+    for c in cases:
+        if c["id"] in seen:
+            sys.exit(f"{name}: case_id {c['id']!r} appears more than once")
+        seen.add(c["id"])
+        if unit_split.setdefault(c["unit"], c["split"]) != c["split"]:
+            sys.exit(
+                f"{name}: unit {c['unit']!r} appears in both dev and test; split by unit"
+            )
+
+
+def case_set(cases: list[Case]) -> list[tuple[str, int, str, str]]:
+    return sorted((c["id"], c["y"], c["split"], c["unit"]) for c in cases)
+
+
+def comparable(groups: dict[str, list[Case]]) -> bool:
+    sets = [case_set(cases) for cases in groups.values()]
+    return all(s == sets[0] for s in sets)
 
 
 def pairs(cases: list[Case]) -> list[Row]:
@@ -143,7 +179,6 @@ def from_counts(tp: int, fp: int, fn: int, beta: float) -> Metrics:
 
 
 def wilson_lower(successes: int, n: int) -> float:
-    """95% Wilson lower bound for a proportion."""
     if n == 0:
         return 0.0
     p = successes / n
@@ -163,13 +198,11 @@ def meets(m: Metrics, opts: Options) -> bool:
 
 
 def candidates(rows: list[Row]) -> list[float]:
-    """Midpoints between adjacent distinct scores, plus the lowest score."""
     u = sorted({s for _, s in rows})
     return u[:1] + [(lo + hi) / 2 for lo, hi in pairwise(u)]
 
 
 def choose(rows: list[Row], opts: Options) -> float | None:
-    """Best threshold on rows meeting both minimums, or None."""
     best: tuple[float, Metrics] | None = None
     for t in candidates(rows):
         m = metrics(rows, t, opts.beta)
@@ -180,19 +213,34 @@ def choose(rows: list[Row], opts: Options) -> float | None:
     return best[0] if best else None
 
 
-def stratified_folds(rows: list[Row], k: int, seed: int) -> list[list[int]]:
+def label_units(
+    cases: list[Case],
+) -> tuple[dict[str, list[int]], list[list[str]]]:
+    units: dict[str, list[int]] = defaultdict(list)
+    for i, c in enumerate(cases):
+        units[c["unit"]].append(i)
+    kinds: dict[str, list[str]] = {"pos": [], "mixed": [], "neg": []}
+    for u in sorted(units):
+        labels = {cases[i]["y"] for i in units[u]}
+        kind = "mixed" if len(labels) == 2 else "pos" if 1 in labels else "neg"
+        kinds[kind].append(u)
+    return units, [kinds["pos"], kinds["mixed"], kinds["neg"]]
+
+
+def unit_folds(cases: list[Case], k: int, seed: int) -> list[list[int]]:
     rng = random.Random(seed)
+    units, groups = label_units(cases)
     folds: list[list[int]] = [[] for _ in range(k)]
-    for label in (0, 1):
-        idx = [i for i, (y, _) in enumerate(rows) if y == label]
-        rng.shuffle(idx)
-        for j, i in enumerate(idx):
-            folds[j % k].append(i)
+    j = 0
+    for group in groups:
+        rng.shuffle(group)
+        for u in group:
+            folds[j % k].extend(units[u])
+            j += 1
     return folds
 
 
 def pooled(per_fold: list[Counts], beta: float) -> Metrics:
-    """Metrics over all held-out decisions, summing counts across folds."""
     tp, fp, fn = (sum(c[i] for c in per_fold) for i in range(3))
     return from_counts(tp, fp, fn, beta)
 
@@ -257,11 +305,6 @@ def logit(p: float) -> float:
 def fit_platt(
     rows: list[Row], iters: int = 100, l2: float = 1.0
 ) -> tuple[float, float]:
-    """Logistic regression of label on logit(score) by Newton's method.
-
-    A small L2 prior toward the identity mapping (a=1, b=0) keeps the fit finite
-    when the classes are separable.
-    """
     a, b = 1.0, 0.0
     for _ in range(iters):
         ga, gb = l2 * (a - 1), l2 * b
@@ -328,7 +371,6 @@ def reliability(
 
 
 def errors(cases: list[Case], threshold: float) -> list[dict[str, Any]]:
-    """False positives and false negatives at the shipped threshold."""
     out: list[dict[str, Any]] = []
     for c in cases:
         flagged = c["s"] >= threshold
@@ -356,9 +398,15 @@ def by_stratum(
     }
 
 
-def data_warnings(rows: list[Row], positives: int, opts: Options) -> list[str]:
-    """Warnings about the dev set and the minimums, before any tuning."""
+def data_warnings(
+    rows: list[Row], positives: int, opts: Options, comparable_groups: bool
+) -> list[str]:
     warnings = []
+    if not comparable_groups:
+        warnings.append(
+            "models or question versions do not share the same cases, labels, splits "
+            "and units; do not compare them"
+        )
     if min(positives, len(rows) - positives) < 50:
         warnings.append("fewer than 50 dev cases per label; treat results as noisy")
     if opts.min_precision == 0 and opts.min_recall == 0:
@@ -373,7 +421,6 @@ def data_warnings(rows: list[Row], positives: int, opts: Options) -> list[str]:
 
 
 def fold_warnings(result: Result) -> list[str]:
-    """Warnings about how well cross-validation supports the shipped threshold."""
     warnings = []
     if (
         result["shipped_threshold"] is not None
@@ -396,7 +443,6 @@ def fold_warnings(result: Result) -> list[str]:
 def score_test(
     result: Result, test: list[Case], threshold: float, opts: Options
 ) -> list[str]:
-    """Score the test split once at the shipped threshold and at 0.5; warn when it misses the minimums."""
     test_rows = pairs(test)
     result["test_at_shipped"] = metrics(test_rows, threshold, opts.beta)
     result["test_at_0.5"] = metrics(test_rows, 0.5, opts.beta)
@@ -408,7 +454,6 @@ def score_test(
 def calibration_report(
     rows: list[Row], folds: list[list[int]], test: list[Case]
 ) -> Result:
-    """Platt scaling against raw scores on dev held-out folds, plus test Brier scores when there is a test split."""
     cal = calibrate(rows, folds)
     if test:
         a, b = cal["platt_mapping"]["a"], cal["platt_mapping"]["b"]
@@ -417,17 +462,23 @@ def calibration_report(
         cal["test_brier_platt"] = brier([
             (y, sigmoid(a * logit(s) + b)) for y, s in test_rows
         ])
+        if cal["keep"] == "platt" and cal["test_brier_platt"] > cal["test_brier_raw"]:
+            cal["keep"] = "raw"
+            cal["platt_rejected_on_test"] = True
     return cal
 
 
-def report(name: str, cases: list[Case], opts: Options) -> Result:
+def report(
+    name: str, cases: list[Case], opts: Options, comparable_groups: bool = True
+) -> Result:
     dev = [c for c in cases if c["split"] == "dev"]
     test = [c for c in cases if c["split"] == "test"]
     rows = pairs(dev)
     positives = sum(y for y, _ in rows)
-    k = min(opts.folds, positives, len(rows) - positives)
+    _, (pos_only, mixed, neg_only) = label_units(dev)
+    k = min(opts.folds, len(pos_only) + len(mixed), len(mixed) + len(neg_only))
     if k < 2:
-        return {"model": name, "error": "need at least 2 dev cases of each label"}
+        return {"model": name, "error": "need at least 2 dev units with each label"}
     result: Result = {
         "model": name,
         "dev_cases": len(rows),
@@ -435,9 +486,10 @@ def report(name: str, cases: list[Case], opts: Options) -> Result:
         "test_cases": len(test),
         "folds": k,
         "repeats": opts.repeats,
+        "comparable": comparable_groups,
     }
-    warnings = data_warnings(rows, positives, opts)
-    fold_sets = [stratified_folds(rows, k, opts.seed + r) for r in range(opts.repeats)]
+    warnings = data_warnings(rows, positives, opts, comparable_groups)
+    fold_sets = [unit_folds(dev, k, opts.seed + r) for r in range(opts.repeats)]
     result.update(tune(rows, fold_sets, opts))
     warnings += fold_warnings(result)
     t = result["shipped_threshold"]
@@ -461,7 +513,6 @@ def fmt(m: Metrics | None) -> str:
 
 
 def print_summary(r: Result) -> None:
-    """The dev, tuned, shipped, test and failed-fold lines for one model."""
     t = r["shipped_threshold"]
     print(
         f"- Dev: {r['dev_cases']} cases ({r['dev_positives']} positive), "
@@ -497,13 +548,14 @@ def print_calibration(c: Result) -> None:
         print(
             f"- Test Brier raw {c['test_brier_raw']:.4f}, Platt {c['test_brier_platt']:.4f}"
         )
+    if c.get("platt_rejected_on_test"):
+        print("- Platt mapping rejected: worse than raw on test")
     if c["keep"] == "platt":
         pm = c["platt_mapping"]
         print(f"- Platt mapping fitted on all dev: a {pm['a']:.4f}, b {pm['b']:.4f}")
 
 
 def print_tables(r: Result) -> None:
-    """The per-stratum and dev-error tables, when the report has them."""
     if r.get("strata"):
         print(f"\nPer stratum at the shipped threshold, {r['strata_scope']}:\n")
         print("| stratum | n | precision | recall |\n| --- | --- | --- | --- |")
@@ -546,7 +598,6 @@ def print_markdown(results: list[Result], opts: Options) -> None:
 
 
 def self_test() -> list[str]:
-    """Check core behaviour on fixed data; return a list of failures."""
     args = Options(
         min_precision=0.8,
         min_recall=0.8,
@@ -561,7 +612,14 @@ def self_test() -> list[str]:
     fails = []
 
     def case(i: int, y: int, s: float, split: str = "dev", stratum: str = "") -> Case:
-        return {"id": str(i), "y": y, "s": s, "split": split, "stratum": stratum}
+        return {
+            "id": str(i),
+            "unit": str(i),
+            "y": y,
+            "s": s,
+            "split": split,
+            "stratum": stratum,
+        }
 
     shifted = [case(i, int(i < 30), 0.40 if i < 30 else 0.10) for i in range(60)]
     r = report("shifted", shifted, args)
@@ -602,12 +660,90 @@ def self_test() -> list[str]:
     names = sorted(parse(io.StringIO(text)))
     if names != ["a @ v1", "a @ v2", "b @ v1"]:
         fails.append(f"model and version grouping: got {names}")
+    return fails + input_failures() + unit_failures(args) + comparable_failures()
+
+
+def rejected(text: str) -> bool:
+    try:
+        parse(io.StringIO(text))
+    except SystemExit:
+        return True
+    return False
+
+
+def input_failures() -> list[str]:
+    fails = [
+        f"score {bad} was accepted"
+        for bad in ("1.5", "-0.1", "nan", "inf")
+        if not rejected(f"case_id,label,score\n1,1,{bad}\n")
+    ]
+    if not rejected("case_id,label,score,split,unit\n1,1,0.9,dev,u\n2,0,0.1,test,u\n"):
+        fails.append("a unit in both dev and test was accepted")
+    return fails
+
+
+def unit_case(i: int, y: int, s: float, unit: str) -> Case:
+    return {"id": str(i), "unit": unit, "y": y, "s": s, "split": "dev", "stratum": ""}
+
+
+def fold_ids(cases: list[Case]) -> list[list[str]]:
+    return [sorted(cases[i]["id"] for i in f) for f in unit_folds(cases, 5, 0)]
+
+
+def split_units(cases: list[Case], folds: list[list[int]]) -> bool:
+    where = {cases[i]["unit"]: n for n, f in enumerate(folds) for i in f}
+    return any(where[cases[i]["unit"]] != n for n, f in enumerate(folds) for i in f)
+
+
+def lost_label(cases: list[Case], folds: list[list[int]]) -> bool:
+    return any(
+        {cases[i]["y"] for m, f in enumerate(folds) if m != n for i in f} != {0, 1}
+        for n in range(len(folds))
+    )
+
+
+def unit_failures(args: Options) -> list[str]:
+    fails = []
+    grouped = [
+        unit_case(i, int(i < 30), 0.40 if i < 30 else 0.10, f"u{i // 3}")
+        for i in range(60)
+    ]
+    if any(split_units(grouped, unit_folds(grouped, 5, seed)) for seed in range(5)):
+        fails.append("a unit's cases were split across folds")
+    if fold_ids(grouped) != fold_ids(grouped[::-1]):
+        fails.append("row order changed the folds for the same cases")
+    mixed = [
+        unit_case(i, i % 2, 0.80 if i % 2 else 0.20, f"s{i // 4}") for i in range(40)
+    ]
+    r = report("mixed units", mixed, args)
+    if r.get("folds") != 5 or r["shipped_threshold"] is None:
+        fails.append(
+            f"units holding both labels gave no grouped CV: {r.get('error', r.get('folds'))}"
+        )
+    if any(lost_label(mixed, unit_folds(mixed, 5, seed)) for seed in range(5)):
+        fails.append("a training set lost a label")
+    return fails
+
+
+def comparable_failures() -> list[str]:
+    fails = []
+    text = (
+        "case_id,label,score,model\n1,1,0.9,a\n2,0,0.1,a\n3,1,0.8,a\n"
+        "1,1,0.7,b\n2,0,0.2,b\n"
+    )
+    if comparable(parse(io.StringIO(text))):
+        fails.append("groups over different cases were reported as comparable")
+    text = "case_id,label,score,model\n1,1,0.9,a\n2,0,0.1,a\n1,1,0.7,b\n2,0,0.2,b\n"
+    if not comparable(parse(io.StringIO(text))):
+        fails.append("groups over the same cases were reported as not comparable")
     return fails
 
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Tune a decision threshold and check calibration from saved scores."
+        description="Tune a decision threshold and check calibration from saved scores.",
+        epilog=USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("csv", nargs="?")
     p.add_argument(
@@ -649,7 +785,8 @@ def main() -> None:
     except (OSError, ValueError) as e:
         sys.exit(f"cannot read {args.csv}: {e}")
     opts = Options.from_args(args)
-    results = [report(name, groups[name], opts) for name in sorted(groups)]
+    same = comparable(groups)
+    results = [report(name, groups[name], opts, same) for name in sorted(groups)]
     if args.json:
         json.dump(results, sys.stdout, indent=2)
         print()
