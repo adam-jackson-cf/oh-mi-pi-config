@@ -138,6 +138,24 @@ class RequiredExtraTests(unittest.TestCase):
         assert skipped == []
 
 
+class ConformancePrerequisiteTests(unittest.TestCase):
+    def test_conformance_without_the_extra_names_the_missing_prerequisite(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            write_profile(repo, {"adapters": [{"name": "pytest", "tiers": {"t1": {}}}]})
+            with mock.patch.object(importlib.util, "find_spec", return_value=None):
+                code, out = run_cli(
+                    "adapter", "--repo", str(repo), "pytest", "conformance"
+                )
+        assert code == 1
+        assert out.startswith(
+            "conformance: GUARDRAILS.adapter-prerequisite: the pytest extra"
+        )
+        assert "guardrails[pytest]" in out
+
+
 class PinnedExtraTests(unittest.TestCase):
     def test_lock_pins_the_pyproject_extra_with_hashes(self) -> None:
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())

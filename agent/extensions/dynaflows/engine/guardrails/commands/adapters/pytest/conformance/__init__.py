@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -46,6 +47,7 @@ BASE_PROFILE: dict[str, Any] = {
     "guardrails": {"exceptions": []},
 }
 FAILED_OUTCOMES = frozenset({"failed", "error"})
+PREREQUISITE = "GUARDRAILS.adapter-prerequisite"
 
 
 @dataclass(frozen=True)
@@ -259,6 +261,16 @@ def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
 
 
 def run_cases(case_ids: list[str]) -> list[Finding]:
+    if importlib.util.find_spec(NAME) is None:
+        return [
+            Finding(
+                PREREQUISITE,
+                "conformance",
+                f"the pytest extra is not installed for {sys.executable}, "
+                "so the run-report cases cannot start",
+                "run guardrails from an environment that installs guardrails[pytest]",
+            )
+        ]
     return [
         Finding(
             result.rule,
