@@ -1,15 +1,10 @@
-"""The guardrails reference's pytest adapter: pinned extra, dialect, guards, rules, conformance.
-
-Tests that need the pinned ``pytest`` extra (pytest, ast-grep-py) skip when it is absent, unless
-``OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1`` is set. The gate container sets it and installs
-``requirements-pytest.lock``, so there those tests fail instead of skipping.
-"""
-
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import json
+import os
 import re
 import shutil
 import sys
@@ -18,6 +13,7 @@ import tomllib
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
@@ -112,6 +108,36 @@ def run_cli(*argv: str) -> tuple[int, str]:
     return code, out.getvalue()
 
 
+class RequiredExtraTests(unittest.TestCase):
+    def test_a_missing_pytest_extra_never_turns_the_adapter_seams_into_skips(
+        self,
+    ) -> None:
+        path = Path(__file__).with_name("test_reference_adapter_pytest_seams.py")
+        spec = importlib.util.spec_from_file_location("adapter_seams_probe", path)
+        assert spec is not None
+        assert spec.loader is not None
+        seams = importlib.util.module_from_spec(spec)
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA"
+        }
+        with (
+            mock.patch.object(importlib.util, "find_spec", return_value=None),
+            mock.patch.dict(os.environ, environment, clear=True),
+        ):
+            spec.loader.exec_module(seams)
+        skipped = [
+            f"{owner.__name__}.{name}"
+            for owner in vars(seams).values()
+            if isinstance(owner, type) and issubclass(owner, unittest.TestCase)
+            for name in dir(owner)
+            if name.startswith("test")
+            and getattr(getattr(owner, name), "__unittest_skip__", False)
+        ]
+        assert skipped == []
+
+
 class PinnedExtraTests(unittest.TestCase):
     def test_lock_pins_the_pyproject_extra_with_hashes(self) -> None:
         pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
@@ -128,7 +154,6 @@ class PinnedExtraTests(unittest.TestCase):
         text = CONTAINERFILE.read_text()
         assert "--require-hashes" in text
         assert re.search(r'ENV PATH="/opt/guardrails/bin:\$\{PATH\}"', text)
-        assert "OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1" in text
 
 
 class StandardLibraryTests(unittest.TestCase):
