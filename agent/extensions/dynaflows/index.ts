@@ -9,7 +9,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import {
-	configRoot as defaultConfigRoot, GATE_FILE, type Gate, offText, ownerOnly, readGateText, recordDir, resolveRecord,
+	configRoot as defaultConfigRoot, GATE_FILE, type Gate, offText, readGateText, recordDir, resolveRecord,
 } from "../../lib/repo-record.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, repoRoot,
@@ -261,15 +261,6 @@ async function statusAdditions(pi: ExecApi, canonicalRoot: string): Promise<Set<
 	}
 	return porcelainAdditions(status.stdout);
 }
-async function touchedOwnerPaths(pi: ExecApi, root: string, owned: string[]): Promise<string[]> {
-	const touched = new Set<string>();
-	for (const args of [["diff", "--cached", "--name-only", "--no-renames", "-z"], ["diff", "--name-only", "--no-renames", "-z"]]) {
-		const result = await pi.exec("git", args, { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
-		if (result.code !== 0 || result.killed) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`.trim());
-		for (const path of result.stdout.split("\0")) if (path && ownerOnly(path, owned)) touched.add(path);
-	}
-	return [...touched].toSorted();
-}
 function proposalOnly(map: Mapping, event: ToolEvent, ctx: ExtensionContext, state: State): boolean {
 	if (event.toolName === "ast_edit" && event.details.applied !== true) {
 		state.proposal = event.details.files?.flatMap(path => absolute(path, ctx.cwd) ?? []) ?? [];
@@ -427,20 +418,6 @@ export default function dynaflows(
 			return `Agent rails: path check failed in ${root}: ${String(error)}`;
 		}
 	}
-	// The record's ownerOnlyPaths are the owner's alone (for example the dependency-audit exception
-	// file). At every agent commit in a dynaflows-on repo with a record, rails
-	// refuse the commit when a staged or unstaged tracked change touches one. Renames count as a
-	// deletion and an addition, so moving an owner-only file away is refused too.
-	async function ownerOnlyReason(root: string): Promise<string | undefined> {
-		const record = await recordAt(root);
-		if (!record || !record.gate.ownerOnlyPaths.length) return undefined;
-		const touched = await touchedOwnerPaths(pi, root, record.gate.ownerOnlyPaths);
-		if (!touched.length) return undefined;
-		return `Agent rails: this commit changes owner-only ${touched.length === 1 ? "path" : "paths"} ${touched.join(", ")} ` +
-			`(the record's ownerOnlyPaths in ${join(record.dir, GATE_FILE)}). Agents never change these paths, such as the ` +
-			"dependency-audit exception file. Restore them (git restore --staged --worktree -- <path>), then stop and raise " +
-			"the change to the owner: what you need changed, why, and the evidence. The owner makes the change.";
-	}
 	async function commitChecksReason(root: string): Promise<string | undefined> {
 		const record = await recordAt(root);
 		if (!record) return undefined;
@@ -525,7 +502,7 @@ export default function dynaflows(
 		const at = root ? await dynaflowsAt(ctx, root, true) : await dynaflowsAt(ctx, action.cwd);
 		if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");
 		if (!root || !at.on) return undefined;
-		return (await ownerOnlyReason(root)) ?? commitChecksReason(root);
+		return commitChecksReason(root);
 	}
 	async function mergeActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!action.cwd) throw new Error("cannot resolve PR action cwd");

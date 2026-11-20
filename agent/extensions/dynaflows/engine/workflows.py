@@ -2281,7 +2281,7 @@ def owner_report(
             )
     for failure in failures:
         lines.append(
-            f"- Exception file failure at {failure['path']}: {failure['reason']} (owner-only path)"
+            f"- Exception file failure at {failure['path']}: {failure['reason']} (the owner changes the exception file)"
         )
     return "\n".join(lines)
 

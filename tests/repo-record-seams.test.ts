@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { dynaflowsEnabled, findRecord, offText, RecordError, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
 
-const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, ownerOnlyPaths: [], dynaflows: { enabled: true } };
+const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, dynaflows: { enabled: true } };
 
 const git = (...args: string[]) => execFileSync("git", args, { stdio: "pipe" });
 
@@ -98,8 +98,7 @@ describe("record resolution", () => {
 				[{ ...completeGate, checks: undefined }, "checks"], [{ ...completeGate, unknownField: 3 }, "unknownField"],
 				[{ ...completeGate, extraField: 1000 }, "extraField"], [{ ...completeGate, otherField: "github" }, "otherField"],
 				[{ ...completeGate, checks: { commit: ["make"], lint: ["make"] } }, "checks.lint"],
-				[{ ...completeGate, ownerOnlyPaths: undefined }, "ownerOnlyPaths"], [{ ...completeGate, ownerOnlyPaths: ["/abs.json"] }, "/abs.json"],
-				[{ ...completeGate, ownerOnlyPaths: ["a/../b"] }, "a/../b"], [{ ...completeGate, ownerOnlyPaths: ["a.json", "a.json"] }, "unique"],
+				[{ ...completeGate, ownerOnlyPaths: [] }, "ownerOnlyPaths"],
 			] as const) {
 				f.writeRecord("owner/name", JSON.stringify(invalid));
 				await assert.rejects(dynaflowsEnabled(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);

@@ -219,7 +219,6 @@ class GateFixture(unittest.TestCase):
         gate: dict[str, Any] = {
             "schemaVersion": 2,
             "checks": {"commit": ["true"], "ci": ["true"]},
-            "ownerOnlyPaths": [],
             "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
             "dynaflows": {"enabled": True},
         }
@@ -570,7 +569,7 @@ class CiGateTests(GateFixture):
                     "missing-context": self.gate(ci=None),
                     "unknown-schema": {"schemaVersion": 3},
                     "unknownField": self.gate(unknownField=3),
-                    "ownerOnlyPaths": self.gate(ownerOnlyPaths=None),
+                    "ownerOnlyPaths": self.gate(ownerOnlyPaths=[]),
                     "checks": self.gate(checks={"ci": ["true"]}),
                 }.get(failure)
                 if failure == "missing-gate":

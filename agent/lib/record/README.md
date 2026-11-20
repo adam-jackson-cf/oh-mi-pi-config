@@ -22,7 +22,7 @@ No setting names a harness directory inside the repo.
 ## Gate schema
 
 The record's `gate.json` uses schema version 2. Required fields are `schemaVersion`,
-`checks.commit`, `ownerOnlyPaths` and `dynaflows`. Unknown top-level or `checks` fields fail
+`checks.commit` and `dynaflows`. Unknown top-level or `checks` fields fail
 the load with the field name; the obsolete path command field is rejected, never ignored.
 A documentation-only repo still declares `checks.commit`.
 
@@ -33,25 +33,15 @@ A documentation-only repo still declares `checks.commit`.
 | `checks.ci` | [^n2] |
 | `checks.format` | [^n3] |
 | `checks.profile` | [^n4] |
-| `ownerOnlyPaths` | [^n5] |
-| `agentMerge` | [^n6] |
+| `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
 | `dynaflows` | Required object with Boolean `enabled`; see below. |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
 `profile.md`, not extra gate fields. Substitute real discovered commands and paths in
-[the example gate](gate.json), which retains the dependency-audit exception path, `gate`
+[the example gate](gate.json), which retains the `gate`
 context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.enabled: false`.
-
-### Owner-only paths
-
-`ownerOnlyPaths` names files only the owner changes, such as
-`scripts/checks/dependency-audit-exceptions.json`. Record-write authority does not permit
-changing those files or rewriting their protection. With the harness process enabled,
-rails refuse agent commits whose staged or unstaged changes touch them and direct the
-agent to the owner. The switch gates that enforcement, not the owner's authority.
-See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
 
 ### Merge and CI policy
 
@@ -172,8 +162,8 @@ agent writes the live record directly; never ask the owner to save it.
 All approvals and exceptions live only in the record's profile, never a PR. They include
 `approved_skips`, any `approval`, `approved_*` or `*_approval`, `user_approval`,
 `guardrails.exceptions`, fast-tier machine approvals and coverage-ratchet approvals.
-Write each only as the owner stated it in chat. Record-write authority neither changes
-`ownerOnlyPaths` nor approves repository fixes; the setup approval remains the boundary
+Write each only as the owner stated it in chat. Record-write authority does not approve
+repository fixes; the setup approval remains the boundary
 before applying them.
 
 ## Field details
@@ -184,7 +174,5 @@ before applying them.
 [^n3]: Optional nonempty argv array for the formatter `freeze()` runs before hashing proofs.
 [^n4]: Optional nonempty argv array for profile completeness, normally `guardrails
   profile-check`; `prove()` does not run it.
-[^n5]: Required list of unique repo-relative POSIX paths; `[]` when none. A trailing `/` covers a
-  directory.
-[^n6]: `allowed` or `disabled`; absent field or absent record defaults to `allowed`, subject to
+[^n5]: `allowed` or `disabled`; absent field or absent record defaults to `allowed`, subject to
   governing Git authorization and CI.

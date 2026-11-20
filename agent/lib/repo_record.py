@@ -114,7 +114,6 @@ def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None
 GATE_FIELDS = frozenset({
     "schemaVersion",
     "checks",
-    "ownerOnlyPaths",
     "agentMerge",
     "ci",
     "dynaflows",
@@ -130,26 +129,6 @@ def _argv(value: object) -> bool:
     )
 
 
-def owner_path_problem(path: object) -> str | None:
-    """Why ``path`` is not an owner-only path, or None when it is one.
-
-    A repo-relative POSIX path with no leading slash, no empty, ``.`` or ``..`` component, no
-    backslash and no NUL. A trailing ``/`` names a directory and covers every path under it. The
-    Python twin of ``ownerPathProblem`` in repo-record.ts.
-    """
-    if not isinstance(path, str):
-        return "ownerOnlyPaths entries must be strings"
-    body = path[:-1] if path.endswith("/") else path
-    if (
-        not body
-        or "\\" in path
-        or "\0" in path
-        or any(part in {"", ".", ".."} for part in body.split("/"))
-    ):
-        return f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)"
-    return None
-
-
 def _checks_reason(checks: object) -> str | None:
     """Why the gate's ``checks`` object is rejected, or None."""
     if not isinstance(checks, dict):
@@ -162,21 +141,6 @@ def _checks_reason(checks: object) -> str | None:
     for key in ("ci", "format", "profile"):
         if key in checks and not _argv(checks[key]):
             return f"checks.{key} must be argv"
-    return None
-
-
-def _owned_reason(owned: object) -> str | None:
-    """Why the gate's ``ownerOnlyPaths`` list is rejected, or None."""
-    if not isinstance(owned, list):
-        return (
-            "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"
-        )
-    for path in owned:
-        problem = owner_path_problem(path)
-        if problem:
-            return problem
-    if len(set(owned)) != len(owned):
-        return "ownerOnlyPaths entries must be unique"
     return None
 
 
@@ -207,8 +171,8 @@ def _settings_reason(gate: dict[str, Any]) -> str | None:
 def gate_reason(gate: object) -> str | None:
     """Why rails would reject this gate.json object, or None when it is accepted.
 
-    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` and
-    ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
+    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` is
+    required; an unknown field is rejected by name.
     """
     if (
         not isinstance(gate, dict)
@@ -220,10 +184,7 @@ def gate_reason(gate: object) -> str | None:
     if unknown:
         return f"unknown field {', '.join(unknown)} must be removed"
     return (
-        _checks_reason(gate.get("checks"))
-        or _owned_reason(gate.get("ownerOnlyPaths"))
-        or _ci_reason(gate)
-        or _settings_reason(gate)
+        _checks_reason(gate.get("checks")) or _ci_reason(gate) or _settings_reason(gate)
     )
 
 

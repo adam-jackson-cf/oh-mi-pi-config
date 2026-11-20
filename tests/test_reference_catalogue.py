@@ -255,7 +255,7 @@ class DependencyAuditContractTests(unittest.TestCase):
         assert exceptions["expires_format"] == "YYYY-MM-DD"
         assert "today's UTC date" in exceptions["expires_validation"]
         assert exceptions["agents_never_add_or_edit"] is True
-        assert "owner_only_paths" in exceptions["file"]
+        assert exceptions["file"] == "repo_json_file_the_repo_dependency_audit_reads"
 
 
 def module_sources(module: str) -> list[Path]:
