@@ -224,22 +224,8 @@ class DraftRecordTests(InitCase):
         assert "confirm: dynaflows is off" in output
         assert "turns on when the owner asks for it in a session" in output
         assert "confirm: agentMerge is the owner's to set" in output
-        assert "required: ownerOnlyPaths is the owner's to set" in output
-        assert "ownerOnlyPaths" not in self.gate(), (
-            "init never drafts the owner-only paths"
-        )
-
-    def test_recorded_owner_only_paths_are_kept_and_satisfy_the_requirement(
-        self,
-    ) -> None:
-        owned = ["scripts/checks/dependency-audit-exceptions.json"]
-        gate = {"schemaVersion": 2, "ownerOnlyPaths": owned}
-        self.write_record("gate.json", json.dumps(gate))
-        self.write("Makefile", MAKEFILE)
-        code, output = self.init()
-        assert code == 0, output
-        assert self.gate()["ownerOnlyPaths"] == owned
         assert "ownerOnlyPaths" not in output
+        assert "ownerOnlyPaths" not in self.gate()
 
     def test_second_run_changes_nothing(self) -> None:
         self.write("Makefile", MAKEFILE)
@@ -309,9 +295,7 @@ class DraftRecordTests(InitCase):
         gate = self.gate()
         assert gate["checks"]["ci"] == ["just", "ci"]
         assert gate["ci"] == {"requiredContext": "ci", "runner": "ci-gate"}
-        assert required_fields(output) == ["ownerOnlyPaths"], (
-            "only the owner's field remains"
-        )
+        assert required_fields(output) == []
         for flags in (("--runner", " "), ("--commit-command", "")):
             code, output = self.init(*flags)
             assert code == 1
@@ -334,7 +318,7 @@ class DraftRecordTests(InitCase):
         assert "discovered: pre-commit hooks: ruff" in output
         assert "confirm: no checks.ci found" in output
         assert "confirm: no ci found" in output
-        assert required_fields(output) == ["ownerOnlyPaths"]
+        assert required_fields(output) == []
 
     def test_no_commit_command_found_is_reported_as_required(self) -> None:
         code, output = self.init()
@@ -355,6 +339,10 @@ class DraftRecordTests(InitCase):
             (
                 {"schemaVersion": 2, "checks": {"lint": ["x"]}},
                 "unknown field checks.lint must be removed",
+            ),
+            (
+                {"schemaVersion": 2, "ownerOnlyPaths": []},
+                "unknown field ownerOnlyPaths must be removed",
             ),
         ):
             with self.subTest(gate=gate):
@@ -450,11 +438,11 @@ class RequiredChecksTests(InitCase):
 
 
 def required_fields(output: str) -> list[str]:
-    """The gate fields init reports as required, by the field each ``required:`` line names."""
+    """The ``required:`` lines init reports."""
     fields = []
     for line in output.splitlines():
         if line.startswith("required:"):
-            fields.append("ownerOnlyPaths" if "ownerOnlyPaths" in line else line)
+            fields.append(line)
     return fields
 
 
@@ -479,9 +467,7 @@ class ExistingRecordTests(InitCase):
         code, output = self.init()
         assert code == 0, output
         assert self.gate()["checks"]["commit"] == ["make", "gate-commit"]
-        assert required_fields(output) == ["ownerOnlyPaths"], (
-            "only the owner's field remains"
-        )
+        assert required_fields(output) == []
         self.assert_second_run_changes_nothing()
 
 

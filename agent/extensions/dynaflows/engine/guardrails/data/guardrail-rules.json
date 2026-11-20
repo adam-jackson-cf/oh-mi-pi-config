@@ -1413,7 +1413,7 @@
             "advisory_with_no_fix_version",
             "fixed_release_blocked_by_pinned_dependent"
           ],
-          "file": "repo_json_file_named_in_the_record_owner_only_paths",
+          "file": "repo_json_file_the_repo_dependency_audit_reads",
           "entry_fields": [
             "advisory",
             "package",

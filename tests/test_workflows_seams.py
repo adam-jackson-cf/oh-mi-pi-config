@@ -120,7 +120,7 @@ class RepositoryCase(unittest.TestCase):
         except ValueError:
             gate = None
         if isinstance(gate, dict):
-            text = json.dumps({**SWITCH, "ownerOnlyPaths": [], **gate})
+            text = json.dumps({**SWITCH, **gate})
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / "gate.json").write_text(text)
 
@@ -969,7 +969,6 @@ class RecordGateTests(RepositoryCase):
         complete = {
             "schemaVersion": 2,
             "checks": {"commit": ["true"]},
-            "ownerOnlyPaths": [],
         }
         for text, fragment in (
             ("{", "record "),

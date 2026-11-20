@@ -59,7 +59,7 @@ approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
 `agentMerge` and `ci`, independently of dynaflows. With dynaflows off (including no
 record), sessions get plain omp + git-tool + generic Git safety rails: no edit
-read gates, path checks, verification handoff reads or owner-only commit refusal.
+read gates, path checks or verification handoff reads.
 With dynaflows on for the edited path's repo, targeted integrity/new-code/test reads
 fire before edits. All-session handoff, including subagents, stays blocked until
 verification references are read after that session's code edits in an enabled repo
@@ -83,8 +83,7 @@ check run, whoever posts it.
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. With
-dynaflows on, each agent commit refuses changes to record `ownerOnlyPaths` and
-runs harness `guardrails path-check` with repo and record arguments,
+dynaflows on, each agent commit runs harness `guardrails path-check` with repo and record arguments,
 then `checks.commit`, and then `guardrails check`, also run from this checkout with
 `--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the record.
@@ -142,7 +141,7 @@ source.
 A repo never depends on, contains or mentions omp or dynaflows. Its harness settings live in a
 gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
 `origin` remote. [The record contract](agent/lib/record/README.md) defines its `gate.json` and
-`profile.md`, strict loading, owner-only paths and write authority; records are never committed,
+`profile.md`, strict loading and write authority; records are never committed,
 because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
 copies them to devices. Dynaflows
 [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record

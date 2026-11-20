@@ -195,7 +195,7 @@ class Resolve(unittest.TestCase):
             (gate(extraField=1000), "extraField"),
             (gate(otherField="github"), "otherField"),
             (gate(checks={"commit": ["make"], "lint": ["make"]}), "checks.lint"),
-            (gate(ownerOnlyPaths=None), "ownerOnlyPaths"),
+            (gate(ownerOnlyPaths=[]), "ownerOnlyPaths"),
         ):
             with self.subTest(named=named):
                 (record / "gate.json").write_text(json.dumps(invalid))

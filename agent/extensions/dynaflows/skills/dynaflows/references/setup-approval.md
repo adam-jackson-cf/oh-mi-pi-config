@@ -21,8 +21,7 @@ Dry-run the harness checks with the draft record, then gate every record and rep
 1. In the action matrix, `keep` gives a `repo` step to its checkers (`guardrails.check.repo`), `merge` or `replace` is the
    `grow` PR that changes the repo's checkers before they own the step, and `add` runs a `harness` step.
    No row runs a harness step for a rule a repo checker holds or will hold.
-2. Present the draft record for confirmation: every `gate.json` command and its discovered source, `ci.requiredContext`, `ci.runner`, `ownerOnlyPaths`
-   (the dependency-audit exception file and any other path only the owner changes), scope exclusions and the
+2. Present the draft record for confirmation: every `gate.json` command and its discovered source, `ci.requiredContext`, `ci.runner`, scope exclusions and the
    `profile.md` values, with the consequence of every replacement or exception.
 3. A rule still blocked by a missing harness implementation stays blocked; never relabel it as passing.
 4. `Minimal` is the least change that gives the record the required `checks.commit` naming the repo's own command and the

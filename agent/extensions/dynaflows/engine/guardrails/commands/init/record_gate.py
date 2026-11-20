@@ -16,7 +16,6 @@ RULE = "GATE.local-ci-parity"
 GATE_FIELDS = frozenset({
     "schemaVersion",
     "checks",
-    "ownerOnlyPaths",
     "agentMerge",
     "ci",
     "dynaflows",
@@ -128,11 +127,6 @@ def confirmations(gate: dict[str, Any]) -> list[str]:
     if "commit" not in checks:
         lines.append(
             f"required: no checks.commit found; pass --commit-command or edit {GATE_PATH}"
-        )
-    if "ownerOnlyPaths" not in gate:
-        lines.append(
-            f"required: ownerOnlyPaths is the owner's to set in {GATE_PATH}: list the repo paths "
-            "only the owner changes (the dependency-audit exception file), or [] when there are none"
         )
     if "ci" not in checks:
         lines.append(

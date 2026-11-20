@@ -337,7 +337,6 @@ class ProveScopeTests(NamingScopeCase):
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "ownerOnlyPaths": [],
                 "dynaflows": {"enabled": True},
             })
         )

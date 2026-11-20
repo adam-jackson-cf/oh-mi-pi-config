@@ -60,8 +60,7 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
      unknown lock format, a manifest without a lock, an auditor error) as any failing check.
      Then commit again.
 
-Agents never add or edit exceptions. The exception file is in the record's `ownerOnlyPaths`, and
-the rails refuse any agent commit that changes it.
+Agents never add or edit exceptions; the owner writes every entry.
 
 The catalogue's `SECURITY.dependency-audit.exceptions` is the exception-file contract.
 No-fix entries retain `advisory`, `package`, `version`, `lock`, `reason`, `exposure`, `expires`.
@@ -70,5 +69,5 @@ Fixed-but-blocked entries additionally require `blocked_by` (`package@exact-vers
 `constraint_source` (an absolute HTTPS URL). Repo checkers deterministically verify the blocker
 in the same lock and parse the constraint to exclude every reported fixed release; they never
 fetch the URL. The owner attests the upstream evidence when writing the entry. Expired,
-malformed, stale, unmatched and unblocked-fix entries still fail. Nothing changes the owner-only
-path or the exact advisory/package/version/lock match.
+malformed, stale, unmatched and unblocked-fix entries still fail. Nothing relaxes the exact
+advisory/package/version/lock match.

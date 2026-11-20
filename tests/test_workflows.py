@@ -149,7 +149,6 @@ class SchemaTests(unittest.TestCase):
         gate = {
             "schemaVersion": 2,
             "checks": {"commit": ["c"], "format": ["ruff", "format"]},
-            "ownerOnlyPaths": [],
             "ci": {"requiredContext": "gate", "runner": "ci-gate"},
             "dynaflows": {"enabled": False},
         }
@@ -161,7 +160,7 @@ class SchemaTests(unittest.TestCase):
             {k: v for k, v in gate.items() if k != "checks"},
             {**gate, "checks": {"ci": ["c"]}},
             {**gate, "unknownField": 3},
-            {k: v for k, v in gate.items() if k != "ownerOnlyPaths"},
+            {**gate, "ownerOnlyPaths": []},
         ):
             with self.subTest(gate=invalid):
                 assert workflow.gate_policy(invalid) is None
@@ -771,7 +770,7 @@ class TriageTests(unittest.TestCase):
         )
         assert result["halt"]
         assert (
-            "Exception file failure at scripts/checks/exceptions.json: expired (owner-only path)"
+            "Exception file failure at scripts/checks/exceptions.json: expired (the owner changes the exception file)"
             in result["report"]
         )
         assert result["owner"] == [], "the low advisories themselves stay in-flow fixes"

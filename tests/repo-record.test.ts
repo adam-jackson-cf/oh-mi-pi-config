@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
-import { configRoot, ownerOnly, ownerPathProblem, parseOrigin, recordDir } from "../agent/lib/repo-record.ts";
+import { configRoot, parseOrigin, recordDir } from "../agent/lib/repo-record.ts";
 
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
@@ -31,15 +31,6 @@ describe("parseOrigin", () => {
 });
 
 describe("record resolution", () => {
-	test("owner-only entries are repo-relative paths; a trailing slash covers a directory", () => {
-		for (const path of ["scripts/checks/exceptions.json", "security/", "a"]) assert.equal(ownerPathProblem(path), undefined, path);
-		for (const path of ["", "/", "/abs.json", "a//b", "./a", "a/../b", "..", "a\\b", "a\0b"]) assert.ok(ownerPathProblem(path), path);
-		const owned = ["scripts/checks/exceptions.json", "security/"];
-		for (const path of ["scripts/checks/exceptions.json", "security/a.json", "security/deep/b.json"]) assert.equal(ownerOnly(path, owned), true, path);
-		for (const path of ["scripts/checks/exceptions.json.bak", "scripts/checks", "securityx/a.json", "security"]) assert.equal(ownerOnly(path, owned), false, path);
-		assert.equal(ownerOnly("anything", []), false);
-	});
-
 	test("the default root is the checkout holding the module", () => {
 		const root = resolve(import.meta.dir, "..");
 		assert.equal(resolve(configRoot()), root);

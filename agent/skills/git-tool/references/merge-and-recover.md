@@ -87,7 +87,6 @@ The [repo's record](../../../lib/record/README.md) (`<harness>/repos/<owner>/<na
 `gate.json`, `profile.md` and anything else there) holds its
 checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
 Agents write records directly. Write approval fields only as the owner stated them in the chat.
-Record-write authority grants no permission to change repository owner-only paths.
 Record-write authority does not approve repository fixes that separately require owner approval.
 
 ## Recover a red default branch

@@ -31,7 +31,7 @@ Read this runbook before any Git action.
 - Pulling existing commits into a branch (merge the target, rebase, cherry-pick, revert, sync) needs
   no extra checks: those commits were checked when they were made.
 - Agents write per-repo records directly; records are never committed and never part of a PR.
-  Write approval fields only as the owner stated them in the chat; `ownerOnlyPaths` remains unchanged
+  Write approval fields only as the owner stated them in the chat
   ([merge-and-recover](merge-and-recover.md#who-writes-records)).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit directly to the default branch.

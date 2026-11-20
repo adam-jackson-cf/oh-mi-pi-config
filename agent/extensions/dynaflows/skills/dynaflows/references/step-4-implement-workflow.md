@@ -28,7 +28,7 @@ Freeze proofs before implementation, then land the greening change through tasks
    ([ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md)).
 6. When the commit gate reports `SECURITY.dependency-audit` findings, stop implementation and follow
    [dependency advisories](dependency-advisories.md).
-7. Never edit the record's `ownerOnlyPaths`, such as the dependency-audit exception file; rails refuse the commit.
+7. Never add or edit dependency-audit exceptions; raise the need to the owner, who writes every entry.
 8. Follow `skill://git-tool/references/branch-and-integrate.md` to fetch the resolved default and create the dedicated
    `agent/<slug>` branch and worktree, never from spike code.
 9. Delegate every edit, including small fixes, to sequential non-isolated tasks in that worktree using absolute paths;

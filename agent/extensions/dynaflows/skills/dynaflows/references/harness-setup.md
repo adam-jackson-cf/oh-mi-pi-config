@@ -11,7 +11,7 @@ Add the record, engine and approval mechanics to each step of the generic reposi
   [Steps 4–5](setup-approval.md) and [Steps 6–7](setup-cutover.md). It is not a second setup system;
   never copy these mechanics into the target repo.
 - [The record contract](../../../../../lib/record/README.md) owns origin resolution, the gate schema, strict loading,
-  command arrays, owner-only paths, merge policy, CI runner roles, commit events, device rollout, proposal storage
+  command arrays, merge policy, CI runner roles, commit events, device rollout, proposal storage
   and write authority. [The record profile](../../../../../lib/record/profile.md) owns profile settings and approvals.
   [Adapter authoring](adapter-authoring.md) owns the adapter interface and conformance.
 - `<omp root>` is the oh-mi-pi-config checkout, never the target. The engine lives at

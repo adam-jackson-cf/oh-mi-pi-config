@@ -1,6 +1,5 @@
 """Per-repo record resolution against real git clones, worktrees and temp records."""
 
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -36,7 +35,6 @@ REFUSED = [
 GATE = {
     "schemaVersion": 2,
     "checks": {"commit": ["make", "gate"]},
-    "ownerOnlyPaths": [],
     "dynaflows": {"enabled": True},
 }
 
@@ -64,12 +62,6 @@ class GateReason(unittest.TestCase):
         for valid in (
             GATE,
             gate(agentMerge="disabled"),
-            gate(
-                ownerOnlyPaths=[
-                    "scripts/checks/dependency-audit-exceptions.json",
-                    "security/",
-                ]
-            ),
             gate(
                 checks={
                     "commit": ["c"],
@@ -125,35 +117,15 @@ class GateReason(unittest.TestCase):
                 "ci must declare nonblank requiredContext and runner",
             ),
             (
-                gate(ownerOnlyPaths=None),
-                "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)",
+                gate(ownerOnlyPaths=[]),
+                "unknown field ownerOnlyPaths must be removed",
             ),
             (
-                gate(ownerOnlyPaths="a.json"),
-                "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)",
+                gate(
+                    ownerOnlyPaths=["scripts/checks/dependency-audit-exceptions.json"]
+                ),
+                "unknown field ownerOnlyPaths must be removed",
             ),
-            (gate(ownerOnlyPaths=[1]), "ownerOnlyPaths entries must be strings"),
-            (
-                gate(ownerOnlyPaths=["a.json", "a.json"]),
-                "ownerOnlyPaths entries must be unique",
-            ),
-        ]
-        cases += [
-            (
-                gate(ownerOnlyPaths=[path]),
-                f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)",
-            )
-            for path in (
-                "",
-                "/",
-                "/abs.json",
-                "a//b",
-                "./a",
-                "a/../b",
-                "..",
-                "a\\b",
-                "a\0b",
-            )
         ]
         cases += [
             (gate(dynaflows=switch), 'dynaflows must be {"enabled": true|false}')

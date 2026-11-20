@@ -21,5 +21,4 @@ Collect the inputs the record needs and the rule-ID evidence that decides each c
   out of the repo, is a gap to fix in the repo checker.
 - Record any baseline each repo checker or tool applies, with its finding count; a baselined finding is an open finding.
 - Map the dependency-audit scope (`SECURITY.dependency-audit`) against the catalogue row: an audit that prints findings
-  in another format than the row's `advisory_line` is a gap. Record the repo's dependency-audit exception file, if any,
-  for the record's `ownerOnlyPaths`.
+  in another format than the row's `advisory_line` is a gap. Record the repo's dependency-audit exception file, if any.
