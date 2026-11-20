@@ -455,9 +455,10 @@
     <header>
       <h1>Dynaflows · request to merged PR</h1>
       <p class="sub">
-        A map of <a href="skill://dynaflows">skill://dynaflows</a> and the
-        <a href="../index.ts">extension</a> that enforces it. Detail lives in
-        the skills; this page defines nothing.
+        A map of
+        <a href="skill://structured-workflow">skill://structured-workflow</a>
+        and the <a href="../index.ts">extension</a> that enforces it. Detail
+        lives in the skills; this page defines nothing.
       </p>
       <div class="legend">
         <span class="chip owner"><i class="dot"></i>Owner</span>
@@ -496,7 +497,7 @@
           <div class="lane">Owner<small>you</small></div>
           <div class="cell">
             <div class="card owner">
-              <b>Turns dynaflows on/off</b
+              <b>Picks the mode</b
               ><span><code>$dynaflows</code> line, or asks in chat</span>
             </div>
           </div>
@@ -638,7 +639,7 @@
           </div>
           <div class="cell"></div>
 
-          <div class="lane">Rails<small>dynaflows on</small></div>
+          <div class="lane">Rails<small>structured mode</small></div>
           <div class="cell">
             <div class="card">
               <b>Prompt</b
@@ -707,8 +708,8 @@
 
           <div class="lane">Skills<small>hand-offs</small></div>
           <div class="cell skills">
-            <a class="skill" href="skill://dynaflows"
-              >dynaflows <small>harness setup</small></a
+            <a class="skill" href="skill://structured-workflow"
+              >structured-workflow <small>harness setup</small></a
             >
           </div>
           <div class="cell"></div>
@@ -872,38 +873,39 @@
           <div>
             <div class="switch">
               <div class="box src owner">
-                <b>Record switch</b
+                <b>Record mode</b
                 ><span
-                  ><code>dynaflows.enabled</code> in <code>gate.json</code>; no
-                  origin or record = off</span
+                  ><code>dynaflows.mode</code> in <code>gate.json</code>; no
+                  origin or record = minimal</span
                 >
               </div>
               <div class="arr">↗</div>
               <div class="box check">
-                <b>On</b><span>stage rails above; judged rules active</span>
+                <b>Structured</b
+                ><span>stage rails above; judged rules active</span>
               </div>
               <div class="arr">↘</div>
               <div class="box repo">
-                <b>Off</b
+                <b>Minimal</b
                 ><span
-                  >plain omp + git-tool; judged rules added to
-                  <code>ttsr.disabledRules</code></span
+                  >fixed guards + git-tool; no merge, no default-branch push;
+                  judged rules added to <code>ttsr.disabledRules</code></span
                 >
               </div>
             </div>
             <div class="box block always">
-              <b>Always · <a href="../../agent-rails.ts">agent-rails.ts</a></b
+              <b>Both modes · <a href="../lib/guards.ts">lib/guards.ts</a></b
               ><span
                 >git-tool read before branch, commit, push, PR · worktree
-                location · hook bypass refused ·
+                location · hook bypass refused · default-branch push refused ·
                 <code>agentMerge</code> policy</span
               >
             </div>
             <p class="note">
-              Rules: <a href="../../../rails.yml">rails.yml</a> ·
+              Rules: <a href="../rails.yml">rails.yml</a> ·
               <a
-                href="../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md"
-                >ADR 0004</a
+                href="../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md"
+                >ADR 0015</a
               >
             </p>
           </div>
@@ -913,19 +915,22 @@
 <span class="h">oh-mi-pi-config</span>        <span class="c">the harness</span>
 ├─ agent/config.yml     <span class="c">loads the package</span>
 ├─ agent/extensions/dynaflows/
-│  ├─ index.ts          <span class="c">rails</span>
+│  ├─ index.ts          <span class="c">rails, both modes</span>
+│  ├─ lib/              <span class="c">guards, rails runtime, record loaders</span>
+│  ├─ rails.yml         <span class="c">reads per mode, judged rule names</span>
+│  ├─ record/           <span class="c">record schema docs and templates</span>
 │  ├─ engine/           <span class="c">workflows.py, guardrails</span>
-│  ├─ skills/           <span class="s">dynaflows · test-guidance · setup-repo-proofs
-│  │                    jev-actions · codify-omp-workflow-corrections</span>
+│  ├─ skills/           <span class="s">structured-workflow · test-guidance
+│  │                    setup-repo-proofs · git-tool
+│  │                    codify-omp-workflow-corrections</span>
 │  ├─ rules/            <span class="c">judged rules</span>
 │  └─ judgments/        <span class="c">calibrated questions</span>
-├─ agent/skills/git-tool/  <span class="c">standalone: serves dynaflows-off too</span>
 └─ repos/&lt;owner&gt;/&lt;name&gt;/  <span class="c">record: gate.json, profile.md · gitignored</span>
 <span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span></pre>
         </div>
         <p class="note">
           <a href="../../../config.yml">agent/config.yml</a> ·
-          <a href="../../../lib/record/README.md">record schema</a> ·
+          <a href="../record/README.md">record schema</a> ·
           <a href="../../../../docs/adr/0013-dynaflows-bundles-its-skills.md"
             >ADR 0013</a
           >

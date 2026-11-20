@@ -1,0 +1,46 @@
+structuredRules:
+  - dynaflows-clean-cutovers
+  - dynaflows-flakes
+  - dynaflows-measured-claims
+  - dynaflows-regression-coverage
+references:
+  minimal:
+    git:
+      - skill://git-tool
+  structured:
+    firstEdit:
+      - skill://structured-workflow/references/delivery-principles.md
+    newFile:
+      - skill://structured-workflow/references/structure-and-naming.md
+    testFile:
+      - skill://test-guidance/references/tiers.md
+      - skill://structured-workflow/references/test-enforcement.md
+      - skill://structured-workflow/references/proofs.md
+    verification:
+      - skill://test-guidance/references/before-commit.md
+    workflow:
+      - skill://structured-workflow
+    git:
+      - skill://git-tool
+      - skill://git-tool/references/merge-and-recover.md
+testGlobs:
+  - "**/*.{test,spec}.*"
+  - "**/{test,tests,__tests__}/**"
+codeGlobs:
+  - "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}"
+editTools: [write, edit, ast_edit]
+# Applied to parsed command positions after env assignments and git global options.
+# Quoted echo/rg arguments are not commands and do not trigger this check. Pulling commits in
+# (merge, rebase, cherry-pick, revert, am, pull) needs no read; rails check only its hook bypass.
+gitCommand: '^(git (commit|push)\b|git worktree add\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge)\b)'
+pathFields:
+  read: [path]
+  write: [path]
+  edit: [path, paths]
+  ast_edit: [paths]
+  find: [path]
+  grep: [path]
+  glob: [path]
+  ast_grep: [paths]
+resolveDevice: xd://resolve
+rejectDevice: xd://reject

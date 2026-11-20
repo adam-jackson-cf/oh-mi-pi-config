@@ -7,7 +7,9 @@ from typing import Any
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/lib"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/lib")
+)
 import repo_record
 
 pytestmark = pytest.mark.fast
@@ -35,7 +37,7 @@ REFUSED = [
 GATE = {
     "schemaVersion": 2,
     "checks": {"commit": ["make", "gate"]},
-    "dynaflows": {"enabled": True},
+    "dynaflows": {"mode": "structured"},
 }
 
 
@@ -71,7 +73,7 @@ class GateReason(unittest.TestCase):
                     "profile": ["p"],
                 },
                 ci={"requiredContext": "gate", "runner": "ci-gate"},
-                dynaflows={"enabled": False},
+                dynaflows={"mode": "minimal"},
             ),
         ):
             with self.subTest(gate=valid):
@@ -133,8 +135,26 @@ class GateReason(unittest.TestCase):
             ),
         ]
         cases += [
-            (gate(dynaflows=switch), 'dynaflows must be {"enabled": true|false}')
-            for switch in (None, {}, {"enabled": 1}, {"enabled": "true"}, True)
+            (
+                gate(dynaflows=switch),
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            )
+            for switch in (
+                None,
+                {},
+                {"mode": "on"},
+                {"mode": ["minimal"]},
+                {"mode": "minimal", "other": 1},
+                True,
+            )
+        ]
+        cases += [
+            (
+                gate(dynaflows=switch),
+                "unknown field dynaflows.enabled must be removed; "
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            )
+            for switch in ({"enabled": True}, {"mode": "minimal", "enabled": False})
         ]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):

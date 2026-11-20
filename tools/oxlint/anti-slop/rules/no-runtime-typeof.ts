@@ -36,7 +36,7 @@ export const noRuntimeTypeofRule = defineRule({
 		},
 		messages: {
 			runtimeTypeof:
-				"A `typeof` check narrows a representation without establishing its contract. Parse input at its I/O boundary, then branch on the domain value.",
+				"Root cause: a `typeof` check inspects the representation because the value reached this code unparsed. Fix: parse input into a domain type at its I/O boundary, then branch on that type's meaningful values.",
 		},
 		schema: [
 			{

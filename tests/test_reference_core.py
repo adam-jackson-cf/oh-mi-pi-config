@@ -20,14 +20,19 @@ import pytest
 
 from guardrails.commands import cli
 from guardrails.context.config import profile as profile_module
-from guardrails.foundation.findings import Finding, exit_code, format_findings
+from guardrails.foundation.findings import (
+    Finding,
+    exit_code,
+    format_findings,
+    remediations,
+)
 from guardrails.toolkit import dispatch
 
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TEMPLATE = ROOT / "agent/lib/record/profile.md"
+TEMPLATE = ROOT / "agent/extensions/dynaflows/record/profile.md"
 
 FIXTURES = ROOT / "tests/fixtures/reference/core"
 
@@ -306,14 +311,26 @@ class ProfileCompleteTests(unittest.TestCase):
 
 
 class FindingsTests(unittest.TestCase):
-    def test_findings_render_sorted_unique_single_lines(self) -> None:
-        later = Finding("B.rule", "b.py", "two\n words", "fix b")
-        earlier = Finding("A.rule", "a.py", "one", "fix a")
-        assert (
-            format_findings([later, earlier, later])
-            == "a.py: A.rule: one; fix a\nb.py: B.rule: two words; fix b"
-        )
+    def test_findings_render_sorted_unique_lines_then_each_rules_remediation(
+        self,
+    ) -> None:
+        later = Finding("TEST.no-test-hooks", "b.py", "two\n words", "fix b")
+        earlier = Finding("TEST.no-evasion", "a.py", "one", "fix a")
+        guidance = remediations()
+        assert format_findings([later, earlier, later]).splitlines() == [
+            "a.py: TEST.no-evasion: one; fix a",
+            "b.py: TEST.no-test-hooks: two words; fix b",
+            f"remediation TEST.no-evasion: {guidance['TEST.no-evasion'].render()}",
+            f"remediation TEST.no-test-hooks: {guidance['TEST.no-test-hooks'].render()}",
+        ]
+        assert guidance["TEST.no-evasion"].render().startswith("root cause: ")
         assert (exit_code([]), exit_code([earlier])) == (0, 1)
+
+    def test_a_finding_whose_rule_is_not_in_the_catalogue_cannot_render(
+        self,
+    ) -> None:
+        with pytest.raises(KeyError):
+            format_findings([Finding("A.rule", "a.py", "one", "fix a")])
 
 
 class CliCase(unittest.TestCase):

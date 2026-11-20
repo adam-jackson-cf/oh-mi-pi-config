@@ -12,7 +12,7 @@ export const noReflectApplyRule = defineRule({
     },
     messages: {
       reflectApply:
-        "Replace `Reflect.apply` with a typed function call. Model dynamic dispatch behind a named interface.",
+        "Root cause: `Reflect.apply` calls a function the types cannot see, usually because dispatch has no declared contract. Fix: declare the dispatch as a named interface or lookup table of typed functions and call them directly.",
     },
   },
   createOnce(context) {

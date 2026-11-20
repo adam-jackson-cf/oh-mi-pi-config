@@ -4,9 +4,14 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { dynaflowsEnabled, findRecord, offText, RecordError, repoSlug, resolveRecord } from "../agent/lib/repo-record.ts";
+import { findRecord, loadGate, minimalText, type Mode, RecordError, repoSlug, resolveRecord } from "../agent/extensions/dynaflows/lib/repo-record.ts";
 
-const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, dynaflows: { enabled: true } };
+const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] }, dynaflows: { mode: "structured" } };
+
+async function recordMode(repo: string, config: string): Promise<Mode> {
+	const record = await findRecord(repo, config);
+	return record === null ? "minimal" : (await loadGate(record)).dynaflows.mode;
+}
 
 const git = (...args: string[]) => execFileSync("git", args, { stdio: "pipe" });
 
@@ -38,27 +43,27 @@ describe("record resolution", () => {
 			assert.deepEqual(await resolveRecord(f.repo, f.config), { slug: "owner/name", dir: null, reason: `no per-repo record at ${gate}` });
 			const record = f.writeRecord("owner/name", "{}");
 			assert.deepEqual(await resolveRecord(f.repo, f.config), { slug: "owner/name", dir: record });
-			assert.equal(offText(null, "no origin remote"), "dynaflows off for none: no origin remote");
-			assert.equal(offText("owner/name", "why"), "dynaflows off for owner/name: why");
+			assert.equal(minimalText(null, "no origin remote"), "dynaflows minimal mode for none: no origin remote");
+			assert.equal(minimalText("owner/name", "why"), "dynaflows minimal mode for owner/name: why");
 		} finally { f.cleanup(); }
 	});
 
-	test("no origin means no record and dynaflows off", async () => {
+	test("no origin means no record and minimal mode", async () => {
 		const f = fixture();
 		try {
 			assert.equal(await repoSlug(f.repo), null);
 			assert.equal(await findRecord(f.repo, f.config), null);
-			assert.equal(await dynaflowsEnabled(f.repo, f.config), false);
+			assert.equal(await recordMode(f.repo, f.config), "minimal");
 		} finally { f.cleanup(); }
 	});
 
-	test("origin without a record means dynaflows off", async () => {
+	test("origin without a record means minimal mode", async () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "git@github.com:Owner/Name.git");
 			assert.equal(await repoSlug(f.repo), "owner/name");
 			assert.equal(await findRecord(f.repo, f.config), null);
-			assert.equal(await dynaflowsEnabled(f.repo, f.config), false);
+			assert.equal(await recordMode(f.repo, f.config), "minimal");
 		} finally { f.cleanup(); }
 	});
 
@@ -71,21 +76,23 @@ describe("record resolution", () => {
 			git("-C", f.repo, "worktree", "add", "-q", "-b", "agent/x", worktree);
 			for (const clone of [f.repo, worktree]) {
 				assert.equal(await findRecord(clone, f.config), record);
-				assert.equal(await dynaflowsEnabled(clone, f.config), true);
+				assert.equal(await recordMode(clone, f.config), "structured");
 			}
 		} finally { f.cleanup(); }
 	});
 
-	test("a disabled record is off and a malformed record is an error", async () => {
+	test("a minimal record is minimal and a malformed or enabled-shaped record is an error", async () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
-			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, dynaflows: { enabled: false } }));
-			assert.equal(await dynaflowsEnabled(f.repo, f.config), false);
+			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, dynaflows: { mode: "minimal" } }));
+			assert.equal(await recordMode(f.repo, f.config), "minimal");
 			f.writeRecord("owner/name", JSON.stringify({ schemaVersion: 2 }));
-			await assert.rejects(dynaflowsEnabled(f.repo, f.config), RecordError);
+			await assert.rejects(recordMode(f.repo, f.config), RecordError);
 			f.writeRecord("owner/name", "{");
-			await assert.rejects(dynaflowsEnabled(f.repo, f.config), RecordError);
+			await assert.rejects(recordMode(f.repo, f.config), RecordError);
+			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, dynaflows: { enabled: true } }));
+			await assert.rejects(recordMode(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes("unknown field dynaflows.enabled must be removed"));
 		} finally { f.cleanup(); }
 	});
 
@@ -94,7 +101,7 @@ describe("record resolution", () => {
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
 			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, checks: { commit: ["make"], audit: ["make", "audit"] } }));
-			assert.equal(await dynaflowsEnabled(f.repo, f.config), true);
+			assert.equal(await recordMode(f.repo, f.config), "structured");
 		} finally { f.cleanup(); }
 	});
 
@@ -111,7 +118,7 @@ describe("record resolution", () => {
 				[{ ...completeGate, checks: { commit: ["make"], audit: [] } }, "audit"],
 			] as const) {
 				f.writeRecord("owner/name", JSON.stringify(invalid));
-				await assert.rejects(dynaflowsEnabled(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);
+				await assert.rejects(recordMode(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes(named), named);
 			}
 		} finally { f.cleanup(); }
 	});

@@ -6,7 +6,7 @@ Assess behaviour over fixed seed sets and support every measured claim with stat
 
 ## Guidance
 
-- Test behaviour, not only terminal outcomes: intermediate defects can leave final results unchanged.
+- Test behaviour, not only terminal outcomes.
 - Express behaviour as invariants over a fixed seed set rather than pinning one run's numbers.
   Check each relevant step from state or logs: an invalid target is released immediately,
   a stopped entity stays stopped, or a plan never selects an unreachable destination.

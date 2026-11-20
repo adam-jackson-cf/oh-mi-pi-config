@@ -53,9 +53,10 @@ def parser() -> argparse.ArgumentParser:
     )
     command.add_argument("--allow-missing-lsp", action="store_true")
     command.add_argument(
-        "--enable-dynaflows",
-        action="store_true",
-        help="draft dynaflows.enabled true in the record",
+        "--dynaflows-mode",
+        choices=("minimal", "structured"),
+        default="minimal",
+        help="dynaflows.mode drafted in the record",
     )
     command.add_argument(
         "--lsp-timeout",
@@ -110,7 +111,7 @@ def apply_gate(
         ci_command=options.ci_command,
         required_context=options.required_context,
         runner=options.runner,
-        dynaflows=options.enable_dynaflows,
+        dynaflows_mode=options.dynaflows_mode,
     )
     planned, confirmations = record_gate.planned_gate(gate, found, answers)
     if planned != gate:

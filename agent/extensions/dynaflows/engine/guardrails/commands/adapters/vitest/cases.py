@@ -62,12 +62,14 @@ def walk(node: SgNode) -> Iterator[SgNode]:
         yield from walk(item)
 
 
+def language(path: str) -> str:
+    return "tsx" if path.endswith((".tsx", ".jsx")) else "typescript"
+
+
 def parse(path: str, text: str) -> SgNode:
     from ast_grep_py import SgRoot
 
-    root = SgRoot(
-        text, "tsx" if path.endswith((".tsx", ".jsx")) else "typescript"
-    ).root()
+    root = SgRoot(text, language(path)).root()
     if any(node.kind() == "ERROR" for node in walk(root)):
         raise CollectionError(f"invalid JavaScript/TypeScript in {path}")
     return root

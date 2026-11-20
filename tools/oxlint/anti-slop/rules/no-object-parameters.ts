@@ -48,7 +48,7 @@ export const noObjectParametersRule = defineRule({
 		},
 		messages: {
 			objectParameter:
-				"Parameter `{{parameter}}` uses the broad `object` type. Accept a named owner type; parse external input at its boundary before calling this function.",
+				"Root cause: parameter `{{parameter}}` accepts the broad `object` type because its input was never given a contract. Fix: accept a named type the owning module defines, and parse external input into that type at its boundary.",
 		},
 	},
 	createOnce(context) {

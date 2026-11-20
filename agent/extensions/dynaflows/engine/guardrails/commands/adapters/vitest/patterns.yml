@@ -3,33 +3,53 @@
     "id": "TEST.no-self-mocking",
     "scope": "tests",
     "target": "mock-call",
-    "rule": { "kind": "call_expression" },
+    "rule": {
+      "kind": "call_expression"
+    },
     "message": "owned code is mocked: {target}",
-    "fix": "exercise owned code directly; mock only external boundaries"
+    "remediation": {
+      "root_cause": "The test mocks an owned module or object, so it proves the mock rather than the shipped code.",
+      "fix": "Pass owned dependencies through real interfaces, mock only external boundaries, and call the code under test unchanged."
+    }
   },
   {
     "id": "TEST.no-self-mocking",
     "scope": "tests",
     "target": "mock-assignment",
-    "rule": { "kind": "assignment_expression" },
+    "rule": {
+      "kind": "assignment_expression"
+    },
     "message": "owned import is replaced: {target}",
-    "fix": "exercise owned code directly; mock only external boundaries"
+    "remediation": {
+      "root_cause": "The test assigns over an owned import, replacing shipped behaviour for the rest of the run.",
+      "fix": "Stop reassigning owned imports; give the dependency an injectable interface and supply a test implementation through it."
+    }
   },
   {
     "id": "TEST.no-evasion",
     "scope": "tests",
     "target": "evasion",
-    "rule": { "kind": "call_expression" },
+    "rule": {
+      "kind": "call_expression"
+    },
     "message": "test registration uses skip, focus, retry or expected failure: {target}",
-    "fix": "remove the evasion and make the test pass on every required run"
+    "remediation": {
+      "root_cause": "Test registration skips, focuses, retries or expects failure, so the run goes green without the test passing.",
+      "fix": "Remove the evasion and fix the test or code so it passes on every required run; record an owner-approved exception only for an external outage."
+    }
   },
   {
     "id": "TEST.property-seed",
     "scope": "tests",
     "target": "property",
-    "rule": { "kind": "call_expression" },
+    "rule": {
+      "kind": "call_expression"
+    },
     "message": "fast-check property run has no explicit integer seed: {target}",
-    "fix": "set a reproducible integer seed in fast-check run options"
+    "remediation": {
+      "root_cause": "A fast-check property runs without an explicit integer seed, so a failure cannot be replayed.",
+      "fix": "Set a reproducible integer seed in the run options, or once for the suite through fast-check configureGlobal."
+    }
   },
   {
     "id": "TEST.no-test-hooks",
@@ -38,13 +58,25 @@
     "rule": {
       "all": [
         {
-          "any": [{ "kind": "identifier" }, { "kind": "property_identifier" }]
+          "any": [
+            {
+              "kind": "identifier"
+            },
+            {
+              "kind": "property_identifier"
+            }
+          ]
         },
-        { "regex": "(?i)(for_?tests?|test_?only|test_?hooks?|__test|testing)" }
+        {
+          "regex": "(?i)(for_?tests?|test_?only|test_?hooks?|__test|testing)"
+        }
       ]
     },
     "message": "production exposes a test hook: {target}",
-    "fix": "remove the test-only seam and test through the production API"
+    "remediation": {
+      "root_cause": "Production code declares a symbol named for tests, which exists only to give tests a back door.",
+      "fix": "Remove the test-only symbol and test through the production API, adding a real production input where tests need control."
+    }
   },
   {
     "id": "TEST.no-test-hooks",
@@ -54,23 +86,100 @@
       "any": [
         {
           "all": [
-            { "kind": "member_expression" },
             {
-              "regex": "^process\\.env\\.(VITEST|JEST_WORKER_ID|TEST_MODE|TESTING|UNDER_TEST)$"
+              "kind": "member_expression"
+            },
+            {
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)\\??\\.([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
             }
           ]
         },
         {
           "all": [
-            { "kind": "string" },
             {
-              "regex": "^[\"'](vitest|jest|test|testing|TEST_MODE|UNDER_TEST|VITEST|JEST_WORKER_ID)[\"']$"
+              "kind": "subscript_expression"
+            },
+            {
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\?\\.)?\\[[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\]$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "binary_expression"
+            },
+            {
+              "regex": "^[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\s+in\\s+(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "binary_expression"
+            },
+            {
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])\\s*[!=]==?\\s*[\"'`](test|testing)[\"'`]$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "binary_expression"
+            },
+            {
+              "regex": "^[\"'`](test|testing)[\"'`]\\s*[!=]==?\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "member_expression"
+            },
+            {
+              "regex": "^(import\\.meta\\.vitest|globalThis\\.(__vitest_worker__|vitest|jest))$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "unary_expression"
+            },
+            {
+              "regex": "^typeof\\s+(vi|jest|describe|expect)$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "call_expression"
+            },
+            {
+              "regex": "^\\[[^\\]]*[\"'`](test|testing)[\"'`][^\\]]*\\]\\??\\.includes\\(\\s*\\(?\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "variable_declarator"
+            },
+            {
+              "regex": "^\\{\\s*(?:[^}]*?[\\s,])?([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?\\s*(?::\\s*[\\w$]+\\s*)?(?:,[^}]*)?\\}\\s*=\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)$"
             }
           ]
         }
       ]
     },
-    "message": "production reads a test marker: {target}",
-    "fix": "remove the test-only branch; test the unchanged production path"
+    "message": "production reads a test marker from the environment or the runner's globals: {target}",
+    "remediation": {
+      "root_cause": "Production code reads a test marker from the environment or the runner's globals, so the tested path differs from the shipped path.",
+      "fix": "Delete the marker read and turn the varying behaviour into configuration or an injected dependency that tests set like any caller."
+    }
   }
 ]

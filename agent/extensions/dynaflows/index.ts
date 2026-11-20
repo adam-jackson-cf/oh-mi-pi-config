@@ -9,13 +9,16 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import {
-	configRoot as defaultConfigRoot, GATE_FILE, type Gate, offText, readGateText, recordDir, resolveRecord,
-} from "../../lib/repo-record.ts";
+	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, MODES, type Mode, minimalText, readGateText, recordDir, resolveRecord,
+} from "./lib/repo-record.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, repoRoot,
-	paths, matches, missing, sentence, readReason, gitActions, readRecord, note, absentFile, fileErrorSchema,
-	recordRead, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
-} from "../../lib/rails-runtime.ts";
+	paths, pathArguments, matches, missing, sentence, readReason, gitActions, readRecord, note, absentFile, fileErrorSchema,
+	recordRead, subagentPathReason, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
+} from "./lib/rails-runtime.ts";
+import {
+	PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, minimalMergeReason, pushReason, routeReason, worktreeReason,
+} from "./lib/guards.ts";
 
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
@@ -31,6 +34,7 @@ const prCiSchema = z.object({
 // Harness variables the omp runtime sets for its own commands. Rails strip them from every repo
 // command they run (path check, checks.commit, harness checks) so repos never see the harness.
 const harnessVariables = ["AGENT"];
+const ALIAS_DEPTH = 8;
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
 // Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci_runner.py.
@@ -87,10 +91,10 @@ async function canonicalCandidates(root: string, canonicalRoot: string, changed:
 	}
 	return [...new Set(candidates)];
 }
-async function setDynaflows(dir: string, enabled: boolean): Promise<string> {
+async function setDynaflows(dir: string, mode: Mode): Promise<string> {
 	const path = join(dir, GATE_FILE);
 	const gate = z.record(z.string(), z.unknown()).parse(JSON.parse(await readGateText(dir)));
-	gate["dynaflows"] = { enabled };
+	gate["dynaflows"] = { mode };
 	const temp = `${path}.${randomUUID()}.tmp`;
 	await writeFile(temp, `${JSON.stringify(gate, null, 2)}\n`);
 	await rename(temp, path);
@@ -111,22 +115,22 @@ function headFormatReason(head: string | undefined): string | undefined {
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
 type Applied = { notice: string; content?: string | undefined };
-function missingRecordOutcome(notify: (notice: string) => string, slug: string, recordPath: string, enabled: boolean): Applied {
-	if (!enabled) return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already off.`) };
+function missingRecordOutcome(notify: (notice: string) => string, slug: string, recordPath: string, mode: Mode): Applied {
+	if (mode === "minimal") return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already in minimal mode.`) };
 	return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
-		`The owner asked to enable dynaflows for ${slug}, which has no per-repo record yet. ` +
-		"Start skill://dynaflows/references/harness-setup.md setup now, from Step 0. Write the record " +
+		`The owner asked for dynaflows structured mode in ${slug}, which has no per-repo record yet. ` +
+		"Start skill://structured-workflow/references/harness-setup.md setup now, from Step 0. Write the record " +
 		`yourself at ${recordPath} as setup reaches each file, with gate.json setting ` +
-		'"dynaflows": {"enabled": true}, so dynaflows is on once the record is complete. Never ask the owner to save a file.' };
+		'"dynaflows": {"mode": "structured"}, so structured mode starts once the record is complete. Never ask the owner to save a file.' };
 }
 function resumeContent(slug: string, dir: string, reason: string): string {
-	return `The owner asked to enable dynaflows for ${slug}, but its per-repo record ` +
-		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://dynaflows/references/harness-setup.md setup now and repair ` +
-		'the record yourself in place, with "dynaflows": {"enabled": true}. ' +
+	return `The owner asked for dynaflows structured mode in ${slug}, but its per-repo record ` +
+		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://structured-workflow/references/harness-setup.md setup now and repair ` +
+		'the record yourself in place, with "dynaflows": {"mode": "structured"}. ' +
 		"Never ask the owner to save a file.";
 }
 function startContent(slug: string, workflow: string): string {
-	return `Dynaflows on for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
+	return `Dynaflows structured mode for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
 		`${workflow} and assess this repo against its Start here playbook selection ` +
 		"(Project setup when controls, the Verification surface or the feature map are missing). Report the stage you found " +
 		"and start it. If the owner's message also names a task, route that task; if setup is complete and no task was " +
@@ -134,8 +138,8 @@ function startContent(slug: string, workflow: string): string {
 }
 const agentMessage = (content: string) => ({ message: { customType: "agent-rails-dynaflows", content, display: false, attribution: "agent" as const } });
 const toolReply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
-const dynaflowsSchema = z.object({ schemaVersion: z.literal(1), enabled: z.boolean() });
-type Dynaflows = z.infer<typeof dynaflowsSchema>;
+const machineModeSchema = z.object({ schemaVersion: z.literal(2), mode: z.enum(MODES) }).strict();
+const machineRequirement = '{"schemaVersion": 2, "mode": "minimal"|"structured"}';
 interface State extends SharedState {
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
@@ -157,27 +161,18 @@ const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardr
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
 	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: route to project setup (skill://dynaflows/references/harness-setup.md, adopt mode) to " +
+	"code to the harness copy: route to project setup (skill://structured-workflow/references/harness-setup.md, adopt mode) to " +
 	"draft guardrails.check.repo for the owner to save.";
 
-// The dynaflows directive is a whole prompt line, case-insensitive: `$dynaflows` alone, or with an
-// on or off verb after it or before it. dynaflowsSetting gives true (on), false (off) or undefined.
-// Asks inside a sentence are left to the main agent, which tells a request from a question or a
-// quote and calls the dynaflows tool.
-const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on";
+const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on|structured";
 const dynaflowsDirective = new RegExp(
-	`^(?:\\$dynaflows(?: (${dynaflowsOnVerbs}|off|disable|stop))?|(${dynaflowsOnVerbs}|disable|stop|turn off) \\$dynaflows)$`, "i");
-function dynaflowsSetting(line: string): boolean | undefined {
+	`^(?:\\$dynaflows(?: (${dynaflowsOnVerbs}|off|disable|stop|minimal))?|(${dynaflowsOnVerbs}|disable|stop|turn off|minimal) \\$dynaflows)$`, "i");
+function dynaflowsSetting(line: string): Mode | undefined {
 	const match = dynaflowsDirective.exec(line.trim().replace(/\s+/g, " "));
-	if (match) return !/^(?:off|disable|stop|turn off)$/i.test(match[1] ?? match[2] ?? "");
-	return undefined;
+	if (!match) return undefined;
+	return /^(?:off|disable|stop|turn off|minimal)$/i.test(match[1] ?? match[2] ?? "") ? "minimal" : "structured";
 }
 
-// Dynaflows is on for a repo only when its per-repo record (resolved from the origin remote under
-// `configRoot`/repos/) says dynaflows.enabled true. `machineDynaflowsPath` (~/.omp/dynaflows.json)
-// is the machine default: {"enabled": false} turns dynaflows off for every repo on this machine;
-// absent or true defers to the record. No origin or no record means off. `configPath` is the rails
-// mapping file (agent/rails.yml shared with generic rails).
 async function gitValue(pi: ExecApi, cwd: string, args: string[]): Promise<string> {
 	const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve Git scope: ${result.stderr}`);
@@ -253,7 +248,7 @@ async function ciReason(root: string, checks: CheckReport[], gate: Gate | undefi
 	return nonGreen.length || !checks.some(check => check.green)
 		? `Agent rails: CI is not green for ${pr.head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}` : undefined;
 }
-type DynaflowsAt = { on: boolean; off?: string; invalid?: boolean };
+type ModeAt = { mode: Mode; why?: string; invalid?: boolean };
 async function statusAdditions(pi: ExecApi, canonicalRoot: string): Promise<Set<string>> {
 	const status = await pi.exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: canonicalRoot, timeout: SUBPROCESS_TIMEOUT_MS });
 	if (status.code !== 0 || status.killed) {
@@ -288,19 +283,70 @@ async function groupByRoot(map: Mapping, changed: string[], state: State): Promi
 	}
 	return groups;
 }
+async function recordMode(slug: string | null, dir: string, strict: boolean): Promise<ModeAt> {
+	try {
+		if ((await loadGate(dir)).dynaflows.mode === "structured") return { mode: "structured" };
+		return { mode: "minimal", why: minimalText(slug, `the record ${join(dir, GATE_FILE)} sets dynaflows.mode minimal`) };
+	} catch (error) {
+		if (strict) throw error;
+		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
+	}
+}
+async function machineMode(path: string): Promise<Mode | undefined> {
+	const text = await readFile(path, "utf8").catch(absentFile);
+	if (text === null) return undefined;
+	const value = z.record(z.string(), z.unknown()).safeParse(JSON.parse(text));
+	const parsed = machineModeSchema.safeParse(value.success ? value.data : undefined);
+	if (parsed.success) return parsed.data.mode;
+	const legacy = value.success && Object.hasOwn(value.data, "enabled") ? "unknown field enabled must be removed; " : "";
+	throw new Error(`the machine default ${path} is invalid: ${legacy}it must be ${machineRequirement}`);
+}
+async function machineModeAt(path: string, slug: string | null, strict: boolean): Promise<ModeAt | undefined> {
+	try {
+		if (await machineMode(path) !== "minimal") return undefined;
+		return { mode: "minimal", why: minimalText(slug, `the machine default ${path} sets mode minimal`) };
+	} catch (error) {
+		if (strict) throw error;
+		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
+	}
+}
+type SessionCache = { builtins?: Promise<Set<string>>; userRules?: string[] };
+async function gitBuiltins(pi: ExecApi, cache: SessionCache, cwd: string): Promise<Set<string>> {
+	cache.builtins ??= gitValue(pi, cwd, ["--list-cmds=builtins"]).then(text => new Set(text.split("\n")));
+	return cache.builtins;
+}
+async function aliasActions(pi: ExecApi, cache: SessionCache, action: GitAction): Promise<GitAction[] | undefined> {
+	const [name, ...rest] = action.args;
+	if (!action.cwd || !action.command.startsWith("git ") || !name || name.startsWith("-")) return undefined;
+	if ((await gitBuiltins(pi, cache, action.cwd)).has(name)) return undefined;
+	const result = await pi.exec("git", ["config", "--get", `alias.${name}`], { cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+	if (result.killed) throw new Error(`git config --get alias.${name} was killed`);
+	const expansion = result.code === 0 ? result.stdout.trim() : "";
+	if (!expansion) return undefined;
+	const words = rest.map(shellWord).join(" ");
+	if (expansion.startsWith("!")) return gitActions(`${expansion.slice(1)} ${words}`, action.cwd);
+	const config = action.config.map(entry => `-c ${shellWord(entry)}`).join(" ");
+	return gitActions(`git ${config} ${expansion} ${words}`, action.cwd);
+}
+async function subagentReason(map: Mapping, event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
+	if (!map.editTools.includes(event.toolName) || ctx.agent.kind === "main") return undefined;
+	return subagentPathReason([...pathArguments(event, map), ...(event.input.path === map.resolveDevice ? state.proposal : [])]);
+}
 type Notify = (notice: string, level?: "info" | "error") => string;
-type EnabledRequest = { notice: string; slug: string; dir: string; task: boolean };
+type StructuredRequest = { notice: string; slug: string; dir: string; task: boolean };
 
 export default function dynaflows(
 	pi: DynaflowsApi,
 	{
 		machineDynaflowsPath = fileURLToPath(new URL("../../../dynaflows.json", import.meta.url)),
-		configPath = fileURLToPath(new URL("../../rails.yml", import.meta.url)),
+		configPath = fileURLToPath(new URL("./rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),
 		guardrailsCommand = defaultGuardrailsCommand,
-	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[] } = {},
+		ompCommand = ["omp"],
+	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[]; ompCommand?: string[] } = {},
 ): void {
 	const states = new Map<string, State>();
+	const session: SessionCache = {};
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
@@ -348,45 +394,21 @@ export default function dynaflows(
 		const gate = await gateAt(root, state, ctx, true);
 		return { ...identity, reason: await ciReason(root, pr.statusCheckRollup, gate, identity) };
 	}
-	async function machineDynaflows(state: State, ctx: ExtensionContext): Promise<Dynaflows | undefined> {
-		try {
-			const parsed = dynaflowsSchema.safeParse(JSON.parse(await readFile(machineDynaflowsPath, "utf8")));
-			if (parsed.success) return parsed.data;
-			note(state, ctx, `Agent rails: ${machineDynaflowsPath} is invalid; ignored.`);
-		} catch (error) {
-			const parsedError = fileErrorSchema.safeParse(error);
-			if (!parsedError.success || parsedError.data.code !== "ENOENT") note(state, ctx, `Agent rails: ${machineDynaflowsPath} is unreadable; ignored.`);
-		}
-		return undefined;
-	}
-	// Whether dynaflows is on at `cwd`; when off, `off` says why in offText's words (the slug or
-	// "none", then the reason). Strict callers throw on an invalid or refused record.
-	async function recordSwitch(root: string, slug: string | null, dir: string, strict: boolean): Promise<DynaflowsAt> {
-		try {
-			const record = await recordAt(root);
-			if (!record) return { on: false, off: offText(slug, `no per-repo record at ${join(dir, GATE_FILE)}`) };
-			if (record.gate.dynaflows.enabled) return { on: true };
-			return { on: false, off: offText(slug, `the record ${join(record.dir, GATE_FILE)} sets dynaflows.enabled false`) };
-		} catch (error) {
-			if (strict) throw error;
-			return { on: false, invalid: true, off: offText(slug, error instanceof Error ? error.message : String(error)) };
-		}
-	}
-	async function dynaflowsAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<DynaflowsAt> {
-		const state = stateFor(ctx);
+	async function modeAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<ModeAt> {
 		const root = await repoRoot(cwd);
 		const resolved = root ? await resolveRecord(root, configRoot) : { slug: null, dir: null, reason: "not in a Git repository" };
-		if ((await machineDynaflows(state, ctx))?.enabled === false) {
-			return { on: false, off: offText(resolved.slug, `the machine default ${machineDynaflowsPath} sets enabled false`) };
-		}
-		if (!root || !resolved.dir) return { on: false, off: offText(resolved.slug, resolved.reason ?? "no per-repo record") };
-		return recordSwitch(root, resolved.slug, resolved.dir, strict);
+		const machine = await machineModeAt(machineDynaflowsPath, resolved.slug, strict);
+		if (machine) return machine;
+		if (!root || !resolved.dir) return { mode: "minimal", why: minimalText(resolved.slug, resolved.reason ?? "no per-repo record") };
+		return recordMode(resolved.slug, resolved.dir, strict);
 	}
-	// The record's dynaflows switch. Non-strict callers note an invalid or refused record once.
-	async function dynaflowsOn(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<boolean> {
-		const at = await dynaflowsAt(ctx, cwd, strict);
-		if (at.invalid && at.off) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.off}`));
-		return at.on;
+	async function modeOf(ctx: ExtensionContext, cwd = ctx.cwd): Promise<Mode> {
+		const at = await modeAt(ctx, cwd);
+		if (at.invalid && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
+		return at.mode;
+	}
+	async function structuredAt(ctx: ExtensionContext, cwd = ctx.cwd): Promise<boolean> {
+		return await modeOf(ctx, cwd) === "structured";
 	}
 	// The dynaflows directive's target: the repo's slug and record directory (null when it has no
 	// record yet). Throws outside a Git project with a GitHub origin remote.
@@ -442,7 +464,7 @@ export default function dynaflows(
 	async function checkGroups(groups: Map<string, string[]>, ctx: ExtensionContext, state: State): Promise<string[]> {
 		const errors: string[] = [];
 		for (const [root, changedPaths] of groups) {
-			if (!await dynaflowsOn(ctx, root)) continue;
+			if (!await structuredAt(ctx, root)) continue;
 			const pending = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
 			const error = await checkPaths(root, pending, state);
 			if (error) errors.push(error);
@@ -478,16 +500,19 @@ export default function dynaflows(
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) await replayEntry(entry, calls, ctx, state);
 	}
+	async function syncRules(ctx: ExtensionContext): Promise<ModeAt> {
+		const at = await modeAt(ctx).catch((error): ModeAt => ({ mode: "minimal", why: minimalText(null, String(error)) }));
+		const rules = lookup("ttsr.disabledRules");
+		if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
+		const user = session.userRules ??= stringList.parse(rules.get(pi.pi.settings));
+		rules.override(pi.pi.settings, at.mode === "structured" ? user : [...new Set([...user, ...map.structuredRules])]);
+		return at;
+	}
 	pi.on("session_start", async (event, ctx) => {
 		await rebuild(event, ctx);
 		if (loadError) return;
-		const at = await dynaflowsAt(ctx).catch(error => ({ on: false, off: offText(null, String(error)) }));
-		if (!at.on) {
-			const rules = lookup("ttsr.disabledRules");
-			if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
-			rules.override(pi.pi.settings, [...new Set([...stringList.parse(rules.get(pi.pi.settings)), ...map.dynaflowsRules])]);
-		}
-		if (!at.on && at.off) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.off}`));
+		const at = await syncRules(ctx);
+		if (at.mode === "minimal" && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
 	});
 	pi.on("session_switch", rebuild);
 	pi.on("session_branch", rebuild);
@@ -499,14 +524,13 @@ export default function dynaflows(
 	async function commitActionReason(action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!action.cwd) return "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.";
 		const root = await repoRoot(action.cwd);
-		const at = root ? await dynaflowsAt(ctx, root, true) : await dynaflowsAt(ctx, action.cwd);
-		if (!at.on && at.off) ctx.ui.notify(`Agent rails: ${at.off}; commit checks do not run.`, "info");
-		if (!root || !at.on) return undefined;
+		const at = root ? await modeAt(ctx, root, true) : await modeAt(ctx, action.cwd);
+		if (at.why) ctx.ui.notify(`Agent rails: ${at.why}; commit checks do not run.`, "info");
+		if (!root || at.mode !== "structured") return undefined;
 		return commitChecksReason(root);
 	}
 	async function mergeActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!action.cwd) throw new Error("cannot resolve PR action cwd");
-		if (!await dynaflowsOn(ctx, action.cwd)) return undefined;
 		const head = matchedHead(action.args);
 		const format = headFormatReason(head);
 		if (format || !head) return format;
@@ -516,24 +540,40 @@ export default function dynaflows(
 		if (pr.head && pr.head !== head) return `Agent rails: PR head is ${pr.head}, not ${head}; prove() the current head`;
 		return pr.reason;
 	}
-	async function gitActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
-		if (!new RegExp(map.gitCommand).test(action.command)) return undefined;
-		const commit = /^git commit\b/.test(action.command) ? await commitActionReason(action, ctx) : undefined;
-		if (commit) return commit;
-		return /^gh pr merge\b/.test(action.command) ? mergeActionReason(action, state, ctx) : undefined;
+	async function publishActionReason(action: GitAction, mode: Mode, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+		const merge = /^gh pr merge\b/.test(action.command);
+		const reason = (await agentMergeReason(action, configRoot)) ?? (merge ? minimalMergeReason(mode) : undefined);
+		if (reason) return reason;
+		if (/^git push\b/.test(action.command)) return pushReason(pi, action);
+		return merge ? mergeActionReason(action, state, ctx) : undefined;
 	}
-	async function bashReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
-		if (event.toolName !== "bash" || event.input.command === undefined) return undefined;
-		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
-		for (const action of await gitActions(event.input.command, cwd)) {
-			const reason = await gitActionReason(action, state, ctx);
+	async function gitActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+		const bypass = hookBypassReason(action) ?? routeReason(action);
+		if (bypass || !new RegExp(map.gitCommand).test(action.command)) return bypass;
+		const mode = action.cwd ? await modeOf(ctx, action.cwd) : "minimal";
+		const urls = missing(state, map, mode, ["git"]);
+		if (urls.length) return readReason(urls, mode);
+		if (/^git worktree add\b/.test(action.command)) return worktreeReason(pi, ompCommand, action);
+		if (/^git commit\b/.test(action.command)) return commitHookReason(action) ?? await commitActionReason(action, ctx);
+		return PUBLISHES.test(action.command) ? publishActionReason(action, mode, state, ctx) : undefined;
+	}
+	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, depth: number): Promise<string | undefined> {
+		if (depth > ALIAS_DEPTH) return `Agent rails: Git aliases nest deeper than ${ALIAS_DEPTH} levels; run the Git command itself.`;
+		for (const action of actions) {
+			const expanded = await aliasActions(pi, session, action);
+			const reason = expanded ? await actionsReason(expanded, state, ctx, depth + 1) : await gitActionReason(action, state, ctx);
 			if (reason) return reason;
 		}
 		return undefined;
 	}
+	async function bashReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
+		if (event.toolName !== "bash" || event.input.command === undefined) return undefined;
+		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
+		return actionsReason(await gitActions(event.input.command, cwd), state, ctx, 0);
+	}
 	async function pathTriggers(path: string, ctx: ExtensionContext, state: State): Promise<string[]> {
 		const root = await repoRoot(path);
-		if (!root || !await dynaflowsOn(ctx, root)) return [];
+		if (!root || !await structuredAt(ctx, root)) return [];
 		const rel = relative(root, path);
 		const code = matches(rel, map.codeGlobs);
 		const triggers: string[] = [];
@@ -547,16 +587,17 @@ export default function dynaflows(
 		const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
 		const required = new Set<string>();
 		for (const path of targets) {
-			for (const url of missing(state, map, await pathTriggers(path, ctx, state))) required.add(url);
+			for (const url of missing(state, map, "structured", await pathTriggers(path, ctx, state))) required.add(url);
 		}
-		return required.size ? readReason([...required]) : undefined;
+		return required.size ? readReason([...required], "structured") : undefined;
 	}
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
 		if (loadError) return { block: true, reason: loadError };
 		const state = stateFor(ctx);
 		try {
-			const reason = (await bashReason(event, ctx, state)) ?? (await editReadsReason(event, ctx, state));
+			const reason = (await bashReason(event, ctx, state)) ?? (await subagentReason(map, event, ctx, state)) ??
+				(await editReadsReason(event, ctx, state));
 			return reason ? { block: true, reason } : undefined;
 		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});
@@ -570,13 +611,13 @@ export default function dynaflows(
 		const reasons: string[] = [];
 		let editedDynaflowsRepo = false;
 		for (const root of new Set([...state.edits, ...state.pathFailures.keys()])) {
-			if (!await dynaflowsOn(ctx, root)) continue;
+			if (!await structuredAt(ctx, root)) continue;
 			if (state.edits.has(root)) editedDynaflowsRepo = true;
 			const failedPaths = state.pathFailures.get(root);
 			const error = failedPaths ? await checkPaths(root, failedPaths, state) : undefined;
 			if (error) reasons.push(error);
 		}
-		const urls = editedDynaflowsRepo ? missing(state, map, ["verification"]) : [];
+		const urls = editedDynaflowsRepo ? missing(state, map, "structured", ["verification"]) : [];
 		if (urls.length) reasons.push(`read ${urls.join(" and ")}`);
 		return reasons;
 	}
@@ -588,22 +629,19 @@ export default function dynaflows(
 			return reasons.length ? { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` } : undefined;
 		} catch (error) { return { decision: "block", reason: `Agent rails: handoff policy failed: ${String(error)}` }; }
 	});
-	// Applies the owner's dynaflows ask for the current repo: sets the record's switch, grants (or, on
-	// off, revokes) this session's record writes, and returns the next step for the agent, or none.
-	// `task` is true when the prompt also holds work to route.
-	const workflowReferences = () => (map.references["workflow"] ?? []).join(" and ");
-	async function enabledOutcome(ctx: ExtensionContext, state: State, notify: Notify, request: EnabledRequest): Promise<Applied> {
-		const at = await dynaflowsAt(ctx);
-		if (at.invalid) return { notice: request.notice, content: resumeContent(request.slug, request.dir, at.off ?? "invalid record") };
-		if (!at.on) {
-			const off = sentence(at.off ?? "dynaflows off");
-			return { notice: notify(`Agent rails: ${off}`), content: `${off.charAt(0).toUpperCase()}${off.slice(1)} Do not apply dynaflows.` };
+	const workflowReferences = () => (map.references.structured["workflow"] ?? []).join(" and ");
+	async function structuredOutcome(ctx: ExtensionContext, state: State, notify: Notify, request: StructuredRequest): Promise<Applied> {
+		const at = await modeAt(ctx);
+		if (at.invalid) return { notice: request.notice, content: resumeContent(request.slug, request.dir, at.why ?? "invalid record") };
+		if (at.mode === "minimal") {
+			const minimal = sentence(at.why ?? "dynaflows minimal mode");
+			return { notice: notify(`Agent rails: ${minimal}`), content: `${minimal.charAt(0).toUpperCase()}${minimal.slice(1)} Do not apply the dynaflows workflow.` };
 		}
 		state.pointed = true;
-		if (request.task) return { notice: request.notice, content: `Dynaflows on. Route this work with ${workflowReferences()}.` };
+		if (request.task) return { notice: request.notice, content: `Dynaflows structured mode. Route this work with ${workflowReferences()}.` };
 		return { notice: request.notice, content: startContent(request.slug, workflowReferences()) };
 	}
-	async function applyDynaflows(ctx: ExtensionContext, enabled: boolean, task: boolean): Promise<Applied> {
+	async function applyDynaflows(ctx: ExtensionContext, mode: Mode, task: boolean): Promise<Applied> {
 		const state = stateFor(ctx);
 		const notify: Notify = (notice, level = "info") => { ctx.ui.notify(notice, level); return notice; };
 		let target: { slug: string; dir: string | null };
@@ -611,17 +649,23 @@ export default function dynaflows(
 		catch (error) { return { notice: notify(`Agent rails: ${String(error)}`, "error") }; }
 		state.pointed = false;
 		const { slug, dir } = target;
-		if (!dir) return missingRecordOutcome(notify, slug, recordDir(slug, configRoot), enabled);
+		if (!dir) return missingRecordOutcome(notify, slug, recordDir(slug, configRoot), mode);
 		let notice: string;
 		try {
-			notice = notify(`Agent rails: dynaflows ${enabled ? "on" : "off"} (${await setDynaflows(dir, enabled)}).`);
+			notice = notify(`Agent rails: dynaflows ${mode} mode (${await setDynaflows(dir, mode)}).`);
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			notice = notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
-			return { notice, content: enabled ? resumeContent(slug, dir, reason) : undefined };
+			return { notice, content: mode === "structured" ? resumeContent(slug, dir, reason) : undefined };
 		}
-		if (!enabled) return { notice, content: "Dynaflows off: do not apply dynaflows." };
-		return enabledOutcome(ctx, state, notify, { notice, slug, dir, task });
+		await syncRules(ctx);
+		if (mode === "minimal") return { notice, content: "Dynaflows minimal mode: fixed guards only; do not apply the dynaflows workflow." };
+		return structuredOutcome(ctx, state, notify, { notice, slug, dir, task });
+	}
+	async function applyDirective(ctx: ExtensionContext, settings: (Mode | undefined)[]) {
+		const mode = settings.includes("structured") ? "structured" : "minimal";
+		const { content } = await applyDynaflows(ctx, mode, settings.includes(undefined));
+		return content === undefined ? undefined : agentMessage(content);
 	}
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
@@ -631,31 +675,30 @@ export default function dynaflows(
 		const asked = new Set(settings.filter(setting => setting !== undefined));
 		if (asked.size > 1) {
 			ctx.ui.notify("Agent rails: contradictory dynaflows directives; no setting changed.", "error");
-			return agentMessage("The owner's message asks to both enable and disable dynaflows, so no setting changed. " +
+			return agentMessage("The owner's message asks for both dynaflows minimal and structured mode, so no setting changed. " +
 				"Ask the owner which they want, then call the dynaflows tool with their answer.");
 		}
-		if (asked.size) {
-			// A line with no directive is the task to route.
-			const { content } = await applyDynaflows(ctx, asked.has(true), settings.some(setting => setting === undefined));
-			return content === undefined ? undefined : agentMessage(content);
-		}
-		if (state.pointed || !(await dynaflowsOn(ctx))) return;
+		if (asked.size) return applyDirective(ctx, settings);
+		if (state.pointed || !(await structuredAt(ctx))) return;
 		state.pointed = true;
-		return agentMessage(`Dynaflows on. Route this work with ${workflowReferences()}.`);
+		return agentMessage(`Dynaflows structured mode. Route this work with ${workflowReferences()}.`);
 	});
-	const dynaflowsToolParams = z.object({ enabled: z.boolean().describe("true when the user asked to enable dynaflows, false to disable it") });
+	const dynaflowsToolParams = z.object({
+		mode: z.enum(MODES).describe("structured when the user asked to enable or start dynaflows, minimal when they asked to disable or stop it"),
+	});
 	pi.registerTool({
 		name: "dynaflows",
 		label: "Dynaflows",
-		description: "Turn dynaflows on or off for the current repository and get the next step. Call it only when the " +
-			"user asked in this conversation to enable or disable dynaflows, in any wording; never on your own initiative.",
+		description: "Switch dynaflows between minimal mode (fixed guards only) and structured mode (the full workflow) for the " +
+			"current repository and get the next step. Call it only when the user asked in this conversation to enable or " +
+			"disable dynaflows or to switch its mode, in any wording; never on your own initiative.",
 		parameters: dynaflowsToolParams,
 		loadMode: "essential",
 		approval: "write",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (loadError) return toolReply(loadError);
-			if (ctx.agent.kind !== "main") return toolReply("Agent rails: only the main agent can toggle dynaflows.");
-			const result = await applyDynaflows(ctx, dynaflowsToolParams.parse(params).enabled, false);
+			if (ctx.agent.kind !== "main") return toolReply("Agent rails: only the main agent can switch the dynaflows mode.");
+			const result = await applyDynaflows(ctx, dynaflowsToolParams.parse(params).mode, false);
 			return toolReply(result.content ?? result.notice);
 		},
 	});
