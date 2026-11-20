@@ -1,0 +1,58 @@
+# Design patterns
+
+## Objective
+
+Choose the judgments the application needs, the approach that combines them, and each question's
+shape and template.
+
+## Guidance
+
+- Use this runbook when designing new judgments; a review of existing questions skips it.
+- Work back from what the application will show, select, change or hand off to the judgments it
+  needs, keeping the user's stack and scope.
+- For an open-ended request, build the direction that best serves the goal, and list the others in
+  the result; for a concrete request, build it.
+- Take the first of the rows Gate to Eval judge whose signal matches each judgment; Route, not Gate,
+  picks which of two or more options runs, and Gate decides only whether one step runs.
+  A Route also follows [route decisions](route-decisions.md).
+  Add the Face-value or Changing state row on top when its signal also holds.
+  Start from the named template in `assets/templates/`: `noul-condition.json`, `choice-route.json`
+  or `score-dimension.json`.
+
+| Signal | Approach | Question shape | Template |
+| --- | --- | --- | --- |
+| A costly or risky step should run only for some inputs | Gate | One Noul per trigger reason; "any" in code | `noul` |
+| One of several handlers, tools, models or queues must run | Route | A Choice whose options say what each is for | `choice` |
+| Code retrieved candidates to order, filter or keep in context | Rerank | One Noul per query and candidate, or a Score per chunk | `noul`, `score` |
+| Code found candidate values or spans; one is intended | Select | A Choice over the candidates | `choice` |
+| A property is graded on a scale, or reused as data | Grade | One Score per dimension; weights in code | `score` |
+| Claims, fields or a summary must match supplied evidence | Verify | One Noul per claim or field | `noul` |
+| Traces or outputs need a verdict per failure mode | Eval judge | One Noul per failure mode; exact checks in code | `noul` |
+| The input must be flattened before it is judgeable at a glance | Face-value | Pre-process in code, then the row it reduces to | that row's |
+| An agent's next step depends on fresh observations | Changing state | Fresh judgments per step; code keeps goals | that row's |
+
+- Worked examples: Gate [confidence routing][cr]; Route [function calling][fc], [fan-out][fo];
+  Rerank [reranking][rr], [hierarchy][hc]; Select [extraction][ve], [structure][sr];
+  Grade [composite][cs], [features][fd]; Verify [citations][cc], [cascades][ec].
+- In Changing state, keep inferred state apart from observed facts, and check freshness first.
+- Set each threshold from which mistake costs more, as [threshold tuning](threshold-tuning.md)
+  describes; an uncertainty band needs an [escalation band](escalation-band.md) check.
+- Send these to code or a reasoning model instead, saying so in the result, never routing them by
+  Jev's confidence:
+  - a second judgment that needs the first one's answer inside the same step;
+  - derivations such as math, dates, counts, code correctness or logic;
+  - open-ended rankings, such as "is this worth attention", with no observable property;
+  - state beyond the pinned model's limit on the [models](https://docs.typesafe.ai/models.md) page;
+  - factual claims with no reference evidence in state.
+
+[cr]: https://docs.typesafe.ai/patterns/confidence-routing.md
+[fc]: https://docs.typesafe.ai/cookbooks/function_calling.md
+[fo]: https://docs.typesafe.ai/patterns/fan-out.md
+[rr]: https://docs.typesafe.ai/cookbooks/rerank_typesafe.md
+[hc]: https://docs.typesafe.ai/cookbooks/hierarchical_classification.md
+[ve]: https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md
+[sr]: https://docs.typesafe.ai/cookbooks/autoformat.md
+[cs]: https://docs.typesafe.ai/patterns/composite-scoring.md
+[fd]: https://docs.typesafe.ai/cookbooks/autoresearch_feature_discovery.md
+[cc]: https://docs.typesafe.ai/cookbooks/citation_check.md
+[ec]: https://docs.typesafe.ai/cookbooks/sde_cascade.md
