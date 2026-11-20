@@ -1,0 +1,175 @@
+import assert from "node:assert/strict";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import { describe, test } from "bun:test";
+import { z } from "@oh-my-pi/pi-coding-agent";
+import type { Mode } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+
+const repoRoot = resolve(import.meta.dir, "..");
+const extension = join(repoRoot, "agent/extensions/dynaflows");
+const cli = Bun.resolveSync("@oh-my-pi/pi-coding-agent/cli", import.meta.dir);
+const runTimeout = 120_000;
+const head = "a".repeat(40);
+const gitTool = { name: "read", arguments: { path: "skill://git-tool" } };
+const mergeRecover = { name: "read", arguments: { path: "skill://git-tool/references/merge-and-recover.md" } };
+type ScriptedCall = { name: string; arguments: Record<string, string> };
+const bash = (command: string): ScriptedCall => ({ name: "bash", arguments: { command } });
+const requestSchema = z.object({ messages: z.array(z.object({ role: z.string() })), tools: z.array(z.object({ type: z.string() })).optional() });
+
+const eventSchema = z.object({
+	type: z.string(), toolName: z.string().optional(), isError: z.boolean().optional(),
+	result: z.object({ content: z.array(z.object({ text: z.string().optional() })).optional() }).optional(),
+});
+type ToolOutcome = { tool: string; isError: boolean; text: string };
+type Run = { outcomes: ToolOutcome[]; branches: string[]; ghCalled: boolean };
+
+type ToolCallDelta = { index: number; id: string; type: "function"; function: { name: string; arguments: string } };
+type Delta = { role?: "assistant"; content?: string; tool_calls?: ToolCallDelta[] };
+
+function chunk(delta: Delta, finish: string | null): string {
+	return `data: ${JSON.stringify({ id: "scripted", object: "chat.completion.chunk", created: 0, model: "turns", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+}
+
+function completion(turn: ScriptedCall[] | undefined): Response {
+	const calls = (turn ?? []).map((call, index) => chunk({
+		tool_calls: [{ index, id: `call_${index}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } }],
+	}, null));
+	const body = turn ? [...calls, chunk({}, "tool_calls")] : [chunk({ content: "done" }, null), chunk({}, "stop")];
+	return new Response([chunk({ role: "assistant", content: "" }, null), ...body, "data: [DONE]\n\n"].join(""), {
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+function scriptedModel(turns: ScriptedCall[][]) {
+	return Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		async fetch(request) {
+			const body = requestSchema.parse(await request.json());
+			const replies = body.messages.filter(message => message.role === "assistant").length;
+			return completion(body.tools ? turns[replies] : undefined);
+		},
+	});
+}
+
+function run(cmd: string[], cwd: string, env: Record<string, string>): string {
+	const result = Bun.spawnSync({ cmd, cwd, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	if (result.exitCode !== 0) throw new Error(`${cmd.join(" ")} exited ${result.exitCode}: ${result.stderr.toString()}`);
+	return result.stdout.toString();
+}
+
+function outcomes(stdout: string): ToolOutcome[] {
+	return stdout.split("\n").filter(line => line.startsWith("{")).map(line => eventSchema.parse(JSON.parse(line)))
+		.filter(event => event.type === "tool_execution_end").map(event => ({
+		tool: event.toolName ?? "", isError: event.isError === true, text: (event.result?.content ?? []).map(part => part.text ?? "").join(""),
+	}));
+}
+
+function deployExtension(home: string, port: number): void {
+	const target = join(home, ".omp/agent/extensions/dynaflows");
+	const skipped = new Set(["engine", "docs", "judgments"]);
+	cpSync(extension, target, { recursive: true, filter: source => !skipped.has(relative(extension, source).split("/")[0] ?? "") });
+	symlinkSync(join(repoRoot, "node_modules"), join(home, ".omp/node_modules"));
+	writeFileSync(join(home, ".omp/agent/config.yml"), "extensions:\n  - ~/.omp/agent/extensions/dynaflows\n");
+	writeFileSync(join(home, ".omp/agent/models.yml"), [
+		"providers:", "  scripted:", `    baseUrl: http://127.0.0.1:${port}/v1`, "    api: openai-completions", "    apiKey: scripted",
+		"    models:", "      - id: turns", "        name: Scripted turns", "        contextWindow: 200000", "        maxTokens: 8192", "",
+	].join("\n"));
+}
+
+function cloneWithRemote(scratch: string, env: Record<string, string>) {
+	const repo = join(scratch, "repo");
+	const remote = join(scratch, "remote.git");
+	mkdirSync(repo);
+	run(["git", "init", "-q", "--bare", "-b", "main", remote], scratch, env);
+	for (const args of [
+		["init", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "init"],
+		["remote", "add", "origin", "git@github.com:owner/repo.git"], ["remote", "set-url", "--push", "origin", remote],
+		["push", "-q", remote, "main"], ["update-ref", "refs/remotes/origin/main", "HEAD"],
+		["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], ["checkout", "-q", "-b", "agent/unit"],
+	]) run(["git", ...args], repo, env);
+	return { repo, remote };
+}
+
+async function omp(repo: string, env: Record<string, string>): Promise<string> {
+	const cmd = [process.execPath, cli, "--offline", "--no-title", "-p", "--mode", "json", "--no-session", "--model", "scripted/turns", "go"];
+	const child = Bun.spawn({ cmd, cwd: repo, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+	if (await child.exited !== 0) throw new Error(`omp exited ${child.exitCode}: ${stderr}`);
+	return stdout;
+}
+
+async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promise<Run> {
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-agent-loop-")));
+	const model = scriptedModel(turns);
+	try {
+		const home = join(scratch, "home");
+		const stubs = join(scratch, "bin");
+		const ghLog = join(scratch, "gh-calls");
+		mkdirSync(join(home, ".omp/agent/extensions"), { recursive: true });
+		mkdirSync(stubs);
+		deployExtension(home, model.port ?? 0);
+		if (mode) {
+			mkdirSync(join(home, ".omp/repos/owner/repo"), { recursive: true });
+			writeFileSync(join(home, ".omp/repos/owner/repo/gate.json"),
+				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] }, dynaflows: { mode } }));
+		}
+		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\nexit 1\n`, { mode: 0o755 });
+		const env = {
+			PATH: `${stubs}:${process.env["PATH"] ?? ""}`, HOME: home, TMPDIR: scratch,
+			XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"),
+			XDG_STATE_HOME: join(home, ".local/state"), XDG_CACHE_HOME: join(home, ".cache"),
+			GIT_AUTHOR_NAME: "agent", GIT_AUTHOR_EMAIL: "agent@example.invalid",
+			GIT_COMMITTER_NAME: "agent", GIT_COMMITTER_EMAIL: "agent@example.invalid",
+		};
+		const { repo, remote } = cloneWithRemote(scratch, env);
+		const stdout = await omp(repo, env);
+		const branches = run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"], remote, env).trim().split("\n");
+		return { outcomes: outcomes(stdout), branches, ghCalled: existsSync(ghLog) };
+	} finally {
+		await model.stop(true);
+		rmSync(scratch, { recursive: true, force: true });
+	}
+}
+
+function outcome(result: Run, index: number): ToolOutcome {
+	const found = result.outcomes[index];
+	assert.ok(found, `tool call ${index} produced no result: ${JSON.stringify(result.outcomes)}`);
+	return found;
+}
+
+describe("dynaflows in the omp agent loop", () => {
+	test("minimal mode blocks gh pr merge, a hook bypass and a default-branch push, and pushes the agent branch", async () => {
+		const result = await agentRun("minimal", [
+			[gitTool], [bash("gh pr merge 1 --rebase")], [bash("git commit --allow-empty --no-verify -m change")],
+			[bash("git push origin HEAD:main")], [bash("git push origin agent/unit")],
+		]);
+		assert.equal(outcome(result, 0).isError, false);
+		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("gh pr merge is blocked in dynaflows minimal mode"));
+		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("drop --no-verify"));
+		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("default branch main is blocked"));
+		assert.equal(outcome(result, 4).isError, false, outcome(result, 4).text);
+		assert.deepEqual(result.branches.toSorted(), ["agent/unit", "main"]);
+		assert.equal(result.ghCalled, false);
+	}, runTimeout);
+
+	test("structured mode blocks gh pr merge until prove() passes on the exact head", async () => {
+		const result = await agentRun("structured", [
+			[gitTool, mergeRecover], [bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
+		]);
+		assert.equal(outcome(result, 1).isError, false);
+		const merge = outcome(result, 2);
+		assert.ok(merge.isError && merge.text.includes(`no prove() pass for ${head}`), merge.text);
+		assert.equal(result.ghCalled, false);
+	}, runTimeout);
+
+	test("a clone without a record runs in minimal mode", async () => {
+		const result = await agentRun(undefined, [
+			[gitTool], [bash("gh pr merge 1 --rebase")], [{ name: "write", arguments: { path: "src/app.ts", content: "export const app = 1;\n" } }],
+		]);
+		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("gh pr merge is blocked in dynaflows minimal mode"));
+		assert.equal(outcome(result, 2).isError, false, outcome(result, 2).text);
+		assert.equal(result.ghCalled, false);
+	}, runTimeout);
+});
