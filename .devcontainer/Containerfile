@@ -87,6 +87,6 @@ RUN python3 -m venv /opt/uv \
   && ln -s /opt/uv/bin/uv /usr/local/bin/uv \
   && rm /tmp/requirements-uv.lock
 # The locked environment uses the image's python3; uv never downloads an interpreter.
-ENV PATH="/opt/guardrails/bin:${PATH}" OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA=1 \
+ENV PATH="/opt/guardrails/bin:${PATH}" \
   UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
 WORKDIR /work

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
 from unittest import mock
 
 from guardrails.host.process import run_bytes, run_text
@@ -36,25 +33,6 @@ pytestmark = pytest.mark.seam
 
 
 MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
-
-
-TestMethod = TypeVar("TestMethod", bound=Callable[..., None])
-
-
-EXTRA_PRESENT = all(
-    importlib.util.find_spec(name) for name in ("pytest", "ast_grep_py")
-)
-
-
-EXTRA_REQUIRED = os.environ.get("OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA") == "1"
-
-
-def needs_extra(test: TestMethod) -> TestMethod:
-    if EXTRA_PRESENT or EXTRA_REQUIRED:
-        return test
-    return unittest.skip(
-        "pinned pytest extra not installed (requirements-pytest.lock)"
-    )(test)
 
 
 def git(repo: Path, *args: str) -> None:
@@ -89,7 +67,6 @@ GIT_ENV = {
 
 
 class TestOnlySymbolTests(TestOnlySymbolCase):
-    @needs_extra
     def test_lint_reports_test_only_symbols_in_linted_production_files(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
@@ -178,7 +155,6 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
 
 
 class ExtraTests(unittest.TestCase):
-    @needs_extra
     def test_every_conformance_case_passes(self) -> None:
         from guardrails.commands.adapters.pytest.conformance import (
             load_cases,
@@ -191,7 +167,6 @@ class ExtraTests(unittest.TestCase):
             with self.subTest(case=result.case_id):
                 assert result.passed, result.detail
 
-    @needs_extra
     def test_conformance_runs_ignore_the_callers_framework_variables(self) -> None:
         from guardrails.commands.adapters.pytest.conformance import run_conformance
 
@@ -203,7 +178,6 @@ class ExtraTests(unittest.TestCase):
             (result,) = run_conformance(["fast-tier-clean"])
         assert result.passed, result.detail
 
-    @needs_extra
     def test_the_conformance_module_reports_each_case_and_exits_zero(self) -> None:
         result = run_text(
             [
@@ -220,7 +194,6 @@ class ExtraTests(unittest.TestCase):
             "1/1 conformance cases pass",
         ]
 
-    @needs_extra
     def test_cli_lint_reports_self_mocking_in_a_repository(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             source = SHOP_TEST + (
@@ -233,7 +206,6 @@ class ExtraTests(unittest.TestCase):
             assert code == 1
             assert "tests/test_shop.py: TEST.no-self-mocking: line 17" in out
 
-    @needs_extra
     def test_cli_lint_drops_findings_under_the_record_exclusions(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             source = SHOP_TEST + (
@@ -251,7 +223,6 @@ class ExtraTests(unittest.TestCase):
             assert "TEST.no-self-mocking" not in out
             assert "shop/core.py: TEST.no-test-hooks" in out
 
-    @needs_extra
     def test_tier_listing_feeds_the_shared_collection_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
@@ -275,7 +246,6 @@ class ExtraTests(unittest.TestCase):
             assert "TEST.tier-selectors" in out
             assert "selected by tiers t1, t2" in out
 
-    @needs_extra
     def test_guarded_run_writes_the_shared_run_properties(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
@@ -309,7 +279,6 @@ class ExtraTests(unittest.TestCase):
             ]
             assert adapter.guard_evidence(report, "t1") == []
 
-    @needs_extra
     def test_a_clean_run_with_unittest_subtests_passes_report_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch), UNITTEST_SUBTEST_TEST)
@@ -338,7 +307,6 @@ class ExtraTests(unittest.TestCase):
             assert propagation.evaluate(parsed, SHOP_PROFILE, None) == []
             assert parsed.properties["omp.subtests.tests"] == "3"
 
-    @needs_extra
     def test_unittest_suites_take_tier_markers_and_run_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch), UNITTEST_SHOP_TEST)
