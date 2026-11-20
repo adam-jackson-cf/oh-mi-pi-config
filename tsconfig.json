@@ -4,12 +4,37 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
     "skipLibCheck": true,
+    "target": "ES2023",
     "strict": true,
-    "target": "ES2022"
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["agent/extensions/**/*.ts", "agent/hooks/**/*.ts"],
+  "include": [
+    "agent/**/*.ts",
+    "agent/**/*.mts",
+    "agent/**/*.js",
+    "agent/**/*.mjs",
+    "orca-plugins/**/*.ts",
+    "orca-plugins/**/*.js",
+    "orca-plugins/**/*.mjs",
+    "tools/**/*.ts",
+    "tests/**/*.ts"
+  ],
   "exclude": [
-    "agent/extensions/orca*.ts"
+    "**/node_modules/**",
+    "agent/skills/omp-config-optimise/experiments/*/fixtures/**",
+    "tests/fixtures/**"
   ]
 }

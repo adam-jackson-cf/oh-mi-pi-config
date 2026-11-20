@@ -1,141 +1,994 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OMP · proof-first workflow</title>
-<style>
-:root{color-scheme:dark;--bg:#0f1115;--panel:#161a21;--line:#39424f;--fg:#e6e8eb;--dim:#b1bac6;--main:#e0a458;--task:#62c7ba;--prove:#aeb3ff;--check:#8bd67f;--block:#ff8585;--warn:#edcf74;--ext:#d39bf0}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,sans-serif}header,main,footer{max-width:1200px;margin:auto;padding:24px}h1{font-size:30px;line-height:1.2}h2{font-size:21px}h3{font-size:17px}a{color:#a8caff}code{font:13px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}.note,small{color:var(--dim)}section{margin-bottom:28px;padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.stages,.loop{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.card{padding:14px;border:1px solid var(--line);border-left:3px solid var(--main);border-radius:7px}.card > b{display:block;margin-bottom:5px}.card p{margin:6px 0}.task{border-left-color:var(--task)}.prove{border-left-color:var(--prove)}.check{color:var(--check)}.block{color:var(--block)}.instruction{color:var(--warn)}.neutral{color:var(--dim)}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid var(--line)}th{color:var(--dim)}ol{padding-left:24px}li{margin:10px 0}.legend{display:flex;flex-wrap:wrap;gap:16px}.principles li{padding-bottom:10px}.principles p{margin:4px 0}.sources{display:flex;flex-wrap:wrap;gap:12px}summary{cursor:pointer;font-weight:600}
-.ext{color:var(--ext)}.calls{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:14px}.calls a{color:var(--ext)}.flow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:14px;align-items:start}.node{position:relative;padding:10px;border:1px solid var(--line);border-top:3px solid var(--main);border-radius:7px;font-size:13px}.node > b{display:block;font-size:14px;margin-bottom:6px}.node:not(:last-child)::after{content:"→";position:absolute;right:-12px;top:8px;color:var(--dim)}.node ul{margin:0;padding:0;list-style:none}.node li{margin:4px 0;padding:3px 6px;border:1px solid var(--ext);border-radius:5px}.node li a{color:var(--ext);overflow-wrap:anywhere}.node li small{display:block}
-@media(max-width:760px){header,main,footer{padding:14px}section{padding:14px}.stages,.loop,.flow{grid-template-columns:1fr}.node:not(:last-child)::after{content:"↓";right:auto;left:50%;top:auto;bottom:-16px}table,tbody,tr,td{display:block}thead{display:none}tr{border-bottom:2px solid var(--line);padding:10px 0}td{border:0;padding:5px 0}td::before{content:attr(data-label) ": ";font-weight:700;color:var(--dim)}}
-</style>
-</head>
-<body>
-<header>
-<h1>From request to merged PR</h1>
-<p>A linked explanatory view, not another workflow contract. Start with the
-<a href="../skills/dynaflows/SKILL.md#six-stage-contract">six-stage contract</a>; helper details live in
-<a href="../skills/dynaflows/references/patterns.md">patterns</a> and Git authority in
-<a href="skill://git-tool">git-tool</a>.</p>
-<div class="legend"><span style="color:var(--main)">Main · orchestration</span><span style="color:var(--task)">Task · implementation</span><span style="color:var(--prove)">Prove · PR check</span><span class="check">Check · deterministic</span><span class="block">Hard block · refused action</span><span class="neutral">Neutral · state/injection</span><span class="ext">External skill · hand-off</span></div>
-</header>
-<main>
-<section aria-labelledby="events"><h2 id="events">An event triggers checks; nothing else</h2>
-<table><thead><tr><th>Event</th><th>Checks</th><th>Trigger owned by</th></tr></thead><tbody>
-<tr><td data-label="Event">Git branch/worktree, commit, push and PR commands, regardless of dynaflows</td><td data-label="Checks">Git authority read, worktree location, hook-bypass protection and publishing policy; subagent edit paths have a separate generic path rail.</td><td data-label="Trigger owned by">Generic rails (<a href="../../agent-rails.ts">agent-rails.ts</a>)</td></tr>
-<tr><td data-label="Event">Code edit / edit result / handoff, dynaflows on</td><td data-label="Checks">Targeted first-edit, new-code and test reads; post-edit path-check for untracked/added/renamed paths only; verification read before edited-session handoff. Existing file content edits do not trigger naming or structure. Off or no record: none of these run.</td><td data-label="Trigger owned by">Dynaflows extension (<code>index.ts</code>)</td></tr>
-<tr><td data-label="Event">Session start, dynaflows off</td><td data-label="Checks">Append configured native judged-rule names to <code>ttsr.disabledRules</code>, preserving user exclusions. With dynaflows on, leave the setting untouched. Task children inherit the override; no prompt rebuild is needed.</td><td data-label="Trigger owned by">Dynaflows extension (<code>index.ts</code>)</td></tr>
-<tr><td data-label="Event">Local commit, including one a merge creates</td><td data-label="Checks">The repo's own pre-commit checks</td><td data-label="Trigger owned by">Repo (its hook)</td></tr>
-<tr><td data-label="Event">Agent <code>git commit</code>, dynaflows on</td><td data-label="Checks">Owner-only path refusal, harness <code>path-check --event staged</code> for staged additions/renames, required repo <code>checks.commit</code>, then whole-repo harness checks excluding naming, structure and path-check (and repo-owned steps). Any finding blocks.</td><td data-label="Trigger owned by">Dynaflows extension (<code>index.ts</code>)</td></tr>
-<tr><td data-label="Event">PR event (agent opens or merges a PR)</td><td data-label="Checks"><code>prove()</code>: CI green on exact head; naming/structure/path checks on merge-base/head additions and renames only; <code>RENAME.residue</code>; changed feature-map docs link frozen proofs, which failed at base and pass at head.</td><td data-label="Trigger owned by">Dynaflows helpers / extension merge rail</td></tr>
-<tr><td data-label="Event">CI event: PR, push, nightly; any host</td><td data-label="Checks">The repo's CI gates</td><td data-label="Trigger owned by">Repo and the CI host</td></tr>
-<tr><td data-label="Event">Pulling commits in: merge main, rebase, cherry-pick, revert, sync</td><td data-label="Checks">Nothing beyond the above</td><td data-label="Trigger owned by">none</td></tr>
-</tbody></table></section>
-<section aria-labelledby="stages"><h2 id="stages">Six stages · who acts</h2>
-<p class="note">In the stages below, whole-repo harness checks exclude naming, structure and path-check. Those checks judge only new paths and new segments at each event, never legacy parent names or content-only edits. PR proof includes these deterministic checks alongside rename residue. Full naming/structure scans are explicit requests only. <a href="../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md">ADR 0012</a> records the scope, built-in language/tooling packs and owner-approved <code>guardrails.exceptions</code> with a reason, not an ADR requirement.</p>
-<div class="stages">
-<article class="card"><b>1 · Frame</b><p>Main selects one playbook, captures all requested outcomes and discovers with <code>find</code> (<code>-k</code> synonyms, repeated until no new files), then <code>lsp</code>, <code>ast_grep</code> and <code>grep</code>/<code>glob</code>. Kiss removes unnecessary work/questions, never requested behaviour. Read-only scout maps genuinely unknown ownership.</p><p class="calls">Calls out: <a href="skill://dynaflows/references/delivery-principles.md">delivery principles</a> (regression fixes and clean cutovers) · <a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a> and <a href="skill://test-guidance/references/verification-surface.md">verification-surface</a> (project setup)</p></article>
-<article class="card"><b>2 · Spike</b><p>Main fetches the resolved remote default and creates a detached tree at <code>~/worktrees/&lt;repo&gt;/spike-&lt;slug&gt;</code>. Task performs the bounded experiment; main saves the report before tree removal. Reproduction and setup inventory are mandatory; other spikes answer remaining questions. Spike code never lands.</p><p class="calls">Calls out: <a href="skill://git-tool">git-tool</a> (remote/default) · <a href="skill://test-guidance/references/flakes.md">flakes</a> (intermittent bug) · <a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a> Steps 0–4 (setup inventory, dry run)</p></article>
-<article class="card"><b>3 · Plan</b><p>Main maps criteria to named proofs, each an outcome test or journey linked from a feature-map entry. No feature map routes to project setup first. Draft until spike answers land; missing proof surfaces are first tasks. Each multi-phase unit, including final flag removal, has its own manifest and PR.</p><p class="calls">Calls out: <a href="skill://test-guidance/references/tiers.md">tiers</a> · <a href="skill://test-guidance/references/case-selection.md">case-selection</a> · <a href="skill://test-guidance/references/suite-budget.md">suite-budget</a> · <a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a> Step 5 approval (setup)</p></article>
-<article class="card task"><b>4 · Implement</b><p>Prerequisite: a record with valid controls. Missing controls route to <b>owner-approved</b> project setup (<a class="ext" href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a>). Main creates the <code>agent/&lt;slug&gt;</code> branch at <code>&lt;worktree.base&gt;/&lt;repo&gt;/&lt;slug&gt;</code> (<code>~/worktrees/&lt;repo&gt;/&lt;slug&gt;</code>); rails refuse any other <code>git worktree add</code> target. After each edit, rails run harness <code>guardrails path-check</code> with the record as config. At each agent commit, rails refuse changes to the record's <code>ownerOnlyPaths</code>, run harness <code>path-check</code>, then required repo <code>checks.commit</code>, then the harness checks over the whole repo; any finding blocks the commit.</p><p>Proof task writes proofs and the map entries that link them, uncommitted → main freezes (refuses unlinked proof files) → separate implementation task (configured <code>task</code> model) commits proofs with the greening change, pushes, authors the body, opens the PR and waits for exact-head CI. Main never commits.</p><p class="check">Freeze runs the optional <code>checks.format</code> formatter first and hashes the formatted bytes, reporting files it changed for the writer to commit. One rule for every proof: <b>red at base</b> (any failing run; infrastructure is not red, and red containing the profile's doctor marker is refused). A PR with no behaviour change (refactor, docs, setup without new controls) freezes no proofs.</p><p><b>Discoveries:</b> unplanned user-facing behaviour → implementation adds the map entry and outcome test → main re-freezes (red at base) → implementation resumes. <b>Map sweep</b> before the PR: each behaviour the diff adds or changes, with a concrete source path, that no changed map doc covers gets a map entry and a test, then a re-freeze. Entries and tests only, never review findings.</p><p><b>Dependency advisories:</b> a commit blocked by <code>SECURITY.dependency-audit</code> stops implementation. <code>dependency_audit_findings</code> parses the gate output; one read-only task per advisory gathers evidence; <code>triage_advisories</code> rates severity with the calibrated <a class="ext" href="skill://jev-actions">jev-actions</a> <code>dependency-severity</code> judgment and a fixed rubric. <code>MAL-</code> packages are critical in code. High, critical, no-fix or pinned-dependent-blocked advisories halt to the owner; low and medium advisories with unblocked fixes are upgraded in the flow. Blocked fixes need a dated owner exception naming the blocker, exact constraint and HTTPS evidence URL.</p><p>Designer owns presentational work and scores <b>10 principles, each 0–2</b>, inspecting screenshots—not a ten-point total.</p><p class="calls">Calls out: <a href="skill://git-tool/references/branch-and-integrate.md">branch-and-integrate</a> · <a href="skill://git-tool/references/pr-description.md">pr-description</a> · proof and map-sweep briefs: <a href="../skills/dynaflows/references/proofs.md">proofs</a>, <a href="skill://test-guidance/references/case-selection.md">case-selection</a>, <a href="skill://test-guidance/references/naming-and-layout.md">naming-and-layout</a>, <a href="skill://test-guidance/references/outcome-tests.md">outcome-tests</a>, <a href="skill://test-guidance/references/tiers.md">tiers</a> (plus <a href="skill://test-guidance/references/property-tests.md">property-tests</a>, <a href="skill://test-guidance/references/determinism.md">determinism</a>, <a href="skill://test-guidance/references/behaviour-and-statistics.md">behaviour-and-statistics</a>, <a href="skill://test-guidance/references/verification-surface.md">verification-surface</a> when applicable) · implementation brief: <a href="skill://dynaflows/references/delivery-principles.md">delivery principles</a>, <a href="skill://dynaflows/references/structure-and-naming.md">structure and naming</a>, <a href="skill://test-guidance/references/before-commit.md">before-commit</a> · handoff (rails): <a href="skill://test-guidance/references/before-commit.md">before-commit</a> · advisories: <a href="skill://jev-actions">jev-actions</a></p></article>
-<article class="card prove"><b>5 · Verify</b><p>Main confirms the writer has no pending edits, then calls <code>prove()</code> on the PR's current head. It checks four things: the record's required CI context is green on the exact head, <code>rename-residue --base &lt;parent&gt; --head &lt;head&gt;</code> leaves no finding, every feature-map doc changed in the PR links a frozen proof, and every frozen proof is unchanged and passes at head (twice; journeys 3 times). With no proofs and no map change it still checks CI and rename residue. This is the principles 5/7 exception in <a href="../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md">ADR 0003</a>.</p><p>It writes <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code> and posts the result on the PR. Main then calls async <code>structure_review()</code> for the same range: isolated Git-object extraction, eight structure/naming questions (prefix only with eligible clusters), raw scores in <code>&lt;git-common-dir&gt;/omp-structure/&lt;head&gt;.json</code>, and one updated findings comment. Provisional decisions and recorded infrastructure errors never affect prove or merge. Ready findings set <code>halt</code> and hard-block merge via rails. Both exact-head files are required, even with all decisions provisional. No review agent or status posting. A rebase/update repeats both calls on the new head.</p><p class="calls">Calls out: <a href="../skills/dynaflows/references/verify-loop.md">verify-loop</a> · <a href="skill://jev-actions">jev-actions</a> (structure/naming judgment)</p></article>
-<article class="card"><b>6 · Integrate</b><p>Main merges the head under <a href="skill://git-tool/references/merge-and-recover.md">merge-and-recover</a>, respecting <code>agentMerge: disabled</code>. With dynaflows on, rails require exact-head CI green, prove <code>status: pass</code> and structure <code>halt: false</code>. Missing, corrupt or wrong-head files block. Fix ready findings and rerun both helpers on the new head. Wait for <code>MERGED</code>.</p><p>Repository-specific target or merge-method exceptions live in that repository's project instructions.</p><p class="calls">Calls out: <a href="skill://git-tool/references/merge-and-recover.md">merge-and-recover</a> · <a href="skill://codify-omp-workflow-corrections">codify-omp-workflow-corrections</a> (repeated incident class)</p></article>
-</div></section>
-<section aria-labelledby="handoffs"><h2 id="handoffs">Where the extension hands off</h2>
-<p class="note">Dynaflows is an extension package loaded from <a href="../../../config.yml">agent/config.yml</a>: <a href="../index.ts">index.ts</a>, the guardrails engine, skills/ and rules/. Purple chips link both its own references and generic skills. Generic <a href="skill://setup-repo-proofs">setup-repo-proofs</a> owns reusable repository setup; <a href="../skills/dynaflows/references/harness-setup.md">harness-setup deltas</a> add dynaflows-specific steps. Retired standalone skill copies were deleted; these are not compatibility entry points.</p>
-<div class="flow">
-<div class="node"><b>0 · Switch on</b><ul><li><a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a><small>no or refused record: setup from Step 0</small></li></ul></div>
-<div class="node"><b>1 · Frame</b><ul><li><a href="skill://dynaflows/references/delivery-principles.md">delivery principles</a><small>regression-coverage, clean-cutovers</small></li><li><a href="skill://test-guidance/references/verification-surface.md">test-guidance</a><small>verification-surface (setup)</small></li></ul></div>
-<div class="node"><b>2 · Spike</b><ul><li><a href="skill://git-tool">git-tool</a><small>remote/default, scratch tree</small></li><li><a href="skill://test-guidance/references/flakes.md">test-guidance</a><small>flakes</small></li><li><a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a><small>Steps 0–4 inventory</small></li></ul></div>
-<div class="node"><b>3 · Plan</b><ul><li><a href="skill://test-guidance">test-guidance</a><small>tiers, case-selection, suite-budget</small></li><li><a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a><small>Step 5 owner approval</small></li></ul></div>
-<div class="node"><b>4 · Implement</b><ul><li><a href="skill://git-tool/references/branch-and-integrate.md">git-tool</a><small>branch-and-integrate, pr-description</small></li><li><a href="skill://test-guidance">test-guidance</a><small>proof, implementation and sweep briefs; before-commit at handoff</small></li><li><a href="skill://dynaflows/references/delivery-principles.md">delivery principles</a><small>integrity and clean cutovers</small></li><li><a href="skill://dynaflows/references/structure-and-naming.md">structure and naming</a><small>tagged deterministic and judgment policy</small></li><li><a href="skill://dynaflows/references/proofs.md">proofs</a><small>freeze, profile binding and discoveries</small></li><li><a href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a><small>Steps 6–7 apply, verify</small></li><li><a href="skill://jev-actions">jev-actions</a><small>dependency-severity judgment</small></li></ul></div>
-<div class="node"><b>5 · Verify</b><ul><li><a href="../skills/dynaflows/references/verify-loop.md">dynaflows</a><small>verify-loop</small></li><li><a href="skill://jev-actions">jev-actions</a><small>structure/naming shadow judgment after prove; ready findings halt</small></li></ul></div>
-<div class="node"><b>6 · Integrate</b><ul><li><a href="skill://git-tool/references/merge-and-recover.md">git-tool</a><small>merge-and-recover</small></li><li><a href="skill://codify-omp-workflow-corrections">codify-omp-workflow-corrections</a><small>repeated incident class</small></li></ul></div>
-</div>
-<p>With dynaflows on for the edited path’s repository, the extension requires <a href="../skills/dynaflows/references/delivery-principles.md">delivery principles</a> before the first code edit; <a href="../skills/dynaflows/references/structure-and-naming.md">structure and naming</a> for new code files; and <a href="skill://test-guidance/references/tiers.md">test tiers</a>, <a href="../skills/dynaflows/references/test-enforcement.md">test enforcement</a> and <a href="../skills/dynaflows/references/proofs.md">proofs</a> for tests. It runs harness <code>path-check</code> after edits and retries outstanding failures at handoff. After code edits, verification requires <a href="skill://test-guidance/references/before-commit.md">before-commit</a>. Off (including no record), none of these reads or path checks run. <a href="../../agent-rails.ts">Generic Git rails</a> always enforce the Git read gate and safety rules. The record remains harness configuration, including <code>ci</code> and <code>agentMerge</code>, not a dynaflows-only concept.</p>
-</section>
-<section aria-labelledby="boundary"><h2 id="boundary">Harness / repo boundary</h2>
-<p>A repo never depends on, contains or mentions omp or dynaflows. It keeps the code, tests and controls the project wants without the harness. Opinions and their checks live in the harness; per-repo settings live in a personal record.</p>
-<table><thead><tr><th>Home</th><th>Where</th><th>Holds</th></tr></thead><tbody>
-<tr><td data-label="Home">Repo</td><td data-label="Where">Tracked files</td><td data-label="Holds">Code, tests, gate targets, hook config, CI job <code>gate</code>, project linters, own checks</td></tr>
-<tr><td data-label="Home">Harness</td><td data-label="Where">oh-mi-pi-config, on every device</td><td data-label="Holds">The <code>agent/extensions/dynaflows/</code> extension package (index.ts, guardrails/, skills/, rules/); generic <code>agent/extensions/agent-rails.ts</code>; generic <a href="skill://test-guidance">test-guidance</a>, <a href="skill://setup-repo-proofs">setup-repo-proofs</a>, <a href="skill://git-tool">git-tool</a> and <a href="skill://jev-actions">jev-actions</a> skills; <a href="../../../lib/record/README.md">agent/lib/record</a> contracts and templates.</td></tr>
-<tr><td data-label="Home">Record</td><td data-label="Where"><code>repos/&lt;owner&gt;/&lt;name&gt;/</code> under the oh-mi-pi-config root; gitignored, never committed; device rollout copies it</td><td data-label="Holds"><code>gate.json</code> (repo commands, <code>ownerOnlyPaths</code>, CI contract, <code>dynaflows.enabled</code>) and <code>profile.md</code> (required <code>guardrails.structure</code>, <code>guardrails.naming</code>, <code>guardrails.paths</code>, whole-repo <code>guardrails.check</code> settings, approvals and exceptions)</td></tr>
-<tr><td data-label="Home">Harness path checks</td><td data-label="Where"><code>guardrails path-check --repo &lt;worktree&gt; --record &lt;record dir&gt;</code></td><td data-label="Holds">Consistent per-edit checks: explicit principles 1–2 exception in <a href="../../../../docs/adr/0002-harness-owns-path-checks.md">ADR 0002</a>. Repo CI commands remain unchanged. Old records fail until the obsolete path command field is deleted and required profile settings are complete; owner-approved migration follows immediately after merge.</td></tr>
-<tr><td data-label="Home">Local run state</td><td data-label="Where"><code>&lt;git-common-dir&gt;/omp-manifests/</code></td><td data-label="Holds">Frozen proof manifests; <code>omp-prove/&lt;head&gt;.result.json</code> pass signals</td></tr>
-</tbody></table>
-<p>The clone's <code>origin</code> remote names the record (https or ssh GitHub form, lowercase); worktrees resolve like their main checkout. Rails and <code>workflows.py</code> strip the harness's <code>AGENT</code> variable from every repo command they run.</p>
-</section>
-<section aria-labelledby="tests"><h2 id="tests">Outcome-first verification</h2>
-<p><a href="skill://test-guidance">test-guidance</a> supplies generic testing practice, usable without dynaflows. Dynaflows <a href="skill://dynaflows/references/proofs.md">proofs</a> owns binding policy, freezing and profile location; <a href="skill://dynaflows/references/test-enforcement.md">test enforcement</a> maps deterministic rules. The record's <code>profile.md</code> supplies values and may tighten them. Plan reads tiers, case selection and suite budgets.</p>
-<p>User-visible work without a verification surface first completes owner-approved
-Project setup (<a class="ext" href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a>) in one or more Step 0 modes: <code>greenfield</code> (no record, no repo checkers);
-<code>adopt</code> (repo checkers hold, or could hold, rule families the record does not yet give them; missing rules land in the repo by PR, never as a harness copy);
-<code>extend</code> (a record missing one part, such as the surface). Guarded repos use surface-only extend mode. An approved
-no-runnable-app exemption does not divert config or skill work. Setup demonstrates
-a broken variant in scratch, then discards that code. The feature map must exist before
-any TDD proof. Proof tasks write the lever, runner-invoked journeys and the map entries
-linking them, and freeze them together; like new-control canaries, they
-fail at base and pass at head. Implementation writes map, profile and guardrails,
-in that order; Step 5 approval remains mandatory. The profile and guardrail settings go in the local record, never in the repo.</p>
-<p>Outcome tests drive public entry points; property tests cover pure cores.
-Every proof, lever journeys included, fails at base and passes at head; doctor/environment
-failures are not accepted red.
-Proof and map-sweep briefs read <a href="../skills/dynaflows/references/proofs.md">proofs</a> for binding, freeze and profile policy, plus generic test-guidance: case selection, naming/layout, outcome tests, tiers and profile values,
-plus property, determinism, statistics and surface guidance when applicable.
-Proofs come only from outcome tests and journeys linked from the feature map, the maintained
-verification source. Implementation edits product code and map docs, not frozen lever bytes; a new
-proof enters only through a discovery or map-sweep re-freeze.</p>
-<p>T1 has no processes or network; T2 owns seams and boundary-crossing journeys;
-T3 owns agent exploration and live paid calls. Commit runs static checks, T1 and affected
-T2; CI runs T1 + T2; nightly adds T3 on scheduler-enumerated active branches.
-Approved per-machine timing limits run on the local commit gate only; CI never measures
-or reports test timing. First limits and raises need approval.</p>
-</section>
-<section aria-labelledby="loop"><h2 id="loop">Ready PR → prove → structure review → merge</h2>
-<div class="loop">
-<div class="card"><b>1 · Writer ready</b>No pending edits; the exact pushed head has required green CI.</div>
-<div class="card"><b>2 · Main verify</b>Run prove: CI green on head; diff-scoped rename residue passes before proofs; changed map docs each link a frozen proof; frozen proofs unchanged and passing at head. Zero proofs, no map change: CI and rename residue still run. Then run structure_review on the same head/range. Both helpers write exact-head files and post PR findings.</div>
-<div class="card"><b>3 · Merge</b>Rails (dynaflows on) require CI green, prove <code>status: pass</code> and structure <code>halt: false</code> for the exact head. Ready findings hard-block; provisional findings and recorded infrastructure errors do not. Missing or invalid files block. Fix ready findings and rerun both helpers on the new head.</div>
-</div>
-<p>Three writer fix rounds maximum, then escalate with the actual blocker. See <a href="../skills/dynaflows/references/verify-loop.md">verify-loop</a>.</p>
-</section>
-<section aria-labelledby="rails"><h2 id="rails">Rails · refusal, checks and state are different</h2>
-<table><thead><tr><th>Boundary</th><th>Observed action</th><th>Requirement / limitation</th></tr></thead><tbody>
-<tr><td data-label="Boundary" class="neutral">State / injection</td><td data-label="Observed action">Standalone <code>$dynaflows</code> directive line; <code>dynaflows</code> tool; before_agent_start</td><td data-label="Requirement / limitation">The switch is the record's <code>dynaflows.enabled</code>; the record is named by the clone's <code>origin</code> remote, so linked worktrees share it. No origin remote or no record means off; a machine default of {"enabled": false} turns it off for every repo. A standalone directive line (<code>$dynaflows</code>, <code>$dynaflows on|enable|init|start|set up</code>, or <code>off|disable|stop</code>) sets it at once; contradictory lines change nothing. Other wording is the main agent's judgment: it calls the <code>dynaflows</code> tool only when the owner is asking. Agents write records directly, independently of the switch; approval fields reflect only what the owner stated. Enabling with no or a refused record starts or resumes <a class="ext" href="../skills/dynaflows/references/harness-setup.md">dynaflows harness-setup deltas</a>; a directive-only prompt reports the stage and starts it. With on, injected pointer: <code>Dynaflows on. Route this work with skill://dynaflows.</code> This is not a hard block.</td></tr>
-<tr><td data-label="Boundary" class="block">Subagent path hard block</td><td data-label="Observed action">Edit-tool writes</td><td data-label="Requirement / limitation">Filesystem paths must be absolute, with no symlink escape from any enclosing Git root; evaluation errors fail closed. Absolute outside-repository scratch and internal URIs remain allowed. The assigned worktree is an instruction boundary, not enforced selection; bash writes are outside this edit-tool path rail.</td></tr>
-<tr><td data-label="Boundary" class="block">Edit reference hard block</td><td data-label="Observed action">Code edit in a dynaflows-on repo</td><td data-label="Requirement / limitation"><code>firstEdit</code> → delivery-principles; <code>newFile</code> → structure-and-naming; <code>test</code> → tiers + test-enforcement + proofs. At handoff, <code>verification</code> → before-commit. Off or no record: no targeted read gates.</td></tr>
-<tr><td data-label="Boundary" class="check">Path check</td><td data-label="Observed action">Edit result and handoff retries, dynaflows on</td><td data-label="Requirement / limitation">Only untracked/added/renamed paths and their new segments, not existing files with content edits or legacy parent names. Commit uses staged additions/renames; PR uses merge-base/head additions/renames. Deleted, ignored and Git-directory paths are dropped; failed Git queries fail the check.</td></tr>
-<tr><td data-label="Boundary" class="neutral">Guardrail approval</td><td data-label="Observed action">Record lacks checks.commit or ownerOnlyPaths, or has an unknown field</td><td data-label="Requirement / limitation">The record fails to load with an error naming the field; rails fail closed at commit and publish. The setup skill's Step 5 STOP is an instruction: the draft record's gate.json and the paths in its guardrail-proposal.json wait for explicit owner approval; no silent apply or timeout approval.</td></tr>
-<tr><td data-label="Boundary" class="block">Owner-only path hard block</td><td data-label="Observed action">Agent commit touching a record <code>ownerOnlyPaths</code> entry</td><td data-label="Requirement / limitation">Rails refuse the commit when staged or unstaged changes touch an owner-only path, only with dynaflows on. Record exceptions may be written only as the owner stated them; record-write authority never approves changing owner-only repository files.</td></tr>
-<tr><td data-label="Boundary" class="block">Git authority / cwd hard block</td><td data-label="Observed action">Commit, push, branch/worktree creation and gh PR create/merge</td><td data-label="Requirement / limitation">Read git-tool; publishing checks valid target policy and agentMerge authority. Worktree creation requires &lt;worktree.base&gt;/&lt;repo&gt;/&lt;slug&gt;, with the lowercase origin repo name; OMP_WORKTREE_DIR overrides the base. Destination cwd (-C, cd/pushd) matters; unresolved publishing targets fail closed. Known wrappers, tool-runner launchers (mise exec, pnpm exec/dlx, npx, bunx, uv run, poetry run), shell -c, eval and $(...)/backtick substitutions get bounded recursive parsing, not arbitrary interpreter/xargs/find instrumentation. Ambiguous launcher options before a git/gh word, and alias or function definitions containing git/gh, fail closed.</td></tr>
-<tr><td data-label="Boundary" class="block">Hook-bypass hard block</td><td data-label="Observed action">git commit and other Git commands; standalone hook-environment mutation</td><td data-label="Requirement / limitation">Rails reject --no-verify/-n and core.hooksPath hook-disable settings; only with dynaflows on, harness path-check with record config, repo checks.commit and whole-repo harness checks run at the agent's commit, whatever hook the repo has. Pulling commits in (merge, rebase, cherry-pick, revert, am, pull) runs no extra check. Standalone assignment/export/declare/unset/env -u of hook-skip variables is blocked even before a later Git call. Quoted messages are not assignments; inherited external environment is not a sandbox guarantee. Other Git commands do not universally invoke pre-commit.</td></tr>
-<tr><td data-label="Boundary" class="block">Merge hard block</td><td data-label="Observed action">gh pr merge, dynaflows on</td><td data-label="Requirement / limitation">CI green on the PR's exact head (the record's ci.requiredContext, whoever posts it), prove()'s &lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json with status pass, and structure_review()'s &lt;git-common-dir&gt;/omp-structure/&lt;head&gt;.json with halt false. Missing, corrupt or wrong-head files block even with all decisions provisional. Ready findings hard-block via rails; provisional findings and recorded infrastructure errors stay shadow-only.</td></tr>
-<tr><td data-label="Boundary" class="block">All-session handoff hard block</td><td data-label="Observed action">Main or subagent stop after editing a dynaflows-on repo</td><td data-label="Requirement / limitation">That writer's verification reference read after code edits; outstanding path failures repaired or removed. Read-only child can stop. Handoff does not run checks.commit or checks.ci.</td></tr>
-<tr><td data-label="Boundary" class="block">Commit code integrity</td><td data-label="Observed action">Dynaflows-on commit checks</td><td data-label="Requirement / limitation"><code>CODE.no-comments</code> blocks added comments, including docstrings (tool directives exempt); <code>CODE.no-placeholder-bodies</code> blocks Python placeholder-only bodies (declarations exempt); <code>CODE.no-product-mocks</code> blocks mock imports/calls in product paths. Ruff parity requires <code>S110</code> (swallowed exceptions), <code>BLE001</code> (broad catches) and <code>SIM105</code> (intentional suppression form). See <a href="../skills/dynaflows/references/delivery-principles.md">delivery principles</a> for exact scope and exemptions.</td></tr>
-</tbody></table>
-</section>
-<section aria-labelledby="ci"><h2 id="ci">CI runner and Jev are not alternate merge authority</h2>
-<p>The record's <code>gate.json</code> <code>ci</code> object is authoritative. <code>ci.requiredContext</code> names the commit-status context or check run that must be green on the exact head, whoever posts it. <code>ci.runner</code> names a role, such as <code>ci-gate</code> or <code>github-actions</code>. Per-machine <code>ci-runners.json</code>, written by device rollout, maps each role to submit, wait, status and logs commands. The writer submits and waits through <code>scripts/ci-runner.py</code> with that role; workflow and rails code hold no host names. Another runner's success never substitutes for a missing required context; escalate the incident under git-tool.</p>
-<p>Native judged rules <code>dynaflows-regression-coverage</code>, <code>dynaflows-clean-cutovers</code>, <code>dynaflows-flakes</code> and <code>dynaflows-measured-claims</code> declare <code>agents: [main, task]</code> and <code>repeatMode: once</code>: they are not limited to main-agent replies or stage gates. Main and task agents receive native judgments; briefs also give task-specific references and each writer has its own rails checks. The dynaflows extension appends these configured names to <code>ttsr.disabledRules</code> at session start when dynaflows is off, preserving user exclusions. Deterministic checks precede Jev single-state judgment.</p>
-</section>
-<section aria-labelledby="principles"><h2 id="principles">Principles · different kinds of enforcement</h2>
-<p class="note">The design rubric has ten principles scored 0–2 each; the workflow principles below explain the system, not a second design rubric.</p>
-<ol class="principles">
-<li><b>Proof over opinion.</b><p class="check">Check: deterministic proof execution; agent opinion review is not evidence.</p></li>
-<li><b>Questions before experiments.</b> Frame only plan-changing uncertainty; save scratch evidence before removal.</li>
-<li><b>Proofs before implementation.</b><p class="check">Check: freeze refuses proofs the feature map does not link and shows red at base; prove shows the same frozen bytes green at head and blocks changed map docs without a proof.</p><p class="instruction">Instruction: ordered proof/main-freeze/implementation actors.</p></li>
-<li><b>Events trigger checks.</b> Commit, PR and CI events run checks; pulling existing commits in runs nothing extra.</li>
-<li><b>Deterministic first.</b> Infrastructure failure is not red evidence; judgement cannot turn it into pass.</li>
-<li><b>Governed structure and tests.</b><p class="check">Check: harness path-check with record config, then repo commit controls and whole-repo harness checks; repo CI stays repo-owned.</p><p class="block">Hard block: missing required references or unresolved path failures.</p></li>
-<li><b>Short-lived units.</b> Independent units land independently; final flag removal is its own unit, not an afterthought.</li>
-<li><b>One merge boundary.</b> Exact-head green CI plus, with dynaflows on, prove pass and structure halt false in both exact-head files; ready findings hard-block via rails. Disabled agentMerge still needs owner approval.</li>
-<li><b>Delegate implementation.</b> Main coordinates and runs prove(); the writer commits through the commit checks and delivers the ready PR.</li>
-<li><b>Least correct work.</b> Cut needless work, never requested behaviour; remove obsolete paths in the canonical cutover.</li>
-</ol></section>
-</main>
-<footer><h2>Canonical sources</h2><div class="sources">
-<a href="../skills/dynaflows/SKILL.md">Stages</a><a href="../skills/dynaflows/references/patterns.md">Helper contracts</a><a href="../engine/workflows.py">Proof implementation</a><a href="../judgments/dependency-severity/questions.json">Advisory severity judgment</a><a href="../../../config.yml">Model routing</a><a href="../../../agent-rails.yml">Rail policy</a><a href="../index.ts">Dynaflows implementation</a><a href="../../agent-rails.ts">Generic Git rails</a><a href="skill://git-tool">Git authority</a><a href="skill://git-tool/references/branch-and-integrate.md">Branch / publish</a><a href="../skills/dynaflows/references/verify-loop.md">Verify loop</a><a href="skill://git-tool/references/merge-and-recover.md">Merge / recovery</a><a href="../../../../scripts/ci-runner.py">CI runner</a><a href="../../../../readme.md#ci-runners">CI runner documentation</a><a href="skill://dynaflows/references/harness-setup.md">Owner-approved bootstrap</a><a href="skill://test-guidance">Test guidance</a><a href="skill://dynaflows/references/delivery-principles.md">Delivery principles</a><a href="skill://jev-actions">Jev actions</a><a href="skill://codify-omp-workflow-corrections">Workflow corrections</a>
-</div></footer>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Dynaflows · request to merged PR</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --panel2: #f1f3f6;
+        --line: #d9dee5;
+        --fg: #1b1f24;
+        --muted: #57606a;
+        --dim: #8c959f;
+        --main: #b26b00;
+        --task: #0f7d73;
+        --block: #c62f2f;
+        --check: #2f7d32;
+        --judge: #7046c9;
+        --owner: #2463b5;
+        --repo: #6e7781;
+        --warn: #9a6700;
+        --link: #0a5bd3;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --sans:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --panel: #161a21;
+          --panel2: #1c212a;
+          --line: #2a313c;
+          --fg: #e6e8eb;
+          --muted: #9aa3ae;
+          --dim: #6b7480;
+          --main: #e0a458;
+          --task: #4fb3a9;
+          --block: #ef6b6b;
+          --check: #7bc96f;
+          --judge: #a78bfa;
+          --owner: #6ea8fe;
+          --repo: #8b949e;
+          --warn: #f2c94c;
+          --link: #8ab4ff;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.45 var(--sans);
+      }
+      a {
+        color: var(--link);
+      }
+      header {
+        padding: 28px 32px 8px;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: -0.01em;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+      .sub {
+        color: var(--muted);
+        max-width: 900px;
+        margin: 0;
+      }
+      main {
+        padding: 8px 32px 48px;
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 20px;
+        min-width: 0;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-top: 14px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        display: inline-block;
+        background: var(--c);
+      }
+      .note {
+        color: var(--muted);
+        font-size: 12.5px;
+        margin: 10px 0 0;
+      }
+
+      /* Swimlane grid: rows are actors, columns are stages */
+      .lanes {
+        display: grid;
+        grid-template-columns: 96px repeat(7, minmax(128px, 1fr));
+        gap: 6px;
+        overflow-x: auto;
+      }
+      .stage {
+        font-weight: 600;
+        font-size: 12.5px;
+        padding: 8px 10px;
+        background: var(--panel2);
+        border-radius: 6px;
+        border-top: 3px solid var(--c, var(--fg));
+        position: relative;
+      }
+      .stage small {
+        display: block;
+        font-weight: 400;
+        color: var(--muted);
+      }
+      .stage:not(:nth-child(8))::after {
+        content: "→";
+        position: absolute;
+        right: -10px;
+        top: 12px;
+        color: var(--dim);
+        z-index: 1;
+      }
+      .lane {
+        font-size: 12.5px;
+        font-weight: 600;
+        padding: 10px 8px;
+        color: var(--muted);
+        border-right: 2px solid var(--line);
+        position: sticky;
+        left: 0;
+        background: var(--panel);
+        z-index: 2;
+      }
+      .lane small {
+        display: block;
+        font-weight: 400;
+        color: var(--dim);
+      }
+      .cell {
+        min-height: 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .card {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--c, var(--line));
+        border-radius: 6px;
+        padding: 6px 9px;
+        font-size: 12.5px;
+      }
+      .card b {
+        display: block;
+      }
+      .card span {
+        color: var(--muted);
+      }
+      .main {
+        --c: var(--main);
+      }
+      .task {
+        --c: var(--task);
+      }
+      .block {
+        --c: var(--block);
+      }
+      .check {
+        --c: var(--check);
+      }
+      .judge {
+        --c: var(--judge);
+      }
+      .owner {
+        --c: var(--owner);
+      }
+      .repo {
+        --c: var(--repo);
+      }
+      .skills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-content: flex-start;
+      }
+      .skill {
+        font: 600 11px var(--mono);
+        padding: 2px 7px;
+        border-radius: 10px;
+        border: 1px solid var(--judge);
+        text-decoration: none;
+        color: var(--fg);
+      }
+      .skill small {
+        font-weight: 400;
+        color: var(--muted);
+      }
+
+      /* Pipeline */
+      .pipe {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(105px, 1fr));
+        gap: 12px;
+      }
+      .step {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--c, var(--line));
+        border-radius: 8px;
+        padding: 9px 10px;
+        position: relative;
+        font-size: 12.5px;
+      }
+      .step .n {
+        font: 600 11px var(--mono);
+        color: var(--dim);
+      }
+      .step b {
+        display: block;
+      }
+      .step span {
+        color: var(--muted);
+      }
+      .step:not(:last-child)::after {
+        content: "→";
+        position: absolute;
+        right: -11px;
+        top: 40%;
+        color: var(--dim);
+      }
+      .group {
+        font: 600 11px var(--mono);
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0 2px 4px;
+      }
+      .back {
+        margin-top: 12px;
+        padding: 8px 12px;
+        border: 1px dashed var(--warn);
+        border-radius: 8px;
+        color: var(--warn);
+        font-size: 13px;
+      }
+
+      /* Scope matrix */
+      .scope {
+        display: grid;
+        grid-template-columns: 150px repeat(4, minmax(120px, 1fr));
+        gap: 6px;
+        overflow-x: auto;
+      }
+      .scope .h {
+        font-weight: 600;
+        font-size: 12.5px;
+        padding: 6px 8px;
+        background: var(--panel2);
+        border-radius: 6px;
+        text-align: center;
+      }
+      .scope .k {
+        font-size: 12.5px;
+        font-weight: 600;
+        padding: 8px;
+        border-right: 2px solid var(--line);
+      }
+      .scope .k small {
+        display: block;
+        font-weight: 400;
+        color: var(--muted);
+      }
+      .bar {
+        font-size: 12px;
+        padding: 7px 9px;
+        border-radius: 6px;
+        border: 1px solid var(--c);
+        background: var(--panel2);
+      }
+      .none {
+        font-size: 12px;
+        color: var(--dim);
+        padding: 7px 9px;
+        text-align: center;
+      }
+
+      /* Switch and homes */
+      .two {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+      }
+      .switch {
+        display: grid;
+        grid-template-columns: 1fr 34px 1fr;
+        grid-template-rows: auto auto;
+        gap: 8px 0;
+        align-items: center;
+      }
+      .switch .src {
+        grid-row: 1 / 3;
+      }
+      .switch .arr {
+        text-align: center;
+        color: var(--dim);
+        font-size: 18px;
+      }
+      .box {
+        border: 1px solid var(--c, var(--line));
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: var(--panel2);
+        font-size: 12.5px;
+      }
+      .box b {
+        display: block;
+      }
+      .box span {
+        color: var(--muted);
+      }
+      .always {
+        margin-top: 10px;
+      }
+      .tree {
+        font: 12.5px/1.7 var(--mono);
+        margin: 0;
+        padding: 10px 12px;
+        background: var(--panel2);
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .tree .c {
+        color: var(--muted);
+        font-family: var(--sans);
+      }
+      .tree .r {
+        color: var(--owner);
+        font-weight: 600;
+      }
+      .tree .h {
+        color: var(--main);
+        font-weight: 600;
+      }
+      .tree .s {
+        color: var(--task);
+        font-weight: 600;
+      }
+
+      /* Principles */
+      .plist {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .plist li {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 12.5px;
+      }
+      .plist .n {
+        font: 600 11px var(--mono);
+        color: var(--dim);
+      }
+      .plist b {
+        display: block;
+        margin: 2px 0 6px;
+      }
+      .tag {
+        font: 600 10.5px var(--mono);
+        padding: 1px 6px;
+        border-radius: 4px;
+        border: 1px solid var(--c);
+        color: var(--c);
+        white-space: nowrap;
+      }
+
+      footer {
+        padding: 0 32px 32px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      footer a {
+        margin-right: 10px;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 900px) {
+        header,
+        main,
+        footer {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        section {
+          padding: 14px 12px;
+        }
+        .lanes {
+          grid-template-columns: 90px repeat(7, 190px);
+        }
+        .pipe {
+          grid-template-columns: 1fr;
+        }
+        .step::after {
+          content: "↓";
+          right: auto;
+          left: 50%;
+          top: auto;
+          bottom: -15px;
+        }
+        .two {
+          grid-template-columns: 1fr;
+        }
+        .plist {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Dynaflows · request to merged PR</h1>
+      <p class="sub">
+        A map of <a href="skill://dynaflows">skill://dynaflows</a> and the
+        <a href="../index.ts">extension</a> that enforces it. Detail lives in
+        the skills; this page defines nothing.
+      </p>
+      <div class="legend">
+        <span class="chip owner"><i class="dot"></i>Owner</span>
+        <span class="chip main"><i class="dot"></i>Main agent</span>
+        <span class="chip task"><i class="dot"></i>Task subagent</span>
+        <span class="chip block"
+          ><i class="dot"></i>Rail · refuses the action</span
+        >
+        <span class="chip check"><i class="dot"></i>Deterministic check</span>
+        <span class="chip judge"
+          ><i class="dot"></i>Calibrated judgment · skill</span
+        >
+        <span class="chip repo"><i class="dot"></i>Repo's own control</span>
+      </div>
+    </header>
+
+    <main>
+      <section aria-labelledby="stages">
+        <h2 id="stages">1 · Preflight + six stages × who acts</h2>
+        <div class="lanes">
+          <div></div>
+          <div class="stage owner">
+            0 Preflight<small>switch, record, playbook</small>
+          </div>
+          <div class="stage main">1 Frame<small>outcome, criteria</small></div>
+          <div class="stage main">
+            2 Spike<small>open questions only</small>
+          </div>
+          <div class="stage main">3 Plan<small>criterion → proof</small></div>
+          <div class="stage task">
+            4 Implement<small>proofs first, then code</small>
+          </div>
+          <div class="stage check">5 Verify<small>exact PR head</small></div>
+          <div class="stage repo">6 Integrate<small>merge</small></div>
+
+          <div class="lane">Owner<small>you</small></div>
+          <div class="cell">
+            <div class="card owner">
+              <b>Turns dynaflows on/off</b
+              ><span><code>$dynaflows</code> line, or asks in chat</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card owner">
+              <b>States the outcome</b
+              ><span>answers plan-changing questions</span>
+            </div>
+          </div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card owner">
+              <b>Reviews the plan</b><span>only on request</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card owner">
+              <b>Approves project setup</b
+              ><span>Minimal or Full, before apply</span>
+            </div>
+            <div class="card owner">
+              <b>Decides dependency halts</b
+              ><span>high, critical, no fix, blocked fix</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card owner">
+              <b>Takes escalations</b><span>after 3 fix rounds</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card owner">
+              <b>Approves merge</b
+              ><span>when <code>agentMerge: disabled</code></span>
+            </div>
+          </div>
+
+          <div class="lane">Main agent<small>orchestrates</small></div>
+          <div class="cell">
+            <div class="card main">
+              <b>Resolves the record</b
+              ><span>no record or refused → harness setup</span>
+            </div>
+            <div class="card main">
+              <b>Picks one playbook</b
+              ><span
+                >investigation · setup · multi-phase · bug · refactor ·
+                feature</span
+              >
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card main">
+              <b>States criteria</b><span>only plan-changing questions</span>
+            </div>
+            <div class="card main">
+              <b>Discovers</b><span>find → lsp → ast_grep → grep</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card main">
+              <b>Declares predicates</b
+              ><span>saves findings; spike code is discarded</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card main">
+              <b>Maps each criterion to a proof</b
+              ><span>outcome test linked from the feature map</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card main">
+              <b>Branch + worktree</b
+              ><span
+                ><code>agent/&lt;slug&gt;</code> under
+                <code>&lt;worktree.base&gt;</code></span
+              >
+            </div>
+            <div class="card check">
+              <b><code>freeze()</code></b
+              ><span>each proof red at base; unlinked proofs refused</span>
+            </div>
+            <div class="card main">
+              <b>Never commits</b><span>delegates every edit</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card check">
+              <b><code>prove()</code></b
+              ><span>section 2</span>
+            </div>
+            <div class="card judge">
+              <b><code>structure_review()</code></b
+              ><span>section 2</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card main">
+              <b>Merges</b><span>git-tool mechanics</span>
+            </div>
+          </div>
+
+          <div class="lane">Subagents<small>own sessions</small></div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card task">
+              <b>kiss</b><span>cuts work, never requested behaviour</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card task">
+              <b>Spike task</b><span>bounded, in a scratch tree</span>
+            </div>
+          </div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card task">
+              <b>Proof task</b
+              ><span>tests + map entries, left uncommitted</span>
+            </div>
+            <div class="card task">
+              <b>Implementation task</b
+              ><span>greening change; commits, pushes, opens the PR</span>
+            </div>
+            <div class="card task">
+              <b>Discovery → re-freeze</b
+              ><span>unplanned behaviour gets entry + test</span>
+            </div>
+            <div class="card task">
+              <b>Map sweep task</b
+              ><span>pre-PR: uncovered behaviour → re-freeze</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card task">
+              <b>Writer fixes</b><span>new head → both helpers rerun</span>
+            </div>
+          </div>
+          <div class="cell"></div>
+
+          <div class="lane">Rails<small>dynaflows on</small></div>
+          <div class="cell">
+            <div class="card">
+              <b>Prompt</b
+              ><span><code>$dynaflows</code> directive; route pointer</span>
+            </div>
+          </div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card block">
+              <b>Before edit</b
+              ><span>required reads: principles, naming, test refs</span>
+            </div>
+            <div class="card check">
+              <b>After edit</b><span><code>path-check</code> on new paths</span>
+            </div>
+            <div class="card block">
+              <b><code>git commit</code></b
+              ><span
+                >path-check → <code>checks.commit</code> →
+                <code>guardrails check</code> (whole repo + staged diff
+                rules)</span
+              >
+            </div>
+            <div class="card block">
+              <b>Handoff</b
+              ><span
+                >before-commit read; failed path checks rerun, block until
+                clean</span
+              >
+            </div>
+          </div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card block">
+              <b><code>gh pr merge</code></b
+              ><span
+                >exact head: CI green, prove pass,
+                <code>halt: false</code></span
+              >
+            </div>
+          </div>
+
+          <div class="lane">Repo<small>its own controls</small></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell">
+            <div class="card repo">
+              <b><code>checks.commit</code></b
+              ><span>static, T1, affected T2</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="card repo">
+              <b>CI · <code>checks.ci</code></b
+              ><span
+                >when the record declares <code>ci</code>: required on the exact
+                head</span
+              >
+            </div>
+          </div>
+          <div class="cell"></div>
+
+          <div class="lane">Skills<small>hand-offs</small></div>
+          <div class="cell skills">
+            <a class="skill" href="skill://dynaflows"
+              >dynaflows <small>harness setup</small></a
+            >
+          </div>
+          <div class="cell"></div>
+          <div class="cell skills">
+            <a class="skill" href="skill://test-guidance"
+              >test-guidance <small>flakes</small></a
+            >
+          </div>
+          <div class="cell skills">
+            <a class="skill" href="skill://test-guidance"
+              >test-guidance <small>tiers · cases · budget</small></a
+            >
+          </div>
+          <div class="cell skills">
+            <a class="skill" href="skill://setup-repo-proofs"
+              >setup-repo-proofs <small>setup</small></a
+            >
+            <a class="skill" href="skill://test-guidance"
+              >test-guidance <small>briefs</small></a
+            >
+            <a class="skill" href="skill://git-tool"
+              >git-tool <small>branch · PR</small></a
+            >
+            <a class="skill" href="skill://jev-actions"
+              >jev-actions <small>advisory severity</small></a
+            >
+          </div>
+          <div class="cell skills">
+            <a class="skill" href="skill://jev-actions"
+              >jev-actions <small>structure</small></a
+            >
+          </div>
+          <div class="cell skills">
+            <a class="skill" href="skill://git-tool"
+              >git-tool <small>merge · recover</small></a
+            >
+            <a class="skill" href="skill://codify-omp-workflow-corrections"
+              >codify-omp-workflow-corrections
+              <small>owner correction</small></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="verify">
+        <h2 id="verify">2 · Ready PR → merge</h2>
+        <div class="pipe">
+          <div class="step task">
+            <span class="n">01</span><b>Writer ready</b
+            ><span>no pending edits</span>
+          </div>
+          <div class="step check">
+            <span class="n">02 · prove()</span><b>CI green</b
+            ><span>record's required context, exact head</span>
+          </div>
+          <div class="step check">
+            <span class="n">03 · prove()</span><b>Rename residue</b
+            ><span>no retired names left</span>
+          </div>
+          <div class="step check">
+            <span class="n">04 · prove()</span><b>New-path checks</b
+            ><span>path-check + structure, merge-base → head</span>
+          </div>
+          <div class="step check">
+            <span class="n">05 · prove()</span><b>Map docs linked</b
+            ><span>each changed doc links a frozen proof</span>
+          </div>
+          <div class="step check">
+            <span class="n">06 · prove()</span><b>Proofs green</b
+            ><span>bytes unchanged; 2 runs, journeys 3</span>
+          </div>
+          <div class="step judge">
+            <span class="n">07</span><b>structure_review()</b
+            ><span
+              >8
+              <a href="../judgments/structure-naming/questions.json"
+                >questions</a
+              >; ready finding → <code>halt</code></span
+            >
+          </div>
+          <div class="step block">
+            <span class="n">08</span><b>Merge rail</b
+            ><span>both result files for this head</span>
+          </div>
+        </div>
+        <div class="back">↺ Every new head reruns 02–07.</div>
+        <p class="note">
+          Results:
+          <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code>
+          and <code>omp-structure/&lt;head&gt;.json</code>, each also posted on
+          the PR. Provisional findings stay shadow-only. Empty manifest: 02–04
+          still run. Code:
+          <a href="../engine/workflows.py">engine/workflows.py</a>.
+        </p>
+      </section>
+
+      <section aria-labelledby="scope">
+        <h2 id="scope">3 · What each event checks</h2>
+        <div class="scope">
+          <div></div>
+          <div class="h">Edit</div>
+          <div class="h">Commit</div>
+          <div class="h">PR</div>
+          <div class="h">Pull in · merge, rebase</div>
+          <div class="k">
+            New paths only<small>naming · structure · path-check</small>
+          </div>
+          <div class="bar check">worktree additions, untracked included</div>
+          <div class="bar check">staged additions + renames</div>
+          <div class="bar check">
+            merge-base → head additions + renames, in <code>prove()</code>
+          </div>
+          <div class="none">—</div>
+          <div class="k">Whole repo<small>no baselines</small></div>
+          <div class="none">—</div>
+          <div class="bar repo">
+            <code>checks.commit</code> + <code>guardrails check</code>
+          </div>
+          <div class="bar repo">CI <code>checks.ci</code></div>
+          <div class="none">its commit's normal checks</div>
+          <div class="k">
+            Staged diff<small
+              >CODE.* · coverage · growth · goldens · identity</small
+            >
+          </div>
+          <div class="none">—</div>
+          <div class="bar check">
+            HEAD → staged changes, in <code>guardrails check</code>
+          </div>
+          <div class="none">—</div>
+          <div class="none">—</div>
+        </div>
+        <p class="note">
+          Only new segments count; content edits and legacy parent names never
+          trigger. Full scans are explicit requests.
+          <a
+            href="../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md"
+            >ADR 0012</a
+          >
+          ·
+          <a
+            href="../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md"
+            >ADR 0003</a
+          >
+          ·
+          <a href="../../../../docs/adr/0002-harness-owns-path-checks.md"
+            >ADR 0002</a
+          >
+        </p>
+        <p class="note">
+          Language tool families (Python, TypeScript, Go, Shell):
+          <code>guardrails init</code> proposes repo-owned configs that the
+          repo's own checks run.
+          <a href="../engine/README.md">Coverage matrix</a>.
+        </p>
+      </section>
+
+      <section aria-labelledby="homes">
+        <h2 id="homes">4 · Switch and homes</h2>
+        <div class="two">
+          <div>
+            <div class="switch">
+              <div class="box src owner">
+                <b>Record switch</b
+                ><span
+                  ><code>dynaflows.enabled</code> in <code>gate.json</code>; no
+                  origin or record = off</span
+                >
+              </div>
+              <div class="arr">↗</div>
+              <div class="box check">
+                <b>On</b><span>stage rails above; judged rules active</span>
+              </div>
+              <div class="arr">↘</div>
+              <div class="box repo">
+                <b>Off</b
+                ><span
+                  >plain omp + git-tool; judged rules added to
+                  <code>ttsr.disabledRules</code></span
+                >
+              </div>
+            </div>
+            <div class="box block always">
+              <b>Always · <a href="../../agent-rails.ts">agent-rails.ts</a></b
+              ><span
+                >git-tool read before branch, commit, push, PR · worktree
+                location · hook bypass refused ·
+                <code>agentMerge</code> policy</span
+              >
+            </div>
+            <p class="note">
+              Rules: <a href="../../../rails.yml">rails.yml</a> ·
+              <a
+                href="../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md"
+                >ADR 0004</a
+              >
+            </p>
+          </div>
+          <pre
+            class="tree"
+          ><span class="r">target repo</span>            <span class="c">code, tests, own checks, CI · no omp files</span>
+<span class="h">oh-mi-pi-config</span>        <span class="c">the harness</span>
+├─ agent/config.yml     <span class="c">loads the package</span>
+├─ agent/extensions/dynaflows/
+│  ├─ index.ts          <span class="c">rails</span>
+│  ├─ engine/           <span class="c">workflows.py, guardrails</span>
+│  ├─ skills/           <span class="s">dynaflows · test-guidance · setup-repo-proofs
+│  │                    jev-actions · codify-omp-workflow-corrections</span>
+│  ├─ rules/            <span class="c">judged rules</span>
+│  └─ judgments/        <span class="c">calibrated questions</span>
+├─ agent/skills/git-tool/  <span class="c">standalone: serves dynaflows-off too</span>
+└─ repos/&lt;owner&gt;/&lt;name&gt;/  <span class="c">record: gate.json, profile.md · gitignored</span>
+<span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span></pre>
+        </div>
+        <p class="note">
+          <a href="../../../config.yml">agent/config.yml</a> ·
+          <a href="../../../lib/record/README.md">record schema</a> ·
+          <a href="../../../../docs/adr/0013-dynaflows-bundles-its-skills.md"
+            >ADR 0013</a
+          >
+        </p>
+      </section>
+
+      <section aria-labelledby="principles">
+        <h2 id="principles">
+          5 · Design directive · how each principle is held
+        </h2>
+        <ol class="plist">
+          <li>
+            <span class="n">01</span><b>The repo stays independent</b
+            ><span class="tag check">path-check exception</span>
+          </li>
+          <li>
+            <span class="n">02</span><b>Grow repo controls</b
+            ><span class="tag repo">repo PR, never a copy</span>
+          </li>
+          <li>
+            <span class="n">03</span><b>Config lives in the harness</b
+            ><span class="tag owner">record</span>
+          </li>
+          <li>
+            <span class="n">04</span><b>Required means required</b
+            ><span class="tag check">strict record load</span>
+          </li>
+          <li>
+            <span class="n">05</span><b>Gates block, no baselines</b
+            ><span class="tag check">new paths: exception</span>
+          </li>
+          <li>
+            <span class="n">06</span><b>Events trigger checks</b
+            ><span class="tag block">rails</span>
+          </li>
+          <li>
+            <span class="n">07</span><b>Proof means outcome tests</b
+            ><span class="tag check">prove()</span>
+          </li>
+          <li>
+            <span class="n">08</span><b>Deterministic first</b
+            ><span class="tag judge">judgment second</span>
+          </li>
+          <li>
+            <span class="n">09</span><b>Rerun, never version code</b
+            ><span class="tag main">instruction</span>
+          </li>
+          <li>
+            <span class="n">10</span><b>Verify owned code only</b
+            ><span class="tag check">git ls-files scope</span>
+          </li>
+        </ol>
+        <p class="note">
+          Full wording and the standing exceptions: the dynaflows
+          <code>AGENTS.md</code>.
+        </p>
+      </section>
+    </main>
+    <footer>
+      Advisory severity questions:
+      <a href="../judgments/dependency-severity/questions.json"
+        >dependency-severity</a
+      >
+    </footer>
+  </body>
 </html>

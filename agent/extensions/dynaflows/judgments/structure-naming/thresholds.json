@@ -299,15 +299,8 @@
   "label_set": {
     "cases": 61,
     "scored": 56,
-    "excluded_abstain": [
-      "SN005"
-    ],
-    "excluded_decided_in_code": [
-      "SN038",
-      "SN040",
-      "SN042",
-      "SN044"
-    ],
+    "excluded_abstain": ["SN005"],
+    "excluded_decided_in_code": ["SN038", "SN040", "SN042", "SN044"],
     "dev": 61,
     "test": 0,
     "synthetic": 0,

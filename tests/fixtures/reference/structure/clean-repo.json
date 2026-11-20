@@ -1,10 +1,20 @@
 {
   "profile": {
     "tiers": {
-      "t1": {"selector": "not boundary", "location": "tests/unit", "command": "make test-fast"},
-      "t2": {"selector": "boundary", "location": "tests/boundary", "command": "make test-boundary"},
-      "t3": {"selector": "scheduled", "location": "tests/scheduled", "command": "make test-nightly"}
+      "t1": {"command": "make test-fast"},
+      "t2": {"command": "make test-boundary"},
+      "t3": {"command": "make test-nightly"}
     },
+    "adapters": [
+      {
+        "name": "pytest",
+        "tiers": {
+          "t1": {"selector": "not boundary", "location": "tests/unit"},
+          "t2": {"selector": "boundary", "location": "tests/boundary"},
+          "t3": {"selector": "scheduled", "location": "tests/scheduled"}
+        }
+      }
+    ],
     "ownership_areas": {
       "map": {"tests/boundary/test_orders_*.py": "orders"},
       "affected_t2_selection": "all"

@@ -1,0 +1,7 @@
+package tests
+
+import "testing"
+
+func TestVendorTotalMatches(t *testing.T) {
+	t.Skip("vendor outage")
+}

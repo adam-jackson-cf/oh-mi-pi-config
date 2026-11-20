@@ -1,21 +1,21 @@
 {
   "config": {
     "MD013": {
-      "line_length": 100
-    }
+      "line_length": 100,
+    },
   },
   "overrides": [
     {
       "filter": [
-        "agent/extensions/dynaflows/skills/dynaflows/references/*-principles.md",
-        "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md",
-        "agent/skills/test-guidance/**",
-        "agent/skills/git-tool/**"
+        "agent/extensions/dynaflows/skills/**",
+        "agent/skills/git-tool/**",
       ],
       "config": {
-        "MD013": false
+        "MD013": {
+          "line_length": 160,
+        },
       },
-      "combine": "merge"
-    }
-  ]
+      "combine": "merge",
+    },
+  ],
 }

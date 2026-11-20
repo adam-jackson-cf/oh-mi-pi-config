@@ -11,8 +11,8 @@ chat's mode and palette, unless `terminal-mode` or `terminal-palette` overrides 
    `theme.light: orca-sections-light`. omp chooses the slot from the terminal background and watches
    the active custom theme file for changes in running sessions.
 
-All four JSON files are runtime output, not tracked sources. `terminal/build.mjs` writes only when
-bytes differ; `terminal/palettes.mjs` holds palette/variant source data, and `terminal/modes.mjs`
+All four JSON files are runtime output, not tracked sources. `terminal/build.ts` writes only when
+bytes differ; `terminal/palettes.ts` holds palette/variant source data, and `terminal/modes.ts`
 holds mode overlays. Table and diagram hues are retained as source data but have no terminal tokens.
 
 ## Area colours and modes
@@ -58,7 +58,7 @@ Run `sh install.sh` from the checkout root (the folder holding `install.sh`, thi
 It generates the files, loads the plugin and selects the omp themes. By hand:
 
 ```sh
-node chat-section-style/inject.mjs --if-needed
+node chat-section-style/inject.ts --if-needed
 orca plugin dev load "$PWD/terminal-sections"
 ```
 
@@ -71,12 +71,12 @@ The line-height field ignores `set-value`: click it, select all and type through
 
 ```sh
 # Both surfaces; also remove both terminal overrides.
-node chat-section-style/inject.mjs --mode gutter --palette auto
+node chat-section-style/inject.ts --mode gutter --palette auto
 # Only terminal choices; leave chat files unchanged.
-node chat-section-style/inject.mjs \
+node chat-section-style/inject.ts \
   --surface terminal --mode editorial --palette github
 # Only chat choices; pin both effective terminal choices before changing chat.
-node chat-section-style/inject.mjs --surface chat --mode document
+node chat-section-style/inject.ts --surface chat --mode document
 ```
 
 `--surface` requires a mode or palette flag; omitted means `both`. A `both` switch removes both
@@ -109,7 +109,7 @@ dark/light colours. Changing the palette never selects an Orca app theme for you
 From the checkout root:
 
 ```sh
-bun chat-section-style/harness/terminal-themes.mjs
+bun chat-section-style/harness/terminal-themes.ts
 ```
 
 The harness checks every palette/variant/mode/slot: required omp tokens and contrast, Orca theme
@@ -123,8 +123,8 @@ Validate the data plugin after generation with
 Review generated themes without switching Orca or touching a live session:
 
 ```sh
-bun chat-section-style/harness/terminal-shoot-check.mjs
-bun chat-section-style/harness/terminal-shoot.mjs \
+bun chat-section-style/harness/terminal-shoot-check.ts
+bun chat-section-style/harness/terminal-shoot.ts \
   chat-section-style/harness/fixtures/terminal-shoot-session.jsonl \
   /tmp/terminal-preview --palette catppuccin --all
 ```

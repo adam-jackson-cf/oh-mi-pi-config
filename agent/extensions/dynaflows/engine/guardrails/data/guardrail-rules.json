@@ -15,7 +15,10 @@
       },
       "summary": "Reject retired path and defined names left in a renamed folder or file.",
       "reference": [
-        {"subcommand": "rename-residue", "module": "guardrails.structure.rename_residue"}
+        {
+          "subcommand": "rename-residue",
+          "module": "guardrails.commands.structure.rename_residue"
+        }
       ]
     },
     {
@@ -30,7 +33,10 @@
       },
       "summary": "Extract sibling prefix clusters for concept-owner judgment, not a blocking check.",
       "reference": [
-        {"subcommand": "prefix-candidates", "module": "guardrails.structure.prefix_candidates"}
+        {
+          "subcommand": "prefix-candidates",
+          "module": "guardrails.commands.structure.prefix_candidates"
+        }
       ]
     },
     {
@@ -46,8 +52,14 @@
       },
       "summary": "Reject dependencies outside the target's declared layer direction.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"},
-        {"subcommand": "structure", "module": "guardrails.structure.layout"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -64,8 +76,14 @@
       },
       "summary": "Require files to live under their declared capability owner.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"},
-        {"subcommand": "structure", "module": "guardrails.structure.layout"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -81,8 +99,14 @@
       },
       "summary": "Require at least two distinct parts to read each populated shared tier.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"},
-        {"subcommand": "structure", "module": "guardrails.structure.layout"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -98,8 +122,14 @@
       },
       "summary": "Move a shared-tier module read by exactly one part under that owner.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"},
-        {"subcommand": "structure", "module": "guardrails.structure.layout"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -115,8 +145,14 @@
       },
       "summary": "Reject imports between distinct parts on the same tier.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"},
-        {"subcommand": "structure", "module": "guardrails.structure.layout"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
       ]
     },
     {
@@ -142,7 +178,10 @@
       },
       "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
       "reference": [
-        {"subcommand": "naming", "module": "guardrails.structure.naming"}
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure.naming"
+        }
       ]
     },
     {
@@ -159,7 +198,10 @@
       },
       "summary": "Place tests with their declared behavior owner and test tier.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        }
       ]
     },
     {
@@ -182,7 +224,10 @@
       },
       "summary": "Block a local commit when the fast tier exceeds the machine's approved wall-clock limit.",
       "reference": [
-        {"subcommand": "budget-check", "module": "guardrails.test_evidence.budgets"}
+        {
+          "subcommand": "budget-check",
+          "module": "guardrails.commands.test_evidence.budgets"
+        }
       ]
     },
     {
@@ -206,7 +251,10 @@
       },
       "summary": "Block a local commit when a fast-tier test exceeds the machine's approved per-test limit.",
       "reference": [
-        {"subcommand": "budget-check", "module": "guardrails.test_evidence.budgets"}
+        {
+          "subcommand": "budget-check",
+          "module": "guardrails.commands.test_evidence.budgets"
+        }
       ]
     },
     {
@@ -226,7 +274,14 @@
       },
       "summary": "Require every added test function to name the behavior it proves.",
       "reference": [
-        {"subcommand": "diff-check", "module": "guardrails.diffs.growth"}
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.growth"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -243,7 +298,14 @@
       },
       "summary": "Reject new tests duplicating an existing call path and assertion.",
       "reference": [
-        {"subcommand": "diff-check", "module": "guardrails.diffs.growth"}
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.growth"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -270,7 +332,10 @@
       },
       "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite.",
       "reference": [
-        {"subcommand": "toolchain-parity", "module": "guardrails.catalogue.toolchain_parity"}
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.catalogue.toolchain_parity"
+        }
       ]
     },
     {
@@ -305,7 +370,10 @@
       },
       "summary": "Run harness-owned changed-path checks over record settings with actionable per-file errors.",
       "reference": [
-        {"subcommand": "path-check", "module": "guardrails.structure.paths"}
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        }
       ]
     },
     {
@@ -318,7 +386,10 @@
       },
       "summary": "Bound non-stdlib architectural imports.",
       "reference": [
-        {"subcommand": "python-fanout", "module": "guardrails.python_policy.fanout"}
+        {
+          "subcommand": "python-fanout",
+          "module": "guardrails.commands.python_policy.fanout"
+        }
       ]
     },
     {
@@ -332,7 +403,10 @@
       },
       "summary": "Use a tighter fan-out limit for large modules.",
       "reference": [
-        {"subcommand": "python-fanout", "module": "guardrails.python_policy.fanout"}
+        {
+          "subcommand": "python-fanout",
+          "module": "guardrails.commands.python_policy.fanout"
+        }
       ]
     },
     {
@@ -363,15 +437,6 @@
         "target_supported_python_version_required": true
       },
       "summary": "Preserve or deliberately adapt mypy setting python_version."
-    },
-    {
-      "id": "MYPY.SETTING.show_error_codes",
-      "kind": "tool",
-      "applicability": "conditional",
-      "contract": {
-        "value": "True"
-      },
-      "summary": "Preserve or deliberately adapt mypy setting show_error_codes."
     },
     {
       "id": "MYPY.follow_imports",
@@ -437,7 +502,10 @@
       },
       "summary": "Fail when declared optional analyzer dependencies and installation behavior drift.",
       "reference": [
-        {"subcommand": "toolchain-parity", "module": "guardrails.catalogue.toolchain_parity"}
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.catalogue.toolchain_parity"
+        }
       ]
     },
     {
@@ -447,7 +515,10 @@
       "contract": {},
       "summary": "Keep documented install commands aligned with the actual installer.",
       "reference": [
-        {"subcommand": "toolchain-parity", "module": "guardrails.catalogue.toolchain_parity"}
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.catalogue.toolchain_parity"
+        }
       ]
     },
     {
@@ -460,7 +531,10 @@
       },
       "summary": "Fail when package metadata and lockfile versions drift.",
       "reference": [
-        {"subcommand": "toolchain-parity", "module": "guardrails.catalogue.toolchain_parity"}
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.catalogue.toolchain_parity"
+        }
       ]
     },
     {
@@ -482,7 +556,10 @@
       },
       "summary": "Maintained Python source roots",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -495,7 +572,10 @@
       },
       "summary": "Approved script file naming and allowlist",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -508,7 +588,10 @@
       },
       "summary": "Canonical test directory groups",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -521,7 +604,10 @@
       },
       "summary": "No unapproved generic directory names",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -534,7 +620,10 @@
       },
       "summary": "No unapproved generic module names",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -546,7 +635,10 @@
       },
       "summary": "Python package directories use snake_case",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -558,7 +650,10 @@
       },
       "summary": "Skill directories use kebab-case",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -570,7 +665,10 @@
       },
       "summary": "Python module names use snake_case",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -582,7 +680,10 @@
       },
       "summary": "Class length at most 700 lines",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -594,7 +695,10 @@
       },
       "summary": "Public methods per class at most the profile's approved limit",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -606,7 +710,10 @@
       },
       "summary": "Constructor parameters at most 8",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -618,7 +725,10 @@
       },
       "summary": "Instance attributes at most 12",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -630,7 +740,10 @@
       },
       "summary": "Analyzer classes inherit an approved analyzer base or mixin",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -642,7 +755,10 @@
       },
       "summary": "Project analyzers implement the project entrypoint",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -654,7 +770,10 @@
       },
       "summary": "Subprocess calls stay in approved seam wrappers",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -666,7 +785,10 @@
       },
       "summary": "Dynamic imports stay in adapter modules",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -678,7 +800,10 @@
       },
       "summary": "Contract callables use named aliases",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -690,7 +815,10 @@
       },
       "summary": "Collaborator contracts do not use Any",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -702,7 +830,10 @@
       },
       "summary": "Undecodable source fails closed",
       "reference": [
-        {"subcommand": "python-quality", "module": "guardrails.python_policy.quality"}
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
       ]
     },
     {
@@ -714,7 +845,10 @@
       },
       "summary": "Unparsable source fails closed",
       "reference": [
-        {"subcommand": "python-scalability", "module": "guardrails.python_policy.scalability"}
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
       ]
     },
     {
@@ -726,7 +860,10 @@
       },
       "summary": "Nested loop and comprehension depth at most 2",
       "reference": [
-        {"subcommand": "python-scalability", "module": "guardrails.python_policy.scalability"}
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
       ]
     },
     {
@@ -739,7 +876,10 @@
       },
       "summary": "No synchronous filesystem I/O in analyzer-like code",
       "reference": [
-        {"subcommand": "python-scalability", "module": "guardrails.python_policy.scalability"}
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
       ]
     },
     {
@@ -752,7 +892,10 @@
       },
       "summary": "No direct subprocess or environment access in analyzer-like code",
       "reference": [
-        {"subcommand": "python-scalability", "module": "guardrails.python_policy.scalability"}
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
       ]
     },
     {
@@ -765,7 +908,10 @@
       },
       "summary": "Analyzer-like subsystem has an ownership marker",
       "reference": [
-        {"subcommand": "python-scalability", "module": "guardrails.python_policy.scalability"}
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
       ]
     },
     {
@@ -800,12 +946,7 @@
       "kind": "tool",
       "applicability": "conditional",
       "contract": {
-        "ignore": [
-          "E501",
-          "B006",
-          "B008",
-          "A005"
-        ],
+        "ignore": ["E501", "B006", "B008", "A005"],
         "per_file": {
           "__init__.py": ["F401", "F403"],
           "test_*.py": ["S101", "PLR2004"],
@@ -1020,7 +1161,16 @@
         "exemptions": "shebang; noqa; type: ignore; pyright; fmt; ruff; isort; pylint; eslint-*; @ts-expect-error/ignore/nocheck; prettier-ignore; biome-ignore; go:build; nolint; SPDX-License-Identifier; markdownlint-*; vim/emacs modelines; encoding cookies; Rust #[allow] is syntax, not a comment"
       },
       "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives.",
-      "reference": [{"subcommand": "diff-check", "module": "guardrails.diffs.integrity"}, {"subcommand": "check", "module": "guardrails.whole_repo"}]
+      "reference": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
     },
     {
       "id": "CODE.no-placeholder-bodies",
@@ -1029,11 +1179,25 @@
       "contract": {
         "scope": "added Python function-body lines",
         "bodies": ["pass", "...", "raise NotImplementedError"],
-        "exemptions": ["Protocol methods", "abstract methods", "@overload", ".pyi"],
+        "exemptions": [
+          "Protocol methods",
+          "abstract methods",
+          "@overload",
+          ".pyi"
+        ],
         "limits": "Python AST only; non-Python placeholder bodies are not checked"
       },
       "summary": "Block whole-function placeholder bodies, excluding declarations.",
-      "reference": [{"subcommand": "diff-check", "module": "guardrails.diffs.integrity"}, {"subcommand": "check", "module": "guardrails.whole_repo"}]
+      "reference": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
     },
     {
       "id": "CODE.no-product-mocks",
@@ -1041,32 +1205,57 @@
       "applicability": "always",
       "contract": {
         "scope": "added import/call lines outside profile tiers, support and fixtures locations, using TEST.placement path matching",
-        "libraries": ["unittest.mock", "mock", "pytest_mock", "sinon", "jest-mock", "ts-mockito", "testdouble", "mock-require", "proxyquire"],
-        "calls": ["jest.mock", "jest.doMock", "jest.unstable_mockModule", "vi.mock", "vi.doMock"],
+        "libraries": [
+          "unittest.mock",
+          "mock",
+          "pytest_mock",
+          "sinon",
+          "jest-mock",
+          "ts-mockito",
+          "testdouble",
+          "mock-require",
+          "proxyquire"
+        ],
+        "calls": [
+          "jest.mock",
+          "jest.doMock",
+          "jest.unstable_mockModule",
+          "vi.mock",
+          "vi.doMock"
+        ],
         "limits": "Python static imports and JS/TS static imports/requires plus jest/vi calls; dynamic computed names and aliases are not resolved"
       },
       "summary": "Keep mock libraries and mock calls out of product code.",
-      "reference": [{"subcommand": "diff-check", "module": "guardrails.diffs.integrity"}, {"subcommand": "check", "module": "guardrails.whole_repo"}]
+      "reference": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
     },
     {
       "id": "RUFF.SELECT.S110",
       "kind": "tool",
       "applicability": "conditional",
-      "contract": {"selector": "S110"},
+      "contract": { "selector": "S110" },
       "summary": "Enable Ruff S110 (try-except-pass) or target-language equivalent."
     },
     {
       "id": "RUFF.SELECT.BLE001",
       "kind": "tool",
       "applicability": "conditional",
-      "contract": {"selector": "BLE001"},
+      "contract": { "selector": "BLE001" },
       "summary": "Enable Ruff BLE001 (blind-except) or target-language equivalent."
     },
     {
       "id": "RUFF.SELECT.SIM105",
       "kind": "tool",
       "applicability": "conditional",
-      "contract": {"selector": "SIM105"},
+      "contract": { "selector": "SIM105" },
       "summary": "Enable Ruff SIM105 (suppressible-exception) or target-language equivalent."
     },
     {
@@ -1191,20 +1380,48 @@
         "severity_scoring_in_checker_forbidden": true,
         "finding_per": "advisory_and_locked_package_version_and_lock",
         "advisory_line": "SECURITY.dependency-audit lock=<lock-path> ecosystem=<osv-ecosystem> package=<name> version=<exact-locked-version> advisory=<advisory-id> aliases=<id>,<id> fix=<version>,<version>",
-        "advisory_fields_in_order": ["lock", "ecosystem", "package", "version", "advisory", "aliases", "fix"],
+        "advisory_fields_in_order": [
+          "lock",
+          "ecosystem",
+          "package",
+          "version",
+          "advisory",
+          "aliases",
+          "fix"
+        ],
         "failure_line": "SECURITY.dependency-audit failure=<kind> path=<repo-path> reason=<text-to-end-of-line>",
-        "failure_kinds": ["unknown-lock-format", "manifest-without-lock", "exception", "auditor"],
+        "failure_kinds": [
+          "unknown-lock-format",
+          "manifest-without-lock",
+          "exception",
+          "auditor"
+        ],
         "line_grammar": "one finding per line; the rule ID starts the line; fields are separated by one space and appear in the stated order; values are nonempty and contain no whitespace except reason; list values are comma-separated with no spaces, and an empty list is an empty value (aliases=, fix=)",
         "malicious_package_mark": "the advisory ID or an alias starts with MAL- (an OSV malicious-package record); an advisory the auditor marks malicious without one lists the alias MAL-<advisory-id>",
         "untrusted_auditor_output_is_failure": true,
         "exceptions": {
-          "allowed_only_for": ["advisory_with_no_fix_version", "fixed_release_blocked_by_pinned_dependent"],
-          "file": "repo_json_file_named_in_the_record_owner_only_paths",
-          "entry_fields": ["advisory", "package", "version", "lock", "reason", "exposure", "expires"],
+          "allowed_only_for": [
+            "advisory_with_no_fix_version",
+            "fixed_release_blocked_by_pinned_dependent"
+          ],
+          "file": "repo_json_file_the_repo_dependency_audit_reads",
+          "entry_fields": [
+            "advisory",
+            "package",
+            "version",
+            "lock",
+            "reason",
+            "exposure",
+            "expires"
+          ],
           "expires_format": "YYYY-MM-DD",
           "expires_validation": "valid calendar date; expired when expires is before today's UTC date",
           "entry_validation": "exactly entry_fields for an advisory with no fixed version; exactly entry_fields plus blocked_fix_fields for an advisory with fixed versions; all values are nonblank strings; unknown or missing fields fail",
-          "blocked_fix_fields": ["blocked_by", "constraint", "constraint_source"],
+          "blocked_fix_fields": [
+            "blocked_by",
+            "constraint",
+            "constraint_source"
+          ],
           "blocked_by_format": "<package>@<exact-locked-version>; split at the last @ so scoped package names remain valid",
           "constraint_format": "exact upstream dependency declaration including the blocking package and version, requires, and the advisory package's constraint; for example semgrep==1.185.0 requires opentelemetry-api~=1.37.0",
           "constraint_source_format": "absolute HTTPS URL naming the upstream package metadata or source that publishes the exact constraint for that blocker version",
@@ -1243,8 +1460,14 @@
       },
       "summary": "A failed prerequisite cannot be reported as a passing gate.",
       "reference": [
-        {"subcommand": "report-check", "module": "guardrails.test_evidence.propagation"},
-        {"subcommand": "collection-check", "module": "guardrails.test_evidence.collection"}
+        {
+          "subcommand": "report-check",
+          "module": "guardrails.commands.test_evidence.propagation"
+        },
+        {
+          "subcommand": "collection-check",
+          "module": "guardrails.toolkit.test_report.collection"
+        }
       ]
     },
     {
@@ -1260,7 +1483,10 @@
       },
       "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
       "reference": [
-        {"subcommand": "python-test-hygiene", "module": "guardrails.python_policy.subprocess_timeouts"}
+        {
+          "subcommand": "python-test-hygiene",
+          "module": "guardrails.commands.python_policy.subprocess_timeouts"
+        }
       ]
     },
     {
@@ -1276,7 +1502,10 @@
       },
       "summary": "Reject tests that mock, stub, fake or patch the repository's own code.",
       "reference": [
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"}
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1292,7 +1521,10 @@
       },
       "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
       "reference": [
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"}
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1304,13 +1536,26 @@
         "reject_unapproved_static_skip_xfail_focus_or_flaky_markers": true,
         "reject_unapproved_skips_and_retries_to_green_in_run_report": true,
         "reject_timeout_increases_in_changed_tests": true,
-        "mechanism": ["adapter_source_patterns", "normalised_junit_run_report", "git_diff"]
+        "mechanism": [
+          "adapter_source_patterns",
+          "normalised_junit_run_report",
+          "git_diff"
+        ]
       },
       "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
       "reference": [
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"},
-        {"subcommand": "report-check", "module": "guardrails.test_evidence.propagation"},
-        {"subcommand": "diff-check", "module": "guardrails.diffs.timeouts"}
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "report-check",
+          "module": "guardrails.commands.test_evidence.propagation"
+        },
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.timeouts"
+        }
       ]
     },
     {
@@ -1328,8 +1573,14 @@
       },
       "summary": "Fail any T1 test that starts a process or opens a network connection.",
       "reference": [
-        {"subcommand": "guard-run", "module": "guardrails.environment.guarded_run"},
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"}
+        {
+          "subcommand": "guard-run",
+          "module": "guardrails.commands.environment.guarded_run"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1344,7 +1595,10 @@
       },
       "summary": "Fail the test session when a live user file changes.",
       "reference": [
-        {"subcommand": "guard-run", "module": "guardrails.environment.guarded_run"}
+        {
+          "subcommand": "guard-run",
+          "module": "guardrails.commands.environment.guarded_run"
+        }
       ]
     },
     {
@@ -1361,7 +1615,10 @@
       },
       "summary": "Require strict, disjoint tier selectors that together select every test file.",
       "reference": [
-        {"subcommand": "collection-check", "module": "guardrails.test_evidence.collection"}
+        {
+          "subcommand": "collection-check",
+          "module": "guardrails.toolkit.test_report.collection"
+        }
       ]
     },
     {
@@ -1377,7 +1634,14 @@
       },
       "summary": "Reject new coverage exclusions and unapproved floor or exclusion changes.",
       "reference": [
-        {"subcommand": "diff-check", "module": "guardrails.diffs.coverage_ratchet"}
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.coverage_ratchet"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1391,7 +1655,14 @@
       },
       "summary": "Require a change-record entry naming every changed golden file.",
       "reference": [
-        {"subcommand": "diff-check", "module": "guardrails.diffs.golden_record"}
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.golden_record"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1407,7 +1678,14 @@
       },
       "summary": "Keep identity-bearing artefacts unchanged in test-only work.",
       "reference": [
-        {"subcommand": "diff-check", "module": "guardrails.diffs.identity_artefacts"}
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diffs.identity_artefacts"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
       ]
     },
     {
@@ -1421,7 +1699,10 @@
       },
       "summary": "Require property tests to set or report their seed.",
       "reference": [
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"}
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
       ]
     },
     {
@@ -1440,8 +1721,14 @@
       },
       "summary": "Fail when a mutation of changed code leaves every test green.",
       "reference": [
-        {"subcommand": "adapter", "module": "guardrails.adapters.pytest"},
-        {"subcommand": "mutation-check", "module": "guardrails.test_evidence.mutation"}
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "mutation-check",
+          "module": "guardrails.commands.test_evidence.mutation"
+        }
       ]
     },
     {
@@ -1450,7 +1737,10 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "pattern_sources": ["language_convention_packs", "profile_layout_test_file_patterns"],
+        "pattern_sources": [
+          "language_convention_packs",
+          "profile_layout_test_file_patterns"
+        ],
         "event_scope": "added and renamed paths only; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
         "reject_ticket_version_or_date_tokens": true,
         "nonmatching_test_file_is_failure": true,
@@ -1458,7 +1748,10 @@
       },
       "summary": "Require test file names to match the profile patterns without ticket, version or date tokens.",
       "reference": [
-        {"subcommand": "naming", "module": "guardrails.structure.naming"}
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure.naming"
+        }
       ]
     },
     {
@@ -1478,6 +1771,7 @@
           "unapproved_none"
         ],
         "exemptable_sections": [
+          "tiers.t3",
           "verification_surface",
           "run_events.nightly_scheduler",
           "identity_artefacts"
@@ -1495,9 +1789,12 @@
         },
         "prove_prerequisite": true
       },
-      "summary": "Require every repo test profile value, allowing only three approved exemptions.",
+      "summary": "Require every repo test profile value, allowing only four approved exemptions.",
       "reference": [
-        {"subcommand": "profile-check", "module": "guardrails.config.profile"}
+        {
+          "subcommand": "profile-check",
+          "module": "guardrails.context.config.profile"
+        }
       ]
     },
     {
@@ -1518,7 +1815,10 @@
       },
       "summary": "Require one feature-map document per feature with exactly the four fixed sections.",
       "reference": [
-        {"subcommand": "surface-lint", "module": "guardrails.surface.feature_map"}
+        {
+          "subcommand": "surface-lint",
+          "module": "guardrails.commands.surface.feature_map"
+        }
       ]
     },
     {
@@ -1533,7 +1833,10 @@
       },
       "summary": "Require journeys to match the profile pattern and drive the lever.",
       "reference": [
-        {"subcommand": "surface-lint", "module": "guardrails.surface.journeys"}
+        {
+          "subcommand": "surface-lint",
+          "module": "guardrails.commands.surface.journeys"
+        }
       ]
     },
     {
@@ -1551,7 +1854,519 @@
       },
       "summary": "Self-test the lever: visible doctor failure, own-process cleanup and surviving evidence.",
       "reference": [
-        {"subcommand": "lever-selftest", "module": "guardrails.surface.lever_selftest"}
+        {
+          "subcommand": "lever-selftest",
+          "module": "guardrails.commands.surface.lever_selftest"
+        }
+      ]
+    },
+    {
+      "id": "TSC.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.strict to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUncheckedIndexedAccess",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUncheckedIndexedAccess to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.exactOptionalPropertyTypes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.exactOptionalPropertyTypes to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitOverride",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitOverride to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitReturns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitReturns to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noFallthroughCasesInSwitch",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noFallthroughCasesInSwitch to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noPropertyAccessFromIndexSignature",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noPropertyAccessFromIndexSignature to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedLocals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedLocals to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedParameters",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedParameters to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnreachableCode",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnreachableCode to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnusedLabels",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnusedLabels to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.forceConsistentCasingInFileNames",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.forceConsistentCasingInFileNames to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.project-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_typescript_files_must_be_checked": true,
+        "third_party_types_from_upstream_packages": true,
+        "in_repo_third_party_declaration_shims_forbidden": true
+      },
+      "summary": "Type-check every maintained TypeScript file with the repository's tsc; third-party types come from the package or a published @types package."
+    },
+    {
+      "id": "OXLINT.plugins",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": ["eslint", "typescript", "unicorn", "oxc", "import"]
+      },
+      "summary": "Enable oxlint's default plugins plus import, which carries the dependency fan-out limit."
+    },
+    {
+      "id": "OXLINT.CATEGORY.correctness",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint correctness rule as an error."
+    },
+    {
+      "id": "OXLINT.CATEGORY.suspicious",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint suspicious rule as an error."
+    },
+    {
+      "id": "OXLINT.LIMIT.complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/complexity",
+        "value": ["error", { "max": 10 }],
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Enable oxlint eslint/complexity as RUFF.SETTING.mccabe.max-complexity does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-params",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-params",
+        "value": ["error", { "max": 5 }],
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Enable oxlint eslint/max-params as RUFF.LIMIT.max-args does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-statements",
+        "value": ["error", { "max": 50 }],
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Enable oxlint eslint/max-statements as RUFF.LIMIT.max-statements does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-dependencies",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "import/max-dependencies",
+        "value": ["error", { "max": 10 }],
+        "mirrors": "FANOUT.general"
+      },
+      "summary": "Enable oxlint import/max-dependencies as FANOUT.general does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-empty",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/no-empty",
+        "value": ["error", { "allowEmptyCatch": false }],
+        "mirrors": "RUFF.SELECT.S110"
+      },
+      "summary": "Enable oxlint eslint/no-empty as RUFF.SELECT.S110 does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.ban-ts-comment",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/ban-ts-comment",
+        "value": "error",
+        "mirrors": "RUFF.SELECT.PGH"
+      },
+      "summary": "Enable oxlint typescript/ban-ts-comment as RUFF.SELECT.PGH does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-explicit-any",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/no-explicit-any",
+        "value": "error",
+        "mirrors": "MYPY.strict"
+      },
+      "summary": "Enable oxlint typescript/no-explicit-any as MYPY.strict does for Python."
+    },
+    {
+      "id": "GOLANGCI.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "2"
+      },
+      "summary": "Use the golangci-lint v2 configuration format."
+    },
+    {
+      "id": "GOLANGCI.run.tests",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Lint test files with the same linters as production code."
+    },
+    {
+      "id": "GOLANGCI.linters.default",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "standard",
+        "includes": [
+          "errcheck",
+          "govet",
+          "ineffassign",
+          "staticcheck",
+          "unused"
+        ]
+      },
+      "summary": "Keep the standard linter set, which runs go vet (govet), errcheck, staticcheck, unused and ineffassign."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.gocyclo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo"
+      },
+      "summary": "Enable the golangci-lint gocyclo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.funlen",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen"
+      },
+      "summary": "Enable the golangci-lint funlen linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.revive",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive"
+      },
+      "summary": "Enable the golangci-lint revive linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.forbidigo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo"
+      },
+      "summary": "Enable the golangci-lint forbidigo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint"
+      },
+      "summary": "Enable the golangci-lint nolintlint linter."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.gocyclo.min-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo",
+        "setting": "min-complexity",
+        "value": 10,
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Report Go functions whose cyclomatic complexity exceeds 10."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "statements",
+        "value": 50,
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Report Go functions with more than 50 statements."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.lines",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "lines",
+        "value": -1
+      },
+      "summary": "Judge Go function size by statements only; line counts are off."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.revive.argument-limit",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive",
+        "setting": "argument-limit",
+        "value": 5,
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Report Go functions with more than 5 parameters."
+    },
+    {
+      "id": "GOLANGCI.RULE.forbidigo.exec-command",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo",
+        "value": [
+          {
+            "pattern": "^exec\\.Command$",
+            "msg": "use exec.CommandContext with a deadline so a hung process cannot stall the run"
+          }
+        ],
+        "mirrors": "TEST.subprocess-timeouts"
+      },
+      "summary": "Forbid exec.Command; every process call takes a context with a deadline (exec.CommandContext)."
+    },
+    {
+      "id": "GOLANGCI.RULE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint",
+        "value": { "require-explanation": true, "require-specific": true },
+        "mirrors": "RUFF.IGNORES"
+      },
+      "summary": "Every //nolint names its linter and explains why."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.gofmt",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "gofmt"
+      },
+      "summary": "Enforce gofmt formatting through golangci-lint fmt."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.goimports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "goimports",
+        "target_module_path_local_prefix_required": true,
+        "mirrors": "RUFF.ISORT.known-first-party"
+      },
+      "summary": "Enforce goimports grouping with the repository's module path as the local prefix."
+    },
+    {
+      "id": "SHELLCHECK.enable",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          "avoid-nullary-conditions",
+          "check-extra-masked-returns",
+          "check-set-e-suppressed",
+          "check-unassigned-uppercase",
+          "deprecate-which",
+          "quote-safe-variables"
+        ]
+      },
+      "summary": "Enable shellcheck's optional checks for masked returns, suppressed set -e, unassigned uppercase variables, nullary conditions, which and unquoted variables."
+    },
+    {
+      "id": "SHELLCHECK.external-sources",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Let shellcheck follow sourced files."
+    },
+    {
+      "id": "SHELLCHECK.source-path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "SCRIPTDIR"
+      },
+      "summary": "Resolve sourced files relative to the script's own directory."
+    },
+    {
+      "id": "SHELLCHECK.coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "all_maintained_shell_scripts_must_be_checked": true,
+        "scope_source": "git ls-files",
+        "extensionless_scripts_by_shebang": true
+      },
+      "summary": "Run shellcheck over every maintained shell script, including extensionless scripts with a shell shebang."
+    },
+    {
+      "id": "SHFMT.indent_style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": "space"
+      },
+      "summary": "Set shfmt indent_style to space in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.indent_size",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": 2
+      },
+      "summary": "Set shfmt indent_size to 2 in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.binary_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt binary_next_line to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.switch_case_indent",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt switch_case_indent to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.function_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": false
+      },
+      "summary": "Set shfmt function_next_line to false in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "PARITY.package-manager",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "exact_package_manager_pin": true,
+        "lock_matches_package_manager": true,
+        "foreign_lockfiles_forbidden": true
+      },
+      "summary": "Declare one exact packageManager pin and commit only that manager's lockfile.",
+      "reference": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.catalogue.toolchain_parity"
+        }
       ]
     }
   ]

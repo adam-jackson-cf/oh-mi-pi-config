@@ -2,7 +2,7 @@
 
 Units target the default resolved in [branch-and-integrate](branch-and-integrate.md) and use rebase-merge,
 never squash or merge commits, unless the repository's project instructions document a target/merge-method exception.
-Authority and approval boundaries remain in [git-tool](../SKILL.md).
+Authority and approval boundaries remain in [authority-and-safety](authority-and-safety.md).
 
 ## Merge one pull request
 
@@ -33,9 +33,13 @@ GitHub checks. Missing protection or a protection API error never waives an exis
 | Pending / in progress | Writer waits |
 | Wait timeout | Repeat the same wait once; then stop/escalate |
 | Infrastructure error, unreachable service or publication error | Resubmit once and wait; then stop/escalate |
-| CI provider unavailable (jobs never started: zero steps with a billing/quota/account annotation) | Read annotations once (e.g. `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`); never rerun jobs as a probe. Escalate once to the owner, keep PRs open and stop opening further dependent PRs. Use a fallback only when the repository documents one (see below) |
+| CI provider unavailable (jobs never started: zero steps with a billing/quota/account annotation) | Follow the provider-unavailable rule below |
 | Genuine failed/cancelled CI | Return logs to the assigned writer for repair |
 | Missing / unknown required state | Stop and resolve/escalate |
+
+Provider unavailable: read annotations once (e.g. `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`); never rerun jobs as a probe.
+Escalate once to the owner, keep PRs open and stop opening further dependent PRs.
+Use a fallback only when the repository documents one (see [Fallback and no-CI boundary](#fallback-and-no-ci-boundary)).
 
 Infrastructure failures are not failed CI assertion evidence. Never waive a required gate.
 
@@ -44,19 +48,20 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 The record's [`gate.json` CI policy](../../../lib/record/README.md#merge-and-ci-policy) declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
-directory maps each role to its submit, wait, status and logs commands; `scripts/device-rollout.py` writes it per device.
-Drive CI through `scripts/ci-runner.py` in the omp base directory with the gate's runner role, the repository and the exact 40-hex SHA:
+directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
+Drive CI through `scripts/ci_runner.py` in the omp base directory with the gate's runner role, the repository and the exact 40-hex SHA:
 
 ```sh
-python3 <omp base>/scripts/ci-runner.py submit <runner> OWNER/REPO SHA
-python3 <omp base>/scripts/ci-runner.py wait <runner> OWNER/REPO SHA --context <requiredContext> [--timeout S]
-python3 <omp base>/scripts/ci-runner.py status <runner> OWNER/REPO SHA --context <requiredContext>
-python3 <omp base>/scripts/ci-runner.py logs <runner> OWNER/REPO SHA [--tail N]
+python3 <omp base>/scripts/ci_runner.py submit <runner> OWNER/REPO SHA
+python3 <omp base>/scripts/ci_runner.py wait <runner> OWNER/REPO SHA --context <requiredContext> [--timeout S]
+python3 <omp base>/scripts/ci_runner.py status <runner> OWNER/REPO SHA --context <requiredContext>
+python3 <omp base>/scripts/ci_runner.py logs <runner> OWNER/REPO SHA [--tail N]
 ```
 
-Wait defaults to the role's configured `timeout`; `--timeout` overrides it. A role whose runner starts on push reports that submit is not needed. A role without its own wait/status commands uses
+Wait defaults to the role's configured `timeout`; `--timeout` overrides it.
+A role whose runner starts on push reports that submit is not needed. A role without its own wait/status commands uses
 the built-in GitHub poller over the exact SHA's commit statuses and check runs; wait exits 0 on success, 124 on timeout
-and non-zero on failure. A missing role means the device's machine config is not set up: run `scripts/device-rollout.py`;
+and non-zero on failure. A missing role means the device's machine config is not set up: run `scripts/device_rollout.py`;
 that is a setup gap, never a CI waiver. Exit codes alone can be ambiguous: inspect status and logs before choosing the table action.
 Require successful publication of the required context on GitHub for the exact head, not just a local successful result.
 
@@ -82,7 +87,6 @@ The [repo's record](../../../lib/record/README.md) (`<harness>/repos/<owner>/<na
 `gate.json`, `profile.md` and anything else there) holds its
 checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
 Agents write records directly. Write approval fields only as the owner stated them in the chat.
-Record-write authority grants no permission to change repository owner-only paths.
 Record-write authority does not approve repository fixes that separately require owner approval.
 
 ## Recover a red default branch

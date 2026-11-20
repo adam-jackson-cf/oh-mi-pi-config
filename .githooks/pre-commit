@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs this repository's commit tier. Enable once per clone: git config core.hooksPath .githooks
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
-exec bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage
+top="$(git rev-parse --show-toplevel)"
+cd "$top"
+exec bash scripts/run-ci-quality-gates.sh --tier commit

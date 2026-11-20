@@ -7,7 +7,7 @@
    Custom highlight var() resolves from the originating element in headless Chrome;
    chat.css owns highlight rules. Editorial aliases are resolved on the chat window
    (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
-:root[data-omp-chat-palette='catppuccin'] {
+:root[data-omp-chat-palette="catppuccin"] {
   --omp-id-key: #316be1;
   --omp-id-key-ink: #1954c9;
   --omp-id-key-tint: rgb(30 102 245 / 14%);
@@ -21,22 +21,38 @@
   --omp-id-suggestion: #4c9940;
   --omp-id-suggestion-ink: #2b6c1d;
   --omp-id-suggestion-tint: rgb(64 160 43 / 14%);
-  --omp-ed-suggestion: color-mix(in srgb, #40a02b 60%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #40a02b 60%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-suggestion-ink: color-mix(in srgb, #40a02b 62%, #000);
   --omp-id-related: #2b8e98;
   --omp-id-related-ink: #179299;
   --omp-id-related-tint: rgb(23 146 153 / 14%);
-  --omp-ed-related: color-mix(in srgb, #179299 85%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(
+    in srgb,
+    #179299 85%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-related-ink: color-mix(in srgb, #179299 62%, #000);
   --omp-id-decision: #8647dd;
   --omp-id-decision-ink: #8839ef;
   --omp-id-decision-tint: rgb(136 57 239 / 12%);
-  --omp-ed-decision: color-mix(in srgb, #8839ef 80%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8839ef 80%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-decision-ink: color-mix(in srgb, #8839ef 62%, #000);
   --omp-id-review: #e46926;
   --omp-id-review-ink: #93491f;
   --omp-id-review-tint: rgb(254 100 11 / 14%);
-  --omp-ed-review: color-mix(in srgb, #fe640b 56%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(
+    in srgb,
+    #fe640b 56%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-review-ink: color-mix(in srgb, #fe640b 58%, #000);
   --embed-code: #209fb5;
   --embed-command: #40a02b;
@@ -47,7 +63,7 @@
   /* Turn-status dividers: Latte mauve, pale. */
   --omp-status-rule: rgb(136 57 239 / 30%);
 }
-:root[data-omp-chat-palette='catppuccin'].dark {
+:root[data-omp-chat-palette="catppuccin"].dark {
   --omp-accent: #a5addc;
   --omp-status-rule: rgb(203 166 247 / 35%);
   --omp-id-key: #89b4fa;
@@ -86,18 +102,36 @@
   --embed-diagram: #f5c2e7;
 }
 
-:root[data-omp-chat-palette='catppuccin']:not(.dark) [data-native-chat-window] {
+:root[data-omp-chat-palette="catppuccin"]:not(.dark) [data-native-chat-window] {
   --omp-ed-key: color-mix(in srgb, #1e66f5 74%, var(--chat-foreground-strong));
   --omp-ed-gap: color-mix(in srgb, #d20f39 74%, var(--chat-foreground-strong));
-  --omp-ed-suggestion: color-mix(in srgb, #40a02b 60%, var(--chat-foreground-strong));
-  --omp-ed-related: color-mix(in srgb, #179299 85%, var(--chat-foreground-strong));
-  --omp-ed-decision: color-mix(in srgb, #8839ef 80%, var(--chat-foreground-strong));
-  --omp-ed-review: color-mix(in srgb, #fe640b 56%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #40a02b 60%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-related: color-mix(
+    in srgb,
+    #179299 85%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8839ef 80%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-review: color-mix(
+    in srgb,
+    #fe640b 56%,
+    var(--chat-foreground-strong)
+  );
 }
 
 /* Light, non-editorial modes: label/inline-code embed hues and the accent are used directly as text, so they are darkened to 4.5:1.
    Editorial mixes these toward black itself and already passes, so it keeps the original hues. */
-:root[data-omp-chat-palette='catppuccin']:not(.dark):not([data-omp-chat-mode='editorial']) {
+:root[data-omp-chat-palette="catppuccin"]:not(.dark):not(
+    [data-omp-chat-mode="editorial"]
+  ) {
   --embed-code: #156a78;
   --embed-command: #2d701e;
   --embed-table: #885712;
@@ -105,11 +139,13 @@
 }
 
 /* Editorial light: a calmer blue-teal for code chips and the language label (editorial mixes it toward black for the label). */
-:root[data-omp-chat-palette='catppuccin'][data-omp-chat-mode='editorial']:not(.dark) {
+:root[data-omp-chat-palette="catppuccin"][data-omp-chat-mode="editorial"]:not(
+    .dark
+  ) {
   --embed-code: #4094a9;
 }
 
 /* Dark: Orca's muted source ink falls just under 4.5:1 on split-cards; Mocha subtext1. */
-:root[data-omp-chat-palette='catppuccin'].dark .native-chat-appearance {
+:root[data-omp-chat-palette="catppuccin"].dark .native-chat-appearance {
   --chat-source-muted-foreground: #c6cee9;
 }

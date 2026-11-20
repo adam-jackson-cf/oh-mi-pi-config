@@ -17,19 +17,21 @@ renderer="$work/out/renderer"
 if [ ! -d "$renderer/assets" ]; then
   npx -y @electron/asar extract /Applications/Orca.app/Contents/Resources/app.asar "$work"
 fi
-client_css="$(cd "$renderer/assets" && ls client-*.css | sed -n 1p)"
-row_css="$(cd "$renderer/assets" && ls NativeChatUserMessageRow-*.css | sed -n 1p)"
+set -- "$renderer"/assets/client-*.css
+client_css="$(basename "$1")"
+set -- "$renderer"/assets/NativeChatUserMessageRow-*.css
+row_css="$(basename "$1")"
 palette_links=""
 for css in "$style_dir"/palettes/*.css; do
   palette_links="$palette_links<link rel=\"stylesheet\" href=\"file://$css\">"
 done
 sed -e "s|__CLIENT_CSS__|$client_css|" -e "s|__ROW_CSS__|$row_css|" -e "s|__STYLE_DIR__|$style_dir|g" -e "s|__PALETTE_LINKS__|$palette_links|" \
-  "$here/harness.html" > "$renderer/harness.html"
+  "$here/transcript.html" >"$renderer/transcript.html"
 cp "$here/theme-tokens.js" "$renderer/theme-tokens.js"
 
 mkdir -p "$out"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-page="file://$renderer/harness.html"
+page="file://$renderer/transcript.html"
 shoot() { # <width> <height> <theme> <file> [variant]
   "$chrome" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
     --force-device-scale-factor=1 --window-size="$1,$2" --virtual-time-budget=3000 \

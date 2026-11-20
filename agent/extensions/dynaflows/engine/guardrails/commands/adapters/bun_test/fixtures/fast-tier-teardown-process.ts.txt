@@ -1,0 +1,4 @@
+import { test, afterEach, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+afterEach(() => { spawnSync(process.execPath, ['-e', '']); });
+test('teardown process', () => { expect(1).toBe(1); });

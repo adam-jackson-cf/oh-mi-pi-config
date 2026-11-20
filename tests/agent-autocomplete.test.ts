@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import {
 	type AgentAutocompleteAPI,
+	type AgentEventContext,
+	type AgentInputHandler,
+	type AgentSessionStartHandler,
 	discoverAgentDefinitions,
 	registerAgentCommand,
 } from "../agent/extensions/agent-autocomplete";
@@ -15,23 +18,18 @@ const agents = [
 	{ name: "designer", description: "Designs interfaces" },
 ];
 
-type Notification = { message: string; level: "info" | "error" };
-type ExtensionContext = {
-	cwd: string;
-	ui: {
-		notify(message: string, level: "info" | "error"): void;
-		addAutocompleteProvider(factory: (current: AutocompleteProvider) => AutocompleteProvider): void;
-	};
-};
-type SessionStartHandler = (event: { type: "session_start" }, context: ExtensionContext) => void | Promise<void>;
-type InputHandler = (
-	event: { type: "input"; text: string; source: "interactive" },
-	context: ExtensionContext,
-) => void | { handled?: boolean; text?: string } | Promise<void | { handled?: boolean; text?: string }>;
+type Notification = { message: string; level: "info" | "warning" | "error" | undefined };
+type Registration = ["session_start", AgentSessionStartHandler] | ["input", AgentInputHandler];
 type RegisteredCommand = {
 	description?: string;
-	handler(args: string, context: ExtensionContext): Promise<void> | void;
+	handler(args: string, context: AgentEventContext): Promise<void> | void;
 };
+
+function firstItem(items: AutocompleteItem[]): AutocompleteItem {
+	const [item] = items;
+	assert.ok(item, "a suggestion is offered");
+	return item;
+}
 
 function createExtensionHarness() {
 	const discoveryCalls: string[] = [];
@@ -39,8 +37,8 @@ function createExtensionHarness() {
 	const registeredCommands = new Map<string, RegisteredCommand>();
 	const sentUserMessages: string[] = [];
 	let availableAgents = agents;
-	let sessionStart: SessionStartHandler | undefined;
-	let input: InputHandler | undefined;
+	let sessionStart: AgentSessionStartHandler | undefined;
+	let input: AgentInputHandler | undefined;
 	let autocompleteProvider: AutocompleteProvider | undefined;
 	let fallbackSuggestionCalls = 0;
 	let fallbackApplyCalls = 0;
@@ -59,7 +57,7 @@ function createExtensionHarness() {
 			return "fallback hint";
 		},
 	};
-	const context: ExtensionContext = {
+	const context: AgentEventContext = {
 		cwd: "/project",
 		ui: {
 			notify(message, level) {
@@ -70,33 +68,28 @@ function createExtensionHarness() {
 			},
 		},
 	};
-	const piCandidate = {
-		on(event: string, handler: SessionStartHandler | InputHandler) {
+	const pi: AgentAutocompleteAPI = {
+		on(...[event, handler]: Registration) {
 			if (event === "session_start") {
-				// SAFETY: the event discriminator pairs session_start with SessionStartHandler.
-				sessionStart = handler as SessionStartHandler;
-			}
-			if (event === "input") {
-				// SAFETY: the event discriminator pairs input with InputHandler.
-				input = handler as InputHandler;
+				sessionStart = handler;
+			} else {
+				input = handler;
 			}
 		},
-		registerCommand(name: string, command: RegisteredCommand) {
+		registerCommand(name, command) {
 			registeredCommands.set(name, command);
 		},
-		sendUserMessage(content: string) {
+		sendUserMessage(content) {
 			sentUserMessages.push(content);
 		},
 	};
-	// SAFETY: the candidate implements the complete AgentAutocompleteAPI owner contract used by registerAgentCommand.
-	const pi = piCandidate as AgentAutocompleteAPI;
 
 	registerAgentCommand(pi, cwd => {
 		discoveryCalls.push(cwd);
 		return availableAgents;
 	});
 	assert.ok(sessionStart);
-	void sessionStart({ type: "session_start" }, context);
+	sessionStart({ type: "session_start" }, context);
 	assert.ok(autocompleteProvider);
 
 	return {
@@ -134,7 +127,7 @@ function createExtensionHarness() {
 		async startSession(cwd = context.cwd) {
 			assert.ok(sessionStart);
 			context.cwd = cwd;
-			await sessionStart({ type: "session_start" }, context);
+			sessionStart({ type: "session_start" }, context);
 		},
 		async runCommand(name: string, args: string) {
 			const command = registeredCommands.get(name);
@@ -195,7 +188,7 @@ describe("agent autocomplete", () => {
 		const result = await harness.suggest("/agent");
 		assert.ok(result);
 
-		assert.deepEqual(harness.applyCompletion("/agent", "/agent".length, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion("/agent", "/agent".length, firstItem(result.items), result.prefix), {
 			lines: ["/agent:"],
 			cursorLine: 0,
 			cursorCol: "/agent:".length,
@@ -209,7 +202,7 @@ describe("agent autocomplete", () => {
 
 		const line = "this is /agent:rev and keep this";
 		const cursorCol = "this is /agent:rev".length;
-		assert.deepEqual(harness.applyCompletion(line, cursorCol, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion(line, cursorCol, firstItem(result.items), result.prefix), {
 			lines: ["this is /agent:reviewer and keep this"],
 			cursorLine: 0,
 			cursorCol: "this is /agent:reviewer".length,
@@ -222,7 +215,7 @@ describe("agent autocomplete", () => {
 		assert.ok(result);
 
 		const line = "this is /agent:d";
-		assert.deepEqual(harness.applyCompletion(line, line.length, result.items[0], result.prefix), {
+		assert.deepEqual(harness.applyCompletion(line, line.length, firstItem(result.items), result.prefix), {
 			lines: [line],
 			cursorLine: 0,
 			cursorCol: line.length,
@@ -304,12 +297,12 @@ describe("agent autocomplete", () => {
 
 	test("reads multi-line YAML descriptions from agent frontmatter", () => {
 		const root = mkdtempSync(join(tmpdir(), "agent-autocomplete-"));
-		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 		try {
 			const projectAgents = join(root, "project", ".omp", "agents");
 			mkdirSync(projectAgents, { recursive: true });
 			mkdirSync(join(root, "user", "agents"), { recursive: true });
-			process.env.PI_CODING_AGENT_DIR = join(root, "user");
+			process.env["PI_CODING_AGENT_DIR"] = join(root, "user");
 			writeFileSync(
 				join(projectAgents, "judge.md"),
 				'---\nname: judge\ndescription:\n  "Read-only judge. Validates\n  delivered work."\ntools:\n  - read\n---\nBody\n',
@@ -321,8 +314,8 @@ describe("agent autocomplete", () => {
 				{ name: "judge", description: "Read-only judge. Validates delivered work." },
 			]);
 		} finally {
-			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			if (previousAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
+			else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
 			rmSync(root, { recursive: true, force: true });
 		}
 	});

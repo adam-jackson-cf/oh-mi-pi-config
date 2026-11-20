@@ -1,0 +1,7 @@
+package shop
+
+import "os"
+
+func Region() string {
+	return os.Getenv("SHOP_REGION")
+}

@@ -1,5 +1,25 @@
 // @orca-managed-pi-extension
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent"
+type Notify = (message: string, level: "info" | "warning" | "error") => void
+
+export interface ExtensionHealthContext {
+  ui: { notify: Notify }
+}
+
+export interface ExtensionHealthCommand {
+  name: string
+  source: string
+}
+
+export interface ExtensionHealthAPI {
+  registerCommand(
+    name: string,
+    options: {
+      description?: string
+      handler(args: string, ctx: ExtensionHealthContext): Promise<void>
+    },
+  ): void
+  getCommands(): ExtensionHealthCommand[]
+}
 
 const defaultExtensions = [
   "analyse",
@@ -22,7 +42,7 @@ const knownExtensions = {
   "orca-titlebar-spinner": true,
 } as const
 
-export default function extensionHealth(pi: ExtensionAPI): void {
+export default function extensionHealth(pi: ExtensionHealthAPI): void {
   pi.registerCommand("extension-health", {
     description: "Report local extension registration health",
     handler: async (_args, ctx) => {
@@ -40,7 +60,7 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       )
       const unexpected = [
         ...new Set(markerNames.filter((name) => !Object.hasOwn(knownExtensions, name))),
-      ].sort()
+      ].toSorted()
 
       if (commandNames.has("extension-health")) {
         registered.add("extension-health")
@@ -53,7 +73,7 @@ export default function extensionHealth(pi: ExtensionAPI): void {
       }
 
 
-      const registeredNames = [...registered].sort()
+      const registeredNames = [...registered].toSorted()
       const missing = defaultExtensions.filter((name) => !registered.has(name))
       const conditional = conditionalExtensions.filter((name) => registered.has(name))
       const count = `${defaultExtensions.length - missing.length}/${defaultExtensions.length}`

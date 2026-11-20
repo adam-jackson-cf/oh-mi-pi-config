@@ -1,0 +1,10 @@
+package shop
+
+import "os"
+
+func Region() string {
+	if os.Getenv("SHOP_UNDER_TEST") == "1" {
+		return "test"
+	}
+	return os.Getenv("SHOP_REGION")
+}

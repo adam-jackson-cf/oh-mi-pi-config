@@ -25,8 +25,8 @@
   settings in the record. Hand mapping gaps to the approved setup extension. Owner-approved budget
   edits belong to implementation, not the frozen proof task; first limits and raises require the
   owner's stated decision and per-machine reference.
-- Rails run the record's `checks.commit`, then harness checks, including `report-check` and
-  `budget-check` on the fast-tier report. CI runs the CI command only and never measures test timing.
+- Rails run the record's `checks.commit`, then harness checks, including the staged-change diff rules in
+  `guardrails check`, `report-check` and `budget-check` on the fast-tier report. CI runs the CI command only and never measures test timing.
   Never bypass these checks or repo hooks. See [test enforcement](test-enforcement.md).
 
 ## Freeze and implementation ownership
@@ -56,12 +56,16 @@
   proofs if no map path is declared.
 - Map documents are not frozen: implementation may refine their prose. At the PR, `prove()` blocks
   every changed map document that links no frozen proof.
-- User-facing behaviour discovered during implementation gets a map entry and an outcome test from
-  implementation, then a re-freeze. Its test is red at base because the behaviour did not exist there.
+- Discoveries: when implementation finds user-facing behaviour the plan did not name (a new error, option,
+  output or state the caller can see), the implementation task adds or updates its map entry and writes its
+  outcome test, leaves both uncommitted with no other pending edits, and stops. Main re-freezes with
+  `previous=(path, digest)`, and `revise` only for changed existing proofs ([freeze](freeze.md)).
+  The new test is red at base because the behaviour did not exist there; implementation then resumes.
   There is no added-after-freeze exception.
-- Before the PR, sweep every user-facing behaviour the diff adds or changes, citing a concrete source
-  path for each. An item without a source path does not count. Any item no changed map document covers
-  gets a map entry and a proof. The sweep produces map entries and tests, never review findings.
+- Map sweep: before the PR opens, a sweep task lists every user-facing behaviour the branch diff adds or
+  changes, each with a concrete source path; an item without one is dropped. Each item no map document
+  changed in the diff covers gets a map entry and an outcome test, handled as a discovery (re-freeze).
+  The sweep writes map entries and tests only: no review findings, finding schema or reviewer step.
 
 ## Exempt surfaces
 

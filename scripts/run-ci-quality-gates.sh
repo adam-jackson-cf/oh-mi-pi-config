@@ -9,7 +9,7 @@ usage() {
   printf 'Usage: %s [--tier commit|ci] [--fix] [--stage]\n' "$0"
 }
 
-while (($#)); do
+while [[ -n "${1+set}" ]]; do
   case "$1" in
     --tier)
       tier="${2:-}"
@@ -21,7 +21,7 @@ while (($#)); do
     --stage)
       stage=true
       ;;
-    -h|--help)
+    -h | --help)
       usage
       exit 0
       ;;
@@ -48,33 +48,115 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# The commit tier runs through .githooks/pre-commit, which must use this runner; the CI tier
-# command lives in the owner's personal record, outside this repository. The GitHub Actions
-# workflow is an optional manual fallback and is not part of the parity check.
-runner_base='scripts/run-ci-quality-gates'
-config=.githooks/pre-commit
-if [[ ! -f "$config" ]] || ! grep -Fq "$runner_base" "$config"; then
-  printf 'Runner parity check failed: %s must reference %s.\n' "$config" "$runner_base" >&2
+hook=.githooks/pre-commit
+expected_hook="#!/usr/bin/env bash
+set -euo pipefail
+top=\"\$(git rev-parse --show-toplevel)\"
+cd \"\$top\"
+exec bash scripts/run-ci-quality-gates.sh --tier commit"
+if [[ ! -x "$hook" ]] || ! printf '%s\n' "$expected_hook" | cmp -s - "$hook"; then
+  printf 'Commit hook check failed: %s must be executable and match the hook text in %s\n' "$hook" "$0" >&2
   exit 1
 fi
-printf 'Runner parity check passed.\n'
+hooks_path="$(git config --get core.hooksPath || true)"
+if [[ "$hooks_path" != .githooks ]]; then
+  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: bash scripts/install-quality-gates.sh\n' "${hooks_path:-unset}" >&2
+  exit 1
+fi
+printf 'Commit hook check passed.\n'
 
-code_files=(oxlint.config.ts)
+if [[ "$tier" == commit ]] && ! "$fix"; then
+  unstaged="$(git diff --name-only && git ls-files --others --exclude-standard)"
+  if [[ -n "$unstaged" ]]; then
+    printf 'The commit tier checks the staged content only; stage or stash these paths first:\n%s\n' "$unstaged" >&2
+    exit 1
+  fi
+fi
+
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+
+tracked() {
+  local out="$1"
+  shift
+  git ls-files -z -- "$@" >"$out"
+}
+
+code_files=()
+tracked "$scratch/code" "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
 while IFS= read -r -d '' file; do
-  if [[ "$file" != "oxlint.config.ts" && ! -L "$file" ]]; then
+  if [[ ! -L "$file" ]]; then
     code_files+=("$file")
   fi
-done < <(git ls-files -z -- "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts")
+done <"$scratch/code"
 
 markdown_files=()
+tracked "$scratch/markdown" "*.md" "*.markdown"
 while IFS= read -r -d '' file; do
   markdown_files+=("$file")
-done < <(git ls-files -z -- "*.md" "*.markdown")
+done <"$scratch/markdown"
 
-lint_files=("${code_files[@]}")
+shell_files=()
+tracked "$scratch/all" . ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**'
+while IFS= read -r -d '' file; do
+  case "${file##*/}" in
+    *.sh | *.bash) shell_files+=("$file") ;;
+    *.*) ;;
+    *)
+      if [[ ! -L "$file" ]] && head -n 1 -- "$file" | grep -Eq '^#!.*[/ ](ba)?sh([[:space:]]|$)'; then
+        shell_files+=("$file")
+      fi
+      ;;
+  esac
+done <"$scratch/all"
+
+data_files=()
+tracked "$scratch/data" "*.yml" "*.yaml" "*.json" "*.jsonc" "*.css" "*.html" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  data_files+=("$file")
+done <"$scratch/data"
+
+toml_files=()
+tracked "$scratch/toml" "*.toml" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  toml_files+=("$file")
+done <"$scratch/toml"
+
+container_files=()
+tracked "$scratch/container" "*Containerfile" "*Dockerfile" "*.containerfile" "*.dockerfile" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  container_files+=("$file")
+done <"$scratch/container"
+
+lint_files=()
+if [[ -n "${code_files[*]-}" ]]; then
+  lint_files+=("${code_files[@]}")
+fi
 for file in "${markdown_files[@]}"; do
   lint_files+=("$file")
 done
+if [[ -n "${data_files[*]-}" ]]; then
+  lint_files+=("${data_files[@]}")
+fi
+if [[ -n "${shell_files[*]-}" ]]; then
+  lint_files+=("${shell_files[@]}")
+fi
+if [[ -n "${toml_files[*]-}" ]]; then
+  lint_files+=("${toml_files[@]}")
+fi
+# ruff --fix may rewrite any owned Python file, so --stage tracks them all.
+tracked "$scratch/python" "*.py"
+while IFS= read -r -d '' file; do
+  lint_files+=("$file")
+done <"$scratch/python"
 
 file_hashes=()
 if "$fix" && "$stage"; then
@@ -83,45 +165,108 @@ if "$fix" && "$stage"; then
   done
 fi
 
+if [[ -n "${shell_files[*]-}" ]]; then
+  uv run --locked shellcheck -- "${shell_files[@]}"
+  if "$fix"; then
+    uv run --locked shfmt -w -- "${shell_files[@]}"
+  else
+    uv run --locked shfmt -d -- "${shell_files[@]}"
+  fi
+fi
 if "$fix"; then
-  bunx oxlint --fix "${code_files[@]}"
-  if ((${#markdown_files[@]})); then
+  if [[ -n "${data_files[*]-}" ]]; then
+    bunx prettier --write --log-level warn -- "${data_files[@]}"
+  fi
+  if [[ -n "${code_files[*]-}" ]]; then
+    bunx oxlint --fix --deny-warnings "${code_files[@]}"
+  fi
+  if [[ -n "${markdown_files[*]-}" ]]; then
     bunx markdownlint-cli2 --fix "${markdown_files[@]}"
   fi
 else
-  bunx oxlint "${code_files[@]}"
-  if ((${#markdown_files[@]})); then
+  if [[ -n "${data_files[*]-}" ]]; then
+    bunx prettier --check --log-level warn -- "${data_files[@]}"
+  fi
+  if [[ -n "${code_files[*]-}" ]]; then
+    bunx oxlint --deny-warnings "${code_files[@]}"
+  fi
+  if [[ -n "${markdown_files[*]-}" ]]; then
     bunx markdownlint-cli2 "${markdown_files[@]}"
   fi
 fi
+if [[ -n "${toml_files[*]-}" ]]; then
+  if "$fix"; then
+    uv run --locked tombi format --offline -- "${toml_files[@]}"
+  else
+    uv run --locked tombi format --check --offline -- "${toml_files[@]}"
+  fi
+  uv run --locked tombi lint --offline -- "${toml_files[@]}"
+fi
+if [[ -n "${container_files[*]-}" ]]; then
+  uv run --locked hadolint --disable-ignore-pragma --failure-threshold style -- "${container_files[@]}"
+fi
 bunx tsc --noEmit
-# A pre-commit hook exports GIT_DIR and GIT_INDEX_FILE; tests that create fixture repositories
-# would otherwise write into this repository's index.
-(unset "${!GIT_@}"; bun test)
-# The Python suites drive real Git repositories, worktrees and container fakes (T2 seams).
-# The commit tier runs them only when staged paths reach them; the ci tier always runs them.
-run_seams=true
+# Owned Python: ruff, ruff format and mypy check the whole repository in both tiers, with the
+# tooling pyproject.toml pins and uv.lock locks (--locked fails when the lock is stale). Their
+# settings mirror the harness catalogue; only third-party code and fixture trees are excluded.
+if "$fix"; then
+  uv run --locked ruff check .
+  uv run --locked ruff format .
+else
+  uv run --locked ruff check --no-fix .
+  uv run --locked ruff format --check .
+fi
+uv run --locked mypy
+line_floor=82
+branch_floor=83
 if [[ "$tier" == commit ]]; then
-  run_seams=false
+  bash scripts/audit-dependencies.sh
+  bash scripts/run-test-tier.sh t1
+  bun_seams=false
+  pytest_seams=false
+  git diff --cached --name-only -z >"$scratch/staged"
   while IFS= read -r -d '' file; do
     case "$file" in
-      scripts/*|tests/test_*.py|tests/fixtures/*|.devcontainer/*|agent/skills/setup-repo-proofs/*|agent/extensions/dynaflows/*|agent/lib/record/*|agent/skills/test-guidance/*)
-        run_seams=true
-        ;;
+      orca-plugins/* | docs/* | scripts/check_*.py | scripts/device_rollout.py | scripts/*.json | tests/*.py | .devcontainer/* | pyproject.toml | uv.lock) ;;
+      *) bun_seams=true ;;
     esac
-  done < <(git diff --cached --name-only -z)
-fi
-if "$run_seams"; then
-  (unset "${!GIT_@}"; python3 -m unittest discover -s tests -p 'test_*.py')
+    case "$file" in
+      orca-plugins/* | tools/* | .oxlintrc.json | .markdownlint-cli2.jsonc | package.json | bun.lock | bunfig.toml | tsconfig.json | tests/*.ts) ;;
+      *) pytest_seams=true ;;
+    esac
+  done <"$scratch/staged"
+  for framework in bun pytest; do
+    case "$framework" in
+      bun) selected="$bun_seams" ;;
+      pytest) selected="$pytest_seams" ;;
+    esac
+    if "$selected"; then
+      bash scripts/run-test-tier.sh t2 --framework "$framework"
+    else
+      printf 'T2 %s seams skipped: no staged path reaches them.\n' "$framework"
+    fi
+  done
 else
-  printf 'Python seam suites skipped: no staged path reaches them.\n'
+  coverage="$scratch/coverage"
+  mkdir "$coverage"
+  bash scripts/run-test-tier.sh t1 --coverage "$coverage"
+  bash scripts/run-test-tier.sh t2 --coverage "$coverage"
+  COVERAGE_FILE="$coverage/python.coverage" uv run --locked coverage json -q -o "$coverage/python.json"
+  uv run --locked python scripts/check_coverage.py --python-json "$coverage/python.json" \
+    --lcov "$coverage/bun-t1/lcov.info" --lcov "$coverage/bun-t2/lcov.info" \
+    --node-v8 "$coverage/node" \
+    --line-floor "$line_floor" --branch-floor "$branch_floor"
 fi
-(unset "${!GIT_@}"; python3 scripts/check-paths.py)
+(
+  unset "${!GIT_@}"
+  uv run --locked python scripts/check_paths.py
+)
 
 if "$stage"; then
   for index in "${!lint_files[@]}"; do
     file="${lint_files[$index]}"
-    if [[ "$(git hash-object "$file")" != "${file_hashes[$index]}" ]]; then
+    hash="$(git hash-object "$file")"
+    if [[ "$hash" != "${file_hashes[$index]}" ]]; then
       git add -- "$file"
     fi
   done

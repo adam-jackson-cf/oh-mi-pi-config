@@ -2,7 +2,7 @@
 
 One unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the repository's
 project instructions document a target/merge-method exception.
-Authority and safety belong to [git-tool](../SKILL.md).
+Authority and safety belong to [authority-and-safety](authority-and-safety.md).
 
 ## Main prepares the unit
 
@@ -30,7 +30,7 @@ The assigned writer performs these steps:
 1. Review the final diff and stage only intended files. Create new logical commits via `git commit`.
    Run the configured harness commit checks when applicable.
    Never disable the repo's own hooks with flags, configuration or hook-skip environment variables.
-   Use the [skill's commit vocabulary and safety rules](../SKILL.md#git-safety).
+   Use the [commit vocabulary and safety rules](authority-and-safety.md#git-safety).
    CI uses `checks.ci` when declared; do not add pre-push or handoff suite runs.
 2. Push the branch to the resolved GitHub primary remote, adding upstream tracking when needed.
    No routine rebase is needed; [merge-and-recover](merge-and-recover.md) owns rebase conditions and history permissions.
