@@ -51,7 +51,6 @@ python_version = "3.11"
 strict = true
 warn_unused_ignores = true
 follow_imports = "normal"
-# The owned Python roots, as the .gitignore allowlist tracks them.
 files = [
   "agent/extensions/dynaflows",
   "agent/lib",
@@ -59,7 +58,6 @@ files = [
   "scripts",
   "tests",
 ]
-# Script folders run with their own directory on sys.path; each is a module root.
 explicit_package_bases = true
 mypy_path = [
   "agent/extensions/dynaflows/engine",
@@ -71,7 +69,6 @@ mypy_path = [
   "agent/skills/omp-config-optimise/experiments/vision-reading",
   "tests",
 ]
-# Intentional test-fixture trees and generated output only.
 exclude = [
   "^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
   "^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/",

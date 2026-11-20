@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
-from typing import Any, NoReturn, TextIO
+from typing import IO, Any, NoReturn, TextIO
 
 # The harness's record resolver, located from this file.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent" / "lib"))
@@ -496,14 +496,20 @@ def run(job: Path) -> int:
 
 def run_logged(
     argv: list[str],
-    log: TextIO,
+    log: TextIO | tuple[IO[bytes], TextIO],
     *,
     check: bool,
     env: dict[str, str] | None = None,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
+    stdout, stderr = log if isinstance(log, tuple) else (log, log)
     return subprocess.run(
-        argv, stdout=log, stderr=log, env=env, timeout=timeout, check=check
+        argv,
+        stdout=stdout,
+        stderr=stderr,
+        env=env,
+        timeout=timeout,
+        check=check,
     )
 
 
@@ -631,17 +637,18 @@ def container_exit(
         return code, (Path(phase) / "bootstrapped").is_file()
 
 
-def user_mapping(podman: str, image: str) -> list[str]:
-    inspected = subprocess.run(
-        [podman, "image", "inspect", "--format", "{{.Config.User}}", image],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+def user_mapping(podman: str, image: str, log: TextIO) -> list[str]:
+    with tempfile.TemporaryFile() as output:
+        inspected = run_logged(
+            [podman, "image", "inspect", "--format", "{{.Config.User}}", image],
+            (output, log),
+            timeout=60,
+            check=False,
+        )
+        output.seek(0)
+        user = output.read().decode().strip()
     if inspected.returncode:
         raise RuntimeError("Podman image inspection failed")
-    user = inspected.stdout.strip()
     uid, _, gid = user.partition(":")
     if user in {"", "root", "0", "0:0"}:
         return []
@@ -672,7 +679,7 @@ def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None
         "--name",
         container,
         *runtime_flags(),
-        *user_mapping(podman, image),
+        *user_mapping(podman, image, log),
         "-v",
         str(src) + ":/work:rw",
     ]
