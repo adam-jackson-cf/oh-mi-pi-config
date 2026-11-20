@@ -197,7 +197,7 @@ if [[ "$tier" == commit ]]; then
   git diff --cached --name-only -z >"$scratch/staged"
   while IFS= read -r -d '' file; do
     case "$file" in
-      orca-plugins/* | tools/* | docs/* | scripts/check_*.py | scripts/device_rollout.py | scripts/*.json | tests/*.py | .devcontainer/* | pyproject.toml | uv.lock) ;;
+      orca-plugins/* | docs/* | scripts/check_*.py | scripts/device_rollout.py | scripts/*.json | tests/*.py | .devcontainer/* | pyproject.toml | uv.lock) ;;
       *) bun_seams=true ;;
     esac
     case "$file" in

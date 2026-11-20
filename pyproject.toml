@@ -163,7 +163,6 @@ source = [
 omit = [
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
-  "tools/oxlint/anti-slop/*",
 ]
 
 [tool.coverage.report]

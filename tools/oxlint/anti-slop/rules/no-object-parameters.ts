@@ -33,6 +33,11 @@ function parameterName(parameter: Parameter, sourceCode: SourceCode): string {
 		: sourceCode.getText(parameter).replace(/\s*:\s*object\s*$/u, "");
 }
 
+function plainReferenceName(type: ESTree.TSType): string | null {
+	if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return null;
+	return (type.typeArguments?.params.length ?? 0) > 0 ? null : type.typeName.name;
+}
+
 /** Ban the broad object type on function inputs, including local aliases to object. */
 export const noObjectParametersRule = defineRule({
 	meta: {
@@ -52,7 +57,7 @@ export const noObjectParametersRule = defineRule({
 		const resolvesToObject = (
 			type: ESTree.TSType,
 			shadowedAliases: ReadonlySet<string>,
-			visited = new Set<string>(),
+			visited: ReadonlySet<string> = new Set<string>(),
 		): boolean => {
 			if (type.type === "TSObjectKeyword") return true;
 			if (type.type === "TSParenthesizedType")
@@ -62,29 +67,16 @@ export const noObjectParametersRule = defineRule({
 					resolvesToObject(member, shadowedAliases, visited),
 				);
 			}
-			if (
-				type.type !== "TSTypeReference" ||
-				type.typeName.type !== "Identifier" ||
-				(type.typeArguments !== null &&
-					type.typeArguments !== undefined &&
-					type.typeArguments.params.length > 0) ||
-				visited.has(type.typeName.name) ||
-				shadowedAliases.has(type.typeName.name)
-			) {
-				return false;
-			}
-			const alias = aliases.get(type.typeName.name);
-			if (alias === undefined) return false;
-			const nextVisited = new Set(visited);
-			nextVisited.add(type.typeName.name);
-			return resolvesToObject(alias, shadowedAliases, nextVisited);
+			const name = plainReferenceName(type);
+			if (name === null || visited.has(name) || shadowedAliases.has(name)) return false;
+			const alias = aliases.get(name);
+			return (
+				alias !== undefined && resolvesToObject(alias, shadowedAliases, new Set([...visited, name]))
+			);
 		};
 
 		const checkParameters = (node: ParameterOwner) => {
-			const shadowedAliases = lexicalTypeParameterNames(
-				node,
-				context.sourceCode.visitorKeys,
-			);
+			const shadowedAliases = lexicalTypeParameterNames(node, context.sourceCode);
 			for (const parameter of node.params) {
 				const annotation = parameterAnnotation(parameter);
 				if (annotation === null || annotation === undefined) continue;

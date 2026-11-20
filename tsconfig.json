@@ -29,6 +29,7 @@
     "orca-plugins/**/*.ts",
     "orca-plugins/**/*.js",
     "orca-plugins/**/*.mjs",
+    "tools/**/*.ts",
     "tests/**/*.ts"
   ],
   "exclude": [
