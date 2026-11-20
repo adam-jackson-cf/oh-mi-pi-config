@@ -100,7 +100,8 @@ const dynaflowsSwitch = z.object({ enabled: z.boolean() });
 export const gateSchema = z.object({
 	schemaVersion: z.literal(2),
 	checks: z.object({
-		commit: argvSchema, ci: argvSchema.optional(), format: argvSchema.optional(), profile: argvSchema.optional(),
+		commit: argvSchema, ci: argvSchema.optional(), audit: argvSchema.optional(), format: argvSchema.optional(),
+		profile: argvSchema.optional(),
 	}).strict(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),

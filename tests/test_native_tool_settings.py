@@ -128,6 +128,9 @@ class NativeToolSettingsTests(unittest.TestCase):
         text = (ROOT / ".markdownlint-cli2.jsonc").read_text(encoding="utf-8")
         settings = json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
         assert settings["config"]["MD013"] == {"line_length": 100}
+        assert [override["config"] for override in settings["overrides"]] == [
+            {"MD013": {"line_length": 160}}
+        ]
         for override in settings["overrides"]:
             for pattern in override["filter"]:
                 with self.subTest(pattern=pattern):

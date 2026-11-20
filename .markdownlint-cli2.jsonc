@@ -11,7 +11,9 @@
         "agent/skills/git-tool/**",
       ],
       "config": {
-        "MD013": false,
+        "MD013": {
+          "line_length": 160,
+        },
       },
       "combine": "merge",
     },

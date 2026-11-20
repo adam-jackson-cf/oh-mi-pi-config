@@ -5,6 +5,7 @@ import platform
 import shutil
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ if name == "uv" and "--collect-only" in sys.argv:
     sys.exit(int(os.environ.get("FAKE_COLLECT", "5")))
 if os.environ.get("FAKE_AUDIT_FAIL") in entry:
     sys.exit(1)
+if sys.argv[1:] in (["--version"], ["env", "GOVERSION"]):
+    print(os.environ.get("FAKE_VERSION_" + name.upper(), ""))
 """
 
 
@@ -317,10 +320,7 @@ def test_a_lock_no_auditor_reads_fails_the_audit(checkout: Any) -> None:
     assert "No dependency auditor for web/package-lock.json." in output
 
 
-@pytest.mark.parametrize("tier", ["commit", "ci"])
-def test_both_gate_tiers_block_on_the_dependency_audit(
-    checkout: Any, tier: str
-) -> None:
+def test_the_commit_tier_blocks_on_the_dependency_audit(checkout: Any) -> None:
     root, env = checkout
     track(root, env, "bun.lock")
     failing = f"cwd={root.resolve()}"
@@ -329,12 +329,101 @@ def test_both_gate_tiers_block_on_the_dependency_audit(
         {**env, "FAKE_AUDIT_FAIL": failing},
         "scripts/run-ci-quality-gates.sh",
         "--tier",
-        tier,
+        "commit",
     )
     assert code == 1
     assert ["bun", "audit", failing] in calls
     assert "Dependency audit failed for: bun.lock" in output
     assert bun_runs(calls) == []
+
+
+def test_the_ci_tier_leaves_the_networked_dependency_audit_to_its_own_step(
+    checkout: Any,
+) -> None:
+    root, env = checkout
+    track(root, env, "bun.lock", "uv.lock")
+    code, output, calls = run(
+        root,
+        {**env, "FAKE_AUDIT_FAIL": f"cwd={root.resolve()}"},
+        "scripts/run-ci-quality-gates.sh",
+        "--tier",
+        "ci",
+    )
+    assert code == 0, output
+    assert audit_calls(calls) == []
+    assert bun_runs(calls)
+
+
+@pytest.mark.parametrize("tier", ["commit", "ci"])
+def test_both_gate_tiers_check_owned_toml_and_containerfiles(
+    checkout: Any, tier: str
+) -> None:
+    root, env = checkout
+    track(
+        root,
+        env,
+        "pyproject.toml",
+        "engine/pyproject.toml",
+        "tests/fixtures/frozen/pyproject.toml",
+        ".devcontainer/Containerfile",
+        "web/Dockerfile",
+        "tests/fixtures/frozen/Containerfile",
+    )
+    code, output, calls = run(
+        root, env, "scripts/run-ci-quality-gates.sh", "--tier", tier
+    )
+    assert code == 0, output
+    tomls = ["engine/pyproject.toml", "pyproject.toml"]
+    tombi = [call for call in calls if call[:4] == ["uv", "run", "--locked", "tombi"]]
+    assert tombi == [
+        [
+            "uv",
+            "run",
+            "--locked",
+            "tombi",
+            "format",
+            "--check",
+            "--offline",
+            "--",
+            *tomls,
+        ],
+        ["uv", "run", "--locked", "tombi", "lint", "--offline", "--", *tomls],
+    ]
+    assert [
+        call for call in calls if call[:4] == ["uv", "run", "--locked", "hadolint"]
+    ] == [
+        [
+            "uv",
+            "run",
+            "--locked",
+            "hadolint",
+            "--disable-ignore-pragma",
+            "--failure-threshold",
+            "style",
+            "--",
+            ".devcontainer/Containerfile",
+            "web/Dockerfile",
+        ]
+    ]
+
+
+def test_fix_mode_formats_owned_toml_in_place(checkout: Any) -> None:
+    root, env = checkout
+    track(root, env, "pyproject.toml")
+    code, output, calls = run(
+        root, env, "scripts/run-ci-quality-gates.sh", "--tier", "commit", "--fix"
+    )
+    assert code == 0, output
+    assert [
+        "uv",
+        "run",
+        "--locked",
+        "tombi",
+        "format",
+        "--offline",
+        "--",
+        "pyproject.toml",
+    ] in calls
 
 
 @pytest.mark.parametrize("change", ["unstaged", "untracked"])
@@ -387,14 +476,40 @@ def test_a_hook_that_exits_before_running_the_gate_fails_both_tiers(
         assert calls == []
 
 
+def pinned_toolchain(root: Path, env: dict[str, str]) -> dict[str, str]:
+    (root / "package.json").write_text(
+        (SOURCE / "package.json").read_text(encoding="utf-8")
+    )
+    return {
+        **env,
+        "FAKE_VERSION_BUN": PACKAGE_MANAGER.removeprefix("bun@"),
+        "FAKE_VERSION_GO": "go" + install_pin("go_version"),
+    }
+
+
+def install_pin(name: str) -> str:
+    script = (SOURCE / "scripts/install-quality-gates.sh").read_text(encoding="utf-8")
+    [line] = [line for line in script.splitlines() if line.startswith(name + "=")]
+    return line.removeprefix(name + "=")
+
+
+PACKAGE_MANAGER: str = json.loads((SOURCE / "package.json").read_text())[
+    "packageManager"
+]
+
+
 def test_install_quality_gates_installs_the_locked_dependencies_and_the_hook(
     checkout: Any,
 ) -> None:
     root, env = checkout
     git(root, env, "config", "--unset", "core.hooksPath")
-    code, output, calls = run(root, env, "scripts/install-quality-gates.sh")
+    code, output, calls = run(
+        root, pinned_toolchain(root, env), "scripts/install-quality-gates.sh"
+    )
     assert code == 0, output
     assert calls == [
+        ["bun", "--version"],
+        ["go", "env", "GOVERSION"],
         ["bun", "install", "--frozen-lockfile"],
         ["uv", "sync", "--locked"],
     ]
@@ -404,6 +519,47 @@ def test_install_quality_gates_installs_the_locked_dependencies_and_the_hook(
         timeout=PROCESS_TIMEOUT,
     )
     assert hooks.stdout.strip() == ".githooks"
+
+
+@pytest.mark.parametrize("tool", ["BUN", "GO"])
+def test_install_quality_gates_refuses_an_unpinned_toolchain_before_installing(
+    checkout: Any, tool: str
+) -> None:
+    root, env = checkout
+    git(root, env, "config", "--unset", "core.hooksPath")
+    code, output, calls = run(
+        root,
+        {**pinned_toolchain(root, env), "FAKE_VERSION_" + tool: "9.9.9"},
+        "scripts/install-quality-gates.sh",
+    )
+    assert code == 1
+    assert "is required" in output
+    assert "found 9.9.9" in output
+    assert not any("install" in call or "sync" in call for call in calls)
+
+
+def test_the_gate_image_and_the_fallback_workflow_pin_one_toolchain() -> None:
+    bun = PACKAGE_MANAGER.removeprefix("bun@")
+    go = install_pin("go_version")
+    python = (SOURCE / ".python-version").read_text().strip()
+    uv = tomllib.loads((SOURCE / "pyproject.toml").read_text())["tool"]["uv"][
+        "required-version"
+    ].removeprefix("==")
+    image = (SOURCE / ".devcontainer/Containerfile").read_text()
+    workflow = (SOURCE / ".github/workflows/ci-quality-gates.yml").read_text()
+    assert f"FROM docker.io/oven/bun:{bun}@" in image
+    assert f"/go{go}.linux-$arch.tar.gz" in image
+    assert f'"uv=={uv} \\' in image
+    assert f"uv python install {python}\n" in image
+    for setting in (
+        f"bun-version: {bun}\n",
+        f"version: {uv}\n",
+        f"go-version: {go}\n",
+    ):
+        assert setting in workflow
+    assert workflow.count("      - run: bash scripts/install-quality-gates.sh\n") == 1
+    assert "run: bash scripts/audit-dependencies.sh\n" in workflow
+    assert "run: bash scripts/run-ci-quality-gates.sh\n" in workflow
 
 
 def test_every_clone_setup_installs_the_quality_gates() -> None:

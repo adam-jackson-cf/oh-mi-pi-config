@@ -233,11 +233,14 @@ gate results stay cached; an infrastructure `error` is retried on resubmission.
 for success, 1 for gate failure/error or status-publication failure, and 2 when its
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
-The runner executes `checks.ci` after the devcontainer's `postCreateCommand`.
-Bootstrap or install failures before `checks.ci` starts are infrastructure `error`
-results, so normal resubmission recreates the checkout and retries them. A phase
-marker outside the checkout distinguishes them from a nonzero gate result.
-Bootstrap and gate keep the same container and shell environment.
+The runner uses two containers on the same checkout. The first has network: it runs the
+devcontainer's `postCreateCommand`, then the record's required `checks.audit` dependency audit.
+The second runs `checks.ci` with `--network=none`. A failed audit is a cached `failure`
+and skips `checks.ci`. Bootstrap or install failures before `checks.audit` starts are
+infrastructure `error` results, so normal resubmission recreates the checkout and retries
+them. A phase marker outside the checkout distinguishes them from a nonzero audit result.
+When the image's `USER` is a numeric non-root user, both containers map the checkout owner
+to it with `--userns=keep-id`; a named non-root user is an infrastructure `error`.
 
 Logs and atomic `result.json` files remain under
 `${XDG_STATE_HOME:-~/.local/state}/ci-gate/jobs/<owner>/<repo>/<sha>/`;

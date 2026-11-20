@@ -120,6 +120,22 @@ while IFS= read -r -d '' file; do
   data_files+=("$file")
 done <"$scratch/data"
 
+toml_files=()
+tracked "$scratch/toml" "*.toml" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  toml_files+=("$file")
+done <"$scratch/toml"
+
+container_files=()
+tracked "$scratch/container" "*Containerfile" "*Dockerfile" "*.containerfile" "*.dockerfile" \
+  ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
+  ':(exclude,glob)tests/fixtures/**'
+while IFS= read -r -d '' file; do
+  container_files+=("$file")
+done <"$scratch/container"
+
 lint_files=()
 if [[ -n "${code_files[*]-}" ]]; then
   lint_files+=("${code_files[@]}")
@@ -132,6 +148,9 @@ if [[ -n "${data_files[*]-}" ]]; then
 fi
 if [[ -n "${shell_files[*]-}" ]]; then
   lint_files+=("${shell_files[@]}")
+fi
+if [[ -n "${toml_files[*]-}" ]]; then
+  lint_files+=("${toml_files[@]}")
 fi
 # ruff --fix may rewrite any owned Python file, so --stage tracks them all.
 tracked "$scratch/python" "*.py"
@@ -175,6 +194,17 @@ else
     bunx markdownlint-cli2 "${markdown_files[@]}"
   fi
 fi
+if [[ -n "${toml_files[*]-}" ]]; then
+  if "$fix"; then
+    uv run --locked tombi format --offline -- "${toml_files[@]}"
+  else
+    uv run --locked tombi format --check --offline -- "${toml_files[@]}"
+  fi
+  uv run --locked tombi lint --offline -- "${toml_files[@]}"
+fi
+if [[ -n "${container_files[*]-}" ]]; then
+  uv run --locked hadolint --disable-ignore-pragma --failure-threshold style -- "${container_files[@]}"
+fi
 bunx tsc --noEmit
 # Owned Python: ruff, ruff format and mypy check the whole repository in both tiers, with the
 # tooling pyproject.toml pins and uv.lock locks (--locked fails when the lock is stale). Their
@@ -187,10 +217,10 @@ else
   uv run --locked ruff format --check .
 fi
 uv run --locked mypy
-bash scripts/audit-dependencies.sh
 line_floor=82
 branch_floor=83
 if [[ "$tier" == commit ]]; then
+  bash scripts/audit-dependencies.sh
   bash scripts/run-test-tier.sh t1
   bun_seams=false
   pytest_seams=false

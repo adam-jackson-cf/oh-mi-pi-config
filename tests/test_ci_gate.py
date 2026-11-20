@@ -79,6 +79,9 @@ if name == 'infisical':
     if os.environ.get('FAKE_INFISICAL_TOKEN'):
         os.environ['NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'] = os.environ['FAKE_INFISICAL_TOKEN']
     sys.exit(subprocess.call(args[args.index('--') + 1:]))
+if args[:2] == ['image', 'inspect']:
+    print(os.environ.get('FAKE_IMAGE_USER', ''))
+    sys.exit(0)
 if args[:2] == ['image', 'exists']:
     sys.exit(0 if (root / ('image-' + args[-1].split(':')[-1])).exists() else 1)
 if args[0] == 'build':
@@ -128,6 +131,7 @@ class GateFixture(unittest.TestCase):
             self.gate(
                 checks={
                     "commit": ["bash", "commit only.sh"],
+                    "audit": ["bash", "audit script.sh"],
                     "ci": ["bash", "gate script.sh", "a'b"],
                 }
             )
@@ -140,6 +144,7 @@ class GateFixture(unittest.TestCase):
         )
         (self.source / ".devcontainer/Containerfile").write_text("FROM test-image\n")
         (self.source / "gate script.sh").write_text('exit "${GATE_EXIT:-0}"\n')
+        (self.source / "audit script.sh").write_text('exit "${AUDIT_EXIT:-0}"\n')
         self.sha = self.commit()
         self.requests: list[dict[str, Any]] = []
         requests = self.requests
@@ -218,7 +223,7 @@ class GateFixture(unittest.TestCase):
         """A complete record gate.json; `fields` replace its defaults, None removes one."""
         gate: dict[str, Any] = {
             "schemaVersion": 2,
-            "checks": {"commit": ["true"], "ci": ["true"]},
+            "checks": {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
             "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
             "dynaflows": {"enabled": True},
         }
@@ -335,7 +340,11 @@ class CiGateTests(GateFixture):
                 "x-github-api-version"
             ] == "2022-11-28"
             assert self.sha in request["path"]
-        args = next(args for args in self.calls("podman") if args[0] == "run")
+        args, gate = [argv for argv in self.calls("podman") if argv[0] == "run"]
+        assert "--network=none" not in args
+        assert "--network=none" in gate
+        mounted = args.index("-v") + 2
+        assert gate[: mounted + 1] == [*args[:mounted], "--network=none"]
         assert "--runtime-flag=ignore-cgroups" in args
         assert args[args.index("--runtime") + 1] == "/usr/local/bin/runsc"
         build = next(argv for argv in self.calls("podman") if argv[0] == "build")
@@ -343,8 +352,10 @@ class CiGateTests(GateFixture):
         assert not any(arg.startswith("--runtime") for arg in build)
         assert "/usr/local/bin/runsc" not in build
         assert "echo 'setup words'" in args[-1]
-        assert "exec bash 'gate script.sh' 'a'\"'\"'b'" in args[-1]
-        assert "commit only.sh" not in json.dumps(args)
+        assert args[-1].endswith("exec bash 'audit script.sh'")
+        assert gate[-1] == "exec bash 'gate script.sh' 'a'\"'\"'b'"
+        assert "commit only.sh" not in json.dumps([args, gate])
+        assert not any(arg.startswith("--userns") for arg in args + gate)
         assert "-e" not in args
         assert "--env-host" not in args
         assert (
@@ -461,6 +472,40 @@ class CiGateTests(GateFixture):
         assert json.loads(self.submit().stdout) == result
         assert len(self.calls("systemd-run")) == 1
 
+    def test_failed_audit_is_a_cached_failure_and_skips_the_offline_gate(self) -> None:
+        self.submit()
+        self.env["AUDIT_EXIT"] = "3"
+        self.cli("run", self.job(), expected=1)
+        result = json.loads(self.cli("wait", REPO, self.sha, expected=1).stdout)
+        assert (result["state"], result["exitCode"]) == ("failure", 3)
+        assert result["error"] == "dependency audit failed"
+        assert self.requests[-1]["body"]["state"] == "failure"
+        runs = [argv for argv in self.calls("podman") if argv[0] == "run"]
+        assert len(runs) == 1
+        assert "--network=none" not in runs[0]
+        assert json.loads(self.submit().stdout) == result
+        assert len(self.calls("systemd-run")) == 1
+
+    def test_numeric_image_user_owns_the_checkout_in_both_containers(self) -> None:
+        for user, mapping in (
+            ("1000:1000", "--userns=keep-id:uid=1000,gid=1000"),
+            ("1001", "--userns=keep-id:uid=1001,gid=1001"),
+        ):
+            with self.subTest(user=user):
+                (self.source / "image-user").write_text(user)
+                sha = self.commit()
+                self.submit(sha)
+                before = len(self.calls("podman"))
+                self.cli(
+                    "run", self.job(sha), env={**self.env, "FAKE_IMAGE_USER": user}
+                )
+                runs = [
+                    argv for argv in self.calls("podman")[before:] if argv[0] == "run"
+                ]
+                assert len(runs) == 2
+                for argv in runs:
+                    assert argv[argv.index(mapping) + 1] == "-v"
+
     def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(
         self,
     ) -> None:
@@ -511,16 +556,26 @@ class CiGateTests(GateFixture):
     def test_infrastructure_failures_are_errors(self) -> None:
         for failure in (
             "missing-ci",
+            "missing-audit",
             "build",
             "podman",
             "bootstrap-string",
             "bootstrap-array",
+            "named-user",
         ):
             with self.subTest(failure=failure):
                 gate = self.gate(
-                    checks={"commit": ["true"]}
-                    if failure == "missing-ci"
-                    else {"commit": ["true"], "ci": ["true", failure]}
+                    checks={
+                        "missing-ci": {"commit": ["true"], "audit": ["true"]},
+                        "missing-audit": {"commit": ["true"], "ci": ["true"]},
+                    }.get(
+                        failure,
+                        {
+                            "commit": ["true"],
+                            "audit": ["true"],
+                            "ci": ["true", failure],
+                        },
+                    )
                 )
                 if failure == "missing-gate":
                     (self.record / "gate.json").unlink()
@@ -546,6 +601,8 @@ class CiGateTests(GateFixture):
                     environment["FAIL_BUILD"] = "1"
                 if failure == "podman":
                     environment["GATE_EXIT"] = "125"
+                if failure == "named-user":
+                    environment["FAKE_IMAGE_USER"] = "bun"
                 self.cli("run", self.job(sha), expected=1, env=environment)
                 result = json.loads(self.cli("wait", REPO, sha, expected=1).stdout)
                 assert result["state"] == "error"
@@ -553,6 +610,12 @@ class CiGateTests(GateFixture):
                 assert self.requests[-1]["body"]["context"] == CONTEXT
                 if failure.startswith("bootstrap-"):
                     assert "Container bootstrap failed" in result["error"]
+                if failure.startswith("missing-"):
+                    assert (
+                        "checks." + failure.removeprefix("missing-") in result["error"]
+                    )
+                if failure == "named-user":
+                    assert result["error"] == "Container image user bun must be numeric"
                 assert list(self.job(sha).glob("execute-*")) == []
 
     def test_gate_without_required_context_is_an_unpublished_error(self) -> None:

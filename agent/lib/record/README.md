@@ -31,6 +31,7 @@ A documentation-only repo still declares `checks.commit`.
 | `schemaVersion` | Integer `2`. |
 | `checks.commit` | [^n1] |
 | `checks.ci` | [^n2] |
+| `checks.audit` | [^n6] |
 | `checks.format` | [^n3] |
 | `checks.profile` | [^n4] |
 | `agentMerge` | [^n5] |
@@ -176,3 +177,5 @@ before applying them.
   profile-check`; `prove()` does not run it.
 [^n5]: `allowed` or `disabled`; absent field or absent record defaults to `allowed`, subject to
   governing Git authorization and CI.
+[^n6]: Nonempty argv array for the repo's dependency audit, required by the `ci-gate` runner. It
+  runs with network after `postCreateCommand`; `checks.ci` then runs with no network.

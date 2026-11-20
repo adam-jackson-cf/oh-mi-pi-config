@@ -82,8 +82,7 @@
   "mypy": {
     "strict": true,
     "warn_unused_ignores": true,
-    "follow_imports": "normal",
-    "show_error_codes": true
+    "follow_imports": "normal"
   },
   "tsc": {
     "compilerOptions": {
