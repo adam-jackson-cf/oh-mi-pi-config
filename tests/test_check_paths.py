@@ -114,14 +114,30 @@ class CheckPathsTests(unittest.TestCase):
         file.unlink()
         self.assert_clean(self.check("misplaced.test.ts"))
 
-    def test_no_arguments_checks_tracked_files_only(self) -> None:
+    def test_no_arguments_checks_tracked_files_and_ignored_owned_sources(
+        self,
+    ) -> None:
         self.file("source.txt", tracked=True)
         self.file("ignored.txt")
+        self.file("elsewhere/runtime.py")
+        self.file("tests/__pycache__/cached.py")
+        self.file("tests/notes.txt")
         self.assert_clean(self.check())
         self.file("misplaced.test.ts", tracked=True)
         self.assert_error(
             self.check(), "misplaced.test.ts", "move test files directly under tests/"
         )
+        (self.repo / "misplaced.test.ts").unlink()
+        for path in (
+            "agent/lib/new.ts",
+            "scripts/new_tool.py",
+            "tests/brand-new.test.ts",
+            "tests/test_brand_new.py",
+        ):
+            with self.subTest(path=path):
+                self.file(path)
+                self.assert_error(self.check(), path, f"add a !{path} re-include")
+                (self.repo / path).unlink()
 
     def test_subdirectory_arguments_resolve_against_working_directory(self) -> None:
         self.file("source/feature.test.ts", allowed=True)

@@ -320,6 +320,37 @@ def test_both_gate_tiers_block_on_the_dependency_audit(
     assert bun_runs(calls) == []
 
 
+@pytest.mark.parametrize("change", ["unstaged", "untracked"])
+def test_commit_tier_refuses_content_outside_the_index(
+    checkout: Any, change: str
+) -> None:
+    root, env = checkout
+    target = root / ("readme.md" if change == "unstaged" else "notes.md")
+    target.write_text("not staged\n")
+    code, output, calls = run(
+        root, env, "scripts/run-ci-quality-gates.sh", "--tier", "commit"
+    )
+    assert code == 1
+    assert "stage or stash these paths first:" in output
+    assert target.name in output
+    assert pytest_runs(calls) == bun_runs(calls) == []
+    code, output, _ = run(root, env, "scripts/run-ci-quality-gates.sh", "--tier", "ci")
+    assert code == 0, output
+
+
+@pytest.mark.parametrize("tier", ["commit", "ci"])
+def test_both_gate_tiers_fail_on_an_ignored_test_file(checkout: Any, tier: str) -> None:
+    root, env = checkout
+    (root / ".gitignore").write_text(
+        "tests/*\n!tests/unit.test.ts\n!tests/flow-seams.test.ts\n"
+    )
+    git(root, env, "add", ".gitignore")
+    (root / "tests/ignored.test.ts").write_text("x\n")
+    code, output, _ = run(root, env, "scripts/run-ci-quality-gates.sh", "--tier", tier)
+    assert code == 1
+    assert "tests/ignored.test.ts: ignored by the .gitignore allowlist" in output
+
+
 def test_every_local_module_a_test_imports_is_tracked() -> None:
     listed = run_text(
         ["git", "-C", str(SOURCE), "ls-files", "--", "tests/*.py"],
