@@ -63,14 +63,6 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/rails.yml
-!agent/lib/
-agent/lib/*
-!agent/lib/repo_record.py
-!agent/lib/repo-record.ts
-!agent/lib/rails-runtime.ts
-!agent/lib/record/
-!agent/lib/record/**
 !agent/rules/
 agent/rules/*
 !agent/skills/
@@ -100,7 +92,6 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/agent-rails.ts
 !agent/extensions/dynaflows/
 !agent/extensions/dynaflows/**
 
@@ -108,7 +99,7 @@ agent/extensions/*
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/agent-rails-seams.test.ts
+!tests/dynaflows-guards-seams.test.ts
 !tests/dynaflows-extension-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts

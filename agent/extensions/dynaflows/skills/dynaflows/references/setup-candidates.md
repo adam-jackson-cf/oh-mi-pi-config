@@ -14,7 +14,7 @@ Draft the record from the harness, shadow-run repo-owned steps and prepare harne
   environment or lockfile.
 - `init` discovers make targets, hook managers, CI jobs and (through `gh`) required checks, and drafts `gate.json` and
   `profile.md`. It writes nothing into the clone, never overwrites a recorded value, never writes an approval and never
-  turns dynaflows on, so a second run changes nothing. It writes proposed native-tool configs (Ruff, mypy,
+  selects structured mode unless asked, so a second run changes nothing. It writes proposed native-tool configs (Ruff, mypy,
   import-linter) to the record's `proposed/` directory for the owner to apply as a repo fix, and proves language-server
   readiness with a canary `references` query.
 - `--commit-command` and `--ci-command` name the repo's own gate commands; `--runner` and `--required-context` set the

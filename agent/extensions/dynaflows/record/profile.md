@@ -92,7 +92,7 @@
 The front matter above is the record's profile template: `guardrails init` drafts a live
 `profile.md` from it, and its JSON is the authoritative value set. Every shared section, from
 `tiers` to `command_notes`, has the meaning, fill rules and allowed exemptions of the generic
-[test profile template](../../extensions/dynaflows/skills/test-guidance/assets/templates/test-profile.md).
+[test profile template](../skills/test-guidance/assets/templates/test-profile.md).
 This template adds only the harness fields below, and splits the generic tiers by framework.
 
 - Repo file paths are repo-relative; record file paths are record-relative.

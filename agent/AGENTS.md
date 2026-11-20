@@ -122,11 +122,12 @@ your response:
   other sections.
         <!-- OMP_GLOBAL_RULES_END -->
 
-Git: agents own branch → PR → review → merge without asking, unless the repo's record `gate.json` sets
-`"agentMerge": "disabled"`; read `skill://git-tool` before any Git action.
+Git: read `skill://git-tool` before any Git action. In dynaflows structured mode, agents own
+branch → PR → review → merge without asking, unless the repo's record `gate.json` sets
+`"agentMerge": "disabled"`. In minimal mode, rails refuse `gh pr merge` and pushes to the default
+branch; the owner merges.
 
 Device rollout: changes in oh-mi-pi-config to dynaflows or its rails (`agent/extensions/dynaflows/**`,
-`agent/extensions/agent-rails.ts`, `agent/lib/rails-runtime.ts`, `agent/rails.yml`,
 `agent/agents/**`, rules, its bundled skills), or the git-tool skill, or to other skills in
 skills-directory, are not finished at merge:
 roll out to every device in the same task.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
-import { configRoot, parseOrigin, recordDir } from "../agent/lib/repo-record.ts";
+import { configRoot, parseOrigin, recordDir } from "../agent/extensions/dynaflows/lib/repo-record.ts";
 
 const origins = {
 	"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",

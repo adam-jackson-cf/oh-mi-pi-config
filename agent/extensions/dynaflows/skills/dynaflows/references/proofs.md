@@ -2,7 +2,7 @@
 
 ## Binding policy and profile
 
-- With dynaflows enabled, [test-guidance](skill://test-guidance) is binding and overrides repo-local
+- In dynaflows structured mode, [test-guidance](skill://test-guidance) is binding and overrides repo-local
   test skills and AGENTS.md test rules during coexistence. The profile may tighten, never relax, it.
 - The profile is the record's `profile.md`: `~/.omp/repos/<owner>/<name>/profile.md`, keyed by origin,
   gitignored and never committed. Never look for a repo-local profile or name a harness directory

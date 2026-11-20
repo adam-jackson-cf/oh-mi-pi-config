@@ -47,7 +47,9 @@ The boundaries are intentional:
 - **Extensions** implement runtime mechanics (`agent/extensions/`);
   `extension-health.ts` reports registration health, not runtime correctness.
 
-`agent-rails.ts` requires `skill://git-tool` for branch and integration commands,
+The always-loaded dynaflows extension runs each repository in minimal or structured mode
+([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). Its guards in both modes
+require `skill://git-tool` for branch and integration commands,
 including commands with Git global options, shell separators and known command
 wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
 bounds; `cd` and `pushd` select the destination repository's policy. Unresolved
@@ -57,12 +59,15 @@ are not promised.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
-`agentMerge` and `ci`, independently of dynaflows. With dynaflows off (including no
-record), sessions get plain omp + git-tool + generic Git safety rails: no edit
-read gates, path checks or verification handoff reads.
-With dynaflows on for the edited path's repo, targeted integrity/new-code/test reads
+`agentMerge` and `ci` in both modes. In minimal mode (including no record), sessions get plain
+omp + git-tool + the fixed Git guards: `gh pr merge` and `git push` to the remote's default
+branch are refused, while pushes to other branches and `gh pr create` pass. Minimal mode has no
+edit read gates, path checks or verification handoff reads.
+In structured mode, Git integration commands also need
+`skill://git-tool/references/merge-and-recover.md`, the default-branch push stays refused, and
+for the edited path's repo targeted integrity/new-code/test reads
 fire before edits. All-session handoff, including subagents, stays blocked until
-verification references are read after that session's code edits in an enabled repo
+verification references are read after that session's code edits in a structured-mode repo
 and failed harness `path-check` paths pass on retry. Rails run
 `guardrails path-check --repo <worktree> --record <record dir>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
@@ -70,7 +75,7 @@ untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
 
-With dynaflows on, rails guard `gh pr merge`: CI must be green on the PR's exact
+In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
 `<git-common-dir>/omp-structure/<head>.json` with that head and `halt: false`; ready
@@ -82,8 +87,8 @@ check run, whoever posts it.
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
-`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. With
-dynaflows on, each agent commit runs harness `guardrails path-check` with repo and record arguments,
+`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. In
+structured mode, each agent commit runs harness `guardrails path-check` with repo and record arguments,
 then `checks.commit`, and then `guardrails check`, also run from this checkout with
 `--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the record.
@@ -109,18 +114,19 @@ not `.githooks` or the hook differs from the expected text. Run the formatters w
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its
 [workflow skill](agent/extensions/dynaflows/skills/dynaflows/SKILL.md) is available as
-`skill://dynaflows`; its preflight step defines how the owner turns dynaflows on or off in the main
-chat (for example a standalone `$dynaflows on` or `$dynaflows off` line) and how the switch,
-record and playbook resolve. With dynaflows on, rails inject the workflow pointer, require
+`skill://dynaflows`; its preflight step defines how the owner switches a repository between minimal
+and structured mode in the main chat (for example a standalone `$dynaflows on` or `$dynaflows off`
+line) and how the mode, record and playbook resolve. In structured mode, rails inject the workflow
+pointer, require
 guardrail owner approval and guard `gh pr merge` as above. Subagent edit paths must be absolute
 and cannot escape enclosing Git roots through symlinks, and `git worktree add` targets must sit at
 `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides the base). `skill://git-tool` owns
 Git, PR, CI and merge authority.
 
 Native judged reply rules live inside the package. At session start its extension appends the
-configured `dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
-Existing user exclusions are preserved; on leaves the setting untouched
-([ADR 0004](docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)).
+configured `structuredRules` names to `ttsr.disabledRules` when the session repo is in minimal
+mode. Existing user exclusions are preserved; structured mode leaves the setting untouched
+([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)).
 
 omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Dynaflows is also
 listed as a directory in `extensions:` so its sibling skills and rules load. Both routes resolve
@@ -140,15 +146,15 @@ source.
 
 A repo never depends on, contains or mentions omp or dynaflows. Its harness settings live in a
 gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
-`origin` remote. [The record contract](agent/lib/record/README.md) defines its `gate.json` and
-`profile.md`, strict loading and write authority; records are never committed,
+`origin` remote. [The record contract](agent/extensions/dynaflows/record/README.md) defines its
+`gate.json` and `profile.md`, strict loading and write authority; records are never committed,
 because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
 copies them to devices. Dynaflows
 [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record
-configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves off,
-rails say why once at session start and at every commit, naming the slug (or `none`) and the
-reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py` strip the
-harness's `AGENT` variable from every repo command they run.
+configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves to
+minimal mode, rails say why once at session start and at every commit, naming the slug
+(or `none`) and the reason; `workflows.py` uses the same words when it refuses. Rails and
+`workflows.py` strip the harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
 
@@ -341,9 +347,11 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
-- `agent/lib/record/` — per-repo harness configuration documentation, schema and examples.
-- `agent/lib/repo_record.py` and `agent/lib/repo-record.ts` — the origin-to-record
-  resolver for Python and TypeScript callers.
+- `agent/extensions/dynaflows/record/` — per-repo harness configuration documentation, schema
+  and examples.
+- `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime and the origin-to-record
+  resolver for Python (`repo_record.py`) and TypeScript (`repo-record.ts`) callers.
+- `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
 - `repos/<owner>/<name>/` — personal per-repo records; gitignored, never committed.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.

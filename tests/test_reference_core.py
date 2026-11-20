@@ -32,7 +32,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TEMPLATE = ROOT / "agent/lib/record/profile.md"
+TEMPLATE = ROOT / "agent/extensions/dynaflows/record/profile.md"
 
 FIXTURES = ROOT / "tests/fixtures/reference/core"
 

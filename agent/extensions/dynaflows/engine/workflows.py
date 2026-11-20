@@ -168,9 +168,8 @@ _RESOLVER: list[ModuleType] = []
 
 
 def _resolver() -> Any:
-    """The harness's repo_record module (agent/lib/repo_record.py), loaded once by path."""
     if not _RESOLVER:
-        path = _harness_root() / "agent/lib/repo_record.py"
+        path = _harness_root() / "agent/extensions/dynaflows/lib/repo_record.py"
         spec = importlib.util.spec_from_file_location("omp_repo_record", path)
         if spec is None or spec.loader is None:
             raise WorkflowError(f"cannot load the record resolver: {path}")
@@ -234,7 +233,7 @@ def no_record_reason(repo: StrPath) -> str:
     """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
     resolver = _resolver()
     slug, _, reason = resolver.resolve_record(repo, _records_root())
-    text: str = resolver.off_text(slug, reason or "no per-repo record")
+    text: str = resolver.minimal_text(slug, reason or "no per-repo record")
     return text
 
 

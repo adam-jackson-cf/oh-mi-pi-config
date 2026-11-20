@@ -10,8 +10,8 @@ Freeze proofs before implementation, then land the greening change through tasks
 2. Before ordinary implementation, require a valid pathCheck-free schema-v2 record: `gate.json` has `checks.commit`,
    and `profile.md` supplies complete path-check settings. A missing required field or a field outside the schema,
    including obsolete `checks.pathCheck`, fails to load with an error naming the field.
-   `agent/lib/repo-record.ts` (`gateSchema`) owns accepted fields and types; its Python twin
-   `agent/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI.
+   `agent/extensions/dynaflows/lib/repo-record.ts` (`gateSchema`) owns accepted fields and types; its Python twin
+   `agent/extensions/dynaflows/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI.
 3. No record, missing controls or the lazy surface trigger require the owner-approved [Project setup](project-setup.md)
    prerequisite. Bootstrap may propose the record and repository fixes before controls exist, never bypass approval.
    Read [harness setup](harness-setup.md) for the record draft, Minimal/Full approval and application;

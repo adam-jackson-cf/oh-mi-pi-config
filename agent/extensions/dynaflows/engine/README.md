@@ -163,8 +163,8 @@ no findings, `1` with findings and `2` for a usage error.
 ## Configure
 
 Per-repository values, field contracts, approvals and examples live in
-[the record documentation](../../../lib/record/README.md). The harness profile template
-is [`profile.md`](../../../lib/record/profile.md); generic test planning uses the separate
+[the record documentation](../record/README.md). The harness profile template
+is [`profile.md`](../record/profile.md); generic test planning uses the separate
 test-guidance template.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
@@ -174,7 +174,7 @@ instead of passing silently. Numeric defaults are the catalogue contract
 values.
 
 `guardrails init --repo DIR --record DIR` drafts the configuration described in
-[record setup](../../../lib/record/README.md), discovering make targets, hook managers,
+[record setup](../record/README.md), discovering make targets, hook managers,
 CI jobs and required checks through `gh`, without writing into the repository.
 
 For TypeScript 7 and newer, init uses the repository's installed native compiler

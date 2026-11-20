@@ -10,9 +10,9 @@ Add the record, engine and approval mechanics to each step of the generic reposi
   reference: [Step 1](setup-inventory.md), [Step 2](setup-rule-mapping.md), [Step 3](setup-candidates.md),
   [Steps 4–5](setup-approval.md) and [Steps 6–7](setup-cutover.md). It is not a second setup system;
   never copy these mechanics into the target repo.
-- [The record contract](../../../../../lib/record/README.md) owns origin resolution, the gate schema, strict loading,
+- [The record contract](../../../record/README.md) owns origin resolution, the gate schema, strict loading,
   command arrays, merge policy, CI runner roles, commit events, device rollout, proposal storage
-  and write authority. [The record profile](../../../../../lib/record/profile.md) owns profile settings and approvals.
+  and write authority. [The record profile](../../../record/profile.md) owns profile settings and approvals.
   [Adapter authoring](adapter-authoring.md) owns the adapter interface and conformance.
 - `<omp root>` is the oh-mi-pi-config checkout, never the target. The engine lives at
   `<omp root>/agent/extensions/dynaflows/engine/`; run it as `uv run --project <omp root>/agent/extensions/dynaflows/engine
@@ -20,9 +20,9 @@ Add the record, engine and approval mechanics to each step of the generic reposi
   Never install, pin, copy or fork it into a target. `guardrails catalogue` lists its rule catalogue.
 - A stack gets a skill reference once two repositories need it (the rule of two); Python has `guardrails`.
   The engine's own tests in oh-mi-pi-config prove every rule it implements, once for every repository.
-- Harness process additions apply only with dynaflows enabled for the target
-  ([ADR 0004](../../../../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)); off means ordinary Git
-  safety and repo-native checks.
+- Harness process additions apply only in dynaflows structured mode for the target
+  ([ADR 0015](../../../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md)); minimal mode means the fixed Git
+  guards and repo-native checks.
 - The target never depends on, contains or mentions omp or dynaflows. It keeps only conforming code and the controls the
   project would want without the harness: build, tests, its own linters and checks, gate targets, hook config and
   CI job. Harness opinions and their checks live in oh-mi-pi-config; per-repo settings live in the record.

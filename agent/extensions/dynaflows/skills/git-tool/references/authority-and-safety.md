@@ -7,8 +7,8 @@ live in [merge-and-recover](merge-and-recover.md).
 
 A repo's **record**, when present, is its personal harness config: `repos/<owner>/<name>/` under the oh-mi-pi-config root,
 named by the clone's `origin` remote, gitignored and never committed. It holds `gate.json` (commands, `ci`, `agentMerge`)
-and `profile.md`. [The record contract](../../../../../lib/record/README.md) defines its schema, resolution,
-[`ci` and `agentMerge`](../../../../../lib/record/README.md#merge-and-ci-policy) policy.
+and `profile.md`. [The record contract](../../../record/README.md) defines its schema, resolution,
+[`ci` and `agentMerge`](../../../record/README.md#merge-and-ci-policy) policy.
 A record is not a prerequisite for ordinary Git work; its declared policy still applies.
 
 The assigned writer commits, pushes, writes the description and opens the PR.

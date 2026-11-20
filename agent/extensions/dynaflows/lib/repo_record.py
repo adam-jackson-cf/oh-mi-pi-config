@@ -6,8 +6,7 @@ never committed. The config root is the checkout this file belongs to, so the co
 records that sit beside it on every device, with no home-directory path in code.
 
 The clone's ``origin`` remote names the record. A worktree shares its main checkout's remotes, so
-it resolves to the same record. No origin remote, a non-GitHub origin or no record on disk means
-the repo has no record, and dynaflows is off for it.
+it resolves to the same record.
 
 The TypeScript twin is ``repo-record.ts`` in this directory; keep both in step.
 """
@@ -32,12 +31,11 @@ _ORIGIN = re.compile(
 
 
 class RecordError(RuntimeError):
-    """A record exists but cannot be read; callers report it instead of treating dynaflows as off."""
+    pass
 
 
 def config_root() -> Path:
-    """The oh-mi-pi-config checkout this module belongs to (``<root>/agent/lib/repo_record.py``)."""
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[4]
 
 
 def parse_origin(url: str) -> str | None:
@@ -75,9 +73,8 @@ def record_dir(slug: str, root: str | Path | None = None) -> Path:
     )
 
 
-def off_text(slug: str | None, reason: str) -> str:
-    """Why dynaflows is off, in the words rails and workflows.py both use: names the slug or "none"."""
-    return f"dynaflows off for {slug or 'none'}: {reason}"
+def minimal_text(slug: str | None, reason: str) -> str:
+    return f"dynaflows minimal mode for {slug or 'none'}: {reason}"
 
 
 def resolve_record(
@@ -119,6 +116,8 @@ GATE_FIELDS = frozenset({
     "dynaflows",
 })
 CHECK_FIELDS = frozenset({"commit", "ci", "audit", "format", "profile"})
+MODES = ("minimal", "structured")
+MODE_REQUIREMENT = 'dynaflows must be {"mode": "minimal"|"structured"}'
 
 
 def _argv(value: object) -> bool:
@@ -163,8 +162,14 @@ def _settings_reason(gate: dict[str, Any]) -> str | None:
     if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
     dynaflows = gate.get("dynaflows")
-    if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
-        return 'dynaflows must be {"enabled": true|false}'
+    if isinstance(dynaflows, dict) and "enabled" in dynaflows:
+        return f"unknown field dynaflows.enabled must be removed; {MODE_REQUIREMENT}"
+    if (
+        not isinstance(dynaflows, dict)
+        or set(dynaflows) != {"mode"}
+        or dynaflows["mode"] not in MODES
+    ):
+        return MODE_REQUIREMENT
     return None
 
 

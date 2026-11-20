@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
-import { findRecord, loadGate, type Gate } from "./repo-record.ts";
+import { findRecord, loadGate, type Gate, type Mode } from "./repo-record.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the harness path check.
 const SUBPROCESS_TIMEOUT_MS = 20_000;
@@ -11,17 +11,23 @@ const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { return RegExp(value).source.length > 0; } catch { return false; }
 });
-const mappingSchema = z.object({
-	references: z.record(z.string(), stringList).superRefine((references, ctx) => {
-		for (const key of ["firstEdit", "newFile", "testFile", "verification", "workflow", "git"]) {
+function referenceSet(mode: Mode, keys: string[]) {
+	return z.record(z.string(), stringList).superRefine((references, ctx) => {
+		for (const key of new Set([...keys, ...Object.keys(references)])) {
 			const urls = references[key];
-			if (!urls?.length || urls.some(url => !url.startsWith("skill://"))) {
-				ctx.addIssue({ code: "custom", message: `invalid references.${key}` });
+			if (!keys.includes(key) || !urls?.length || urls.some(url => !url.startsWith("skill://"))) {
+				ctx.addIssue({ code: "custom", message: `invalid references.${mode}.${key}` });
 			}
 		}
-	}),
+	});
+}
+const mappingSchema = z.object({
+	references: z.object({
+		minimal: referenceSet("minimal", ["git"]),
+		structured: referenceSet("structured", ["firstEdit", "newFile", "testFile", "verification", "workflow", "git"]),
+	}).strict(),
 	testGlobs: stringList,
-	dynaflowsRules: stringList,
+	structuredRules: stringList,
 	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
@@ -72,9 +78,6 @@ function policyEvent(event: ToolCallEvent | ToolResultEvent): ToolEvent {
 		isError: event.type === "tool_result" ? event.isError : undefined,
 		details: detailsSchema.parse(event.type === "tool_result" ? event.details : undefined),
 	};
-}
-function fresh(): State {
-	return { reads: new Set(), notes: new Set(), proposal: [] };
 }
 function absolute(path: string, cwd: string): string | undefined {
 	if (/^[a-z][\w+.-]*:\/\//i.test(path)) return;
@@ -190,16 +193,17 @@ function recordRead(event: ToolEvent, state: State): void {
 function matches(path: string, globs: string[]): boolean {
 	return globs.some(glob => new Bun.Glob(glob).match(path));
 }
-function missing(state: State, map: Mapping, triggers: string[]): string[] {
-	return [...new Set(triggers.flatMap(trigger => map.references[trigger] ?? []))]
+function missing(state: State, map: Mapping, mode: Mode, triggers: string[]): string[] {
+	const references: Record<string, string[]> = map.references[mode];
+	return [...new Set(triggers.flatMap(trigger => references[trigger] ?? []))]
 		.filter(url => !state.reads.has(url));
 }
 // Ends `text` with a full stop unless it already ends a sentence.
 function sentence(text: string): string {
 	return /[.!?]$/.test(text) ? text : `${text}.`;
 }
-function readReason(urls: string[]): string {
-	return `Agent rails: read ${urls.join(" and ")}, then retry.`;
+function readReason(urls: string[], mode: Mode): string {
+	return `Agent rails (${mode} mode): read ${urls.join(" and ")}, then retry.`;
 }
 
 const WRAPPER_OPTIONS = new Map<string, string[]>(Object.entries({
@@ -657,6 +661,6 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	state.notes.add(message);
 	ctx.ui.notify(message, "info");
 }
-export { recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, fresh, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
+export { recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
 export { fileErrorSchema };
 export type { Mapping, RepoRecord, GitAction, State, ToolEvent };

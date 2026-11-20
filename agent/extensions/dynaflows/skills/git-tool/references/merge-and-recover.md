@@ -58,7 +58,7 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The record's [`gate.json` CI policy](../../../../../lib/record/README.md#merge-and-ci-policy) declares
+The record's [`gate.json` CI policy](../../../record/README.md#merge-and-ci-policy) declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.

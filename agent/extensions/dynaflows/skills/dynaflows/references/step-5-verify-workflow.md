@@ -26,7 +26,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
    [structure review contract](structure-review.md). It writes `<git-common-dir>/omp-structure/<head>.json`.
    Provisional findings and recorded infrastructure errors are shadow-only and never affect `prove()` or merge.
    A finding from a `ready` decision sets `halt`; fix it and rerun both helpers on the new head.
-10. With dynaflows on, rails' `gh pr merge` guard requires prove `status: pass`, structure `halt: false` and CI green,
+10. In structured mode, rails' `gh pr merge` guard requires prove `status: pass`, structure `halt: false` and CI green,
     all on that exact head. A missing, corrupt or wrong-head result blocks even with all decisions provisional.
 11. Never write or edit a result file by hand. Post no review agent or status; re-freeze only for a discovery or a
     changed proof file.

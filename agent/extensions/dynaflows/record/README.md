@@ -9,8 +9,8 @@ harness profile template. Neither is a live record or an approval.
 Live records belong at `<oh-mi-pi-config root>/repos/<owner>/<name>/`, lowercase. The clone's
 `origin` determines the owner and name from `https://github.com/<owner>/<name>(.git)`,
 `git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)`.
-Worktrees share their main checkout's record. [repo_record.py](../repo_record.py) and
-[repo-record.ts](../repo-record.ts) implement resolution and gate validation.
+Worktrees share their main checkout's record. [repo_record.py](../lib/repo_record.py) and
+[repo-record.ts](../lib/repo-record.ts) implement resolution and gate validation.
 No supported GitHub origin means no record; record setup reports that prerequisite and stops.
 
 `/repos/` is gitignored. Never stage, commit, include a record in a PR, or copy it into the
@@ -36,28 +36,27 @@ A documentation-only repo still declares `checks.commit`.
 | `checks.profile` | [^n4] |
 | `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
-| `dynaflows` | Required object with Boolean `enabled`; see below. |
+| `dynaflows` | Required object with `mode` `minimal` or `structured`; see below. |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
 `profile.md`, not extra gate fields. Substitute real discovered commands and paths in
 [the example gate](gate.json), which retains the `gate`
-context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.enabled: false`.
+context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.mode: minimal`.
 
 ### Merge and CI policy
 
-Git-tool reads `agentMerge` and `ci` independently of the harness process switch.
+Git-tool reads `agentMerge` and `ci` in both dynaflows modes.
 `agentMerge: disabled` requires the owner's approval to merge; `allowed` never waives CI.
-Follow
-[git-tool](../../extensions/dynaflows/skills/git-tool/references/authority-and-safety.md),
-not setup, for Git authorization.
+Follow [git-tool](../skills/git-tool/references/authority-and-safety.md), not setup, for Git
+authorization.
 
 `ci.requiredContext` is the commit-status context or check-run name that must report
 `success` on the exact PR head, normally `gate`. `ci.runner` is an owner-chosen role,
 not a host or account. Each device resolves the role to submit, wait, status and logs
 commands in machine-level `ci-runners.json`, written by device setup.
 Agents use `ci_runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
-[the Git CI runbook](../../extensions/dynaflows/skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
+[the Git CI runbook](../skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
 
 The `github-actions` role runs `checks.ci` on every push and pull request in a job named
 for the required context; push triggers it, so no submission is needed. Another role
@@ -72,15 +71,25 @@ Git-tool's exact-head verification loop governs submission, waiting and fallback
 
 ### Process switch and events
 
-`dynaflows.enabled` switches the harness process on or off. No origin or no record means
-off. Write `true` only when the owner asked for it in chat; otherwise write `false`.
-A later owner request can enable it. Off means plain omp, git-tool and generic Git safety,
-not bypassing declared merge or CI policy.
+`dynaflows.mode` selects the harness process: `minimal` or `structured`. No origin or no record
+means minimal mode. The obsolete `enabled` key is rejected by name. Write `structured` only when
+the owner asked for it in chat; otherwise write `minimal`. A later owner request can switch it.
+The machine file `~/.omp/dynaflows.json` (`{"schemaVersion": 2, "mode": "minimal"|"structured"}`)
+set to `minimal` forces minimal mode for every repository; `structured` or no file defers to the
+record. [ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the
+modes.
 
-When enabled, rails run `guardrails path-check --repo <worktree> --record <record dir>`
-after edits and before commit. Required `guardrails.structure`, `guardrails.naming` and
-`guardrails.paths` configure this harness-owned per-edit contract, even where repo checks
-overlap; see [ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md).
+Minimal mode keeps the fixed guards: the `skill://git-tool` read before Git integration commands,
+hook-bypass refusal, worktree placement, subagent path safety, the `agentMerge` policy, no
+`gh pr merge` and no `git push` to the remote's default branch. Pushes to other branches and
+`gh pr create` pass.
+
+Structured mode keeps those guards except the merge refusal. Rails also require reading
+`skill://git-tool/references/merge-and-recover.md` before Git integration commands, require a
+`prove()` pass, a `structure_review()` result and green exact-head CI before `gh pr merge`, and run
+`guardrails path-check --repo <worktree> --record <record dir>` after edits and before commit.
+Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` configure this
+harness-owned per-edit contract, even where repo checks overlap; see [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md).
 At commit, rails then run `checks.commit` in the worktree followed by
 `guardrails check --repo <worktree> --record <record dir>`.
 Naming and structure checks cover only added or renamed paths: worktree changes at edit,
@@ -153,11 +162,11 @@ tools through the repo's own package manager.
 `guardrails init --repo <clone> --record <record dir>` drafts `gate.json`, `profile.md` and
 native-tool proposals under `proposed/` in a live record or a draft directory, without writing
 into the repo, never inventing an approval. Harness setup's
-[candidate step](../../extensions/dynaflows/skills/dynaflows/references/setup-candidates.md)
+[candidate step](../skills/dynaflows/references/setup-candidates.md)
 defines its options and use. The setup's draft `guardrail-proposal.json` has
 `{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths; it travels
 with the confirmed record, never into the target repository.
-[Setup approval](../../extensions/dynaflows/skills/dynaflows/references/setup-approval.md) owns
+[Setup approval](../skills/dynaflows/references/setup-approval.md) owns
 the confirmation, the Minimal/Full or Approve/Revise decision and its STOP. After confirmation the
 agent writes the live record directly; never ask the owner to save it.
 

@@ -34,7 +34,7 @@ Infrastructure failures are reported in the result/comment and never block shado
 An incomplete review has `status: incomplete`, not a clean result.
 
 A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`.
-With dynaflows on, rails require this exact-head file alongside prove pass and CI green.
+In structured mode, rails require this exact-head file alongside prove pass and CI green.
 A missing, corrupt or wrong-head file blocks even when all decisions are provisional.
 `halt: true` blocks via rails: fix the named ready findings and rerun `prove()` and
 `structure_review()` on the new head. Never write or edit a result file by hand.

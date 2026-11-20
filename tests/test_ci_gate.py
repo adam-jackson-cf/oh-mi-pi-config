@@ -28,7 +28,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 HARNESS_FILES = (
     "scripts/ci_gate.py",
     "scripts/ci-gate-repos.json",
-    "agent/lib/repo_record.py",
+    "agent/extensions/dynaflows/lib/repo_record.py",
 )
 HARNESS: Path
 SCRIPT: Path
@@ -85,11 +85,22 @@ if args[:2] == ['image', 'inspect']:
     sys.exit(0)
 if args[:2] == ['image', 'exists']:
     sys.exit(0 if (root / ('image-' + args[-1].split(':')[-1])).exists() else 1)
+if args[:2] == ['image', 'ls']:
+    listing = root / 'images'
+    print(listing.read_text() if listing.exists() else '', end='')
+    sys.exit(0)
+if args[:2] == ['image', 'rm']:
+    listing = root / 'images'
+    listing.write_text(''.join(name + '\n' for name in listing.read_text().split() if name != args[-1]))
+    (root / ('image-' + args[-1].split(':')[-1])).unlink()
+    sys.exit(0)
 if args[0] == 'build':
     if os.environ.get('FAIL_BUILD'):
         sys.exit(1)
     image = args[args.index('-t') + 1]
     (root / ('image-' + image.split(':')[-1])).touch()
+    with (root / 'images').open('a') as out:
+        out.write(image + '\n')
     sys.exit(0)
 if args[0] == 'run':
     src = pathlib.Path(args[args.index('-v') + 1].removesuffix(':/work:rw'))
@@ -226,7 +237,7 @@ class GateFixture(unittest.TestCase):
             "schemaVersion": 2,
             "checks": {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
             "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
-            "dynaflows": {"enabled": True},
+            "dynaflows": {"mode": "structured"},
         }
         gate.update(fields)
         return {key: value for key, value in gate.items() if value is not None}
@@ -878,6 +889,32 @@ class CiGateTests(GateFixture):
         assert (result["state"], result["error"]) == ("error", "timeout")
         assert self.requests[-1]["body"]["state"] == "error"
         assert any(a[:2] == ["rm", "--force"] for a in self.calls("podman"))
+
+
+class ImageCleanupTests(GateFixture):
+    def test_a_new_image_build_removes_only_the_repositorys_older_images(self) -> None:
+        (self.root / "images").write_text("localhost/ci-gate/other-repo:kept\n")
+        self.submit()
+        self.cli("run", self.job())
+        (self.source / ".devcontainer/Containerfile").write_text(
+            "FROM test-image\nRUN true\n"
+        )
+        sha = self.commit()
+        self.submit(sha)
+        self.cli("run", self.job(sha))
+        old, new = [
+            json.loads((self.job(s) / "result.json").read_text())["image"]
+            for s in (self.sha, sha)
+        ]
+        assert old != new
+        assert ["image", "rm", old] in self.calls("podman")
+        assert (self.root / "images").read_text().split() == [
+            "localhost/ci-gate/other-repo:kept",
+            new,
+        ]
+        assert json.loads((self.job(sha) / "result.json").read_text())["state"] == (
+            "success"
+        )
 
 
 if __name__ == "__main__":

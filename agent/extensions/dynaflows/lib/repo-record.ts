@@ -4,7 +4,6 @@
 // profile.md. /repos/ is gitignored in oh-mi-pi-config: records are personal and never committed.
 // The config root is the checkout this file belongs to, so no home-directory path is in code.
 // The clone's origin remote names the record; a worktree shares its main checkout's remotes.
-// No origin remote, a non-GitHub origin or no record on disk means dynaflows is off.
 //
 // The Python twin is repo_record.py in this directory; keep both in step.
 import { execFile } from "node:child_process";
@@ -20,12 +19,10 @@ export const RECORDS_DIR = "repos";
 // The three GitHub origin forms. "." and ".." are refused so a slug never leaves repos/.
 const ORIGIN = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/;
 
-/** A record exists but cannot be read; callers report it instead of treating dynaflows as off. */
 export class RecordError extends Error {}
 
-/** The oh-mi-pi-config checkout this module belongs to (<root>/agent/lib/repo-record.ts). */
 export function configRoot(): string {
-	return fileURLToPath(new URL("../..", import.meta.url));
+	return fileURLToPath(new URL("../../../..", import.meta.url));
 }
 
 /** owner/name in lowercase for a GitHub origin URL, else null. */
@@ -50,9 +47,8 @@ export function recordDir(slug: string, root: string = configRoot()): string {
 	return join(root, RECORDS_DIR, owner, name);
 }
 
-/** Why dynaflows is off, in the words rails and workflows.py both use: names the slug or "none". */
-export function offText(slug: string | null, reason: string): string {
-	return `dynaflows off for ${slug ?? "none"}: ${reason}`;
+export function minimalText(slug: string | null, reason: string): string {
+	return `dynaflows minimal mode for ${slug ?? "none"}: ${reason}`;
 }
 
 /**
@@ -89,7 +85,10 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
 
 const nonEmpty = z.string().refine(value => value.trim().length > 0);
-const dynaflowsSwitch = z.object({ enabled: z.boolean() });
+export const MODES = ["minimal", "structured"] as const;
+export type Mode = typeof MODES[number];
+const dynaflowsMode = z.object({ mode: z.enum(MODES) }).strict();
+const modeRequirement = 'dynaflows must be {"mode": "minimal"|"structured"}';
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
 export const gateSchema = z.object({
@@ -100,18 +99,18 @@ export const gateSchema = z.object({
 	}).strict(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
-	// The repo's dynaflows switch (required); checked below for one message.
 	dynaflows: z.unknown().optional(),
 }).strict().superRefine((gate, ctx) => {
-	if (!dynaflowsSwitch.safeParse(gate.dynaflows).success) {
-		ctx.addIssue({ code: "custom", path: ["dynaflows"], message: 'dynaflows must be {"enabled": true|false}' });
-	}
+	if (dynaflowsMode.safeParse(gate.dynaflows).success) return;
+	const fields = z.record(z.string(), z.unknown()).safeParse(gate.dynaflows);
+	const legacy = fields.success && Object.hasOwn(fields.data, "enabled");
+	ctx.addIssue({ code: "custom", path: ["dynaflows"], message: legacy ? `unknown field dynaflows.enabled must be removed; ${modeRequirement}` : modeRequirement });
 }).transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
-	dynaflows: dynaflowsSwitch.parse(gate.dynaflows),
+	dynaflows: dynaflowsMode.parse(gate.dynaflows),
 }));
 export type Gate = z.infer<typeof gateSchema>;
 
@@ -134,11 +133,4 @@ export async function loadGate(record: string): Promise<Gate> {
 	catch (error) { throw new RecordError(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
 	if (!parsed.success) throw new RecordError(`${path}: invalid gate: ${parsed.error.message}`);
 	return parsed.data;
-}
-
-/** True only when the clone has a record whose dynaflows.enabled is true. */
-export async function dynaflowsEnabled(repo: string, root: string = configRoot()): Promise<boolean> {
-	const record = await findRecord(repo, root);
-	if (record === null) return false;
-	return (await loadGate(record)).dynaflows.enabled;
 }

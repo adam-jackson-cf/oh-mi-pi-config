@@ -23,7 +23,7 @@ Establish the approved verification surface and the repo's record before guardra
   violation is still accepted there. Cover intentional violations rejected and valid inputs accepted.
 - Plan: a setup PR that changes no behaviour (config, docs, repo fixes or the first feature map only) freezes an empty
   manifest with `freeze(..., project_setup=True)`, which tolerates an absent record. Its PR check is CI green: the
-  record is saved with `dynaflows.enabled` false, and `prove()` would block the new map docs because they link
+  record is saved with `dynaflows.mode` minimal, and `prove()` would block the new map docs because they link
   existing tests, not frozen proofs.
 - Plan: a setup PR that freezes lever journeys or canaries needs the saved record with `feature_map_path` before
   freeze. The proof task writes the lever, the runner-invoked journey files and the map entries that link them,
@@ -38,9 +38,10 @@ Establish the approved verification surface and the repo's record before guardra
   linking the outcome tests or journeys that prove it.
 - Implement: write the record under [setup cutover](setup-cutover.md#step-6-authority-cutover), then run setup
   Steps 6 and 7. Commit frozen proofs and greening changes atomically.
-- Verify: with dynaflows enabled, frozen journeys and canaries must pass and every changed map doc must link one;
+- Verify: in structured mode, frozen journeys and canaries must pass and every changed map doc must link one;
   doctor failures are never proof assertions.
-- Verify: the no-behaviour bootstrap PR leaves dynaflows off and uses git-tool's exact-head CI gate instead.
+- Verify: the no-behaviour bootstrap PR leaves dynaflows in minimal mode and uses git-tool's exact-head CI gate instead;
+  the owner merges it, because minimal mode refuses `gh pr merge`.
   This does not authorize ordinary implementation before setup completes.
-- Integrate: with dynaflows enabled, the full merge gate applies even for empty manifests.
+- Integrate: in structured mode, the full merge gate applies even for empty manifests.
   Complete this prerequisite PR before returning to Frame of the original request.

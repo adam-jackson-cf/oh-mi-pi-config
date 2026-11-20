@@ -2,7 +2,7 @@
 name: "dynaflows"
 description:
   "Use when the owner asks for non-trivial engineering work, orchestration, proof-first verification,
-  judgments or blind labels in a repo with dynaflows on."
+  judgments or blind labels in a repo in dynaflows structured mode."
 hide: true
 disable-model-invocation: true
 ---
@@ -24,8 +24,8 @@ playbooks [investigation](references/investigation.md), [bug fix](references/bug
 
 ## Step 0: Preflight the switch, record and playbook
 
-- **Purpose**: Confirm dynaflows is on, resolve the repo's record and select exactly one playbook.
-- **When**: Run on every request before Frame, and on every owner on/off ask.
+- **Purpose**: Confirm the repo is in structured mode, resolve its record and select exactly one playbook.
+- **When**: Run on every request before Frame, and on every owner ask to switch the mode.
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
 - A missing or refused record starts or resumes [harness setup](references/harness-setup.md).

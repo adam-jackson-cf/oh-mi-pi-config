@@ -6,5 +6,5 @@
   },
   "ci": { "requiredContext": "gate", "runner": "github-actions" },
   "agentMerge": "allowed",
-  "dynaflows": { "enabled": false }
+  "dynaflows": { "mode": "minimal" }
 }

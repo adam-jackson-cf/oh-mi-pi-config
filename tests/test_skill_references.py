@@ -90,8 +90,7 @@ class SkillReferenceTests(unittest.TestCase):
 
     def test_core_skill_references_resolve_locally(self) -> None:
         sources = {
-            ROOT / "agent/rails.yml",
-            ROOT / "agent/extensions/agent-rails.ts",
+            PACKAGE / "rails.yml",
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
             PACKAGE / "docs/workflow.html",

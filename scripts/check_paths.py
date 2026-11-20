@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
-OWNED_ROOTS = ("agent/lib", "scripts", "tests")
+OWNED_ROOTS = ("scripts", "tests")
 SOURCE_SUFFIXES = frozenset({
     ".bash",
     ".cjs",

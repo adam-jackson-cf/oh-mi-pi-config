@@ -45,6 +45,9 @@ def load_gate(record: Path) -> dict[str, Any] | None:
     unknown = sorted(set(gate) - GATE_FIELDS)
     if isinstance(checks, dict):
         unknown += sorted(f"checks.{key}" for key in set(checks) - CHECK_FIELDS)
+    dynaflows = gate.get("dynaflows")
+    if isinstance(dynaflows, dict) and "enabled" in dynaflows:
+        unknown.append("dynaflows.enabled")
     if unknown:
         raise GateError(
             f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
@@ -98,7 +101,7 @@ class GateAnswers:
     ci_command: str | None
     required_context: str | None
     runner: str | None
-    dynaflows: bool = False
+    dynaflows_mode: str = "minimal"
 
 
 def planned_gate(
@@ -115,7 +118,7 @@ def planned_gate(
     ci = drafted_ci(found, answers.required_context, answers.runner)
     if ci:
         planned.setdefault("ci", ci)
-    planned.setdefault("dynaflows", {"enabled": answers.dynaflows})
+    planned.setdefault("dynaflows", {"mode": answers.dynaflows_mode})
     return planned, confirmations(planned)
 
 
@@ -138,10 +141,10 @@ def confirmations(gate: dict[str, Any]) -> list[str]:
         )
     if "agentMerge" not in gate:
         lines.append(f"confirm: agentMerge is the owner's to set in {GATE_PATH}")
-    if gate.get("dynaflows") == {"enabled": False}:
+    if gate.get("dynaflows") == {"mode": "minimal"}:
         lines.append(
-            f"confirm: dynaflows is off in {GATE_PATH}; it turns on when the owner asks for it in a "
-            "session (for example `enable $dynaflows`)"
+            f"confirm: dynaflows is in minimal mode in {GATE_PATH}; structured mode starts when the owner "
+            "asks for it in a session (for example `enable $dynaflows`)"
         )
     return lines
 

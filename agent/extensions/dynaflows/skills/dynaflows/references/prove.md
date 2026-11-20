@@ -52,6 +52,6 @@ and the loaded `manifest`. Prove writes that result to
 at head (`prComment` holds the comment URL). Long proof outputs are tail-truncated in the
 comment only; the file keeps them whole. A pass whose result cannot be written or posted
 becomes `fail` with blocking `infrastructure: publishing prove result: ...`. The result file
-with `status: pass` for the exact head is the one pass signal: with dynaflows on, rails'
+with `status: pass` for the exact head is the one pass signal: in structured mode, rails'
 `gh pr merge` guard reads it and requires CI green on that head. Never write or edit a result
 file by hand.

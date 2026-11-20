@@ -11,7 +11,7 @@ const enforcement = "skill://dynaflows/references/test-enforcement.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://test-guidance/references/before-commit.md";
 const proofs = "skill://dynaflows/references/proofs.md";
-const railsConfig = join(import.meta.dir, "../agent/rails.yml");
+const railsConfig = join(import.meta.dir, "../agent/extensions/dynaflows/rails.yml");
 const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 
 test("ci-runner commands come from the extension's own location, never a host literal", async () => {
@@ -25,20 +25,25 @@ test("ci-runner commands come from the extension's own location, never a host li
 
 test("delivery policy references and native reminder scope use the targeted homes", () => {
 	const config = z.object({
-		dynaflowsRules: z.array(z.string()),
+		structuredRules: z.array(z.string()),
 		references: z.object({
-			firstEdit: z.array(z.string()), newFile: z.array(z.string()),
-			testFile: z.array(z.string()), verification: z.array(z.string()),
+			minimal: z.object({ git: z.array(z.string()) }),
+			structured: z.object({
+				firstEdit: z.array(z.string()), newFile: z.array(z.string()),
+				testFile: z.array(z.string()), verification: z.array(z.string()), git: z.array(z.string()),
+			}),
 		}),
 	}).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-	assert.deepEqual(config.references, {
+	assert.deepEqual(config.references.minimal, { git: ["skill://git-tool"] });
+	assert.deepEqual(config.references.structured, {
 		firstEdit: [integrity], newFile: [structure],
 		testFile: [tiers, enforcement, proofs], verification: [verification],
+		git: ["skill://git-tool", "skill://git-tool/references/merge-and-recover.md"],
 	});
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));
-	assert.deepEqual(config.dynaflowsRules.toSorted(), files.toSorted());
-	for (const name of config.dynaflowsRules) {
+	assert.deepEqual(config.structuredRules.toSorted(), files.toSorted());
+	for (const name of config.structuredRules) {
 		const text = readFileSync(join(directory, `${name}.md`), "utf8");
 		const frontmatter = /^---\n([\s\S]*?)\n---/.exec(text);
 		assert.ok(frontmatter);

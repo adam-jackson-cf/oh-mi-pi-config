@@ -2,25 +2,27 @@
 
 ## Objective
 
-Confirm dynaflows is on for the repo, resolve its record and select exactly one playbook before Frame.
+Confirm the repo is in dynaflows structured mode, resolve its record and select exactly one playbook before Frame.
 
 ## Required actions
 
-1. Apply this skill only with dynaflows on. The repo's settings live in its record,
+1. Apply this skill only in structured mode. The repo's settings live in its record,
    `repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's lowercase `origin` remote;
-   worktrees resolve like their main checkout. [The record contract](../../../../../lib/record/README.md) owns its files.
+   worktrees resolve like their main checkout. [The record contract](../../../record/README.md) owns its files.
    The repo itself holds nothing about omp or dynaflows.
-2. The record's `dynaflows.enabled` is the switch. No `origin` remote or no record means off.
-   A machine default `~/.omp/dynaflows.json` of `{"enabled": false}` turns it off for every repo on that machine.
-3. The owner turns it on or off in the main chat. A standalone directive line (case-insensitive) sets it at once:
-   - on: `$dynaflows`, `$dynaflows` followed by an on verb (`on`, `enable`, `init`, `initialise`, `start`,
-     `set up`, `turn on`), or an on verb before `$dynaflows`;
-   - off: `$dynaflows off|disable|stop` or `disable|stop|turn off $dynaflows`.
+2. The record's `dynaflows.mode` (`minimal` or `structured`) selects the mode. No `origin` remote or no record means
+   minimal mode. A machine default `~/.omp/dynaflows.json` of `{"schemaVersion": 2, "mode": "minimal"}` forces minimal
+   mode for every repo on that machine. Minimal mode keeps only the fixed Git guards: no `gh pr merge` and no push to
+   the default branch.
+3. The owner switches the mode in the main chat. A standalone directive line (case-insensitive) sets it at once:
+   - structured: `$dynaflows`, `$dynaflows` followed by an on verb (`on`, `enable`, `init`, `initialise`, `start`,
+     `set up`, `turn on`, `structured`), or an on verb before `$dynaflows`;
+   - minimal: `$dynaflows off|disable|stop|minimal` or `disable|stop|turn off|minimal $dynaflows`.
    Two contradictory lines change nothing; ask which the owner means.
-4. Judge any other wording, such as "I want to enable dynaflows": call the `dynaflows` tool only when the owner
+4. Judge any other wording, such as "I want to enable dynaflows": call the `dynaflows` tool (`mode`) only when the owner
    is asking for it, not asking about it, quoting it or negating it. Never call it on your own initiative.
-5. Turning it on with no record starts [harness setup](harness-setup.md) from Step 0; write the record,
-   with `dynaflows.enabled` true, yourself. A refused record resumes setup, and you repair the record in place.
+5. Asking for structured mode with no record starts [harness setup](harness-setup.md) from Step 0; write the record,
+   with `dynaflows.mode` `structured`, yourself. A refused record resumes setup, and you repair the record in place.
    Write approval fields only as the owner stated them in the chat; never ask the owner to save a file.
 6. When the prompt is only the switch ask, report the stage found and start it; with setup complete, ask for the task.
 7. Select exactly one active playbook; it holds only deltas to the stage references:

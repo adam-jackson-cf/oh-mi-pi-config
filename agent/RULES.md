@@ -9,7 +9,7 @@
 
 ## Act without asking
 
-- Merge when CI is green on the exact head commit.
+- In dynaflows structured mode, merge when CI is green on the exact head commit.
 - Decide in-scope questions yourself and record the decision as an ADR.
 - Resolve councils: after 2 rounds, decide and record an ADR.
 

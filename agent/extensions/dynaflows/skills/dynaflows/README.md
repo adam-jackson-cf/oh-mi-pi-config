@@ -10,8 +10,8 @@ playbook. Proofs are outcome tests frozen red at base and proved green at the PR
 
 ## When to use it
 
-- The owner asks for a feature, bug fix, refactor, investigation or multi-PR delivery in a repo with dynaflows on.
-- The owner turns dynaflows on for a repo that has no record yet (harness setup).
+- The owner asks for a feature, bug fix, refactor, investigation or multi-PR delivery in a repo in dynaflows structured mode.
+- The owner asks for structured mode in a repo that has no record yet (harness setup).
 - Orchestrated fan-out, calibrated judgments or blind human labels are requested.
 
 ## Example prompts
