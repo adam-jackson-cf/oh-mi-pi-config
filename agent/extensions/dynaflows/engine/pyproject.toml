@@ -13,7 +13,6 @@ guardrails = "guardrails.commands.cli:main"
 [project.optional-dependencies]
 # TEST.mutation-sensitivity runs in T3 only.
 mutation = ["mutmut==3.8.1"]
-# The pytest adapter's tiers and conformance actions.
 pytest = ["pytest==9.1.1"]
 
 [build-system]

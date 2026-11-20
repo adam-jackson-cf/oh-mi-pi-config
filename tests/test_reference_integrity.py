@@ -351,7 +351,7 @@ class StagedDiffCheckTests(IntegrityCase):
             self.repo,
             {
                 "tests/fixtures/golden/out.txt": "new\n",
-                "src/existing.py": "x = 1  # pragma: no cover\n",
+                ".coveragerc": "[run]\nomit = src/*\n",
                 "tests/unit/test_cart.py": "def test_case():\n    assert total() == 1\n"
                 "def test_todo():\n    assert total() == 1\n",
             },

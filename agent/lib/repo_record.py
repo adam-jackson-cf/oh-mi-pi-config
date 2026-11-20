@@ -169,11 +169,6 @@ def _settings_reason(gate: dict[str, Any]) -> str | None:
 
 
 def gate_reason(gate: object) -> str | None:
-    """Why rails would reject this gate.json object, or None when it is accepted.
-
-    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` is
-    required; an unknown field is rejected by name.
-    """
     if (
         not isinstance(gate, dict)
         or type(gate.get("schemaVersion")) is not int

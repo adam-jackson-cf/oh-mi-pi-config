@@ -80,6 +80,7 @@ if name == 'infisical':
         os.environ['NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF'] = os.environ['FAKE_INFISICAL_TOKEN']
     sys.exit(subprocess.call(args[args.index('--') + 1:]))
 if args[:2] == ['image', 'inspect']:
+    print(os.environ.get('FAKE_INSPECT_WARNING', ''), file=sys.stderr)
     print(os.environ.get('FAKE_IMAGE_USER', ''))
     sys.exit(0)
 if args[:2] == ['image', 'exists']:
@@ -505,6 +506,25 @@ class CiGateTests(GateFixture):
                 assert len(runs) == 2
                 for argv in runs:
                     assert argv[argv.index(mapping) + 1] == "-v"
+
+    def test_image_inspection_warnings_reach_the_job_log_not_the_user(self) -> None:
+        (self.source / "image-user").write_text("warned")
+        sha = self.commit()
+        self.submit(sha)
+        before = len(self.calls("podman"))
+        self.cli(
+            "run",
+            self.job(sha),
+            env={
+                **self.env,
+                "FAKE_IMAGE_USER": "1000",
+                "FAKE_INSPECT_WARNING": "inspect warning text",
+            },
+        )
+        runs = [argv for argv in self.calls("podman")[before:] if argv[0] == "run"]
+        assert len(runs) == 2
+        assert all("--userns=keep-id:uid=1000,gid=1000" in argv for argv in runs)
+        assert "inspect warning text" in self.cli("logs", REPO, sha).stdout
 
     def test_resubmitting_infrastructure_error_recreates_checkout_and_runs_again(
         self,

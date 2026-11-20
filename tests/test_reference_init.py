@@ -438,7 +438,6 @@ class RequiredChecksTests(InitCase):
 
 
 def required_fields(output: str) -> list[str]:
-    """The ``required:`` lines init reports."""
     fields = []
     for line in output.splitlines():
         if line.startswith("required:"):
