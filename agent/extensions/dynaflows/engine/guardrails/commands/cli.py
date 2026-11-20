@@ -14,7 +14,9 @@ from guardrails.toolkit.dispatch import (
     SUBCOMMANDS,
     adapter_module,
     checker_module,
+    honours_exclusions,
     module_names,
+    outside_exclusions,
     profile_finding,
     run_modules,
 )
@@ -136,7 +138,10 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
             modules = module_names(name, profile)
     except ProfileError as error:
         return [profile_finding(error)]
-    return run_modules(modules, target.repo, profile, argv)
+    findings = run_modules(modules, target.repo, profile, argv)
+    if honours_exclusions(name, argv):
+        return outside_exclusions(findings, profile)
+    return findings
 
 
 def main(argv: list[str] | None = None) -> int:

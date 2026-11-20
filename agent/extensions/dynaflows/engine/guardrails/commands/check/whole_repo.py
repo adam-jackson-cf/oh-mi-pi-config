@@ -9,15 +9,18 @@ from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
-    matches_any,
     repo_paths,
     settings,
 )
-from guardrails.toolkit.dispatch import module_names, profile_finding, run_modules
+from guardrails.toolkit.dispatch import (
+    module_names,
+    outside_exclusions,
+    profile_finding,
+    run_modules,
+)
 
 CHECKER = "check"
 RULE = "PROFILE.complete"
-RECORD_PREFIX = "record:"
 DEFAULT_STEPS = (
     "profile-check",
     "python-quality",
@@ -163,12 +166,6 @@ def run_step(repo: Path, profile: dict[str, Any], step: str) -> list[Finding]:
     return run_modules(modules, repo, profile, argv)
 
 
-def excluded(finding: Finding, patterns: list[str]) -> bool:
-    if finding.path.startswith(RECORD_PREFIX):
-        return False
-    return matches_any(finding.path, patterns)
-
-
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
@@ -185,7 +182,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         findings = missing_checkers(repo, profile)
     for step in [] if findings else steps:
         findings.extend(run_step(repo, profile, step))
-    patterns = as_list(settings(profile, CHECKER).get("exclude"))
-    return integrity_findings + [
-        finding for finding in findings if not excluded(finding, patterns)
-    ]
+    return integrity_findings + outside_exclusions(findings, profile)
