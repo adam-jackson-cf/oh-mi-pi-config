@@ -25,8 +25,8 @@
   settings in the record. Hand mapping gaps to the approved setup extension. Owner-approved budget
   edits belong to implementation, not the frozen proof task; first limits and raises require the
   owner's stated decision and per-machine reference.
-- Rails run the record's `checks.commit`, then harness checks, including `report-check` and
-  `budget-check` on the fast-tier report. CI runs the CI command only and never measures test timing.
+- Rails run the record's `checks.commit`, then harness checks, including the staged-change diff rules in
+  `guardrails check`, `report-check` and `budget-check` on the fast-tier report. CI runs the CI command only and never measures test timing.
   Never bypass these checks or repo hooks. See [test enforcement](test-enforcement.md).
 
 ## Freeze and implementation ownership

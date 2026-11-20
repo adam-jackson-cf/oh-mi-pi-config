@@ -660,7 +660,8 @@
               <b><code>git commit</code></b
               ><span
                 >owner-only paths → path-check → <code>checks.commit</code> →
-                <code>guardrails check</code></span
+                <code>guardrails check</code> (whole repo + staged diff
+                rules)</span
               >
             </div>
             <div class="card block">
@@ -828,6 +829,17 @@
           </div>
           <div class="bar repo">CI <code>checks.ci</code></div>
           <div class="none">its commit's normal checks</div>
+          <div class="k">
+            Staged diff<small
+              >CODE.* · coverage · growth · goldens · identity</small
+            >
+          </div>
+          <div class="none">—</div>
+          <div class="bar check">
+            HEAD → staged changes, in <code>guardrails check</code>
+          </div>
+          <div class="none">—</div>
+          <div class="none">—</div>
         </div>
         <p class="note">
           Only new segments count; content edits and legacy parent names never

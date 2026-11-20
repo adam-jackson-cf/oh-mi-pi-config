@@ -44,11 +44,12 @@ Draft the record from the harness, shadow-run repo-owned steps and prepare harne
 - Test-evidence checks read normalised evidence: the adapter's JUnit run report and per-tier collect-only test IDs.
   The harness runs `guardrails report-check` and `collection-check`, and `budget-check` at the agent's commit only, with
   JUnit and temporary output outside the worktree. Name overrunning tests with a speed-up fix; never propose a tier move.
-- `guardrails diff-check` implements `TEST.growth.justified` (a descriptive behaviour name per new test function, the
+- `guardrails check` at commit (staged changes against HEAD) and `guardrails diff-check` (an explicit range) implement
+  `TEST.growth.justified` (a descriptive behaviour name per new test function, the
   Python function name or JS/TS test title, with at least two non-generic alphabetic words; parameter rows share it)
   and `TEST.duplicate-path` (normalised call-path and assertion fingerprints).
-- The other test-guidance rules follow each catalogue row's `reference`: `diff-check` (coverage ratchet, golden change
-  record, identity artefacts, timeout increases), `python-test-hygiene` (subprocess timeouts), `guard-run` (user-data
+- The other test-guidance rules follow each catalogue row's `reference`: `check` at commit and `diff-check` (coverage ratchet,
+  golden change record, identity artefacts), `diff-check` (timeout increases), `python-test-hygiene` (subprocess timeouts), `guard-run` (user-data
   guard, fast-tier isolation), `surface-lint` and `lever-selftest` (verification surface), `profile-check`
   (`PROFILE.complete`), `adapter` (self-mocking, test hooks, evasion markers, property seeds) and, in T3 only,
   `mutation-check` after the adapter's `mutation-report`. Affected T2 selection uses

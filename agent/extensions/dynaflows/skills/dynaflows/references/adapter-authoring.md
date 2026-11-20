@@ -23,7 +23,8 @@ An adapter does only these six things. No framework is assumed.
    with a fingerprint of its normalised calls and assertions, and each test
    function's descriptive behavior name (Python function name or JS/TS test
    title). The shared
-   `guardrails diff-check` compares base and head with it for
+   `guardrails check` compares HEAD and the staged changes with it at commit, and
+   `guardrails diff-check` compares base and head, for
    `TEST.growth.justified` and `TEST.duplicate-path`.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and
    network connections across T1 setup, call and teardown

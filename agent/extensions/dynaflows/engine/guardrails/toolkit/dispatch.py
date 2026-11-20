@@ -24,7 +24,8 @@ class Subcommand:
 SUBCOMMANDS: dict[str, Subcommand] = {
     "check": Subcommand(
         ("guardrails.commands.check.whole_repo",),
-        "the whole-repo harness checks the agent rails run at commit (any finding blocks)",
+        "the harness commit checks: whole-repo steps, then CODE.* and the TEST diff rules "
+        "over the staged changes (any finding blocks)",
     ),
     "profile-check": Subcommand(
         ("guardrails.context.config.profile",),
