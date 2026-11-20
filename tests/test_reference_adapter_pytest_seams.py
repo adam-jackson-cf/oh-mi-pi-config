@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TypeVar
 from unittest import mock
 
-from child_process import run_bytes, run_text
+from guardrails.host.process import run_bytes, run_text
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")

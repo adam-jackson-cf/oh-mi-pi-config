@@ -3,8 +3,9 @@ import unittest
 from pathlib import Path
 
 import pytest
-from child_process import run_text
 from test_skill_references import ROOT
+
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 

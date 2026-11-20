@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shutil
@@ -7,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from child_process import run_text
+
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 
@@ -316,3 +318,30 @@ def test_both_gate_tiers_block_on_the_dependency_audit(
     assert ["bun", "audit", failing] in calls
     assert "Dependency audit failed for: bun.lock" in output
     assert bun_runs(calls) == []
+
+
+def test_every_local_module_a_test_imports_is_tracked() -> None:
+    listed = run_text(
+        ["git", "-C", str(SOURCE), "ls-files", "--", "tests/*.py"],
+        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        timeout=PROCESS_TIMEOUT,
+        check=True,
+    )
+    tracked = set(listed.stdout.splitlines())
+    untracked = {
+        (test, local)
+        for test in tracked
+        for local in local_imports(SOURCE / test)
+        if (SOURCE / local).exists() and local not in tracked
+    }
+    assert untracked == set()
+
+
+def local_imports(test: Path) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(test.read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module)
+        elif isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+    return {f"tests/{name.split('.')[0]}.py" for name in names}

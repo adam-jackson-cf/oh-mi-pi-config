@@ -5,8 +5,9 @@ import unittest
 from pathlib import Path
 
 import pytest
-from child_process import run_bytes, run_text
 from test_device_rollout import HOSTS, MODULE, RecordRolloutCase, rollout
+
+from guardrails.host.process import run_bytes, run_text
 
 pytestmark = pytest.mark.seam
 

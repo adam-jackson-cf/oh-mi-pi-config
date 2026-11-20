@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from child_process import run_text, start_text
+
+from guardrails.host.process import run_text, start_logged
 
 pytestmark = pytest.mark.seam
 
@@ -197,7 +198,8 @@ class GateFixture(unittest.TestCase):
         }
         for name in ("git", "podman", "systemd-run", "infisical"):
             self.env["CI_GATE_" + name.upper().replace("-", "_")] = str(binary / name)
-        self.children: list[subprocess.Popen[str]] = []
+        self.children: list[subprocess.Popen[bytes]] = []
+        self.run_logs: dict[int, Path] = {}
         self.addCleanup(self.stop_children)
 
     def stop_children(self) -> None:
@@ -258,13 +260,23 @@ class GateFixture(unittest.TestCase):
             else []
         )
 
-    def start_run(self, sha: str) -> subprocess.Popen[str]:
-        child = start_text(
-            [sys.executable, str(SCRIPT), "run", str(self.job(sha))],
-            env={**self.env, "BLOCK_RUN": "1"},
-        )
+    def start_run(
+        self, sha: str, setting: tuple[str, str] = ("BLOCK_RUN", "1")
+    ) -> subprocess.Popen[bytes]:
+        log = self.root / f"run-{len(self.children)}.log"
+        with log.open("wb") as output:
+            child = start_logged(
+                [sys.executable, str(SCRIPT), "run", str(self.job(sha))],
+                output=output,
+                env={**self.env, setting[0]: setting[1]},
+            )
         self.children.append(child)
+        self.run_logs[child.pid] = log
         return child
+
+    def run_output(self, child: subprocess.Popen[bytes]) -> str:
+        child.wait(timeout=10)
+        return self.run_logs[child.pid].read_text()
 
     def until(self, predicate: Callable[[], bool]) -> None:
         deadline = time.monotonic() + 10
@@ -696,11 +708,7 @@ class CiGateTests(GateFixture):
                 self.submit(sha)
                 self.final_status_started.clear()
                 self.release_final_status.clear()
-                runner = start_text(
-                    [sys.executable, str(SCRIPT), "run", str(self.job(sha))],
-                    env={**self.env, "GATE_EXIT": str(exit_code)},
-                )
-                self.children.append(runner)
+                runner = self.start_run(sha, ("GATE_EXIT", str(exit_code)))
                 try:
                     assert self.final_status_started.wait(timeout=10)
                     # The server has received the final POST but has not accepted it.
@@ -719,7 +727,7 @@ class CiGateTests(GateFixture):
                 )
                 assert json.loads(waited.stdout)["state"] == state
                 assert self.requests[-1]["body"]["state"] == state
-                assert runner.communicate(timeout=10)[1] == ""
+                assert self.run_output(runner) == ""
                 assert runner.returncode == (0 if state == "success" else 1)
 
     def test_unchanged_dockerfile_reuses_image(self) -> None:
@@ -756,8 +764,8 @@ class CiGateTests(GateFixture):
         (self.root / ("release-" + self.sha)).touch()
         self.until(lambda: (self.root / ("entered-" + second)).exists())
         (self.root / ("release-" + second)).touch()
-        assert first.communicate(timeout=10)[1] == ""
-        assert other.communicate(timeout=10)[1] == ""
+        assert self.run_output(first) == ""
+        assert self.run_output(other) == ""
         assert (first.returncode, other.returncode) == (0, 0)
 
     def test_image_configuration_without_build(self) -> None:

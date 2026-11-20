@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from child_process import run_text
+
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 
