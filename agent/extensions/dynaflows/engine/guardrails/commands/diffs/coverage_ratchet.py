@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from guardrails.context.changes import (
     Change,
     DiffError,
     DiffRange,
+    LineChanges,
     changed_files,
     file_at,
     line_changes,
@@ -57,6 +59,11 @@ DEFAULT_EXCLUSION_KEYS = [
     "exclude",
     "coveragePathIgnorePatterns",
 ]
+SECTIONED_FILES = ["setup.cfg", "tox.ini", "pyproject.toml"]
+SECTION_HEADER = re.compile(r"^\s*\[\[?(?P<name>[\w.:\- ]+)\]\]?\s*(?:#.*)?$")
+COVERAGE_SECTION = re.compile(
+    r"^(?:tool\.coverage(?:\.|$)|coverage:|tool\.pytest(?:\.|$)|tool:pytest$|pytest$)"
+)
 OPENERS = "[({"
 CLOSERS = "])}"
 CLOSING = frozenset({"", "]", ")", "}"})
@@ -107,6 +114,33 @@ def exclusion_line_numbers(text: str, key_re: re.Pattern[str]) -> set[int]:
     return numbers
 
 
+@dataclass(frozen=True)
+class ConfigChange:
+    paths: tuple[str, ...]
+    base_path: str | None
+    head_path: str | None
+
+
+def coverage_scope(path: str, text: str | None) -> set[int] | None:
+    if text is None or not is_config(path, SECTIONED_FILES):
+        return None
+    numbers: set[int] = set()
+    inside = False
+    for number, line in enumerate(text.splitlines(), 1):
+        header = SECTION_HEADER.match(line)
+        if header:
+            inside = bool(COVERAGE_SECTION.match(header.group("name").strip()))
+        elif inside:
+            numbers.add(number)
+    return numbers
+
+
+def scoped(
+    lines: tuple[tuple[int, str], ...], scope: set[int] | None
+) -> tuple[tuple[int, str], ...]:
+    return tuple(line for line in lines if scope is None or line[0] in scope)
+
+
 def floors(
     lines: tuple[tuple[int, str], ...], floor_re: re.Pattern[str]
 ) -> dict[str, float]:
@@ -117,21 +151,34 @@ def floors(
     return found
 
 
+def coverage_changes(
+    repo: Path, diff: DiffRange, target: ConfigChange
+) -> tuple[LineChanges, str | None]:
+    changes = line_changes(repo, diff, *target.paths)
+    base, head = target.base_path, target.head_path
+    base_text = None if base is None else file_at(repo, diff.base, base)
+    head_text = None if head is None else file_at(repo, diff.head, head)
+    removed = scoped(
+        changes.removed, None if base is None else coverage_scope(base, base_text)
+    )
+    added = scoped(
+        changes.added, None if head is None else coverage_scope(head, head_text)
+    )
+    return LineChanges(added, removed), head_text
+
+
 def config_findings(
-    repo: Path,
-    diff: DiffRange,
-    paths: tuple[str, ...],
-    head_path: str | None,
-    config: dict[str, Any],
+    repo: Path, diff: DiffRange, target: ConfigChange, config: dict[str, Any]
 ) -> list[Finding]:
-    path = head_path or paths[0]
-    changes = line_changes(repo, diff, *paths)
+    path = target.head_path or target.paths[0]
+    changes, head_text = coverage_changes(repo, diff, target)
+    removed, added = changes.removed, changes.added
     floor_re = key_pattern(
         as_list(config.get("floor_keys")) or DEFAULT_FLOOR_KEYS,
         r"(?P<value>\d+(?:\.\d+)?)",
     )
     found: list[Finding] = []
-    before, after = floors(changes.removed, floor_re), floors(changes.added, floor_re)
+    before, after = floors(removed, floor_re), floors(added, floor_re)
     for key, old in sorted(before.items()):
         new = after.get(key)
         if new is None:
@@ -147,15 +194,14 @@ def config_findings(
                     FIX,
                 )
             )
-    head_text = None if head_path is None else file_at(repo, diff.head, head_path)
     if head_text is None:
         return found
     exclusion_re = key_pattern(
         as_list(config.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, ""
     )
     excluded = exclusion_line_numbers(head_text, exclusion_re)
-    moved = {entry_text(text) for _, text in changes.removed}
-    for number, text in changes.added:
+    moved = {entry_text(text) for _, text in removed}
+    for number, text in added:
         entry = entry_text(text)
         if number in excluded and entry not in CLOSING and entry not in moved:
             found.append(
@@ -180,7 +226,13 @@ def change_config_findings(
     if not paths:
         return []
     kept = change.status != "D" and is_config(change.path, config_files)
-    return config_findings(repo, diff, paths, change.path if kept else None, config)
+    base = change.paths[0]
+    target = ConfigChange(
+        paths,
+        base if change.status != "A" and is_config(base, config_files) else None,
+        change.path if kept else None,
+    )
+    return config_findings(repo, diff, target, config)
 
 
 def entry_text(line: str) -> str:
