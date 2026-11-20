@@ -257,6 +257,26 @@ class CoverageRatchetTests(unittest.TestCase):
         )
         assert len(self.check(approved)) == 1
 
+    def test_shared_config_counts_only_its_coverage_sections(self) -> None:
+        base = self.repo.commit({
+            "pyproject.toml": '[tool.ruff]\nexclude = [\n  "build",\n]\n'
+            '[tool.mypy]\nexclude = ["build"]\n[tool.other]\nlines = 90\n'
+            '[tool.coverage.run]\nomit = [\n  "build/*",\n]\n'
+            "[tool.coverage.report]\nfail_under = 90\n"
+        })
+        self.repo.commit({
+            "pyproject.toml": '[tool.ruff]\nexclude = [\n  "build",\n  "vendor",\n]\n'
+            '[tool.mypy]\nexclude = ["build", "vendor"]\n[tool.other]\nlines = 10\n'
+            '[tool.coverage.run]\nomit = [\n  "build/*",\n  "src/slow.py",\n]\n'
+            "[tool.coverage.report]\nfail_under = 80\n"
+        })
+        findings = coverage_ratchet.run(self.repo.path, BASE_PROFILE, ["--base", base])
+        assert sorted(finding.message for finding in findings) == [
+            "coverage floor 'fail_under' lowered from 90 to 80",
+            'line 13 adds a coverage exclusion: "src/slow.py",',
+        ]
+        assert rules(findings) == [("TEST.coverage-ratchet", "pyproject.toml")] * 2
+
     def test_missing_base_is_a_finding(self) -> None:
         findings = coverage_ratchet.run(self.repo.path, BASE_PROFILE, [])
         assert rules(findings) == [("TEST.coverage-ratchet", ".")]
