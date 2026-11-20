@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import {
 	type AgentAutocompleteAPI,
+	type AgentEventContext,
+	type AgentInputHandler,
+	type AgentSessionStartHandler,
 	discoverAgentDefinitions,
 	registerAgentCommand,
 } from "../agent/extensions/agent-autocomplete";
@@ -15,22 +18,11 @@ const agents = [
 	{ name: "designer", description: "Designs interfaces" },
 ];
 
-type Notification = { message: string; level: "info" | "error" };
-type ExtensionContext = {
-	cwd: string;
-	ui: {
-		notify(message: string, level: "info" | "error"): void;
-		addAutocompleteProvider(factory: (current: AutocompleteProvider) => AutocompleteProvider): void;
-	};
-};
-type SessionStartHandler = (event: { type: "session_start" }, context: ExtensionContext) => void | Promise<void>;
-type InputHandler = (
-	event: { type: "input"; text: string; source: "interactive" },
-	context: ExtensionContext,
-) => void | { handled?: boolean; text?: string } | Promise<void | { handled?: boolean; text?: string }>;
+type Notification = { message: string; level: "info" | "warning" | "error" | undefined };
+type Registration = ["session_start", AgentSessionStartHandler] | ["input", AgentInputHandler];
 type RegisteredCommand = {
 	description?: string;
-	handler(args: string, context: ExtensionContext): Promise<void> | void;
+	handler(args: string, context: AgentEventContext): Promise<void> | void;
 };
 
 function firstItem(items: AutocompleteItem[]): AutocompleteItem {
@@ -45,8 +37,8 @@ function createExtensionHarness() {
 	const registeredCommands = new Map<string, RegisteredCommand>();
 	const sentUserMessages: string[] = [];
 	let availableAgents = agents;
-	let sessionStart: SessionStartHandler | undefined;
-	let input: InputHandler | undefined;
+	let sessionStart: AgentSessionStartHandler | undefined;
+	let input: AgentInputHandler | undefined;
 	let autocompleteProvider: AutocompleteProvider | undefined;
 	let fallbackSuggestionCalls = 0;
 	let fallbackApplyCalls = 0;
@@ -65,7 +57,7 @@ function createExtensionHarness() {
 			return "fallback hint";
 		},
 	};
-	const context: ExtensionContext = {
+	const context: AgentEventContext = {
 		cwd: "/project",
 		ui: {
 			notify(message, level) {
@@ -76,33 +68,28 @@ function createExtensionHarness() {
 			},
 		},
 	};
-	const piCandidate = {
-		on(event: string, handler: SessionStartHandler | InputHandler) {
+	const pi: AgentAutocompleteAPI = {
+		on(...[event, handler]: Registration) {
 			if (event === "session_start") {
-				// SAFETY: the event discriminator pairs session_start with SessionStartHandler.
-				sessionStart = handler as SessionStartHandler;
-			}
-			if (event === "input") {
-				// SAFETY: the event discriminator pairs input with InputHandler.
-				input = handler as InputHandler;
+				sessionStart = handler;
+			} else {
+				input = handler;
 			}
 		},
-		registerCommand(name: string, command: RegisteredCommand) {
+		registerCommand(name, command) {
 			registeredCommands.set(name, command);
 		},
-		sendUserMessage(content: string) {
+		sendUserMessage(content) {
 			sentUserMessages.push(content);
 		},
 	};
-	// SAFETY: the candidate implements the complete AgentAutocompleteAPI owner contract used by registerAgentCommand.
-	const pi = piCandidate as AgentAutocompleteAPI;
 
 	registerAgentCommand(pi, cwd => {
 		discoveryCalls.push(cwd);
 		return availableAgents;
 	});
 	assert.ok(sessionStart);
-	void sessionStart({ type: "session_start" }, context);
+	sessionStart({ type: "session_start" }, context);
 	assert.ok(autocompleteProvider);
 
 	return {
@@ -140,7 +127,7 @@ function createExtensionHarness() {
 		async startSession(cwd = context.cwd) {
 			assert.ok(sessionStart);
 			context.cwd = cwd;
-			await sessionStart({ type: "session_start" }, context);
+			sessionStart({ type: "session_start" }, context);
 		},
 		async runCommand(name: string, args: string) {
 			const command = registeredCommands.get(name);

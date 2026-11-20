@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   emailHash,
   parseThreshold,
   registerQuotaGate,
   selectSevenDayQuotaSample,
+  type QuotaGateAPI,
+  type QuotaGateCommand,
+  type QuotaGateContext,
+  type ToolCallVerdict,
   type UsagePayload,
   type UsageReader,
 } from "../agent/extensions/quota-gate";
@@ -16,15 +19,12 @@ const RESETS_AT = 1_800_000_000_000;
 
 type Notification = {
   message: string;
-  level: "info" | "warning" | "error";
+  level: "info" | "warning" | "error" | undefined;
 };
 
-type Command = {
-  handler(args: string, ctx: ExtensionContext): Promise<void>;
-};
-
-type SessionStartHandler = (event: { type: "session_start" }, ctx: ExtensionContext) => void | Promise<void>;
-type ToolCallHandler = () => { block: true; reason: string } | undefined;
+type SessionStartHandler = () => void;
+type ToolCallHandler = () => ToolCallVerdict;
+type Registration = ["session_start", SessionStartHandler] | ["tool_call", ToolCallHandler];
 
 type GateHarnessOptions = {
   usageReader: UsageReader;
@@ -73,18 +73,24 @@ function usagePayload(codex: number, claude = 0.1): UsagePayload {
 function createGateHarness(options: GateHarnessOptions) {
   const notifications: Notification[] = [];
   const sentUserMessages: string[] = [];
-  const commands = new Map<string, Command>();
+  const commands = new Map<string, QuotaGateCommand>();
   let aborts = 0;
-  let interval: (() => void | Promise<void>) | undefined;
+  let interval: (() => void) | undefined;
   let timersStarted = 0;
   let sessionStart: SessionStartHandler | undefined;
   let toolCall: ToolCallHandler | undefined;
-  // SAFETY: tests provide only the context members the extension reads.
-  const context = Object.assign({} as ExtensionContext, {
+  const timer: Timer = {
+    ref: () => timer,
+    unref: () => timer,
+    hasRef: () => false,
+    refresh: () => timer,
+    [Symbol.toPrimitive]: () => timersStarted,
+  };
+  const context: QuotaGateContext = {
     cwd: "/project",
     hasUI: true,
     ui: {
-      notify(message: string, level: Notification["level"]) {
+      notify(message, level) {
         notifications.push({ message, level });
       },
       async confirm() {
@@ -97,36 +103,32 @@ function createGateHarness(options: GateHarnessOptions) {
     abort() {
       aborts += 1;
     },
-    setInterval(callback: () => void | Promise<void>) {
+    setInterval(callback) {
       interval = callback;
       timersStarted += 1;
-      return timersStarted;
+      return timer;
     },
     clearTimer() {
       interval = undefined;
     },
-  });
-  const candidate = {
-    on(event: string, handler: SessionStartHandler | ToolCallHandler) {
+  };
+  const pi: QuotaGateAPI = {
+    on(...[event, handler]: Registration) {
       if (event === "session_start") {
-        // SAFETY: the event discriminator pairs session_start with SessionStartHandler.
-        sessionStart = handler as SessionStartHandler;
-      }
-      if (event === "tool_call") {
-        // SAFETY: the event discriminator pairs tool_call with ToolCallHandler.
-        toolCall = handler as ToolCallHandler;
+        sessionStart = handler;
+      } else {
+        toolCall = handler;
       }
     },
-    registerCommand(name: string, command: Command) {
+    registerCommand(name, command) {
       commands.set(name, command);
     },
-    sendUserMessage(message: string) {
+    sendUserMessage(message) {
       sentUserMessages.push(message);
     },
   };
 
-  // SAFETY: only `on`, `registerCommand` and `sendUserMessage` are exercised by the extension.
-  registerQuotaGate(Object.assign({} as ExtensionAPI, candidate), options.usageReader, OWNER_HASH);
+  registerQuotaGate(pi, options.usageReader, OWNER_HASH);
   assert.ok(sessionStart);
   assert.ok(toolCall);
 
@@ -139,7 +141,7 @@ function createGateHarness(options: GateHarnessOptions) {
     timersStarted: () => timersStarted,
     async start() {
       assert.ok(sessionStart);
-      await sessionStart({ type: "session_start" }, context);
+      sessionStart();
     },
     async tick() {
       assert.ok(interval);
