@@ -12,6 +12,7 @@
 !bun.lock
 !bunfig.toml
 !pyproject.toml
+!.python-version
 !uv.lock
 !tsconfig.json
 !.editorconfig

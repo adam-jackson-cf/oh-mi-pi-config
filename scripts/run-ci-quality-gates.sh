@@ -228,7 +228,7 @@ else
 fi
 (
   unset "${!GIT_@}"
-  python3 scripts/check_paths.py
+  uv run --locked python scripts/check_paths.py
 )
 
 if "$stage"; then
