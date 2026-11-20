@@ -22,6 +22,8 @@ name = pathlib.Path(sys.argv[0]).name
 entry = [name, *sys.argv[1:]]
 if os.environ.get("COVERAGE_FILE"):
     entry.append("COVERAGE_FILE=" + os.environ["COVERAGE_FILE"])
+if os.environ.get("NODE_V8_COVERAGE"):
+    entry.append("NODE_V8_COVERAGE=" + os.environ["NODE_V8_COVERAGE"])
 if "audit" in sys.argv or "pip-audit" in sys.argv:
     entry.append("cwd=" + os.getcwd())
 with open(os.environ["FAKE_LOG"], "a") as log:
@@ -165,7 +167,7 @@ def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
     ]
     assert bun[5] == "--preload"
     assert bun[6].endswith("/bun-t2.preload.mjs")
-    assert bun[7:] == ["./tests/flow-seams.test.ts"]
+    assert bun[7:] == ["./tests/flow-seams.test.ts", "NODE_V8_COVERAGE=/cov/node"]
     [pytest_call] = pytest_runs(calls)
     assert pytest_call[-9:] == [
         "-p",

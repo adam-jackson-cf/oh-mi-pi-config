@@ -224,6 +224,7 @@ else
   COVERAGE_FILE="$coverage/python.coverage" uv run --locked coverage json -q -o "$coverage/python.json"
   uv run --locked python scripts/check_coverage.py --python-json "$coverage/python.json" \
     --lcov "$coverage/bun-t1/lcov.info" --lcov "$coverage/bun-t2/lcov.info" \
+    --node-v8 "$coverage/node" \
     --line-floor "$line_floor" --branch-floor "$branch_floor"
 fi
 (

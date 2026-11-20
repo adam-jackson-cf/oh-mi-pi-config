@@ -55,6 +55,7 @@ def checkout(root: Path) -> Path:
         })
     )
     (root / "lcov.info").write_text("")
+    (root / "node-v8").mkdir()
     return root
 
 
@@ -67,6 +68,8 @@ def gate(root: Path, line_floor: str) -> tuple[int, str]:
             str(root / "python.json"),
             "--lcov",
             str(root / "lcov.info"),
+            "--node-v8",
+            str(root / "node-v8"),
             "--line-floor",
             line_floor,
             "--branch-floor",

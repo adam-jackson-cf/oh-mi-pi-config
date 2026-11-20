@@ -84,8 +84,10 @@ EOF
   done <"$scratch/bun-files"
   if [[ -n "$coverage" ]]; then
     args=(--coverage --coverage-reporter=lcov "--coverage-dir=$coverage/bun-$tier" "${args[@]}")
+    NODE_V8_COVERAGE="$coverage/node" bun test "${args[@]}"
+  else
+    bun test "${args[@]}"
   fi
-  bun test "${args[@]}"
 }
 
 run_pytest() {

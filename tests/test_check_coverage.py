@@ -48,9 +48,11 @@ def reports(
 ) -> argparse.Namespace:
     (root / "python.json").write_text(json.dumps({"files": python}))
     (root / "lcov.info").write_text(lcov)
+    (root / "node-v8").mkdir(exist_ok=True)
     return argparse.Namespace(
         python_json=root / "python.json",
         lcov=[root / "lcov.info"],
+        node_v8=root / "node-v8",
         line_floor=50.0,
         branch_floor=50.0,
     )
@@ -183,6 +185,66 @@ def test_a_missing_report_is_an_error(
     options.python_json = tmp_path / "absent.json"
     assert check_coverage.check(options, tmp_path, tracked) == 2
     assert "Coverage report missing or unreadable" in capsys.readouterr().err
+
+
+NODE_SCRIPT = (
+    "export function used(): number {\n"
+    "\treturn 1;\n"
+    "}\n"
+    "// a note\n"
+    "export function unused(): number {\n"
+    "\treturn 2;\n"
+    "}\n"
+)
+
+
+def v8_script(url: str, text: str) -> dict[str, Any]:
+    used = text.index("function used")
+    unused = text.index("function unused")
+    return {
+        "url": url,
+        "functions": [
+            {"ranges": [{"startOffset": 0, "endOffset": len(text), "count": 1}]},
+            {"ranges": [{"startOffset": used, "endOffset": unused - 18, "count": 2}]},
+            {"ranges": [{"startOffset": unused, "endOffset": len(text), "count": 0}]},
+        ],
+    }
+
+
+def test_node_v8_reports_count_the_innermost_range_of_each_owned_code_line(
+    tmp_path: Path,
+) -> None:
+    repository(tmp_path, {"app/node.ts": NODE_SCRIPT, "app/other.ts": NODE_SCRIPT})
+    reports_dir = tmp_path / "node-v8"
+    reports_dir.mkdir()
+    root_url = tmp_path.as_uri()
+    (reports_dir / "coverage-1.json").write_text(
+        json.dumps({
+            "result": [
+                v8_script(f"{root_url}/app/node.ts", NODE_SCRIPT),
+                v8_script(f"{root_url}/app/other.ts", NODE_SCRIPT),
+                v8_script("node:internal/main", NODE_SCRIPT),
+            ]
+        })
+    )
+    hits = check_coverage.LineHits()
+    check_coverage.read_node_v8(reports_dir, tmp_path, {"app/node.ts"}, hits)
+    assert hits.lines == {"app/node.ts": {1, 2, 3, 5, 6, 7}}
+    assert hits.hit == {"app/node.ts": {1, 2, 3, 5}}
+
+
+def test_a_missing_node_v8_directory_is_an_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tracked = repository(tmp_path, OWNED)
+    python = {
+        "lib/core.py": summary(1, 1, (0, 0)),
+        "scripts/tool.py": summary(1, 1, (0, 0)),
+    }
+    options = reports(tmp_path, python, LOADED)
+    options.node_v8 = tmp_path / "absent"
+    assert check_coverage.check(options, tmp_path, tracked) == 2
+    assert "no Node V8 coverage directory" in capsys.readouterr().err
 
 
 def test_code_lines_skip_blank_and_comment_lines() -> None:

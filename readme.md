@@ -322,7 +322,9 @@ whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the g
 The commit tier runs all T1, then T2 for each framework that a staged path can reach. The ci
 tier runs all T1 and T2 and fails when coverage of owned code falls below its floors:
 `scripts/check_coverage.py` joins coverage.py's Python statements with Bun's TypeScript lines
-for the line floor and uses Python branches for the branch floor. The
+and the Node V8 lines of owned scripts that a Bun test runs under Node, such as the anti-slop
+oxlint plugin under the real linter, for the line floor and uses Python branches for the branch
+floor. The
 CI-tier container installs uv by hash and syncs the locked environment in its `postCreateCommand`.
 
 ## Repository map

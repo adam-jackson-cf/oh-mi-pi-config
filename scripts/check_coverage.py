@@ -9,6 +9,8 @@ import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from urllib.parse import unquote
 
 GIT_TIMEOUT_S = 30
 TEST_ROOT = "tests/"
@@ -115,6 +117,49 @@ def python_totals(report: Path, owned: set[str]) -> Totals:
     return totals
 
 
+def utf16_length(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def script_line_counts(text: str, functions: list[dict[str, Any]]) -> dict[int, int]:
+    ranges = [
+        (span["startOffset"], span["endOffset"], span["count"])
+        for function in functions
+        for span in function["ranges"]
+    ]
+    counts: dict[int, int] = {}
+    offset = 0
+    for number, line in enumerate(text.splitlines(keepends=True), 1):
+        start = offset + utf16_length(line[: len(line) - len(line.lstrip())])
+        offset += utf16_length(line)
+        code = line.strip()
+        containing = [span for span in ranges if span[0] <= start < span[1]]
+        if code and not code.startswith(COMMENT_STARTS) and containing:
+            counts[number] = min(containing, key=lambda span: span[1] - span[0])[2]
+    return counts
+
+
+def add_script_hits(
+    script: dict[str, Any], root: Path, owned: set[str], hits: LineHits
+) -> None:
+    prefix = root.as_uri() + "/"
+    url = script["url"]
+    path = unquote(url.removeprefix(prefix))
+    if not url.startswith(prefix) or path not in owned:
+        return
+    text = (root / path).read_text(encoding="utf-8")
+    for number, count in script_line_counts(text, script["functions"]).items():
+        hits.add(path, number, count)
+
+
+def read_node_v8(directory: Path, root: Path, owned: set[str], hits: LineHits) -> None:
+    if not directory.is_dir():
+        raise FileNotFoundError(f"no Node V8 coverage directory at {directory}")
+    for report in sorted(directory.glob("*.json")):
+        for script in json.loads(report.read_text(encoding="utf-8"))["result"]:
+            add_script_hits(script, root, owned, hits)
+
+
 def code_lines(text: str) -> int:
     return sum(
         1
@@ -146,6 +191,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check the T1 and T2 coverage floors.")
     parser.add_argument("--python-json", type=Path, required=True)
     parser.add_argument("--lcov", type=Path, action="append", required=True)
+    parser.add_argument("--node-v8", type=Path, required=True)
     parser.add_argument("--line-floor", type=float, required=True)
     parser.add_argument("--branch-floor", type=float, required=True)
     return parser.parse_args(argv)
@@ -153,17 +199,19 @@ def parse(argv: list[str]) -> argparse.Namespace:
 
 def check(options: argparse.Namespace, root: Path, tracked: set[str]) -> int:
     scope = read_scope(root / "pyproject.toml")
+    scripts = scope.script_files(tracked)
     hits = LineHits()
     try:
         python = python_totals(options.python_json, scope.python_files(tracked))
         for report in options.lcov:
             read_lcov(report, hits)
+        read_node_v8(options.node_v8, root, scripts, hits)
     except (OSError, ValueError, KeyError) as error:
         print(f"Coverage report missing or unreadable: {error}", file=sys.stderr)
         return 2
     script, unloaded = typescript_totals(
         hits,
-        scope.script_files(tracked),
+        scripts,
         lambda path: (root / path).read_text(encoding="utf-8"),
     )
     lines = percent(
