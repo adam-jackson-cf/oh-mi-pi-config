@@ -178,7 +178,7 @@ class GateFixture(unittest.TestCase):
                 final = request["body"]["state"] != "pending"
                 if final:
                     gate.final_status_started.set()
-                    gate.release_final_status.wait(timeout=10)
+                    gate.release_final_status.wait(timeout=PROCESS_TIMEOUT)
                 requests.append(request)
                 self.send_response(gate.final_status_code if final else 201)
                 self.end_headers()
@@ -291,7 +291,7 @@ class GateFixture(unittest.TestCase):
         return child
 
     def run_output(self, child: subprocess.Popen[bytes]) -> str:
-        child.wait(timeout=10)
+        child.wait(timeout=PROCESS_TIMEOUT)
         return self.run_logs[child.pid].read_text()
 
     def until(self, predicate: Callable[[], bool]) -> None:
@@ -807,7 +807,7 @@ class CiGateTests(GateFixture):
                 self.release_final_status.clear()
                 runner = self.start_run(sha, ("GATE_EXIT", str(exit_code)))
                 try:
-                    assert self.final_status_started.wait(timeout=10)
+                    assert self.final_status_started.wait(timeout=PROCESS_TIMEOUT)
                     # The server has received the final POST but has not accepted it.
                     self.cli("wait", REPO, sha, "--timeout", 0, expected=2)
                     assert self.requests[-1]["body"]["state"] == "pending"
@@ -819,7 +819,7 @@ class CiGateTests(GateFixture):
                     REPO,
                     sha,
                     "--timeout",
-                    10,
+                    PROCESS_TIMEOUT,
                     expected=0 if state == "success" else 1,
                 )
                 assert json.loads(waited.stdout)["state"] == state
@@ -883,7 +883,7 @@ class CiGateTests(GateFixture):
         child = self.start_run(self.sha)
         self.until(lambda: (self.root / ("entered-" + self.sha)).exists())
         child.send_signal(signal.SIGTERM)
-        child.communicate(timeout=10)
+        child.communicate(timeout=PROCESS_TIMEOUT)
         assert child.returncode == 1
         result = json.loads((self.job() / "result.json").read_text())
         assert (result["state"], result["error"]) == ("error", "timeout")
