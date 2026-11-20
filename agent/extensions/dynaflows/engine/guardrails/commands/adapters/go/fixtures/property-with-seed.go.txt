@@ -1,0 +1,14 @@
+package tests
+
+import (
+	"math/rand"
+	"testing"
+	"testing/quick"
+)
+
+func TestAdditionOfZeroKeepsValue(t *testing.T) {
+	config := &quick.Config{Rand: rand.New(rand.NewSource(7))}
+	if err := quick.Check(func(value int) bool { return value+0 == value }, config); err != nil {
+		t.Fatal(err)
+	}
+}

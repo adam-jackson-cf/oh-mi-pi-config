@@ -18,12 +18,13 @@ An adapter does only these six things. No framework is assumed.
 
 1. **Run report.** Emit a JUnit XML report for every tier run.
 2. **Tier listing.** List the collected test IDs per tier, without running
-   them, using the selectors in the profile's `tiers`. Also collect test cases
+   them, using the adapter's selectors in the profile's `adapters` entry. Also collect test cases
    statically from source (`cases.collect(path, text)`): each case's test ID
    with a fingerprint of its normalised calls and assertions, and each test
    function's descriptive behavior name (Python function name or JS/TS test
    title). The shared
-   `guardrails diff-check` compares base and head with it for
+   `guardrails check` compares HEAD and the staged changes with it at commit, and
+   `guardrails diff-check` compares base and head, for
    `TEST.growth.justified` and `TEST.duplicate-path`.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and
    network connections across T1 setup, call and teardown
@@ -43,15 +44,18 @@ An adapter does only these six things. No framework is assumed.
    report schema. Dialects differ, so normalisation lives in the adapter, never
    in a shared checker.
 
-The record's `profile.md` names the adapter in `adapter` and each tier's
-selector in `tiers`. Per-repo values go in the record, never in adapter code.
+An adapter belongs to a test framework, not a tier. The record's `profile.md` lists one
+`adapters` entry per framework the repo uses; each names its adapter and gives, per tier it
+takes part in, the framework's native `selector` and the `location` handed to it. Every tier
+may hold tests from several frameworks, and `guardrails adapter <name> <action>` runs one
+adapter. Per-repo values go in the record, never in adapter code.
 
 ## Conformance spec
 
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the pytest
 adapter's
-[`conformance/cases.json`](../../../engine/guardrails/adapters/pytest/conformance/cases.json).
+[`conformance/cases.json`](../../../engine/guardrails/commands/adapters/pytest/conformance/cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -77,7 +81,7 @@ depend on any framework.
 ## Where the adapter lives
 
 - The adapter lives in the harness from its first repo: under
-  `agent/extensions/dynaflows/engine/guardrails/adapters/<framework>/`
+  `agent/extensions/dynaflows/engine/guardrails/commands/adapters/<framework>/`
   in oh-mi-pi-config, with conformance fixtures as the engine's own tests.
   The harness owns the adapter; the target repository has no awareness of it.
 - The harness runs the adapter against the target from outside its tree; JUnit

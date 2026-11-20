@@ -11,6 +11,9 @@
     "directory": {
       "snake_case": "https://peps.python.org/pep-0008/#package-and-module-names"
     },
+    "package_marker": {
+      "__init__.py": "https://docs.python.org/3/reference/import.html#regular-packages"
+    },
     "class": {
       "PascalCase": "https://peps.python.org/pep-0008/#class-names"
     },
@@ -20,7 +23,8 @@
     "framework_symbols": {
       "^(setUp|tearDown)(Class|Module)?$": "https://docs.python.org/3/library/unittest.html",
       "^async(SetUp|TearDown)$": "https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase",
-      "^visit_[A-Za-z]+$": "https://docs.python.org/3/library/ast.html#ast.NodeVisitor"
+      "^visit_[A-Za-z]+$": "https://docs.python.org/3/library/ast.html#ast.NodeVisitor",
+      "^do_[A-Z]+$": "https://docs.python.org/3/library/http.server.html#http.server.BaseHTTPRequestHandler"
     },
     "fixed_files": {
       "__init__.py": "https://docs.python.org/3/reference/import.html#regular-packages",
@@ -49,51 +53,36 @@
   },
   "convention_notes": [
     "PEP 8 casing is a recommendation; Python does not require that spelling.",
+    "Directory casing applies to package directories only: PEP 8 names packages, and the import system imports a directory as a regular package through its __init__.py, so a directory of scripts is not a package.",
     "Test-like patterns identify near misses against the documented pytest discovery patterns, not additional pytest discovery rules.",
     "Test root, fixture and support names are harness defaults; pytest permits both separate and inline test layouts."
   ],
-  "extensions": [
-    ".py",
-    ".pyi"
-  ],
-  "file": [
-    "snake_case"
-  ],
-  "directory": [
-    "snake_case"
-  ],
-  "class": [
-    "PascalCase"
-  ],
-  "function": [
-    "snake_case"
-  ],
+  "extensions": [".py", ".pyi"],
+  "file": ["snake_case"],
+  "directory": ["snake_case"],
+  "package_marker": "__init__.py",
+  "class": ["PascalCase"],
+  "function": ["snake_case"],
   "framework_symbols": [
     "^(setUp|tearDown)(Class|Module)?$",
     "^async(SetUp|TearDown)$",
-    "^visit_[A-Za-z]+$"
+    "^visit_[A-Za-z]+$",
+    "^do_[A-Z]+$"
   ],
-  "fixed_files": [
-    "__init__.py",
-    "__main__.py",
-    "conftest.py"
-  ],
-  "fixed_folders": [
-    "__pycache__"
-  ],
-  "ignored_folders": [
-    "__pycache__"
-  ],
-  "test_patterns": [
-    "test_*.py",
-    "*_test.py"
-  ],
-  "test_like_patterns": [
-    "test*.py"
-  ],
+  "fixed_files": ["__init__.py", "__main__.py", "conftest.py"],
+  "fixed_folders": ["__pycache__"],
+  "ignored_folders": ["__pycache__"],
+  "test_frameworks": {
+    "modules": ["pytest", "unittest"],
+    "case_module": "unittest",
+    "case_class": "TestCase"
+  },
+  "test_patterns": ["test_*.py", "*_test.py"],
+  "test_like_patterns": ["test*.py"],
   "sources": [
     "https://peps.python.org/pep-0008/#package-and-module-names",
     "https://docs.python.org/3/reference/import.html#regular-packages",
+    "https://docs.python.org/3/library/http.server.html#http.server.BaseHTTPRequestHandler",
     "https://docs.python.org/3/library/__main__.html",
     "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
   ],

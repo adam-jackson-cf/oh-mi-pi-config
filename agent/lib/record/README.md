@@ -22,7 +22,7 @@ No setting names a harness directory inside the repo.
 ## Gate schema
 
 The record's `gate.json` uses schema version 2. Required fields are `schemaVersion`,
-`checks.commit`, `ownerOnlyPaths` and `dynaflows`. Unknown top-level or `checks` fields fail
+`checks.commit` and `dynaflows`. Unknown top-level or `checks` fields fail
 the load with the field name; the obsolete path command field is rejected, never ignored.
 A documentation-only repo still declares `checks.commit`.
 
@@ -31,39 +31,31 @@ A documentation-only repo still declares `checks.commit`.
 | `schemaVersion` | Integer `2`. |
 | `checks.commit` | [^n1] |
 | `checks.ci` | [^n2] |
+| `checks.audit` | [^n6] |
 | `checks.format` | [^n3] |
 | `checks.profile` | [^n4] |
-| `ownerOnlyPaths` | [^n5] |
-| `agentMerge` | [^n6] |
+| `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
 | `dynaflows` | Required object with Boolean `enabled`; see below. |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
 `profile.md`, not extra gate fields. Substitute real discovered commands and paths in
-[the example gate](gate.json), which retains the dependency-audit exception path, `gate`
+[the example gate](gate.json), which retains the `gate`
 context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.enabled: false`.
-
-### Owner-only paths
-
-`ownerOnlyPaths` names files only the owner changes, such as
-`scripts/checks/dependency-audit-exceptions.json`. Record-write authority does not permit
-changing those files or rewriting their protection. With the harness process enabled,
-rails refuse agent commits whose staged or unstaged changes touch them and direct the
-agent to the owner. The switch gates that enforcement, not the owner's authority.
-See [ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md).
 
 ### Merge and CI policy
 
 Git-tool reads `agentMerge` and `ci` independently of the harness process switch.
 `agentMerge: disabled` requires the owner's approval to merge; `allowed` never waives CI.
-Follow [git-tool](../../skills/git-tool/SKILL.md), not setup, for Git authorization.
+Follow [git-tool](../../skills/git-tool/references/authority-and-safety.md), not setup, for Git
+authorization.
 
 `ci.requiredContext` is the commit-status context or check-run name that must report
 `success` on the exact PR head, normally `gate`. `ci.runner` is an owner-chosen role,
 not a host or account. Each device resolves the role to submit, wait, status and logs
 commands in machine-level `ci-runners.json`, written by device setup.
-Agents use `ci-runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
+Agents use `ci_runner.py <submit|wait> <runner> <OWNER/REPO> <SHA>`; see
 [the Git CI runbook](../../skills/git-tool/references/merge-and-recover.md#declared-ci-contract).
 
 The `github-actions` role runs `checks.ci` on every push and pull request in a job named
@@ -104,12 +96,13 @@ separate handoff check.
 Start the live `profile.md` from [this harness template](profile.md), not the generic
 test-guidance template. It contains one JSON object between `---` lines, then prose.
 JSON is valid YAML front matter; the engine reads it without a YAML parser.
-Keep the machine-readable values and human sections in step.
+The front matter is authoritative; any prose a live profile keeps must agree with it.
 
 The template preserves tiers, public entry points, run events, per-machine budgets,
 coverage, guards, environments, verification surface, ownership areas, identity artefacts,
-layout and command notes. Harness additions are `adapter`, `structure` (owners, tiers and
-import direction), `house_style` and `guardrails`. Fill target roots, exclusions,
+layout and command notes. Harness additions are `adapters` (one entry per test framework, each
+with its per-tier selector and location; a tier keeps only its `command`), `structure` (owners,
+tiers and import direction), `house_style` and `guardrails`. Fill target roots, exclusions,
 allowlists, naming/ownership maps and CI wiring explicitly.
 
 These values support dependency direction, folder ownership, naming, test placement,
@@ -123,10 +116,10 @@ CI never measures or reports test timing.
 
 - `guardrails.<checker>` holds per-checker settings; examples include `guardrails.python`,
   `guardrails.structure` and `guardrails.naming`. Apart from `guardrails.exceptions`,
-  unknown section names outside `GUARDRAILS_SECTIONS` in `guardrails/config/profile.py`
+  unknown section names outside `GUARDRAILS_SECTIONS` in `guardrails/context/config/profile.py`
   fail `profile-check`.
 - `guardrails.check.run` selects whole-repo steps; absent selection means all
-  `DEFAULT_STEPS` in `guardrails/whole_repo.py`.
+  `DEFAULT_STEPS` in `guardrails/commands/check/whole_repo.py`.
 - `guardrails.check.exclude` lists generated, vendored and fixture paths to exclude.
 - `guardrails.check.repo` maps each repo-owned step to checker files that jointly enforce
   every rule it reports, for example
@@ -156,35 +149,22 @@ tools through the repo's own package manager.
 
 ## Drafts, approvals and application
 
-`guardrails init --repo <clone> --record <record dir>` drafts directly in a live record
-or a draft directory for owner confirmation, without writing into the repo. During setup,
-keep the candidate draft outside the live records directory and start extend mode with a
-copy of the existing record. Init discovers make targets, hook managers, CI jobs and
-required checks through `gh`. It drafts `gate.json`, `profile.md` and native-tool proposals
-(Ruff, mypy, import-linter) under `proposed/`, and proves language-server readiness with a
-canary `references` query. It preserves recorded values and never invents an approval.
-`--enable-dynaflows` drafts the switch on only following the owner's chat request.
-`--commit-command` and `--ci-command` select repo gates; `--runner` and
-`--required-context` set `ci`. Missing `checks.commit` is reported as `required:`.
-There is no path-command option. `--settings` takes per-checker JSON; `check` takes no
-settings overrides.
-
-Present every command and discovered source (make target, hook, CI job, required check),
-CI fields, owner-only paths, scope exclusions and profile value for confirmation. Explain
-replacement and exception consequences, including removed hooks, CI, configs and docs.
-The setup's draft `guardrail-proposal.json` has
-`{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths.
-It travels with the confirmed record, never into the target repository.
-The setup workflow owns Minimal/Full or Approve/Revise decisions: no elapsed time or
-default option is approval. Do not apply the draft or candidate paths before the owner answers.
-After confirmation, the agent writes the live record directly; never ask the owner to save it.
-Compare the draft and confirmed profile with the approved matrix before applying repo fixes.
+`guardrails init --repo <clone> --record <record dir>` drafts `gate.json`, `profile.md` and
+native-tool proposals under `proposed/` in a live record or a draft directory, without writing
+into the repo, never inventing an approval. Harness setup's
+[candidate step](../../extensions/dynaflows/skills/dynaflows/references/setup-candidates.md)
+defines its options and use. The setup's draft `guardrail-proposal.json` has
+`{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths; it travels
+with the confirmed record, never into the target repository.
+[Setup approval](../../extensions/dynaflows/skills/dynaflows/references/setup-approval.md) owns
+the confirmation, the Minimal/Full or Approve/Revise decision and its STOP. After confirmation the
+agent writes the live record directly; never ask the owner to save it.
 
 All approvals and exceptions live only in the record's profile, never a PR. They include
 `approved_skips`, any `approval`, `approved_*` or `*_approval`, `user_approval`,
 `guardrails.exceptions`, fast-tier machine approvals and coverage-ratchet approvals.
-Write each only as the owner stated it in chat. Record-write authority neither changes
-`ownerOnlyPaths` nor approves repository fixes; the setup approval remains the boundary
+Write each only as the owner stated it in chat. Record-write authority does not approve
+repository fixes; the setup approval remains the boundary
 before applying them.
 
 ## Field details
@@ -195,7 +175,7 @@ before applying them.
 [^n3]: Optional nonempty argv array for the formatter `freeze()` runs before hashing proofs.
 [^n4]: Optional nonempty argv array for profile completeness, normally `guardrails
   profile-check`; `prove()` does not run it.
-[^n5]: Required list of unique repo-relative POSIX paths; `[]` when none. A trailing `/` covers a
-  directory.
-[^n6]: `allowed` or `disabled`; absent field or absent record defaults to `allowed`, subject to
+[^n5]: `allowed` or `disabled`; absent field or absent record defaults to `allowed`, subject to
   governing Git authorization and CI.
+[^n6]: Nonempty argv array for the repo's dependency audit, required by the `ci-gate` runner. It
+  runs with network after `postCreateCommand`; `checks.ci` then runs with no network.

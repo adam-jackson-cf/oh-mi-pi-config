@@ -1,4 +1,4 @@
 {
   "build": { "dockerfile": "Containerfile" },
-  "postCreateCommand": "bun install --frozen-lockfile"
+  "postCreateCommand": "bash scripts/install-quality-gates.sh"
 }

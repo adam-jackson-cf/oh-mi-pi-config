@@ -7,18 +7,16 @@ installation guide or an exhaustive reference.
 
 ## Design
 
-The configuration favors evidence before assertion, verification proportional to
-risk, and clean cutovers over compatibility layers. Changes should solve the
-underlying problem, preserve canonical wording where it matters, migrate callers
-when a design changes, and remove obsolete paths rather than carry them forward.
-`agent/AGENTS.md` holds the durable operating policy. Dynaflows owns
+The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
+design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
-and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md);
-`test-guidance` remains generic test practice, usable without dynaflows.
-Retired delivery-guidance copies and the disabled standalone workflow entry have been removed;
-Git history retains them. The extension package is the only workflow skill source.
-The [workflow page](agent/extensions/dynaflows/docs/workflow.html)
-is an explanatory view of the canonical skill contracts.
+and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md),
+and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `jev-actions` and
+`codify-omp-workflow-corrections`. `git-tool` stays standalone because it serves dynaflows-off
+sessions too ([ADR 0013](docs/adr/0013-dynaflows-bundles-its-skills.md)). Git history retains the
+retired delivery-guidance copies and standalone workflow entry. The
+[workflow page](agent/extensions/dynaflows/docs/workflow.html) is an explanatory view of the
+canonical skill contracts.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -61,7 +59,7 @@ approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
 `agentMerge` and `ci`, independently of dynaflows. With dynaflows off (including no
 record), sessions get plain omp + git-tool + generic Git safety rails: no edit
-read gates, path checks, verification handoff reads or owner-only commit refusal.
+read gates, path checks or verification handoff reads.
 With dynaflows on for the edited path's repo, targeted integrity/new-code/test reads
 fire before edits. All-session handoff, including subagents, stays blocked until
 verification references are read after that session's code edits in an enabled repo
@@ -85,8 +83,7 @@ check run, whoever posts it.
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. With
-dynaflows on, each agent commit refuses changes to record `ownerOnlyPaths` and
-runs harness `guardrails path-check` with repo and record arguments,
+dynaflows on, each agent commit runs harness `guardrails path-check` with repo and record arguments,
 then `checks.commit`, and then `guardrails check`, also run from this checkout with
 `--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the record.
@@ -100,38 +97,25 @@ hook-skip variables are blocked even without a Git action, closing the earlier p
 assignment bypass. Quoted messages are not assignments; inherited external shell state is not a
 sandbox guarantee. Only schema version 2 is accepted.
 
-This repository's hook is `.githooks/pre-commit`, which runs its own commit tier
-(`run-ci-quality-gates.sh --tier commit --fix --stage`). Enable it once per clone
-with `git config core.hooksPath .githooks`.
+This repository's hook is `.githooks/pre-commit`, which runs exactly the record's `checks.commit`
+(`bash scripts/run-ci-quality-gates.sh --tier commit`). Set up every clone with
+`bash scripts/install-quality-gates.sh`: it installs the locked Bun and uv dependencies and sets
+`core.hooksPath` to `.githooks`. The devcontainer's `postCreateCommand` and the GitHub Actions
+workflow run it. The relative path makes every worktree that shares the clone's
+`.git/config` run its own `.githooks/pre-commit`. Both gate tiers fail when `core.hooksPath` is
+not `.githooks` or the hook differs from the expected text. Run the formatters with
+`bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its
-[canonical six-stage workflow](agent/extensions/dynaflows/skills/dynaflows/SKILL.md)
-is available as `skill://dynaflows`.
-Ask for it in the main chat. A standalone line such as `enable $dynaflows`, `init $dynaflows`,
-`$dynaflows on` or a bare `$dynaflows` turns it on at once, and `disable $dynaflows` or
-`$dynaflows off` turns it off; two contradictory lines change nothing. In any other wording, such
-as "I want to enable dynaflows", the main agent judges whether you are asking (rather than asking about
-it or quoting it) and calls the `dynaflows` tool. Agents write records directly, with approval fields
-only as the owner stated them in the chat. Turning it on starts from the repo's stage:
-with no record the agent starts
-repository setup and writes the record, switch on, itself; with a refused record it resumes setup
-and repairs it; with a prompt that holds only the ask it assesses the repo against the workflow's
-Start here and starts that stage. The switch is the record's `dynaflows.enabled`; linked worktrees
-share their main checkout's record. No `origin` remote or no record means off, and a machine default
-`~/.omp/dynaflows.json` of `{"enabled": false}` turns it off for every repo. With dynaflows on,
-rails inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as
-above. Subagent filesystem edit paths must be absolute and cannot escape enclosing Git roots through
-symlinks; outside-repo scratch paths and internal URIs are allowed. Rails require `git worktree add`
-targets at `<worktree.base>/<repo>/<slug>`, using the lowercase `origin` repo name; `OMP_WORKTREE_DIR`
-overrides the base. Selecting the assigned worktree for edit-tool writes remains an instruction,
-not a path-rail guarantee. Proofs are outcome tests tied to the repo's
-feature map (the record profile's `verification_surface.feature_map_path`): `freeze()` refuses a
-proof file no map doc links, and `prove()` blocks a map doc changed in the PR that links no frozen
-proof. Behaviour found during implementation, or by the map sweep before the PR, gets a map entry
-and a test, then a re-freeze. Helper contracts live in
-[patterns](agent/extensions/dynaflows/skills/dynaflows/references/patterns.md).
-`skill://git-tool` owns Git/PR/CI/merge authority.
+[workflow skill](agent/extensions/dynaflows/skills/dynaflows/SKILL.md) is available as
+`skill://dynaflows`; its preflight step defines how the owner turns dynaflows on or off in the main
+chat (for example a standalone `$dynaflows on` or `$dynaflows off` line) and how the switch,
+record and playbook resolve. With dynaflows on, rails inject the workflow pointer, require
+guardrail owner approval and guard `gh pr merge` as above. Subagent edit paths must be absolute
+and cannot escape enclosing Git roots through symlinks, and `git worktree add` targets must sit at
+`<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides the base). `skill://git-tool` owns
+Git, PR, CI and merge authority.
 
 Native judged reply rules live inside the package. At session start its extension appends the
 configured `dynaflowsRules` names to `ttsr.disabledRules` when the session repo has dynaflows off.
@@ -154,37 +138,17 @@ source.
 
 ## Per-repo records
 
-A repo never depends on, contains or mentions omp or dynaflows. Its harness settings
-live in a **record**: `repos/<owner>/<name>/` under this checkout's root, lowercase,
-named by the clone's `origin` remote (`https://github.com/<owner>/<name>(.git)`,
-`git@github.com:<owner>/<name>(.git)` or `ssh://git@github.com/<owner>/<name>(.git)`).
-Worktrees resolve to the same record as their main checkout.
-
-- `gate.json` holds the repo's own commands (`checks.commit`, `checks.ci`),
-  the `ci` contract, `ownerOnlyPaths`, `agentMerge` and `dynaflows.enabled`.
-  `checks.commit` and `ownerOnlyPaths` are required; missing required or unknown fields fail
-  to load with an error naming the field. The obsolete path command field is rejected.
-  `ownerOnlyPaths` lists the repo paths only the owner changes (`[]` when none);
-  rails refuse an agent commit that changes one.
-- `profile.md` holds the repo test profile, including every approval and exception.
-  Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings configure
-  harness-owned per-edit path checks even when whole-repo checks are repo-owned.
-  This is the explicit principles 1–2 exception in [ADR 0002](docs/adr/0002-harness-owns-path-checks.md):
-  consistent per-edit checks replace repo scripts whose contracts varied.
-  Existing records fail until the obsolete path command field is deleted and the required
-  profile is complete;
-  owner-approved migration follows immediately after merge, without changing repo CI commands.
-
-`/repos/` is gitignored: records are never committed, because they mean nothing to
-anyone else who takes this config. `scripts/device-rollout.py` copies them to
-devices. Dynaflows [harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md)
-adds record configuration to the generic `skill://setup-repo-proofs` workflow.
-Agents write records directly, with approval fields only as the owner stated them in the chat;
-records are never part of a PR. The Step 5 owner approval STOP and the `ownerOnlyPaths` commit
-block remain unchanged. When dynaflows resolves off, rails say why
-once at session start and at every commit, naming the slug (or `none`) and the
-reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py`
-strip the harness's `AGENT` variable from every repo command they run.
+A repo never depends on, contains or mentions omp or dynaflows. Its harness settings live in a
+gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
+`origin` remote. [The record contract](agent/lib/record/README.md) defines its `gate.json` and
+`profile.md`, strict loading and write authority; records are never committed,
+because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
+copies them to devices. Dynaflows
+[harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record
+configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves off,
+rails say why once at session start and at every commit, naming the slug (or `none`) and the
+reason; `workflows.py` uses the same words when it refuses. Rails and `workflows.py` strip the
+harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
 
@@ -291,7 +255,7 @@ Not carried by this repository, so set up on the NUC separately:
 
 ## Device rollout
 
-Run `python3 scripts/device-rollout.py` from this Mac to fetch and report local
+Run `python3 scripts/device_rollout.py` from this Mac to fetch and report local
 `~/.omp` and `~/.agents` revisions (never pull either local checkout), fast-forward
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
 It also writes each device's untracked `~/.omp/ci-runners.json` from the runner
@@ -327,12 +291,12 @@ The record's `gate.json` declares what must pass, not where it runs:
 `"ci": {"requiredContext": "gate", "runner": "ci-gate"}`. Rails and `prove()`
 check only that the required context is green on the exact head, whoever posts
 it. The runner is a role name. Each device's untracked `~/.omp/ci-runners.json`,
-written by `scripts/device-rollout.py`, maps roles to submit, wait, status and logs
+written by `scripts/device_rollout.py`, maps roles to submit, wait, status and logs
 commands. Push an `agent/<slug>` branch, then submit and wait:
 
 ```sh
-python3 ~/.omp/scripts/ci-runner.py submit ci-gate OWNER/REPO SHA
-python3 ~/.omp/scripts/ci-runner.py wait ci-gate OWNER/REPO SHA
+python3 ~/.omp/scripts/ci_runner.py submit ci-gate OWNER/REPO SHA
+python3 ~/.omp/scripts/ci_runner.py wait ci-gate OWNER/REPO SHA
 ```
 
 Replace `SHA` with the pushed 40-character lowercase commit SHA. `status` prints
@@ -341,12 +305,12 @@ role's `timeout` from the tracked role config; `--timeout` overrides it. A role
 without configured `wait`/`status` commands uses a built-in GitHub poller and
 needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
-missing role exits 2 and names the device-rollout command to run. This
+missing role exits 2 and names the device_rollout.py command to run. This
 repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
 
 ### ci-gate service
 
-The `ci-gate` role is `scripts/ci-gate.py` on the owner's Linux NUC, running
+The `ci-gate` role is `scripts/ci_gate.py` on the owner's Linux NUC, running
 exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `scripts/ci-gate-repos.json` can run, and any of them may declare runner
 `ci-gate`. It posts the GitHub commit status context named by the repository's
@@ -360,11 +324,14 @@ gate results stay cached; an infrastructure `error` is retried on resubmission.
 for success, 1 for gate failure/error or status-publication failure, and 2 when its
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
-The runner executes `checks.ci` after the devcontainer's `postCreateCommand`.
-Bootstrap or install failures before `checks.ci` starts are infrastructure `error`
-results, so normal resubmission recreates the checkout and retries them. A phase
-marker outside the checkout distinguishes them from a nonzero gate result.
-Bootstrap and gate keep the same container and shell environment.
+The runner uses two containers on the same checkout. The first has network: it runs the
+devcontainer's `postCreateCommand`, then the record's required `checks.audit` dependency audit.
+The second runs `checks.ci` with `--network=none`. A failed audit is a cached `failure`
+and skips `checks.ci`. Bootstrap or install failures before `checks.audit` starts are
+infrastructure `error` results, so normal resubmission recreates the checkout and retries
+them. A phase marker outside the checkout distinguishes them from a nonzero audit result.
+When the image's `USER` is a numeric non-root user, both containers map the checkout owner
+to it with `--userns=keep-id`; a named non-root user is an infrastructure `error`.
 
 Logs and atomic `result.json` files remain under
 `${XDG_STATE_HOME:-~/.local/state}/ci-gate/jobs/<owner>/<repo>/<sha>/`;
@@ -389,7 +356,7 @@ process-local Git configuration environment variables, never command-line
 arguments or saved mirror configuration.
 
 `CI_GATE_INFISICAL_PROJECT` and `CI_GATE_INFISICAL_ENV` are required, and `submit`
-fails before creating job state when either is unset. `scripts/device-rollout.py`
+fails before creating job state when either is unset. `scripts/device_rollout.py`
 writes both into each device's `ci-gate` runner commands from the registry's
 `infisical` setting, which the judge key also uses; rerun it after changing the
 setting. `CI_GATE_REPOS`,
@@ -407,13 +374,51 @@ gate execution stays inside gVisor. Images are cached by Dockerfile-content hash
 
 `.github/workflows/ci-quality-gates.yml` is the documented GitHub Actions fallback:
 a weekly Monday 04:23 UTC run plus manual `workflow_dispatch`, not push/PR CI and
-not a required context. The runner parity check in `run-ci-quality-gates.sh` reads
-only `.githooks/pre-commit`, so the workflow can change or go without breaking the gate.
+not a required context. The commit hook check in `run-ci-quality-gates.sh` reads
+only `.githooks/pre-commit` and `core.hooksPath`, so the workflow can change or go without
+breaking the gate.
 Dispatch manually from Actions → CI quality gates → Run workflow, or:
 
 ```sh
 gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --ref main
 ```
+
+## Python checks
+
+Root `pyproject.toml` and `uv.lock` pin ruff, mypy, pytest and pytest-cov for every owned Python
+file. The ruff and mypy settings mirror the harness catalogue,
+`agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
+
+```bash
+uv sync --locked
+uv run ruff check     # fix = true applies safe fixes; add --no-fix to report only
+uv run ruff format --check
+uv run mypy
+bash scripts/run-test-tier.sh t1   # or t2
+```
+
+`scripts/run-ci-quality-gates.sh` runs `ruff check`, `ruff format --check` and `mypy` over the
+whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the gate.
+
+## Test tiers
+
+`scripts/run-test-tier.sh t1|t2` runs one tier with Bun and pytest:
+
+- T1 tests start no process, open no network, write no real home and drive no real Git,
+  worktree or container. Bun runs `tests/*.test.ts` except `*-seams.test.ts`; pytest runs
+  modules marked `fast`. In-process guards from `agent/extensions/dynaflows/engine/guardrails/commands/adapters/`
+  (the Bun preload and the pytest plugin) fail any T1 test that starts a process, opens a
+  network connection or writes under the real home.
+- T2 tests are the seams: Bun runs `tests/*-seams.test.ts`; pytest runs modules marked `seam`.
+  The script fails when a pytest test lacks exactly one tier marker.
+
+The commit tier runs all T1, then T2 for each framework that a staged path can reach. The ci
+tier runs all T1 and T2 and fails when coverage of owned code falls below its floors:
+`scripts/check_coverage.py` joins coverage.py's Python statements with Bun's TypeScript lines
+and the Node V8 lines of owned scripts that a Bun test runs under Node, such as the anti-slop
+oxlint plugin under the real linter, for the line floor and uses Python branches for the branch
+floor. The
+CI-tier container installs uv by hash and syncs the locked environment in its `postCreateCommand`.
 
 ## Repository map
 
@@ -422,8 +427,8 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/skills/setup-repo-proofs/` — generic repository verification setup, independent
-  of any assistant or harness.
+- `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
+- `agent/skills/git-tool/` — Git, PR and merge authority, used with dynaflows on or off.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
@@ -434,11 +439,11 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.
-- `scripts/check-paths.py` — repo-owned source allowlist and test-layout checks retained for repo CI.
+- `scripts/check_paths.py` — repo-owned source allowlist and test-layout checks retained for repo CI.
   Path arguments are relative to the working directory; no arguments checks all tracked files.
-- `scripts/ci-runner.py` — runs a CI runner role's submit, wait, status or logs
+- `scripts/ci_runner.py` — runs a CI runner role's submit, wait, status or logs
   command from `~/.omp/ci-runners.json`.
-- `scripts/ci-gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
+- `scripts/ci_gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
 - `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
   fallback and how a nuc-config sync merges.

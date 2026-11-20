@@ -1,0 +1,3 @@
+import { test } from 'bun:test';
+import * as core from '../shop/core';
+test('owned assignment', () => { core.publicApi = () => 1; });

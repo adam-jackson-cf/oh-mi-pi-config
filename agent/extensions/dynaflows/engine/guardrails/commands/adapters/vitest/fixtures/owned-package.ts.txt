@@ -1,0 +1,2 @@
+export class Basket { total() { return 42; } }
+export function publicApi() { return new Basket().total(); }

@@ -1,9 +1,9 @@
 ---
 {
   "tiers": {
-    "t1": {"selector": "<selector>", "location": "<location>", "command": "<command>"},
-    "t2": {"selector": "<selector>", "location": "<location>", "command": "<command>"},
-    "t3": {"selector": "<selector>", "location": "<location>", "command": "<command>"}
+    "t1": {"command": "<command that runs every framework in the tier>"},
+    "t2": {"command": "<command that runs every framework in the tier>"},
+    "t3": {"command": "<command that runs every framework in the tier>"}
   },
   "public_entry_points": {"<package>": "<public entry point>"},
   "run_events": {
@@ -63,7 +63,16 @@
     "working_directory": "<directory and prerequisites>",
     "interpretation": "<flags, exit codes, and interpretation>"
   },
-  "adapter": "<test-framework adapter, e.g. pytest>",
+  "adapters": [
+    {
+      "name": "<test-framework adapter, e.g. pytest>",
+      "tiers": {
+        "t1": {"selector": "<native selector>", "location": "<location>"},
+        "t2": {"selector": "<native selector>", "location": "<location>"},
+        "t3": {"selector": "<native selector>", "location": "<location>"}
+      }
+    }
+  ],
   "structure": {
     "owners": {"files": {"<path>": "<owner>"}, "directories": {"<directory>/": "<owner>"}},
     "tiers": ["<lowest tier package>", "<higher tier package>"],
@@ -80,111 +89,24 @@
 
 # Harness record profile
 
-This template belongs to the personal record described in [README.md](README.md), outside the
-target repository. Generic test-guidance profiles use their own template without harness fields.
-Repo file paths are repo-relative; record file paths are record-relative.
+The front matter above is the record's profile template: `guardrails init` drafts a live
+`profile.md` from it, and its JSON is the authoritative value set. Every shared section, from
+`tiers` to `command_notes`, has the meaning, fill rules and allowed exemptions of the generic
+[test profile template](../../extensions/dynaflows/skills/test-guidance/assets/templates/test-profile.md).
+This template adds only the harness fields below, and splits the generic tiers by framework.
 
-Fill every section with values. `none: <owner-approved reason>` is allowed only in Verification
-surface, Nightly scheduler (a Run events field), and Identity-bearing artefacts; elsewhere a
-missing value is a reported gap.
-
-The front matter above holds the same values as one JSON object; JSON is valid YAML, so the block
-reads as ordinary front matter. Keep it and the sections below in step.
-
-- Replace every `<...>` placeholder with a value. Placeholders, `n/a`, `TBD`, empty values and a
-  bare `none` count as missing.
-- Write an allowed exemption as `{"none": "<reason>", "approval": "<reference>"}` in place of the
-  `verification_surface` section, the `run_events.nightly_scheduler` field or the
-  `identity_artefacts` section.
-- Write limits and floors as numbers: `wall_limit_s` and `per_test_limit_s` in seconds,
-  `line_floor` and `branch_floor` in percent.
-- Approval = the owner's decision. Document approval fields only as the owner stated them.
-- `structure.tiers` may be empty for a flat package; `guardrails.exceptions` may be empty
-  or omitted. Each exception requires `rule`, `path` and a nonempty `reason`; optional
-  `check` restricts suppression to one sub-check. Unknown fields are rejected.
-  `path` uses shared profile matching: globs use `fnmatchcase`, while plain paths match
-  themselves and descendants. For example, `{"rule": "NAME.conventions",
-  "check": "child-repeats-parent", "path": "internal/**/*_test.go",
-  "reason": "Go test files retain the package naming convention"}`.
-  Without `check`, the entire rule is suppressed at matching paths. Exceptions require owner approval.
-- `adapter`, `structure`, `house_style` and `guardrails` are harness record fields.
-- `guardrails` holds per-checker settings; required `guardrails.structure`,
-  `guardrails.naming` and `guardrails.paths` configure harness-owned per-edit path checks.
-- Checker ownership, defaults, CI policy and owner approvals follow [the record contract](README.md).
-
-## Tiers
-
-- T1: selector or marker `<selector>`, location `<location>`, command `<command>`.
-- T2: selector or marker `<selector>`, location `<location>`, command `<command>`.
-- T3: selector or marker `<selector>`, location `<location>`, command `<command>`.
-- Public entry point per package: `<package>`: `<public entry point>`.
-
-## Run events
-
-- Commit command: `<command>`.
-- CI command: `<command>`.
-- CI runs the CI command; local timing budgets do not replace this gate.
-- Nightly scheduler: `<scheduler or none: owner-approved reason>`.
-- Nightly branches: `<branches or branch selection rule>`.
-
-## Fast-tier budget
-
-- Per machine: `<machine id>`, platform `<platform>`, runtime `<runtime>`.
-- Per machine limits: wall `<wall limit>`, per-test `<per-test limit>`.
-- Per machine owner approval reference: `<approval reference>`.
-- Duration-report command: `<command>`.
-- Budgets apply only at the agent's commit; CI never measures or reports test timing.
-
-## Coverage
-
-- Scope: `<owned files and tiers>`.
-- Line floor: `<line floor>`; branch floor: `<branch floor>`.
-- Where defined: `<configuration or policy location>`.
-- Floors are met only by outcome or property cases or deleting unreachable code.
-
-## Guards
-
-- Fast-tier process guard location: `<location>`.
-- Fast-tier network guard location: `<location>`.
-- User-data guard: `<guard and location>`.
-
-## Environments
-
-- Required environments: `<environments>`.
-- Require flag: `<flag>`.
-- Readiness probe: `<command or probe>`.
-
-## Verification surface
-
-- Lever command: `<command>`.
-- Doctor failure marker: `<marker>`.
-- Feature map path: `<path>`.
-- Journey file pattern: `<pattern>`.
-- Data directory argument: `<argument>`.
-- Evidence directory argument: `<argument>`.
-
-## Ownership areas
-
-- Map of T2 files to areas: `<file patterns and areas>`.
-- Affected T2 test selection: `<selection command or rule>`.
-
-## Identity-bearing artefacts
-
-- Artefacts and preservation rules: `<paths and rules>`.
-
-## Layout and naming
-
-- Support directory: `<directory>`.
-- Fixtures directory: `<directory>`.
-- Test file patterns: `<patterns>`.
-
-## Structure and house style
-
-- Capability owners: `<files and directories with their owners>`.
-- Tiers, lowest first, and import direction: `<tier packages and source root>`.
-- House-style version and reason-backed guardrail exceptions: `<version and exceptions>`.
-
-## Command notes
-
-- Working directory and prerequisites: `<directory and prerequisites>`.
-- Flags, exit codes, and interpretation: `<command notes>`.
+- Repo file paths are repo-relative; record file paths are record-relative.
+- `fast_tier_budget.machines[].id` is the machine id the budget checker's probe reports.
+- `adapters` lists one entry per test framework the repo uses: an adapter belongs to a
+  framework, not a tier, and every tier may hold tests from every framework. Each entry's
+  `name` is an installed adapter (`pytest`, `vitest`, `bun_test`, `go`); its `tiers` give, for each
+  tier the framework takes part in, the generic tier's `selector` (in that framework's native
+  syntax) and `location`. Names are unique, each entry takes part in at least one tier and each
+  tier has at least one adapter. `tiers.<tier>` keeps only the `command` that runs the tier.
+- `tiers.t3` may be the owner-approved exemption `{"none": "<reason>", "approval": "<reference>"}`
+  in place of its `command`. An exempt T3 needs no adapter, and no adapter may declare `t3`.
+- `structure` holds capability owners, tiers (lowest first; empty for a flat package) and
+  import direction.
+- `house_style.version` records the installed house-style version.
+- `guardrails` holds per-checker settings and owner-approved `exceptions`, as
+  [the record contract](README.md#profile-schema-and-checker-ownership) defines.

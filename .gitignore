@@ -11,12 +11,18 @@
 !package.json
 !bun.lock
 !bunfig.toml
+!pyproject.toml
+!.python-version
+!uv.lock
 !tsconfig.json
+!.editorconfig
+!.shellcheckrc
+!.prettierrc.json
 !.githooks/
 .githooks/*
 !.githooks/pre-commit
 !.markdownlint-cli2.jsonc
-!oxlint.config.ts
+!.oxlintrc.json
 
 !.github/
 .github/*
@@ -24,17 +30,20 @@
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/ci-quality-gates.yml
-!.github/workflows/package-audit.yml
 
 !scripts/
 scripts/*
 !scripts/run-ci-quality-gates.sh
-!scripts/check-paths.py
-!scripts/ci-gate.py
+!scripts/check_paths.py
+!scripts/check_coverage.py
+!scripts/run-test-tier.sh
+!scripts/audit-dependencies.sh
+!scripts/install-quality-gates.sh
+!scripts/ci_gate.py
 !scripts/ci-gate-repos.json
-!scripts/ci-runner.py
-# ci-runners.json is machine config written by device-rollout.py; it stays untracked.
-!scripts/device-rollout.py
+!scripts/ci_runner.py
+# ci-runners.json is machine config written by device_rollout.py; it stays untracked.
+!scripts/device_rollout.py
 !scripts/device-rollout-hosts.json
 
 !tools/
@@ -54,7 +63,7 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/agent-rails.yml
+!agent/rails.yml
 !agent/lib/
 agent/lib/*
 !agent/lib/repo_record.py
@@ -68,12 +77,6 @@ agent/rules/*
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/jev-actions/
-!agent/skills/jev-actions/**
-!agent/skills/setup-repo-proofs/
-!agent/skills/setup-repo-proofs/**
-!agent/skills/test-guidance/
-!agent/skills/test-guidance/**
 !agent/skills/git-tool/
 !agent/skills/git-tool/**
 
@@ -105,14 +108,29 @@ agent/extensions/*
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/agent-rails.test.ts
+!tests/agent-rails-seams.test.ts
+!tests/dynaflows-extension-seams.test.ts
+!tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
+!tests/analyse.test.ts
+!tests/extension-health.test.ts
+!tests/orca-terminal-themes.test.ts
+!tests/vitest-reporter.test.ts
+!tests/anti-slop-rules-seams.test.ts
+!tests/oxlint-config-seams.test.ts
 !tests/test_check_paths.py
+!tests/test_check_coverage.py
+!tests/test_check_coverage_seams.py
+!tests/test_tune_threshold.py
+!tests/test_experiments.py
+!tests/test_experiments_seams.py
+!tests/test_gate_scripts_seams.py
 !tests/test_ci_gate.py
 !tests/test_ci_runner.py
 !tests/test_reference_*.py
 !tests/test_naming_scope.py
 !tests/test_language_packs.py
+!tests/test_native_tool_settings.py
 !tests/fixtures/
 tests/fixtures/*
 !tests/fixtures/reference/
@@ -123,6 +141,12 @@ tests/fixtures/*
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
+!tests/test_workflows.py
+!tests/test_orca_install_seams.py
+!tests/test_workflows_seams.py
+!tests/test_device_rollout_seams.py
+!tests/test_repo_record_seams.py
+!tests/test_skill_references_seams.py
 
 !.omp/
 .omp/*

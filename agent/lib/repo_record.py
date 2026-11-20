@@ -11,12 +11,14 @@ the repo has no record, and dynaflows is off for it.
 
 The TypeScript twin is ``repo-record.ts`` in this directory; keep both in step.
 """
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
+from typing import Any, cast
 
 GATE_FILE = "gate.json"
 PROFILE_FILE = "profile.md"
@@ -25,7 +27,8 @@ RECORDS_DIR = "repos"
 # The three GitHub origin forms. "." and ".." are refused so a slug never leaves repos/.
 _ORIGIN = re.compile(
     r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
-    r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?")
+    r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?"
+)
 
 
 class RecordError(RuntimeError):
@@ -47,20 +50,29 @@ def parse_origin(url: str) -> str | None:
 
 def repo_slug(repo: str | Path) -> str | None:
     """``owner/name`` of the clone or worktree at ``repo`` from its origin remote, else None."""
+    url = origin_url(repo)
+    return None if url is None else parse_origin(url)
+
+
+def origin_url(repo: str | Path) -> str | None:
     try:
-        process = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
-                                 capture_output=True, text=True, errors="replace")
+        process = subprocess.run(
+            ["git", "-C", str(repo), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
     except OSError:
         return None
-    if process.returncode:
-        return None
-    return parse_origin(process.stdout)
+    return None if process.returncode else process.stdout
 
 
 def record_dir(slug: str, root: str | Path | None = None) -> Path:
     """Directory of the record for ``owner/name``; it may not exist."""
     owner, name = slug.lower().split("/")
-    return Path(root if root is not None else config_root()) / RECORDS_DIR / owner / name
+    return (
+        Path(root if root is not None else config_root()) / RECORDS_DIR / owner / name
+    )
 
 
 def off_text(slug: str | None, reason: str) -> str:
@@ -68,19 +80,21 @@ def off_text(slug: str | None, reason: str) -> str:
     return f"dynaflows off for {slug or 'none'}: {reason}"
 
 
-def resolve_record(repo: str | Path, root: str | Path | None = None) -> tuple[str | None, Path | None, str | None]:
+def resolve_record(
+    repo: str | Path, root: str | Path | None = None
+) -> tuple[str | None, Path | None, str | None]:
     """``(slug, record dir, None)``, or the reason the clone has no record: no origin remote, an
     origin that is not a GitHub owner/name URL, or no ``gate.json`` at the record directory."""
-    try:
-        process = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
-                                 capture_output=True, text=True, errors="replace")
-    except OSError:
+    url = origin_url(repo)
+    if url is None:
         return None, None, "no origin remote"
-    if process.returncode:
-        return None, None, "no origin remote"
-    slug = parse_origin(process.stdout)
+    slug = parse_origin(url)
     if slug is None:
-        return None, None, f"origin {process.stdout.strip()} is not a GitHub owner/name URL"
+        return (
+            None,
+            None,
+            f"origin {url.strip()} is not a GitHub owner/name URL",
+        )
     path = record_dir(slug, root)
     if not (path / GATE_FILE).is_file():
         return slug, None, f"no per-repo record at {path / GATE_FILE}"
@@ -97,46 +111,26 @@ def find_record(repo: str | Path, root: str | Path | None = None) -> Path | None
 
 
 # Every current gate.json field; any other field, at the top level or in ``checks``, is rejected.
-GATE_FIELDS = frozenset({"schemaVersion", "checks", "ownerOnlyPaths", "agentMerge", "ci", "dynaflows"})
-CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
+GATE_FIELDS = frozenset({
+    "schemaVersion",
+    "checks",
+    "agentMerge",
+    "ci",
+    "dynaflows",
+})
+CHECK_FIELDS = frozenset({"commit", "ci", "audit", "format", "profile"})
 
 
-def _argv(value) -> bool:
-    return isinstance(value, list) and bool(value) and all(isinstance(arg, str) and arg.strip() for arg in value)
+def _argv(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(arg, str) and arg.strip() for arg in value)
+    )
 
 
-def owner_path_problem(path) -> str | None:
-    """Why ``path`` is not an owner-only path, or None when it is one.
-
-    A repo-relative POSIX path with no leading slash, no empty, ``.`` or ``..`` component, no
-    backslash and no NUL. A trailing ``/`` names a directory and covers every path under it. The
-    Python twin of ``ownerPathProblem`` in repo-record.ts.
-    """
-    if not isinstance(path, str):
-        return "ownerOnlyPaths entries must be strings"
-    body = path[:-1] if path.endswith("/") else path
-    if not body or "\\" in path or "\0" in path or any(part in ("", ".", "..") for part in body.split("/")):
-        return f"ownerOnlyPaths entry {json.dumps(path)} must be a repo-relative POSIX path (a trailing / names a directory)"
-    return None
-
-
-def owner_only(path: str, owned) -> bool:
-    """True when the repo-relative ``path`` is, or lies under, one of the owner-only ``owned`` entries."""
-    return any(path.startswith(entry) if entry.endswith("/") else path == entry for entry in owned)
-
-
-def gate_reason(gate) -> str | None:
-    """Why rails would reject this gate.json object, or None when it is accepted.
-
-    The Python twin of ``gateSchema`` in repo-record.ts. ``checks.commit`` and
-    ``ownerOnlyPaths`` are required; an unknown field is rejected by name.
-    """
-    if not isinstance(gate, dict) or type(gate.get("schemaVersion")) is not int or gate["schemaVersion"] != 2:
-        return "unsupported gate schemaVersion"
-    unknown = sorted(set(gate) - GATE_FIELDS)
-    if unknown:
-        return f"unknown field {', '.join(unknown)} must be removed"
-    checks = gate.get("checks")
+def _checks_reason(checks: object) -> str | None:
+    """Why the gate's ``checks`` object is rejected, or None."""
     if not isinstance(checks, dict):
         return "checks must be an object with checks.commit"
     unknown = sorted(set(checks) - CHECK_FIELDS)
@@ -144,23 +138,29 @@ def gate_reason(gate) -> str | None:
         return f"unknown field {', '.join(f'checks.{key}' for key in unknown)} must be removed"
     if not _argv(checks.get("commit")):
         return "checks.commit must be argv"
-    for key in ("ci", "format", "profile"):
+    for key in ("ci", "audit", "format", "profile"):
         if key in checks and not _argv(checks[key]):
             return f"checks.{key} must be argv"
-    owned = gate.get("ownerOnlyPaths")
-    if not isinstance(owned, list):
-        return "ownerOnlyPaths must be a list of repo paths (empty when the repo has none)"
-    for path in owned:
-        problem = owner_path_problem(path)
-        if problem:
-            return problem
-    if len(set(owned)) != len(owned):
-        return "ownerOnlyPaths entries must be unique"
+    return None
+
+
+def _ci_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's optional ``ci`` object is rejected, or None."""
     ci = gate.get("ci")
-    if "ci" in gate:
-        if not isinstance(ci, dict) or any(not isinstance(ci.get(k), str) or not ci[k].strip() for k in ("requiredContext", "runner")):
-            return "ci must declare nonblank requiredContext and runner"
-    if gate.get("agentMerge", "allowed") not in ("allowed", "disabled"):
+    if "ci" in gate and (
+        not isinstance(ci, dict)
+        or any(
+            not isinstance(ci.get(k), str) or not ci[k].strip()
+            for k in ("requiredContext", "runner")
+        )
+    ):
+        return "ci must declare nonblank requiredContext and runner"
+    return None
+
+
+def _settings_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's ``agentMerge`` or ``dynaflows`` setting is rejected, or None."""
+    if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
     dynaflows = gate.get("dynaflows")
     if not isinstance(dynaflows, dict) or type(dynaflows.get("enabled")) is not bool:
@@ -168,7 +168,22 @@ def gate_reason(gate) -> str | None:
     return None
 
 
-def load_gate(record: str | Path) -> dict:
+def gate_reason(gate: object) -> str | None:
+    if (
+        not isinstance(gate, dict)
+        or type(gate.get("schemaVersion")) is not int
+        or gate["schemaVersion"] != 2
+    ):
+        return "unsupported gate schemaVersion"
+    unknown = sorted(set(gate) - GATE_FIELDS)
+    if unknown:
+        return f"unknown field {', '.join(unknown)} must be removed"
+    return (
+        _checks_reason(gate.get("checks")) or _ci_reason(gate) or _settings_reason(gate)
+    )
+
+
+def load_gate(record: str | Path) -> dict[str, Any]:
     """The record's ``gate.json`` object; an unreadable gate or one ``gate_reason`` rejects raises."""
     path = Path(record) / GATE_FILE
     try:
@@ -178,12 +193,4 @@ def load_gate(record: str | Path) -> dict:
     reason = gate_reason(gate)
     if reason is not None:
         raise RecordError(f"{path}: {reason}")
-    return gate
-
-
-def dynaflows_enabled(repo: str | Path, root: str | Path | None = None) -> bool:
-    """True only when the clone has a record whose ``dynaflows.enabled`` is true."""
-    record = find_record(repo, root)
-    if record is None:
-        return False
-    return load_gate(record)["dynaflows"]["enabled"]
+    return cast("dict[str, Any]", gate)

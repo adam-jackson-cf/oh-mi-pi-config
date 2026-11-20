@@ -12,20 +12,27 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 label=local.orca-chat-section-style
 orca_app=/Applications/Orca.app
 orca_cli="$orca_app/Contents/Resources/bin/orca"
-inject="$here/chat-section-style/inject.mjs"
+inject="$here/chat-section-style/inject.ts"
 skills_dir="$HOME/.omp/agent/skills"
 launch_agent="$HOME/Library/LaunchAgents/$label.plist"
 log=/tmp/orca-chat-section-style.log
 
-fail() { printf 'install: %s\n' "$1" >&2; exit 1; }
+fail() {
+  printf 'install: %s\n' "$1" >&2
+  exit 1
+}
 step() { printf '%s\n' "- $1"; }
 xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
-[ "$(uname -s)" = Darwin ] || fail 'macOS only: inject.mjs drives the macOS Orca app'
-node=$(command -v node) || fail 'node not found on PATH; install Node 22.5 or later'
-"$node" -e "require('node:sqlite')" 2>/dev/null || fail "$node lacks node:sqlite; install Node 22.5 or later"
+os=$(uname -s)
+[ "$os" = Darwin ] || fail 'macOS only: inject.ts drives the macOS Orca app'
+node=$(command -v node) || fail 'node not found on PATH; install Node 22.18 or later'
+"$node" -e "require('node:sqlite')" 2>/dev/null || fail "$node lacks node:sqlite; install Node 22.18 or later"
+"$node" -e "process.exit(process.features.typescript ? 0 : 1)" 2>/dev/null || fail "$node lacks TypeScript type stripping; install Node 22.18 or later"
 
 render_launch_agent() {
+  node_xml=$(xml "$node")
+  inject_xml=$(xml "$inject")
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -35,8 +42,8 @@ render_launch_agent() {
   <string>$label</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$(xml "$node")</string>
-    <string>$(xml "$inject")</string>
+    <string>$node_xml</string>
+    <string>$inject_xml</string>
     <string>--if-needed</string>
   </array>
   <key>RunAtLoad</key>
@@ -52,7 +59,10 @@ render_launch_agent() {
 EOF
 }
 
-if [ "${1:-}" = --print-launchagent ]; then render_launch_agent; exit 0; fi
+if [ "${1:-}" = --print-launchagent ]; then
+  render_launch_agent
+  exit 0
+fi
 [ $# -eq 0 ] || fail "unknown argument: $1"
 
 [ -x "$orca_app/Contents/MacOS/Orca" ] || fail "Orca not found at $orca_app"
@@ -73,7 +83,8 @@ done
 
 if command -v omp >/dev/null 2>&1; then
   for slot in dark light; do
-    if [ "$(omp config get "theme.$slot" 2>/dev/null)" = "orca-sections-$slot" ]; then
+    theme=$(omp config get "theme.$slot" 2>/dev/null) || theme=''
+    if [ "$theme" = "orca-sections-$slot" ]; then
       step "omp theme.$slot already orca-sections-$slot"
     else
       step "Setting omp theme.$slot to orca-sections-$slot"
@@ -81,7 +92,9 @@ if command -v omp >/dev/null 2>&1; then
     fi
   done
   link="$skills_dir/orca-chat-style"
-  if [ -L "$link" ] && [ "$(readlink "$link")" = "$here/orca-chat-style" ]; then
+  target=''
+  if [ -L "$link" ]; then target=$(readlink "$link"); fi
+  if [ "$target" = "$here/orca-chat-style" ]; then
     step "Skill already linked at $link"
   elif [ -e "$link" ] || [ -L "$link" ]; then
     fail "$link exists and is not a link to $here/orca-chat-style; remove it and rerun"
@@ -96,13 +109,15 @@ fi
 
 domain="gui/$(id -u)"
 rendered=$(render_launch_agent)
-if [ -f "$launch_agent" ] && [ "$(cat "$launch_agent")" = "$rendered" ] && launchctl print "$domain/$label" >/dev/null 2>&1; then
+installed=''
+if [ -f "$launch_agent" ]; then installed=$(cat "$launch_agent"); fi
+if [ "$installed" = "$rendered" ] && launchctl print "$domain/$label" >/dev/null 2>&1; then
   step "LaunchAgent $label already current"
 else
   step "Installing LaunchAgent $launch_agent"
   launchctl bootout "$domain/$label" 2>/dev/null || true
   mkdir -p "$(dirname "$launch_agent")"
-  printf '%s\n' "$rendered" > "$launch_agent"
+  printf '%s\n' "$rendered" >"$launch_agent"
   launchctl bootstrap "$domain" "$launch_agent"
 fi
 

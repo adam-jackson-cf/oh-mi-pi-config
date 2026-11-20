@@ -8,7 +8,7 @@
    Custom highlight var() resolves from the originating element in headless Chrome;
    chat.css owns highlight rules. Editorial aliases are resolved on the chat window
    (not :root) so heading mixes use Orca's local --chat-foreground-strong. */
-:root[data-omp-chat-palette='github'] {
+:root[data-omp-chat-palette="github"] {
   --omp-id-key: #0969da;
   --omp-id-key-ink: #0550ae;
   --omp-id-key-tint: rgb(9 105 218 / 14%);
@@ -22,29 +22,45 @@
   --omp-id-suggestion: #1a7f37;
   --omp-id-suggestion-ink: #116329;
   --omp-id-suggestion-tint: rgb(26 127 55 / 14%);
-  --omp-ed-suggestion: color-mix(in srgb, #1a7f37 85%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #1a7f37 85%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-suggestion-ink: color-mix(in srgb, #1a7f37 62%, #000);
   --omp-id-related: #1b7c83;
   --omp-id-related-ink: #0e6670;
   --omp-id-related-tint: rgb(27 124 131 / 14%);
-  --omp-ed-related: color-mix(in srgb, #1b7c83 85%, var(--chat-foreground-strong));
+  --omp-ed-related: color-mix(
+    in srgb,
+    #1b7c83 85%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-related-ink: color-mix(in srgb, #1b7c83 62%, #000);
   --omp-id-decision: #8250df;
   --omp-id-decision-ink: #6639ba;
   --omp-id-decision-tint: rgb(130 80 223 / 12%);
-  --omp-ed-decision: color-mix(in srgb, #8250df 80%, var(--chat-foreground-strong));
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8250df 80%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-decision-ink: color-mix(in srgb, #8250df 62%, #000);
   --omp-id-review: #bc4c00;
   --omp-id-review-ink: #953800;
   --omp-id-review-tint: rgb(188 76 0 / 14%);
-  --omp-ed-review: color-mix(in srgb, #bc4c00 74%, var(--chat-foreground-strong));
+  --omp-ed-review: color-mix(
+    in srgb,
+    #bc4c00 74%,
+    var(--chat-foreground-strong)
+  );
   --omp-ed-review-ink: color-mix(in srgb, #bc4c00 62%, #000);
   --embed-code: #0f7380;
   --embed-command: #16702f;
   --embed-table: #875a00;
   --embed-diagram: #a5407f;
 }
-:root[data-omp-chat-palette='github'].dark {
+:root[data-omp-chat-palette="github"].dark {
   --omp-id-key: #58a6ff;
   --omp-id-key-ink: #79c0ff;
   --omp-id-key-tint: rgb(88 166 255 / 16%);
@@ -82,31 +98,51 @@
   --omp-code-chip: #9198a1;
 }
 
-:root[data-omp-chat-palette='github']:not(.dark) [data-native-chat-window] {
+:root[data-omp-chat-palette="github"]:not(.dark) [data-native-chat-window] {
   --omp-ed-key: color-mix(in srgb, #0969da 85%, var(--chat-foreground-strong));
   --omp-ed-gap: color-mix(in srgb, #cf222e 85%, var(--chat-foreground-strong));
-  --omp-ed-suggestion: color-mix(in srgb, #1a7f37 85%, var(--chat-foreground-strong));
-  --omp-ed-related: color-mix(in srgb, #1b7c83 85%, var(--chat-foreground-strong));
-  --omp-ed-decision: color-mix(in srgb, #8250df 80%, var(--chat-foreground-strong));
-  --omp-ed-review: color-mix(in srgb, #bc4c00 74%, var(--chat-foreground-strong));
+  --omp-ed-suggestion: color-mix(
+    in srgb,
+    #1a7f37 85%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-related: color-mix(
+    in srgb,
+    #1b7c83 85%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-decision: color-mix(
+    in srgb,
+    #8250df 80%,
+    var(--chat-foreground-strong)
+  );
+  --omp-ed-review: color-mix(
+    in srgb,
+    #bc4c00 74%,
+    var(--chat-foreground-strong)
+  );
 }
 
 /* Accent: GitHub link blue instead of the theme's green primary (keeps suggestion green distinct). */
-:root[data-omp-chat-palette='github'] { --omp-accent: #0550ae; }
-:root[data-omp-chat-palette='github'].dark { --omp-accent: #68a9e4; }
+:root[data-omp-chat-palette="github"] {
+  --omp-accent: #0550ae;
+}
+:root[data-omp-chat-palette="github"].dark {
+  --omp-accent: #68a9e4;
+}
 /* Chat inks nudged to Primer fg-muted so tool rows, status, blockquote and placeholder reach 4.5:1 on Default and Dimmed. */
-:root[data-omp-chat-palette='github'].dark .native-chat-appearance {
+:root[data-omp-chat-palette="github"].dark .native-chat-appearance {
   --chat-source-muted-foreground: #b9c2cc;
   --chat-faint-mix: 100%;
   --chat-foreground: #bcc7d3;
   --chat-code-foreground: #c9d1d9;
 }
 /* Light: embed panels near GitHub's #f6f8fa surface; muted ink a step darker (Primer fg-muted) so settled rows are less washed out. */
-:root[data-omp-chat-palette='github']:not(.dark) [data-native-chat-window] {
+:root[data-omp-chat-palette="github"]:not(.dark) [data-native-chat-window] {
   --omp-ed-panel-mix: 4%;
   --omp-ed-label-mix: 78%;
   --omp-code-chip: #59636e;
 }
-:root[data-omp-chat-palette='github']:not(.dark) .native-chat-appearance {
+:root[data-omp-chat-palette="github"]:not(.dark) .native-chat-appearance {
   --chat-source-muted-foreground: #57606a;
 }

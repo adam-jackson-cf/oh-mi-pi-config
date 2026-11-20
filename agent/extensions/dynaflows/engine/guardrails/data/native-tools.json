@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Settings init writes into native-tool configs for Python repos. Every value mirrors the RUFF.* and MYPY.* rows of the packaged rule catalogue, guardrails/data/guardrail-rules.json; tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots) come from the repo at init time, never from this file.",
+  "about": "Settings init proposes for each language pack's native tools. Every value mirrors the packaged rule catalogue, guardrails/data/guardrail-rules.json: ruff (RUFF.*), mypy (MYPY.*), tsc (TSC.*), oxlint (OXLINT.*), golangci-lint (GOLANGCI.*), shellcheck (SHELLCHECK.*) and shfmt (SHFMT.*); tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots, the Go module path) come from the repo at init time, never from this file.",
   "ruff": {
     "root": {
       "fix": true,
@@ -61,7 +61,9 @@
       "combine-as-imports": true,
       "split-on-trailing-comma": true
     },
-    "lint.mccabe": {"max-complexity": 10},
+    "lint.mccabe": {
+      "max-complexity": 10
+    },
     "lint.pylint": {
       "max-args": 5,
       "max-branches": 12,
@@ -80,7 +82,127 @@
   "mypy": {
     "strict": true,
     "warn_unused_ignores": true,
-    "follow_imports": "normal",
-    "show_error_codes": true
+    "follow_imports": "normal"
+  },
+  "tsc": {
+    "compilerOptions": {
+      "strict": true,
+      "noUncheckedIndexedAccess": true,
+      "exactOptionalPropertyTypes": true,
+      "noImplicitOverride": true,
+      "noImplicitReturns": true,
+      "noFallthroughCasesInSwitch": true,
+      "noPropertyAccessFromIndexSignature": true,
+      "noUnusedLocals": true,
+      "noUnusedParameters": true,
+      "allowUnreachableCode": false,
+      "allowUnusedLabels": false,
+      "forceConsistentCasingInFileNames": true
+    }
+  },
+  "oxlint": {
+    "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
+    "categories": {
+      "correctness": "error",
+      "suspicious": "error"
+    },
+    "rules": {
+      "eslint/complexity": [
+        "error",
+        {
+          "max": 10
+        }
+      ],
+      "eslint/max-params": [
+        "error",
+        {
+          "max": 5
+        }
+      ],
+      "eslint/max-statements": [
+        "error",
+        {
+          "max": 50
+        }
+      ],
+      "import/max-dependencies": [
+        "error",
+        {
+          "max": 10
+        }
+      ],
+      "eslint/no-empty": [
+        "error",
+        {
+          "allowEmptyCatch": false
+        }
+      ],
+      "typescript/ban-ts-comment": "error",
+      "typescript/no-explicit-any": "error"
+    }
+  },
+  "golangci": {
+    "version": "2",
+    "run": {
+      "tests": true
+    },
+    "linters": {
+      "default": "standard",
+      "enable": ["gocyclo", "funlen", "revive", "forbidigo", "nolintlint"],
+      "settings": {
+        "gocyclo": {
+          "min-complexity": 10
+        },
+        "funlen": {
+          "statements": 50,
+          "lines": -1
+        },
+        "revive": {
+          "rules": [
+            {
+              "name": "argument-limit",
+              "arguments": [5]
+            }
+          ]
+        },
+        "forbidigo": {
+          "forbid": [
+            {
+              "pattern": "^exec\\.Command$",
+              "msg": "use exec.CommandContext with a deadline so a hung process cannot stall the run"
+            }
+          ]
+        },
+        "nolintlint": {
+          "require-explanation": true,
+          "require-specific": true
+        }
+      }
+    },
+    "formatters": {
+      "enable": ["gofmt", "goimports"]
+    }
+  },
+  "shellcheck": {
+    "enable": [
+      "avoid-nullary-conditions",
+      "check-extra-masked-returns",
+      "check-set-e-suppressed",
+      "check-unassigned-uppercase",
+      "deprecate-which",
+      "quote-safe-variables"
+    ],
+    "external-sources": true,
+    "source-path": "SCRIPTDIR"
+  },
+  "shfmt": {
+    "section": "[*.{sh,bash}]",
+    "settings": {
+      "indent_style": "space",
+      "indent_size": 2,
+      "binary_next_line": true,
+      "switch_case_indent": true,
+      "function_next_line": false
+    }
   }
 }

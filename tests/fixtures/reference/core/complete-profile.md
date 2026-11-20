@@ -1,9 +1,9 @@
 ---
 {
   "tiers": {
-    "t1": {"selector": "not boundary", "location": "tests/unit", "command": "make test-fast"},
-    "t2": {"selector": "boundary", "location": "tests/boundary", "command": "make test-boundary"},
-    "t3": {"selector": "scheduled", "location": "tests/scheduled", "command": "make test-nightly"}
+    "t1": {"command": "make test-fast"},
+    "t2": {"command": "make test-boundary"},
+    "t3": {"command": "make test-nightly"}
   },
   "public_entry_points": {"ledger": "ledger.cli:main"},
   "run_events": {
@@ -35,7 +35,7 @@
   "verification_surface": {"none": "library without a runnable app", "approval": "ADR-0009"},
   "ownership_areas": {
     "map": {"tests/boundary/test_ledger_*.py": "ledger"},
-    "affected_t2_selection": "guardrails adapter affected"
+    "affected_t2_selection": "guardrails adapter pytest affected"
   },
   "identity_artefacts": {"none": "no identity-bearing files", "approval": "ADR-0009"},
   "layout": {
@@ -47,7 +47,16 @@
     "working_directory": "repository root after uv sync",
     "interpretation": "exit 0 passes; exit 1 lists findings"
   },
-  "adapter": "pytest",
+  "adapters": [
+    {
+      "name": "pytest",
+      "tiers": {
+        "t1": {"selector": "not boundary", "location": "tests/unit"},
+        "t2": {"selector": "boundary", "location": "tests/boundary"},
+        "t3": {"selector": "scheduled", "location": "tests/scheduled"}
+      }
+    }
+  ],
   "structure": {
     "owners": {"directories": {"src/ledger/": "ledger"}},
     "tiers": [],

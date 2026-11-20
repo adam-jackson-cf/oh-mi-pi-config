@@ -17,11 +17,7 @@
     "Extensions select this pack; shells do not require an extension or a casing convention.",
     "No universal shell test discovery or beside-code placement convention is imposed; test layout uses harness defaults."
   ],
-  "extensions": [
-    ".sh",
-    ".bash",
-    ".zsh"
-  ],
+  "extensions": [".sh", ".bash", ".zsh"],
   "file": [],
   "directory": [],
   "fixed_files": [],

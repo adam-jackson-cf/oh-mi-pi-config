@@ -1,15 +1,24 @@
-"""ci-runner.py against fake runner commands and a fake gh on PATH, plus the runner parity check."""
+"""ci_runner.py against fake runner commands and a fake gh on PATH, plus the runner parity check."""
+
 import json
 import os
-from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+from typing import Any
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci-runner.py"
+import pytest
+
+from guardrails.host.process import run_attached, run_text
+
+pytestmark = pytest.mark.seam
+
+PROCESS_TIMEOUT = 60
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci_runner.py"
 REPO = "owner/repo"
 SHA = "a" * 40
 # Fake gh: answers `gh api <path>` from $FAKE_GH/<n>.json responses, advancing one
@@ -29,16 +38,18 @@ print(json.dumps(status if sys.argv[2].endswith("/status") else {{"check_runs": 
 """
 
 
-def status(context, state):
+def status(context: str, state: str) -> dict[str, Any]:
     return {"statuses": [{"context": context, "state": state}]}
 
 
-def run(name, state, conclusion=None, run_id=1):
+def run(
+    name: str, state: str, conclusion: str | None = None, run_id: int = 1
+) -> dict[str, Any]:
     return {"id": run_id, "name": name, "status": state, "conclusion": conclusion}
 
 
 class Fixture(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.folder = tempfile.TemporaryDirectory()
         self.root = Path(self.folder.name)
         bin_dir = self.root / "bin"
@@ -47,216 +58,424 @@ class Fixture(unittest.TestCase):
         gh.write_text(FAKE_GH.format(python=sys.executable))
         gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
         self.config = self.root / "ci-runners.json"
-        self.env = {**os.environ, "OMP_CI_RUNNERS": str(self.config), "FAKE_GH": str(self.root),
-                    "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
+        self.env = {
+            **os.environ,
+            "OMP_CI_RUNNERS": str(self.config),
+            "FAKE_GH": str(self.root),
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+        }
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.folder.cleanup()
 
-    def write_config(self, runners, timeout=60):
+    def write_config(
+        self, runners: dict[str, dict[str, Any]], timeout: object = 60
+    ) -> None:
         """Write runners; each role gets `timeout` unless it sets one (None leaves it out)."""
-        roles = {name: spec if "timeout" in spec or timeout is None else {**spec, "timeout": timeout}
-                 for name, spec in runners.items()}
+        roles = {
+            name: spec
+            if "timeout" in spec or timeout is None
+            else {**spec, "timeout": timeout}
+            for name, spec in runners.items()
+        }
         self.config.write_text(json.dumps({"schemaVersion": 1, "runners": roles}))
 
-    def responses(self, *pairs):
+    def responses(self, *pairs: tuple[dict[str, Any], list[dict[str, Any]]]) -> None:
         (self.root / "responses.json").write_text(json.dumps(pairs))
 
-    def cli(self, *args):
-        return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True,
-                              env=self.env, check=False, timeout=30)
+    def cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return run_text(
+            [sys.executable, str(SCRIPT), *args], env=self.env, check=False, timeout=30
+        )
 
-    def recorder(self, code=0):
+    def recorder(self, code: int = 0) -> tuple[list[str], Path]:
         """A runner command that records its argv and exits with `code`."""
         record = self.root / "argv.json"
-        return [sys.executable, "-c",
-                f"import json, sys; json.dump(sys.argv[1:], open({str(record)!r}, 'w')); sys.exit({code})",
-                "{repo}", "sha={sha}", "--timeout", "{timeout}", "--tail", "{tail}", "{other}"], record
+        return [
+            sys.executable,
+            "-c",
+            f"import json, sys; json.dump(sys.argv[1:], open({str(record)!r}, 'w')); sys.exit({code})",
+            "{repo}",
+            "sha={sha}",
+            "--timeout",
+            "{timeout}",
+            "--tail",
+            "{tail}",
+            "{other}",
+        ], record
 
 
 class CiRunnerTests(Fixture):
-    def test_configured_command_substitutes_placeholders_and_passes_exit_code(self):
+    def test_configured_command_substitutes_placeholders_and_passes_exit_code(
+        self,
+    ) -> None:
         argv, record = self.recorder(code=7)
-        self.write_config({"fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}})
+        self.write_config({
+            "fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}
+        })
         result = self.cli("wait", "fake", REPO, SHA, "--timeout", "90", "--tail", "15")
-        self.assertEqual(result.returncode, 7)
-        self.assertEqual(json.loads(record.read_text()),
-                         [REPO, "sha=" + SHA, "--timeout", "90", "--tail", "15", "{other}"])
+        assert result.returncode == 7
+        assert json.loads(record.read_text()) == [
+            REPO,
+            "sha=" + SHA,
+            "--timeout",
+            "90",
+            "--tail",
+            "15",
+            "{other}",
+        ]
 
-    def test_role_timeout_is_the_default_wait_limit(self):
+    def test_role_timeout_is_the_default_wait_limit(self) -> None:
         argv, record = self.recorder()
-        self.write_config({"fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}},
-                          timeout=75)
-        self.assertEqual(self.cli("wait", "fake", REPO, SHA).returncode, 0)
-        self.assertEqual(json.loads(record.read_text())[2:4], ["--timeout", "75"])
+        self.write_config(
+            {"fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}},
+            timeout=75,
+        )
+        assert self.cli("wait", "fake", REPO, SHA).returncode == 0
+        assert json.loads(record.read_text())[2:4] == ["--timeout", "75"]
 
-    def test_role_without_positive_timeout_is_a_config_error(self):
+    def test_role_without_positive_timeout_is_a_config_error(self) -> None:
         argv, record = self.recorder()
         for timeout in (None, 0, "60", True):
-            spec = {"submit": argv, "wait": argv, "status": argv, "logs": argv}
+            spec: dict[str, object] = {
+                "submit": argv,
+                "wait": argv,
+                "status": argv,
+                "logs": argv,
+            }
             if timeout is not None:
                 spec["timeout"] = timeout
             self.write_config({"fake": spec}, timeout=None)
             result = self.cli("wait", "fake", REPO, SHA, "--timeout", "5")
-            self.assertEqual(result.returncode, 2, timeout)
-            self.assertIn("no positive timeout", result.stderr)
-        self.assertFalse(record.exists())
+            assert result.returncode == 2, timeout
+            assert "no positive timeout" in result.stderr
+        assert not record.exists()
 
-    def test_missing_config_and_role_exit_2_with_rollout_hint(self):
+    def test_missing_config_and_role_exit_2_with_rollout_hint(self) -> None:
         result = self.cli("submit", "ci-gate", REPO, SHA)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("scripts/device-rollout.py to write ci-runners.json", result.stderr)
-        self.write_config({"github-actions": {"submit": None, "wait": None, "status": None,
-                                              "logs": None}})
+        assert result.returncode == 2
+        assert "scripts/device_rollout.py to write ci-runners.json" in result.stderr
+        self.write_config({
+            "github-actions": {
+                "submit": None,
+                "wait": None,
+                "status": None,
+                "logs": None,
+            }
+        })
         result = self.cli("submit", "ci-gate", REPO, SHA)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("'ci-gate' is not configured", result.stderr)
-        self.assertIn("run python3 ", result.stderr)
+        assert result.returncode == 2
+        assert "'ci-gate' is not configured" in result.stderr
+        assert "run python3 " in result.stderr
 
-    def test_invalid_role_command_is_a_config_error(self):
-        self.write_config({"bad": {"submit": "not argv", "wait": None, "status": None, "logs": None}})
-        self.assertEqual(self.cli("submit", "bad", REPO, SHA).returncode, 2)
+    def test_invalid_role_command_is_a_config_error(self) -> None:
+        self.write_config({
+            "bad": {"submit": "not argv", "wait": None, "status": None, "logs": None}
+        })
+        assert self.cli("submit", "bad", REPO, SHA).returncode == 2
         self.write_config({"bad": {"submit": None, "wait": None, "status": None}})
-        self.assertEqual(self.cli("submit", "bad", REPO, SHA).returncode, 2)
+        assert self.cli("submit", "bad", REPO, SHA).returncode == 2
 
-    def test_null_submit_starts_on_push(self):
-        self.write_config({"github-actions": {"submit": None, "wait": None, "status": None,
-                                              "logs": None}})
+    def test_null_submit_starts_on_push(self) -> None:
+        self.write_config({
+            "github-actions": {
+                "submit": None,
+                "wait": None,
+                "status": None,
+                "logs": None,
+            }
+        })
         result = self.cli("submit", "github-actions", REPO, SHA)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("starts on push", result.stdout)
-        self.assertFalse((self.root / "calls").exists())
+        assert result.returncode == 0
+        assert "starts on push" in result.stdout
+        assert not (self.root / "calls").exists()
 
-    def test_rejects_unsafe_repo_and_sha_before_substitution(self):
+    def test_rejects_unsafe_repo_and_sha_before_substitution(self) -> None:
         argv, record = self.recorder()
-        self.write_config({"fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}})
-        self.assertEqual(self.cli("submit", "fake", "owner/repo;rm", SHA).returncode, 2)
-        self.assertEqual(self.cli("submit", "fake", REPO, "HEAD").returncode, 2)
-        self.assertFalse(record.exists())
+        self.write_config({
+            "fake": {"submit": argv, "wait": argv, "status": argv, "logs": argv}
+        })
+        assert self.cli("submit", "fake", "owner/repo;rm", SHA).returncode == 2
+        assert self.cli("submit", "fake", REPO, "HEAD").returncode == 2
+        assert not record.exists()
 
 
 class BuiltInPollerTests(Fixture):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
-        self.write_config({"github-actions": {"submit": None, "wait": None, "status": None,
-                                              "logs": None}})
+        self.write_config({
+            "github-actions": {
+                "submit": None,
+                "wait": None,
+                "status": None,
+                "logs": None,
+            }
+        })
 
-    def wait(self, *extra):
+    def wait(self, *extra: str) -> subprocess.CompletedProcess[str]:
         context = () if "--context" in extra else ("--context", "gate")
-        return self.cli("wait", "github-actions", REPO, SHA, "--interval", "0.05", *context, *extra)
+        return self.cli(
+            "wait", "github-actions", REPO, SHA, "--interval", "0.05", *context, *extra
+        )
 
-    def test_built_in_poller_requires_the_declared_context(self):
+    def test_built_in_poller_requires_the_declared_context(self) -> None:
         for operation in ("wait", "status"):
             result = self.cli(operation, "github-actions", REPO, SHA)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("pass --context", result.stderr)
-        self.assertFalse((self.root / "calls").exists())
+            assert result.returncode == 2
+            assert "pass --context" in result.stderr
+        assert not (self.root / "calls").exists()
 
-    def test_status_context_success_after_pending(self):
+    def test_status_context_success_after_pending(self) -> None:
         self.responses((status("gate", "pending"), []), (status("gate", "success"), []))
         result = self.wait()
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(json.loads(result.stdout)["state"], "success")
+        assert result.returncode == 0
+        assert json.loads(result.stdout)["state"] == "success"
         calls = (self.root / "calls").read_text().splitlines()
-        self.assertIn(f"api repos/{REPO}/commits/{SHA}/status", calls)
-        self.assertIn(f"api repos/{REPO}/commits/{SHA}/check-runs?per_page=100", calls)
+        assert f"api repos/{REPO}/commits/{SHA}/status" in calls
+        assert f"api repos/{REPO}/commits/{SHA}/check-runs?per_page=100" in calls
 
-    def test_check_run_success_uses_named_context(self):
-        self.responses(({"statuses": []}, [run("gate", "completed", "failure", 1),
-                                           run("build", "completed", "success", 2),
-                                           run("gate", "completed", "success", 3)]))
+    def test_check_run_success_uses_named_context(self) -> None:
+        self.responses((
+            {"statuses": []},
+            [
+                run("gate", "completed", "failure", 1),
+                run("build", "completed", "success", 2),
+                run("gate", "completed", "success", 3),
+            ],
+        ))
         result = self.wait("--context", "gate")
-        self.assertEqual(result.returncode, 0)
+        assert result.returncode == 0
         result = self.wait("--context", "build")
-        self.assertEqual(result.returncode, 0)
+        assert result.returncode == 0
 
-    def test_failure_and_error_states_fail(self):
-        for pair in ((status("gate", "failure"), []), (status("gate", "error"), []),
-                     ({"statuses": []}, [run("gate", "completed", "cancelled")]),
-                     (status("gate", "success"), [run("gate", "completed", "failure")])):
+    def test_failure_and_error_states_fail(self) -> None:
+        pairs: tuple[tuple[dict[str, Any], list[dict[str, Any]]], ...] = (
+            (status("gate", "failure"), []),
+            (status("gate", "error"), []),
+            ({"statuses": []}, [run("gate", "completed", "cancelled")]),
+            (status("gate", "success"), [run("gate", "completed", "failure")]),
+        )
+        for pair in pairs:
             self.responses(pair)
             (self.root / "calls").unlink(missing_ok=True)
             result = self.wait()
-            self.assertEqual(result.returncode, 1, pair)
-            self.assertEqual(json.loads(result.stdout)["state"], "failure")
+            assert result.returncode == 1, pair
+            assert json.loads(result.stdout)["state"] == "failure"
 
-    def test_timeout_exits_124(self):
+    def test_timeout_exits_124(self) -> None:
         self.responses((status("other", "success"), [run("gate", "in_progress")]))
         result = self.wait("--timeout", "0.2")
-        self.assertEqual(result.returncode, 124)
-        self.assertIn("Timed out", result.stderr)
+        assert result.returncode == 124
+        assert "Timed out" in result.stderr
 
-    def test_status_reports_once(self):
+    def test_status_reports_once(self) -> None:
         self.responses((status("gate", "pending"), []))
         result = self.cli("status", "github-actions", REPO, SHA, "--context", "gate")
-        self.assertEqual(result.returncode, 3)
-        self.assertEqual(json.loads(result.stdout)["state"], "pending")
+        assert result.returncode == 3
+        assert json.loads(result.stdout)["state"] == "pending"
         self.responses((status("gate", "success"), []))
-        self.assertEqual(self.cli("status", "github-actions", REPO, SHA, "--context", "gate").returncode, 0)
+        assert (
+            self.cli(
+                "status", "github-actions", REPO, SHA, "--context", "gate"
+            ).returncode
+            == 0
+        )
 
-    def test_gh_failure_is_error_without_echoing_output(self):
+    def test_gh_failure_is_error_without_echoing_output(self) -> None:
         (self.root / "exit").write_text("4")
         result = self.wait()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("failed with exit code 4", result.stderr)
+        assert result.returncode == 1
+        assert "failed with exit code 4" in result.stderr
 
-    def test_null_logs_is_config_error(self):
-        self.assertEqual(self.cli("logs", "github-actions", REPO, SHA).returncode, 2)
+    def test_null_logs_is_config_error(self) -> None:
+        assert self.cli("logs", "github-actions", REPO, SHA).returncode == 2
 
 
 GATES_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/run-ci-quality-gates.sh"
 # Stops the run right after the parity check, before any lint, type or test tool starts.
 STOP = "#!/bin/sh\nexit 42\n"
+HOOK_COMMAND = "exec bash scripts/run-ci-quality-gates.sh --tier commit"
+HOOK = (Path(__file__).resolve().parents[1] / ".githooks/pre-commit").read_text()
 
 
 class RunnerParityTests(unittest.TestCase):
     """run-ci-quality-gates.sh parity: the tracked pre-commit hook must use this runner."""
-    def setUp(self):
+
+    def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="ci-parity-test-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".githooks").mkdir()
         shutil.copy(GATES_SCRIPT, self.repo / "scripts")
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        run_attached(
+            ["git", "init", "-q", str(self.repo)], check=True, timeout=PROCESS_TIMEOUT
+        )
         # macOS bash 3.2 treats an empty array as unbound under `set -u`: track one Markdown file.
+        run_attached(
+            ["git", "-C", str(self.repo), "config", "core.hooksPath", ".githooks"],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
         (self.repo / "readme.md").write_text("# fixture\n")
-        subprocess.run(["git", "-C", str(self.repo), "add", "readme.md"], check=True)
+        run_attached(
+            ["git", "-C", str(self.repo), "add", "readme.md"],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
         binary = Path(scratch.name) / "bin"
         binary.mkdir()
         for name in ("bunx", "bun"):
             (binary / name).write_text(STOP)
             (binary / name).chmod(0o755)
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("GIT_")
+        }
         self.env["PATH"] = str(binary) + os.pathsep + self.env["PATH"]
 
-    def hook(self, command):
-        (self.repo / ".githooks/pre-commit").write_text(f"#!/usr/bin/env bash\nexec {command}\n")
+    def hook(self, command: str = HOOK_COMMAND, mode: int = 0o755) -> None:
+        hook = self.repo / ".githooks/pre-commit"
+        hook.write_text(HOOK.replace(HOOK_COMMAND, command))
+        hook.chmod(mode)
 
-    def run_script(self):
-        return subprocess.run(["bash", str(self.repo / "scripts/run-ci-quality-gates.sh")],
-                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+    def run_script(self) -> subprocess.CompletedProcess[str]:
+        return run_text(
+            ["bash", str(self.repo / "scripts/run-ci-quality-gates.sh")],
+            cwd=self.repo,
+            env=self.env,
+            timeout=30,
+        )
 
-    def test_hook_using_the_runner_satisfies_parity_without_a_workflow(self):
-        self.hook("bash scripts/run-ci-quality-gates.sh --tier commit --fix --stage")
+    def test_an_installed_hook_running_the_commit_tier_passes_without_a_workflow(
+        self,
+    ) -> None:
+        self.hook()
         result = self.run_script()
-        self.assertIn("Runner parity check passed.", result.stdout)
-        self.assertEqual(result.returncode, 42, "the run must continue to the quality tools")
-        self.assertFalse((self.repo / ".github").exists())
+        assert "Commit hook check passed." in result.stdout
+        assert result.returncode == 42, "the run must continue to the quality tools"
+        assert not (self.repo / ".github").exists()
 
-    def test_hook_without_runner_fails_even_when_workflow_references_it(self):
+    def test_shell_checks_cover_extension_and_shebang_scripts(self) -> None:
+        self.hook()
+        (self.repo / "tool.sh").write_text("echo tool\n")
+        (self.repo / "notes").write_text("plain text\n")
+        (self.repo / "run").write_text("#!/usr/bin/env python3\nprint(1)\n")
+        run_attached(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "add",
+                ".githooks/pre-commit",
+                "tool.sh",
+                "notes",
+                "run",
+            ],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        calls = self.repo.parent / "uv-calls"
+        uv = self.repo.parent / "bin/uv"
+        uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\nexit 42\n')
+        uv.chmod(0o755)
+        result = self.run_script()
+        assert result.returncode == 42, result.stderr
+        assert calls.read_text().splitlines() == [
+            "run --locked shellcheck -- .githooks/pre-commit tool.sh"
+        ]
+
+    def test_prettier_checks_owned_data_files_outside_fixtures(self) -> None:
+        self.hook()
+        names = ["a.yml", "b.json", "c.css", "tests/fixtures/d.json"]
+        for name in names:
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text("{}\n")
+        run_attached(
+            ["git", "-C", str(self.repo), "add", *names],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        calls = self.repo.parent / "bunx-calls"
+        bunx = self.repo.parent / "bin/bunx"
+        bunx.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\nexit 42\n')
+        bunx.chmod(0o755)
+        result = self.run_script()
+        assert result.returncode == 42, result.stderr
+        assert calls.read_text().splitlines() == [
+            "prettier --check --log-level warn -- a.yml b.json c.css"
+        ]
+
+    def test_oxlint_denies_warnings_on_owned_code_outside_fixtures(self) -> None:
+        self.hook()
+        names = [
+            "a.ts",
+            "tests/fixtures/b.ts",
+            "agent/skills/omp-config-optimise/experiments/x/fixtures/c.ts",
+        ]
+        for name in names:
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text("export {};\n")
+        run_attached(
+            ["git", "-C", str(self.repo), "add", *names],
+            check=True,
+            timeout=PROCESS_TIMEOUT,
+        )
+        calls = self.repo.parent / "bunx-calls"
+        bunx = self.repo.parent / "bin/bunx"
+        bunx.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\nexit 42\n')
+        bunx.chmod(0o755)
+        result = self.run_script()
+        assert result.returncode == 42, result.stderr
+        assert calls.read_text().splitlines() == ["oxlint --deny-warnings a.ts"]
+
+    def test_hook_without_runner_fails_even_when_workflow_references_it(self) -> None:
         self.hook("make check")
         workflow = self.repo / ".github/workflows/ci-quality-gates.yml"
         workflow.parent.mkdir(parents=True)
         workflow.write_text("steps:\n  - run: bash scripts/run-ci-quality-gates.sh\n")
         result = self.run_script()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Runner parity check failed: .githooks/pre-commit must reference", result.stderr)
+        assert result.returncode == 1
+        assert (
+            "Commit hook check failed: .githooks/pre-commit must be executable"
+            in result.stderr
+        )
 
-    def test_missing_hook_fails(self):
+    def test_a_hook_whose_argv_differs_from_the_commit_tier_fails(self) -> None:
+        self.hook(f"{HOOK_COMMAND} --fix --stage")
         result = self.run_script()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn(".githooks/pre-commit", result.stderr)
+        assert result.returncode == 1
+        assert "must be executable and match the hook text" in result.stderr
+
+    def test_a_hook_that_cannot_execute_fails(self) -> None:
+        self.hook(mode=0o644)
+        result = self.run_script()
+        assert result.returncode == 1
+        assert "must be executable" in result.stderr
+
+    def test_missing_hook_fails(self) -> None:
+        result = self.run_script()
+        assert result.returncode == 1
+        assert ".githooks/pre-commit" in result.stderr
+
+    def test_a_clone_without_the_relative_hooks_path_fails(self) -> None:
+        self.hook()
+        for value in (None, str(self.repo / ".githooks")):
+            with self.subTest(value=value):
+                argv = ["git", "-C", str(self.repo), "config"]
+                argv += (
+                    ["--unset", "core.hooksPath"]
+                    if value is None
+                    else ["core.hooksPath", value]
+                )
+                run_attached(argv, check=True, timeout=PROCESS_TIMEOUT)
+                result = self.run_script()
+                assert result.returncode == 1
+                assert (
+                    f"core.hooksPath is {value or 'unset'}; install the hook with: "
+                    "bash scripts/install-quality-gates.sh"
+                ) in result.stderr
 
 
 if __name__ == "__main__":

@@ -11,8 +11,16 @@
   "execution": "data",
   "contributes": {
     "terminalThemes": [
-      { "id": "sections-dark", "title": "Sections Dark", "path": "terminal/dark.json" },
-      { "id": "sections-light", "title": "Sections Light", "path": "terminal/light.json" }
+      {
+        "id": "sections-dark",
+        "title": "Sections Dark",
+        "path": "terminal/dark.json"
+      },
+      {
+        "id": "sections-light",
+        "title": "Sections Light",
+        "path": "terminal/light.json"
+      }
     ]
   }
 }

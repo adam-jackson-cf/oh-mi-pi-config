@@ -5,7 +5,7 @@ Paths below are relative to `chat-section-style/` in the checkout that holds thi
 Use `--surface chat` for a chat-only choice switch; it pins both effective terminal choices.
 
 The choice files `mode`, `palette`, `terminal-mode` and `terminal-palette` are machine-local,
-untracked and ignored. Before parsing flags, `inject.mjs` creates missing `mode` and `palette`
+untracked and ignored. Before parsing flags, `inject.ts` creates missing `mode` and `palette`
 files with `gutter` and `auto`, respectively, preserving existing files. This initialization
 never creates terminal overrides.
 
@@ -13,7 +13,7 @@ never creates terminal overrides.
 
 ## How it is installed
 
-1. `inject.mjs` finds Orca's main process (`/Applications/Orca.app/Contents/MacOS/Orca` with parent
+1. `inject.ts` finds Orca's main process (`/Applications/Orca.app/Contents/MacOS/Orca` with parent
    pid 1). It refuses to run if 9229 is already listening, then sends `SIGUSR1`. Orca's
    `EnableNodeCliInspectArguments` fuse is on, so this opens the inspector on `127.0.0.1:9229`.
 2. It installs a main-process hook (`globalThis.__orcaChatSectionStyle`). The hook inserts
@@ -22,7 +22,7 @@ never creates terminal overrides.
    of an edit to any of those files, `mode` or `palette`.
 3. It closes the inspector about one second later and writes the Orca pid to
    `$TMPDIR/orca-chat-section-style.pid`.
-4. The LaunchAgent runs `inject.mjs --if-needed` at login and every 30 seconds. Chat injection skips
+4. The LaunchAgent runs `inject.ts --if-needed` at login and every 30 seconds. Chat injection skips
    while that pid is still Orca's main process; terminal generation still runs. A relaunched Orca is
    restyled within 30 seconds. Its log is
    `/tmp/orca-chat-section-style.log`.
@@ -42,7 +42,7 @@ state their value explicitly (for example the reply container's transparent back
    `EnableNodeCliInspectArguments is Enabled`. If disabled, injection is impossible; never patch
    `app.asar` (breaks the signature, lost on the next update). Keep only the theme and settings
    layers.
-2. Run `node inject.mjs`. With the default local choices and a Catppuccin theme, success prints:
+2. Run `node inject.ts`. With the default local choices and a Catppuccin theme, success prints:
 
    ```text
    {"pid":…,"styled":[1],"mode":"gutter","palette":"auto",
@@ -52,7 +52,7 @@ state their value explicitly (for example the reply container's transparent back
    `appliedPalette` is the palette `auto` resolved to for the active theme. Then
    `lsof -nP -iTCP:9229 -sTCP:LISTEN` must print nothing.
 3. `launchctl print gui/$(id -u)/local.orca-chat-section-style` should show `last exit code = 0`
-   and `arguments` naming this checkout's `inject.mjs`. If missing or stale (moved checkout, new
+   and `arguments` naming this checkout's `inject.ts`. If missing or stale (moved checkout, new
    Node), run `sh ../install.sh`: it renders the plist from the `node` on `PATH` and this checkout
    path, then bootstraps it.
 4. Take a screenshot of a chat. If injection succeeded but nothing changed, Orca renamed its chat
@@ -109,14 +109,14 @@ remove it; it sits outside Orca's React tree.
 
 ## Palettes and adding a palette
 
-The `palette` file names the active colour family; `inject.mjs` sets it as
+The `palette` file names the active colour family; `inject.ts` sets it as
 `<html data-omp-chat-palette>`. Palette and mode are independent: any palette works with any mode,
 in light and dark.
 
 `auto` (the default) follows the Orca theme chosen in Settings → Appearance. `palette-auto.js`
 compares the page's live theme tokens with every installed theme's tokens, applies the best-matching
 theme's palette (below a 60% token match it keeps `catppuccin`), and re-checks when Orca swaps
-theme. `theme-palettes.mjs` maps theme plugins to palettes and reads their theme files; the hook
+theme. `theme-palettes.ts` maps theme plugins to palettes and reads their theme files; the hook
 re-reads them on every apply, so theme plugin updates need no re-install, but a new theme plugin
 needs a line in `PLUGIN_PALETTES`.
 
@@ -126,8 +126,8 @@ needs a line in `PLUGIN_PALETTES`.
   (`stablyai.orca-github-vscode-theme`)
 - `vscode`: VS Code Light Modern / Dark Modern (`stablyai.orca-vscode-default-themes`)
 
-Switch with `node inject.mjs --palette <name|auto>`; it combines with `--mode`. A full
-`node inject.mjs` prints `appliedPalette`, the palette actually in use. Each palette is one file,
+Switch with `node inject.ts --palette <name|auto>`; it combines with `--mode`. A full
+`node inject.ts` prints `appliedPalette`, the palette actually in use. Each palette is one file,
 `palettes/<name>.css`, scoped to `:root[data-omp-chat-palette='<name>']` (light) and `…'].dark`
 (dark). It sets the variables listed in the contract comment at the top of `chat.css`: per ID kind a
 section hue, inline ink, inline tint, editorial heading ink and editorial inline ink; and the four
@@ -136,38 +136,38 @@ and the active status), `--omp-code-chip` (hue behind inline-code chips, for the
 inline code), `--omp-ed-panel-mix` and `--omp-ed-label-mix` (editorial panel fill strength and light
 label ink). Where the stock theme falls below 4.5:1, a palette may also retune Orca's chat inks
 under `.native-chat-appearance`. The hook injects every palette file and reads the palette list when
-installed, so a new palette file needs a full `node inject.mjs`.
+installed, so a new palette file needs a full `node inject.ts`.
 
 To add a palette, create its CSS file with the contract above, add a `PLUGIN_PALETTES` entry in
-`theme-palettes.mjs` for any new app-theme plugin, run full `node inject.mjs`, then
-`bun harness/contrast.mjs <name>` (exit 0) before scoring. New theme plugin updates are read on
+`theme-palettes.ts` for any new app-theme plugin, run full `node inject.ts`, then
+`bun harness/contrast.ts <name>` (exit 0) before scoring. New theme plugin updates are read on
 every apply; adding a new palette file requires reinstalling the hook.
 
 ## Harness
 
 - `harness/shoot.sh <mode> <out-dir> [palette]` renders a long two-turn mixed-media transcript
-  (`harness/harness.html`) with Orca's real renderer CSS plus this folder's `chat.css`,
+  (`harness/transcript.html`) with Orca's real renderer CSS plus this folder's `chat.css`,
   `palettes/*.css` and `id-highlight.js`, in headless Chrome: `<mode>-light.png`, `<mode>-dark.png`
   (1500px), `<mode>-narrow.png` (760px, dark), plus `<mode>-dark-mirage.png` for `ayu` and
   `<mode>-dark-dimmed.png` for `github`. The first run per Orca version extracts `app.asar` into
   `$TMPDIR/orca-harness-<version>`; the running Orca is never touched.
-- `bun harness/contrast.mjs <palette> [mode …]` measures the rendered WCAG contrast of every text
+- `bun harness/contrast.ts <palette> [mode …]` measures the rendered WCAG contrast of every text
   run, text label and inline ID in every mode and theme variant, and exits 1 if any text below 4.5:1
   is not deliberately dimmed (older turns and settled tool rows, restored on hover). Run `shoot.sh`
   once first.
-- `bun harness/palette-auto.mjs` checks that palette `auto` maps every installed theme to its
+- `bun harness/palette-auto.ts` checks that palette `auto` maps every installed theme to its
   palette, re-detects after a theme swap, leaves a fixed palette alone and falls back to
   `catppuccin` for unknown themes. Exit 1 on any mismatch.
-- `bun harness/terminal-themes.mjs` checks every palette/variant/mode/slot: required omp tokens,
+- `bun harness/terminal-themes.ts` checks every palette/variant/mode/slot: required omp tokens,
   paired app colours, ≥4.5:1 text contrast (except deliberately dimmed `dim` and decorative borders),
   mode overlays, slot resolution, config and generator idempotence. Exit 1 on any failed check.
 - `sh harness/launchagent.sh` checks the plist `../install.sh --print-launchagent` renders: valid
   plist, label `local.orca-chat-section-style`, the `node` on `PATH` running this folder's
-  `inject.mjs --if-needed` with no other arguments at load and every 30 seconds, and stdout and
+  `inject.ts --if-needed` with no other arguments at load and every 30 seconds, and stdout and
   stderr sent to `/tmp/orca-chat-section-style.log`. Exit 1 on any failed check; it never loads the
   agent or touches the running Orca.
 - `theme-tokens.js` holds the installed themes' tokens; regenerate it with
-  `node harness/tokens.mjs` after a theme update.
+  `node harness/tokens.ts` after a theme update.
 - Score screenshots against the rubric in `chat.md`.
 
 ## Assessing a chat theme or mode

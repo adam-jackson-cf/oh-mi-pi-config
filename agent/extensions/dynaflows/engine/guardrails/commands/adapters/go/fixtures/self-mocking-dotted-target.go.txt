@@ -1,0 +1,15 @@
+package tests
+
+import (
+	"testing"
+
+	"bou.ke/monkey"
+	"example.com/project/shop"
+)
+
+func TestPatchedPublicTotal(t *testing.T) {
+	monkey.Patch(shop.PublicAPI, func() int { return 1 })
+	if shop.PublicAPI() != 1 {
+		t.Fatal("patch did not apply")
+	}
+}

@@ -61,29 +61,29 @@
     "date": "^(?:(?:19|20)\\d{2}(?:\\d{4})?)$",
     "trailing_number": "^[a-z]+\\d+$",
     "numbered_allowlist": [
-        "base32",
-        "base64",
-        "float32",
-        "float64",
-        "http2",
-        "http3",
-        "int16",
-        "int32",
-        "int64",
-        "int8",
-        "ipv4",
-        "ipv6",
-        "md5",
-        "oauth2",
-        "s3",
-        "sha1",
-        "sha256",
-        "sha512",
-        "uint8",
-        "utf16",
-        "utf8",
-        "x509"
-      ]
+      "base32",
+      "base64",
+      "float32",
+      "float64",
+      "http2",
+      "http3",
+      "int16",
+      "int32",
+      "int64",
+      "int8",
+      "ipv4",
+      "ipv6",
+      "md5",
+      "oauth2",
+      "s3",
+      "sha1",
+      "sha256",
+      "sha512",
+      "uint8",
+      "utf16",
+      "utf8",
+      "x509"
+    ]
   },
   "sources": [
     {
@@ -107,7 +107,7 @@
       "contributed": "forbidden names utils, manager, new, old, legacy, compat, fallback; generic names common, helpers, misc, stuff, temp; attached suffix pattern (?<=.)[-_]?v\\d+$ with standalone <name>/v<N> allowed"
     },
     {
-      "source": "oh-mi-pi-config agent/skills/test-guidance/references/naming-and-layout.md",
+      "source": "oh-mi-pi-config agent/extensions/dynaflows/skills/test-guidance/references/naming-and-layout.md",
       "contributed": "test files mirror their owner and carry no ticket, version or date tokens; support and fixtures live at the profile's locations"
     }
   ]

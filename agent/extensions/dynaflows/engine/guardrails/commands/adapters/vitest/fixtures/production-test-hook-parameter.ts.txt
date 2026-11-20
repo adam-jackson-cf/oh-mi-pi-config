@@ -1,0 +1,1 @@
+export function publicApi(testOnly: boolean) { return testOnly ? 42 : 0; }

@@ -21,22 +21,32 @@ class CheckResult:
     total: int
 
 
-def run_check(fixture: Path, workspace: Path) -> CheckResult:
-    result = subprocess.run(
+def run_hidden_check(
+    fixture: Path, workspace: Path
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [fixture / "hidden" / "check.sh", workspace],
         capture_output=True,
         text=True,
         timeout=10,
     )
+
+
+def run_check(fixture: Path, workspace: Path) -> CheckResult:
+    result = run_hidden_check(fixture, workspace)
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     if not lines:
-        raise RuntimeError(f"{fixture.name}: checker printed no JSON\nstderr: {result.stderr}")
+        raise RuntimeError(
+            f"{fixture.name}: checker printed no JSON\nstderr: {result.stderr}"
+        )
     try:
         payload = json.loads(lines[-1])
         passed = payload["passed"]
         total = payload["total"]
     except (json.JSONDecodeError, KeyError, TypeError) as error:
-        raise RuntimeError(f"{fixture.name}: invalid final checker JSON: {lines[-1]!r}") from error
+        raise RuntimeError(
+            f"{fixture.name}: invalid final checker JSON: {lines[-1]!r}"
+        ) from error
     if not isinstance(passed, int) or not isinstance(total, int):
         raise RuntimeError(f"{fixture.name}: checker counts must be integers")
     return CheckResult(result.returncode, passed, total)
@@ -61,7 +71,9 @@ def main() -> int:
     print(f"{'-' * 32}  ---------  ---------  ------")
     for fixture_id, before, after, valid in results:
         status = "PASS" if valid else "FAIL"
-        print(f"{fixture_id:32}  {before.passed:>2}/{before.total:<6}  {after.passed:>2}/{after.total:<6}  {status}")
+        print(
+            f"{fixture_id:32}  {before.passed:>2}/{before.total:<6}  {after.passed:>2}/{after.total:<6}  {status}"
+        )
     return 0 if all(valid for *_, valid in results) else 1
 
 

@@ -15,6 +15,8 @@ roles whose model is missing from the catalog, and lists subscription headroom
 and spend by model. Then refresh the external figures in
 `pricing-and-quota.md` from its sources.
 
+Never print credentials or raw provider responses; use `--redact` on usage.
+
 ## 2. Find what changed
 
 - New or retired models in either subscription family; price or credit changes.
