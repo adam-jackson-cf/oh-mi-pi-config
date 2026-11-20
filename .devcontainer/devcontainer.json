@@ -1,4 +1,4 @@
 {
   "build": { "dockerfile": "Containerfile" },
-  "postCreateCommand": "bash scripts/bootstrap.sh"
+  "postCreateCommand": "bash scripts/install-quality-gates.sh"
 }

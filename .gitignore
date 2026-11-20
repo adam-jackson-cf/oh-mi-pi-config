@@ -38,7 +38,7 @@ scripts/*
 !scripts/check_coverage.py
 !scripts/run-test-tier.sh
 !scripts/audit-dependencies.sh
-!scripts/bootstrap.sh
+!scripts/install-quality-gates.sh
 !scripts/ci_gate.py
 !scripts/ci-gate-repos.json
 !scripts/ci_runner.py

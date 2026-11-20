@@ -60,7 +60,7 @@ if [[ ! -x "$hook" ]] || ! printf '%s\n' "$expected_hook" | cmp -s - "$hook"; th
 fi
 hooks_path="$(git config --get core.hooksPath || true)"
 if [[ "$hooks_path" != .githooks ]]; then
-  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: bash scripts/bootstrap.sh\n' "${hooks_path:-unset}" >&2
+  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: bash scripts/install-quality-gates.sh\n' "${hooks_path:-unset}" >&2
   exit 1
 fi
 printf 'Commit hook check passed.\n'

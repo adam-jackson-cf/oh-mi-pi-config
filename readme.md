@@ -100,7 +100,7 @@ sandbox guarantee. Only schema version 2 is accepted.
 
 This repository's hook is `.githooks/pre-commit`, which runs exactly the record's `checks.commit`
 (`bash scripts/run-ci-quality-gates.sh --tier commit`). Set up every clone with
-`bash scripts/bootstrap.sh`: it installs the locked Bun and uv dependencies and sets
+`bash scripts/install-quality-gates.sh`: it installs the locked Bun and uv dependencies and sets
 `core.hooksPath` to `.githooks`. The devcontainer's `postCreateCommand` and the GitHub Actions
 workflow run it. The relative path makes every worktree that shares the clone's
 `.git/config` run its own `.githooks/pre-commit`. Both gate tiers fail when `core.hooksPath` is

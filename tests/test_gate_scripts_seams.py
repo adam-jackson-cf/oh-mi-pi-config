@@ -47,7 +47,7 @@ def checkout() -> Any:
             "scripts/run-test-tier.sh",
             "scripts/audit-dependencies.sh",
             "scripts/check_paths.py",
-            "scripts/bootstrap.sh",
+            "scripts/install-quality-gates.sh",
             ".githooks/pre-commit",
         ):
             (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -379,12 +379,12 @@ def test_a_hook_that_exits_before_running_the_gate_fails_both_tiers(
         assert calls == []
 
 
-def test_bootstrap_installs_the_locked_dependencies_and_the_hook(
+def test_install_quality_gates_installs_the_locked_dependencies_and_the_hook(
     checkout: Any,
 ) -> None:
     root, env = checkout
     git(root, env, "config", "--unset", "core.hooksPath")
-    code, output, calls = run(root, env, "scripts/bootstrap.sh")
+    code, output, calls = run(root, env, "scripts/install-quality-gates.sh")
     assert code == 0, output
     assert calls == [
         ["bun", "install", "--frozen-lockfile"],
@@ -398,11 +398,11 @@ def test_bootstrap_installs_the_locked_dependencies_and_the_hook(
     assert hooks.stdout.strip() == ".githooks"
 
 
-def test_every_clone_setup_runs_the_bootstrap() -> None:
+def test_every_clone_setup_installs_the_quality_gates() -> None:
     devcontainer = json.loads((SOURCE / ".devcontainer/devcontainer.json").read_text())
     workflow = (SOURCE / ".github/workflows/ci-quality-gates.yml").read_text()
-    assert devcontainer["postCreateCommand"] == "bash scripts/bootstrap.sh"
-    assert "      - run: bash scripts/bootstrap.sh\n" in workflow
+    assert devcontainer["postCreateCommand"] == "bash scripts/install-quality-gates.sh"
+    assert "      - run: bash scripts/install-quality-gates.sh\n" in workflow
 
 
 def test_gate_scripts_run_python_only_through_the_locked_environment(
