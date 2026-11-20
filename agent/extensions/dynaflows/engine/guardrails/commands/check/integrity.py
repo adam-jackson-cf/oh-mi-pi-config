@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.changes import (
+    Change,
     DiffError,
     file_at,
     git,
+    name_changes,
     parse_range,
     range_finding,
 )
@@ -25,9 +27,14 @@ MOCKS = "CODE.no-product-mocks"
 DIRECTIVE = re.compile(
     r"^(?:noqa\b|type:\s*ignore\b|pyright:|fmt:\s*(?:off|on)\b|ruff:|isort:|"
     r"pylint:|eslint-|@ts-(?:expect-error|ignore|nocheck)\b|prettier-ignore\b|"
-    r"biome-ignore\b|go:build\b|nolint\b|SPDX-License-Identifier:|markdownlint-|"
+    r"biome-ignore\b|go:(?:build|embed|generate)\b|nolint\b|SPDX-License-Identifier:|"
+    r"markdownlint-|/\s*<reference\s|shellcheck\s+(?:source|shell)=|"
+    r"yaml-language-server:\s*\$schema=|"
     r".*(?:-\*-.*-\*-|vim:|vi:|ex:)|.*coding[:=]\s*[-\w.]+)"
 )
+PARSER_DIRECTIVE = re.compile(r"#\s*(?:syntax|escape)\s*=\s*\S+\s*", re.IGNORECASE)
+SHELL = {".sh", ".bash", ".zsh"}
+WORD_BREAKS = " \t\n;&|()<>"
 HASH = {
     ".sh",
     ".bash",
@@ -205,6 +212,26 @@ def string_stop(text: str, at: int) -> int:
     return stop
 
 
+def opens_comment(text: str, at: int, start: str, suffix: str) -> bool:
+    return text.startswith(start, at) and not (
+        suffix in SHELL and at > 0 and text[at - 1] not in WORD_BREAKS
+    )
+
+
+def parser_directives(text: str, path: str) -> set[int]:
+    if (
+        Path(path).suffix.lower() != ".dockerfile"
+        and Path(path).name.lower() != "dockerfile"
+    ):
+        return set()
+    lines: set[int] = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        if not PARSER_DIRECTIVE.fullmatch(line):
+            break
+        lines.add(number)
+    return lines
+
+
 def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
     suffix = Path(path).suffix.lower()
     markers = comment_markers(path)
@@ -213,7 +240,12 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
     at = 0
     while at < len(text):
         marker = next(
-            ((start, end) for start, end in markers if text.startswith(start, at)), None
+            (
+                (start, end)
+                for start, end in markers
+                if opens_comment(text, at, start, suffix)
+            ),
+            None,
         )
         if marker:
             stop = comment_stop(text, at, marker)
@@ -422,7 +454,7 @@ def inspect(
     if path.endswith((".py", ".pyi")):
         return python_findings(text, path, added, profile)
     comments, code = lex(text, path)
-    findings = comment_findings(comments, path, added)
+    findings = comment_findings(comments, path, added - parser_directives(text, path))
     if not is_test(path, profile):
         findings.extend(script_mock_findings(text, code, path, added))
     return findings
@@ -470,17 +502,8 @@ def script_mock_findings(
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
-        names = git(
-            repo,
-            "diff",
-            "--name-only",
-            "-z",
-            "--diff-filter=ACMR",
-            diff.base,
-            diff.head,
-            "--",
-        ).split("\0")
-        return check_files(repo, profile, names, Revisions(diff.base, diff.head))
+        changes = name_changes(repo, diff.base, diff.head)
+        return check_files(repo, profile, changes, Revisions(diff.base, diff.head))
     except DiffError as error:
         return [range_finding(COMMENTS, error)]
 
@@ -493,11 +516,14 @@ class Revisions:
 
 
 def check_files(
-    repo: Path, profile: dict[str, Any], names: list[str], revisions: Revisions
+    repo: Path, profile: dict[str, Any], changes: list[Change], revisions: Revisions
 ) -> list[Finding]:
     findings = []
     base, head, staged = revisions.base, revisions.head, revisions.staged
-    for path in filter(None, names):
+    for change in changes:
+        if change.status[0] not in "ACMR":
+            continue
+        path = change.path
         text = (
             git(repo, "show", f":{path}")
             if staged
@@ -510,12 +536,13 @@ def check_files(
         args = [
             "diff",
             "-U0",
+            "-M",
             "--no-ext-diff",
             *(["--cached"] if staged else []),
             base,
             *([head] if head else []),
             "--",
-            path,
+            *change.paths,
         ]
         patch = git(repo, *args)
         added: set[int] = set()
@@ -524,7 +551,7 @@ def check_files(
             if match:
                 start, count = int(match[1]), int(match[2] or 1)
                 added.update(range(start, start + count))
-        if not patch and file_at(repo, base, path) is None:
+        if not patch and file_at(repo, base, change.old_path or path) is None:
             added.update(range(1, len(text.splitlines()) + 1))
         findings.extend(inspect(text, path, added, profile))
     return findings
@@ -536,26 +563,18 @@ def commit_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
             base = git(repo, "rev-parse", "--verify", "HEAD").strip()
         except DiffError:
             base = git(repo, "hash-object", "-t", "tree", "/dev/null").strip()
-        staged = git(
-            repo,
-            "diff",
-            "--cached",
-            "--name-only",
-            "-z",
-            "--diff-filter=ACMR",
-            base,
-            "--",
-        ).split("\0")
-        names = (
-            git(repo, "diff", "--name-only", "-z", "--diff-filter=ACMR", base, "--")
-            + git(repo, "ls-files", "-z", "--others", "--exclude-standard")
-        ).split("\0")
+        staged = name_changes(repo, "--cached", base)
+        untracked = git(repo, "ls-files", "-z", "--others", "--exclude-standard")
+        changes = [
+            *name_changes(repo, base),
+            *(Change("A", path) for path in untracked.split("\0") if path),
+        ]
         findings = check_files(repo, profile, staged, Revisions(base, staged=True))
         findings.extend(
             check_files(
                 repo,
                 profile,
-                [path for path in names if path and (repo / path).is_file()],
+                [change for change in changes if (repo / change.path).is_file()],
                 Revisions(base),
             )
         )

@@ -143,6 +143,59 @@ class IntegrityCommentTests(IntegrityCase):
             ("CODE.no-comments", "line 2: added comment")
         ]
 
+    def test_tool_and_parser_directives_of_other_toolchains_are_exempt(self) -> None:
+        assert (
+            self.check({
+                "src/embed.go": "//go:embed assets/*\n//go:generate stringer -type=Kind\npackage main\n",
+                "src/env.d.ts": '/// <reference types="vite/client" />\n/// <reference path="./globals.d.ts" />\n',
+                "scripts/run.sh": "# shellcheck source=lib.sh\n# shellcheck shell=bash\necho ok\n",
+                "config/app.yaml": "# yaml-language-server: $schema=./schema.json\nkey: value\n",
+                "Dockerfile": "# syntax=docker/dockerfile:1\n# escape=`\nFROM scratch\n",
+            })
+            == []
+        )
+
+    def test_dockerfile_parser_directives_count_only_on_the_first_lines(self) -> None:
+        findings = self.check({
+            "Dockerfile": "# syntax=docker/dockerfile:1\nFROM scratch\n# escape=`\n",
+            "build.dockerfile": "FROM scratch\n# syntax=docker/dockerfile:1\n",
+        })
+        assert sorted((item.path, item.message) for item in findings) == [
+            ("Dockerfile", "line 3: added comment"),
+            ("build.dockerfile", "line 2: added comment"),
+        ]
+
+    def test_shell_parameter_expansions_are_not_comments(self) -> None:
+        findings = self.check({
+            "scripts/count.sh": "if [ $# -eq 0 ]; then\n  echo ${#items[@]} ${path##*/} ${name#prefix}\nfi\necho done # note\n"
+        })
+        assert [(item.path, item.message) for item in findings] == [
+            ("scripts/count.sh", "line 4: added comment")
+        ]
+
+    def test_moved_files_report_only_their_added_comment_lines(self) -> None:
+        body = "".join(f"value_{index} = {index}\n" for index in range(8))
+        self.base = self.repo.commit({"src/old.py": "# existing\n" + body})
+        assert (
+            self.check({"src/old.py": None, "src/moved.py": "# existing\n" + body})
+            == []
+        )
+        self.base = self.repo.commit({
+            "src/moved.py": None,
+            "src/old.py": "# existing\n" + body,
+        })
+        findings = self.check({
+            "src/old.py": None,
+            "src/again.py": "# existing\n" + body + "extra = 1 # added\n",
+        })
+        assert [(item.path, item.message) for item in findings] == [
+            ("src/again.py", "line 10: added comment")
+        ]
+
+    def test_staged_moves_keep_existing_comments_out_of_the_commit_check(self) -> None:
+        self.repo.git("mv", "src/existing.py", "src/renamed.py")
+        assert integrity.commit_findings(self.repo.path, BASE_PROFILE) == []
+
 
 class IntegrityCodeTests(IntegrityCase):
     def test_placeholder_bodies_block_and_real_implementations_pass(self) -> None:
