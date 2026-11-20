@@ -176,6 +176,25 @@ class IntegrityCodeTests(IntegrityCase):
         assert {item.path for item in findings} == set(sources)
         assert [item.rule_id for item in findings] == ["CODE.no-product-mocks"] * 6
 
+    def test_excluded_fixture_trees_hold_no_product_code_but_still_ban_comments(
+        self,
+    ) -> None:
+        profile = {
+            **BASE_PROFILE,
+            "guardrails": {
+                **BASE_PROFILE["guardrails"],
+                "check": {"exclude": ["frozen/**"]},
+            },
+        }
+        self.repo.commit({
+            "frozen/case.py": "from unittest import mock\nx = 1 # note\n",
+            "frozen/case.ts": "vi.mock('service');\n",
+        })
+        findings = integrity.run(self.repo.path, profile, ["--base", self.base])
+        assert [(item.rule_id, item.path) for item in findings] == [
+            ("CODE.no-comments", "frozen/case.py")
+        ]
+
     def test_mock_words_in_strings_and_comments_do_not_count_as_imports(self) -> None:
         findings = self.check({
             "src/a.ts": "const text = \"import sinon from 'sinon'; vi.mock('x')\";\n"

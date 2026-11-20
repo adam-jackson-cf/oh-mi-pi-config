@@ -9,6 +9,7 @@ from typing import Any
 from guardrails.context.config import adapter_declarations
 from guardrails.context.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import as_list, matches_any, settings
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class Subcommand:
     summary: str
     needs_profile: bool = True
     prints_data: bool = False
+    honours_exclusions: bool = False
 
 
 SUBCOMMANDS: dict[str, Subcommand] = {
@@ -63,16 +65,22 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "python-quality": Subcommand(
         ("guardrails.commands.python_policy.quality",),
         "PYQ structure and class-shape rules",
+        honours_exclusions=True,
     ),
     "python-fanout": Subcommand(
-        ("guardrails.commands.python_policy.fanout",), "FANOUT.* import fan-out limits"
+        ("guardrails.commands.python_policy.fanout",),
+        "FANOUT.* import fan-out limits",
+        honours_exclusions=True,
     ),
     "python-scalability": Subcommand(
-        ("guardrails.commands.python_policy.scalability",), "PYS scalability rules"
+        ("guardrails.commands.python_policy.scalability",),
+        "PYS scalability rules",
+        honours_exclusions=True,
     ),
     "python-test-hygiene": Subcommand(
         ("guardrails.commands.python_policy.subprocess_timeouts",),
         "TEST.subprocess-timeouts: bounded process calls in Python tests",
+        honours_exclusions=True,
     ),
     "toolchain-parity": Subcommand(
         ("guardrails.commands.catalogue.toolchain_parity",), "PARITY.* toolchain parity"
@@ -120,6 +128,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
             "guardrails.commands.surface.journeys",
         ),
         "SURFACE.feature-map and SURFACE.journeys",
+        honours_exclusions=True,
     ),
     "lever-selftest": Subcommand(
         ("guardrails.commands.surface.lever_selftest",), "SURFACE.lever-isolation"
@@ -130,6 +139,28 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         prints_data=True,
     ),
 }
+
+
+RECORD_PREFIX = "record:"
+EXCLUDED_ADAPTER_ACTIONS = frozenset({"lint"})
+
+
+def outside_exclusions(
+    findings: list[Finding], profile: dict[str, Any]
+) -> list[Finding]:
+    patterns = as_list(settings(profile, "check").get("exclude"))
+    return [
+        finding
+        for finding in findings
+        if finding.path.startswith(RECORD_PREFIX)
+        or not matches_any(finding.path, patterns)
+    ]
+
+
+def honours_exclusions(name: str, argv: list[str]) -> bool:
+    if name == "adapter":
+        return (argv[0] if argv else "lint") in EXCLUDED_ADAPTER_ACTIONS
+    return SUBCOMMANDS[name].honours_exclusions
 
 
 def module_names(name: str, profile: dict[str, Any]) -> tuple[str, ...]:

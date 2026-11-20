@@ -234,6 +234,24 @@ class ExtraTests(unittest.TestCase):
             assert "tests/test_shop.py: TEST.no-self-mocking: line 17" in out
 
     @needs_extra
+    def test_cli_lint_drops_findings_under_the_record_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            source = SHOP_TEST + (
+                "\n\ndef test_patched(monkeypatch):\n"
+                "    import shop.core\n"
+                "    monkeypatch.setattr('shop.core.price', lambda q: 0)\n"
+            )
+            repo = shop_repository(Path(scratch), source)
+            excluded = {
+                **SHOP_PROFILE,
+                "guardrails": {"check": {"exclude": ["tests/**"]}},
+            }
+            write_profile(repo, excluded)
+            code, out = run_cli("adapter", "--repo", str(repo), "pytest", "lint")
+            assert "TEST.no-self-mocking" not in out
+            assert "shop/core.py: TEST.no-test-hooks" in out
+
+    @needs_extra
     def test_tier_listing_feeds_the_shared_collection_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))

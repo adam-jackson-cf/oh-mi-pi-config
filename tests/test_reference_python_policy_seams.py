@@ -492,6 +492,43 @@ class SubprocessTimeoutTests(unittest.TestCase):
         )
 
 
+class StandaloneExclusionTests(unittest.TestCase):
+    def record(self, profile: dict[str, Any]) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        record = Path(directory.name)
+        (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
+        return record
+
+    def exit_codes(self, step: str, repo: Path, profile: dict[str, Any]) -> list[int]:
+        codes = []
+        for exclude in ([], ["tests/**"]):
+            excluded = {**profile, "guardrails": {**profile.get("guardrails", {})}}
+            excluded["guardrails"]["check"] = {"exclude": exclude}
+            argv = [step, "--repo", str(repo), "--record", str(self.record(excluded))]
+            with contextlib.redirect_stdout(io.StringIO()):
+                codes.append(cli.main(argv))
+        return codes
+
+    def test_python_quality_drops_findings_under_the_record_exclusions(self) -> None:
+        repo = ShopRepo(self, {"tests/BadName/check.py": "VALUE = 1\n"})
+        assert repo.run("quality")
+        assert self.exit_codes("python-quality", repo.path, repo.profile) == [1, 0]
+
+    def test_python_test_hygiene_drops_findings_under_the_record_exclusions(
+        self,
+    ) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name)
+        run_attached(["git", "init", "-q", str(path)], check=True, timeout=60)
+        (path / "tests/unit").mkdir(parents=True)
+        (path / "tests/unit/test_proc.py").write_text(
+            "import subprocess\n\n\ndef test_sync():\n    subprocess.check_output(['true'])\n"
+        )
+        assert self.exit_codes("python-test-hygiene", path, HYGIENE_PROFILE) == [1, 0]
+
+
 def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
     profile = {
         "guardrails": {
