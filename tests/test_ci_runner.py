@@ -474,7 +474,7 @@ class RunnerParityTests(unittest.TestCase):
                 assert result.returncode == 1
                 assert (
                     f"core.hooksPath is {value or 'unset'}; install the hook with: "
-                    "bash scripts/bootstrap.sh"
+                    "bash scripts/install-quality-gates.sh"
                 ) in result.stderr
 
 
