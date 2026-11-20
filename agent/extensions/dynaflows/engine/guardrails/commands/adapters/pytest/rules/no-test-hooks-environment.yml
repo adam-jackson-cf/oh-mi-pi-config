@@ -18,7 +18,7 @@
             "kind": "call",
             "has": {
               "field": "function",
-              "regex": "(^|\\.)(getenv|environ\\.(get|pop|setdefault)|modules\\.get)$"
+              "regex": "(^|\\.)(getenv|environ\\.(get|pop|setdefault)|modules\\.get|find_spec)$"
             }
           }
         }

@@ -23,6 +23,7 @@ from guardrails.commands.adapters.go.source import (
     walk,
     words,
 )
+from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.lint import waived
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import normalized_path, repo_paths
@@ -303,6 +304,20 @@ def marker_read(node: SgNode, source: Source) -> bool:
     )
 
 
+def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
+    return [
+        (
+            node,
+            "production code reads a test marker from the environment or test flags "
+            f"({snippet(node)})",
+        )
+        for node in walk(parse(inline_bindings(source.root.text(), "go")))
+        if (value := string_value(node)) is not None
+        and MARKER.match(value)
+        and marker_read(node, source)
+    ]
+
+
 def hook_findings(source: Source) -> list[Finding]:
     found = []
     for call in calls(source.root):
@@ -316,14 +331,8 @@ def hook_findings(source: Source) -> list[Finding]:
                 call,
                 f"production code asks whether it runs under test ({snippet(call)})",
             ))
+    found.extend(marker_reads(source))
     for node in walk(source.root):
-        value = string_value(node)
-        if value is not None and MARKER.match(value) and marker_read(node, source):
-            found.append((
-                node,
-                f"production code reads a test marker from the environment or test flags "
-                f"({snippet(node)})",
-            ))
         if node.kind() in DECLARING:
             for item in children(node):
                 if item.kind() in NAMES and hook_phrase(item.text()):

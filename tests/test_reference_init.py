@@ -350,6 +350,22 @@ class DraftRecordTests(InitCase):
                 {"schemaVersion": 2, "dynaflows": {"enabled": True}},
                 "unknown field dynaflows.enabled must be removed",
             ),
+            (
+                {"schemaVersion": 2, "dynaflows": {"mode": "bogus"}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": {}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": "on"},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": {"mode": "structured", "extra": 1}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
         ):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))

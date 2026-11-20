@@ -8,12 +8,18 @@ import {
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type PushPlan = { remote: string; refspecs: string[]; all: boolean };
 type PushOptions = { all: boolean; repository: string | undefined; positional: string[] };
+type GhApiRequest = { endpoint: string; method: string; fields: string[] };
 
 const PULLS_COMMITS = /^git (?:merge|rebase|cherry-pick|revert|am|pull)(?![-\w])/;
 const PUBLISHES = /^(?:git push\b|gh pr (?:create|merge)\b)/;
 const PUSH_VALUED = ["-o", "--push-option", "--repo", "--receive-pack", "--exec"];
 const PUSH_EVERY_BRANCH = ["--all", "--mirror", "--branches"];
 const EVERY_BRANCH = Symbol("every branch");
+type PushTarget = string | typeof EVERY_BRANCH | undefined;
+const GH_API_FIELDS = ["-f", "--raw-field", "-F", "--field", "--input"];
+const GH_API_VALUED = [...GH_API_FIELDS, "-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--cache", "-p", "--preview"];
+const GH_API_BRANCH_WRITES = [/(?:^|\/)pulls\/[^/]+\/merge\/?$/, /(?:^|\/)merges\/?$/, /(?:^|\/)git\/refs(?:\/|$)/];
+const GRAPHQL_BRANCH_MUTATIONS = /\b(?:mergePullRequest|enablePullRequestAutoMerge|mergeBranch|updateRefs?|createRef|deleteRef|createCommitOnBranch)\b/;
 
 const validBase = (value: string | undefined): value is string =>
 	value !== undefined && (isAbsolute(value) || value.startsWith("~/"));
@@ -102,19 +108,38 @@ function pushPlan(args: string[]): PushPlan {
 	return { remote, refspecs, all: options.all };
 }
 
+function branchName(ref: string, current: string | undefined): string | undefined {
+	const name = ref === "HEAD" || ref === "@" ? current : ref;
+	const short = name?.startsWith("refs/") ? name.slice("refs/".length) : name;
+	return short?.startsWith("heads/") ? short.slice("heads/".length) : short;
+}
+
 function destination(refspec: string, current: string | undefined): string | typeof EVERY_BRANCH | undefined {
 	const spec = refspec.replace(/^\+/, "");
-	if (spec === ":") return EVERY_BRANCH;
-	const target = spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec;
-	return (target === "HEAD" ? current : target)?.replace(/^refs\/heads\//, "");
+	if (spec.startsWith("^")) return undefined;
+	if (spec === ":" || spec.includes("*")) return EVERY_BRANCH;
+	return branchName(spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec, current);
+}
+
+async function gitLines(pi: ExecApi, cwd: string, args: string[]): Promise<string[]> {
+	return (await gitText(pi, cwd, args))?.split("\n").filter(Boolean) ?? [];
+}
+
+async function implicitTargets(pi: ExecApi, cwd: string, remote: string, current: string | undefined): Promise<PushTarget[]> {
+	const configured = await gitLines(pi, cwd, ["config", "--get-all", `remote.${remote}.push`]);
+	if (configured.length) return configured.map(refspec => destination(refspec, current));
+	if (await gitText(pi, cwd, ["config", "--get", "push.default"]) === "matching") return [EVERY_BRANCH];
+	const upstream = current ? await gitText(pi, cwd, ["config", "--get", `branch.${current}.merge`]) : undefined;
+	return [current, upstream === undefined ? undefined : branchName(upstream, current)];
 }
 
 async function pushReason(pi: ExecApi, action: GitAction): Promise<string | undefined> {
 	if (!action.cwd) return "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push.";
 	const plan = pushPlan(action.args);
-	const needsCurrent = !plan.refspecs.length || plan.refspecs.some(refspec => /(?:^|:)\+?HEAD$|^\+?HEAD:/.test(refspec));
-	const current = needsCurrent ? await gitText(pi, action.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]) : undefined;
-	const targets = plan.refspecs.length ? plan.refspecs.map(refspec => destination(refspec, current)) : [current];
+	const current = await gitText(pi, action.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
+	const targets = plan.refspecs.length
+		? plan.refspecs.map(refspec => destination(refspec, current))
+		: await implicitTargets(pi, action.cwd, plan.remote, current);
 	const head = await gitText(pi, action.cwd, ["symbolic-ref", "--short", `refs/remotes/${plan.remote}/HEAD`]);
 	if (!head?.startsWith(`${plan.remote}/`)) {
 		return `Agent rails: cannot resolve the default branch of remote ${plan.remote} (refs/remotes/${plan.remote}/HEAD); ` +
@@ -126,10 +151,70 @@ async function pushReason(pi: ExecApi, action: GitAction): Promise<string | unde
 		"push a feature branch and open a PR instead.";
 }
 
+function configKey(entry: string): string {
+	return (entry.split("=")[0] ?? "").toLowerCase();
+}
+
+function gitRouteReason(action: GitAction): string | undefined {
+	if (!action.command.startsWith("git ")) return undefined;
+	const alias = action.config.map(configKey).find(key => key.startsWith("alias."));
+	if (alias) return `Agent rails: git -c ${alias} defines a command the rails cannot check; run the Git command itself.`;
+	if (/^git send-pack\b/.test(action.command)) return "Agent rails: git send-pack bypasses the push checks; use git push.";
+	if (!/^git push\b/.test(action.command)) return undefined;
+	const override = action.config.map(configKey).find(key => /^(?:push|remote|branch)\./.test(key));
+	return override
+		? `Agent rails: git -c ${override} changes where git push sends commits; drop it and push with the repository's own configuration.`
+		: undefined;
+}
+
+function ghApiOption(arg: string): [string, string | undefined] {
+	if (arg.startsWith("--")) {
+		const at = arg.indexOf("=");
+		return at < 0 ? [arg, undefined] : [arg.slice(0, at), arg.slice(at + 1)];
+	}
+	return [arg.slice(0, 2), arg.length > 2 ? arg.slice(2) : undefined];
+}
+
+function ghApiValue(request: GhApiRequest, name: string, value: string): void {
+	if (name === "-X" || name === "--method") request.method = value.toUpperCase();
+	if (GH_API_FIELDS.includes(name)) request.fields.push(value);
+}
+
+function ghApiRequest(args: string[]): GhApiRequest {
+	const request: GhApiRequest = { endpoint: "", method: "", fields: [] };
+	for (let index = 1; index < args.length; index++) {
+		const arg = args[index] ?? "";
+		if (!arg.startsWith("-")) {
+			request.endpoint ||= arg;
+			continue;
+		}
+		const [name, inline] = ghApiOption(arg);
+		if (!GH_API_VALUED.includes(name)) continue;
+		ghApiValue(request, name, inline ?? args[++index] ?? "");
+	}
+	return request;
+}
+
+function ghApiReason(action: GitAction): string | undefined {
+	if (!/^gh api\b/.test(action.command)) return undefined;
+	const request = ghApiRequest(action.args);
+	const endpoint = (request.endpoint.startsWith("/") ? request.endpoint.slice(1) : request.endpoint).split("?")[0] ?? "";
+	const method = request.method || (request.fields.length ? "POST" : "GET");
+	const mutation = endpoint === "graphql" && request.fields.some(field => GRAPHQL_BRANCH_MUTATIONS.test(field));
+	const write = !["GET", "HEAD"].includes(method) && GH_API_BRANCH_WRITES.some(pattern => pattern.test(endpoint));
+	return mutation || write
+		? `Agent rails: gh api ${method} ${endpoint} merges or moves branches outside the rails; use gh pr merge or git push.`
+		: undefined;
+}
+
 function minimalMergeReason(mode: Mode): string | undefined {
 	return mode === "minimal"
 		? "Agent rails: gh pr merge is blocked in dynaflows minimal mode; the owner merges, or switches this repository to structured mode."
 		: undefined;
 }
 
-export { PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, minimalMergeReason, pushReason, worktreeReason };
+function routeReason(action: GitAction): string | undefined {
+	return gitRouteReason(action) ?? ghApiReason(action);
+}
+
+export { PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };

@@ -101,6 +101,13 @@
       "expect": "finding"
     },
     {
+      "id": "production-marker-indirect-read",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "owned production code reads a test marker through a constant, an alias or a destructured environment binding",
+      "expect": "finding"
+    },
+    {
       "id": "production-marker-data",
       "rule": "TEST.no-test-hooks",
       "evidence": "source",

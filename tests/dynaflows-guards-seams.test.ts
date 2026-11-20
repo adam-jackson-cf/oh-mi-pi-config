@@ -770,6 +770,47 @@ test("structured mode adds the merge-and-recover read before Git integration com
 	} finally { h.cleanup(); }
 });
 
+async function assertBypassesBlocked(h: Harness): Promise<void> {
+	await execute("git", ["config", "alias.pp", "push"], { cwd: h.root });
+	await execute("git", ["config", "alias.shellpush", "!git push origin main"], { cwd: h.root });
+	for (const command of [
+		"git push origin heads/main", "git push origin 'refs/heads/*:refs/heads/*'", "git push origin '+refs/heads/agent/*:refs/heads/*'",
+		"git pp origin main", "git shellpush",
+	]) {
+		assertBlocked(await h.call("bash", { command }), "default branch main is blocked in minimal and structured mode", command);
+	}
+	const routed: [string, string][] = [
+		["git -c push.default=upstream push", "git -c push.default changes where git push sends commits"],
+		["git -c remote.origin.push=HEAD:main push", "git -c remote.origin.push changes where git push sends commits"],
+		["git -c alias.zz=push zz origin main", "git -c alias.zz defines a command the rails cannot check"],
+		["git send-pack origin main", "git send-pack bypasses the push checks"],
+		["gh api -X PUT repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
+		["gh api --method=put /repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
+		["gh api repos/owner/repo/merges -f base=main -f head=agent/test", "gh api POST repos/owner/repo/merges merges or moves branches"],
+		["gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc", "gh api PATCH repos/owner/repo/git/refs/heads/main merges or moves branches"],
+		["gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", "gh api POST graphql merges or moves branches"],
+	];
+	for (const [command, fragment] of routed) {
+		assertBlocked(await h.call("bash", { command }), fragment, command);
+	}
+	for (const command of ["git pp origin agent/test", "gh api repos/owner/repo/pulls/7", "gh api graphql -f query='{ viewer { login } }'"]) {
+		assert.equal(await h.call("bash", { command }), undefined, command);
+	}
+	await execute("git", ["config", "branch.agent/test.remote", "origin"], { cwd: h.root });
+	await execute("git", ["config", "branch.agent/test.merge", "refs/heads/main"], { cwd: h.root });
+	assertBlocked(await h.call("bash", { command: "git push" }), "default branch main", "a feature branch whose upstream is the default branch");
+	await execute("git", ["config", "--unset", "branch.agent/test.merge"], { cwd: h.root });
+	await execute("git", ["config", "push.default", "matching"], { cwd: h.root });
+	assertBlocked(await h.call("bash", { command: "git push" }), "default branch main", "push.default matching pushes every branch");
+	await execute("git", ["config", "--unset", "push.default"], { cwd: h.root });
+	await execute("git", ["config", "remote.origin.push", "refs/heads/agent/test:refs/heads/main"], { cwd: h.root });
+	assertBlocked(await h.call("bash", { command: "git push origin" }), "default branch main", "a configured push refspec");
+	await execute("git", ["config", "--unset", "remote.origin.push"], { cwd: h.root });
+	await execute("git", ["symbolic-ref", "HEAD", "refs/heads/main"], { cwd: h.root });
+	assertBlocked(await h.call("bash", { command: "git push origin @" }), "default branch main", "@ names the current branch");
+	await execute("git", ["symbolic-ref", "HEAD", "refs/heads/agent/test"], { cwd: h.root });
+}
+
 test("minimal mode blocks gh pr merge and pushes to the default branch while feature pushes and PR creation pass", async () => {
 	const h = harness();
 	try {
@@ -786,6 +827,7 @@ test("minimal mode blocks gh pr merge and pushes to the default branch while fea
 		]) {
 			assertBlocked(await h.call("bash", { command }), "default branch main is blocked in minimal and structured mode", command);
 		}
+		await assertBypassesBlocked(h);
 		for (const command of [
 			"git push", "git push -u origin agent/test", "git push origin HEAD", "git push --tags origin",
 			"git push -o ci.skip origin agent/test", "git push origin agent/test:agent/review", "gh pr create --fill",
@@ -808,6 +850,7 @@ test("structured mode keeps the default-branch push block and routes gh pr merge
 		await h.read("skill://git-tool", mergeRecover);
 		assertBlocked(await h.call("bash", { command: "git push origin main" }), "default branch main");
 		assert.equal(await h.call("bash", { command: "git push origin agent/test" }), undefined);
+		await assertBypassesBlocked(h);
 		const merge = reasonOf(await h.call("bash", { command: "gh pr merge 7" }));
 		assert.ok(merge.includes("merge requires --match-head-commit"), merge);
 	} finally { h.cleanup(); }

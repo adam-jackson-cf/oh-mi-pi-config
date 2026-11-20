@@ -151,7 +151,6 @@ def _check_options(function: str, options: Mapping[str, object], accepted: Any) 
 
 
 def _harness_root() -> Path:
-    """The oh-mi-pi-config checkout that holds this engine."""
     if not _LOADED_FROM:
         raise WorkflowError(
             "cannot locate the harness: workflows.py was loaded without __file__"

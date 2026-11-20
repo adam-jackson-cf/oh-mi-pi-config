@@ -113,9 +113,11 @@ def adapter_rule_files() -> dict[str, list[dict[str, Any]]]:
     return files
 
 
-class RemediationSchemaTests(unittest.TestCase):
-    """Every catalogue rule and adapter pattern names its root cause and a holistic fix."""
+def entry_keys(entries: list[dict[str, Any]]) -> set[str]:
+    return {key for entry in entries for key in entry}
 
+
+class RemediationSchemaTests(unittest.TestCase):
     def test_every_catalogue_rule_states_root_cause_and_fix(self) -> None:
         rules = packaged_catalogue()["rules"]
         for rule in rules:
@@ -126,7 +128,7 @@ class RemediationSchemaTests(unittest.TestCase):
     def test_every_adapter_pattern_states_root_cause_and_fix(self) -> None:
         for name, entries in adapter_rule_files().items():
             with self.subTest(file=name):
-                assert "fix" not in {key for entry in entries for key in entry}
+                assert "fix" not in entry_keys(entries)
                 for entry in entries:
                     assert remediation_problems(entry) == [], entry["id"]
                 assert repeated_remediations(entries) == []

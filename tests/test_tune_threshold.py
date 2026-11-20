@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -225,10 +226,14 @@ def test_an_unreadable_file_exits_with_its_path(
 def unit_rows(units_per_label: int, cases_per_unit: int) -> list[str]:
     return [
         f"{label}-{u}-{c},{label},{0.8 if label else 0.2},m,,dev,,{label}-{u}"
-        for label in (1, 0)
-        for u in range(units_per_label)
-        for c in range(cases_per_unit)
+        for label, u, c in itertools.product(
+            (1, 0), range(units_per_label), range(cases_per_unit)
+        )
     ]
+
+
+def fold_placements(folds: list[list[int]]) -> list[tuple[int, int]]:
+    return [(case, number) for number, fold in enumerate(folds) for case in fold]
 
 
 def unit_csv(path: Path, rows: list[str]) -> Path:
@@ -251,10 +256,10 @@ def test_cross_validation_folds_whole_units_and_caps_folds_by_units(
     assert (result["dev_cases"], result["folds"]) == (60, 3)
     cases = tune.parse(io.StringIO(csv.read_text()))["m"]
     for seed in range(5):
-        folds = tune.unit_folds(cases, 3, seed)
-        assert sorted(i for fold in folds for i in fold) == list(range(60))
-        homes = {cases[i]["unit"]: n for n, fold in enumerate(folds) for i in fold}
-        assert all(homes[cases[i]["unit"]] == n for n, f in enumerate(folds) for i in f)
+        placements = fold_placements(tune.unit_folds(cases, 3, seed))
+        assert sorted(case for case, _ in placements) == list(range(60))
+        homes = {cases[case]["unit"]: number for case, number in placements}
+        assert all(homes[cases[case]["unit"]] == number for case, number in placements)
 
 
 def test_too_few_units_per_label_reports_an_error_even_with_many_cases(

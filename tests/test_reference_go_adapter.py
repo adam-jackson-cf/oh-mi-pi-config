@@ -201,6 +201,29 @@ func Region() string {
             '("test.v")',
         ]
 
+    def test_marker_reads_through_a_constant_are_test_hooks(self) -> None:
+        production = source(
+            "shop/region.go",
+            """package shop
+
+import "os"
+
+const marker = "GO_TEST"
+const mode = "SHOP_MODE"
+
+func Region() string {
+\tif os.Getenv(marker) != "" || os.Getenv(mode) == "eu" {
+\t\treturn "local"
+\t}
+\treturn "eu"
+}
+""",
+        )
+        assert [item.message for item in go_lint.hook_findings(production)] == [
+            "line 9: production code reads a test marker from the environment or test flags "
+            '("GO_TEST")',
+        ]
+
 
 class CollectionTests(unittest.TestCase):
     def test_test_functions_collect_with_behaviour_names_from_their_words(self) -> None:

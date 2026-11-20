@@ -1,16 +1,3 @@
-"""Resolve a clone to its personal per-repo record under the oh-mi-pi-config root.
-
-A record lives at ``<config root>/repos/<owner>/<name>/`` (lowercase) and holds ``gate.json``
-and ``profile.md``. ``/repos/`` is gitignored in oh-mi-pi-config: records are personal and are
-never committed. The config root is the checkout this file belongs to, so the code finds the
-records that sit beside it on every device, with no home-directory path in code.
-
-The clone's ``origin`` remote names the record. A worktree shares its main checkout's remotes, so
-it resolves to the same record.
-
-The TypeScript twin is ``repo-record.ts`` in this directory; keep both in step.
-"""
-
 from __future__ import annotations
 
 import json
@@ -161,7 +148,10 @@ def _settings_reason(gate: dict[str, Any]) -> str | None:
     """Why the gate's ``agentMerge`` or ``dynaflows`` setting is rejected, or None."""
     if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
-    dynaflows = gate.get("dynaflows")
+    return dynaflows_reason(gate.get("dynaflows"))
+
+
+def dynaflows_reason(dynaflows: object) -> str | None:
     if isinstance(dynaflows, dict) and "enabled" in dynaflows:
         return f"unknown field dynaflows.enabled must be removed; {MODE_REQUIREMENT}"
     if (

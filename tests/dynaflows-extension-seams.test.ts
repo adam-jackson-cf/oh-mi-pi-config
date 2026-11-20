@@ -71,7 +71,8 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test.each(["minimal", "structured"] as const)("handoff needs only the verification read after code edits, never a check run (dynaflows %s mode)", async mode => {
+	test.each(["minimal", "structured"])("handoff needs only the verification read after code edits, never a check run (dynaflows %s mode)", async name => {
+		const mode = name === "structured" ? "structured" : "minimal";
 		const h = harness();
 		try {
 			h.mode(mode);
@@ -1213,5 +1214,31 @@ test.each(["no record", "minimal", "structured"])("native judged rules follow th
 		assert.deepEqual(rules.get(h.api.pi.settings), record === "structured"
 			? ["user-disabled-rule"]
 			: ["user-disabled-rule", ...config.structuredRules], "restarting the session does not duplicate exclusions");
+	} finally { h.cleanup(); }
+});
+
+test("native judged rules follow each mode switch through the directive, the dynaflows tool and a new session", async () => {
+	const h = harness();
+	try {
+		h.mode("minimal");
+		const rules = lookup("ttsr.disabledRules");
+		assert.ok(rules);
+		rules.override(h.api.pi.settings, ["user-disabled-rule"]);
+		const config = z.object({ structuredRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+		const minimalRules = ["user-disabled-rule", ...config.structuredRules];
+		await h.emit("session_start");
+		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules);
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows" });
+		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "the structured directive turns the judged rules on");
+		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows minimal" });
+		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules, "the minimal directive turns them off");
+		await h.tool("dynaflows", { mode: "structured" });
+		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "the dynaflows tool turns them on");
+		h.mode("minimal");
+		await h.emit("session_start");
+		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules, "a new session in minimal mode turns them off");
+		h.mode("structured");
+		await h.emit("session_start");
+		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "a new session in structured mode turns them on");
 	} finally { h.cleanup(); }
 });

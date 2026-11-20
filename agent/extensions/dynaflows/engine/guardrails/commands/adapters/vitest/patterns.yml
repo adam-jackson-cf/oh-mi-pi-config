@@ -90,7 +90,7 @@
               "kind": "member_expression"
             },
             {
-              "regex": "^(process\\.env|Bun\\.env|import\\.meta\\.env)\\.([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)\\??\\.([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
             }
           ]
         },
@@ -100,7 +100,7 @@
               "kind": "subscript_expression"
             },
             {
-              "regex": "^(process\\.env|Bun\\.env|import\\.meta\\.env)\\[[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\]$"
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\?\\.)?\\[[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\]$"
             }
           ]
         },
@@ -110,7 +110,7 @@
               "kind": "binary_expression"
             },
             {
-              "regex": "^[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\s+in\\s+(process\\.env|Bun\\.env|import\\.meta\\.env)$"
+              "regex": "^[\"'`]([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?[\"'`]\\s+in\\s+(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)$"
             }
           ]
         },
@@ -120,7 +120,7 @@
               "kind": "binary_expression"
             },
             {
-              "regex": "^(process\\.env|Bun\\.env|import\\.meta\\.env)(\\.\\w+|\\[[^\\]]+\\])\\s*[!=]==?\\s*[\"'`](test|testing)[\"'`]$"
+              "regex": "^(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])\\s*[!=]==?\\s*[\"'`](test|testing)[\"'`]$"
             }
           ]
         },
@@ -130,7 +130,7 @@
               "kind": "binary_expression"
             },
             {
-              "regex": "^[\"'`](test|testing)[\"'`]\\s*[!=]==?\\s*(process\\.env|Bun\\.env|import\\.meta\\.env)(\\.\\w+|\\[[^\\]]+\\])$"
+              "regex": "^[\"'`](test|testing)[\"'`]\\s*[!=]==?\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])$"
             }
           ]
         },
@@ -151,6 +151,26 @@
             },
             {
               "regex": "^typeof\\s+(vi|jest|describe|expect)$"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "call_expression"
+            },
+            {
+              "regex": "^\\[[^\\]]*[\"'`](test|testing)[\"'`][^\\]]*\\]\\??\\.includes\\(\\s*\\(?\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)(\\??\\.\\w+|(\\?\\.)?\\[[^\\]]+\\])"
+            }
+          ]
+        },
+        {
+          "all": [
+            {
+              "kind": "variable_declarator"
+            },
+            {
+              "regex": "^\\{\\s*(?:[^}]*?[\\s,])?([A-Z0-9_]*_)?(VITEST|JEST[A-Z0-9_]*|BUN_TEST|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?\\s*(?::\\s*[\\w$]+\\s*)?(?:,[^}]*)?\\}\\s*=\\s*(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)$"
             }
           ]
         }

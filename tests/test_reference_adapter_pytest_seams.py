@@ -32,6 +32,14 @@ from guardrails.toolkit.test_report.junit import parse_report
 pytestmark = pytest.mark.seam
 
 
+def marker_lines(out: str, path: str) -> list[int]:
+    return sorted(
+        int(line.split(": line ")[1].split(":")[0])
+        for line in out.splitlines()
+        if line.startswith(f"{path}: TEST.no-test-hooks: line ")
+    )
+
+
 MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
 
 
@@ -244,6 +252,18 @@ class ExtraTests(unittest.TestCase):
                 + "".join(f"        {read},\n" for read in reads)
                 + "    ]\n"
             )
+            (repo / "shop/indirect.py").write_text(
+                "import importlib.util\nimport os\n\n"
+                'MARKER = "PYTEST_CURRENT_TEST"\n'
+                "ENV = os.environ\n"
+                'MODE = "SHOP_MODE"\n\n\n'
+                "def flags():\n    return [\n"
+                "        os.environ.get(MARKER),\n"
+                '        ENV.get("PYTEST_CURRENT_TEST"),\n'
+                '        importlib.util.find_spec("pytest"),\n'
+                "        os.environ.get(MODE),\n"
+                "    ]\n"
+            )
             (repo / "shop/runners.py").write_text(
                 'RUNNERS = ("pytest", "unittest")\n'
                 'ARTIFACTS = {"TESTS_INVENTORY": "tests.json"}\n\n\n'
@@ -256,15 +276,12 @@ class ExtraTests(unittest.TestCase):
                 "pytest",
                 "lint",
                 "shop/flags.py",
+                "shop/indirect.py",
                 "shop/runners.py",
             )
-        marker_lines = sorted(
-            int(line.split(": line ")[1].split(":")[0])
-            for line in out.splitlines()
-            if line.startswith("shop/flags.py: TEST.no-test-hooks: line ")
-        )
         assert code == 1
-        assert marker_lines == list(range(8, 8 + len(reads)))
+        assert marker_lines(out, "shop/flags.py") == list(range(8, 8 + len(reads)))
+        assert marker_lines(out, "shop/indirect.py") == [11, 12, 13]
         assert "shop/runners.py" not in out
         assert "remediation TEST.no-test-hooks: root cause: " in out
 

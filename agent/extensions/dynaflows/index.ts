@@ -17,7 +17,7 @@ import {
 	recordRead, subagentPathReason, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
 } from "./lib/rails-runtime.ts";
 import {
-	PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, minimalMergeReason, pushReason, worktreeReason,
+	PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, minimalMergeReason, pushReason, routeReason, worktreeReason,
 } from "./lib/guards.ts";
 
 const prCiSchema = z.object({
@@ -34,6 +34,7 @@ const prCiSchema = z.object({
 // Harness variables the omp runtime sets for its own commands. Rails strip them from every repo
 // command they run (path check, checks.commit, harness checks) so repos never see the harness.
 const harnessVariables = ["AGENT"];
+const ALIAS_DEPTH = 8;
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
 // Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci_runner.py.
@@ -291,6 +292,42 @@ async function recordMode(slug: string | null, dir: string, strict: boolean): Pr
 		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
 	}
 }
+async function machineMode(path: string): Promise<Mode | undefined> {
+	const text = await readFile(path, "utf8").catch(absentFile);
+	if (text === null) return undefined;
+	const value = z.record(z.string(), z.unknown()).safeParse(JSON.parse(text));
+	const parsed = machineModeSchema.safeParse(value.success ? value.data : undefined);
+	if (parsed.success) return parsed.data.mode;
+	const legacy = value.success && Object.hasOwn(value.data, "enabled") ? "unknown field enabled must be removed; " : "";
+	throw new Error(`the machine default ${path} is invalid: ${legacy}it must be ${machineRequirement}`);
+}
+async function machineModeAt(path: string, slug: string | null, strict: boolean): Promise<ModeAt | undefined> {
+	try {
+		if (await machineMode(path) !== "minimal") return undefined;
+		return { mode: "minimal", why: minimalText(slug, `the machine default ${path} sets mode minimal`) };
+	} catch (error) {
+		if (strict) throw error;
+		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
+	}
+}
+type SessionCache = { builtins?: Promise<Set<string>>; userRules?: string[] };
+async function gitBuiltins(pi: ExecApi, cache: SessionCache, cwd: string): Promise<Set<string>> {
+	cache.builtins ??= gitValue(pi, cwd, ["--list-cmds=builtins"]).then(text => new Set(text.split("\n")));
+	return cache.builtins;
+}
+async function aliasActions(pi: ExecApi, cache: SessionCache, action: GitAction): Promise<GitAction[] | undefined> {
+	const [name, ...rest] = action.args;
+	if (!action.cwd || !action.command.startsWith("git ") || !name || name.startsWith("-")) return undefined;
+	if ((await gitBuiltins(pi, cache, action.cwd)).has(name)) return undefined;
+	const result = await pi.exec("git", ["config", "--get", `alias.${name}`], { cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+	if (result.killed) throw new Error(`git config --get alias.${name} was killed`);
+	const expansion = result.code === 0 ? result.stdout.trim() : "";
+	if (!expansion) return undefined;
+	const words = rest.map(shellWord).join(" ");
+	if (expansion.startsWith("!")) return gitActions(`${expansion.slice(1)} ${words}`, action.cwd);
+	const config = action.config.map(entry => `-c ${shellWord(entry)}`).join(" ");
+	return gitActions(`git ${config} ${expansion} ${words}`, action.cwd);
+}
 async function subagentReason(map: Mapping, event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
 	if (!map.editTools.includes(event.toolName) || ctx.agent.kind === "main") return undefined;
 	return subagentPathReason([...pathArguments(event, map), ...(event.input.path === map.resolveDevice ? state.proposal : [])]);
@@ -309,6 +346,7 @@ export default function dynaflows(
 	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[]; ompCommand?: string[] } = {},
 ): void {
 	const states = new Map<string, State>();
+	const session: SessionCache = {};
 	let map: Mapping;
 	let loadError: string | undefined;
 	try {
@@ -356,28 +394,10 @@ export default function dynaflows(
 		const gate = await gateAt(root, state, ctx, true);
 		return { ...identity, reason: await ciReason(root, pr.statusCheckRollup, gate, identity) };
 	}
-	async function machineMode(): Promise<Mode | undefined> {
-		const text = await readFile(machineDynaflowsPath, "utf8").catch(absentFile);
-		if (text === null) return undefined;
-		const value = z.record(z.string(), z.unknown()).safeParse(JSON.parse(text));
-		const parsed = machineModeSchema.safeParse(value.success ? value.data : undefined);
-		if (parsed.success) return parsed.data.mode;
-		const legacy = value.success && Object.hasOwn(value.data, "enabled") ? "unknown field enabled must be removed; " : "";
-		throw new Error(`the machine default ${machineDynaflowsPath} is invalid: ${legacy}it must be ${machineRequirement}`);
-	}
-	async function machineModeAt(slug: string | null, strict: boolean): Promise<ModeAt | undefined> {
-		try {
-			if (await machineMode() !== "minimal") return undefined;
-			return { mode: "minimal", why: minimalText(slug, `the machine default ${machineDynaflowsPath} sets mode minimal`) };
-		} catch (error) {
-			if (strict) throw error;
-			return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
-		}
-	}
 	async function modeAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<ModeAt> {
 		const root = await repoRoot(cwd);
 		const resolved = root ? await resolveRecord(root, configRoot) : { slug: null, dir: null, reason: "not in a Git repository" };
-		const machine = await machineModeAt(resolved.slug, strict);
+		const machine = await machineModeAt(machineDynaflowsPath, resolved.slug, strict);
 		if (machine) return machine;
 		if (!root || !resolved.dir) return { mode: "minimal", why: minimalText(resolved.slug, resolved.reason ?? "no per-repo record") };
 		return recordMode(resolved.slug, resolved.dir, strict);
@@ -480,15 +500,19 @@ export default function dynaflows(
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) await replayEntry(entry, calls, ctx, state);
 	}
+	async function syncRules(ctx: ExtensionContext): Promise<ModeAt> {
+		const at = await modeAt(ctx).catch((error): ModeAt => ({ mode: "minimal", why: minimalText(null, String(error)) }));
+		const rules = lookup("ttsr.disabledRules");
+		if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
+		const user = session.userRules ??= stringList.parse(rules.get(pi.pi.settings));
+		rules.override(pi.pi.settings, at.mode === "structured" ? user : [...new Set([...user, ...map.structuredRules])]);
+		return at;
+	}
 	pi.on("session_start", async (event, ctx) => {
 		await rebuild(event, ctx);
 		if (loadError) return;
-		const at = await modeAt(ctx).catch((error): ModeAt => ({ mode: "minimal", why: minimalText(null, String(error)) }));
-		if (at.mode === "structured") return;
-		const rules = lookup("ttsr.disabledRules");
-		if (!rules) throw new Error("Agent rails: ttsr.disabledRules setting is unavailable");
-		rules.override(pi.pi.settings, [...new Set([...stringList.parse(rules.get(pi.pi.settings)), ...map.structuredRules])]);
-		if (at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
+		const at = await syncRules(ctx);
+		if (at.mode === "minimal" && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
 	});
 	pi.on("session_switch", rebuild);
 	pi.on("session_branch", rebuild);
@@ -524,7 +548,7 @@ export default function dynaflows(
 		return merge ? mergeActionReason(action, state, ctx) : undefined;
 	}
 	async function gitActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
-		const bypass = hookBypassReason(action);
+		const bypass = hookBypassReason(action) ?? routeReason(action);
 		if (bypass || !new RegExp(map.gitCommand).test(action.command)) return bypass;
 		const mode = action.cwd ? await modeOf(ctx, action.cwd) : "minimal";
 		const urls = missing(state, map, mode, ["git"]);
@@ -533,14 +557,19 @@ export default function dynaflows(
 		if (/^git commit\b/.test(action.command)) return commitHookReason(action) ?? await commitActionReason(action, ctx);
 		return PUBLISHES.test(action.command) ? publishActionReason(action, mode, state, ctx) : undefined;
 	}
-	async function bashReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
-		if (event.toolName !== "bash" || event.input.command === undefined) return undefined;
-		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
-		for (const action of await gitActions(event.input.command, cwd)) {
-			const reason = await gitActionReason(action, state, ctx);
+	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, depth: number): Promise<string | undefined> {
+		if (depth > ALIAS_DEPTH) return `Agent rails: Git aliases nest deeper than ${ALIAS_DEPTH} levels; run the Git command itself.`;
+		for (const action of actions) {
+			const expanded = await aliasActions(pi, session, action);
+			const reason = expanded ? await actionsReason(expanded, state, ctx, depth + 1) : await gitActionReason(action, state, ctx);
 			if (reason) return reason;
 		}
 		return undefined;
+	}
+	async function bashReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
+		if (event.toolName !== "bash" || event.input.command === undefined) return undefined;
+		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
+		return actionsReason(await gitActions(event.input.command, cwd), state, ctx, 0);
 	}
 	async function pathTriggers(path: string, ctx: ExtensionContext, state: State): Promise<string[]> {
 		const root = await repoRoot(path);
@@ -629,6 +658,7 @@ export default function dynaflows(
 			notice = notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
 			return { notice, content: mode === "structured" ? resumeContent(slug, dir, reason) : undefined };
 		}
+		await syncRules(ctx);
 		if (mode === "minimal") return { notice, content: "Dynaflows minimal mode: fixed guards only; do not apply the dynaflows workflow." };
 		return structuredOutcome(ctx, state, notify, { notice, slug, dir, task });
 	}

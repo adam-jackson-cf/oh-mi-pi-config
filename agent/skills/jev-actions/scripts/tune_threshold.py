@@ -695,11 +695,14 @@ def split_units(cases: list[Case], folds: list[list[int]]) -> bool:
     return any(where[cases[i]["unit"]] != n for n, f in enumerate(folds) for i in f)
 
 
+def training_labels(
+    cases: list[Case], folds: list[list[int]], held_out: int
+) -> set[int]:
+    return {cases[i]["y"] for m, f in enumerate(folds) if m != held_out for i in f}
+
+
 def lost_label(cases: list[Case], folds: list[list[int]]) -> bool:
-    return any(
-        {cases[i]["y"] for m, f in enumerate(folds) if m != n for i in f} != {0, 1}
-        for n in range(len(folds))
-    )
+    return any(training_labels(cases, folds, n) != {0, 1} for n in range(len(folds)))
 
 
 def unit_failures(args: Options) -> list[str]:

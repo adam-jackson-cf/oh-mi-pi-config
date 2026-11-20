@@ -314,6 +314,23 @@ class SourceLint(unittest.TestCase):
                 "shop/settings.ts",
             )
 
+    def test_indirect_marker_reads_are_test_hooks(self) -> None:
+        for read in [
+            "const { NODE_ENV } = process.env; export const flag = NODE_ENV === 'test';",
+            "const { VITEST } = process.env; export const flag = VITEST;",
+            "export const flag = process.env?.VITEST;",
+            "const env = process.env; export const flag = env.VITEST;",
+            "const KEY = 'VITEST'; export const flag = process.env[KEY];",
+            "export const flag = ['test', 'testing'].includes(process.env.NODE_ENV ?? '');",
+        ]:
+            self.assert_rule(read, "TEST.no-test-hooks", path="shop/settings.ts")
+        for data in [
+            "const KEY = 'SHOP_MODE'; export const flag = process.env[KEY] === 'production';",
+            "const { SHOP_MODE } = process.env; export const flag = SHOP_MODE;",
+            "const env = process.env; export const flag = env.SHOP_MODE;",
+        ]:
+            self.assert_rule(data, "TEST.no-test-hooks", False, "shop/settings.ts")
+
     def test_symbols_used_only_by_tests_resolve_aliases(self) -> None:
         sources = {
             "shop/core.ts": "export function checkout() {} export function inspect() {}",

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from guardrails.commands.init.discovery import Discovery
@@ -25,10 +27,27 @@ COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
 GITHUB_RUNNER = "github-actions"
 DEFAULT_CONTEXT = "gate"
+RECORD_RULES = Path(__file__).resolve().parents[4] / "lib" / "repo_record.py"
 
 
 class GateError(Exception):
     pass
+
+
+def record_rules() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("dynaflows_repo_record", RECORD_RULES)
+    if spec is None or spec.loader is None:
+        raise GateError(f"cannot load the record rules: {RECORD_RULES}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def dynaflows_error(gate: dict[str, Any]) -> GateError | None:
+    if "dynaflows" not in gate:
+        return None
+    reason: str | None = record_rules().dynaflows_reason(gate["dynaflows"])
+    return None if reason is None else GateError(f"{GATE_PATH}: {reason}")
 
 
 def load_gate(record: Path) -> dict[str, Any] | None:
@@ -45,13 +64,13 @@ def load_gate(record: Path) -> dict[str, Any] | None:
     unknown = sorted(set(gate) - GATE_FIELDS)
     if isinstance(checks, dict):
         unknown += sorted(f"checks.{key}" for key in set(checks) - CHECK_FIELDS)
-    dynaflows = gate.get("dynaflows")
-    if isinstance(dynaflows, dict) and "enabled" in dynaflows:
-        unknown.append("dynaflows.enabled")
     if unknown:
         raise GateError(
             f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
         )
+    refusal = dynaflows_error(gate)
+    if refusal is not None:
+        raise refusal
     return gate
 
 
