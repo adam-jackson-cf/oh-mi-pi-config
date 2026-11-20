@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 import pytest
-from child_process import run_bytes
 from test_reference_adapter_pytest import (
     FIXTURES,
     PYTEST_ONLY,
@@ -20,6 +19,7 @@ from test_reference_adapter_pytest import (
 from test_reference_adapter_pytest_seams import GIT_ENV, MUTATION_LOCK
 
 from guardrails.commands.adapters.pytest import mutation
+from guardrails.host.process import run_bytes
 
 pytestmark = pytest.mark.seam
 

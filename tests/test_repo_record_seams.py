@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from child_process import run_bytes
+
+from guardrails.host.process import run_bytes
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/lib"))
 from test_repo_record import GATE, gate

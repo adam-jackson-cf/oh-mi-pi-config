@@ -13,8 +13,9 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from child_process import run_text
 from test_workflows import workflow
+
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 

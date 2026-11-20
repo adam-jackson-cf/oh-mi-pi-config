@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from child_process import run_text
 
 from guardrails.commands.adapters.vitest import lint
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 
