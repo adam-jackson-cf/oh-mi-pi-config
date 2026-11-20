@@ -118,13 +118,13 @@ function missingRecordOutcome(notify: (notice: string) => string, slug: string, 
 	if (mode === "minimal") return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already in minimal mode.`) };
 	return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
 		`The owner asked for dynaflows structured mode in ${slug}, which has no per-repo record yet. ` +
-		"Start skill://dynaflows/references/harness-setup.md setup now, from Step 0. Write the record " +
+		"Start skill://structured-workflow/references/harness-setup.md setup now, from Step 0. Write the record " +
 		`yourself at ${recordPath} as setup reaches each file, with gate.json setting ` +
 		'"dynaflows": {"mode": "structured"}, so structured mode starts once the record is complete. Never ask the owner to save a file.' };
 }
 function resumeContent(slug: string, dir: string, reason: string): string {
 	return `The owner asked for dynaflows structured mode in ${slug}, but its per-repo record ` +
-		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://dynaflows/references/harness-setup.md setup now and repair ` +
+		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://structured-workflow/references/harness-setup.md setup now and repair ` +
 		'the record yourself in place, with "dynaflows": {"mode": "structured"}. ' +
 		"Never ask the owner to save a file.";
 }
@@ -160,7 +160,7 @@ const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardr
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
 	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: route to project setup (skill://dynaflows/references/harness-setup.md, adopt mode) to " +
+	"code to the harness copy: route to project setup (skill://structured-workflow/references/harness-setup.md, adopt mode) to " +
 	"draft guardrails.check.repo for the owner to save.";
 
 const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on|structured";

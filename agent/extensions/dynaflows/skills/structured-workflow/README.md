@@ -1,8 +1,8 @@
-# dynaflows
+# structured-workflow
 
 ## Overview
 
-Dynaflows is the six-stage delivery workflow the harness runs for a repository whose record turns it on:
+Structured-workflow is the six-stage delivery workflow the harness runs for a repository whose record turns it on:
 Frame, Spike, Plan, Implement, Verify and Integrate, after a preflight that resolves the switch, the record and one
 playbook. Proofs are outcome tests frozen red at base and proved green at the PR head; merge needs exact-head CI,
 `prove()` and `structure_review()`. The [design directive](../../AGENTS.md) holds the principles behind it, and

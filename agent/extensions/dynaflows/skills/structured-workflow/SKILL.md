@@ -1,5 +1,5 @@
 ---
-name: "dynaflows"
+name: "structured-workflow"
 description:
   "Use when the owner asks for non-trivial engineering work, orchestration, proof-first verification,
   judgments or blind labels in a repo in dynaflows structured mode."

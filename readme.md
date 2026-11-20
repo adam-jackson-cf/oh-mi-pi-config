@@ -9,8 +9,8 @@ installation guide or an exhaustive reference.
 
 The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
 design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
-[delivery principles](agent/extensions/dynaflows/skills/dynaflows/references/delivery-principles.md)
-and [structure and naming](agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md),
+[delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
+and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
 and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
 `codify-omp-workflow-corrections`. `git-tool` serves both dynaflows modes; its merge, CI and recovery
 runbook applies in structured mode only. `jev-actions` is a standalone skill in `agent/skills/`.
@@ -112,16 +112,15 @@ not `.githooks` or the hook differs from the expected text. Run the formatters w
 `bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
-bundled workflow guidance and judged rules. Its
-[workflow skill](agent/extensions/dynaflows/skills/dynaflows/SKILL.md) is available as
-`skill://dynaflows`; its preflight step defines how the owner switches a repository between minimal
-and structured mode in the main chat (for example a standalone `$dynaflows on` or `$dynaflows off`
-line) and how the mode, record and playbook resolve. In structured mode, rails inject the workflow
-pointer, require
-guardrail owner approval and guard `gh pr merge` as above. Subagent edit paths must be absolute
-and cannot escape enclosing Git roots through symlinks, and `git worktree add` targets must sit at
-`<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides the base). `skill://git-tool` owns
-Git, PR, CI and merge authority.
+bundled workflow guidance and judged rules. Its [workflow
+skill](agent/extensions/dynaflows/skills/structured-workflow/SKILL.md) is available as
+`skill://structured-workflow`; its preflight step defines how the owner switches a repository
+between minimal and structured mode in the main chat (for example a standalone `$dynaflows on` or
+`$dynaflows off` line) and how the mode, record and playbook resolve. In structured mode, rails
+inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as above.
+Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
+`git worktree add` targets must sit at `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides
+the base). `skill://git-tool` owns Git, PR, CI and merge authority.
 
 Native judged reply rules live inside the package. At session start its extension appends the
 configured `structuredRules` names to `ttsr.disabledRules` when the session repo is in minimal
@@ -150,9 +149,9 @@ gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named
 `gate.json` and `profile.md`, strict loading and write authority; records are never committed,
 because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
 copies them to devices. Dynaflows
-[harness setup](agent/extensions/dynaflows/skills/dynaflows/references/harness-setup.md) adds record
-configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows resolves to
-minimal mode, rails say why once at session start and at every commit, naming the slug
+[harness setup](agent/extensions/dynaflows/skills/structured-workflow/references/harness-setup.md)
+adds record configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows
+resolves to minimal mode, rails say why once at session start and at every commit, naming the slug
 (or `none`) and the reason; `workflows.py` uses the same words when it refuses. Rails and
 `workflows.py` strip the harness's `AGENT` variable from every repo command they run.
 

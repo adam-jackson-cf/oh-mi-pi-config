@@ -8,7 +8,7 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY = ROOT / "agent/extensions/dynaflows/skills/dynaflows/references"
+POLICY = ROOT / "agent/extensions/dynaflows/skills/structured-workflow/references"
 CATALOGUE = (
     ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
 )

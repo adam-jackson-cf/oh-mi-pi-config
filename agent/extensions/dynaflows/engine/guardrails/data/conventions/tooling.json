@@ -68,10 +68,10 @@
       ".git": "https://git-scm.com/docs/gitrepository-layout"
     },
     "placement": {
-      "root": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
-      "fixtures_dir": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
-      "support_dir": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping",
-      "beside_code": "agent/extensions/dynaflows/skills/dynaflows/references/structure-and-naming.md#structure-and-grouping"
+      "root": "agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md#structure-and-grouping",
+      "fixtures_dir": "agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md#structure-and-grouping"
     }
   },
   "convention_notes": [

@@ -9,17 +9,17 @@ references:
       - skill://git-tool
   structured:
     firstEdit:
-      - skill://dynaflows/references/delivery-principles.md
+      - skill://structured-workflow/references/delivery-principles.md
     newFile:
-      - skill://dynaflows/references/structure-and-naming.md
+      - skill://structured-workflow/references/structure-and-naming.md
     testFile:
       - skill://test-guidance/references/tiers.md
-      - skill://dynaflows/references/test-enforcement.md
-      - skill://dynaflows/references/proofs.md
+      - skill://structured-workflow/references/test-enforcement.md
+      - skill://structured-workflow/references/proofs.md
     verification:
       - skill://test-guidance/references/before-commit.md
     workflow:
-      - skill://dynaflows
+      - skill://structured-workflow
     git:
       - skill://git-tool
       - skill://git-tool/references/merge-and-recover.md

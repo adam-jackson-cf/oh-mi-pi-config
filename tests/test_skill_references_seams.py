@@ -180,7 +180,7 @@ def skill_shape_failures(directory: Path) -> list[str]:
 class SkillShapeTests(unittest.TestCase):
     def test_tracked_skills_follow_the_route_size_and_link_rules(self) -> None:
         directories = tracked_skill_directories()
-        assert {"dynaflows", "git-tool"} <= {
+        assert {"structured-workflow", "git-tool"} <= {
             directory.name for directory in directories
         }
         for directory in directories:

@@ -18,10 +18,10 @@ PACKAGE = ROOT / "agent/extensions/dynaflows"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
 
-WORKFLOW = PACKAGE_SKILLS / "dynaflows"
+WORKFLOW = PACKAGE_SKILLS / "structured-workflow"
 
 CORE_SKILLS = (
-    "dynaflows",
+    "structured-workflow",
     "test-guidance",
     "setup-repo-proofs",
     "jev-actions",

@@ -60,8 +60,8 @@ CHECK_TIMEOUT = 900
 # Harness prechecks have their own budget, independent of repo proof execution.
 HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
-    "missing per-repo record; follow skill://dynaflows/SKILL.md "
-    "owner-approval prerequisite (skill://dynaflows/references/harness-setup.md)"
+    "missing per-repo record; follow skill://structured-workflow/SKILL.md "
+    "owner-approval prerequisite (skill://structured-workflow/references/harness-setup.md)"
 )
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
@@ -86,7 +86,7 @@ PROOF_FIELDS = frozenset({
 FEATURE_MAP_SETUP = (
     "the record profile declares no verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
-    "(skill://dynaflows/references/project-setup.md). "
+    "(skill://structured-workflow/references/project-setup.md). "
     "A PR with no behaviour change freezes no proofs"
 )
 
@@ -151,7 +151,7 @@ def _check_options(function: str, options: Mapping[str, object], accepted: Any) 
 
 
 def _harness_root() -> Path:
-    """The oh-mi-pi-config checkout containing agent/extensions/dynaflows/skills/dynaflows/templates/."""
+    """The oh-mi-pi-config checkout that holds this engine."""
     if not _LOADED_FROM:
         raise WorkflowError(
             "cannot locate the harness: workflows.py was loaded without __file__"

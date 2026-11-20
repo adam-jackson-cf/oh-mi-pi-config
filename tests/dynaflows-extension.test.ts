@@ -5,12 +5,12 @@ import { join, resolve } from "node:path";
 import { test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 
-const integrity = "skill://dynaflows/references/delivery-principles.md";
-const structure = "skill://dynaflows/references/structure-and-naming.md";
-const enforcement = "skill://dynaflows/references/test-enforcement.md";
+const integrity = "skill://structured-workflow/references/delivery-principles.md";
+const structure = "skill://structured-workflow/references/structure-and-naming.md";
+const enforcement = "skill://structured-workflow/references/test-enforcement.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://test-guidance/references/before-commit.md";
-const proofs = "skill://dynaflows/references/proofs.md";
+const proofs = "skill://structured-workflow/references/proofs.md";
 const railsConfig = join(import.meta.dir, "../agent/extensions/dynaflows/rails.yml");
 const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 

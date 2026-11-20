@@ -162,11 +162,11 @@ tools through the repo's own package manager.
 `guardrails init --repo <clone> --record <record dir>` drafts `gate.json`, `profile.md` and
 native-tool proposals under `proposed/` in a live record or a draft directory, without writing
 into the repo, never inventing an approval. Harness setup's
-[candidate step](../skills/dynaflows/references/setup-candidates.md)
+[candidate step](../skills/structured-workflow/references/setup-candidates.md)
 defines its options and use. The setup's draft `guardrail-proposal.json` has
 `{"schemaVersion":1,"minimal":[...],"full":[...]}` with repo-relative candidate paths; it travels
 with the confirmed record, never into the target repository.
-[Setup approval](../skills/dynaflows/references/setup-approval.md) owns
+[Setup approval](../skills/structured-workflow/references/setup-approval.md) owns
 the confirmation, the Minimal/Full or Approve/Revise decision and its STOP. After confirmation the
 agent writes the live record directly; never ask the owner to save it.
 

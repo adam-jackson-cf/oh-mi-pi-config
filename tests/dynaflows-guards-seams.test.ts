@@ -8,9 +8,9 @@ import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
 import { parseOrigin, type Mode } from "../agent/extensions/dynaflows/lib/repo-record.ts";
 
-const integrity = "skill://dynaflows/references/delivery-principles.md";
-const structure = "skill://dynaflows/references/structure-and-naming.md";
-const enforcement = "skill://dynaflows/references/test-enforcement.md";
+const integrity = "skill://structured-workflow/references/delivery-principles.md";
+const structure = "skill://structured-workflow/references/structure-and-naming.md";
+const enforcement = "skill://structured-workflow/references/test-enforcement.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://test-guidance/references/before-commit.md";
 type GateFixture = {

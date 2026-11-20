@@ -7,7 +7,7 @@ import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { harness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig, mergeRecover } from "./dynaflows-guards-seams.test";
 
-const proofs = "skill://dynaflows/references/proofs.md";
+const proofs = "skill://structured-workflow/references/proofs.md";
 
 describe("dynaflows extension", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
@@ -334,16 +334,16 @@ describe("dynaflows extension", () => {
 			h.mode("structured");
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
-			assert.ok(pointer.includes("skill://dynaflows"), "the record turns it on");
+			assert.ok(pointer.includes("skill://structured-workflow"), "the record turns it on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
-			assert.ok(off.includes("Dynaflows minimal mode") && !off.includes("skill://dynaflows"));
+			assert.ok(off.includes("Dynaflows minimal mode") && !off.includes("skill://structured-workflow"));
 			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, dynaflows: { mode: "minimal" }, schemaVersion: 2 },
 				"only the switch changes");
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://dynaflows"));
+			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://structured-workflow"));
 			h.setSession("machine-off");
 			h.machineMode("minimal");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "machine off beats record on");
@@ -383,24 +383,24 @@ describe("dynaflows extension", () => {
 		try {
 			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
 			const setup = await start("init $dynaflows");
-			assert.ok(setup.includes("Start skill://dynaflows/references/harness-setup.md setup now, from Step 0") && setup.includes("owner/repo"), setup);
+			assert.ok(setup.includes("Start skill://structured-workflow/references/harness-setup.md setup now, from Step 0") && setup.includes("owner/repo"), setup);
 			assert.ok(setup.includes('\\"dynaflows\\": {\\"mode\\": \\"structured\\"}'), setup);
 			assert.equal(existsSync(h.recordDir()), false, "enabling never creates a record");
 			assert.ok(h.notes.some(note => note.includes("starting repository setup")), h.notes.join("; "));
 			assert.deepEqual(h.errors, [], "no record is a stage, not an error");
 			h.rawGate('{"schemaVersion":2,"dynaflows":{"mode":"minimal"}}');
 			const resume = await start("$dynaflows enable");
-			assert.ok(resume.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && resume.includes("checks"), resume);
+			assert.ok(resume.includes("Resume skill://structured-workflow/references/harness-setup.md setup now") && resume.includes("checks"), resume);
 			h.rawGate("{broken");
 			const broken = await start("$dynaflows enable");
-			assert.ok(broken.includes("Resume skill://dynaflows/references/harness-setup.md setup now") && broken.includes("is refused: "), broken);
+			assert.ok(broken.includes("Resume skill://structured-workflow/references/harness-setup.md setup now") && broken.includes("is refused: "), broken);
 			h.gate({ schemaVersion: 2 });
 			const kickoff = await start("$dynaflows on");
-			assert.ok(kickoff.includes("Dynaflows structured mode for owner/repo") && kickoff.includes("skill://dynaflows"), kickoff);
+			assert.ok(kickoff.includes("Dynaflows structured mode for owner/repo") && kickoff.includes("skill://structured-workflow"), kickoff);
 			assert.ok(kickoff.includes("Report the stage you found and start it") && kickoff.includes("ask the owner for the task"), kickoff);
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the kickoff counts as the pointer");
 			const route = await start("enable $dynaflows\nfix the login bug");
-			assert.ok(route.includes("Dynaflows structured mode. Route this work with skill://dynaflows") && !route.includes("Report the stage"), route);
+			assert.ok(route.includes("Dynaflows structured mode. Route this work with skill://structured-workflow") && !route.includes("Report the stage"), route);
 			h.machineMode("minimal");
 			const kept = await start("$dynaflows");
 			assert.ok(kept.includes("Dynaflows minimal mode for owner/repo: the machine default") && kept.includes("Do not apply the dynaflows workflow"), kept);
@@ -462,7 +462,7 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		try {
 			h.mode("structured");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://dynaflows"));
+			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://structured-workflow"));
 			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
 			h.setSession("no-origin");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
