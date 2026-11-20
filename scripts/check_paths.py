@@ -4,7 +4,23 @@
 import os
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+OWNED_ROOTS = ("agent/lib", "scripts", "tests")
+SOURCE_SUFFIXES = frozenset({
+    ".bash",
+    ".cjs",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".mts",
+    ".py",
+    ".sh",
+    ".ts",
+    ".tsx",
+})
+GENERATED_DIRECTORIES = frozenset({"__pycache__", "node_modules"})
 
 
 def git(
@@ -30,6 +46,7 @@ def existing_paths(repo: Path, paths: list[str]) -> list[str]:
         tracked = git(repo, "ls-files", "-z")
         tracked.check_returncode()
         paths = [os.fsdecode(path) for path in tracked.stdout.split(b"\0") if path]
+        paths += ignored_owned_sources(repo)
         base = repo
     existing = []
     for path in paths:
@@ -41,6 +58,29 @@ def existing_paths(repo: Path, paths: list[str]) -> list[str]:
         ):
             existing.append(os.path.relpath(absolute, repo))
     return list(dict.fromkeys(existing))
+
+
+def ignored_owned_sources(repo: Path) -> list[str]:
+    listed = git(
+        repo,
+        "ls-files",
+        "-z",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--",
+        *OWNED_ROOTS,
+    )
+    listed.check_returncode()
+    candidates = [
+        PurePosixPath(os.fsdecode(path)) for path in listed.stdout.split(b"\0")
+    ]
+    return [
+        str(path)
+        for path in candidates
+        if path.suffix in SOURCE_SUFFIXES
+        and not GENERATED_DIRECTORIES.intersection(path.parts)
+    ]
 
 
 def ignored_paths(repo: Path, paths: list[str]) -> set[str]:

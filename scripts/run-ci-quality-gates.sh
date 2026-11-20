@@ -61,6 +61,14 @@ if [[ "$hooks_path" != .githooks ]]; then
 fi
 printf 'Commit hook check passed.\n'
 
+if [[ "$tier" == commit ]] && ! "$fix"; then
+  unstaged="$(git diff --name-only && git ls-files --others --exclude-standard)"
+  if [[ -n "$unstaged" ]]; then
+    printf 'The commit tier checks the staged content only; stage or stash these paths first:\n%s\n' "$unstaged" >&2
+    exit 1
+  fi
+fi
+
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
