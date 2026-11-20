@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.adapters.pytest.lint import test_patterns, waived
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import (
     matches_any,
     name_matches,
@@ -42,7 +42,7 @@ class Rule:
     scope: str
     target: str
     message: str
-    fix: str
+    remediation: Remediation
     config: Config
 
 
@@ -59,7 +59,7 @@ def load_rules() -> list[Rule]:
             item["scope"],
             item["target"],
             item["message"],
-            item["fix"],
+            remediation(item["remediation"]),
             {"rule": item["rule"]},
         )
         for item in json.loads(text)
@@ -361,7 +361,7 @@ def rule_findings(
                     site.path,
                     f"line {node.range().start.line + 1}: "
                     + rule.message.format(target=target),
-                    rule.fix,
+                    rule.remediation.render(),
                 )
             )
     return findings

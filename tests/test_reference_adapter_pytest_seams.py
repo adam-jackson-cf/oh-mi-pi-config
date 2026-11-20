@@ -223,6 +223,51 @@ class ExtraTests(unittest.TestCase):
             assert "TEST.no-self-mocking" not in out
             assert "shop/core.py: TEST.no-test-hooks" in out
 
+    def test_cli_lint_reports_marker_reads_but_not_marker_shaped_data(self) -> None:
+        reads = [
+            'os.getenv("SHOP_TESTING")',
+            'os.environ.get("PYTEST_CURRENT_TEST")',
+            'os.environ.pop("TEST_MODE", None)',
+            'os.environ.setdefault("UNDER_TEST", "1")',
+            'os.environ["TESTING"]',
+            '"TESTING" in os.environ',
+            'environ.get("SHOP_TESTING")',
+            '"pytest" in sys.modules',
+            'sys.modules.get("unittest")',
+            'sys.modules["pytest"]',
+        ]
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch))
+            (repo / "shop/flags.py").write_text(
+                "import os\nimport sys\nfrom os import environ\n\n\n"
+                "def flags():\n    return [\n"
+                + "".join(f"        {read},\n" for read in reads)
+                + "    ]\n"
+            )
+            (repo / "shop/runners.py").write_text(
+                'RUNNERS = ("pytest", "unittest")\n'
+                'ARTIFACTS = {"TESTS_INVENTORY": "tests.json"}\n\n\n'
+                "def known(name):\n    return name in RUNNERS and ARTIFACTS[name]\n"
+            )
+            code, out = run_cli(
+                "adapter",
+                "--repo",
+                str(repo),
+                "pytest",
+                "lint",
+                "shop/flags.py",
+                "shop/runners.py",
+            )
+        marker_lines = sorted(
+            int(line.split(": line ")[1].split(":")[0])
+            for line in out.splitlines()
+            if line.startswith("shop/flags.py: TEST.no-test-hooks: line ")
+        )
+        assert code == 1
+        assert marker_lines == list(range(8, 8 + len(reads)))
+        assert "shop/runners.py" not in out
+        assert "remediation TEST.no-test-hooks: root cause: " in out
+
     def test_tier_listing_feeds_the_shared_collection_check(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))

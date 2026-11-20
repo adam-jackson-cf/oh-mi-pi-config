@@ -72,7 +72,7 @@ export const noModuleMockingRule = defineRule({
     },
     messages: {
       moduleMock:
-        "Replace module mocking with dependency injection through a real interface, service layer, or faithful test implementation.",
+        "Root cause: the code under test imports its collaborator directly, so the test can only swap it by mocking the module. Fix: pass the collaborator through an owned interface and give tests a real or faithful implementation of it.",
     },
   },
   createOnce(context) {

@@ -1,0 +1,12 @@
+package shop
+
+var runners = []string{"GO_TEST", "TESTING", "test.v"}
+
+func Region(name string) string {
+	for _, runner := range runners {
+		if runner == name {
+			return "eu"
+		}
+	}
+	return "us"
+}

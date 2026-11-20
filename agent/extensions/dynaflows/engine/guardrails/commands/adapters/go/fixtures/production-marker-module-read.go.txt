@@ -1,0 +1,10 @@
+package shop
+
+import "flag"
+
+func Region() string {
+	if flag.Lookup("test.v") != nil {
+		return "local"
+	}
+	return "eu"
+}

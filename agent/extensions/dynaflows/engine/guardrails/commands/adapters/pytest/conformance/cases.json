@@ -94,6 +94,20 @@
       "expect": "finding"
     },
     {
+      "id": "production-marker-module-read",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "owned production code branches on whether the test runner is loaded",
+      "expect": "finding"
+    },
+    {
+      "id": "production-marker-data",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "owned production code holds test-marker-shaped strings as ordinary data and never reads them from the environment or loaded modules",
+      "expect": "clean"
+    },
+    {
       "id": "production-clean",
       "rule": "TEST.no-test-hooks",
       "evidence": "source",
@@ -154,14 +168,20 @@
       "rule": "TEST.no-evasion",
       "evidence": "run-report",
       "situation": "a test skips at runtime; the normalised record keeps the outcome and reason for the shared report check",
-      "expect": { "outcome": "skipped", "reason": "waiting on vendor fix" }
+      "expect": {
+        "outcome": "skipped",
+        "reason": "waiting on vendor fix"
+      }
     },
     {
       "id": "expected-failure-recorded",
       "rule": "TEST.no-evasion",
       "evidence": "run-report",
       "situation": "an expected failure is normalised as xfail with its reason",
-      "expect": { "outcome": "xfail", "reason": "known defect" }
+      "expect": {
+        "outcome": "xfail",
+        "reason": "known defect"
+      }
     },
     {
       "id": "behaviour-name-present",
@@ -196,7 +216,9 @@
       "rule": "TEST.tier-selectors",
       "evidence": "collection",
       "situation": "a tier selector lists exactly the tests it selects",
-      "expect": { "ids": ["tests/test_case.py::test_fast_total"] }
+      "expect": {
+        "ids": ["tests/test_case.py::test_fast_total"]
+      }
     }
   ]
 }

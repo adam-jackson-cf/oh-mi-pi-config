@@ -4,7 +4,10 @@
   "scope": "tests",
   "target": "first-argument",
   "message": "test patches or mocks the repo's own code ({target})",
-  "fix": "drive the behaviour through the declared public entry point and fake only third-party or OS boundaries",
+  "remediation": {
+    "root_cause": "The test patches owned code because the code under test reaches its collaborator directly instead of receiving it.",
+    "fix": "Inject the collaborator through an owned interface, fake only third-party or OS boundaries, and call the public entry point unchanged."
+  },
   "rule": {
     "kind": "call",
     "has": {

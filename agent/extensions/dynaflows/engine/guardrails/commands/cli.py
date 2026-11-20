@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import dataclass
-from functools import cache
-from importlib import resources
 from pathlib import Path
-from typing import Any
 
 from guardrails.context.config.profile import ProfileError, load_profile
-from guardrails.foundation.findings import Finding, exit_code, format_findings
+from guardrails.foundation.findings import (
+    Finding,
+    catalogue_rules,
+    exit_code,
+    format_findings,
+)
 from guardrails.toolkit.dispatch import (
     SUBCOMMANDS,
     adapter_module,
@@ -20,16 +21,6 @@ from guardrails.toolkit.dispatch import (
     profile_finding,
     run_modules,
 )
-
-RULE_CATALOGUE = "guardrail-rules.json"
-
-
-@cache
-def catalogue_rules() -> tuple[dict[str, Any], ...]:
-    catalogue = json.loads(
-        resources.files("guardrails.data").joinpath(RULE_CATALOGUE).read_bytes()
-    )
-    return tuple(catalogue["rules"])
 
 
 def module_rules(module: str) -> list[tuple[str, str]]:

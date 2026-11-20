@@ -17,6 +17,8 @@
     },
     "production-test-flag": { "place": "production" },
     "production-test-hook-parameter": { "place": "production" },
+    "production-marker-module-read": { "place": "production" },
+    "production-marker-data": { "place": "production" },
     "production-clean": { "place": "production" },
     "user-data-write": { "tier": "t2" },
     "user-data-temporary-home": { "tier": "t2" }
