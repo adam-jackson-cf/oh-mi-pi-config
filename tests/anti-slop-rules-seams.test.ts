@@ -36,7 +36,6 @@ const ruleNames = [
 	"no-unknown-type-aliases",
 	"no-unsafe-dictionary-type",
 	"no-widen-then-assert",
-	"require-safety-comment-for-type-assertion",
 ];
 
 const lintReport = z.object({
@@ -529,40 +528,6 @@ export function asParent() { const s: unknown = 1; return (s as number) as const
 export { early };
 `,
 		findings: ["no-widen-then-assert:6", "no-widen-then-assert:8", "no-widen-then-assert:10", "no-widen-then-assert:14", "no-widen-then-assert:16", "no-widen-then-assert:17", "no-widen-then-assert:21", "no-widen-then-assert:26", "no-widen-then-assert:29", "no-widen-then-assert:34", "no-widen-then-assert:36", "no-widen-then-assert:38", "no-widen-then-assert:40", "no-widen-then-assert:42", "no-widen-then-assert:43", "no-widen-then-assert:44", "no-widen-then-assert:45", "no-widen-then-assert:46", "no-widen-then-assert:48", "no-widen-then-assert:50", "no-widen-then-assert:64", "no-widen-then-assert:78", "no-widen-then-assert:82", "no-widen-then-assert:83", "no-widen-then-assert:86"],
-	},
-	{
-		file: "require-safety-comment-for-type-assertion.ts",
-		behaviour: "require-safety-comment-for-type-assertion reports assertions without a SAFETY comment before them or their statement",
-		source: `declare const b: unknown;
-declare function h(x: string): string;
-const a = b as string;
-// SAFETY: checked by the caller
-const c = b as string;
-const e = [1] as const;
-/* SAFETY: x */ b as string;
-export function r1() {
-  // SAFETY: caller checks
-  return h(b as string);
-}
-export function r2() {
-  return h(b as string);
-}
-export class K {
-  // SAFETY: set once
-  p = b as string;
-}
-const j = /* SAFETY: late */ b as string;
-if (b as boolean) { h("x"); }
-const m = <string>b;
-// not a safety note
-const n = b as string;
-export function thrower() {
-  // SAFETY: always an Error
-  throw b as Error;
-}
-export { a, c, e, j, m, n };
-`,
-		findings: ["require-safety-comment-for-type-assertion:3", "require-safety-comment-for-type-assertion:13", "require-safety-comment-for-type-assertion:20", "require-safety-comment-for-type-assertion:21", "require-safety-comment-for-type-assertion:23"],
 	},
 ];
 

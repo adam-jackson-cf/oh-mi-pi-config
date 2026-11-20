@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
 	z,
-	type ExtensionHandler,
+	type ExtensionAPI,
+	type ExtensionContext,
 	type InputEvent,
 	type InputEventResult,
 	type SessionStartEvent,
@@ -29,9 +30,17 @@ type AgentCommandContext = {
 	};
 };
 
+export type AgentEventContext = Pick<ExtensionContext, "cwd"> & {
+	ui: Pick<ExtensionContext["ui"], "notify" | "addAutocompleteProvider">;
+};
+
+export type AgentSessionStartHandler = (event: SessionStartEvent, context: AgentEventContext) => void;
+
+export type AgentInputHandler = (event: InputEvent, context: AgentEventContext) => InputEventResult | undefined;
+
 export interface AgentAutocompleteAPI {
-	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
-	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
+	on(event: "session_start", handler: AgentSessionStartHandler): void;
+	on(event: "input", handler: AgentInputHandler): void;
 	registerCommand(
 		name: string,
 		options: {
@@ -355,4 +364,4 @@ export function registerAgentCommand(
 	});
 }
 
-export default registerAgentCommand;
+export default registerAgentCommand satisfies (pi: ExtensionAPI) => void;

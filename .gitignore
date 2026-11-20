@@ -117,6 +117,7 @@ tests/*
 !tests/orca-terminal-themes.test.ts
 !tests/vitest-reporter.test.ts
 !tests/anti-slop-rules-seams.test.ts
+!tests/oxlint-config-seams.test.ts
 !tests/test_check_paths.py
 !tests/test_check_coverage.py
 !tests/test_check_coverage_seams.py

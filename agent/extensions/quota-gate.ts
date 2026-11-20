@@ -48,8 +48,26 @@ const UsagePayloadSchema = z.object({
 
 export type UsagePayload = z.infer<typeof UsagePayloadSchema>;
 
+export type QuotaGateContext = Pick<ExtensionContext, "cwd" | "hasUI" | "isIdle" | "abort" | "setInterval" | "clearTimer"> & {
+  ui: Pick<ExtensionContext["ui"], "notify" | "confirm">;
+};
+
+export type QuotaGateCommand = {
+  description: string;
+  handler(args: string, ctx: QuotaGateContext): Promise<void>;
+};
+
+export type ToolCallVerdict = { block: true; reason: string } | undefined;
+
+export interface QuotaGateAPI {
+  on(event: "session_start", handler: () => void): void;
+  on(event: "tool_call", handler: () => ToolCallVerdict): void;
+  registerCommand(name: string, command: QuotaGateCommand): void;
+  sendUserMessage(content: string, options: { deliverAs: "followUp" }): void;
+}
+
 /** Returns the parsed, unredacted `omp usage` payload; rejects when usage is unavailable or malformed. */
-export type UsageReader = (ctx: ExtensionContext) => Promise<UsagePayload>;
+export type UsageReader = (ctx: QuotaGateContext) => Promise<UsagePayload>;
 
 export function emailHash(email: string): string {
   return createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
@@ -118,7 +136,7 @@ function formatRemaining(resetsAt: number): string {
 }
 
 /** Unredacted, because accounts are matched by email; the extension never displays or stores the address. */
-async function readUsageFromOmp(pi: ExtensionAPI, ctx: ExtensionContext): Promise<UsagePayload> {
+async function readUsageFromOmp(pi: ExtensionAPI, ctx: QuotaGateContext): Promise<UsagePayload> {
   const result = await pi.exec("omp", ["usage", "--json"], { cwd: ctx.cwd, timeout: USAGE_COMMAND_TIMEOUT_MS });
   if (result.code !== 0 || result.killed) {
     throw new Error("OMP usage command failed");
@@ -128,8 +146,8 @@ async function readUsageFromOmp(pi: ExtensionAPI, ctx: ExtensionContext): Promis
 }
 
 export function registerQuotaGate(
-  pi: ExtensionAPI,
-  readUsage: UsageReader = ctx => readUsageFromOmp(pi, ctx),
+  pi: QuotaGateAPI,
+  readUsage: UsageReader,
   accountHash: string = GATED_ACCOUNT_EMAIL_SHA256,
 ): void {
   let gateState: GateState = "disabled";
@@ -154,14 +172,14 @@ export function registerQuotaGate(
     return `Quota gate is ${state} at threshold ${formatPercent(thresholdFraction)}: ${usage}.`;
   };
 
-  const setOpen = (ctx: ExtensionContext, threshold: number): void => {
+  const setOpen = (ctx: QuotaGateContext, threshold: number): void => {
     thresholdFraction = threshold;
     gateState = "open";
     failureNotified = false;
     pollTimer ??= ctx.setInterval(() => poll(ctx), USAGE_POLL_INTERVAL_MS);
   };
 
-  const disable = (ctx: ExtensionContext): void => {
+  const disable = (ctx: QuotaGateContext): void => {
     gateState = "disabled";
     if (pollTimer !== undefined) {
       ctx.clearTimer(pollTimer);
@@ -169,7 +187,7 @@ export function registerQuotaGate(
     }
   };
 
-  const tripGate = async (ctx: ExtensionContext, provider: GatedProvider, sample: QuotaSample): Promise<void> => {
+  const tripGate = async (ctx: QuotaGateContext, provider: GatedProvider, sample: QuotaSample): Promise<void> => {
     if (gateState !== "open") {
       return;
     }
@@ -200,7 +218,7 @@ export function registerQuotaGate(
     }
   };
 
-  const noteMissingReadings = (ctx: ExtensionContext, missing: string[]): void => {
+  const noteMissingReadings = (ctx: QuotaGateContext, missing: string[]): void => {
     if (missing.length === 0) {
       failureNotified = false;
     } else if (!failureNotified) {
@@ -212,7 +230,7 @@ export function registerQuotaGate(
     }
   };
 
-  const poll = async (ctx: ExtensionContext): Promise<void> => {
+  const poll = async (ctx: QuotaGateContext): Promise<void> => {
     if (gateState !== "open" || checking) {
       return;
     }
@@ -299,7 +317,7 @@ export function registerQuotaGate(
     lastSamples = {};
   });
 
-  pi.on("tool_call", () => {
+  pi.on("tool_call", (): ToolCallVerdict => {
     if (gateState === "latched") {
       return { block: true, reason: BLOCK_REASON };
     }
@@ -307,4 +325,6 @@ export function registerQuotaGate(
   });
 }
 
-export default registerQuotaGate;
+export default function quotaGate(pi: ExtensionAPI): void {
+  registerQuotaGate(pi, ctx => readUsageFromOmp(pi, ctx));
+}

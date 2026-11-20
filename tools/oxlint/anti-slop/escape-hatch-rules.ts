@@ -5,7 +5,6 @@ import { noReflectApplyRule } from "./rules/no-reflect-apply.ts";
 import { noReflectGetRule } from "./rules/no-reflect-get.ts";
 import { noForbiddenTermInSymbolNamesRule } from "./rules/no-shape-in-symbol-names.ts";
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
-import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
 
 export const escapeHatchRules = {
 	"no-chained-type-assertions": noChainedTypeAssertionsRule,
@@ -15,5 +14,4 @@ export const escapeHatchRules = {
 	"no-reflect-get": noReflectGetRule,
 	"no-shape-in-symbol-names": noForbiddenTermInSymbolNamesRule,
 	"no-widen-then-assert": noWidenThenAssertRule,
-	"require-safety-comment-for-type-assertion": requireSafetyCommentForTypeAssertionRule,
 };
