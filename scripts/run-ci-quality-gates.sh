@@ -49,14 +49,18 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 hook=.githooks/pre-commit
-hook_command='exec bash scripts/run-ci-quality-gates.sh --tier commit'
-if [[ ! -x "$hook" ]] || ! grep -Fxq "$hook_command" "$hook"; then
-  printf 'Commit hook check failed: %s must be executable and hold the line: %s\n' "$hook" "$hook_command" >&2
+expected_hook="#!/usr/bin/env bash
+set -euo pipefail
+top=\"\$(git rev-parse --show-toplevel)\"
+cd \"\$top\"
+exec bash scripts/run-ci-quality-gates.sh --tier commit"
+if [[ ! -x "$hook" ]] || ! printf '%s\n' "$expected_hook" | cmp -s - "$hook"; then
+  printf 'Commit hook check failed: %s must be executable and match the hook text in %s\n' "$hook" "$0" >&2
   exit 1
 fi
 hooks_path="$(git config --get core.hooksPath || true)"
 if [[ "$hooks_path" != .githooks ]]; then
-  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: git config core.hooksPath .githooks\n' "${hooks_path:-unset}" >&2
+  printf 'Commit hook check failed: core.hooksPath is %s; install the hook with: bash scripts/bootstrap.sh\n' "${hooks_path:-unset}" >&2
   exit 1
 fi
 printf 'Commit hook check passed.\n'

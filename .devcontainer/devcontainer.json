@@ -1,4 +1,4 @@
 {
   "build": { "dockerfile": "Containerfile" },
-  "postCreateCommand": "bun install --frozen-lockfile && uv sync --locked && git config core.hooksPath .githooks"
+  "postCreateCommand": "bash scripts/bootstrap.sh"
 }
