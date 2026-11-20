@@ -18,10 +18,10 @@ Map every catalogue rule to its owner and give every check step exactly one outc
   The catalogue marks both rules `git_hook` evidence. Missing, invalid or stale reports are fatal.
   First limits and raises require owner approval at Step 5; unknown machines report timing only and prompt to record
   a baseline.
-- Map `TEST.growth.justified` to a base-ref diff requiring every new test function to name the behaviour it proves;
-  a generic or placeholder name fails with the test name and the rename-or-remove fix. Map `TEST.duplicate-path` to
-  normalized call-path and assertion fingerprints compared against existing and other new cases; duplicates fail
-  naming both tests and the merge-or-remove fix.
+- Map `TEST.growth.justified` to a diff (staged changes at commit, a base ref with `diff-check`) requiring every new
+  test function to name the behaviour it proves; a generic or placeholder name fails with the test name and the
+  rename-or-remove fix. Map `TEST.duplicate-path` to normalized call-path and assertion fingerprints compared against
+  existing and other new cases; duplicates fail naming both tests and the merge-or-remove fix.
 - Map `GATE.local-ci-parity` and `GATE.pre-commit` to the record's `gate.json` command arrays (`checks.ci`,
   `checks.commit`), each naming the repo's own command, never an omp path. Record the repo's actual local, CI and hook
   invocations and failure propagation, and any existing pre-push hook as a practice to replace.

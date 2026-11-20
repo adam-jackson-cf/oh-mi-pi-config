@@ -16,18 +16,21 @@ diagnostics and subcommands; generic test-guidance does not depend on these tool
 - TEST.no-test-hooks (guardrails adapter) → skill://test-guidance/references/outcome-tests.md#guidance
 - TEST.subprocess-timeouts (guardrails python-test-hygiene) → skill://test-guidance/references/outcome-tests.md#guidance
 - TEST.user-data-guard (guardrails guard-run) → skill://test-guidance/references/outcome-tests.md#guidance
-- TEST.coverage-ratchet (guardrails diff-check) → skill://test-guidance/references/outcome-tests.md#coverage
-- TEST.growth.justified (guardrails diff-check) → skill://test-guidance/references/suite-budget.md#justified-growth
-- TEST.duplicate-path (guardrails diff-check) → skill://test-guidance/references/suite-budget.md#duplicate-paths
+- TEST.coverage-ratchet (guardrails check, diff-check) → skill://test-guidance/references/outcome-tests.md#coverage
+- TEST.growth.justified (guardrails check, diff-check) → skill://test-guidance/references/suite-budget.md#justified-growth
+- TEST.duplicate-path (guardrails check, diff-check) → skill://test-guidance/references/suite-budget.md#duplicate-paths
 - TEST.budget.per-test-time (guardrails budget-check) → skill://test-guidance/references/suite-budget.md#per-test-time
 - TEST.budget.fast-tier-time (guardrails budget-check) → skill://test-guidance/references/suite-budget.md#fast-tier-time
-- TEST.identity-artefacts (guardrails diff-check) → skill://test-guidance/references/before-commit.md#guidance
+- TEST.identity-artefacts (guardrails check, diff-check) → skill://test-guidance/references/before-commit.md#guidance
 - TEST.failure-propagation (guardrails report-check, collection-check) → skill://test-guidance/references/before-commit.md#guidance
 - TEST.no-evasion (guardrails adapter, report-check, diff-check) → skill://test-guidance/references/before-commit.md#guidance
-- TEST.golden-change-record (guardrails diff-check) → skill://test-guidance/references/determinism.md#guidance
+- TEST.golden-change-record (guardrails check, diff-check) → skill://test-guidance/references/determinism.md#guidance
 - SURFACE.lever-isolation (guardrails lever-selftest) → skill://test-guidance/references/verification-surface.md#guidance
 - SURFACE.feature-map (guardrails surface-lint) → skill://test-guidance/references/verification-surface.md#feature-map-and-journeys
 - SURFACE.journeys (guardrails surface-lint) → skill://test-guidance/references/verification-surface.md#feature-map-and-journeys
+
+`guardrails check` runs these five rules and the CODE.* rules at commit over the staged changes against HEAD;
+`guardrails diff-check` runs them over an explicit `--base`/`--head` range. `prove()` runs none of them.
 
 TEST.growth.justified uses descriptive test names stating the behaviour, not inline behaviour comments.
 Test files follow the same comment ban as product code.

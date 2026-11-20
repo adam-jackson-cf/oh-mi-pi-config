@@ -128,6 +128,17 @@ def line_changes(repo: Path, diff: DiffRange, *paths: str) -> LineChanges:
     )
 
 
+def commit_base(repo: Path) -> str:
+    try:
+        return git(repo, "rev-parse", "--verify", "HEAD").strip()
+    except DiffError:
+        return git(repo, "hash-object", "-t", "tree", "/dev/null").strip()
+
+
+def staged_range(repo: Path) -> DiffRange:
+    return DiffRange(commit_base(repo), git(repo, "write-tree").strip())
+
+
 def file_at(repo: Path, ref: str, path: str) -> str | None:
     try:
         return git(repo, "show", f"{ref}:{path}")

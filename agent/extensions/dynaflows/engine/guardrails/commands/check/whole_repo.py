@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.commands.check.integrity import commit_findings
+from guardrails.context.changes import DiffError, range_finding, staged_range
 from guardrails.context.config.profile import PROFILE_PATH, ProfileError
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
@@ -31,6 +32,12 @@ DEFAULT_STEPS = (
 )
 STEPS = (*DEFAULT_STEPS, "python-test-hygiene")
 UNOWNABLE = ("profile-check",)
+STAGED_DIFFS = {
+    "guardrails.commands.diffs.coverage_ratchet": "TEST.coverage-ratchet",
+    "guardrails.commands.diffs.golden_record": "TEST.golden-change-record",
+    "guardrails.commands.diffs.identity_artefacts": "TEST.identity-artefacts",
+    "guardrails.commands.diffs.growth": "TEST.growth.justified",
+}
 STEP_SETTINGS = {
     "python": (
         "python-quality",
@@ -155,6 +162,16 @@ def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
     ]
 
 
+def staged_diff_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
+    try:
+        diff = staged_range(repo)
+    except DiffError as error:
+        return [range_finding(rule, error) for rule in STAGED_DIFFS.values()]
+    return run_modules(
+        tuple(STAGED_DIFFS), repo, profile, ["--base", diff.base, "--head", diff.head]
+    )
+
+
 def run_step(repo: Path, profile: dict[str, Any], step: str) -> list[Finding]:
     name, *argv = step.split()
     if name == "python-quality":
@@ -177,7 +194,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
         ]
     steps, findings = configured_steps(profile)
-    integrity_findings = commit_findings(repo, profile)
+    integrity_findings = commit_findings(repo, profile) + staged_diff_findings(
+        repo, profile
+    )
     if not findings:
         findings = missing_checkers(repo, profile)
     for step in [] if findings else steps:

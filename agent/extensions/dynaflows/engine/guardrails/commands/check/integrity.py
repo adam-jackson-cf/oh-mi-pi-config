@@ -11,6 +11,7 @@ from typing import Any
 from guardrails.context.changes import (
     Change,
     DiffError,
+    commit_base,
     file_at,
     git,
     name_changes,
@@ -559,10 +560,7 @@ def check_files(
 
 def commit_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
     try:
-        try:
-            base = git(repo, "rev-parse", "--verify", "HEAD").strip()
-        except DiffError:
-            base = git(repo, "hash-object", "-t", "tree", "/dev/null").strip()
+        base = commit_base(repo)
         staged = name_changes(repo, "--cached", base)
         untracked = git(repo, "ls-files", "-z", "--others", "--exclude-standard")
         changes = [

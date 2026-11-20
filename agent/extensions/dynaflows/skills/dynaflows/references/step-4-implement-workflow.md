@@ -21,7 +21,9 @@ Freeze proofs before implementation, then land the greening change through tasks
    additions and renames (including untracked) after edits and staged additions and renames at commit; only new
    segments count, never content edits or legacy parent names.
 5. At commit the record's `checks.commit` and the other whole-repo `guardrails check` steps follow; naming, structure and
-   path-check are excluded from them. Any finding blocks. PR/prove judges merge-base/head additions and renames;
+   path-check are excluded from them. `guardrails check` also runs the CODE.* rules and `TEST.coverage-ratchet`,
+   `TEST.growth.justified`, `TEST.duplicate-path`, `TEST.golden-change-record` and `TEST.identity-artefacts` over the
+   staged changes. Any finding blocks. PR/prove judges merge-base/head additions and renames;
    full naming/structure scans need an explicit request
    ([ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md)).
 6. When the commit gate reports `SECURITY.dependency-audit` findings, stop implementation and follow

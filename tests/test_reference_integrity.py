@@ -6,10 +6,10 @@ import unittest
 from collections.abc import Mapping
 
 import pytest
-from test_reference_diffs import BASE_PROFILE, FixtureRepo, profile_text
+from test_reference_diffs import BASE_PROFILE, FixtureRepo, profile_text, rules
 
 from guardrails.commands import cli
-from guardrails.commands.check import integrity
+from guardrails.commands.check import integrity, whole_repo
 from guardrails.foundation.findings import Finding
 
 pytestmark = pytest.mark.seam
@@ -332,6 +332,91 @@ class IntegrityCodeTests(IntegrityCase):
             ])
         assert result == 1
         assert "CODE.no-placeholder-bodies" in output.getvalue()
+
+
+class StagedDiffCheckTests(IntegrityCase):
+    def stage(self, repo: FixtureRepo, files: Mapping[str, str]) -> None:
+        for name, text in files.items():
+            target = repo.path / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        repo.git("add", "-A")
+
+    def staged(self, repo: FixtureRepo) -> list[tuple[str, str]]:
+        return rules(whole_repo.staged_diff_findings(repo.path, BASE_PROFILE))
+
+    def test_staged_coverage_golden_growth_and_duplicate_failures_block(self) -> None:
+        self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"})
+        self.stage(
+            self.repo,
+            {
+                "tests/fixtures/golden/out.txt": "new\n",
+                "src/existing.py": "x = 1  # pragma: no cover\n",
+                "tests/unit/test_cart.py": "def test_case():\n    assert total() == 1\n"
+                "def test_todo():\n    assert total() == 1\n",
+            },
+        )
+        assert {rule for rule, _ in self.staged(self.repo)} == {
+            "TEST.coverage-ratchet",
+            "TEST.golden-change-record",
+            "TEST.growth.justified",
+            "TEST.duplicate-path",
+        }
+
+    def test_staged_identity_artefact_in_test_only_work_blocks(self) -> None:
+        self.repo.commit({"migrations/001.sql": "CREATE TABLE a (id int);\n"})
+        self.stage(
+            self.repo,
+            {
+                "migrations/001.sql": "CREATE TABLE a (id bigint);\n",
+                "tests/unit/test_schema.py": "def test_schema_keeps_ids():\n    assert ids()\n",
+            },
+        )
+        assert self.staged(self.repo) == [
+            ("TEST.identity-artefacts", "migrations/001.sql")
+        ]
+
+    def test_staged_content_is_judged_rather_than_the_worktree(self) -> None:
+        self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"})
+        target = self.repo.path / "tests/fixtures/golden/out.txt"
+        target.write_text("unstaged\n")
+        assert self.staged(self.repo) == []
+        self.stage(self.repo, {"tests/fixtures/golden/out.txt": "staged\n"})
+        target.write_text("old\n")
+        assert self.staged(self.repo) == [
+            ("TEST.golden-change-record", "tests/fixtures/golden/out.txt")
+        ]
+
+    def test_initial_commit_judges_staged_tests_against_empty_tree(self) -> None:
+        fresh = FixtureRepo(self)
+        self.stage(
+            fresh, {"tests/unit/test_first.py": "def test_case():\n    assert run()\n"}
+        )
+        assert self.staged(fresh) == [
+            ("TEST.growth.justified", "tests/unit/test_first.py")
+        ]
+
+    def test_commit_check_command_blocks_staged_diff_findings(self) -> None:
+        profile = {
+            **BASE_PROFILE,
+            "guardrails": {
+                **BASE_PROFILE["guardrails"],
+                "check": {"run": ["structure"], "exclude": ["**"]},
+            },
+        }
+        self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"}, profile)
+        self.stage(self.repo, {"tests/fixtures/golden/out.txt": "new\n"})
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = cli.main([
+                "check",
+                "--repo",
+                str(self.repo.path),
+                "--record",
+                str(self.repo.record),
+            ])
+        assert result == 1
+        assert "TEST.golden-change-record" in output.getvalue()
 
 
 if __name__ == "__main__":
