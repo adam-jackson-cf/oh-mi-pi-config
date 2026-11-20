@@ -60,7 +60,7 @@ export const noChainedTypeAssertionsRule = defineRule({
     },
     messages: {
       chained:
-        "This assertion chain discards type evidence. Keep the original precise type, or parse untrusted input at its boundary before narrowing it.",
+        "Root cause: the value's real type was never established, so an assertion chain forces a type the compiler cannot verify. Fix: keep the precise type from its source, or parse untrusted input once at its boundary into a named type.",
     },
   },
   createOnce(context) {

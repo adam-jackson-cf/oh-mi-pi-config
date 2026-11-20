@@ -352,7 +352,7 @@ export const noWidenThenAssertRule = defineRule({
     },
     messages: {
       widenThenAssert:
-        'Binding "{{name}}" discards type evidence and later recreates it with an assertion. Keep the precise type from initialization through use; parse boundary input once.',
+        'Root cause: binding "{{name}}" is declared with a broader type and later asserted back, so the compiler stops checking the value in between. Fix: keep the precise type from initialisation through use, parsing boundary input once.',
     },
   },
   createOnce(context) {

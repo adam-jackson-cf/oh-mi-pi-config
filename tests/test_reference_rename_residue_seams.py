@@ -116,9 +116,12 @@ class RenameResidueCommandTests(unittest.TestCase):
         result = self.command(base)
         assert result.returncode == 1, result.stdout + result.stderr
         lines = [
-            line for line in result.stdout.splitlines() if "RENAME.residue:" in line
+            line
+            for line in result.stdout.splitlines()
+            if "RENAME.residue:" in line and not line.startswith("remediation ")
         ]
         assert len(lines) == 4, result.stdout
+        assert "remediation RENAME.residue: root cause: " in result.stdout
         for path, identifier in [
             ("verifier/grader.py", "run_oracle"),
             ("verifier/runtime/raidar_oracle_plugin.py", "raidar_oracle_plugin"),

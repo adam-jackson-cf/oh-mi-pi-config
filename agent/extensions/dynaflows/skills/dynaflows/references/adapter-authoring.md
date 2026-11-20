@@ -34,7 +34,10 @@ An adapter does only these six things. No framework is assumed.
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
    means the packages owning the profile's `public_entry_points`. For
-   `TEST.no-test-hooks`, also report production symbols that only tests use.
+   `TEST.no-test-hooks`, report production reads of test markers (environment
+   reads and loaded-module or runner-global checks), never marker-shaped strings
+   held as data, and also report production symbols that only tests use. Each
+   pattern carries a `remediation` with its root cause and a holistic fix.
 5. **Mutation tool.** Name the framework's mutation tool, pin it, and convert
    its results into the shared mutation report (mutant, file, line span,
    status). `guardrails mutation-check` judges that report against the diff

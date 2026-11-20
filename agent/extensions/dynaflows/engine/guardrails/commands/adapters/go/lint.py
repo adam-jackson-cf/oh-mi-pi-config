@@ -53,6 +53,7 @@ RETRY_PACKAGES = frozenset({
 QUICK_PACKAGE = "testing/quick"
 QUICK_CHECKS = frozenset({"Check", "CheckEqual"})
 TESTING_PACKAGE = "testing"
+MARKER_READS = frozenset({("os", "Getenv"), ("os", "LookupEnv"), ("flag", "Lookup")})
 MARKER = re.compile(
     r"^([A-Z0-9_]*_)?(GO_?TEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
     r"|^test\.\w+$"
@@ -286,6 +287,22 @@ def hook_phrase(name: str) -> bool:
     return any(pair in HOOK_PHRASES for pair in zip(parts, parts[1:], strict=False))
 
 
+def marker_read(node: SgNode, source: Source) -> bool:
+    argument_list = node.parent()
+    call = argument_list.parent() if argument_list is not None else None
+    if (
+        argument_list is None
+        or argument_list.kind() != "argument_list"
+        or call is None
+        or call.kind() != "call_expression"
+    ):
+        return False
+    qualifier, name = call_name(call)
+    return (
+        qualifier is not None and (source.imports.get(qualifier), name) in MARKER_READS
+    )
+
+
 def hook_findings(source: Source) -> list[Finding]:
     found = []
     for call in calls(source.root):
@@ -301,10 +318,11 @@ def hook_findings(source: Source) -> list[Finding]:
             ))
     for node in walk(source.root):
         value = string_value(node)
-        if value is not None and MARKER.match(value):
+        if value is not None and MARKER.match(value) and marker_read(node, source):
             found.append((
                 node,
-                f"production code reads a test marker ({snippet(node)})",
+                f"production code reads a test marker from the environment or test flags "
+                f"({snippet(node)})",
             ))
         if node.kind() in DECLARING:
             for item in children(node):

@@ -41,7 +41,7 @@ export const noUnknownReturnsRule = defineRule({
     },
     messages: {
       unknownReturn:
-        "This function exposes `unknown` to its caller. Parse the value at its boundary and return a named domain type.",
+        "Root cause: this function returns `unknown` because it passes boundary data through without parsing it. Fix: parse the value inside this boundary function and return the named domain type every caller can rely on.",
     },
   },
   createOnce(context) {

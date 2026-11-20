@@ -11,7 +11,7 @@ from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import as_list, matches_any, name_matches
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class Rule:
     scope: str
     target: str | None
     message: str
-    fix: str
+    remediation: Remediation
     config: Config
 
 
@@ -59,7 +59,7 @@ def load_rules() -> list[Rule]:
                 data["scope"],
                 data.get("target"),
                 data["message"],
-                data["fix"],
+                remediation(data["remediation"]),
                 config,
             )
         )
@@ -222,7 +222,12 @@ def file_findings(
             snippet = " ".join(match.text().split())[:80]
             message = rule.message.format(target=target, match=snippet)
             findings.append(
-                Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix)
+                Finding(
+                    rule.rule_id,
+                    path,
+                    f"line {line}: {message}",
+                    rule.remediation.render(),
+                )
             )
     return findings
 
