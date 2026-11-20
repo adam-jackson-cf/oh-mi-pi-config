@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import argparse
 import shlex
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config.adapter_declarations import adapter_tiers, claimed
 from guardrails.foundation.findings import Finding
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 

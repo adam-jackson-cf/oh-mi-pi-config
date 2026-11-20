@@ -492,5 +492,18 @@ class SubprocessTimeoutTests(unittest.TestCase):
         )
 
 
+def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
+    profile = {
+        "guardrails": {
+            "python": {
+                "source_roots": ["agent/extensions/dynaflows/engine"],
+                "fanout": {"root_packages": ["guardrails"]},
+            }
+        }
+    }
+    findings = fanout.run(ROOT, profile, ["agent/extensions/dynaflows/engine"])
+    assert [(item.path, item.message) for item in findings] == []
+
+
 if __name__ == "__main__":
     unittest.main()
