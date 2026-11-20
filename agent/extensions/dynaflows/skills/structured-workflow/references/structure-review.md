@@ -21,9 +21,8 @@ The frozen questions and per-question thresholds live in
 for every affected unit and `prefix_should_be_folder` only with eligible clusters. Independent
 questions share a request; multiple units sharing those questions use eval `judge_batch`.
 Threshold versions hash questions, state shape and the recorded model; stale or invalid
-configuration is an infrastructure error, not a clean review. Eval currently selects the
-runtime model and does not expose its reported model in `judge` answers; results explicitly
-record this limitation rather than claiming a pinned model or calibrated confidence.
+configuration is an infrastructure error, not a clean review. Never claim a pinned model or
+calibrated confidence: eval does not report the runtime model in `judge` answers.
 
 The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains `head`, `status`,
 unit-state digests, raw scores, findings, full thresholds and version key, `halt`, and
@@ -33,11 +32,8 @@ One marked PR comment is updated across reruns/heads. Provisional findings (init
 Infrastructure failures are reported in the result/comment and never block shadow operation.
 An incomplete review has `status: incomplete`, not a clean result.
 
-A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`.
-In structured mode, rails require this exact-head file alongside prove pass and CI green.
-A missing, corrupt or wrong-head file blocks even when all decisions are provisional.
-`halt: true` blocks via rails: fix the named ready findings and rerun `prove()` and
-`structure_review()` on the new head. Never write or edit a result file by hand.
+A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`;
+[Verify](step-5-verify-workflow.md) and [Integrate](step-6-integrate-workflow.md) own the response.
 Promoting thresholds requires jev-actions labeling, tuning and calibration evidence; raw
-probabilities are not calibrated confidence. No automatic promotion or infrastructure-to-finding
-conversion occurs.
+probabilities are not calibrated confidence. Nothing promotes thresholds or turns infrastructure
+errors into findings automatically.

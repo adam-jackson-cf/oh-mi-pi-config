@@ -7,8 +7,6 @@ Assign each test one tier and report green only for the event actually exercised
 ## Start here
 
 - These rules are guidance. The repo test profile supplies values and may tighten them.
-- Where this skill is silent, use judgement: keep existing content, make no irreversible write,
-  ask the user once when the choice changes the outcome, and state the choice in the result.
 - The calling workflow supplies the repo test profile's location.
   If it is unknown, ask once; never guess a profile from a repo-local skill.
   Read its values using the shipped [profile template](../assets/templates/test-profile.md) field names.

@@ -41,7 +41,7 @@
   changes and freezes them with the journey files. The greening implementation changes product code
   and feature-map prose, plus discovery tests before re-freeze.
 - `prove()` checks journey stability: a `journey: true` proof must pass every clean run on the exact
-  head being merged. Do not rerun journeys by hand before freeze. Doctor failures, hangs and
+  head being merged. Doctor failures, hangs and
   contaminated state never count as clean runs or red-at-base evidence. Report blocked infrastructure
   and retain marker/probe evidence; repair only within authorized scope, otherwise ask the owner once
   whether to repair or leave the proof blocked. Resume only after the cause is repaired and doctor
@@ -58,9 +58,8 @@
   every changed map document that links no frozen proof.
 - Discoveries: when implementation finds user-facing behaviour the plan did not name (a new error, option,
   output or state the caller can see), the implementation task adds or updates its map entry and writes its
-  outcome test, leaves both uncommitted with no other pending edits, and stops. Main re-freezes with
-  `previous=(path, digest)`, and `revise` only for changed existing proofs ([freeze](freeze.md)).
-  The new test is red at base because the behaviour did not exist there; implementation then resumes.
+  outcome test, leaves both uncommitted with no other pending edits, and stops. Main re-freezes
+  under [freeze](freeze.md#re-freeze-for-discoveries), then implementation resumes.
   There is no added-after-freeze exception.
 - Map sweep: before the PR opens, a sweep task lists every user-facing behaviour the branch diff adds or
   changes, each with a concrete source path; an item without one is dropped. Each item no map document

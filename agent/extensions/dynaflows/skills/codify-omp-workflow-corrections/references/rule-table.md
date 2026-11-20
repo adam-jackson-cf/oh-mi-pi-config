@@ -8,8 +8,6 @@ Maintain a repository-local record of each correction rule, its enforcer, and hi
 
 Use an existing repository rule registry when available; otherwise maintain `.omp/rules.md`.
 Do not put repository-specific entries in this shared reference or add fields to `.omp/gate.json`.
-The table replaces scattered duplicate correction reminders; retain only judgment-only prose
-that no stronger mechanism can express.
 
 ### Format
 
@@ -33,18 +31,15 @@ Use these exact columns:
 ### Maintain entries
 
 1. Read the table before adding a rule; update an existing invariant instead of duplicating it.
-2. Record each real occurrence. Two establish a class; one high-impact incident also qualifies
-   (unverified merge, data/evidence loss, security exposure, or owner time blocked for hours). Record why.
+2. Record each real occurrence and why it qualifies as a class under [class prevention](class-prevention.md).
 3. On a repeat of an unenforced rule, move up at least one level in the priority order.
    Prefer the highest feasible level, not merely the next one. Do not reset the date or erase
    historical proof; record the enforcement migration in the evidence link or adjacent note.
 4. If an allegedly enforced rule recurs, inspect the bypass or missing scope and repair the
    enforcer. Do not add a prose reminder beside a broken check.
-5. A single bespoke lint/CI check for one class may enter the existing gate directly with its proof;
-   route new rule families through `skill://setup-repo-proofs`. Prove rejection of the real
-   historical mistake and a corrected pass before claiming enforcement.
-6. Keep exceptions on the offending line with reason, expiry, and owner approval reference.
-   The registry may link that line, but it cannot serve as a blanket waiver.
+5. Add and prove checks as [class prevention](class-prevention.md) steps 4 and 7 require before claiming enforcement.
+6. Keep exceptions as class prevention step 8 requires. The registry may link that line, but it cannot serve as a
+   blanket waiver.
 7. Remove obsolete weaker rules and duplicate reminders when the stronger enforcer replaces them.
    If moving up is genuinely impossible, preserve the entry as unenforced and escalate with
    the higher-level failure reasons rather than claiming the recurrence is solved.

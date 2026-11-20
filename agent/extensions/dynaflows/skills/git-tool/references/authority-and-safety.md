@@ -1,34 +1,33 @@
 # Authority and safety
 
-This runbook applies in both dynaflows modes. Merge authority, CI and recovery are structured mode only and
-live in [merge-and-recover](merge-and-recover.md).
+This runbook applies in both dynaflows modes. In minimal mode rails refuse `gh pr merge` and pushes to the default
+branch, and the owner merges and recovers. Merge authority, CI and recovery are structured mode only and live in
+[merge-and-recover](merge-and-recover.md).
 
 ## Record
 
 A repo's **record**, when present, is its personal harness config: `repos/<owner>/<name>/` under the oh-mi-pi-config root,
-named by the clone's `origin` remote, gitignored and never committed. It holds `gate.json` (commands, `ci`, `agentMerge`)
+named by the clone's `origin` remote. It holds `gate.json` (commands, `ci`, `agentMerge`)
 and `profile.md`. [The record contract](../../../record/README.md) defines its schema, resolution,
 [`ci` and `agentMerge`](../../../record/README.md#merge-and-ci-policy) policy.
 A record is not a prerequisite for ordinary Git work; its declared policy still applies.
 
 The assigned writer commits, pushes, writes the description and opens the PR.
-In minimal mode the owner reviews and merges it; in structured mode main merges it under
+In minimal mode the owner merges it; in structured mode main merges it under
 [merge authority](merge-and-recover.md#merge-authority).
-Read this runbook before any Git action.
 
 ## Model and owner authority
 
 - Pando model: one unit per `agent/<slug>` branch, one writer per branch, one PR per unit.
   Only same-branch writes contend: independent units run independently.
   - Short-lived `agent/*` branches are the trunk-based unit; target same-day merge. A unit waits only on a unit it builds on.
-  - Never bypass configured harness commit checks or the repo's own hooks.
   - Land multi-phase work incrementally behind a flag with a stated removal criterion; never long-lived or stacked branches.
 - Granted in every repository unless its record's `gate.json` has `"agentMerge": "disabled"`: create `agent/*` branches, commit,
   push them to the existing GitHub primary remote and open PRs.
   This grant overrides recommend-before-acting for these actions only.
 - Remote/default resolution belongs to [branch-and-integrate](branch-and-integrate.md).
 - Pulling existing commits into a branch (merge the target, rebase, cherry-pick, revert, sync) needs
-  no extra checks: those commits were checked when they were made.
+  no extra checks.
 - Agents write per-repo records directly under [Who writes records](#who-writes-records).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
 - Never commit or push directly to the default branch.
@@ -47,7 +46,7 @@ Record-write authority does not approve repository fixes that separately require
 - Inspect changed files for unrelated work and secrets; never stage secrets.
 - Conventional Commits (`feat|fix|refactor|build|ci|chore|docs|style|perf|test`), one atomic commit per logical step.
 - Create new logical commits through `git commit`, where rails run the commit checks.
-  Rails cover supported shell/eval forms, not arbitrary interpreters or all possible commit creators.
+- Never bypass configured harness commit checks or the repo's own hooks.
 - Never run `git reset --hard`, `git clean`, `git restore` or `rm`.
 - Never run repo-wide search/replace scripts (`sed -i`, `perl -pi -e`, `python -c`).
 - Use the repository's package manager and runtime.

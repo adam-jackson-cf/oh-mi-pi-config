@@ -26,8 +26,7 @@ Map every catalogue rule to its owner and give every check step exactly one outc
   `checks.commit`), each naming the repo's own command, never an omp path. Record the repo's actual local, CI and hook
   invocations and failure propagation, and any existing pre-push hook as a practice to replace.
 - Map `GATE.path-check` to harness `guardrails path-check --repo <worktree> --record <record dir>`, never a record
-  command. Rails run it after edits and before commit; at commit `checks.commit` and the whole-repo harness checks
-  follow. A repo hook remains the repo's choice.
+  command. A repo hook remains the repo's choice.
 - A row with a `reference` field names the `guardrails` check step that enforces it from the harness. Give every check
   step exactly one outcome from Step 1's rule-ID evidence:
   - `repo`: checkers that `checks.commit` runs enforce every rule ID the step reports, list files from git and apply
@@ -44,7 +43,6 @@ Map every catalogue rule to its owner and give every check step exactly one outc
   lock file and manifest in Step 1's map; otherwise it is `grow`, and a repo with no audit gets one.
 - Never run a harness step beside a repo checker, even until a repo PR lands, and never offer a route where the owner
   declines a `grow` PR and the harness step runs instead.
-- `guardrails`' own tests prove the harness rules once for every repository; the repo's tests prove the repo's checkers.
 - A baseline of waived findings in the repo's own tools for catalogue rules without a `reference` (Ruff, mypy and
   similar) is also a `grow` fix, never an accepted state. mypy follows every import (`MYPY.follow_imports`).
 - An applicable rule with neither a repo home nor a `guardrails` subcommand is implemented as a repo checker when the

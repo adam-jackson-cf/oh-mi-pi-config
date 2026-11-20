@@ -10,7 +10,7 @@ result = await triage_advisories(
 ```
 
 Use this when a commit is blocked and the gate output holds `SECURITY.dependency-audit` lines.
-Every advisory blocks. The repo's checker gives no severity; the harness assesses it.
+Every advisory blocks; the repo's checker gives no severity, so these helpers assess it.
 
 1. `dependency_audit_findings` runs the record's `checks.commit` in the worktree and parses each
    line strictly by the catalogue row's `advisory_line` and `failure_line`. A line that starts
@@ -29,7 +29,7 @@ Every advisory blocks. The repo's checker gives no severity; the harness assesse
      Gather the exact blocker version from the same lock, its declared constraint and the upstream
      HTTPS evidence URL; verify that the constraint excludes every reported fixed version.
      A fix that merely needs an upgrade is not blocked. This evidence routes the finding; it
-     neither suppresses it nor authorizes an agent to write an exception.
+     never suppresses it or authorizes an exception.
 3. A malicious package is decided in code first: an advisory whose ID or an alias starts with
    `MAL-` (an OSV malicious-package record, or the auditor's own malicious mark as the catalogue
    contract states) is critical and goes to the owner, whatever its scope, reachability or fix.
@@ -66,8 +66,5 @@ The catalogue's `SECURITY.dependency-audit.exceptions` is the exception-file con
 No-fix entries retain `advisory`, `package`, `version`, `lock`, `reason`, `exposure`, `expires`.
 Fixed-but-blocked entries additionally require `blocked_by` (`package@exact-version`),
 `constraint` (the exact upstream declaration, including blocker and requirement), and
-`constraint_source` (an absolute HTTPS URL). Repo checkers deterministically verify the blocker
-in the same lock and parse the constraint to exclude every reported fixed release; they never
-fetch the URL. The owner attests the upstream evidence when writing the entry. Expired,
-malformed, stale, unmatched and unblocked-fix entries still fail. Nothing relaxes the exact
-advisory/package/version/lock match.
+`constraint_source` (an absolute HTTPS URL). Expired, malformed, stale, unmatched and
+unblocked-fix entries fail; the advisory/package/version/lock match is exact.

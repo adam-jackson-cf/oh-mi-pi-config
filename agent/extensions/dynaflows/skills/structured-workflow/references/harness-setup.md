@@ -19,7 +19,7 @@ Add the record, engine and approval mechanics to each step of the generic reposi
   guardrails <subcommand>`. It covers the whole repo checkout and writes nothing into the repo tree.
   Never install, pin, copy or fork it into a target. `guardrails catalogue` lists its rule catalogue.
 - A stack gets a skill reference once two repositories need it (the rule of two); Python has `guardrails`.
-  The engine's own tests in oh-mi-pi-config prove every rule it implements, once for every repository.
+  The engine's own tests prove every harness rule once; the repo's tests prove the repo's checkers.
 - Harness process additions apply only in dynaflows structured mode for the target
   ([ADR 0015](../../../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md)); minimal mode means the fixed Git
   guards and repo-native checks.
@@ -50,5 +50,3 @@ Add the record, engine and approval mechanics to each step of the generic reposi
      that the record, if one exists, does not give them in `guardrails.check.repo` (Step 2's `repo` and `grow` outcomes);
    - `extend` when a record exists and only a missing part is added, such as a verification surface.
    An existing record does not rule out `adopt`.
-4. Never build a second guardrail system beside the repo's own, and never reshape repo code to satisfy the harness copy
-   of a rule the repo's checker carries.

@@ -6,8 +6,7 @@ Establish the approved verification surface and the repo's record before guardra
 
 ## Stage deltas
 
-- Run [generic setup](skill://setup-repo-proofs) with [harness setup](harness-setup.md) deltas at each step;
-  it is not a second setup system.
+- Run [generic setup](skill://setup-repo-proofs) with [harness setup](harness-setup.md) deltas at each step.
 - Records are local and never committed. The PR holds only independent repo changes that never mention omp.
 - Frame: identify the stack, protected work, missing controls and owners. Read `skill://setup-repo-proofs`,
   `skill://test-guidance/references/verification-surface.md` and the record's `profile.md` when present.
@@ -17,14 +16,12 @@ Establish the approved verification surface and the repo's record before guardra
   doctor/environment failure to show it cannot count as red. Save the evidence; never reuse spike code.
 - Spike: inventory guardrails with setup Steps 0–2, candidates with Step 3 and the dry run with Step 4.
   Scratch work prepares Step 5 approval; never apply controls during inventory.
-- Plan: the feature map must exist before any TDD proof, because `freeze()` refuses every proof when the record
-  profile declares no `verification_surface.feature_map_path`. Setup establishes the map first.
-- Plan: a lever journey is red at base because the lever is absent; a new-control canary is red at base because the
-  violation is still accepted there. Cover intentional violations rejected and valid inputs accepted.
+- Plan: setup establishes the feature map before any TDD proof; [freeze](freeze.md) refuses proofs without one.
+- Plan: setup proofs are lever journeys and new-control canaries; cover intentional violations rejected and valid
+  inputs accepted.
 - Plan: a setup PR that changes no behaviour (config, docs, repo fixes or the first feature map only) freezes an empty
-  manifest with `freeze(..., project_setup=True)`, which tolerates an absent record. Its PR check is CI green: the
-  record is saved with `dynaflows.mode` minimal, and `prove()` would block the new map docs because they link
-  existing tests, not frozen proofs.
+  manifest with `freeze(..., project_setup=True)`, which tolerates an absent record. Its PR check is CI green, with the
+  record saved with `dynaflows.mode` minimal.
 - Plan: a setup PR that freezes lever journeys or canaries needs the saved record with `feature_map_path` before
   freeze. The proof task writes the lever, the runner-invoked journey files and the map entries that link them,
   and main freezes them together. Implementation owns the map's prose, the profile and guardrails, not lever bytes.

@@ -8,11 +8,8 @@ prove(repo, parent, head, frozen, objective, *, target_ref, max_checks=MAX_PROOF
 
 `frozen` is `freeze()`'s result, the `(manifest_path, manifest_sha256)` pair.
 
-Main calls this at the PR event, against the PR's current head. `repo` is the dedicated
-source worktree on a named branch at `head`, even when main's session is in the primary
-checkout. Resolve the actual fetched PR target and require
-`parent == git merge-base(target_ref, head)` with strict ancestry, not `HEAD~1`. The helper
-checks consistency; git-tool owns confirming actual GitHub target metadata.
+Call it as [Verify](step-5-verify-workflow.md) states. It requires
+`parent == git merge-base(target_ref, head)` with strict ancestry; it cannot authenticate GitHub target metadata.
 
 Prove checks four things:
 
@@ -42,16 +39,10 @@ tracked mutation and changed frozen head bytes fail. Launch, timeout, IO, setup 
 errors are attributed infrastructure failures (`ok: null`, error/output/location), not failed
 assertions. Cleanup failure prevents pass.
 
-A rebase, merge of the target or other branch update needs nothing extra: call prove on the
-new head. The proofs are frozen bytes, so no re-freeze is needed unless a proof file changed or a
-discovery added a proof.
-
 Output includes `status`, `deterministic`, `blocking`, `head`, `objective`, `manifestSha256`
 and the loaded `manifest`. Prove writes that result to
 `<git-common-dir>/omp-prove/<head>.result.json` and posts it as a PR comment on the one open PR
 at head (`prComment` holds the comment URL). Long proof outputs are tail-truncated in the
 comment only; the file keeps them whole. A pass whose result cannot be written or posted
 becomes `fail` with blocking `infrastructure: publishing prove result: ...`. The result file
-with `status: pass` for the exact head is the one pass signal: in structured mode, rails'
-`gh pr merge` guard reads it and requires CI green on that head. Never write or edit a result
-file by hand.
+with `status: pass` for the exact head is the one pass signal.

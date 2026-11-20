@@ -12,8 +12,7 @@ Dry-run the harness checks with the draft record, then gate every record and rep
 2. Steps the draft record's `guardrails.check.repo` gives to repo checkers run through `checks.commit` instead;
    report that command's result with them.
 3. Also run harness `guardrails path-check --repo <temporary checkout> --record <draft record dir>` with candidate changed
-   paths. It always uses the required profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths`,
-   independently of `guardrails.check.repo`; report its findings separately.
+   paths and report its findings separately.
 4. Adopting a repository means clearing every finding first; there is no baseline and no new/changed-code view.
 
 ## Step 5: approval and proposal

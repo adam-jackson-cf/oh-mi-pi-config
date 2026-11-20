@@ -8,8 +8,7 @@ Define the ready PR a writer returns and the fix rounds that follow a failed che
 
 - The implementation task returns a ready PR: no pending writer edits, a complete writer-authored description and
   required CI green for its exact head. Proof tasks do not publish PRs.
-- Main runs the PR check of [Verify](step-5-verify-workflow.md) and merges under [Integrate](step-6-integrate-workflow.md);
-  main never patches or commits.
+- Main runs the PR check of [Verify](step-5-verify-workflow.md) and merges under [Integrate](step-6-integrate-workflow.md).
 - PR-head CI waits, infrastructure incidents and no-CI eligibility follow
   [merge-and-recover](skill://git-tool/references/merge-and-recover.md#ci-waits-errors-and-fallbacks).
 - A result file is bound to its head. After a fix, a rebase or a merge of the target, the writer pushes and waits for

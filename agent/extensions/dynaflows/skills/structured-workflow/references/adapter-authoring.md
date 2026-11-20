@@ -7,10 +7,8 @@ conformance run rather than by review.
 
 ## When this applies
 
-The harness setup's Step 3 reaches this reference when the target's test framework has no adapter
-in the engine. The shared test-evidence checkers stay
-framework-agnostic: they read only normalised evidence. An adapter is the thin
-framework-specific part that produces that evidence.
+Harness setup Step 3 routes here when the engine has no adapter for the target's test framework.
+The adapter produces the normalised evidence the framework-agnostic shared checkers read.
 
 ## Interface
 
@@ -28,8 +26,7 @@ An adapter does only these six things. No framework is assumed.
    `TEST.growth.justified` and `TEST.duplicate-path`.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and
    network connections across T1 setup, call and teardown
-   (`TEST.fast-tier-isolation`). CI also denies the network at the container;
-   the hook is the local mechanism.
+   (`TEST.fast-tier-isolation`).
 4. **Source patterns.** Supply `ast-grep` YAML rules for the framework's mock,
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
@@ -44,8 +41,7 @@ An adapter does only these six things. No framework is assumed.
    (`TEST.mutation-sensitivity`, a T3 nightly rule).
 6. **Normalisation.** Convert the framework's JUnit dialect (durations, skip
    reasons, retry markers, empty-collection exit codes) into the shared run
-   report schema. Dialects differ, so normalisation lives in the adapter, never
-   in a shared checker.
+   report schema. Normalisation lives in the adapter, never in a shared checker.
 
 An adapter belongs to a test framework, not a tier. The record's `profile.md` lists one
 `adapters` entry per framework the repo uses; each names its adapter and gives, per tier it
@@ -78,26 +74,18 @@ It includes, for example:
    A case the framework cannot express is a blocker for the owner, never a
    silent skip.
 
-The shared checkers ship synthetic JUnit XML fixtures, so their own tests never
-depend on any framework.
-
 ## Where the adapter lives
 
 - The adapter lives in the harness from its first repo: under
   `agent/extensions/dynaflows/engine/guardrails/commands/adapters/<framework>/`
   in oh-mi-pi-config, with conformance fixtures as the engine's own tests.
-  The harness owns the adapter; the target repository has no awareness of it.
+  The target repository never references it.
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only
   the first repo needs in that repo's record settings. Generalise the adapter's
   code only when a second repo uses the same framework, and only once it still
   passes every conformance case.
-
-## Ladder
-
-These authoring instructions are prose for the author. Acceptance is
-deterministic: the conformance run passes or fails.
 
 ## Done when
 

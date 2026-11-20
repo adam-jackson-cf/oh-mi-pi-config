@@ -16,8 +16,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
 5. Call `prove(repo, parent, head, (manifest_path, manifest_sha256), objective, target_ref=target_ref)` under the
    [prove contract](prove.md). `repo` is the dedicated source worktree on its named branch at head, not main's
    possibly different checkout. It checks exact-head CI, rename residue, new-path naming/structure, map coverage and frozen proofs.
-6. A PR with no behaviour change (refactor, docs, project setup without new controls, a Dependabot bump) uses a manifest
-   frozen with no proofs; with no changed map doc, `prove()` checks CI, rename residue and new-path naming/structure.
+6. A PR with no behaviour change, including a Dependabot bump, uses the empty manifest from [Plan](step-3-plan-workflow.md).
 7. The result file `<git-common-dir>/omp-prove/<head>.result.json` with `status: pass` for the exact head is the
    prove pass signal; `prove()` also posts it on the PR.
 8. On `fail`, return the blocking evidence (commands, output, expected outcome) to the assigned writer.
@@ -26,9 +25,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
    [structure review contract](structure-review.md). It writes `<git-common-dir>/omp-structure/<head>.json`.
    Provisional findings and recorded infrastructure errors are shadow-only and never affect `prove()` or merge.
    A finding from a `ready` decision sets `halt`; fix it and rerun both helpers on the new head.
-10. In structured mode, rails' `gh pr merge` guard requires prove `status: pass`, structure `halt: false` and CI green,
-    all on that exact head. A missing, corrupt or wrong-head result blocks even with all decisions provisional.
-11. Never write or edit a result file by hand. Post no review agent or status; re-freeze only for a discovery or a
+10. Never write or edit a result file by hand. Post no review agent or status; re-freeze only for a discovery or a
     changed proof file.
 
 ## Done when

@@ -1,7 +1,6 @@
 # Merge and recover
 
 **Structured mode only.** Read this runbook only when the repo's dynaflows `mode` is `structured`.
-In minimal mode rails refuse `gh pr merge` and pushes to the default branch; the owner merges and recovers.
 
 Units target the default resolved in [branch-and-integrate](branch-and-integrate.md) and use rebase-merge,
 never squash or merge commits, unless the repository's project instructions document a target/merge-method exception.
@@ -9,18 +8,15 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
 
 ## Merge authority
 
-- The orchestrating (main) agent owns each change from branch to merge; the owner reviews merged PRs afterwards
-  when he chooses. The assigned writer waits for exact-head green CI before handing off.
-- Main checks exact-head CI, coordinates fixes and merges; independent units merge independently.
+- The orchestrating (main) agent owns each change from branch to merge: it checks exact-head CI, coordinates fixes
+  and merges; independent units merge independently. The assigned writer waits for exact-head green CI before handing off.
 - Granted in every repository unless its record's `gate.json` has `"agentMerge": "disabled"`: merge `agent/*` PRs
   once required CI is green on the exact head. This grant overrides recommend-before-acting for merging only.
 - `agentMerge: disabled` requires owner approval to merge; an absent field defaults to allowed, never permission to skip CI.
-  Missing protection alone never waives existing CI.
 
 ## Merge one pull request
 
-1. Main re-reads the repo's record `gate.json` when present; invalid declared policy fails closed and
-   `agentMerge: disabled` requires owner approval. No record is required for ordinary Git work.
+1. Main re-reads the repo's record `gate.json` when present; invalid declared policy fails closed.
 2. Confirm the actual PR target, the current exact head and required CI green on it under the table below.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,

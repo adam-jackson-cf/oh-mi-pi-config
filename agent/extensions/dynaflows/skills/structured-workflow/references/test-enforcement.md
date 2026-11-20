@@ -1,8 +1,8 @@
 # Test enforcement
 
-These dynaflows checks implement the linked generic guidance. The rule catalogue at
+Each rule enforces the linked generic guidance. The rule catalogue at
 `agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json` defines contracts,
-diagnostics and subcommands; generic test-guidance does not depend on these tools.
+diagnostics and subcommands.
 
 - PROFILE.complete (guardrails profile-check) → skill://test-guidance/references/tiers.md#start-here
 - TEST.fast-tier-isolation (guardrails guard-run) → skill://test-guidance/references/tiers.md#membership

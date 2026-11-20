@@ -12,8 +12,8 @@ Merge the verified exact head under git-tool's authority, and recover a red defa
    recovery. Git-tool owns Git authority: `agentMerge: disabled` requires owner approval.
    Do not copy merge mechanics into playbooks.
 3. Before merge, main must have run both `prove()` and `structure_review()` on the current exact PR head, with CI green,
-   prove `status: pass` and structure `halt: false`. Missing, invalid or wrong-head results block, even with an
-   empty manifest.
+   prove `status: pass` and structure `halt: false`. Rails' `gh pr merge` guard enforces this; missing, corrupt or
+   wrong-head results block, even with an empty manifest or every structure decision provisional.
 4. A rebase or other branch update requires both helpers on the new head before merge. Fix ready findings and rerun
    both helpers and CI on every new head.
 5. Recovery uses git-tool's revert mechanics, with an empty manifest when the revert changes no behaviour.

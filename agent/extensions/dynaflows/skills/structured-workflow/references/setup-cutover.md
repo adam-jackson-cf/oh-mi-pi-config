@@ -13,7 +13,7 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
 3. A `grow` step whose checker the PR creates stays a harness step until that PR merges, because `check` rejects a
    checker path the repo does not list; the owner then moves it to `guardrails.check.repo`.
 4. Setup is not done until every `grow` PR has merged with green checks and the record names every repo checker.
-   Repo changes land through a normal PR and never name omp, dynaflows or the record.
+   Repo changes land through a normal PR.
 5. Save the confirmed record as `repos/<owner>/<name>/` under the oh-mi-pi-config root. Write the live record yourself;
    never ask the owner to save a file. Never commit, stage or copy a record into the target.
 6. The live `profile.md` starts from [the record profile template](../../../record/profile.md) with its front
@@ -23,14 +23,12 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
 7. Set `dynaflows.mode` to `structured` only when the owner asked for dynaflows in the chat
    (`guardrails init --dynaflows-mode structured`), else `minimal`. Write approval fields only as the owner stated them in
    the chat; the Step 5 STOP stays the boundary before applying repo fixes.
-8. Install no harness package into the target. Pin tools the repo runs through the target's package manager.
-   Keep repo commit and CI commands unchanged; no harness path script belongs in the repo.
+8. Pin tools the repo runs through the target's package manager. Keep repo commit and CI commands unchanged.
 9. Execution events follow [the record contract](../../../record/README.md#process-switch-and-events).
    Any commit finding blocks, including drift from contributors who do not use omp. Merge needs `ci.requiredContext`
    green on the exact head and, in structured mode, a `prove()` pass on that head. T3 runs on a schedule, outside the
    record's checks.
-10. A repo hook runs `checks.commit` only when the project wants one. Budget timing blocks only at the agent's commit,
-    using the record's approved machine limit; `checks.ci` never runs the budget checker.
+10. A repo hook runs `checks.commit` only when the project wants one.
 11. Do not configure host branch protection; rails check exact-head `ci.requiredContext` before merge.
 
 ## Step 7: engine and integration verification
