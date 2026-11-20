@@ -10,6 +10,8 @@ Prepare candidate controls and repository fixes outside the target checkout.
    native-tool configuration separately from live configuration. Never overwrite established values
    or invent approvals. An unsupported rule stays blocked until its implementation and tests exist.
 2. Draft missing-rule changes in the existing checker's style, with tests for every added rule.
+   Grade every candidate test with the scenario rubric (`skill://test-guidance/references/case-selection.md#scenario-rubric`) before drafting it;
+   draft keep and extend-existing verdicts only and report each drop with its failing criterion.
    Resolve discrepancies using the owning control's source evidence, not by changing product code
    to satisfy a duplicate checker. Clean output alone does not establish rule coverage.
 3. Make test evidence machine-readable: normalized run reports and collect-only test IDs per tier,
