@@ -75,6 +75,8 @@ def checkout() -> Any:
         env["PATH"] = f"{binary}{os.pathsep}{env['PATH']}"
         env["FAKE_LOG"] = str(Path(scratch) / "calls.jsonl")
         git(root, env, "init", "-q")
+        git(root, env, "config", "user.name", "Gate Test")
+        git(root, env, "config", "user.email", "gate@example.invalid")
         git(root, env, "config", "core.hooksPath", ".githooks")
         git(root, env, "add", "-A")
         yield root, env
