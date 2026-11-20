@@ -6,6 +6,8 @@ Keep meaningful behaviour coverage and remove redundant or brittle tests.
 
 ## Guidance
 
+- Grade each touched test with the [scenario rubric](case-selection.md#scenario-rubric).
+  keep retains it, extend-existing folds it into the named scenario, drop removes it.
 - Classify each touched test as kept, duplicate, brittle or meaningless; name its behaviour and assertion owner.
 - Keep tests that survive harmless refactors and fail when the claimed behaviour breaks.
   Rewrite brittle internal assertions through the public entry point or a pure-core property.

@@ -1,0 +1,1 @@
+export function publicApi() { return import.meta.vitest ? 42 : 0; }

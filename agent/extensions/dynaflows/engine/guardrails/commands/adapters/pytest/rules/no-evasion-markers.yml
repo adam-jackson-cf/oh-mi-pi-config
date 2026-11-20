@@ -3,7 +3,10 @@
   "language": "python",
   "scope": "tests",
   "message": "test skips, expects failure or retries instead of passing ({match})",
-  "fix": "make the test pass, or record a reason-backed guardrails.exceptions entry for this path",
+  "remediation": {
+    "root_cause": "A skip, expected-failure or retry marker lets a failing or flaky test count as handled instead of fixed.",
+    "fix": "Remove the marker and fix the code or test so it passes on every required run; record a reason-backed guardrails.exceptions entry only for an external outage."
+  },
   "rule": {
     "any": [
       {

@@ -23,6 +23,7 @@ from guardrails.commands.adapters.go.source import (
     walk,
     words,
 )
+from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.lint import waived
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import normalized_path, repo_paths
@@ -53,6 +54,7 @@ RETRY_PACKAGES = frozenset({
 QUICK_PACKAGE = "testing/quick"
 QUICK_CHECKS = frozenset({"Check", "CheckEqual"})
 TESTING_PACKAGE = "testing"
+MARKER_READS = frozenset({("os", "Getenv"), ("os", "LookupEnv"), ("flag", "Lookup")})
 MARKER = re.compile(
     r"^([A-Z0-9_]*_)?(GO_?TEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
     r"|^test\.\w+$"
@@ -286,6 +288,36 @@ def hook_phrase(name: str) -> bool:
     return any(pair in HOOK_PHRASES for pair in zip(parts, parts[1:], strict=False))
 
 
+def marker_read(node: SgNode, source: Source) -> bool:
+    argument_list = node.parent()
+    call = argument_list.parent() if argument_list is not None else None
+    if (
+        argument_list is None
+        or argument_list.kind() != "argument_list"
+        or call is None
+        or call.kind() != "call_expression"
+    ):
+        return False
+    qualifier, name = call_name(call)
+    return (
+        qualifier is not None and (source.imports.get(qualifier), name) in MARKER_READS
+    )
+
+
+def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
+    return [
+        (
+            node,
+            "production code reads a test marker from the environment or test flags "
+            f"({snippet(node)})",
+        )
+        for node in walk(parse(inline_bindings(source.root.text(), "go")))
+        if (value := string_value(node)) is not None
+        and MARKER.match(value)
+        and marker_read(node, source)
+    ]
+
+
 def hook_findings(source: Source) -> list[Finding]:
     found = []
     for call in calls(source.root):
@@ -299,13 +331,8 @@ def hook_findings(source: Source) -> list[Finding]:
                 call,
                 f"production code asks whether it runs under test ({snippet(call)})",
             ))
+    found.extend(marker_reads(source))
     for node in walk(source.root):
-        value = string_value(node)
-        if value is not None and MARKER.match(value):
-            found.append((
-                node,
-                f"production code reads a test marker ({snippet(node)})",
-            ))
         if node.kind() in DECLARING:
             for item in children(node):
                 if item.kind() in NAMES and hook_phrase(item.text()):

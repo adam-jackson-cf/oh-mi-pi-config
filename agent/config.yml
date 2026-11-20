@@ -7,7 +7,6 @@ extensions:
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/quota-gate.ts
-  - ~/.omp/agent/extensions/agent-rails.ts
   - ~/.omp/agent/extensions/dynaflows
 modelRoles:
   plan: anthropic/claude-opus-5-5:medium

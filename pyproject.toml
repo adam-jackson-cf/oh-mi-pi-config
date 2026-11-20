@@ -34,7 +34,7 @@ branch = true
 patch = ["subprocess"]
 source = [
   "agent/extensions/dynaflows",
-  "agent/lib",
+  "agent/skills/jev-actions",
   "agent/skills/omp-config-optimise",
   "scripts",
 ]
@@ -53,7 +53,7 @@ warn_unused_ignores = true
 follow_imports = "normal"
 files = [
   "agent/extensions/dynaflows",
-  "agent/lib",
+  "agent/skills/jev-actions",
   "agent/skills/omp-config-optimise",
   "scripts",
   "tests",
@@ -61,8 +61,8 @@ files = [
 explicit_package_bases = true
 mypy_path = [
   "agent/extensions/dynaflows/engine",
-  "agent/extensions/dynaflows/skills/jev-actions/scripts",
-  "agent/lib",
+  "agent/extensions/dynaflows/lib",
+  "agent/skills/jev-actions/scripts",
   "agent/skills/omp-config-optimise/experiments",
   "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",
   "agent/skills/omp-config-optimise/experiments/review-detection",

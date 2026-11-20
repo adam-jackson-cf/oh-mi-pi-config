@@ -168,7 +168,60 @@ func Region(testOnly bool) string {
         assert [item.message for item in go_lint.hook_findings(production)] == [
             "line 8: production code declares a test-only hook (testOnly)",
             "line 9: production code asks whether it runs under test (testing.Testing())",
-            'line 9: production code reads a test marker ("SHOP_UNDER_TEST")',
+            "line 9: production code reads a test marker from the environment or test flags "
+            '("SHOP_UNDER_TEST")',
+        ]
+
+    def test_marker_reads_are_test_hooks_and_marker_shaped_data_is_not(
+        self,
+    ) -> None:
+        production = source(
+            "shop/region.go",
+            """package shop
+
+import (
+\t"flag"
+\t"os"
+)
+
+var runners = []string{"GO_TEST", "TESTING", "test.v"}
+
+func Region() string {
+\tif _, ok := os.LookupEnv("TEST_MODE"); ok || flag.Lookup("test.v") != nil {
+\t\treturn runners[0]
+\t}
+\treturn "eu"
+}
+""",
+        )
+        assert [item.message for item in go_lint.hook_findings(production)] == [
+            "line 11: production code reads a test marker from the environment or test flags "
+            '("TEST_MODE")',
+            "line 11: production code reads a test marker from the environment or test flags "
+            '("test.v")',
+        ]
+
+    def test_marker_reads_through_a_constant_are_test_hooks(self) -> None:
+        production = source(
+            "shop/region.go",
+            """package shop
+
+import "os"
+
+const marker = "GO_TEST"
+const mode = "SHOP_MODE"
+
+func Region() string {
+\tif os.Getenv(marker) != "" || os.Getenv(mode) == "eu" {
+\t\treturn "local"
+\t}
+\treturn "eu"
+}
+""",
+        )
+        assert [item.message for item in go_lint.hook_findings(production)] == [
+            "line 9: production code reads a test marker from the environment or test flags "
+            '("GO_TEST")',
         ]
 
 

@@ -33,7 +33,7 @@ pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
-SKILL_TEMPLATE = ROOT / "agent/lib/record/profile.md"
+SKILL_TEMPLATE = ROOT / "agent/extensions/dynaflows/record/profile.md"
 
 CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
@@ -198,7 +198,7 @@ class DraftRecordTests(InitCase):
             "schemaVersion": 2,
             "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
             "ci": {"requiredContext": "gate", "runner": "github-actions"},
-            "dynaflows": {"enabled": False},
+            "dynaflows": {"mode": "minimal"},
         }
         profile = load_profile(self.record)
         assert profile["house_style"]["version"] == load_house_style()["version"]
@@ -221,8 +221,10 @@ class DraftRecordTests(InitCase):
             in output
         )
         assert "required checks not read (--offline)" in output
-        assert "confirm: dynaflows is off" in output
-        assert "turns on when the owner asks for it in a session" in output
+        assert "confirm: dynaflows is in minimal mode" in output
+        assert (
+            "structured mode starts when the owner asks for it in a session" in output
+        )
         assert "confirm: agentMerge is the owner's to set" in output
         assert "ownerOnlyPaths" not in output
         assert "ownerOnlyPaths" not in self.gate()
@@ -241,7 +243,7 @@ class DraftRecordTests(InitCase):
             "schemaVersion": 2,
             "checks": {"commit": ["make", "verify"]},
             "agentMerge": "allowed",
-            "dynaflows": {"enabled": True},
+            "dynaflows": {"mode": "structured"},
         }
         self.write_record("gate.json", json.dumps(gate))
         values = {
@@ -272,7 +274,7 @@ class DraftRecordTests(InitCase):
         }
         assert (drafted["agentMerge"], drafted["dynaflows"]) == (
             "allowed",
-            {"enabled": True},
+            {"mode": "structured"},
         )
         profile = load_profile(self.record)
         assert profile["verification_surface"]["approval"] == "ADR-7"
@@ -344,6 +346,26 @@ class DraftRecordTests(InitCase):
                 {"schemaVersion": 2, "ownerOnlyPaths": []},
                 "unknown field ownerOnlyPaths must be removed",
             ),
+            (
+                {"schemaVersion": 2, "dynaflows": {"enabled": True}},
+                "unknown field dynaflows.enabled must be removed",
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": {"mode": "bogus"}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": {}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": "on"},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
+            (
+                {"schemaVersion": 2, "dynaflows": {"mode": "structured", "extra": 1}},
+                'dynaflows must be {"mode": "minimal"|"structured"}',
+            ),
         ):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))
@@ -362,7 +384,7 @@ class DraftRecordTests(InitCase):
             ignore=shutil.ignore_patterns("__pycache__"),
             dirs_exist_ok=True,
         )
-        template = harness / "agent/lib/record/profile.md"
+        template = harness / "agent/extensions/dynaflows/record/profile.md"
         template.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(SKILL_TEMPLATE, template)
         location = ["--repo", str(self.repo), "--record", str(self.record)]
@@ -374,26 +396,26 @@ class DraftRecordTests(InitCase):
         )
         return result.returncode, result.stdout + result.stderr
 
-    def test_live_record_can_be_written_with_dynaflows_off(self) -> None:
+    def test_live_record_can_be_written_in_minimal_mode(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         self.record = live / "owner/target"
         code, output = self.harness_init()
         assert code == 0, output
         assert (self.record / "gate.json").is_file()
-        assert self.gate()["dynaflows"] == {"enabled": False}
+        assert self.gate()["dynaflows"] == {"mode": "minimal"}
 
-    def test_dynaflows_ask_writes_the_live_record_with_dynaflows_on(self) -> None:
+    def test_dynaflows_ask_writes_the_live_record_in_structured_mode(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         self.record = live / "owner/target"
         code, output = self.harness_init(
-            "--enable-dynaflows", "--commit-command", "make check"
+            "--dynaflows-mode", "structured", "--commit-command", "make check"
         )
         assert code == 0, output
-        assert self.gate()["dynaflows"] == {"enabled": True}
+        assert self.gate()["dynaflows"] == {"mode": "structured"}
         assert f"init: record at {self.record}" in output
-        assert "confirm: dynaflows is off" not in output
+        assert "confirm: dynaflows is in minimal mode" not in output
         self.record = live / "owner"
-        code, output = self.harness_init("--enable-dynaflows")
+        code, output = self.harness_init("--dynaflows-mode", "structured")
         assert code != 0
         assert "must be a repo's record" in output
         assert not (live / "owner/gate.json").exists()
@@ -460,7 +482,7 @@ class ExistingRecordTests(InitCase):
     def test_drafts_the_missing_required_fields(self) -> None:
         self.write_record(
             "gate.json",
-            json.dumps({"schemaVersion": 2, "dynaflows": {"enabled": True}}),
+            json.dumps({"schemaVersion": 2, "dynaflows": {"mode": "structured"}}),
         )
         self.write("Makefile", MAKEFILE)
         code, output = self.init()

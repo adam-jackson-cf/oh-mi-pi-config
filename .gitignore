@@ -63,22 +63,14 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/rails.yml
-!agent/lib/
-agent/lib/*
-!agent/lib/repo_record.py
-!agent/lib/repo-record.ts
-!agent/lib/rails-runtime.ts
-!agent/lib/record/
-!agent/lib/record/**
 !agent/rules/
 agent/rules/*
 !agent/skills/
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/git-tool/
-!agent/skills/git-tool/**
+!agent/skills/jev-actions/
+!agent/skills/jev-actions/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -100,7 +92,6 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/agent-rails.ts
 !agent/extensions/dynaflows/
 !agent/extensions/dynaflows/**
 
@@ -108,8 +99,9 @@ agent/extensions/*
 tests/*
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/agent-rails-seams.test.ts
+!tests/dynaflows-guards-seams.test.ts
 !tests/dynaflows-extension-seams.test.ts
+!tests/dynaflows-agent-loop-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
 !tests/analyse.test.ts
@@ -117,6 +109,7 @@ tests/*
 !tests/orca-terminal-themes.test.ts
 !tests/vitest-reporter.test.ts
 !tests/anti-slop-rules-seams.test.ts
+!tests/anti-slop-rule-messages.test.ts
 !tests/oxlint-config-seams.test.ts
 !tests/test_check_paths.py
 !tests/test_check_coverage.py

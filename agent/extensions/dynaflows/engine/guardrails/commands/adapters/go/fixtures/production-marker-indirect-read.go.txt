@@ -1,0 +1,12 @@
+package shop
+
+import "os"
+
+const marker = "GO_TEST"
+
+func Region() string {
+	if os.Getenv(marker) != "" {
+		return "local"
+	}
+	return "eu"
+}

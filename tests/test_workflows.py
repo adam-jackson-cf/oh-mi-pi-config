@@ -150,7 +150,7 @@ class SchemaTests(unittest.TestCase):
             "schemaVersion": 2,
             "checks": {"commit": ["c"], "format": ["ruff", "format"]},
             "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-            "dynaflows": {"enabled": False},
+            "dynaflows": {"mode": "minimal"},
         }
         assert workflow.gate_policy(gate) == {
             "format": ["ruff", "format"],

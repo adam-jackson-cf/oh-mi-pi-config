@@ -1,0 +1,3 @@
+const { NODE_ENV } = process.env;
+const MARKER = 'VITEST';
+export function publicApi() { return NODE_ENV === 'test' || process.env[MARKER] ? 0 : 42; }

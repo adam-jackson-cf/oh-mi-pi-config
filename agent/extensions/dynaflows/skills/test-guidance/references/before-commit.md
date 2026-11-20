@@ -22,9 +22,7 @@ Complete applicable verification without weakening assertions or hiding failures
   Name commands, events and outcomes actually exercised.
 - Only the repo's authorized fix command, recorded in Command notes, may write authorized check fixes.
   If none is designated, stay check-only. Do not use write mode to conceal failures.
-- Drive caller input through the public entry point and the same production inputs/adapters callers use,
-  never by private-state mutation or runtime patching.
-  Never mock, stub or fake the repo's own code.
+- Drive caller input as [outcome-tests.md](outcome-tests.md) requires, never by private-state mutation or runtime patching.
 - Never loosen expectations, thresholds or owned coverage rules to hide failures.
   Never add unapproved skip, xfail, focus/only or flaky/retry markers, rerun until green,
   or raise a timeout in a changed test to get a pass.

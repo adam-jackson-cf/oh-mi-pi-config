@@ -94,7 +94,7 @@ export const noUnsafeDictionaryTypeRule = defineRule({
 		},
 		messages: {
 			unsafeDictionary:
-				"This dictionary's {{value}} value type gives callers no concrete value contract. Use an owner/schema-derived value type; parse external payloads before insertion.",
+				"Root cause: this dictionary's {{value}} value type was chosen because its entries were never parsed into one contract. Fix: derive the value type from the owning schema and parse external payloads before inserting them.",
 		},
 	},
 	createOnce(context) {

@@ -20,7 +20,7 @@ from guardrails.host.process import run_text
 pytestmark = pytest.mark.seam
 
 
-SWITCH = {"dynaflows": {"enabled": True}}
+SWITCH = {"dynaflows": {"mode": "structured"}}
 
 
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
@@ -657,7 +657,7 @@ class FreezeTests(RepositoryCase):
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "dynaflows": {"enabled": "yes"},
+                "dynaflows": {"mode": "yes"},
             }),
         ):
             self.write_gate(text)
@@ -933,7 +933,7 @@ class RecordGateTests(RepositoryCase):
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
         self.assert_block(
             result,
-            f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}",
+            f"dynaflows minimal mode for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}",
         )
 
     def test_prove_requires_commit_check(self) -> None:
@@ -953,7 +953,9 @@ class RecordGateTests(RepositoryCase):
     def test_prove_without_origin_finds_no_record(self) -> None:
         git(self.repo, "remote", "remove", "origin")
         self.change()
-        self.assert_block(self.prove(), "dynaflows off for none: no origin remote")
+        self.assert_block(
+            self.prove(), "dynaflows minimal mode for none: no origin remote"
+        )
 
     def test_linked_worktree_resolves_to_the_main_checkout_record(self) -> None:
         linked = self.tmp / "linked"
@@ -973,8 +975,8 @@ class RecordGateTests(RepositoryCase):
         for text, fragment in (
             ("{", "record "),
             (
-                json.dumps({**complete, "dynaflows": {"enabled": "yes"}}),
-                'dynaflows must be {"enabled": true|false}',
+                json.dumps({**complete, "dynaflows": {"mode": "yes"}}),
+                'dynaflows must be {"mode": "minimal"|"structured"}',
             ),
         ):
             with self.subTest(text=text):
@@ -1011,7 +1013,7 @@ class RecordGateTests(RepositoryCase):
 
     def test_freeze_without_record_refuses_unless_project_setup(self) -> None:
         (self.record / "gate.json").unlink()
-        no_record = f"dynaflows off for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}"
+        no_record = f"dynaflows minimal mode for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}"
         with pytest.raises(workflow.WorkflowError) as raised:
             self.freeze([self.proof()])
         assert str(raised.value) == no_record

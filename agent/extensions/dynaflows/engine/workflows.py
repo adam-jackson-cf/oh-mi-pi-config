@@ -60,8 +60,8 @@ CHECK_TIMEOUT = 900
 # Harness prechecks have their own budget, independent of repo proof execution.
 HARNESS_CHECK_TIMEOUT = 900
 GUARDRAIL_PREREQUISITE = (
-    "missing per-repo record; follow skill://dynaflows/SKILL.md "
-    "owner-approval prerequisite (skill://dynaflows/references/harness-setup.md)"
+    "missing per-repo record; follow skill://structured-workflow/SKILL.md "
+    "owner-approval prerequisite (skill://structured-workflow/references/harness-setup.md)"
 )
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
@@ -86,7 +86,7 @@ PROOF_FIELDS = frozenset({
 FEATURE_MAP_SETUP = (
     "the record profile declares no verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
-    "(skill://dynaflows/references/project-setup.md). "
+    "(skill://structured-workflow/references/project-setup.md). "
     "A PR with no behaviour change freezes no proofs"
 )
 
@@ -151,7 +151,6 @@ def _check_options(function: str, options: Mapping[str, object], accepted: Any) 
 
 
 def _harness_root() -> Path:
-    """The oh-mi-pi-config checkout containing agent/extensions/dynaflows/skills/dynaflows/templates/."""
     if not _LOADED_FROM:
         raise WorkflowError(
             "cannot locate the harness: workflows.py was loaded without __file__"
@@ -168,9 +167,8 @@ _RESOLVER: list[ModuleType] = []
 
 
 def _resolver() -> Any:
-    """The harness's repo_record module (agent/lib/repo_record.py), loaded once by path."""
     if not _RESOLVER:
-        path = _harness_root() / "agent/lib/repo_record.py"
+        path = _harness_root() / "agent/extensions/dynaflows/lib/repo_record.py"
         spec = importlib.util.spec_from_file_location("omp_repo_record", path)
         if spec is None or spec.loader is None:
             raise WorkflowError(f"cannot load the record resolver: {path}")
@@ -234,7 +232,7 @@ def no_record_reason(repo: StrPath) -> str:
     """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
     resolver = _resolver()
     slug, _, reason = resolver.resolve_record(repo, _records_root())
-    text: str = resolver.off_text(slug, reason or "no per-repo record")
+    text: str = resolver.minimal_text(slug, reason or "no per-repo record")
     return text
 
 

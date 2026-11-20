@@ -25,3 +25,22 @@ Select realistic cases that distinguish required behaviour without duplicating a
   and report the coverage gap; never add a test that pins only the fixed value.
   Never add duplicate or narrowly tailored cases that pin only one bug-fix value, example or changed text.
 - Apply [outcome-tests.md](outcome-tests.md) to kept cases and [property-tests.md](property-tests.md) to pure cores.
+
+## Scenario rubric
+
+Grade every proposed test, existing test under review, and review or gap finding that proposes a case, edge case,
+guard or handling path. The guidance above stays the policy; the rubric applies it the same way each time.
+
+| Criterion              | Pass evidence                                                           | Fail                                            |
+| ---------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
+| Reachable user path    | Public entry point plus a caller site or production data reaching input | No caller or real data reaches the input        |
+| Observable outcome     | A caller-visible result, error, side effect or stored state differs     | Only internals, wiring, logs or prose change    |
+| Distinct outcome class | No kept case or existing scenario asserts this outcome class            | An existing case asserts the same class         |
+| Proportional cost      | Setup, run time and added code fit the tier and budget                  | Needs a test-only hook, new tier or over budget |
+
+- **keep**: all four criteria pass.
+- **extend-existing**: reachable and observable, but a new scenario fails distinct class or cost while adding this
+  input to a named existing scenario passes both.
+- **drop**: any other result. Add no test and no production code for it.
+- Report one row per scenario: the evidence for each criterion, the verdict, the retained scenario for
+  extend-existing, and the failing criterion for drop.

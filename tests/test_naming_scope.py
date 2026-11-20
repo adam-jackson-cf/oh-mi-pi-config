@@ -328,16 +328,19 @@ class ProveScopeTests(NamingScopeCase):
         (engine / "guardrails").symlink_to(
             source_engine / "guardrails", target_is_directory=True
         )
-        library = harness / "agent/lib"
+        library = harness / "agent/extensions/dynaflows/lib"
         library.mkdir(parents=True)
-        shutil.copyfile(ROOT / "agent/lib/repo_record.py", library / "repo_record.py")
+        shutil.copyfile(
+            ROOT / "agent/extensions/dynaflows/lib/repo_record.py",
+            library / "repo_record.py",
+        )
         record = harness / "repos/scope/catalogue"
         record.mkdir(parents=True)
         (record / "gate.json").write_text(
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "dynaflows": {"enabled": True},
+                "dynaflows": {"mode": "structured"},
             })
         )
         (record / "profile.md").write_text(

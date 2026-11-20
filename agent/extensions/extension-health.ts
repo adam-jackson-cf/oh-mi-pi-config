@@ -25,7 +25,7 @@ const defaultExtensions = [
   "analyse",
   "agent-autocomplete",
   "extension-health",
-  "agent-rails",
+  "dynaflows",
 ] as const
 const conditionalExtensions = [
   "orca-agent-status",
@@ -36,7 +36,7 @@ const knownExtensions = {
   "analyse": true,
   "agent-autocomplete": true,
   "extension-health": true,
-  "agent-rails": true,
+  "dynaflows": true,
   "orca-agent-status": true,
   "orca-prefill": true,
   "orca-titlebar-spinner": true,

@@ -8,7 +8,7 @@
     {
       "filter": [
         "agent/extensions/dynaflows/skills/**",
-        "agent/skills/git-tool/**",
+        "agent/skills/jev-actions/**",
       ],
       "config": {
         "MD013": {

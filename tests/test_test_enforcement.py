@@ -10,7 +10,8 @@ pytestmark = pytest.mark.fast
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "agent/extensions/dynaflows/skills"
 INDEX = (
-    ROOT / "agent/extensions/dynaflows/skills/dynaflows/references/test-enforcement.md"
+    ROOT
+    / "agent/extensions/dynaflows/skills/structured-workflow/references/test-enforcement.md"
 )
 POINTER = re.compile(
     r"^- ([A-Z]+\.[A-Za-z0-9.-]+) \(guardrails ([a-z-]+(?:, [a-z-]+)*)\)"

@@ -1,0 +1,2 @@
+const env = Bun.env;
+export function publicApi() { return env.BUN_TEST ? 0 : 42; }

@@ -7,15 +7,14 @@ Assign each test one tier and report green only for the event actually exercised
 ## Start here
 
 - These rules are guidance. The repo test profile supplies values and may tighten them.
-- Where this skill is silent, use judgement: keep existing content, make no irreversible write,
-  ask the user once when the choice changes the outcome, and state the choice in the result.
 - The calling workflow supplies the repo test profile's location.
   If it is unknown, ask once; never guess a profile from a repo-local skill.
   Read its values using the shipped [profile template](../assets/templates/test-profile.md) field names.
   Require every profile value; absent, empty, placeholder, n/a, TBD or unapproved none is missing.
   Only Verification surface, Nightly scheduler and Identity-bearing artefacts allow exemptions,
   each with an owner-approved reason and approval reference.
-- Start with tiers, case selection, naming/layout and outcome tests; add property tests for pure cores.
+- Start with tiers, [case selection](case-selection.md) and its [scenario rubric](case-selection.md#scenario-rubric),
+  naming/layout and outcome tests; add property tests for pure cores.
   Read the surface runbook for mapped features, then before-commit and suite-budget before delivery.
   Read determinism, statistics, flakes and suite-review when their named topic applies.
 - Report missing profile or surface values to the calling workflow and follow repo delivery policy.

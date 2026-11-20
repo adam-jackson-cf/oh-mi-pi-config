@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import sys
 import unittest
 from importlib import resources
@@ -65,6 +66,108 @@ def packaged_catalogue() -> dict[str, Any]:
 
 def proven_by_package(rule: dict[str, Any]) -> bool:
     return rule.get("kind") == "tool" or bool(rule.get("reference"))
+
+
+PLACEHOLDER = re.compile(
+    r"\b(todo|tbd|tbc|fixme|xxx|placeholder|lorem|n/a)\b|\.\.\.|<[^>]*>", re.IGNORECASE
+)
+REMEDIATION_FIELDS = ("root_cause", "fix")
+MINIMUM_WORDS = 8
+
+
+def remediation_problems(entry: dict[str, Any]) -> list[str]:
+    remediation = entry.get("remediation")
+    if not isinstance(remediation, dict) or set(remediation) != set(REMEDIATION_FIELDS):
+        return ["remediation must hold exactly root_cause and fix"]
+    problems = []
+    for field in REMEDIATION_FIELDS:
+        text = remediation[field]
+        if not isinstance(text, str) or len(text.split()) < MINIMUM_WORDS:
+            problems.append(f"{field} must state at least {MINIMUM_WORDS} words")
+        elif PLACEHOLDER.search(text):
+            problems.append(f"{field} holds placeholder text")
+        elif text in {entry.get("summary"), entry.get("message")}:
+            problems.append(f"{field} repeats the rule's summary or message")
+    if remediation["root_cause"] == remediation["fix"]:
+        problems.append("root_cause and fix must differ")
+    return problems
+
+
+def repeated_remediations(entries: list[dict[str, Any]]) -> list[str]:
+    repeated: list[str] = []
+    for field in REMEDIATION_FIELDS:
+        texts = [entry["remediation"][field] for entry in entries]
+        repeated.extend(text for text in set(texts) if texts.count(text) > 1)
+    return repeated
+
+
+def adapter_rule_files() -> dict[str, list[dict[str, Any]]]:
+    adapters = REFERENCE / "guardrails/commands/adapters"
+    files = {
+        path.relative_to(adapters).as_posix(): [json.loads(path.read_text())]
+        for path in sorted((adapters / "pytest/rules").glob("*.yml"))
+    }
+    files["vitest/patterns.yml"] = json.loads(
+        (adapters / "vitest/patterns.yml").read_text()
+    )
+    return files
+
+
+def entry_keys(entries: list[dict[str, Any]]) -> set[str]:
+    return {key for entry in entries for key in entry}
+
+
+class RemediationSchemaTests(unittest.TestCase):
+    def test_every_catalogue_rule_states_root_cause_and_fix(self) -> None:
+        rules = packaged_catalogue()["rules"]
+        for rule in rules:
+            with self.subTest(rule=rule["id"]):
+                assert remediation_problems(rule) == []
+        assert repeated_remediations(rules) == []
+
+    def test_every_adapter_pattern_states_root_cause_and_fix(self) -> None:
+        for name, entries in adapter_rule_files().items():
+            with self.subTest(file=name):
+                assert "fix" not in entry_keys(entries)
+                for entry in entries:
+                    assert remediation_problems(entry) == [], entry["id"]
+                assert repeated_remediations(entries) == []
+
+    def test_missing_short_or_placeholder_remediations_fail_the_schema(self) -> None:
+        cause = "The rule fired because the code took a shortcut around its owner."
+        fix = (
+            "Route the behaviour through its owner and delete the shortcut everywhere."
+        )
+        assert (
+            remediation_problems({"remediation": {"root_cause": cause, "fix": fix}})
+            == []
+        )
+        assert remediation_problems({}) == [
+            "remediation must hold exactly root_cause and fix"
+        ]
+        assert remediation_problems({"remediation": {"root_cause": cause}}) == [
+            "remediation must hold exactly root_cause and fix"
+        ]
+        assert remediation_problems({
+            "remediation": {"root_cause": "TODO", "fix": fix}
+        }) == ["root_cause must state at least 8 words"]
+        assert remediation_problems({
+            "remediation": {
+                "root_cause": cause,
+                "fix": "TBD: write the real fix for this rule later on.",
+            }
+        }) == ["fix holds placeholder text"]
+        assert remediation_problems({
+            "summary": fix,
+            "remediation": {"root_cause": cause, "fix": fix},
+        }) == ["fix repeats the rule's summary or message"]
+        assert remediation_problems({
+            "remediation": {"root_cause": cause, "fix": cause}
+        }) == ["root_cause and fix must differ"]
+        assert repeated_remediations([
+            {"remediation": {"root_cause": cause, "fix": fix}},
+            {"remediation": {"root_cause": cause, "fix": fix + " Again."}},
+        ]) == [cause]
 
 
 class PackagedCatalogueTests(unittest.TestCase):

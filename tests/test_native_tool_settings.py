@@ -2,7 +2,7 @@ import json
 import re
 import tomllib
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -65,6 +65,18 @@ class NativeToolSettingsTests(unittest.TestCase):
         mypy = pyproject_tool("mypy")
         expected = catalogue("mypy")
         assert {key: mypy.get(key) for key in expected} == expected
+
+    def test_every_mypy_import_root_is_type_checked_and_measured(self) -> None:
+        mypy = pyproject_tool("mypy")
+        measured = pyproject_tool("coverage")["run"]["source"]
+        for root in mypy["mypy_path"]:
+            with self.subTest(root=root):
+                assert any(
+                    PurePosixPath(root).is_relative_to(entry) for entry in mypy["files"]
+                )
+                assert root == "tests" or any(
+                    PurePosixPath(root).is_relative_to(entry) for entry in measured
+                )
 
     def test_tsc_settings_match_the_catalogue(self) -> None:
         options = json_settings("tsconfig.json")["compilerOptions"]
