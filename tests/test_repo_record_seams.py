@@ -9,7 +9,9 @@ import pytest
 
 from guardrails.host.process import run_bytes
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent/lib"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/lib")
+)
 from test_repo_record import GATE, gate
 
 import repo_record
@@ -27,12 +29,12 @@ def git(*args: str) -> None:
     run_bytes(["git", *args], check=True, timeout=PROCESS_TIMEOUT)
 
 
-def dynaflows_on(repo: Path, config: Path) -> bool:
+def record_mode(repo: Path, config: Path) -> str:
     record = repo_record.find_record(repo, config)
-    return (
-        record is not None
-        and repo_record.load_gate(record)["dynaflows"]["enabled"] is True
-    )
+    if record is None:
+        return "minimal"
+    mode: str = repo_record.load_gate(record)["dynaflows"]["mode"]
+    return mode
 
 
 class Resolve(unittest.TestCase):
@@ -105,18 +107,18 @@ class Resolve(unittest.TestCase):
             None,
         )
         assert (
-            repo_record.off_text(None, "no origin remote")
-            == "dynaflows off for none: no origin remote"
+            repo_record.minimal_text(None, "no origin remote")
+            == "dynaflows minimal mode for none: no origin remote"
         )
         assert (
-            repo_record.off_text("owner/name", "why")
-            == "dynaflows off for owner/name: why"
+            repo_record.minimal_text("owner/name", "why")
+            == "dynaflows minimal mode for owner/name: why"
         )
 
     def test_no_origin_means_no_record_and_dynaflows_off(self) -> None:
         assert repo_record.repo_slug(self.repo) is None
         assert repo_record.find_record(self.repo, self.config) is None
-        assert not dynaflows_on(self.repo, self.config)
+        assert record_mode(self.repo, self.config) == "minimal"
 
     def test_origin_without_a_record_means_dynaflows_off(self) -> None:
         git(
@@ -129,7 +131,7 @@ class Resolve(unittest.TestCase):
         )
         assert repo_record.repo_slug(self.repo) == "owner/name"
         assert repo_record.find_record(self.repo, self.config) is None
-        assert not dynaflows_on(self.repo, self.config)
+        assert record_mode(self.repo, self.config) == "minimal"
 
     def test_worktree_resolves_to_the_main_checkout_record(self) -> None:
         git(
@@ -155,9 +157,9 @@ class Resolve(unittest.TestCase):
         for clone in (self.repo, worktree):
             with self.subTest(clone=clone.name):
                 assert repo_record.find_record(clone, self.config) == record
-                assert dynaflows_on(clone, self.config)
+                assert record_mode(clone, self.config) == "structured"
 
-    def test_disabled_record_is_off_and_malformed_record_is_an_error(self) -> None:
+    def test_minimal_record_is_minimal_and_malformed_record_is_an_error(self) -> None:
         git(
             "-C",
             str(self.repo),
@@ -166,14 +168,14 @@ class Resolve(unittest.TestCase):
             "origin",
             "https://github.com/owner/name",
         )
-        record = self.write_record("owner/name", gate(dynaflows={"enabled": False}))
-        assert not dynaflows_on(self.repo, self.config)
+        record = self.write_record("owner/name", gate(dynaflows={"mode": "minimal"}))
+        assert record_mode(self.repo, self.config) == "minimal"
         (record / "gate.json").write_text(json.dumps({"schemaVersion": 2}))
         with pytest.raises(repo_record.RecordError):
-            dynaflows_on(self.repo, self.config)
+            record_mode(self.repo, self.config)
         (record / "gate.json").write_text("{")
         with pytest.raises(repo_record.RecordError):
-            dynaflows_on(self.repo, self.config)
+            record_mode(self.repo, self.config)
 
     def test_a_record_missing_a_required_field_or_carrying_an_unknown_one_does_not_load(
         self,
@@ -202,7 +204,7 @@ class Resolve(unittest.TestCase):
                 with pytest.raises(repo_record.RecordError, match=named):
                     repo_record.load_gate(record)
                 with pytest.raises(repo_record.RecordError, match=named):
-                    dynaflows_on(self.repo, self.config)
+                    record_mode(self.repo, self.config)
 
     def test_default_root_is_the_checkout_holding_the_module(self) -> None:
         assert repo_record.config_root() == ROOT

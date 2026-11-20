@@ -39,14 +39,13 @@ Turn a recurring owner correction into the strongest enforceable repository cons
    State which boundary was not exercised (for example, direct hook replay does not exercise
    session event delivery). A synthetic substitute or a mock of the enforcer is not historical proof.
    Record the rejection and corrected pass. For architecture/types, show the old invalid construction
-   is impossible or rejected. This validates prevention, not the owner's observation.
+   is impossible or rejected.
    Report inaccessible evidence or an unexercised boundary as a gap, never as proven coverage.
 8. Allow exceptions only on the offending line, with a reason, expiry date, and explicit owner
    approval reference. Use the language's inline directive/comment form; no blanket exclusions.
    An exception is not enforcement evidence, and expired exceptions must fail the gate.
 9. Update the repository rule table with the enforcer, chosen level, historical proof, and date.
    Replace obsolete entries when enforcement moves up; preserve the evidence and migration trail.
-   These checks replace weaker reminders where possible; keep judgment-only guidance when needed.
 
 ## Report the result
 

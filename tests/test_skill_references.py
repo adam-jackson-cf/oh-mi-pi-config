@@ -18,10 +18,10 @@ PACKAGE = ROOT / "agent/extensions/dynaflows"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
 
-WORKFLOW = PACKAGE_SKILLS / "dynaflows"
+WORKFLOW = PACKAGE_SKILLS / "structured-workflow"
 
 CORE_SKILLS = (
-    "dynaflows",
+    "structured-workflow",
     "test-guidance",
     "setup-repo-proofs",
     "jev-actions",
@@ -29,19 +29,30 @@ CORE_SKILLS = (
     "git-tool",
 )
 
-REFERENCE = re.compile(r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?")
+REFERENCE = re.compile(
+    r"skill://([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_./-]+))?(?:#([A-Za-z0-9_-]+))?"
+)
+
+
+def heading_anchors(target: Path) -> set[str]:
+    return {
+        re.sub(r"[^\w-]", "", heading.strip().lower().replace(" ", "-"))
+        for heading in re.findall(
+            r"^#{1,6} (.+)$", target.read_text(encoding="utf-8"), re.MULTILINE
+        )
+    }
 
 
 def skill_directory(name: str) -> Path:
-    return SKILLS / name if name == "git-tool" else PACKAGE_SKILLS / name
+    return SKILLS / name if name == "jev-actions" else PACKAGE_SKILLS / name
 
 
 def citing_sources(
-    references: Mapping[tuple[str, str], set[str]], name: str
+    references: Mapping[tuple[str, str, str], set[str]], name: str
 ) -> set[str]:
     return {
         source
-        for (skill, _), sources in references.items()
+        for (skill, _, _), sources in references.items()
         if skill == name
         for source in sources
     }
@@ -54,8 +65,11 @@ def unresolved_links(source: Path) -> list[str]:
         target = match.group(1)
         if target.startswith("#") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
             continue
-        relative = target.split("#", 1)[0]
-        if not (source.parent / relative).is_file():
+        relative, _, anchor = target.partition("#")
+        linked = source.parent / relative
+        if not linked.is_file() or (
+            anchor and linked.suffix == ".md" and anchor not in heading_anchors(linked)
+        ):
             unresolved.append(
                 f"unresolved relative markdown link: {target} "
                 f"(cited by: {source.relative_to(ROOT)})"
@@ -76,8 +90,7 @@ class SkillReferenceTests(unittest.TestCase):
 
     def test_core_skill_references_resolve_locally(self) -> None:
         sources = {
-            ROOT / "agent/rails.yml",
-            ROOT / "agent/extensions/agent-rails.ts",
+            PACKAGE / "rails.yml",
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
             PACKAGE / "docs/workflow.html",
@@ -91,21 +104,21 @@ class SkillReferenceTests(unittest.TestCase):
                 if path.suffix in {".md", ".py", ".html"} and path.is_file()
             ),
         }
-        references: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+        references: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)
         for source in sorted(sources):
             for match in REFERENCE.finditer(source.read_text(encoding="utf-8")):
-                name, relative = match.groups()
+                name, relative, anchor = match.groups()
                 if name in CORE_SKILLS:
-                    references[(name, relative or "")].add(
+                    references[(name, relative or "", anchor or "")].add(
                         str(source.relative_to(ROOT))
                     )
 
         # Every core skill needs an entry point, even if all citations name subpaths.
         for name in CORE_SKILLS:
-            references[(name, "")].update(citing_sources(references, name))
+            references[(name, "", "")].update(citing_sources(references, name))
 
         unresolved = []
-        for (name, relative), citing in sorted(references.items()):
+        for (name, relative, anchor), citing in sorted(references.items()):
             directory = skill_directory(name).resolve()
             target = (
                 (directory / relative).resolve() if relative else directory / "SKILL.md"
@@ -116,8 +129,13 @@ class SkillReferenceTests(unittest.TestCase):
                 or not (directory / "SKILL.md").is_file()
                 or not target.resolve().is_relative_to(directory)
                 or not target.exists()
+                or (anchor and anchor not in heading_anchors(target))
             ):
-                reference = name + ("/" + relative if relative else "")
+                reference = (
+                    name
+                    + ("/" + relative if relative else "")
+                    + ("#" + anchor if anchor else "")
+                )
                 unresolved.append(
                     f"unresolved skill reference: {reference} (cited by: {', '.join(sorted(citing))})"
                 )

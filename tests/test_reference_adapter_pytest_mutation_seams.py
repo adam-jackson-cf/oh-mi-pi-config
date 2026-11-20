@@ -101,7 +101,9 @@ class MutationTests(unittest.TestCase):
             "HEAD~1",
         )
         assert code == 1
-        assert out.count("TEST.mutation-sensitivity") == 2
+        findings, guidance = out.split("remediation TEST.mutation-sensitivity: ")
+        assert findings.count("TEST.mutation-sensitivity") == 2
+        assert guidance.startswith("root cause: ")
         assert "x_clamp__mutmut_1 survived in changed code" in out
         assert "x_total" not in out
 

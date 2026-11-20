@@ -10,4 +10,4 @@ scope: text
 ---
 # Clean cutover
 
-Read skill://dynaflows/references/delivery-principles.md before changing the existing design.
+Read skill://structured-workflow/references/delivery-principles.md before changing the existing design.

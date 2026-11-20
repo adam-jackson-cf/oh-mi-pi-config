@@ -1,0 +1,2 @@
+const RUNNERS = ['vitest', 'jest', 'test', 'TEST_MODE'];
+export function publicApi(name: string) { return RUNNERS.includes(name) ? 1 : 0; }

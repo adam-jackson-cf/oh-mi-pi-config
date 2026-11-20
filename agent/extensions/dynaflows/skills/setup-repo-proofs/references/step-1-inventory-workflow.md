@@ -16,6 +16,8 @@ Capture actual enforcement separately from documentation and proposals.
 4. Inventory unit, integration, seam, journey, smoke, coverage, timeout, fixture and CI-matrix
    evidence. A config is active only if an invoked command reads it. Capture tiers, public entry
    points, ownership, affected-boundary-test selection, verification surface and approved budgets.
+   Grade existing tests with the scenario rubric (`skill://test-guidance/references/case-selection.md#scenario-rubric`) and record each
+   verdict with its evidence; a drop or extend-existing verdict is a proposed change, not an edit.
 5. For every rule ID, cite the enforcing checker source line or `absent`, its invocation chain and
    file enumeration. Checkers enumerate Git-owned paths, including relevant untracked files, without
    following symlinks outside the repository. Identify narrower scopes, disconnected commands and

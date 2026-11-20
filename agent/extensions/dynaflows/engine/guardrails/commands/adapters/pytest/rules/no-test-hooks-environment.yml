@@ -2,10 +2,52 @@
   "id": "TEST.no-test-hooks",
   "language": "python",
   "scope": "production",
-  "message": "production code reads a test marker ({match})",
-  "fix": "remove the test-only branch; tests must exercise the production path unchanged",
+  "message": "production code reads a test marker from the environment or loaded modules ({match})",
+  "remediation": {
+    "root_cause": "Production code reads a test marker from the environment or loaded modules, so it behaves differently while tests run.",
+    "fix": "Delete the marker read and make the varying behaviour a production input, such as configuration or an injected dependency, that tests set like any caller."
+  },
   "rule": {
     "kind": "string",
-    "regex": "^[rRbBuU]*['\"]([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?['\"]$|^[rRbBuU]*['\"](pytest|unittest)['\"]$"
+    "regex": "^[rRbBuU]*['\"]([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?['\"]$|^[rRbBuU]*['\"](pytest|unittest)['\"]$",
+    "any": [
+      {
+        "inside": {
+          "kind": "argument_list",
+          "inside": {
+            "kind": "call",
+            "has": {
+              "field": "function",
+              "regex": "(^|\\.)(getenv|environ\\.(get|pop|setdefault)|modules\\.get|find_spec)$"
+            }
+          }
+        }
+      },
+      {
+        "inside": {
+          "kind": "subscript",
+          "has": {
+            "field": "value",
+            "regex": "(^|\\.)(environ|modules)$"
+          }
+        }
+      },
+      {
+        "inside": {
+          "kind": "comparison_operator",
+          "has": {
+            "any": [
+              {
+                "kind": "attribute"
+              },
+              {
+                "kind": "identifier"
+              }
+            ],
+            "regex": "(^|\\.)(environ|modules)$"
+          }
+        }
+      }
+    ]
   }
 }

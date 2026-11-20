@@ -1,0 +1,2 @@
+const RUNNERS = ['bun', 'test', 'BUN_TEST', 'TESTING'];
+export function publicApi(name: string) { return RUNNERS.includes(name) ? 1 : 0; }

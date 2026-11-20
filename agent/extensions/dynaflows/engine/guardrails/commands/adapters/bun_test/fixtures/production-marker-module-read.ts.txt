@@ -1,0 +1,1 @@
+export function publicApi() { return typeof describe === 'function' ? 42 : 0; }

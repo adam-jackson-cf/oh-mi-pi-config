@@ -129,7 +129,6 @@ class CheckPathsTests(unittest.TestCase):
         )
         (self.repo / "misplaced.test.ts").unlink()
         for path in (
-            "agent/lib/new.ts",
             "scripts/new_tool.py",
             "tests/brand-new.test.ts",
             "tests/test_brand_new.py",

@@ -31,7 +31,16 @@ from types import FrameType
 from typing import IO, Any, NoReturn, TextIO
 
 # The harness's record resolver, located from this file.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent" / "lib"))
+sys.path.insert(
+    0,
+    str(
+        Path(__file__).resolve().parents[1]
+        / "agent"
+        / "extensions"
+        / "dynaflows"
+        / "lib"
+    ),
+)
 import repo_record
 
 SELF = Path(__file__).resolve()
@@ -606,9 +615,42 @@ def prepare_image(
             )
             if built:
                 raise RuntimeError("Image build failed")
+            remove_older_images(podman, image, log)
         elif exists:
             raise RuntimeError("Podman image lookup failed")
     return image
+
+
+def image_names(podman: str, repository: str, log: TextIO) -> set[str]:
+    with tempfile.TemporaryFile() as output:
+        listed = run_logged(
+            [
+                podman,
+                "image",
+                "ls",
+                "--format",
+                "{{.Repository}}:{{.Tag}}",
+                "--filter",
+                "reference=" + repository,
+            ],
+            (output, log),
+            timeout=60,
+            check=False,
+        )
+        output.seek(0)
+        names = set(output.read().decode().split())
+    if listed.returncode:
+        raise RuntimeError("Podman image listing failed")
+    return names
+
+
+def remove_older_images(podman: str, image: str, log: TextIO) -> None:
+    repository = image.rpartition(":")[0]
+    for older in sorted(image_names(podman, repository, log) - {image}):
+        if older.rpartition(":")[0] != repository:
+            continue
+        if container_command([podman, "image", "rm", older], log):
+            raise RuntimeError("Older image removal failed")
 
 
 def bootstrap_command(post: str, audit: list[str]) -> str:

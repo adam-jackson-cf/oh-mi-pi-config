@@ -283,6 +283,54 @@ class SourceLint(unittest.TestCase):
             path="shop/settings.ts",
         )
 
+    def test_marker_reads_are_test_hooks_and_marker_shaped_data_is_not(
+        self,
+    ) -> None:
+        for read in [
+            "process.env['VITEST']",
+            "'JEST_WORKER_ID' in process.env",
+            "Bun.env.BUN_TEST",
+            "import.meta.env.TEST_MODE",
+            "'test' === process.env.NODE_ENV",
+            "import.meta.vitest",
+            "globalThis.__vitest_worker__",
+            "typeof jest",
+        ]:
+            self.assert_rule(
+                f"export const flag = {read};",
+                "TEST.no-test-hooks",
+                path="shop/settings.ts",
+            )
+        for data in [
+            "['vitest', 'jest', 'test', 'TEST_MODE']",
+            "{ TESTS_INVENTORY: 'tests.json' }",
+            "process.env.SHOP_MODE === 'production'",
+            "typeof value",
+        ]:
+            self.assert_rule(
+                f"export const flag = {data};",
+                "TEST.no-test-hooks",
+                False,
+                "shop/settings.ts",
+            )
+
+    def test_indirect_marker_reads_are_test_hooks(self) -> None:
+        for read in [
+            "const { NODE_ENV } = process.env; export const flag = NODE_ENV === 'test';",
+            "const { VITEST } = process.env; export const flag = VITEST;",
+            "export const flag = process.env?.VITEST;",
+            "const env = process.env; export const flag = env.VITEST;",
+            "const KEY = 'VITEST'; export const flag = process.env[KEY];",
+            "export const flag = ['test', 'testing'].includes(process.env.NODE_ENV ?? '');",
+        ]:
+            self.assert_rule(read, "TEST.no-test-hooks", path="shop/settings.ts")
+        for data in [
+            "const KEY = 'SHOP_MODE'; export const flag = process.env[KEY] === 'production';",
+            "const { SHOP_MODE } = process.env; export const flag = SHOP_MODE;",
+            "const env = process.env; export const flag = env.SHOP_MODE;",
+        ]:
+            self.assert_rule(data, "TEST.no-test-hooks", False, "shop/settings.ts")
+
     def test_symbols_used_only_by_tests_resolve_aliases(self) -> None:
         sources = {
             "shop/core.ts": "export function checkout() {} export function inspect() {}",

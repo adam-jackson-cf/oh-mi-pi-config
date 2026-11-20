@@ -12,7 +12,7 @@ export const noReflectGetRule = defineRule({
     },
     messages: {
       reflectGet:
-        "Replace `Reflect.get` with typed property access. Parse dynamic input into a named domain type before reading it.",
+        "Root cause: `Reflect.get` reads a property the types cannot see, usually because dynamic input was never parsed. Fix: parse the input into a named domain type at its boundary and read its declared properties directly.",
     },
   },
   createOnce(context) {

@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ pytestmark = pytest.mark.fast
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/extensions/dynaflows/skills/jev-actions/scripts/tune_threshold.py"
+    / "agent/skills/jev-actions/scripts/tune_threshold.py"
 )
 spec = importlib.util.spec_from_file_location("tune_threshold", MODULE)
 assert spec is not None
@@ -158,7 +159,7 @@ def test_a_model_without_two_cases_of_each_label_reports_an_error(
     csv = scores_csv(tmp_path / "scores.csv", rows)
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
     assert code == 0
-    assert "need at least 2 dev cases of each label" in out
+    assert "need at least 2 dev units with each label" in out
 
 
 def test_conservative_minimums_use_the_wilson_lower_bound() -> None:
@@ -220,3 +221,144 @@ def test_an_unreadable_file_exits_with_its_path(
     code, _, err = run_main(monkeypatch, capsys, str(missing))
     assert code == 1
     assert f"cannot read {missing}" in err
+
+
+def unit_rows(units_per_label: int, cases_per_unit: int) -> list[str]:
+    return [
+        f"{label}-{u}-{c},{label},{0.8 if label else 0.2},m,,dev,,{label}-{u}"
+        for label, u, c in itertools.product(
+            (1, 0), range(units_per_label), range(cases_per_unit)
+        )
+    ]
+
+
+def fold_placements(folds: list[list[int]]) -> list[tuple[int, int]]:
+    return [(case, number) for number, fold in enumerate(folds) for case in fold]
+
+
+def unit_csv(path: Path, rows: list[str]) -> Path:
+    path.write_text(
+        "case_id,label,score,model,question_version,split,stratum,unit\n"
+        + "".join(f"{row}\n" for row in rows)
+    )
+    return path
+
+
+def test_cross_validation_folds_whole_units_and_caps_folds_by_units(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = unit_csv(tmp_path / "scores.csv", unit_rows(3, 10))
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    [result] = json.loads(out)
+    assert (result["dev_cases"], result["folds"]) == (60, 3)
+    cases = tune.parse(io.StringIO(csv.read_text()))["m"]
+    for seed in range(5):
+        placements = fold_placements(tune.unit_folds(cases, 3, seed))
+        assert sorted(case for case, _ in placements) == list(range(60))
+        homes = {cases[case]["unit"]: number for case, number in placements}
+        assert all(homes[cases[case]["unit"]] == number for case, number in placements)
+
+
+def test_too_few_units_per_label_reports_an_error_even_with_many_cases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = unit_csv(tmp_path / "scores.csv", unit_rows(1, 30))
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert code == 0
+    assert "need at least 2 dev units with each label" in out
+
+
+def test_a_unit_in_both_dev_and_test_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [*unit_rows(3, 2), "t1,1,0.8,m,,test,,1-0"]
+    csv = unit_csv(tmp_path / "scores.csv", rows)
+    code, _, err = run_main(monkeypatch, capsys, str(csv))
+    assert code == 1
+    assert "m: unit '1-0' appears in both dev and test; split by unit" in err
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (
+            "case_id,label,score\n1,1,1.5\n",
+            "score must be a finite probability in [0, 1], got '1.5'",
+        ),
+        (
+            "case_id,label,score\n1,1,nan\n",
+            "score must be a finite probability in [0, 1], got 'nan'",
+        ),
+        (
+            "case_id,label,score\n1,1,0.9\n1,0,0.1\n",
+            "model: case_id '1' appears more than once",
+        ),
+    ],
+)
+def test_scores_outside_probabilities_and_repeated_cases_are_refused(
+    text: str, message: str
+) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        tune.parse(io.StringIO(text))
+    assert exit_.value.code == message
+
+
+NOT_COMPARABLE = (
+    "models or question versions do not share the same cases, labels, splits "
+    "and units; do not compare them"
+)
+
+
+def test_groups_over_different_cases_are_flagged_as_not_comparable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = separable("a") + separable("b")[1:]
+    csv = scores_csv(tmp_path / "scores.csv", rows)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    results = json.loads(out)
+    assert [r["comparable"] for r in results] == [False, False]
+    assert all(NOT_COMPARABLE in r["warnings"] for r in results)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert f"Warning: {NOT_COMPARABLE}" in out
+
+
+def test_groups_over_the_same_cases_are_comparable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable("a") + separable("b"))
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    results = json.loads(out)
+    assert [r["comparable"] for r in results] == [True, True]
+    assert all(NOT_COMPARABLE not in r["warnings"] for r in results)
+
+
+def test_a_platt_mapping_worse_than_raw_on_test_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dev = [f"d{i},{int(i < 30)},{0.40 if i < 30 else 0.10},m,,dev," for i in range(60)]
+    test = [f"t{i},{i % 2},0.40,m,,test," for i in range(20)]
+    csv = scores_csv(tmp_path / "scores.csv", dev + test)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--calibration", "--json")
+    assert code == 0
+    [result] = json.loads(out)
+    calibration = result["calibration"]
+    assert calibration["brier_platt_heldout"] < calibration["brier_raw"]
+    assert calibration["test_brier_platt"] > calibration["test_brier_raw"]
+    assert (calibration["keep"], calibration["platt_rejected_on_test"]) == ("raw", True)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--calibration")
+    assert "- Platt mapping rejected: worse than raw on test" in out

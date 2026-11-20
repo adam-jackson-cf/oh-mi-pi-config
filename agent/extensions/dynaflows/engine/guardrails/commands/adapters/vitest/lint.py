@@ -8,8 +8,9 @@ from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.lint import test_patterns, waived
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import (
     matches_any,
     name_matches,
@@ -23,6 +24,7 @@ from .cases import (
     arguments,
     children,
     imports,
+    language,
     parse,
     qualified,
     runner_api,
@@ -42,7 +44,7 @@ class Rule:
     scope: str
     target: str
     message: str
-    fix: str
+    remediation: Remediation
     config: Config
 
 
@@ -59,7 +61,7 @@ def load_rules() -> list[Rule]:
             item["scope"],
             item["target"],
             item["message"],
-            item["fix"],
+            remediation(item["remediation"]),
             {"rule": item["rule"]},
         )
         for item in json.loads(text)
@@ -337,13 +339,17 @@ def file_findings(
     owned: tuple[str, ...],
     vocabulary: Vocabulary = VITEST,
 ) -> list[Finding]:
+    from ast_grep_py import SgRoot
+
     root = parse(path, source)
+    inlined = SgRoot(inline_bindings(source, "typescript"), language(path)).root()
     aliases = imports(root)
     configured = configured_seeds(root, aliases)
     site = Site(path, aliases, owned, False, vocabulary)
     findings = []
     for rule in rules:
-        findings.extend(rule_findings(rule, root, configured, site))
+        scanned = inlined if rule.target == "environment" else root
+        findings.extend(rule_findings(rule, scanned, configured, site))
     return findings
 
 
@@ -361,7 +367,7 @@ def rule_findings(
                     site.path,
                     f"line {node.range().start.line + 1}: "
                     + rule.message.format(target=target),
-                    rule.fix,
+                    rule.remediation.render(),
                 )
             )
     return findings

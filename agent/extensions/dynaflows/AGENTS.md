@@ -32,8 +32,9 @@ the [exceptions](#exceptions) below are the only standing ones.
 6. **Events trigger checks, with no ceremony.** Edits and commits run the harness checks; CI reruns
    the gates offline on the events the repository chose, with no time budget. Pulling or merging
    commits into a branch needs no proof; a resulting commit runs the normal checks. Behaviour is the
-   same on any CI host with the harness deployed. Harness process additions run only with dynaflows
-   on for the path's repo ([ADR 0004](../../../docs/adr/0004-dynaflows-flag-gates-the-harness-process.md)).
+   same on any CI host with the harness deployed. Harness process additions run only in dynaflows
+   structured mode for the path's repo; minimal mode keeps fixed guards only
+   ([ADR 0015](../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md)).
    Approvals work for a single owner.
 7. **Proof means outcome tests.** A proof is an outcome test or lever journey linked from the feature
    map, frozen red at base and passing at head, checked by `prove()` at the PR. There are no agent

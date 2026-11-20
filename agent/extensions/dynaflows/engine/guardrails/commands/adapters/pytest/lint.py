@@ -7,17 +7,19 @@ from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import as_list, matches_any, name_matches
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
 RULES_PACKAGE = "guardrails.commands.adapters.pytest"
+INLINED_RULES = frozenset({"no-test-hooks-environment.yml"})
 SKIPPED_PARTS = frozenset({
     ".git",
     ".venv",
@@ -36,7 +38,7 @@ class Rule:
     scope: str
     target: str | None
     message: str
-    fix: str
+    remediation: Remediation
     config: Config
 
 
@@ -59,7 +61,7 @@ def load_rules() -> list[Rule]:
                 data["scope"],
                 data.get("target"),
                 data["message"],
-                data["fix"],
+                remediation(data["remediation"]),
                 config,
             )
         )
@@ -208,11 +210,14 @@ def file_findings(
 ) -> list[Finding]:
     from ast_grep_py import SgRoot
 
-    root = SgRoot(source, "python").root()
+    roots = {
+        False: SgRoot(source, "python").root(),
+        True: SgRoot(inline_bindings(source, "python"), "python").root(),
+    }
     imports = import_map(source)
     findings: list[Finding] = []
     for rule in rules:
-        for match in root.find_all(rule.config):
+        for match in roots[rule.name in INLINED_RULES].find_all(rule.config):
             target = None
             if rule.target:
                 target = owned_target(match, rule.target, imports, owned)
@@ -222,7 +227,12 @@ def file_findings(
             snippet = " ".join(match.text().split())[:80]
             message = rule.message.format(target=target, match=snippet)
             findings.append(
-                Finding(rule.rule_id, path, f"line {line}: {message}", rule.fix)
+                Finding(
+                    rule.rule_id,
+                    path,
+                    f"line {line}: {message}",
+                    rule.remediation.render(),
+                )
             )
     return findings
 
