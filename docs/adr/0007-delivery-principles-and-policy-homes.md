@@ -2,7 +2,8 @@
 
 - Status: Superseded in part by [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (tool-trigger
   reads and judged-rule suppression live in the dynaflows `rails.yml` and follow its modes) and
-  [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the retention of deprecated skill files)
+  [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the retention of deprecated skill files) and
+  [ADR 0021](0021-judgments-enforced-from-the-start.md) (no judgment is provisional or shadow-only)
 - Date: 2026-11-18
 - Deciders: Adam Jackson; delivery-policy writer for delegated placement details
 

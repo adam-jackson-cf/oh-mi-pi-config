@@ -3,9 +3,7 @@
   "model": "typesafe/jev-1.14.0",
   "version_key": "fa511d257127f6554c09105fb32942886dfac5e46a25c6a13bc17cf117923f3a",
   "score_space": "raw",
-  "status": "provisional",
   "question_version": "structure-naming-candidates@3",
-  "mode": "shadow",
   "model_reported": "typesafe/jev-1.14.0",
   "scoring": {
     "date": "2026-11-21",
@@ -18,7 +16,7 @@
     "precision": 0.8,
     "recall": 0.8,
     "assumed": true,
-    "reason": "owner gave none; F-beta 0.5 because a false finding would block a PR once out of shadow"
+    "reason": "owner gave none; F-beta 0.5 because a false finding blocks a PR"
   },
   "label_set": {
     "cases": 63,
@@ -107,17 +105,16 @@
     "overlapping_responsibilities": "v1 review recommended drop; still too few positives to decide"
   },
   "shortfalls": [
-    "2-8 labelled cases per question: no tuning possible (tune_threshold.py needs 2 dev units per label); provisional 0.3/0.7",
+    "2-8 labelled cases per question: no tuning possible (tune_threshold.py needs 2 dev units per label); the threshold is the cost-rule 0.7",
     "test split holds 0-2 cases per question: no held-out claim",
-    "probabilities are raw, not calibrated confidence"
+    "probabilities are raw, not calibrated confidence",
+    "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
   ],
   "decisions": {
     "technical_kind_grouping": {
       "version_key": "03a8865fb3f66505f42e9f4914de65c105b77306414d308df75f1707cbda4d5b",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 5,
@@ -138,7 +135,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 5,
             "positives": 2,
@@ -166,10 +163,8 @@
     },
     "folder_name_coverage": {
       "version_key": "b7eee4fd9900f4740534e268d5e5084da16d39d66754f6d694e1cff409639747",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 8,
@@ -190,7 +185,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 8,
             "positives": 3,
@@ -218,10 +213,8 @@
     },
     "overlapping_responsibilities": {
       "version_key": "4d851b51600a29a5e4f9c4ff14333e6dce03d67153cb3cba9a081125af9f8ef2",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 8,
@@ -242,7 +235,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 8,
             "positives": 2,
@@ -259,10 +252,8 @@
     },
     "one_name_per_concept": {
       "version_key": "13e46b50ef8b3557008ecfffe4cfdc935c786e86d5572b0f2ebb5ea1070a9185",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 8,
@@ -283,7 +274,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 8,
             "positives": 3,
@@ -311,10 +302,8 @@
     },
     "sibling_naming_pattern": {
       "version_key": "73be2e72d105844090863a374601e246c170d7e87bb6619f29078fc0a83ef3fa",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 6,
@@ -335,7 +324,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 6,
             "positives": 0,
@@ -352,10 +341,8 @@
     },
     "prefix_should_be_folder": {
       "version_key": "3be81e957f809d56969cb7bf6ae67b4e7a9e8d9e136f007a89b19f7121b53a5c",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 4,
@@ -376,7 +363,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 4,
             "positives": 4,
@@ -393,10 +380,8 @@
     },
     "runtime_data_in_code": {
       "version_key": "d9cc8eaf02912e2c784ac0d9add7845176294ef96a287f83a45538115ab37cf6",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 8,
@@ -417,7 +402,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 8,
             "positives": 5,
@@ -434,10 +419,8 @@
     },
     "entry_point_placement": {
       "version_key": "e161c90f50df5f4cd8cae8c20df216679365baeb06c7420575a01c680be551dc",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7; shadow-only while provisional",
+      "threshold": 0.7,
+      "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 6,
@@ -458,7 +441,7 @@
           "no_at_most": null,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 6,
             "positives": 1,

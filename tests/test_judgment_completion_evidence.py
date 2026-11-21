@@ -156,8 +156,8 @@ def test_label_set_summary_counts_the_counting_labels() -> None:
         )
 
 
-def test_escalation_band_reproduces_from_saved_scores() -> None:
-    band = document("thresholds.json")["decisions"][QUESTION]["escalation_band"]
+def test_measured_band_reproduces_from_saved_scores() -> None:
+    band = document("thresholds.json")["decisions"][QUESTION]["measured_band"]
     rows = score_rows()
     for split in ("dev", "test"):
         scored = [
@@ -176,7 +176,7 @@ def test_escalation_band_reproduces_from_saved_scores() -> None:
     assert band["confirmed_on_test"] is (band["test"]["flag_precision"] >= 0.8)
 
 
-def test_no_threshold_meets_minimums_so_none_ships(
+def test_no_tuned_threshold_meets_minimums_so_the_band_flag_side_ships(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     decision = document("thresholds.json")["decisions"][QUESTION]
@@ -197,8 +197,8 @@ def test_no_threshold_meets_minimums_so_none_ships(
     (report,) = json.loads(capsys.readouterr().out)
     assert report["model"].startswith(document("thresholds.json")["model"])
     assert report["shipped_threshold"] is None
-    assert decision["threshold"] is None
-    assert decision["status"] == "provisional"
+    assert decision["threshold"] == decision["measured_band"]["flag_at_or_above"]
+    assert "status" not in decision
 
 
 def test_label_guide_specifies_every_precheck_and_rule() -> None:

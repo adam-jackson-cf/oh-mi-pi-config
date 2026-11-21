@@ -1,6 +1,8 @@
 # ADR 0005: Comment ban and implementation-integrity blockers
 
-- Status: accepted by owner, 2026-11-18
+- Status: accepted by owner, 2026-11-18. Superseded in part by
+  [ADR 0021](0021-judgments-enforced-from-the-start.md): the structure judge blocks from the
+  start; it has no shadow mode
 - Scope: dynaflows commit checks and explicit diff checks
 
 ## Decision

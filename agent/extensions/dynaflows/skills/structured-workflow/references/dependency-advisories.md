@@ -46,8 +46,8 @@ Every advisory blocks; the repo's checker gives no severity, so these helpers as
    - one lower when `reached` has a `no` outcome (owned code does not reach the vulnerable feature);
    - never below low.
    The thresholds live in that directory's `thresholds.json`. Unclear evidence rounds up: the
-   impact is the most severe class above the round-up floor, and `escalate` never lowers the
-   level. A failed judgment, invalid answers, stale thresholds, another judge role, a set
+   impact is the most severe class above the round-up floor, and `reached` lowers the level only
+   below its low threshold (0.3), so an uncertain score never lowers it. A failed judgment, invalid answers, stale thresholds, another judge role, a set
    `TYPESAFE_BASE_URL` or missing evidence raise; they never pass.
 5. Act on the result:
    - `halt` true: stop the workflow and give the owner `report`. It names the advisory, severity,

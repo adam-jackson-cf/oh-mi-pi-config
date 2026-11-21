@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "@oh-my-pi/pi-coding-agent";
 
 // The log engine/workflows.py decide() and structure_review() append one JSON line to per judgment call.
@@ -51,30 +50,4 @@ export async function latestJudgmentCall(
 ): Promise<JudgmentCall | undefined> {
 	return (await readJudgmentCalls(path)).findLast(call =>
 		call.judgment === judgment && call.state_sha256 === stateSha256 && call.question_version === questionVersion);
-}
-
-const thresholdsSchema = z.object({
-	status: z.string(),
-	decisions: z.record(z.string(), z.object({
-		status: z.string(),
-		minimums: z.object({ assumed: z.boolean().optional() }).passthrough().optional(),
-	}).passthrough()),
-}).passthrough();
-
-/** The registry's judgments folder in this extension: judgments/<name>/thresholds.json. */
-export function defaultJudgmentsDir(): string {
-	return fileURLToPath(new URL("../judgments", import.meta.url));
-}
-
-/**
- * Whether the rails enforce a judgment: thresholds.json status `ready`, every decision `ready`, and no
- * decision's minimums still assumed (jev-actions: calibrated, owner-confirmed). Anything else, an
- * unreadable file included, runs in shadow: logged and noticed, never acted on.
- */
-export async function judgmentReady(dir: string, name: string): Promise<boolean> {
-	const text = await readFile(join(dir, name, "thresholds.json"), "utf8").catch(() => "");
-	const parsed = thresholdsSchema.safeParse((() => { try { return JSON.parse(text); } catch { return undefined; } })());
-	if (!parsed.success || parsed.data.status !== "ready") return false;
-	const decisions = Object.values(parsed.data.decisions);
-	return decisions.length > 0 && decisions.every(decision => decision.status === "ready" && decision.minimums?.assumed !== true);
 }

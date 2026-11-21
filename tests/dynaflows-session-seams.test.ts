@@ -317,7 +317,7 @@ describe("review on restart", () => {
 	test("extension-impact judges a Git revision pair: no stores it silently, yes and escalate keep the review task", async () => {
 		const records = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-impact-")));
 		const extension = join(records, "agent/extensions/dynaflows");
-		const h = harness({ configRoot: records, extra: { extensionDir: extension } });
+		const h = harness({ configRoot: records, registry: "banded", extra: { extensionDir: extension } });
 		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: records });
 		const change = (subject: string) => {
 			writeFileSync(join(extension, "index.ts"), `export const subject = ${JSON.stringify(subject)};\n`);

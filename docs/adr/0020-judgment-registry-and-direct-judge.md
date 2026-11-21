@@ -1,6 +1,8 @@
 # 0020: One judgment registry on the direct TypeSafe judge
 
-Status: accepted, 2026-11-21 (owner).
+Status: accepted, 2026-11-21 (owner). Superseded in part by
+[ADR 0021](0021-judgments-enforced-from-the-start.md) (the Outcomes row: a decision is a single
+threshold; a band needs a named fallback judge).
 
 ## Context
 
@@ -15,7 +17,7 @@ fallback answer used thresholds tuned on another model without any sign. Calls w
 | Judge | `modelRoles.judge: typesafe/jev-1.14.0`, direct; no judge fallback chain |
 | Registry | `load_judgment(name)` reads `judgments/<name>/`; stale keys raise |
 | Model check | Judgments refuse when the configured judge role differs from `thresholds.model` |
-| Outcomes | `decide(name, state)`: yes >= `yes_at_least`, no <= `no_at_most`, else escalate |
+| Outcomes | Superseded by ADR 0021. Was: yes >= `yes_at_least`, no <= `no_at_most`, else escalate |
 | Log | Every call appends to `<agent dir>/dynaflows/judgment-calls.jsonl`; rails read it in TS |
 | Callers | Advisory triage and structure review use it; escalate never lowers or finds |
 | Inspector | `inspector.env` sets `TYPESAFE_BASE_URL` to jev-bridge; gate judgments refuse it |

@@ -143,7 +143,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
 		mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
 		writeFileSync(join(h.root, ".git/omp-prove", `${ciHead}.result.json`), JSON.stringify({ head: ciHead, status: "pass" }));
-		writeFileSync(join(h.root, ".git/omp-structure", `${ciHead}.json`), JSON.stringify({ head: ciHead, halt: false, status: "shadow", findings: [] }));
+		writeFileSync(join(h.root, ".git/omp-structure", `${ciHead}.json`), JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [] }));
 		await assertRefused(h, "bash", merge, "not written by a prove() call the rails saw");
 		await assertRefused(h, "write", { path: join(h.root, ".git/omp-prove", `${ciHead}.result.json`), content: "{}" }, "inside Git's internal directory");
 		await assertRefused(h, "bash", { command: "mkdir -p .git/omp-prove && echo '{}' > .git/omp-prove/x.result.json" }, "writes near rail state");

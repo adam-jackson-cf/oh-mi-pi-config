@@ -54,7 +54,7 @@ Label 1 when the rule holds; the second line names what is not a violation.
 
 - Each decision's version key hashes `{question, state, model}`; the aggregate hashes
   `{questions, state, model}` (compact sorted-key JSON). `scores.csv` uses `<question>@<key>`.
-- A yes means the named violation is present. Every decision is provisional and shadow-only.
+- A yes means the named violation is present. Every yes blocks merge (ADR 0021).
 
 ## Labels and exclusions
 

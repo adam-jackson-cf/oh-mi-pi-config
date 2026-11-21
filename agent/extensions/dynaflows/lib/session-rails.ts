@@ -8,7 +8,7 @@ import { ObligationBook, ranCommand, shellJoin, type Obligation, type Obligation
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
 import { commonDir as gitCommonDir, defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
 import { prMerge } from "./guards.ts";
-import { verdictText, type Decide, type RailJudgment, type Verdict } from "./judge.ts";
+import { verdictText, type Decide, type Verdict } from "./judge.ts";
 import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
 
 type SessionApi = Pick<ExtensionAPI, "on" | "exec" | "registerTool">;
@@ -27,8 +27,6 @@ export type SessionDeps = {
 	checks: { profile: string[]; check: string[] };
 	/** The judged rails' decide(): the judgment registry with the host judge transport. */
 	decide: Decide;
-	/** Whether the rails act on a judgment (its thresholds.json is ready); otherwise it runs in shadow. */
-	enforced: (name: RailJudgment) => Promise<boolean>;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
 	askFirst(part: string): boolean;
 	sources: ObligationSource[];
@@ -108,7 +106,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	// The rollout step, from the config root only: any spelling that resolves to the same script counts.
 	const rolloutStep: Step = { argv: ["python3", `${deps.configRoot.replace(/\/+$/, "")}/scripts/device_rollout.py`], root: deps.configRoot };
 	const rolloutCommand = shellJoin(rolloutStep.argv);
-	const judged = judgedRails(pi, { decide: deps.decide, enforced: deps.enforced, structured: structuredOrNotify, askFirst: deps.askFirst });
+	const judged = judgedRails(pi, { decide: deps.decide, structured: structuredOrNotify, askFirst: deps.askFirst });
 
 	const commonDir = (cwd: string) => gitCommonDir(pi, cwd);
 
@@ -384,6 +382,5 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 export type { Obligation, ObligationSource, ObligationStatus };
 export { ompJudge, registryDecide, type JudgeTransport } from "./judge.ts";
-export { defaultJudgmentsDir, judgmentReady } from "./judgment-calls.ts";
 export { defaultReviewsPath };
 export { scopeInputSchema } from "./judged-rails.ts";

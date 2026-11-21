@@ -1851,7 +1851,9 @@ JUDGMENT_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 # Every judge() call through the registry appends one JSON line here, under the omp agent dir.
 JUDGMENT_CALLS = "dynaflows/judgment-calls.jsonl"
 OUTCOMES = ("yes", "no", "escalate")
-DECISION_STATUSES = ("provisional", "ready")
+# A bool decision is a single cutoff, or a band whose escalations go to a named fallback judgment (ADR 0021).
+CUTOFF_KEYS = frozenset({"threshold"})
+BAND_KEYS = frozenset({"no_at_most", "yes_at_least", "fallback"})
 
 
 def _judgment_digest(value: object) -> str:
@@ -1884,22 +1886,51 @@ def _fraction(value: object) -> TypeGuard[int | float]:
     )
 
 
-def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
-    """A decision fits its question type; a bool decision holds a no/yes band, no_at_most < yes_at_least."""
+def _check_fallback(name: str, ident: str, fallback: object) -> None:
+    """A band's fallback names another registered judgment, which answers what the band escalates."""
     if (
-        not isinstance(decision, dict)
-        or decision.get("status") not in DECISION_STATUSES
+        not isinstance(fallback, str)
+        or not JUDGMENT_NAME.fullmatch(fallback)
+        or fallback == name
+        or not (_harness_root() / JUDGMENTS / fallback / "thresholds.json").is_file()
     ):
         raise WorkflowError(
-            f"{name}: decision {ident} needs status provisional or ready"
+            f"{name}: decision {ident} is a band without a fallback judge; "
+            "use a single threshold, or name a registered fallback judgment"
+        )
+
+
+def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> None:
+    """A single cutoff {threshold}, or a band {no_at_most < yes_at_least, fallback}; never both."""
+    keys = set(decision)
+    if keys & CUTOFF_KEYS and keys & BAND_KEYS:
+        raise WorkflowError(
+            f"{name}: decision {ident} holds both a threshold and a band"
+        )
+    if "threshold" in decision:
+        if not _fraction(decision["threshold"]):
+            raise WorkflowError(f"{name}: decision {ident} needs a threshold in [0, 1]")
+        return
+    low, high = decision.get("no_at_most"), decision.get("yes_at_least")
+    if not keys & BAND_KEYS:
+        raise WorkflowError(f"{name}: decision {ident} needs a threshold in [0, 1]")
+    if not (_fraction(low) and _fraction(high) and low < high):
+        raise WorkflowError(
+            f"{name}: decision {ident} needs 0 <= no_at_most < yes_at_least <= 1"
+        )
+    _check_fallback(name, ident, decision.get("fallback"))
+
+
+def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
+    """A decision fits its question type; every decision is enforced, so none carries a status."""
+    if not isinstance(decision, dict) or "status" in decision:
+        raise WorkflowError(
+            f"{name}: decision {ident} must be an object without a status "
+            "(every judgment is enforced, ADR 0021)"
         )
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
-        low, high = decision.get("no_at_most"), decision.get("yes_at_least")
-        if not (_fraction(low) and _fraction(high) and low < high):
-            raise WorkflowError(
-                f"{name}: decision {ident} needs 0 <= no_at_most < yes_at_least <= 1"
-            )
+        _check_bool_decision(name, ident, decision)
     elif kind == "choice":
         if not _fraction(decision.get("round_up_floor")):
             raise WorkflowError(
@@ -1930,6 +1961,10 @@ def load_judgment(name: str) -> Judgment:
     ):
         raise WorkflowError(
             f"{name}: questions and decisions must be non-empty objects"
+        )
+    if "status" in thresholds:
+        raise WorkflowError(
+            f"{name}: thresholds hold a status; every judgment is enforced (ADR 0021)"
         )
     if (
         not isinstance(model, str)
@@ -1967,7 +2002,10 @@ def load_judgment(name: str) -> Judgment:
 
 
 def outcome(decision: dict[str, Any], probability: float) -> str:
-    """yes at or above yes_at_least, no at or below no_at_most, escalate in between."""
+    """A cutoff: yes at or above threshold, else no. A band: yes at or above yes_at_least,
+    no at or below no_at_most, escalate (to its fallback judge) in between."""
+    if "threshold" in decision:
+        return "yes" if probability >= decision["threshold"] else "no"
     if probability >= decision["yes_at_least"]:
         return "yes"
     if probability <= decision["no_at_most"]:
@@ -2645,14 +2683,14 @@ def _structure_states(
 def _structure_comment(result: dict[str, Any]) -> str:
     lines = [
         STRUCTURE_MARKER,
-        f"**Structure/naming shadow review** for `{result['head']}`.",
+        f"**Structure/naming review** for `{result['head']}`.",
         "Scores are raw judgment probabilities, not calibrated confidence. "
-        "Provisional findings never affect prove or merge.",
+        "Every finding blocks merge (ADR 0021).",
     ]
     for item in result["findings"]:
         lines.append(
             f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
-            f"≥ {item['threshold']:.3f} ({item['status']})"
+            f"≥ {item['threshold']:.3f}"
         )
     if not result["findings"]:
         lines.append(
@@ -2663,7 +2701,7 @@ def _structure_comment(result: dict[str, Any]) -> str:
     lines.extend(f"- Infrastructure: {error}" for error in result["errors"])
     if result["halt"]:
         lines.append(
-            "**Blocked:** ready decisions have findings; rails refuse merge. "
+            "**Blocked:** structure findings; rails refuse merge. "
             "Fix them and rerun prove() and structure_review() on the new head."
         )
     lines.append(
@@ -2708,14 +2746,14 @@ async def structure_review(
 ) -> dict[str, Any]:
     """PR-time structure judgment, separate from prove().
 
-    Rails require this exact-head result and refuse merge when halt is true.
-    Only ready decisions can halt; infrastructure errors remain shadow-only.
+    Rails require this exact-head result and refuse merge when halt is true or it is incomplete.
+    Every finding halts; an infrastructure error or an escalated decision leaves it incomplete.
     No proof result file is modified.
     """
     result: dict[str, Any] = {
         "head": None,
         "parent": None,
-        "status": "shadow",
+        "status": "incomplete",
         "halt": False,
         "units": {},
         "findings": [],
@@ -2763,12 +2801,17 @@ def _finish_structure(
     repo: StrPath, head: str, published: Any, result: dict[str, Any]
 ) -> None:
     """Derive halt and status from findings and errors, then publish when the head resolved."""
-    result["halt"] = any(item["status"] == "ready" for item in result["findings"])
-    result["status"] = (
-        "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
-    )
+    result["halt"] = bool(result["findings"])
+    result["status"] = _structure_status(result)
     if published is not None:
         _publish_structure(Path(repo), head, published, result)
+
+
+def _structure_status(result: dict[str, Any]) -> str:
+    """blocked on any finding, incomplete on any error, else pass."""
+    if result["halt"]:
+        return "blocked"
+    return "incomplete" if result["errors"] else "pass"
 
 
 def _structure_units(
@@ -2816,10 +2859,16 @@ class StructureJudgment:
                     "unit": unit,
                     "question": ident,
                     "score": logged["probabilities"][ident],
-                    "threshold": decision["yes_at_least"],
-                    "status": decision["status"],
+                    "threshold": decision.get(
+                        "threshold", decision.get("yes_at_least")
+                    ),
                 }
                 self.result["findings"].append(finding)
+            elif verdict == "escalate":
+                self.result["errors"].append(
+                    f"{unit}: {ident} escalated to {decision['fallback']}, "
+                    "which structure_review() does not run"
+                )
 
     async def judge_group(
         self, eligible: tuple[str, ...], group: dict[str, dict[str, Any]]
@@ -2836,7 +2885,7 @@ class StructureJudgment:
                 self.result["errors"].append(f"{unit}: judgment: {exc}")
             return
         batch = _kernel("judge_batch")(
-            group, selected, intent="Structure/naming shadow review"
+            group, selected, intent="Structure/naming review"
         )
         try:
             async for unit, item in batch.drain_iter():
@@ -2862,9 +2911,7 @@ def _publish_structure(
         result["prComment"] = _post_structure_comment(repo, head, result)
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"posting structure result: {exc}")
-    result["status"] = (
-        "blocked" if result["halt"] else "incomplete" if result["errors"] else "shadow"
-    )
+    result["status"] = _structure_status(result)
     try:
         _atomic_json(published, result)
     except INFRASTRUCTURE_ERRORS as exc:

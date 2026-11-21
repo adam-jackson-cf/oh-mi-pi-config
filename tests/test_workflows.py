@@ -566,7 +566,10 @@ class SeverityRubricTests(unittest.TestCase):
 
 
 def write_judgment(
-    root: Path, name: str = "demo", model: str = "typesafe/jev-1.14.0", **decisions: Any
+    root: Path,
+    name: str = "demo",
+    model: str = "typesafe/jev-1.14.0",
+    flag: dict[str, Any] | None = None,
 ) -> Path:
     """A judgments/<name>/ folder under `root` with current version keys."""
     directory: Path = root / workflow.JUDGMENTS / name
@@ -583,7 +586,6 @@ def write_judgment(
     (directory / "questions.json").write_text(
         json.dumps({"state": state, "questions": questions})
     )
-    band = {"no_at_most": 0.3, "yes_at_least": 0.7, **decisions}
     thresholds = {
         "model": model,
         "score_space": "raw",
@@ -593,8 +595,8 @@ def write_judgment(
             "model": model,
         }),
         "decisions": {
-            "flag": {"status": "provisional", **band},
-            "kind": {"status": "provisional", "round_up_floor": 0.3},
+            "flag": dict(flag or {"threshold": 0.7}),
+            "kind": {"round_up_floor": 0.3},
         },
     }
     for ident, question in questions.items():
@@ -641,25 +643,22 @@ class JudgmentRegistryTests(unittest.TestCase):
         log = self.agent / workflow.JUDGMENT_CALLS
         return [json.loads(line) for line in log.read_text().splitlines()]
 
-    def test_outcomes_follow_the_band_and_every_call_is_logged(self) -> None:
+    def test_a_single_threshold_decides_yes_or_no_and_every_call_is_logged(
+        self,
+    ) -> None:
         write_judgment(self.root)
         for score, expected in (
             (0.7, "yes"),
             (0.95, "yes"),
-            (0.3, "no"),
-            (0.5, "escalate"),
+            (0.69, "no"),
+            (0.0, "no"),
         ):
             with self.subTest(score=score):
                 decided = self.decide(score)
                 assert decided["outcomes"] == {"flag": expected}
                 assert decided["probabilities"]["kind"] == {"note": 0.8, "log": 0.2}
         records = self.logged()
-        assert [r["outcomes"]["flag"] for r in records] == [
-            "yes",
-            "yes",
-            "no",
-            "escalate",
-        ]
+        assert [r["outcomes"]["flag"] for r in records] == ["yes", "yes", "no", "no"]
         judgment = workflow.load_judgment("demo")
         assert set(records[0]) == {
             "judgment",
@@ -683,7 +682,16 @@ class JudgmentRegistryTests(unittest.TestCase):
             == self.agent / "dynaflows/judgment-calls.jsonl"
         )
 
+    def test_a_band_escalates_only_with_a_registered_fallback_judge(self) -> None:
+        write_judgment(self.root, "backup")
+        band = {"no_at_most": 0.3, "yes_at_least": 0.7, "fallback": "backup"}
+        write_judgment(self.root, flag=band)
+        for score, expected in ((0.7, "yes"), (0.5, "escalate"), (0.3, "no")):
+            with self.subTest(score=score):
+                assert self.decide(score)["outcomes"] == {"flag": expected}
+
     def test_stale_or_malformed_thresholds_are_refused(self) -> None:
+        write_judgment(self.root, "backup")
         directory = write_judgment(self.root)
         thresholds = json.loads((directory / "thresholds.json").read_text())
         questions = json.loads((directory / "questions.json").read_text())
@@ -692,6 +700,13 @@ class JudgmentRegistryTests(unittest.TestCase):
             copied: dict[str, Any] = copy.deepcopy(thresholds)
             change(copied)
             return copied
+
+        def band(document: dict[str, Any], low: float, fallback: str | None) -> None:
+            decision = document["decisions"]["flag"]
+            del decision["threshold"]
+            decision.update(no_at_most=low, yes_at_least=0.7)
+            if fallback is not None:
+                decision["fallback"] = fallback
 
         def reword(document: dict[str, Any]) -> None:
             document["questions"]["flag"]["instructions"] += " Really?"
@@ -703,12 +718,20 @@ class JudgmentRegistryTests(unittest.TestCase):
                 lambda t: t["decisions"]["flag"].update(version_key="0" * 64)
             ),
             "one decision per question": broken(lambda t: t["decisions"].pop("kind")),
-            "no_at_most < yes_at_least": broken(
-                lambda t: t["decisions"]["flag"].update(no_at_most=0.8)
+            "needs a threshold in": broken(
+                lambda t: t["decisions"]["flag"].update(threshold=1.5)
             ),
-            "provisional or ready": broken(
-                lambda t: t["decisions"]["flag"].update(status="retired")
+            "both a threshold and a band": broken(
+                lambda t: t["decisions"]["flag"].update(no_at_most=0.3)
             ),
+            "no_at_most < yes_at_least": broken(lambda t: band(t, 0.8, "backup")),
+            "band without a fallback judge": broken(lambda t: band(t, 0.3, None)),
+            "fallback judge; use": broken(lambda t: band(t, 0.3, "absent")),
+            "fallback judge; use a": broken(lambda t: band(t, 0.3, "demo")),
+            "without a status": broken(
+                lambda t: t["decisions"]["flag"].update(status="ready")
+            ),
+            "thresholds hold a status": broken(lambda t: t.update(status="ready")),
             "round_up_floor": broken(
                 lambda t: t["decisions"]["kind"].update(round_up_floor=True)
             ),
@@ -840,9 +863,10 @@ class JudgmentRegistryTests(unittest.TestCase):
                     ).read_text()
                 )
                 assert thresholds["wired"] is True
-                assert thresholds["mode"] == "shadow, provisional"
+                assert "mode" not in thresholds
+                assert "status" not in thresholds
                 wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
-                assert "ADR 0017" in wiring
+                assert "ADR 0021" in wiring
                 assert "not wired" not in json.dumps(thresholds)
 
     def test_configured_judge_model_reads_omp_config(self) -> None:
@@ -912,8 +936,9 @@ class ShippedJudgmentTests(unittest.TestCase):
             with self.subTest(name=name):
                 judgment = workflow.load_judgment(name)
                 assert judgment.model == CONFIGURED_JUDGE
+                assert "status" not in judgment.thresholds
                 for decision in judgment.decisions.values():
-                    assert decision["status"] == "provisional"
+                    assert "status" not in decision
                 directory = workflow._harness_root() / workflow.JUDGMENTS / name
                 scores = (directory / "scores.csv").read_bytes()
                 assert (

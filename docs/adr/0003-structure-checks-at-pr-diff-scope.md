@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted, 2026-11-17.
+Accepted, 2026-11-17. Superseded in part by
+[ADR 0021](0021-judgments-enforced-from-the-start.md): every structure finding sets `halt`; no
+decision is provisional or shadow-only, and infrastructure errors leave the review incomplete,
+which blocks merge.
 
 ## Context
 

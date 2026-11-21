@@ -90,7 +90,7 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 }
 
 type ExtensionOptions = NonNullable<Parameters<typeof dynaflowsExtension>[1]>;
-type CommandChoices = { configPath: string | undefined; ompCommand: string[] | undefined; guardrailsCommand: string[] | "default" };
+type CommandChoices = { configPath: string | undefined; ompCommand: string[] | undefined; guardrailsCommand: string[] | "default"; registry: Registry };
 
 // Judged rails run the real judgment registry under the root uv project; only the judge transport is stubbed.
 const decideScript = resolve(import.meta.dir, "../agent/extensions/dynaflows/lib/decide.py");
@@ -99,28 +99,32 @@ const judgeModel = "typesafe/jev-1.14.0";
 type JudgeStub = { scores: Record<string, number>; calls: { question: string; state: unknown }[]; model: string; failure?: string | undefined };
 function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeModel }; }
 
-// Fixture thresholds that mark each rail judgment ready, so harness rails take the enforced path; the
-// shipped judgments are provisional and run in shadow (tests pass judgmentsDir: shippedJudgments).
-const railQuestions = { "extension-impact": "impact", "adr-needed": "adr_needed", "in-scope": "ask_first",
-	"implementation-integrity": "weakens_verification", "completion-evidence": "evidence_gap" };
-const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/judgments");
-function readyJudgments(machine: string): string {
-	const dir = join(machine, "judgments");
-	for (const [name, question] of Object.entries(railQuestions)) {
-		mkdirSync(join(dir, name), { recursive: true });
-		writeFileSync(join(dir, name, "thresholds.json"), JSON.stringify({
-			status: "ready", decisions: { [question]: { status: "ready", minimums: { precision: 0.8, recall: 0.9, assumed: false } } },
-		}));
-	}
-	return dir;
-}
+// The rails' escalate branches need a band, which no shipped judgment has (ADR 0021): this registry
+// double runs the same bridge with every bool decision widened to 0.3-0.7, as a band with a fallback judge would be.
+const bandedBridge = [
+	"import dataclasses, importlib.util, sys",
+	"spec = importlib.util.spec_from_file_location('dynaflows_workflows', sys.argv[1])",
+	"workflows = importlib.util.module_from_spec(spec)",
+	"sys.modules[spec.name] = workflows",
+	"spec.loader.exec_module(workflows)",
+	"shipped = workflows.load_judgment",
+	"band = {'no_at_most': 0.3, 'yes_at_least': 0.7, 'fallback': 'seam-fallback'}",
+	"def banded(name):",
+	"    judgment = shipped(name)",
+	"    widen = lambda ident, d: {**{k: v for k, v in d.items() if k != 'threshold'}, **band} if judgment.questions[ident]['type'] == 'bool' else d",
+	"    return dataclasses.replace(judgment, decisions={ident: widen(ident, d) for ident, d in judgment.decisions.items()})",
+	"workflows.load_judgment = banded",
+	"sys.exit(workflows.rail_bridge(sys.argv[2:]))",
+].join("\n");
+const workflowsScript = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine/workflows.py");
+const bandedDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", bandedBridge, workflowsScript];
+type Registry = "shipped" | "banded";
 
 function extensionOptions(machine: string, records: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
 	const options: ExtensionOptions = {
-		judgmentsDir: readyJudgments(machine),
 		modesPath: join(records, "modes.json"), configRoot: records,
 		// The judgment call log goes to this harness's machine dir, never ~/.omp/agent.
-		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...decideCommand],
+		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...(choices.registry === "banded" ? bandedDecideCommand : decideCommand)],
 		judge: () => async (state, questions) => {
 			if (judged.failure) throw new Error(judged.failure);
 			const answers = Object.fromEntries(Object.keys(questions).map(question => {
@@ -137,9 +141,9 @@ function extensionOptions(machine: string, records: string, choices: CommandChoi
 	return options;
 }
 
-function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, extra = {} }: {
+function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, registry = "shipped", extra = {} }: {
 	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
-	extra?: Partial<ExtensionOptions>;
+	registry?: Registry; extra?: Partial<ExtensionOptions>;
 } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-")));
 	const machine = mkdtempSync(join(tmpdir(), "dynaflows-guards-machine-"));
@@ -193,7 +197,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		},
 	};
 	const judged = judgeStub();
-	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand }, judged), ...extra };
+	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand, registry }, judged), ...extra };
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
 	mkdirSync(join(machine, "extension"));
 	writeFileSync(join(machine, "extension", "index.ts"), "export {};\n");
@@ -410,11 +414,11 @@ async function structureResult(h: EvidenceHarness, head = ciHead) {
 	await watchedProofCall(h, () => {
 		mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
 		writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
-			JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+			JSON.stringify({ head, halt: false, status: "pass", findings: [] }));
 	}, "await structure_review(repo, parent, head)");
 }
 
-export { prBody, prFiles, decideCommand, judgeModel, shippedJudgments };
+export { prBody, prFiles, decideCommand, judgeModel };
 export type { JudgeStub };
 export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, watchedProofCall };
 export { repoCommand };

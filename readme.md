@@ -93,10 +93,10 @@ Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a fail
 In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
-`<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; ready
-structure findings and incomplete reviews block, while provisional findings do not. Rails accept
+`<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; structure
+findings and incomplete reviews block. Rails accept
 either file only when this omp process watched the `prove()` or `structure_review()` cell write it.
-Missing or invalid files block even when all decisions are provisional. The repo's
+Missing or invalid files block. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
 check run, whoever posts it, with no failing or pending entry of that name. The record's
@@ -114,10 +114,9 @@ Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 
 Judged rails, structured mode only ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)),
 run after the deterministic checks through `decide()`
-([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)). A judgment acts only once its
-`thresholds.json` is `ready`; until then it runs in shadow: logged, with an `Agent rails (shadow)`
-notice, and never refuses, asks for `$approve` or blocks on a judge outage. All five are provisional
-today. Once `ready`:
+([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)). Every judgment acts from the moment
+it ships ([ADR 0021](docs/adr/0021-judgments-enforced-from-the-start.md)); a judge failure refuses,
+except that an `ask` goes through:
 
 | Event | Judgment | yes | escalate |
 | --- | --- | --- | --- |

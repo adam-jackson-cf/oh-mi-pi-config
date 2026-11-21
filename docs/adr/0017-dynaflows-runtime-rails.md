@@ -2,7 +2,9 @@
 
 Status: accepted, 2026-11-21. Supersedes in part
 [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (mode source) and
-[ADR 0016](0016-skill-moves-and-legacy-removal.md) (machine-file reader).
+[ADR 0016](0016-skill-moves-and-legacy-removal.md) (machine-file reader). Superseded in part by
+[ADR 0021](0021-judgments-enforced-from-the-start.md) (the Bands, Status, Shadow, Enforcement and
+Failure rows of judged rails).
 
 ## Context
 
@@ -85,12 +87,12 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 | --- | --- |
 | Transport | omp's judge role from the extension host; `lib/decide.py` asks and records |
 | Model | The answering model must equal `thresholds.model`, else refused |
-| Bands | `no_at_most` and `yes_at_least` come from each judgment's measured band |
-| Status | All five stay `provisional`, so all five run in shadow |
-| Shadow | `decide()` runs and logs; a notice tells what the rail would do; never refuses |
-| Enforcement | Per judgment: `thresholds.json` `ready`, decisions `ready`, minimums confirmed |
+| Bands | Superseded by ADR 0021: one threshold per decision |
+| Status | Superseded by ADR 0021: no status; every judgment is enforced |
+| Shadow | Superseded by ADR 0021: no shadow mode |
+| Enforcement | Superseded by ADR 0021: from the moment a judgment ships |
 | Owner approval | Prompt line `$approve <judgment>:<id>`; one session, one subject |
-| Failure | Shadow: a notice. Enforced: refuses commit, merge, command; evidence unmet |
+| Failure | Refuses commit, merge, command; evidence unmet (ADR 0021 keeps only this path) |
 | In-scope `no` on `ask` | Refused: the agent decides details of the agreed work itself |
 | Subagent privileged command | Refused without a judgment; the main agent asks |
 | Not wired | Completion P3 (linked plan): no PR in the cases links one |
@@ -129,9 +131,9 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 ## Consequences
 
 Live records must run the migration before rails accept them. Structured commits, merges, asks
-and turn ends now call the judge, in shadow while the thresholds are provisional
-(`skill://jev-actions`: uncalibrated thresholds are not enforced): the call log and notices build
-the evidence for calibration, and nothing waits on the judge. A judgment marked `ready` refuses on
-`yes` and asks the owner on `escalate`; an outage of an enforced judgment refuses until it answers.
+and turn ends now call the judge. Superseded by
+[ADR 0021](0021-judgments-enforced-from-the-start.md): no judgment runs in shadow; each refuses on
+`yes` and asks the owner on `escalate` from the start, and a judge outage refuses until it
+answers.
 The mode is a tracked change in oh-mi-pi-config. Rollout no longer follows a merge unless asked. A structured
 session after an extension change cannot write Git until it acknowledges the review.

@@ -3,7 +3,6 @@
   "model": "typesafe/jev-1.14.0",
   "version_key": "0298371f03e95e383953c0ae2464e4b1f887036873358abe3e5023e57c765ea2",
   "score_space": "raw",
-  "status": "provisional",
   "model_reported": "typesafe/jev-1.14.0",
   "scoring": {
     "date": "2026-11-21",
@@ -51,15 +50,15 @@
   },
   "retune_report": "retune-2026-11-21.md",
   "shortfalls": [
-    "fewer than 30 dev labels of each value for every bool question: thresholds stay provisional cost-rule values, untuned",
-    "no yes/no band met the minimums with --conservative --repeats 5: escalate band is the provisional 0.3/0.7, not a measured cascade",
-    "no fallback judge is measured; escalate means the conservative rubric branch",
-    "probabilities are raw, not calibrated confidence"
+    "fewer than 30 dev labels of each value for every bool question: thresholds are cost-rule values, untuned",
+    "no yes/no band met the minimums with --conservative --repeats 5",
+    "probabilities are raw, not calibrated confidence",
+    "band removed: no fallback judge; threshold is the former yes_at_least pending retune",
+    "reached: threshold is the former no_at_most 0.3, not yes_at_least, because its no lowers severity"
   ],
   "decisions": {
     "impact": {
       "version_key": "18d911c70d78a5416bc2aa286bf8ce1272191f73e0147ee4e016e834d823f330",
-      "status": "provisional",
       "round_up_floor": 0.3,
       "rule": "the most severe class with probability >= round_up_floor; 0.3 because understated severity costs more than an extra owner report",
       "measured": {
@@ -79,10 +78,8 @@
     },
     "local_only": {
       "version_key": "ccc08c6ed647275fac880423150f47ac252caf6652114da6f8da72ee8f8dc37e",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A wrong yes lowers severity (understated, missed owner halt); lowers only at yes >= 0.7, escalate never lowers",
+      "threshold": 0.7,
+      "cost_rule": "A wrong yes lowers severity (understated, missed owner halt); lowers only at yes >= 0.7",
       "measured": {
         "dev": {
           "cases": 44,
@@ -103,7 +100,7 @@
           "no_at_most": 0.27,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 44,
             "positives": 5,
@@ -131,9 +128,7 @@
     },
     "needs_privileges": {
       "version_key": "5226447ff80b26535c59ada21ecc386e252eb5f734335badc2d831699f24b634",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
+      "threshold": 0.7,
       "cost_rule": "as local_only",
       "measured": {
         "dev": {
@@ -155,7 +150,7 @@
           "no_at_most": 0.67,
           "yes_at_least": 0.255
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 44,
             "positives": 7,
@@ -183,9 +178,7 @@
     },
     "needs_interaction": {
       "version_key": "1f501ca5feb73f6fab0f0fc73e23e0fe6cc9b105435ee1ce20a3846c914e7bf1",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
+      "threshold": 0.7,
       "cost_rule": "as local_only",
       "measured": {
         "dev": {
@@ -207,7 +200,7 @@
           "no_at_most": 0.855,
           "yes_at_least": null
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 44,
             "positives": 8,
@@ -235,10 +228,8 @@
     },
     "reached": {
       "version_key": "b7058ae0f9e92688731557942ed5ec14011f4d9885d8f1caf93205876d65560f",
-      "status": "provisional",
-      "no_at_most": 0.3,
-      "yes_at_least": 0.7,
-      "cost_rule": "A wrong no lowers severity; treated as unreached only at no <= 0.3, escalate counts as reached",
+      "threshold": 0.3,
+      "cost_rule": "A wrong no lowers severity; unreached only below the threshold 0.3 (the former no_at_most), so triage still never lowers severity on an uncertain score (ADR 0021)",
       "measured": {
         "dev": {
           "cases": 44,
@@ -259,7 +250,7 @@
           "no_at_most": 0.7,
           "yes_at_least": 0.12000000000000001
         },
-        "at_shipped_band": {
+        "at_former_band": {
           "dev": {
             "cases": 44,
             "positives": 25,

@@ -5,15 +5,9 @@
   "model_reported": "typesafe/jev-1.14.0",
   "model_resolution": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0. A smoke check through the live config (judge role openrouter/typesafe/jev-1.14) reported openrouter/typesafe/jev-1.14-20261014 and reproduced the earlier saved scores for II01 and II02, so the earlier run may have answered through OpenRouter; this run replaced every score.",
   "score_space": "raw",
-  "status": "provisional",
-  "mode": "shadow, provisional",
   "decisions": {
     "weakens_verification": {
-      "threshold": null,
-      "status": "provisional",
-      "no_at_most": 0.095,
-      "yes_at_least": 0.795,
-      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
+      "threshold": 0.795,
       "version_key": "b7ec26b4a15a5512d46980f74a50ee2a24f66f579bcc5452643e32bb258f3092",
       "score_space": "raw",
       "minimums": {
@@ -27,10 +21,10 @@
         "beta": 2
       },
       "cost_rule": "A miss costs more than a false flag: a weakening that lands erodes every later check, a false flag costs one review.",
-      "escalation_band": {
+      "measured_band": {
+        "note": "measurement record only: without a fallback judge a band cannot decide (ADR 0021)",
         "no_below": 0.095,
         "yes_at_or_above": 0.795,
-        "status": "shadow, provisional: the commit rail logs it and acts only once ready (ADR 0017)",
         "source": "no_below: tune_threshold.py --min-precision 0 --min-recall 0.95 --repeats 5 (dev CV fold thresholds 0.095-0.115); yes_at_or_above: --min-precision 0.9 --min-recall 0 (fold thresholds 0.735-0.805)",
         "fallback": "a person (owner, or the arbiter on labels); measured as the counting label",
         "dev": {
@@ -157,7 +151,10 @@
     "Owner approval counts only when commit.message cites it (A1)."
   ],
   "cost_per_100_cases_usd": "unknown: judge() reports no usage",
-  "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; the rail gates on the band meanwhile (ADR 0017).",
+  "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; the rail enforces the threshold meanwhile (ADR 0021).",
   "wired": true,
-  "wiring": "shadow until ready: lib/judged-rails.ts commitReason: every structured git commit after the commit checks; yes refuses, escalate needs the owner's $approve; until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
+  "wiring": "lib/judged-rails.ts commitReason (ADR 0017), enforced from the start (ADR 0021): every structured git commit after the commit checks; yes refuses; a judge failure refuses the commit",
+  "shortfalls": [
+    "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
+  ]
 }

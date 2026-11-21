@@ -73,6 +73,7 @@ the [exceptions](#exceptions) below are the only standing ones.
   ([ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md)).
 - Principles 5 and 7: automatic naming, structure and path checks judge only new paths and segments,
   and `prove()` runs those new-path pre-checks at the PR; full scans are explicit requests, and
-  `structure_review()` findings are shadow-only unless a decision is `ready`
-  ([ADR 0012](../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md), extending
+  `structure_review()` findings block merge
+  ([ADR 0021](../../../docs/adr/0021-judgments-enforced-from-the-start.md);
+  [ADR 0012](../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md), extending
   [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md)).

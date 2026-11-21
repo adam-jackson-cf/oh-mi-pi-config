@@ -744,7 +744,7 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 	} finally { h.cleanup(); }
 });
 
-test("dynaflows merge requires a valid exact-head structure result and blocks ready findings", async () => {
+test("dynaflows merge requires a valid exact-head structure result and blocks every finding", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
@@ -759,18 +759,19 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 		await structureResult(h);
 		const path = join(h.root, ".git/omp-structure", `${ciHead}.json`);
 		const watched = (content: string) => watchedProofCall(h, () => writeFileSync(path, content), "await structure_review(repo, parent, head)");
-		writeFileSync(path, readFileSync(path, "utf8").replace("shadow", "shadow" + " ".repeat(0)) + "\n");
+		writeFileSync(path, readFileSync(path, "utf8") + "\n");
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("not written by a structure_review() call the rails saw"), "a result written outside a watched structure_review() call is not evidence");
 		for (const content of [
 			"{broken",
-			JSON.stringify({ head: "b".repeat(40), halt: false, status: "shadow", findings: [] }),
-			JSON.stringify({ head: ciHead, halt: "false", status: "shadow", findings: [] }),
-			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [] }),
+			JSON.stringify({ head: "b".repeat(40), halt: false, status: "pass", findings: [] }),
+			JSON.stringify({ head: ciHead, halt: "false", status: "pass", findings: [] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "shadow", findings: [] }),
+			JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [{ unit: "u", question: "q", status: "ready", score: 0.9, threshold: 0.7 }] }),
 		]) {
 			await watched(content);
 			assert.equal((await h.call("bash", { command }))?.block, true);
 		}
-		const finding = { unit: "src/orders", question: "folder_name_coverage", status: "ready", score: 0.9, threshold: 0.7 };
+		const finding = { unit: "src/orders", question: "folder_name_coverage", score: 0.9, threshold: 0.7 };
 		await watched(JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [finding] }));
 		const blocked = await h.call("bash", { command });
 		assert.equal(isBlocked(blocked), true);
@@ -780,7 +781,7 @@ test("dynaflows merge requires a valid exact-head structure result and blocks re
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("blocked in dynaflows minimal mode"), "minimal mode blocks the merge before halt is read");
 		h.mode("structured");
 		await watched(JSON.stringify({ head: ciHead, halt: false, status: "incomplete",
-			findings: [{ ...finding, status: "provisional" }], errors: ["judge offline"] }));
+			findings: [], errors: ["judge offline"] }));
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("is incomplete (judge offline)"), "an incomplete review never admits a merge");
 		await structureResult(h);
 		assert.equal(await h.call("bash", { command }), undefined);

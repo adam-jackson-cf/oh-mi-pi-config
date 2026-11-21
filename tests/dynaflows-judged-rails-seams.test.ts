@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody, shippedJudgments } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
 import { adrState, commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
-import { Approvals, clip, registryDecide, type RailJudgment } from "../agent/extensions/dynaflows/lib/judge.ts";
-import { judgmentReady } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
+import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
 
 type Harness = ReturnType<typeof harness>;
 const prompt = (h: Harness, text: string) => h.emit("before_agent_start", { reason: "prompt", prompt: text });
@@ -22,7 +21,7 @@ async function staged(h: Harness, name: string, text: string): Promise<void> {
 
 describe("implementation-integrity at a structured commit", () => {
 	test("no commits, yes refuses with remediation, escalate needs the owner's approval line", async () => {
-		const h = harness();
+		const h = harness({ registry: "banded" });
 		try {
 			h.mode("structured");
 			await h.read("skill://git-tool", mergeRecover);
@@ -120,7 +119,7 @@ async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}):
 
 describe("adr-needed at a structured merge", () => {
 	test("yes needs an ADR in the diff, escalate needs the owner, an ADR file skips the judgment", async () => {
-		const h = harness();
+		const h = harness({ registry: "banded" });
 		try {
 			const command = await mergeable(h, { body: "## Summary\n\nMove checks to the repo.\nSee ADR 0007.\n\n## Evidence\n\n- ran it.\n" });
 			assert.equal(await h.call("bash", { command }), undefined);
@@ -155,7 +154,7 @@ describe("adr-needed at a structured merge", () => {
 	});
 
 	test("completion-evidence holds the merge: pre-checks, yes refuses, escalate needs the owner, no merges", async () => {
-		const h = harness();
+		const h = harness({ registry: "banded" });
 		try {
 			const command = await mergeable(h, { body: "## Summary\n\nFixes it." });
 			assert.ok(reasonOf(await h.call("bash", { command })).includes("P4 no Evidence"), "a missing Evidence section refuses the merge");
@@ -198,7 +197,7 @@ describe("adr-needed at a structured merge", () => {
 
 describe("in-scope before asks and privileged commands", () => {
 	test("a question inside the agreed work is refused; yes and escalate let the agent ask", async () => {
-		const h = harness();
+		const h = harness({ registry: "banded" });
 		try {
 			h.mode("structured");
 			h.branch.push({ type: "message", message: { role: "user", content: "fix the flaky merge test" } },
@@ -281,7 +280,7 @@ async function prCreated(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}, 
 
 describe("completion-evidence at the turn end", () => {
 	test("pre-checks run first, then decide(): no meets, yes is unmet, escalate needs the owner", async () => {
-		const h = harness();
+		const h = harness({ registry: "banded" });
 		try {
 			await prCreated(h, { body: "## Summary\n\nFixes it." });
 			const missing = reasonOf(await h.emit("session_stop"));
@@ -379,82 +378,67 @@ describe("judged-rails helpers", () => {
 	});
 });
 
-const shadowNotes = (h: Harness, name: string) => h.notes.filter(note => note.startsWith("Agent rails (shadow)") && note.includes(name));
-const railNames: RailJudgment[] = ["extension-impact", "adr-needed", "in-scope", "implementation-integrity", "completion-evidence"];
+const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/judgments");
+const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional() }).passthrough();
+const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSchema) }).passthrough();
 
-describe("provisional judgments run in shadow", () => {
-	test("only ready thresholds with owner-confirmed minimums are enforced; every shipped rail judgment is provisional", async () => {
-		for (const name of railNames) assert.equal(await judgmentReady(shippedJudgments, name), false, name);
-		const h = harness();
-		try {
-			const dir = join(h.machine, "judgments");
-			assert.equal(await judgmentReady(dir, "adr-needed"), true, "the harness fixture marks each rail judgment ready");
-			const path = join(dir, "adr-needed", "thresholds.json");
-			const ready = { status: "ready", decisions: { adr_needed: { status: "ready", minimums: { assumed: false } } } };
-			for (const variant of [
-				{ ...ready, status: "provisional" }, { ...ready, decisions: { adr_needed: { status: "provisional" } } },
-				{ ...ready, decisions: { adr_needed: { status: "ready", minimums: { assumed: true } } } }, { ...ready, decisions: {} },
-			]) {
-				writeFileSync(path, JSON.stringify(variant));
-				assert.equal(await judgmentReady(dir, "adr-needed"), false, JSON.stringify(variant));
+describe("every judgment is enforced from the start (ADR 0021)", () => {
+	test("no shipped judgment has a status or a band: each bool decision is one threshold", () => {
+		const names = readdirSync(shippedJudgments);
+		assert.ok(names.length >= 7, names.join(", "));
+		for (const name of names) {
+			const thresholds = thresholdsSchema.parse(JSON.parse(readFileSync(join(shippedJudgments, name, "thresholds.json"), "utf8")));
+			assert.equal("status" in thresholds, false, name);
+			for (const [ident, decision] of Object.entries(thresholds.decisions)) {
+				assert.equal("status" in decision, false, `${name}/${ident}`);
+				assert.equal("no_at_most" in decision || "yes_at_least" in decision, false, `${name}/${ident} has a band`);
+				assert.ok(decision.threshold !== undefined || decision.round_up_floor !== undefined, `${name}/${ident}`);
 			}
-			writeFileSync(path, "{broken");
-			assert.equal(await judgmentReady(dir, "adr-needed"), false, "an unreadable file is not enforced");
-		} finally { h.cleanup(); }
+		}
 	});
 
-	test("a commit judged yes, escalate or with the judge down passes with a notice, and the call is logged", async () => {
-		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
+	test("a shipped threshold decides the commit: below it commits, at it refuses, and nothing escalates", async () => {
+		const h = harness();
 		try {
 			h.mode("structured");
 			await h.read("skill://git-tool", mergeRecover);
-			for (const [score, text] of [[0.95, "yes"], [0.5, "escalate"]] as const) {
-				h.judged.scores["weakens_verification"] = score;
-				await staged(h, `skip-${text}.test.ts`, "test.skip('slow', () => {});\n");
-				assert.equal(await h.call("bash", { command: `git commit -m 'test: skip ${text}'` }), undefined, text);
-				assert.ok(shadowNotes(h, `weakens_verification ${text}`).length, h.notes.join("; "));
-				assert.equal(logged(h).at(-1)?.outcomes["weakens_verification"], text);
-			}
-			h.judged.failure = "judge offline";
-			await staged(h, "skip-down.test.ts", "test.skip('slow', () => {});\n");
-			assert.equal(await h.call("bash", { command: "git commit -m 'test: skip down'" }), undefined, "a judge outage never blocks in shadow");
-			assert.ok(shadowNotes(h, "judge offline").length, h.notes.join("; "));
+			h.judged.scores["weakens_verification"] = 0.79;
+			await staged(h, "below.test.ts", "test.skip('slow', () => {});\n");
+			assert.equal(await h.call("bash", { command: "git commit -m 'test: below'" }), undefined, "0.79 is below the 0.795 threshold");
+			h.judged.scores["weakens_verification"] = 0.795;
+			await staged(h, "at.test.ts", "test.skip('slow', () => {});\n");
+			const refused = reasonOf(await h.call("bash", { command: "git commit -m 'test: at'" }));
+			assert.ok(refused.includes("weakens_verification yes, P=0.80") && !refused.includes("$approve"), refused);
+			assert.deepEqual(logged(h).map(call => call.outcomes["weakens_verification"]), ["no", "yes"]);
+			assert.ok(!h.notes.some(note => note.includes("shadow")), h.notes.join("; "));
 		} finally { h.cleanup(); }
 	});
 
-	test("merges, asks, privileged commands and turn ends never refuse or ask for $approve", async () => {
-		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
+	test("merges, asks and privileged commands act on the shipped thresholds; a judge outage refuses the merge", async () => {
+		const h = harness();
 		try {
-			h.judged.scores["adr_needed"] = 0.95;
-			h.judged.scores["evidence_gap"] = 0.95;
-			assert.equal(await h.call("bash", { command: await mergeable(h) }), undefined);
-			assert.ok(shadowNotes(h, "completion-evidence").length && shadowNotes(h, "adr-needed").length, h.notes.join("; "));
-			const ask = await h.call("ask", { questions: [{ question: "Should I name the helper retryMerge?" }] });
-			assert.equal(ask, undefined, "in-scope no does not refuse the ask");
-			h.judged.scores["ask_first"] = 0.9;
-			const command = await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" });
-			assert.equal(command, undefined, "in-scope yes does not hold a privileged command");
-			assert.ok(!h.notes.some(note => note.includes("$approve")), h.notes.join("; "));
-			assert.ok(shadowNotes(h, "in-scope").length >= 2, h.notes.join("; "));
-		} finally { h.cleanup(); }
-	});
-
-	test("a turn end judged yes or with the judge down settles with a notice; the deterministic pre-checks still hold it", async () => {
-		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
-		try {
-			await prCreated(h, { body: "## Summary\n\nFixes it." });
-			assert.ok(reasonOf(await h.emit("session_stop")).includes("P4 no Evidence"), "pre-checks are deterministic and still hold");
-			mockPrCi(h, greenCi, { selector: "agent/test" });
+			const command = await mergeable(h);
+			const body = (line: string) => mockPrCi(h, greenCi, { head: ciHead, selector: "3", body: `${prBody}\n- ${line}` });
+			h.judged.scores["evidence_gap"] = 0.91;
+			body("first run.");
+			assert.ok(reasonOf(await h.call("bash", { command })).includes("completion-evidence/evidence_gap yes, P=0.91"));
+			h.judged.scores["evidence_gap"] = 0.9;
+			h.judged.scores["adr_needed"] = 0.67;
+			body("second run.");
+			assert.ok(reasonOf(await h.call("bash", { command })).includes("adr-needed/adr_needed yes, P=0.67"));
 			h.judged.failure = "judge offline";
-			assert.equal(await h.emit("session_stop"), undefined, "a judge outage never holds the turn in shadow");
-			assert.ok(shadowNotes(h, "judge offline").length, h.notes.join("; "));
+			body("third run.");
+			assert.ok(reasonOf(await h.call("bash", { command })).includes("completion-evidence judgment could not run: judge offline"));
+			h.judged.failure = undefined;
+			h.judged.scores["adr_needed"] = 0.66;
+			body("fourth run.");
+			assert.equal(await h.call("bash", { command }), undefined, "below both thresholds merges");
+			h.judged.scores["ask_first"] = 0.5;
+			assert.ok(reasonOf(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC?" }] })).includes("ask_first no, P=0.50"),
+				"an ask below the 0.695 threshold is in scope and refused");
+			h.judged.scores["ask_first"] = 0.7;
+			assert.equal(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC now?" }] }), undefined);
+			assert.ok(reasonOf(await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" })).includes("$approve in-scope:"));
 		} finally { h.cleanup(); }
-		const judgedYes = harness({ extra: { judgmentsDir: shippedJudgments } });
-		try {
-			await prCreated(judgedYes);
-			judgedYes.judged.scores["evidence_gap"] = 0.95;
-			assert.equal(await judgedYes.emit("session_stop"), undefined);
-			assert.ok(shadowNotes(judgedYes, "evidence_gap yes").length, judgedYes.notes.join("; "));
-		} finally { judgedYes.cleanup(); }
 	});
 });

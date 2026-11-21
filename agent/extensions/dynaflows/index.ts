@@ -20,7 +20,7 @@ import {
 	prMerge, prMergeReason, pushReason, routeReason, worktreeReason, type DefaultBranches,
 } from "./lib/guards.ts";
 import {
-	defaultJudgmentsDir, defaultReviewsPath, judgmentReady, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
+	defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
 	type PrStatus,
 } from "./lib/session-rails.ts";
 import {
@@ -205,11 +205,11 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 async function structureResultReason(pi: ExecApi, cwd: string, head: string, evidence: Evidence): Promise<string | undefined> {
 	const path = join(await commonDir(pi, cwd), "omp-structure", `${head}.json`);
 	const finding = z.object({
-		unit: z.string(), question: z.string(), status: z.enum(["ready", "provisional"]),
+		unit: z.string(), question: z.string(),
 		score: z.number().min(0).max(1), threshold: z.number().min(0).max(1),
 	}).strict();
 	const schema = z.object({
-		head: z.literal(head), halt: z.boolean(), status: z.enum(["shadow", "incomplete", "blocked"]),
+		head: z.literal(head), halt: z.boolean(), status: z.enum(["pass", "incomplete", "blocked"]),
 		findings: z.array(finding), parent: z.string().nullable().optional(),
 		units: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
 		thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
@@ -225,8 +225,8 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
 	}
 	if (!result.halt) return;
-	const ready = result.findings.filter(item => item.status === "ready").map(item => `${item.unit}: ${item.question}`);
-	return `Agent rails: ready structure findings block ${head}: ${ready.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+	const findings = result.findings.map(item => `${item.unit}: ${item.question}`);
+	return `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
 }
 type PrCi = { reason: string } | { head: string; repository: string; base: string; headRef: string; state: string; gate: Gate | undefined; ciReason: string | undefined };
 // The turn-end status of the agent's PR: open is unmet while agents may merge; pending or failing CI
@@ -447,8 +447,6 @@ type DynaflowsOptions = {
 	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsProfileCommand: string[];
 	ompCommand: string[]; extensionDir: string; reviewsPath: string; obligationSources: ObligationSource[];
 	decideCommand: string[];
-	/** The judgments folder whose thresholds.json statuses decide which judgments the rails enforce. */
-	judgmentsDir: string;
 	/** The judge transport for judged rails; omp's judge role unless a test stubs it. */
 	judge: ((ctx: ExtensionContext) => JudgeTransport) | undefined;
 };
@@ -465,7 +463,6 @@ function defaultOptions(): DynaflowsOptions {
 		reviewsPath: defaultReviewsPath(),
 		obligationSources: [],
 		decideCommand: defaultDecideCommand,
-		judgmentsDir: defaultJudgmentsDir(),
 		judge: undefined,
 	};
 }
@@ -473,7 +470,7 @@ function defaultOptions(): DynaflowsOptions {
 export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOptions> = {}): void {
 	const {
 		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
-		decideCommand, judge, judgmentsDir,
+		decideCommand, judge,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
 	const states = new Map<string, State>(), session: SessionCache = {}, trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
@@ -504,7 +501,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	const sessionRail = sessionRails(pi, {
 		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
 		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
-		enforced: name => judgmentReady(judgmentsDir, name),
 		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
 		recordAt,
