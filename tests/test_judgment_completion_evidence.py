@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/completion-evidence"
 TUNER = ROOT / "agent/skills/jev-actions/scripts/tune_threshold.py"
 QUESTION = "evidence_gap"
+OWNER_RULING = "owner ruling 2026-11-21: docs"
 
 spec = importlib.util.spec_from_file_location("completion_evidence_tuner", TUNER)
 assert spec is not None
@@ -103,12 +105,25 @@ def test_every_case_has_one_arbitrated_council_label() -> None:
         assert label["label"] in (0, 1)
         assert label["labeller"] == "innovation-council"
         assert label["arbiter"] == "claude"
-        assert label["provenance"] == "agent_reviewed"
+        assert label["provenance"] in {"agent_reviewed", OWNER_RULING}
         assert label["guide_version"] == key
         assert label["rule"] in {f"E{n}" for n in range(1, 10)}
         if label["label"] != label["council_label"]:
             assert "overrules" in label["note"]
     assert {label["label"] for label in labels} == {0, 1}
+
+
+def test_owner_ruled_rows_are_the_ones_the_guide_names() -> None:
+    ruled = sorted(
+        label["case_id"]
+        for label in read_jsonl("labels.jsonl")
+        if label["provenance"] == OWNER_RULING
+    )
+    guide = (JUDGMENT / "label-guide.md").read_text()
+    section = guide.split("## Owner rulings", 1)[1].split("## Provenance", 1)[0]
+    named = sorted(set(re.findall(r"CE\d{3}", section)))
+    assert ruled == named
+    assert OWNER_RULING in section
 
 
 def test_scores_match_cases_labels_and_model() -> None:

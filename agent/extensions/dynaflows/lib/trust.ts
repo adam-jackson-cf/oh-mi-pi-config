@@ -1,6 +1,7 @@
 // Rails-owned trust: the omp settings the rails pin, the paths no agent tool may write, the eval
 // cells the rails refuse, the proof evidence only prove() and structure_review() runs the rails saw
-// may supply, and the rail state (mode file, record, origin) seen at session start.
+// may supply, and the rail state (mode file, origin) seen at session start. Records are agent-writable
+// at any time (ADR 0001); the rails re-read them on every action.
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -31,11 +32,11 @@ function pinSettings(settings: SettingsScope): void {
 }
 
 // modesFile: the tracked per-repo mode file; reviewsFile: the restart-review acknowledgements.
-type Protection = { configRoot: string; modesFile: string; reviewsFile: string; extensionDir: string; harnessConfig: string };
+type Protection = { modesFile: string; reviewsFile: string; extensionDir: string; harnessConfig: string };
 
 function protectedRoots(protection: Protection): string[] {
 	const home = homedir();
-	return [join(protection.configRoot, "repos"), protection.modesFile, protection.reviewsFile, protection.extensionDir, protection.harnessConfig,
+	return [protection.modesFile, protection.reviewsFile, protection.extensionDir, protection.harnessConfig,
 		join(home, ".gitconfig"), join(home, ".config/git/config"), join(home, ".config/gh/config.yml")];
 }
 
@@ -45,14 +46,12 @@ const inside = (path: string, root: string) => {
 };
 
 // Why an agent tool may not write path: Git internals (hooks, config, refs, proof evidence), the
-// records, the mode file, the review state, the live extension, the harness config, or Git and gh config.
-// granted: record directories the owner opened to agent writes (setup, or a prompt naming the record).
-function protectedPathReason(path: string, protection: Protection, granted: (string | undefined)[]): string | undefined {
+// mode file, the review state, the live extension, the harness config, or Git and gh config.
+function protectedPathReason(path: string, protection: Protection): string | undefined {
 	const forms = [path, canonicalPath(path)];
 	if (forms.some(form => form.split(sep).includes(".git"))) {
 		return `Agent rails: ${path} is inside Git's internal directory (hooks, config, refs and proof evidence); agents never write it.`;
 	}
-	if (granted.some(dir => dir !== undefined && forms.some(form => inside(form, dir)))) return undefined;
 	const root = protectedRoots(protection).find(candidate => forms.some(form => inside(form, candidate) || inside(form, canonicalPath(candidate))));
 	return root ? `Agent rails: ${path} is rail state (${root}); only the owner changes it.` : undefined;
 }
@@ -60,7 +59,7 @@ function protectedPathReason(path: string, protection: Protection, granted: (str
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Text naming rail state: Git internals and proof evidence anywhere, Git and gh config, and the
-// live records, mode file, review state, extension and harness config by absolute or ~/ path.
+// mode file, review state, extension and harness config by absolute or ~/ path.
 function markerPattern(protection: Protection): RegExp {
 	const home = homedir();
 	const roots = protectedRoots(protection).flatMap(root => root.startsWith(`${home}/`) ? [root, `~${root.slice(home.length)}`] : [root]);
@@ -71,7 +70,7 @@ const SHELL_WRITES = /(?<!<)>(?!&)|\b(?:tee|cp|mv|rm|ln|install|rsync|dd|truncat
 
 function shellStateReason(command: string, protection: Protection): string | undefined {
 	return markerPattern(protection).test(command) && SHELL_WRITES.test(command)
-		? "Agent rails: this command writes near rail state (Git internals, proof evidence, records, the mode file, the review state, the extension or Git/gh config); only the owner changes it."
+		? "Agent rails: this command writes near rail state (Git internals, proof evidence, the mode file, the review state, the extension or Git/gh config); only the owner changes it."
 		: undefined;
 }
 
@@ -87,7 +86,7 @@ function evalReason(code: string, protection: Protection): string | undefined {
 	if (EVAL_COMMIT.test(code)) return "Agent rails: the eval commit namespace commits outside the rails; commit with git commit in the bash tool.";
 	if (EVAL_PROCESS.test(code) && mentionsGit(code)) return "Agent rails: eval may not run git, gh, hub or omp; run them with the bash tool so the rails check them.";
 	if (markerPattern(protection).test(code) && (EVAL_WRITES.test(code) || EVAL_PROCESS.test(code))) {
-		return "Agent rails: eval may not write rail state (Git internals, proof evidence, records, the mode file, the review state, the extension or Git/gh config).";
+		return "Agent rails: eval may not write rail state (Git internals, proof evidence, the mode file, the review state, the extension or Git/gh config).";
 	}
 	return EVAL_TAMPER.test(code) ? "Agent rails: eval may not redefine the proof workflow or reach builtins; call prove() and structure_review() as loaded." : undefined;
 }
@@ -141,8 +140,8 @@ class Evidence {
 	}
 }
 
-// Rail state seen at session start (the mode file, the session repo's origin and record):
-// a change during the session, other than through the rails' own mode switch or setup, refuses
+// Rail state seen at session start (the mode file and the session repo's origin): a change
+// during the session, other than through the rails' own mode switch, refuses
 // every git and gh action until the owner restores it or restarts omp.
 class Snapshot {
 	readonly #seen = new Map<string, string>();
@@ -155,11 +154,6 @@ class Snapshot {
 
 	accept(key: string, value: string): void {
 		if (this.#seen.has(key)) this.#seen.set(key, value);
-	}
-
-	release(key: string): void {
-		this.#seen.delete(key);
-		this.#readers.delete(key);
 	}
 
 	async driftReason(): Promise<string | undefined> {

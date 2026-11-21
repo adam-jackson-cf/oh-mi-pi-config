@@ -43,7 +43,8 @@ Yes when the change alters:
 
 - T1. Any one changed behaviour that reaches the repository makes the label 1.
 - T2. Judge the change as if applied today to this record in this mode. Records are a 2026-11-21
-  snapshot; older commits are replayed against it.
+  snapshot; older commits are replayed against it. A change whose effect `mode.runs` already
+  describes changes no step that mode runs (no Y4); Y1-Y3 still apply. Owner-confirmed 2026-11-21.
 - T3. A clipped diff: judge visible hunks, file paths and the subject. A runtime file
   (`rails.yml`, `lib/`, `index.ts`, engine source) with visible behaviour change counts.
 - T4. A removed check or refusal is a behaviour change (Y1-Y3), not a cleanup.

@@ -8,17 +8,18 @@
   "mode": "shadow, provisional",
   "wiring": "shadow until ready: lib/judged-rails.ts: the turn-end evidence obligation and the merge rail (yes refuses, escalate needs the owner's $approve); until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional",
   "score_provenance": {
-    "run": "omp 19.0.1 -p with --config overlay (modelRoles.judge: typesafe/jev-1.14.0; retry.fallbackChains.judge: []); TYPESAFE_API_KEY injected by infisical run (project 052b4c81-…, env dev)",
-    "call": "eval judge_batch(states, questions.json questions), one call per case, retries 2",
+    "run": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, retries 2, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0",
+    "call": "judge({state, questions}) per case through resolveJudge (omp judge role), questions.json questions",
     "batch_status": {
       "total": 92,
       "done": 92,
       "failed": 0,
       "model": "typesafe/jev-1.14.0",
-      "cost_usd": 0.00487
+      "cost_usd": null
     },
     "date": "2026-11-21",
-    "rescore": "CE029, CE030, CE034, CE036 and CE087 re-scored 2026-11-21 after pseudonymisation through the direct judge (model typesafe/jev-1.14.0); 4 scores moved by 0.01; band counts unchanged"
+    "cost_note": "unknown: the library judge() reports no usage; the earlier omp -p batch of the same 92 cases cost $0.00487",
+    "rescore": "all 92 cases re-scored 2026-11-21 after the owner ruling; labels changed for CE029 only; scores moved by at most 0.14 (64 of 92 moved)"
   },
   "framing": {
     "action": {
@@ -40,9 +41,9 @@
       "version_key": "535639ffa7f958fc228ecf9394385ef958960555ffd47c36cd23a512cae1be0b",
       "threshold": null,
       "status": "provisional",
-      "no_at_most": 0.42,
-      "yes_at_least": 0.87,
-      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
+      "no_at_most": 0.34,
+      "yes_at_least": 0.91,
+      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive, so it is the largest dev score below pass_below (pass_below is exclusive)",
       "metric": {
         "name": "F-beta",
         "beta": 2
@@ -56,8 +57,8 @@
       "cost_rule": "miss costs more: provisional single threshold 0.3; the rails read the escalation band instead (ADR 0017)",
       "provisional_threshold": 0.3,
       "escalation_band": {
-        "pass_below": 0.42,
-        "flag_at_or_above": 0.87,
+        "pass_below": 0.4,
+        "flag_at_or_above": 0.91,
         "between": "escalate to the owner (fallback judge: a person)",
         "rule": "pass_below: largest dev cut with zero positives below it; flag_at_or_above: smallest dev cut with flagged precision >= 0.8 (at least 5 flagged)",
         "fallback_measured": false,
@@ -65,24 +66,24 @@
         "dev": {
           "n": 69,
           "pass": 8,
-          "flag": 21,
-          "escalate": 40,
-          "esc_rate": 0.58,
+          "flag": 18,
+          "escalate": 43,
+          "esc_rate": 0.623,
           "pass_misses": 0,
-          "flag_precision": 0.81,
-          "flag_false": 4,
+          "flag_precision": 0.833,
+          "flag_false": 3,
           "cascade_recall_if_fallback_exact": 1,
           "auto_npv": 1
         },
         "test": {
           "n": 23,
-          "pass": 4,
-          "flag": 8,
-          "escalate": 11,
-          "esc_rate": 0.478,
+          "pass": 3,
+          "flag": 7,
+          "escalate": 13,
+          "esc_rate": 0.565,
           "pass_misses": 0,
-          "flag_precision": 0.5,
-          "flag_false": 4,
+          "flag_precision": 0.571,
+          "flag_false": 3,
           "cascade_recall_if_fallback_exact": 1,
           "auto_npv": 1
         },
@@ -91,21 +92,21 @@
       },
       "results": {
         "auc": {
-          "dev": 0.817,
+          "dev": 0.805,
           "test": 0.838
         },
         "default_0_5_dev_held_out": {
-          "precision": 0.43,
-          "recall": 0.92,
-          "f2": 0.75
+          "precision": 0.42,
+          "recall": 0.96,
+          "f2": 0.76
         },
         "test_at_0_5": {
           "precision": 0.33,
-          "recall": 1
+          "recall": 1.0
         },
-        "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.9 --beta 2 --conservative --repeats 5: 0 of 25 folds qualified; no threshold meets minimums. Zero-minimum run (information only, gates nothing): best F2 threshold 0.395, folds 0.395-0.685, test P 0.32 R 1.00",
-        "calibration": "Brier raw 0.2874 dev held-out, Platt 0.1648; test raw 0.3498, Platt 0.1694. Platt (a 0.8985, b -1.6443, fitted on all dev) accepted for any read of the probability; thresholds and band stay in raw space. Reliability bins not checked: do not show as confidence",
-        "errors": "raw scores sit high on negatives (median about 0.69); top dev false positives CE038 0.98, CE030 0.95, CE062 0.90 are skill or runbook doc changes the labels treat under E4 and Jev treats as behaviour"
+        "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.9 --beta 2 --conservative --repeats 5: 0 of 25 folds qualified; no threshold meets minimums (non-conservative run: also none). Zero-minimum run (information only, gates nothing): best F2 threshold 0.625, folds 0.365-0.805, test P 0.43 R 1.00",
+        "calibration": "Brier raw 0.2994 dev, Platt held-out 0.1705; test raw 0.3467, Platt 0.1644. Platt (a 0.8184, b -1.6125, fitted on all dev) accepted for any read of the probability; thresholds and band stay in raw space. Reliability bins not checked: do not show as confidence",
+        "errors": "raw scores sit high on negatives; top dev false positives after the owner ruling: CE038 0.98, CE029 0.96, CE030 0.96, CE012 0.89, CE062 0.89. CE029, CE030 and CE038 are skill or runbook doc changes the ruling labels 0 (E4); Jev still treats them as behaviour. CE062 is a code change (scout association lane) with E3 evidence, not a docs case"
       }
     }
   },
@@ -114,11 +115,11 @@
     "dev": 69,
     "test": 23,
     "positives": {
-      "dev": 26,
+      "dev": 25,
       "test": 6
     },
     "negatives": {
-      "dev": 43,
+      "dev": 44,
       "test": 17
     },
     "units": "82 PRs (unit = owner/repo#number); dev/test split by FNV-1a hash of unit (70/30), no unit in both",
@@ -134,7 +135,7 @@
       },
       "skills-directory/replay": {
         "n": 14,
-        "pos": 1
+        "pos": 0
       },
       "raidar/replay": {
         "n": 12,
@@ -168,13 +169,14 @@
     "provenance": "agent_reviewed: innovation-council first pass via omp -p (council plus innovation-challenger and experiment-peer labelling independently, then council adjudication), blind to jev scores; claude arbitrated after reading every split case, before scoring. 82 of 92 unanimous; 10 challenger/peer splits; arbiter overruled 1 (CE089 0 -> 1). Owner may override with human rows",
     "precheck_excluded": "11 of 295 PRs with request and evidence sections failed P5-P7 (no or failing checks) and were not sampled",
     "selection": "per-repository quotas from 284 eligible merged or closed PRs in 8 adam-jackson-cf repositories; half of each quota from PRs with a Not tested paragraph, the rest by stable hash",
-    "redaction": "2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)"
+    "redaction": "2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)",
+    "owner_rulings": "2026-11-21: skill and runbook docs that steer agents are docs (E4), not behaviour (E5). 14 rows carry provenance 'owner ruling 2026-11-21: docs' (CE007, CE010, CE011, CE012, CE017, CE026, CE029, CE030, CE031, CE033, CE035, CE036, CE038, CE081); CE029 changed 1 -> 0, the other 13 kept their labels"
   },
   "shortfalls": [
     "No threshold meets precision 0.8 / recall 0.9 on dev; threshold null",
-    "Escalation band misses on test: flagged precision 0.50 (4 false of 8); band not confirmed, yet it gates the merge as the owner directed (ADR 0017)",
-    "Dev positives 26 (< about 30); real replay positives only 22 of 32; scout has 0 and skills-directory 1",
-    "Policy gap for owner ruling: agent-instruction docs (skills, runbooks) as E4 docs or E5 behaviour; near-duplicates CE029 (1) and CE030 (0) differ only by not_tested wording",
+    "Escalation band misses on test: flagged precision 0.57 (3 false of 7); band not confirmed, so the judgment stays in shadow (ADR 0017)",
+    "Dev positives 25 (< about 30); real replay positives only 21 of 31; scout and skills-directory have 0",
+    "The owner ruling (skill and runbook docs are E4 docs) did not move Jev: CE029, CE030 and CE038 still score 0.96-0.98; the question text does not carry the ruling, so a question revision (new version key) is the next fix",
     "No linked plans or issues: 0 of 295 PRs link an issue, so the request is the PR's own summary; PR comments with later evidence were not read",
     "Fallback judge not run; cascade numbers assume a person resolves escalations exactly",
     "Framing values (action, baseline, costs, minimums) are assumed; owner to confirm",

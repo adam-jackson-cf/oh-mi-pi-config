@@ -101,7 +101,7 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 | --- | --- | --- |
 | `agent/RULES.md` | Never bypass git hooks | Hook-bypass rails, both modes |
 | `agent/RULES.md` | Merge on green CI, in-scope ADR lines | PR obligation, in-scope, `adr-needed` |
-| `agent/RULES.md` | Resolve councils after 2 rounds | Kept as instruction: not enforced |
+| `agent/RULES.md` | Resolve councils after 2 rounds | Dropped (owner, 2026-11-21): not kept |
 | `agent/RULES.md` | Handoff to `docs/HANDOFF.md` | `handoff` tool |
 | `agent/AGENTS.md` | Git paragraph | Mode rails and `skill://git-tool` gate |
 | `agent/AGENTS.md` | Device rollout paragraph | Opt-in rollout obligation |
@@ -112,7 +112,6 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 
 | Fact | Why |
 | --- | --- |
-| Council resolution after 2 rounds | Council rounds are not observable events |
 | No Git in the NUC's `~/.omp` | Remote shells over `ssh` are opaque; `ssh` asks first |
 | Restart sessions after rail changes | Old sessions run old rails |
 | Missing `ci-gate-repos.json` entry needs a setup PR | Record README fact |

@@ -1,8 +1,10 @@
 # 0018: Rails trust only what they saw
 
-Status: accepted, 2026-11-21. Supersedes in part [ADR 0001](0001-agents-write-records.md).
-Written against record-held modes; [ADR 0017](0017-dynaflows-runtime-rails.md) moved the mode to
-the tracked mode file, which this ADR protects in place of the removed machine file.
+Status: accepted, 2026-11-21; amended the same day: the owner kept
+[ADR 0001](0001-agents-write-records.md) (agents write records at any time), so records are not
+rail state. Written against record-held modes; [ADR 0017](0017-dynaflows-runtime-rails.md)
+moved the mode to the tracked mode file, which this ADR protects in place of the removed machine
+file.
 
 ## Context
 
@@ -27,17 +29,19 @@ A bypass hunt found routes that landed commits, pushes, merges or proof without 
   command. Retargeting options and variables, unlisted `-c` and `git config` keys, remote and ref
   writes, plumbing commit routes, gh aliases and extensions, and `gh api` writes outside PR
   conversation are refused.
-- Agent tools never write Git internals, records, the tracked mode file
+- Agent tools never write Git internals, the tracked mode file
   (`agent/extensions/dynaflows/modes.json`), the restart-review state
   (`~/.omp/agent/dynaflows-reviews.json`), the live extension, the harness config, or Git and gh
-  config. Only the `dynaflows` tool and the `$dynaflows` directive change the mode file. Records
-  open to agents only in owner-asked setup or while the owner's latest prompt names the record, an
-  approval or an exception.
+  config. Only the `dynaflows` tool and the `$dynaflows` directive change the mode file.
+- Records (`~/.omp/repos/<owner>/<name>/`: `gate.json`, `profile.md`) stay agent-writable at any
+  time, through any tool, as ADR 0001 decided. An earlier draft of this ADR opened them only in
+  owner-asked setup or while the owner's prompt named the record; the owner removed that limit.
 - Proof evidence counts only when this omp process watched the `prove()` or
   `structure_review()` cell write it. Incomplete reviews, any failing required context and an
   empty check rollup block merges.
-- The mode file, the session repo's origin and its record are snapshotted at session start; a
-  change outside the rails' own writes refuses git and gh actions until omp restarts.
+- The mode file and the session repo's origin are snapshotted at session start; a change outside
+  the rails' own writes refuses git and gh actions until omp restarts. The record is not
+  snapshotted: the rails re-read it on every action, so a changed record takes effect at once.
 - A structured commit is its bash call's only change, over a staged index with no unstaged edits
   ([ADR 0017](0017-dynaflows-runtime-rails.md) refuses `-a`, `-i`, `-o`, `-p` and paths).
 

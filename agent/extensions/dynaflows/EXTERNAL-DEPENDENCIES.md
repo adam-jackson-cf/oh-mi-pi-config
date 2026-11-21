@@ -116,7 +116,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
+| Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md`; agents write any time |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
 | Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged revision; agents never write |
 | Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |

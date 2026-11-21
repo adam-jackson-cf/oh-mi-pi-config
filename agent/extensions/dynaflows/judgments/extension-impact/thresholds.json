@@ -32,20 +32,20 @@
     },
     "cost_usd": null,
     "cost_per_100_cases_usd": "unknown: judge() reports no usage",
-    "runs": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0"
+    "runs": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, retries 2, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0; re-scored after the owner's T2 ruling"
   },
   "decisions": {
     "impact": {
       "version_key": "7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
-      "threshold": 0.45999999999999996,
+      "threshold": 0.47,
       "status": "provisional",
       "no_at_most": 0.28,
-      "yes_at_least": 0.51,
+      "yes_at_least": 0.48,
       "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "rule": "P(impact) >= threshold flags the repository for review",
       "escalation_band": {
         "no_at_most": 0.28,
-        "yes_at_least": 0.51,
+        "yes_at_least": 0.48,
         "between": "escalate: the owner or a reviewing agent decides",
         "fallback": "owner or reviewing agent; not run on the cases, so cascade figures assume the fallback is right",
         "chosen_on": "dev only: the narrowest band with no dev positive at or below no_at_most and no dev negative at or above yes_at_least",
@@ -102,13 +102,14 @@
         },
         "synthetic": 0,
         "provenance": "agent_reviewed: innovation-council first pass (blind to scores; innovation-challenger and experiment-peer labelled independently, the council reconciled), claude as final arbiter agreeing on all 84; owner may override",
-        "rebuild": "2026-11-21: the 31 minimal-stratum cases were dropped (the rail judges structured repositories only) and each record gate was rebuilt in the current schema: dynaflows removed; the oh-mi-pi-config record holds the nuc-config mergePolicies entry the cutover adds. Labels unchanged."
+        "rebuild": "2026-11-21: the 31 minimal-stratum cases were dropped (the rail judges structured repositories only) and each record gate was rebuilt in the current schema: dynaflows removed; the oh-mi-pi-config record holds the nuc-config mergePolicies entry the cutover adds. Labels unchanged.",
+        "owner_rulings": "2026-11-21: tie-break T2 'judge as if applied today' confirmed. EI049 carries provenance 'owner ruling 2026-11-21: T2' (label 0 unchanged, rule T2). EI050 and EI051, the minimal-mode pair T2 would turn 1 -> 0, left the set with the minimal stratum; no other case in the set turns on T2"
       },
       "results": {
         "default_0_5": {
           "dev_heldout": {
             "precision": 1.0,
-            "recall": 0.909
+            "recall": 0.818
           },
           "test": {
             "precision": 1.0,
@@ -117,11 +118,11 @@
         },
         "tuned": {
           "dev_heldout": {
-            "precision": 0.742,
+            "precision": 0.731,
             "recall": 0.831
           },
           "folds_below_minimums": "11 of 25",
-          "fold_threshold_range": [0.285, 0.46],
+          "fold_threshold_range": [0.285, 0.475],
           "test": {
             "precision": 1.0,
             "recall": 0.8
@@ -147,20 +148,20 @@
     "test_misses": {
       "EI082": "auto-no below the band; not re-analysed after the re-score"
     },
-    "next_fix": "clarify T2 for changes that create today's mode contract, then relabel EI049-EI051; owner to accept or fix"
+    "next_fix": "T2 is owner-confirmed and EI049 relabelled; EI055 and EI057 (a worktree-placement guard that today's mode.runs already lists) stay 1 under Y2, which T2's clarification keeps; grow the structured set before tuning again"
   },
   "shortfalls": [
     "test recall 0.8 is below the 0.9 minimum at the shipped threshold; the rail therefore notifies the owner on every no and stores the revision instead of skipping silently",
     "the dev-chosen escalation band misses 1 of 10 test positives",
     "minimums are assumed, not owner-confirmed",
-    "no owner review of labels yet",
+    "owner review covers the T2 ruling only; no per-case owner review of the other labels",
     "fallback judge for the band not measured",
     "the minimal stratum was dropped: about 20 dev cases per label remain; grow to 50+ per label before ready"
   ],
   "label_guide": {
     "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",
-    "current_version": "7c0834d70f8be72bcd2076eb7bcb0737ed24a7966d682b076e5597285f050c14",
-    "change": "Y1-Y5 table rewrapped as a list for the 100-column markdown limit after labelling; rule wording unchanged"
+    "current_version": "2124a591e4979ec691d3bd4ed821ff7c393d0b7a2237018c9535244b0d1dc161",
+    "change": "Y1-Y5 table rewrapped as a list for the 100-column markdown limit after labelling; 2026-11-21 T2 gained the owner-confirmed clarification (a change whose effect mode.runs already describes is no Y4 change; Y1-Y3 still apply); other rule wording unchanged"
   },
   "mode": "shadow, provisional",
   "wired": true

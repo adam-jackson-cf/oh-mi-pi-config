@@ -129,10 +129,6 @@ interface State extends SharedState {
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
 	pointed: boolean;
-	// The record directory the rails asked this session to set up, so agent tools may write it.
-	setupDir?: string | undefined;
-	// The session repo's record directory while the owner's latest prompt names the record, an approval or an exception.
-	recordGrant?: string | undefined;
 	// The owner's latest prompt named dynaflows, so the dynaflows tool may switch to minimal mode.
 	ownerAsked: boolean;
 }
@@ -146,7 +142,6 @@ function fresh(): State {
 type BashCall = { actions: GitAction[]; executables: string[] };
 const COMMIT_COMPANIONS = ["cd", "pushd", "popd", "true"];
 const READ_ONLY_GIT = /^git (?:status|diff|log|show|rev-parse)\b/;
-const RECORD_GRANT = /\b(?:records?|gate\.json|profile\.md|approv\w*|exceptions?)\b|\$dynaflows/i;
 // The harness checks: guardrails run from the harness's own reference project (never installed
 // into the repo), over the whole repo, with the record as config. Rails append
 // `--repo <worktree> --record <record dir>`.
@@ -388,45 +383,23 @@ function protectedEditReason(map: Mapping, protection: Protection, event: ToolEv
 	if (!map.editTools.includes(event.toolName)) return undefined;
 	const targets = [...paths(event, map, cwd), ...(event.input.path === map.resolveDevice ? state.proposal : [])];
 	for (const target of targets) {
-		const reason = protectedPathReason(target, protection, [state.setupDir, state.recordGrant]);
+		const reason = protectedPathReason(target, protection);
 		if (reason) return reason;
 	}
 	return undefined;
 }
-// The rail state a session trusts: the mode file and the session repo's origin and record.
-async function captureState(snapshot: Snapshot, where: { modesFile: string; configRoot: string }, cwd: string): Promise<void> {
-	await snapshot.capture(where.modesFile, () => fileState(where.modesFile));
+// The rail state a session trusts: the mode file and the session repo's origin. Records are not
+// part of it: agents write them at any time and the rails re-read them on every action (ADR 0001).
+async function captureState(snapshot: Snapshot, modesFile: string, cwd: string): Promise<void> {
+	await snapshot.capture(modesFile, () => fileState(modesFile));
 	const root = await repoRoot(cwd);
 	if (!root) return;
-	const slug = await repoSlug(root);
 	await snapshot.capture(`the origin remote of ${root}`, async () => `${await repoSlug(root)}`);
-	if (slug) await snapshot.capture(join(recordDir(slug, where.configRoot), GATE_FILE), () => fileState(join(recordDir(slug, where.configRoot), GATE_FILE)));
-}
-async function sessionRecordDir(cwd: string, configRoot: string): Promise<string | undefined> {
-	const root = await repoRoot(cwd);
-	const slug = root ? await repoSlug(root) : null;
-	return slug ? recordDir(slug, configRoot) : undefined;
-}
-// What the owner's latest prompt opens to the agent: a switch to minimal mode, and record writes.
-async function ownerGrants(state: State, prompt: string, cwd: string, configRoot: string): Promise<void> {
-	state.ownerAsked = /dynaflows/i.test(prompt);
-	state.recordGrant = RECORD_GRANT.test(prompt) ? await sessionRecordDir(cwd, configRoot) : undefined;
 }
 function mergeAloneReason(actions: GitAction[]): string | undefined {
 	return actions.length > 1 && actions.some(action => /^gh pr merge\b/.test(action.command))
 		? "Agent rails: run gh pr merge as its own bash command, so the head the rails check is the head gh merges."
 		: undefined;
-}
-// After an owner-granted record write, the snapshot trusts the record as written.
-async function acceptGrantedWrite(snapshot: Snapshot, state: State, event: ToolEvent, targets: string[]): Promise<void> {
-	if (event.isError || !state.recordGrant || !targets.some(path => path.startsWith(`${state.recordGrant}/`))) return;
-	const gate = join(state.recordGrant, GATE_FILE);
-	snapshot.accept(gate, await fileState(gate));
-}
-// Owner-asked setup: agent tools may write this record directory, and its gate.json leaves the snapshot.
-function allowSetup(snapshot: Snapshot, state: State, dir: string): void {
-	state.setupDir = dir;
-	snapshot.release(join(dir, GATE_FILE));
 }
 type Notify = (notice: string, level?: "info" | "error") => string;
 type Step = { action: GitAction; staged: boolean };
@@ -485,7 +458,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	const states = new Map<string, State>(), session: SessionCache = {}, trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
 		protection: {
-			configRoot, modesFile: modesPath, reviewsFile: reviewsPath, extensionDir: dirname(configPath),
+			modesFile: modesPath, reviewsFile: reviewsPath, extensionDir: dirname(configPath),
 			harnessConfig: resolve(dirname(configPath), "../../config.yml"),
 		},
 	};
@@ -625,7 +598,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function recordResult(event: ToolEvent, ctx: ExtensionContext, state: State, runCheck: boolean) {
 		recordRead(event, state);
 		if (event.isError || proposalOnly(map, event, ctx, state) || !map.editTools.includes(event.toolName)) return undefined;
-		await acceptGrantedWrite(trust.snapshot, state, event, paths(event, map, ctx.cwd));
 		const groups = await groupByRoot(map, editedPaths(map, event, ctx, state), state);
 		const errors = runCheck ? await checkGroups(groups, ctx, state) : [];
 		return errors.length ? { additionalContext: errors.join("\n") } : undefined;
@@ -663,7 +635,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		await rebuild(event, ctx);
 		if (loadError) return;
 		pinSettings(pi.pi.settings);
-		await captureState(trust.snapshot, { modesFile: modesPath, configRoot }, ctx.cwd);
+		await captureState(trust.snapshot, modesPath, ctx.cwd);
 		const at = await syncRules(ctx);
 		if (at.mode === "minimal" && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
 	});
@@ -812,7 +784,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function structuredOutcome(ctx: ExtensionContext, state: State, notify: Notify, request: StructuredRequest): Promise<Applied> {
 		const at = await modeAt(ctx);
 		if (at.invalid) {
-			allowSetup(trust.snapshot, state, request.dir);
 			return { notice: request.notice, content: resumeContent(request.slug, request.dir, at.why ?? "invalid record") };
 		}
 		if (at.mode === "minimal") {
@@ -831,7 +802,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		catch (error) { return { notice: notify(`Agent rails: ${String(error)}`, "error") }; }
 		state.pointed = false;
 		const { slug, dir } = target;
-		if (!dir && mode === "structured") allowSetup(trust.snapshot, state, recordDir(slug, configRoot));
 		try {
 			await writeMode(modesPath, slug, mode);
 			trust.snapshot.accept(modesPath, await fileState(modesPath));
@@ -850,7 +820,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (loadError || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const state = stateFor(ctx);
-		await ownerGrants(state, event.prompt ?? "", ctx.cwd, configRoot);
+		state.ownerAsked = /dynaflows/i.test(event.prompt ?? "");
 		const lines = (event.prompt ?? "").split("\n").filter(line => line.trim());
 		const settings = lines.map(dynaflowsSetting);
 		const asked = new Set(settings.filter(setting => setting !== undefined));

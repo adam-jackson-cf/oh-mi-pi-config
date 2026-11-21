@@ -82,7 +82,7 @@ def test_every_case_has_one_arbitrated_council_label() -> None:
     for label in labels:
         assert label["label"] in (0, 1)
         assert (label["labeller"], label["arbiter"]) == ("innovation-council", "claude")
-        assert label["provenance"] == "agent_reviewed"
+        assert label["provenance"] in {"agent_reviewed", "owner ruling 2026-11-21: T2"}
         assert label["guide_version"] == guide
         assert label["rule"][:1] in ("Y", "N", "T")
 

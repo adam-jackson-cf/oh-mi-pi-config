@@ -54,9 +54,11 @@ and `Not tested` section, removed from `tested`.
 | E2 | `Unchanged` lists, motivation (`Why`) and follow-ups are not outcomes |
 | E3 | Supported: a named test, scenario, run, measurement, scan or observation exercises it |
 | E4 | A gate, lint, type or format pass alone supports docs, config, renames, pure refactors |
+| E4 | (docs include skills, runbooks, playbooks and other text that steers agents) |
 | E5 | A runtime behaviour change needs E3 evidence; a gate pass alone is a gap (1) |
 | E6 | `not_tested` naming a claimed outcome is a gap (1) |
 | E6 | (naming neighbouring systems, live rollouts or other repos is not) |
+| E6 | (nor is naming an agent run that never exercised changed skill or runbook docs) |
 | E7 | Evidence describing a different change than the request is a gap (1) |
 | E8 | One unsupported outcome is enough for 1; minor doc touch-ups are not outcomes |
 | E9 | Truncated text: judge what is shown; do not assume missing evidence exists |
@@ -69,6 +71,17 @@ and `Not tested` section, removed from `tested`.
 | 1 | Adds a slow release seam | Not tested: "the slow release seam was not run" | E6 |
 | 0 | Reject child dirs repeating the parent token | Regression tests per separator | E3 |
 | 0 | Reword the merge runbook | Required gate and markdown lint passed | E4 |
+| 0 | Turn a skill into a runbook index | Gate passed; Not tested: no agent run | E4 |
+
+## Owner rulings
+
+| Date | Ruling | Cases |
+| --- | --- | --- |
+| 2026-11-21 | Skill and runbook docs that steer agents are docs (E4), not behaviour (E5) | [^r1] |
+
+[^r1]: Rows the ruling decides carry provenance `owner ruling 2026-11-21: docs`: CE007, CE010,
+  CE011, CE012, CE017, CE026, CE029, CE030, CE031, CE033, CE035, CE036, CE038 and CE081. Only
+  CE029 changed label (1 to 0).
 
 ## Provenance
 
@@ -77,4 +90,5 @@ and `Not tested` section, removed from `tested`.
 | `labeller` | `innovation-council` (blind first pass via omp headless) |
 | `arbiter` | `claude` (final label; note on each disagreement) |
 | Override | Owner may append a `human` row later; the latest `human` row counts |
+| Owner ruling | `provenance` names the ruling on each row it decides; see Owner rulings |
 | Layout | Tables cut to 100 columns after labelling; rule meanings unchanged |

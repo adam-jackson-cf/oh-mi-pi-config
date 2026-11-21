@@ -802,34 +802,24 @@ test("without a ci block every reported check still decides the merge", async ()
 	} finally { h.cleanup(); }
 });
 
-test("agents write a record only in the setup the owner asked for this session", async () => {
+test("agents write records at any time, in any session, without an owner prompt", async () => {
 	const h = harness();
 	try {
 		await h.read(integrity, structure);
 		const gate = join(h.recordDir(), "gate.json");
 		const draft = JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] } });
-		assert.ok(reasonOf(await h.call("write", { path: gate, content: draft })).includes("is rail state"));
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined, "no setup or owner prompt is needed");
 		const kickoff = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows" }));
-		assert.ok(kickoff.includes("from Step 0") && kickoff.includes("Write the record yourself") && kickoff.includes("Never ask the owner to save"), kickoff);
-		for (const path of [gate, join(h.recordDir(), "profile.md")]) {
-			assert.equal((await h.call("write", { path, content: draft }))?.block, undefined);
+		assert.ok(kickoff.includes("Never ask the owner to save"), kickoff);
+		for (const path of [gate, join(h.recordDir(), "profile.md"), join(h.records, "repos", "owner", "other", "gate.json")]) {
+			assert.equal((await h.call("write", { path, content: draft }))?.block, undefined, path);
 		}
-		const other = await h.call("write", { path: join(h.records, "repos", "owner", "other", "gate.json"), content: draft });
-		assert.ok(reasonOf(other).includes("is rail state"), "setup covers only the asked repository's record");
 		h.context.agent.kind = "sub";
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined, "subagents write records too");
 		h.context.agent.kind = "main";
-		mkdirSync(h.recordDir(), { recursive: true });
-		writeFileSync(gate, draft);
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "disable $dynaflows" });
-		assert.equal(h.modeOf(), "minimal");
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined);
-		h.setSession("other");
-		assert.ok(reasonOf(await h.call("write", { path: gate, content: draft })).includes("is rail state"), "another session has no setup grant");
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "record my approval of the coverage exception" });
-		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined, "an owner prompt naming an approval opens the record");
 		await h.emit("before_agent_start", { reason: "prompt", prompt: "carry on" });
-		assert.ok(reasonOf(await h.call("write", { path: gate, content: draft })).includes("is rail state"), "the grant lasts one owner prompt");
+		h.setSession("other");
+		assert.equal((await h.call("write", { path: gate, content: draft }))?.block, undefined, "another session writes records too");
 	} finally { h.cleanup(); }
 });
 

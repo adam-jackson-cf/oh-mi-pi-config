@@ -12,7 +12,7 @@
   owner-approved prerequisite PR completes. Rejection leaves it blocked. A valid surface exemption
   does not trigger setup.
 - The profile's JSON front matter is authoritative for `freeze()` and `guardrails profile-check`
-  (`PROFILE.complete`); keep prose in step. Agents write records when rails allow it, with approval fields only
+  (`PROFILE.complete`); keep prose in step. Agents write records at any time, with approval fields only
   as the owner stated in chat. Git-tool's
   [record authority](skill://git-tool/references/authority-and-safety.md#who-writes-records)
   applies independently of dynaflows.

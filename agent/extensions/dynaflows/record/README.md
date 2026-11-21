@@ -13,6 +13,11 @@ Worktrees share their main checkout's record. [repo_record.py](../lib/repo_recor
 [repo-record.ts](../lib/repo-record.ts) implement resolution and gate validation.
 No supported GitHub origin means no record; record setup reports that prerequisite and stops.
 
+Agents write and repair records at any time, through any tool, in any session
+([ADR 0001](../../../../docs/adr/0001-agents-write-records.md)). Rails never refuse a record write
+and never snapshot the record: they re-read it on every action, so a changed record takes effect
+on the next commit, merge or check ([ADR 0018](../../../../docs/adr/0018-rails-trust-only-what-they-saw.md)).
+
 `/repos/` is gitignored. Never stage, commit, include a record in a PR, or copy it into the
 target repository. Device rollout copies records to every device. The target repository
 contains no harness package, configuration, pin or mention; its own controls remain independent.
