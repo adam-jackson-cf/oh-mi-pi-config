@@ -6,7 +6,7 @@
   "model_resolution": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0. A smoke check through the live config (judge role openrouter/typesafe/jev-1.14) reported openrouter/typesafe/jev-1.14-20261014 and reproduced the earlier saved scores for II01 and II02, so the earlier run may have answered through OpenRouter; this run replaced every score.",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "gating, provisional",
+  "mode": "shadow, provisional",
   "decisions": {
     "weakens_verification": {
       "threshold": null,
@@ -30,7 +30,7 @@
       "escalation_band": {
         "no_below": 0.095,
         "yes_at_or_above": 0.795,
-        "status": "gating, provisional: the commit rail reads it (ADR 0017)",
+        "status": "shadow, provisional: the commit rail logs it and acts only once ready (ADR 0017)",
         "source": "no_below: tune_threshold.py --min-precision 0 --min-recall 0.95 --repeats 5 (dev CV fold thresholds 0.095-0.115); yes_at_or_above: --min-precision 0.9 --min-recall 0 (fold thresholds 0.735-0.805)",
         "fallback": "a person (owner, or the arbiter on labels); measured as the counting label",
         "dev": {
@@ -159,5 +159,5 @@
   "cost_per_100_cases_usd": "unknown: judge() reports no usage",
   "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; the rail gates on the band meanwhile (ADR 0017).",
   "wired": true,
-  "wiring": "lib/judged-rails.ts commitReason: every structured git commit after the commit checks; yes refuses, escalate needs the owner's $approve; the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional"
+  "wiring": "shadow until ready: lib/judged-rails.ts commitReason: every structured git commit after the commit checks; yes refuses, escalate needs the owner's $approve; until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
 }

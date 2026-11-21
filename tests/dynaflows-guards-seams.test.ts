@@ -99,8 +99,25 @@ const judgeModel = "typesafe/jev-1.14.0";
 type JudgeStub = { scores: Record<string, number>; calls: { question: string; state: unknown }[]; model: string; failure?: string | undefined };
 function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeModel }; }
 
+// Fixture thresholds that mark each rail judgment ready, so harness rails take the enforced path; the
+// shipped judgments are provisional and run in shadow (tests pass judgmentsDir: shippedJudgments).
+const railQuestions = { "extension-impact": "impact", "adr-needed": "adr_needed", "in-scope": "ask_first",
+	"implementation-integrity": "weakens_verification", "completion-evidence": "evidence_gap" };
+const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/judgments");
+function readyJudgments(machine: string): string {
+	const dir = join(machine, "judgments");
+	for (const [name, question] of Object.entries(railQuestions)) {
+		mkdirSync(join(dir, name), { recursive: true });
+		writeFileSync(join(dir, name, "thresholds.json"), JSON.stringify({
+			status: "ready", decisions: { [question]: { status: "ready", minimums: { precision: 0.8, recall: 0.9, assumed: false } } },
+		}));
+	}
+	return dir;
+}
+
 function extensionOptions(machine: string, records: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
 	const options: ExtensionOptions = {
+		judgmentsDir: readyJudgments(machine),
 		modesPath: join(records, "modes.json"), configRoot: records,
 		// The judgment call log goes to this harness's machine dir, never ~/.omp/agent.
 		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...decideCommand],
@@ -397,7 +414,7 @@ async function structureResult(h: EvidenceHarness, head = ciHead) {
 	}, "await structure_review(repo, parent, head)");
 }
 
-export { prBody, prFiles, decideCommand, judgeModel };
+export { prBody, prFiles, decideCommand, judgeModel, shippedJudgments };
 export type { JudgeStub };
 export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, watchedProofCall };
 export { repoCommand };

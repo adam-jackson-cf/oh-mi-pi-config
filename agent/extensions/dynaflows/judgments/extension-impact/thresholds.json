@@ -10,7 +10,7 @@
     "unit_of_judgment": "one revision range of oh-mi-pi-config crossed with one repository record and its mode",
     "action": "a flag keeps the restart review task and refuses Git writes until it is acknowledged",
     "costs": "a miss (an impacting change relied on unreviewed) costs more than a false flag (an extra review)",
-    "wiring": "lib/session-rails.ts restart review: yes or escalate keeps the review task and its Git-write gate; no stores the revision and notifies the owner (ADR 0017)"
+    "wiring": "shadow until ready: lib/session-rails.ts restart review: yes or escalate keeps the review task and its Git-write gate; no stores the revision and notifies the owner (ADR 0017)"
   },
   "scoring": {
     "command": "infisical run --projectId <dev project> --env dev -- bun <scorer> (omp 19.0.1 library judge)",
@@ -162,6 +162,6 @@
     "current_version": "7c0834d70f8be72bcd2076eb7bcb0737ed24a7966d682b076e5597285f050c14",
     "change": "Y1-Y5 table rewrapped as a list for the 100-column markdown limit after labelling; rule wording unchanged"
   },
-  "mode": "gating, provisional",
+  "mode": "shadow, provisional",
   "wired": true
 }

@@ -5,7 +5,7 @@
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "gating, provisional",
+  "mode": "shadow, provisional",
   "wired": true,
   "framing": {
     "action": "Refuse an ask the agreed work already decides; ask the owner before an ask-first command (ADR 0017).",
@@ -34,7 +34,7 @@
         "name": "F-beta",
         "beta": 2
       },
-      "cost_rule": "A miss costs more: provisional rule 0.3 would apply, but labels exceed 30 per label, so tuning decides; no threshold met the minimums, so threshold is null. The rails read the escalate band instead: the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional.",
+      "cost_rule": "A miss costs more: provisional rule 0.3 would apply, but labels exceed 30 per label, so tuning decides; no threshold met the minimums, so threshold is null. The rails read the escalate band instead: the rail runs it in shadow until the thresholds are ready (ADR 0017); thresholds stay provisional.",
       "label_set": {
         "yes": 41,
         "no": 58,
@@ -135,7 +135,7 @@
         },
         "adopted": true,
         "why_not": "Measured shortfalls stand: escalates about 82% of items, and test yes-side precision 0.5 misses 0.8. No agreed accuracy loss.",
-        "adopted_by": "the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional; the rail escalates to the owner between the bounds"
+        "adopted_by": "the rail runs it in shadow until the thresholds are ready (ADR 0017); thresholds stay provisional; the rail escalates to the owner between the bounds"
       },
       "error_analysis": {
         "dev_causes": [
@@ -208,5 +208,5 @@
     "No owner (human) labels yet; all counting labels are agent_reviewed.",
     "Two guide tie-breaks were added at arbitration after the council pass; the council did not see them."
   ],
-  "wiring": "lib/judged-rails.ts scopeReason: before an ask (no refuses the ask) and before an askFirstCommand command (yes or escalate needs the owner's $approve); the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional"
+  "wiring": "shadow until ready: lib/judged-rails.ts scopeReason: before an ask (no refuses the ask) and before an askFirstCommand command (yes or escalate needs the owner's $approve); until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
 }

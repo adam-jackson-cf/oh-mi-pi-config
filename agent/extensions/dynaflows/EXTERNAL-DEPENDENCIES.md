@@ -11,6 +11,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Entry file | `agent/extensions/dynaflows/package.json` | `omp.extensions` picks `index.ts` |
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
 | Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
+| Judgment status | `agent/extensions/dynaflows/judgments/` | `ready` enforces; else shadow |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
 | omp judge API | `package.json` | `resolveJudge`, `parseQuestions`, `toEvalJudgmentResult` |
 | omp `ask` tool | omp core | `questions` or `html` input; `in-scope` judges it |

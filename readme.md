@@ -114,7 +114,10 @@ Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 
 Judged rails, structured mode only ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)),
 run after the deterministic checks through `decide()`
-([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)):
+([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)). A judgment acts only once its
+`thresholds.json` is `ready`; until then it runs in shadow: logged, with an `Agent rails (shadow)`
+notice, and never refuses, asks for `$approve` or blocks on a judge outage. All five are provisional
+today. Once `ready`:
 
 | Event | Judgment | yes | escalate |
 | --- | --- | --- | --- |

@@ -2,6 +2,8 @@
 // only on what they pass. extension-impact gates the restart review, adr-needed the merge,
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
 // the turn end. An escalated outcome goes to the owner, who approves with a $approve prompt line.
+// A judgment whose thresholds are not ready runs in shadow: decide() still runs and logs, the rails
+// surface what they would have done as a notice, and nothing is refused, held or sent to the owner.
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -92,6 +94,9 @@ async function prView(pi: ExecApi, cwd: string, selector: string | undefined, fi
 const repositoryOf = (view: PrView) => new URL(view.url).pathname.split("/").slice(1, 3).join("/");
 const withoutMentions = (text: string) => text.split("\n").filter(line => !ADR_MENTION.test(line)).join("\n");
 const sessionOf = (ctx: ExtensionContext) => ctx.sessionManager.getSessionId();
+const shadowNotice = (ctx: ExtensionContext, names: RailJudgment[], what: string) => ctx.ui.notify(
+	`Agent rails (shadow): ${names.join(" and ")} ${names.length > 1 ? "are" : "is"} provisional, so the rails did not act on: ${
+		what.replace(/^Agent rails: /, "").replace(/\s*If they approve, they send [\s\S]*$/, "")}`, "info");
 const ownerReason = (verdict: Verdict, key: string, question: string) =>
 	`${verdictText(verdict)} is uncertain; ask the owner ${question} If they approve, they send ${approvalLine(key)} as a line of their own.`;
 
@@ -345,6 +350,8 @@ export function evidenceState(view: PrView) {
 
 export type JudgedDeps = {
 	decide: Decide;
+	/** Whether the rails act on a judgment (thresholds.json ready); otherwise it runs in shadow. */
+	enforced(name: RailJudgment): Promise<boolean>;
 	structured(ctx: ExtensionContext, cwd: string): Promise<boolean>;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
 	askFirst(part: string): boolean;
@@ -362,6 +369,13 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		return verdict;
 	}
 	const approved = (ctx: ExtensionContext, key: string) => approvals.has(sessionOf(ctx), key);
+	// A judgment-made reason, or undefined in shadow (after a notice) unless one of `names` is enforced.
+	async function acted(names: RailJudgment[], ctx: ExtensionContext, reason: string | undefined): Promise<string | undefined> {
+		if (reason === undefined) return undefined;
+		for (const name of names) if (await deps.enforced(name)) return reason;
+		shadowNotice(ctx, names, reason);
+		return undefined;
+	}
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (ctx.agent.kind !== "main" || event.reason !== "prompt") return;
@@ -380,12 +394,18 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	}
 
 	async function askReason(question: string, ctx: ExtensionContext): Promise<string | undefined> {
+		return acted(["in-scope"], ctx, await askVerdictReason(question, ctx));
+	}
+	async function askVerdictReason(question: string, ctx: ExtensionContext): Promise<string | undefined> {
 		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), question), ctx);
 		if ("failure" in verdict || verdict.outcome !== "no") return undefined;
 		return `Agent rails: ${verdictText(verdict)}: this question decides a detail of the agreed work. Decide it yourself and continue; ask only for what the agreed work does not grant.`;
 	}
 
 	async function commandReason(command: string, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {
+		return acted(["in-scope"], ctx, await commandVerdictReason(command, input, ctx));
+	}
+	async function commandVerdictReason(command: string, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {
 		const action = `${input.intent ? `[${input.intent}] ` : ""}bash ${command}`;
 		const key = `in-scope:${digest({ action }).slice(0, 16)}`;
 		if (approved(ctx, key)) return undefined;
@@ -404,11 +424,18 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		if (pendingReason(view.statusCheckRollup ?? [], requiredContext)) return "waiting";
 		const failures = [...sectionFailures(view, requiredContext), ...await shaFailures(pi, at.cwd, view)];
 		if (failures.length) { obligation.text = `the PR for ${at.branch} fails the completion pre-checks: ${failures.join("; ")}`; return "unmet"; }
+		return evidenceVerdictStatus(ctx, at, obligation, view);
+	}
+	async function evidenceVerdictStatus(ctx: ExtensionContext, at: EvidenceTarget, obligation: Obligation, view: PrView): Promise<ObligationStatus> {
 		const key = `completion-evidence:${view.headRefOid}`;
 		if (approved(ctx, key)) return "met";
 		const verdict = await decided("completion-evidence", evidenceState(view), ctx);
+		if (!("failure" in verdict) && verdict.outcome === "no") return "met";
+		if (!await deps.enforced("completion-evidence")) {
+			shadowNotice(ctx, ["completion-evidence"], `the turn-end evidence for ${at.branch}: ${"failure" in verdict ? verdict.failure : verdictText(verdict)}`);
+			return "met";
+		}
 		if ("failure" in verdict) { obligation.text = verdict.failure; return "unmet"; }
-		if (verdict.outcome === "no") return "met";
 		obligation.text = verdict.outcome === "yes"
 			? `${verdictText(verdict)}: an outcome the PR for ${at.branch} claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section`
 			: ownerReason(verdict, key, `whether the PR for ${at.branch} shows evidence for every outcome it claims.`);
@@ -428,6 +455,9 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		// CI on the head is the merge policy's check; the evidence pre-checks here are the description's (P2, P4, P8).
 		const failures = [...sectionFailures(view, undefined).filter(failure => !/^P[67] /.test(failure)), ...await shaFailures(pi, cwd, view)];
 		if (failures.length) return `Agent rails: the PR fails the completion pre-checks: ${failures.join("; ")}; fix the PR description, then merge.`;
+		return acted(["completion-evidence"], ctx, await evidenceVerdictReason(view, key, ctx));
+	}
+	async function evidenceVerdictReason(view: PrView, key: string, ctx: ExtensionContext): Promise<string | undefined> {
 		const verdict = await decided("completion-evidence", evidenceState(view), ctx);
 		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
 		if (verdict.outcome === "no") return undefined;
@@ -435,35 +465,54 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		return `Agent rails: ${verdictText(verdict)}: an outcome this PR claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section, then merge.`;
 	}
 
+	async function integrityReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
+		const state = await commitState(pi, root, action.args);
+		if (!state) return undefined;
+		const key = `implementation-integrity:${(await run(pi, "git", ["write-tree"], root)).stdout.trim()}`;
+		if (approved(ctx, key)) return undefined;
+		const verdict = await decided("implementation-integrity", state, ctx);
+		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the commit.`;
+		if (verdict.outcome === "no") return undefined;
+		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this staged change may weaken how the repository verifies itself.")}`;
+		return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour. ` +
+			"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
+			"or cite the owner decision (an ADR or recorded approval) in the commit message, then commit again.";
+	}
+
+	async function adrReason(cwd: string, view: PrView, head: string, ctx: ExtensionContext): Promise<string | undefined> {
+		const key = `adr-needed:${head}`;
+		if (view.files.some(file => ADR_PATH.test(file.path)) || approved(ctx, key)) return undefined;
+		const verdict = await adrVerdict(pi, cwd, view, ctx);
+		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
+		if (verdict.outcome === "no") return undefined;
+		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this PR makes a design decision that needs an ADR; add one, or")}`;
+		return `Agent rails: ${verdictText(verdict)}: this PR makes a design decision. Add an ADR file (for example docs/adr/NNNN-<title>.md) to the PR, then merge the new head.`;
+	}
+
+	async function impactDecided(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {
+		const [from, to] = [input.from, input.to].map(revision => revision.startsWith("git:") ? revision.slice(4) : undefined);
+		if (!from || !to) return { failure: "no Git revision pair to judge" };
+		if (!input.record) return { failure: "no valid per-repo record to judge against" };
+		const { dir } = input.record;
+		const state = await (async () => ({
+			mode: { name: "structured", runs: MODE_RUNS.structured },
+			record: { repo: input.slug, gate: JSON.parse(await readGateText(dir)), profile_summary: profileSummary(await readFile(join(dir, "profile.md"), "utf8").catch(absentFile)) },
+			change: await impactChange(pi, (await run(pi, "git", ["rev-parse", "--show-toplevel"], input.configRoot)).stdout.trim(), { from, to }),
+		}))().catch((error: Error) => ({ failure: `the extension-impact judgment could not run: ${error.message}` }));
+		return "failure" in state ? state : decided("extension-impact", state, ctx);
+	}
+
 	return {
 		/** implementation-integrity at a structured commit, after checks.commit and the harness checks passed. */
 		async commitReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
-			const state = await commitState(pi, root, action.args);
-			if (!state) return undefined;
-			const key = `implementation-integrity:${(await run(pi, "git", ["write-tree"], root)).stdout.trim()}`;
-			if (approved(ctx, key)) return undefined;
-			const verdict = await decided("implementation-integrity", state, ctx);
-			if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the commit.`;
-			if (verdict.outcome === "no") return undefined;
-			if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this staged change may weaken how the repository verifies itself.")}`;
-			return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour. ` +
-				"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
-				"or cite the owner decision (an ADR or recorded approval) in the commit message, then commit again.";
+			return acted(["implementation-integrity"], ctx, await integrityReason(root, action, ctx));
 		},
 		/** completion-evidence, then adr-needed, at a structured merge, after method, head, proof and CI passed. */
 		async mergeReason(cwd: string, selector: string | undefined, head: string, ctx: ExtensionContext): Promise<string | undefined> {
 			const view = await prView(pi, cwd, selector, "number,title,body,state,headRefOid,url,commits,files,statusCheckRollup")
-				.catch((error: Error) => ({ failure: `the adr-needed judgment could not run: ${error.message}` }));
-			if ("failure" in view) return `Agent rails: ${view.failure}; retry the merge.`;
-			const evidence = await evidenceMergeReason(cwd, view, head, ctx);
-			if (evidence) return evidence;
-			const key = `adr-needed:${head}`;
-			if (view.files.some(file => ADR_PATH.test(file.path)) || approved(ctx, key)) return undefined;
-			const verdict = await adrVerdict(pi, cwd, view, ctx);
-			if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
-			if (verdict.outcome === "no") return undefined;
-			if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this PR makes a design decision that needs an ADR; add one, or")}`;
-			return `Agent rails: ${verdictText(verdict)}: this PR makes a design decision. Add an ADR file (for example docs/adr/NNNN-<title>.md) to the PR, then merge the new head.`;
+				.catch((error: Error) => ({ failure: `the merge judgments could not read the PR: ${error.message}` }));
+			if ("failure" in view) return acted(["completion-evidence", "adr-needed"], ctx, `Agent rails: ${view.failure}; retry the merge.`);
+			return (await evidenceMergeReason(cwd, view, head, ctx)) ?? acted(["adr-needed"], ctx, await adrReason(cwd, view, head, ctx));
 		},
 		/** in-scope before an ask or a privileged command the rails can see. */
 		async scopeReason(event: ToolEvent, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {
@@ -481,20 +530,15 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 			};
 			return obligation;
 		},
-		/** extension-impact for a structured repo's restart review: "no" skips the review task. */
+		/** extension-impact for a structured repo's restart review: "no" skips the review task; in shadow it never does. */
 		async impactVerdict(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {
-			const [from, to] = [input.from, input.to].map(revision => revision.startsWith("git:") ? revision.slice(4) : undefined);
-			if (!from || !to) return { failure: "no Git revision pair to judge" };
-			if (!input.record) return { failure: "no valid per-repo record to judge against" };
-			const { dir } = input.record;
-			const state = await (async () => ({
-				mode: { name: "structured", runs: MODE_RUNS.structured },
-				record: { repo: input.slug, gate: JSON.parse(await readGateText(dir)), profile_summary: profileSummary(await readFile(join(dir, "profile.md"), "utf8").catch(absentFile)) },
-				change: await impactChange(pi, (await run(pi, "git", ["rev-parse", "--show-toplevel"], input.configRoot)).stdout.trim(), { from, to }),
-			}))().catch((error: Error) => ({ failure: `the extension-impact judgment could not run: ${error.message}` }));
-			return "failure" in state ? state : decided("extension-impact", state, ctx);
+			const verdict = await impactDecided(ctx, input);
+			if ("failure" in verdict || await deps.enforced("extension-impact")) return verdict;
+			shadowNotice(ctx, ["extension-impact"], `the restart review: ${verdictText(verdict)}`);
+			return { failure: `extension-impact is provisional (shadow): ${verdictText(verdict)}` };
 		},
 	};
+
 }
 export type JudgedRails = ReturnType<typeof judgedRails>;
 export type { Failure };

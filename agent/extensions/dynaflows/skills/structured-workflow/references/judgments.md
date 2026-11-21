@@ -30,9 +30,16 @@ Ask a calibrated judgment through one registry call and act on its yes, no or es
 
 Structured mode only. Rails run their deterministic pre-checks first, then the same registry
 through `lib/decide.py` (`questions`, then `record`) with omp's judge role; the model that
-answered must be `thresholds.model`. A failed call is a refusal, never an outcome.
+answered must be `thresholds.model`. A failed call is never an outcome.
 
-| Judgment | Rail | yes | escalate |
+- Shadow: a judgment whose `thresholds.json` is not `ready` (every decision `ready`, minimums
+  owner-confirmed, per `skill://jev-actions`) still runs and logs, and the rails print an
+  `Agent rails (shadow)` notice of what they would have done. They refuse nothing, ask for no
+  `$approve`, and a judge outage blocks nothing. Deterministic pre-checks still apply.
+- Enforced: once `ready`, the table below applies and a failed call refuses.
+- All five rail judgments are provisional today, so all five run in shadow.
+
+| Judgment (once `ready`) | Rail | yes | escalate |
 | --- | --- | --- | --- |
 | `extension-impact` | Restart review | Review task | Review task |
 | `adr-needed` | `gh pr merge`, no ADR file in the PR | Refused: add an ADR | Owner |

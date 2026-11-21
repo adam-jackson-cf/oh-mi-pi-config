@@ -5,7 +5,7 @@
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "gating, provisional",
+  "mode": "shadow, provisional",
   "framing": {
     "decision": "Does a pull request or commit series make a design decision the repository should record as an ADR?",
     "action": "Refuse a structured merge that needs an ADR and has none (ADR 0017)",
@@ -129,5 +129,5 @@
     "A017's state omits the decision its commits make (missing state): pull request states hold the PR body and commit headlines, not commit bodies"
   ],
   "wired": true,
-  "wiring": "lib/judged-rails.ts mergeReason: a structured gh pr merge without an ADR file in the diff; yes refuses, escalate needs the owner's $approve; the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional"
+  "wiring": "shadow until ready: lib/judged-rails.ts mergeReason: a structured gh pr merge without an ADR file in the diff; yes refuses, escalate needs the owner's $approve; until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
 }

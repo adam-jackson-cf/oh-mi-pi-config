@@ -840,7 +840,7 @@ class JudgmentRegistryTests(unittest.TestCase):
                     ).read_text()
                 )
                 assert thresholds["wired"] is True
-                assert thresholds["mode"] == "gating, provisional"
+                assert thresholds["mode"] == "shadow, provisional"
                 wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
                 assert "ADR 0017" in wiring
                 assert "not wired" not in json.dumps(thresholds)

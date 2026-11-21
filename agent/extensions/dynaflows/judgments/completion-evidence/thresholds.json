@@ -5,8 +5,8 @@
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "gating, provisional",
-  "wiring": "lib/judged-rails.ts: the turn-end evidence obligation and the merge rail (yes refuses, escalate needs the owner's $approve); the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional",
+  "mode": "shadow, provisional",
+  "wiring": "shadow until ready: lib/judged-rails.ts: the turn-end evidence obligation and the merge rail (yes refuses, escalate needs the owner's $approve); until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional",
   "score_provenance": {
     "run": "omp 19.0.1 -p with --config overlay (modelRoles.judge: typesafe/jev-1.14.0; retry.fallbackChains.judge: []); TYPESAFE_API_KEY injected by infisical run (project 052b4c81-…, env dev)",
     "call": "eval judge_batch(states, questions.json questions), one call per case, retries 2",

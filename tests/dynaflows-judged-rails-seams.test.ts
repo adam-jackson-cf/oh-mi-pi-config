@@ -3,9 +3,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody, shippedJudgments } from "./dynaflows-guards-seams.test";
 import { adrState, commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
-import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
+import { Approvals, clip, registryDecide, type RailJudgment } from "../agent/extensions/dynaflows/lib/judge.ts";
+import { judgmentReady } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
 
 type Harness = ReturnType<typeof harness>;
 const prompt = (h: Harness, text: string) => h.emit("before_agent_start", { reason: "prompt", prompt: text });
@@ -375,5 +376,85 @@ describe("judged-rails helpers", () => {
 		assert.equal(approvals.has("s", "adr-needed:abcdefabcdef12"), true);
 		assert.equal(approvals.has("other", "adr-needed:abcdefabcdef12"), false);
 		assert.throws(() => registryDecide({ exec: async () => ({ code: 0, killed: false, stdout: "", stderr: "" }) }, [], () => async () => ({ answers: {}, model: "m" })), /empty/);
+	});
+});
+
+const shadowNotes = (h: Harness, name: string) => h.notes.filter(note => note.startsWith("Agent rails (shadow)") && note.includes(name));
+const railNames: RailJudgment[] = ["extension-impact", "adr-needed", "in-scope", "implementation-integrity", "completion-evidence"];
+
+describe("provisional judgments run in shadow", () => {
+	test("only ready thresholds with owner-confirmed minimums are enforced; every shipped rail judgment is provisional", async () => {
+		for (const name of railNames) assert.equal(await judgmentReady(shippedJudgments, name), false, name);
+		const h = harness();
+		try {
+			const dir = join(h.machine, "judgments");
+			assert.equal(await judgmentReady(dir, "adr-needed"), true, "the harness fixture marks each rail judgment ready");
+			const path = join(dir, "adr-needed", "thresholds.json");
+			const ready = { status: "ready", decisions: { adr_needed: { status: "ready", minimums: { assumed: false } } } };
+			for (const variant of [
+				{ ...ready, status: "provisional" }, { ...ready, decisions: { adr_needed: { status: "provisional" } } },
+				{ ...ready, decisions: { adr_needed: { status: "ready", minimums: { assumed: true } } } }, { ...ready, decisions: {} },
+			]) {
+				writeFileSync(path, JSON.stringify(variant));
+				assert.equal(await judgmentReady(dir, "adr-needed"), false, JSON.stringify(variant));
+			}
+			writeFileSync(path, "{broken");
+			assert.equal(await judgmentReady(dir, "adr-needed"), false, "an unreadable file is not enforced");
+		} finally { h.cleanup(); }
+	});
+
+	test("a commit judged yes, escalate or with the judge down passes with a notice, and the call is logged", async () => {
+		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
+		try {
+			h.mode("structured");
+			await h.read("skill://git-tool", mergeRecover);
+			for (const [score, text] of [[0.95, "yes"], [0.5, "escalate"]] as const) {
+				h.judged.scores["weakens_verification"] = score;
+				await staged(h, `skip-${text}.test.ts`, "test.skip('slow', () => {});\n");
+				assert.equal(await h.call("bash", { command: `git commit -m 'test: skip ${text}'` }), undefined, text);
+				assert.ok(shadowNotes(h, `weakens_verification ${text}`).length, h.notes.join("; "));
+				assert.equal(logged(h).at(-1)?.outcomes["weakens_verification"], text);
+			}
+			h.judged.failure = "judge offline";
+			await staged(h, "skip-down.test.ts", "test.skip('slow', () => {});\n");
+			assert.equal(await h.call("bash", { command: "git commit -m 'test: skip down'" }), undefined, "a judge outage never blocks in shadow");
+			assert.ok(shadowNotes(h, "judge offline").length, h.notes.join("; "));
+		} finally { h.cleanup(); }
+	});
+
+	test("merges, asks, privileged commands and turn ends never refuse or ask for $approve", async () => {
+		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
+		try {
+			h.judged.scores["adr_needed"] = 0.95;
+			h.judged.scores["evidence_gap"] = 0.95;
+			assert.equal(await h.call("bash", { command: await mergeable(h) }), undefined);
+			assert.ok(shadowNotes(h, "completion-evidence").length && shadowNotes(h, "adr-needed").length, h.notes.join("; "));
+			const ask = await h.call("ask", { questions: [{ question: "Should I name the helper retryMerge?" }] });
+			assert.equal(ask, undefined, "in-scope no does not refuse the ask");
+			h.judged.scores["ask_first"] = 0.9;
+			const command = await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" });
+			assert.equal(command, undefined, "in-scope yes does not hold a privileged command");
+			assert.ok(!h.notes.some(note => note.includes("$approve")), h.notes.join("; "));
+			assert.ok(shadowNotes(h, "in-scope").length >= 2, h.notes.join("; "));
+		} finally { h.cleanup(); }
+	});
+
+	test("a turn end judged yes or with the judge down settles with a notice; the deterministic pre-checks still hold it", async () => {
+		const h = harness({ extra: { judgmentsDir: shippedJudgments } });
+		try {
+			await prCreated(h, { body: "## Summary\n\nFixes it." });
+			assert.ok(reasonOf(await h.emit("session_stop")).includes("P4 no Evidence"), "pre-checks are deterministic and still hold");
+			mockPrCi(h, greenCi, { selector: "agent/test" });
+			h.judged.failure = "judge offline";
+			assert.equal(await h.emit("session_stop"), undefined, "a judge outage never holds the turn in shadow");
+			assert.ok(shadowNotes(h, "judge offline").length, h.notes.join("; "));
+		} finally { h.cleanup(); }
+		const judgedYes = harness({ extra: { judgmentsDir: shippedJudgments } });
+		try {
+			await prCreated(judgedYes);
+			judgedYes.judged.scores["evidence_gap"] = 0.95;
+			assert.equal(await judgedYes.emit("session_stop"), undefined);
+			assert.ok(shadowNotes(judgedYes, "evidence_gap yes").length, judgedYes.notes.join("; "));
+		} finally { judgedYes.cleanup(); }
 	});
 });

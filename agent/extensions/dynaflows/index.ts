@@ -20,7 +20,8 @@ import {
 	prMerge, prMergeReason, pushReason, routeReason, worktreeReason, type DefaultBranches,
 } from "./lib/guards.ts";
 import {
-	defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource, type PrStatus,
+	defaultJudgmentsDir, defaultReviewsPath, judgmentReady, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
+	type PrStatus,
 } from "./lib/session-rails.ts";
 import {
 	COMMIT_CHECKS_TIMEOUT_MS, Evidence, Snapshot, evalReason, fileState, pinSettings, protectedPathReason, setting as ompSetting, shellStateReason,
@@ -453,6 +454,8 @@ type DynaflowsOptions = {
 	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsProfileCommand: string[];
 	ompCommand: string[]; extensionDir: string; reviewsPath: string; obligationSources: ObligationSource[];
 	decideCommand: string[];
+	/** The judgments folder whose thresholds.json statuses decide which judgments the rails enforce. */
+	judgmentsDir: string;
 	/** The judge transport for judged rails; omp's judge role unless a test stubs it. */
 	judge: ((ctx: ExtensionContext) => JudgeTransport) | undefined;
 };
@@ -469,6 +472,7 @@ function defaultOptions(): DynaflowsOptions {
 		reviewsPath: defaultReviewsPath(),
 		obligationSources: [],
 		decideCommand: defaultDecideCommand,
+		judgmentsDir: defaultJudgmentsDir(),
 		judge: undefined,
 	};
 }
@@ -476,7 +480,7 @@ function defaultOptions(): DynaflowsOptions {
 export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOptions> = {}): void {
 	const {
 		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
-		decideCommand, judge,
+		decideCommand, judge, judgmentsDir,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
 	const states = new Map<string, State>(), session: SessionCache = {}, trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
@@ -507,6 +511,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	const sessionRail = sessionRails(pi, {
 		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
 		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
+		enforced: name => judgmentReady(judgmentsDir, name),
 		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
 		recordAt,
