@@ -143,6 +143,7 @@ tests/fixtures/*
 !tests/test_repo_record_seams.py
 !tests/test_migrate_records_to_mode_file.py
 !tests/test_skill_references_seams.py
+!tests/test_in_scope_judgment.py
 
 !.omp/
 .omp/*
