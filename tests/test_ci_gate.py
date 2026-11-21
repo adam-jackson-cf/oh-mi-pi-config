@@ -237,7 +237,6 @@ class GateFixture(unittest.TestCase):
             "schemaVersion": 2,
             "checks": {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
             "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
-            "dynaflows": {"mode": "structured"},
         }
         gate.update(fields)
         return {key: value for key, value in gate.items() if value is not None}
@@ -325,6 +324,13 @@ class CiGateTests(GateFixture):
             (REPO, "a" * 39),
         ]:
             self.cli("submit", repo, sha, expected=1)
+        forged = self.root / "forged"
+        forged.mkdir()
+        (forged / "job.json").write_text(
+            json.dumps({"repo": REPO, "sha": self.sha, "context": "gate"})
+        )
+        published = self.cli("publish", forged, "success", "ok", expected=1)
+        assert "does not match configured state directory" in published.stderr
         assert self.calls("git") == []
         assert self.requests == []
 

@@ -8,24 +8,26 @@ extensions:
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/quota-gate.ts
   - ~/.omp/agent/extensions/dynaflows
+  - ~/.omp/agent/extensions/agy-cli.ts
 modelRoles:
   plan: anthropic/claude-opus-5-5:medium
   slow: anthropic/claude-opus-5-5:medium
   smol: openai-codex/gpt-6-luna:low
-  task: openai-codex/gpt-6.1-sol:medium
+  task: agy/gemini-4-carbon:medium
   tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
   innovation-council: anthropic/claude-opus-5-5:high
   innovation-challenger: openai-codex/gpt-6-astra:high
+  innovation-gemini-challenger: agy/gemini-4-neon:high
   experiment-design: anthropic/claude-fable-5-2:high
   experiment-peer: anthropic/claude-opus-5-5:high
   reviewer: anthropic/claude-sonnet-5-5:medium
   kiss: openai-codex/gpt-6.1-sol:low
   operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
-  judge: openrouter/typesafe/jev-1.14
+  judge: typesafe/jev-1.14.0
   default: anthropic/claude-opus-5-5:medium
 textVerbosity: low
 disabledProviders:
@@ -46,6 +48,8 @@ lsp:
   diagnosticsOnEdit: true
 bash:
   gitGuard: true
+commit:
+  enabled: false
 worktree:
   base: ~/worktrees
 task:
@@ -88,8 +92,6 @@ codexResets:
   autoRedeem: "yes"
 retry:
   fallbackChains:
-    judge:
-      - openrouter/typesafe/jev-1.13
     web:
       - web/perplexity
       - google/gemini-2.5-flash

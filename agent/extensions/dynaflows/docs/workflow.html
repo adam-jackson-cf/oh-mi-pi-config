@@ -800,9 +800,9 @@
           Results:
           <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code>
           and <code>omp-structure/&lt;head&gt;.json</code>, each also posted on
-          the PR. Provisional findings stay shadow-only. Empty manifest: 02–04
-          still run. Code:
-          <a href="../engine/workflows.py">engine/workflows.py</a>.
+          the PR. Rails accept them only from a cell this omp process watched.
+          Provisional findings stay shadow-only. Empty manifest: 02–04 still
+          run. Code: <a href="../engine/workflows.py">engine/workflows.py</a>.
         </p>
       </section>
 
@@ -873,10 +873,10 @@
           <div>
             <div class="switch">
               <div class="box src owner">
-                <b>Record mode</b
+                <b>Mode file</b
                 ><span
-                  ><code>dynaflows.mode</code> in <code>gate.json</code>; no
-                  origin or record = minimal</span
+                  ><code>modes.json</code> in the extension; unlisted or no
+                  record = minimal</span
                 >
               </div>
               <div class="arr">↗</div>
@@ -898,7 +898,12 @@
               ><span
                 >git-tool read before branch, commit, push, PR · worktree
                 location · hook bypass refused · default-branch push refused ·
-                <code>agentMerge</code> policy</span
+                <code>agentMerge</code> policy · rail state and Git internals
+                unwritable · eval, launchers and gh writes that hide git refused
+                ·
+                <a href="../lib/trust.ts"
+                  >omp commit and push routes pinned off</a
+                ></span
               >
             </div>
             <p class="note">
@@ -906,6 +911,11 @@
               <a
                 href="../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md"
                 >ADR 0015</a
+              >
+              ·
+              <a
+                href="../../../../docs/adr/0018-rails-trust-only-what-they-saw.md"
+                >ADR 0018</a
               >
             </p>
           </div>
@@ -924,9 +934,11 @@
 │  │                    setup-repo-proofs · git-tool
 │  │                    codify-omp-workflow-corrections</span>
 │  ├─ rules/            <span class="c">judged rules</span>
-│  └─ judgments/        <span class="c">calibrated questions</span>
+│  ├─ judgments/        <span class="c">calibrated questions behind decide()</span>
+│  └─ inspector.env     <span class="c">opt-in Jev Inspector route; gates refuse it</span>
 └─ repos/&lt;owner&gt;/&lt;name&gt;/  <span class="c">record: gate.json, profile.md · gitignored</span>
-<span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span></pre>
+<span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span>
+<span class="r">~/.omp/agent/dynaflows/</span> <span class="c">judgment-calls.jsonl: every decide() call</span></pre>
         </div>
         <p class="note">
           <a href="../../../config.yml">agent/config.yml</a> ·
@@ -994,6 +1006,22 @@
       <a href="../judgments/dependency-severity/questions.json"
         >dependency-severity</a
       >
+      · Judged rails (structured):
+      <a href="../judgments/implementation-integrity/questions.json"
+        >implementation-integrity</a
+      >
+      ·
+      <a href="../judgments/adr-needed/questions.json">adr-needed</a>
+      ·
+      <a href="../judgments/completion-evidence/questions.json"
+        >completion-evidence</a
+      >
+      ·
+      <a href="../judgments/extension-impact/questions.json"
+        >extension-impact</a
+      >
+      ·
+      <a href="../judgments/in-scope/questions.json">in-scope</a>
     </footer>
   </body>
 </html>

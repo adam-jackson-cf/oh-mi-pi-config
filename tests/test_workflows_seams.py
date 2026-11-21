@@ -20,9 +20,6 @@ from guardrails.host.process import run_text
 pytestmark = pytest.mark.seam
 
 
-SWITCH = {"dynaflows": {"mode": "structured"}}
-
-
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
 
 
@@ -115,12 +112,6 @@ class RepositoryCase(unittest.TestCase):
         return path
 
     def write_gate(self, text: str) -> None:
-        try:
-            gate = json.loads(text)
-        except ValueError:
-            gate = None
-        if isinstance(gate, dict):
-            text = json.dumps({**SWITCH, **gate})
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / "gate.json").write_text(text)
 
@@ -657,7 +648,7 @@ class FreezeTests(RepositoryCase):
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "dynaflows": {"mode": "yes"},
+                "dynaflows": {"mode": "structured"},
             }),
         ):
             self.write_gate(text)
@@ -975,8 +966,8 @@ class RecordGateTests(RepositoryCase):
         for text, fragment in (
             ("{", "record "),
             (
-                json.dumps({**complete, "dynaflows": {"mode": "yes"}}),
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                json.dumps({**complete, "dynaflows": {"mode": "structured"}}),
+                "unknown field dynaflows must be removed",
             ),
         ):
             with self.subTest(text=text):
@@ -1731,9 +1722,17 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "head")
         self.head = git(self.repo, "rev-parse", "HEAD")
-        self.questions, self.thresholds = workflow._structure_config()
+        self.judgment = workflow._structure_config()
+        self.questions, self.thresholds = (
+            self.judgment.questions,
+            self.judgment.thresholds,
+        )
         self.states = workflow._structure_states(self.repo, self.parent, self.head)
         self.calls: list[Any] = []
+        agent = tempfile.TemporaryDirectory(prefix="omp-structure-agent-")
+        self.addCleanup(agent.cleanup)
+        self.agent = Path(agent.name)
+        self.judge_role = self.judgment.model
 
     async def review(
         self,
@@ -1749,11 +1748,11 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             return {ident: {"bool": score} for ident in questions}
 
         with (
+            patch.object(workflow, "_structure_config", return_value=self.judgment),
             patch.object(
-                workflow,
-                "_structure_config",
-                return_value=(self.questions, self.thresholds),
+                workflow, "_configured_judge_model", return_value=self.judge_role
             ),
+            patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
             patch.object(workflow, "_structure_states", return_value=self.states),
             patch.object(workflow, "judge", judge, create=True),
             patch.object(
@@ -1793,6 +1792,32 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         }
         assert result["thresholds"] == self.thresholds
         assert "raw judgment probabilities" in workflow._structure_comment(result)
+        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"yes"}
+        logged = (self.agent / workflow.JUDGMENT_CALLS).read_text().splitlines()
+        assert [json.loads(line)["judgment"] for line in logged] == ["structure-naming"]
+        assert json.loads(logged[0])["state_sha256"] == workflow._judgment_digest(
+            self.calls[0][0]
+        )
+
+    async def test_escalate_band_scores_are_recorded_without_findings(self) -> None:
+        result = await self.review(score=0.5)
+        assert not result["findings"]
+        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"escalate"}
+        assert result["status"] == "shadow"
+
+    async def test_the_inspector_route_never_serves_the_gate_judgment(self) -> None:
+        with patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}):
+            result = await self.review()
+        assert result["status"] == "incomplete"
+        assert self.calls == []
+        assert any("TYPESAFE_BASE_URL" in error for error in result["errors"])
+
+    async def test_another_judge_role_is_incomplete_and_never_judged(self) -> None:
+        self.judge_role = "openrouter/typesafe/jev-1.14"
+        result = await self.review()
+        assert result["status"] == "incomplete"
+        assert self.calls == []
+        assert any("judge role is openrouter" in error for error in result["errors"])
 
     async def test_ready_finding_sets_persisted_merge_halt(self) -> None:
         ident = "folder_name_coverage"
