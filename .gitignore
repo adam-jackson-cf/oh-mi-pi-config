@@ -115,6 +115,7 @@ tests/*
 !tests/test_check_coverage.py
 !tests/test_check_coverage_seams.py
 !tests/test_tune_threshold.py
+!tests/test_judgment_adr_needed.py
 !tests/test_experiments.py
 !tests/test_experiments_seams.py
 !tests/test_gate_scripts_seams.py
