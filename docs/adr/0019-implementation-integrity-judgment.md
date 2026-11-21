@@ -1,4 +1,4 @@
-# 0017: Implementation integrity is a packaged judgment
+# 0019: Implementation integrity is a packaged judgment
 
 Status: accepted, 2026-11-21. Supersedes in part
 [ADR 0007](0007-delivery-principles-and-policy-homes.md) (the `main/implementation-integrity` tag).
