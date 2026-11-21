@@ -29,8 +29,13 @@ Produce labels that measure exactly what each question asks, with their provenan
   - `agent`: any other model label, such as a single session or a pre-label.
   - `unknown`: a label found only in `scores.csv`; it counts, but keeps the threshold `provisional`.
 - When the user reviews agent proposals, show each case with its evidence and both labelers' reasons,
-  allow no bulk accept, and append each decision as a `human` row with the reviewer in `by`.
+  allow no bulk accept, and append each decision as a `human` row with the reviewer in `by`, its
+  own `timestamp` and `confirmed` `individual`; record any bulk accept as `confirmed` `bulk`.
 - Append labels to `labels.jsonl`; never edit `cases.jsonl`.
 - A case's counting label is its latest `human` label, else its latest `outcome`, `agent_reviewed`
   or `unknown` label; cases with only `agent` labels or an unresolved disagreement have none.
   Label set sizes, tuning and `scores.csv` use only counting labels.
+- Take counting labels from
+  `python3 -B scripts/check_labels.py --cases </abs/cases.jsonl> --labels </abs/labels.jsonl> --json`:
+  a `human` row lacking `by`, `timestamp` or `confirmed` `individual`, or sharing its reviewer and
+  timestamp with another case, counts as no label; it also checks unit coverage.

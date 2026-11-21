@@ -8,7 +8,8 @@ cascade meets the minimums.
 ## Guidance
 
 - Add an escalation band, sending uncertain Jev answers to a fallback judge, only on judgments
-  [design patterns](design-patterns.md) keeps in Jev, with about 30 cases per label and an agreed
+  [design patterns](design-patterns.md) keeps in Jev, whose ranking passes in
+  [threshold tuning](threshold-tuning.md), with about 30 cases per label and an agreed
   accuracy loss against the fallback alone; otherwise set none, noting why in `shortfalls`.
 - Set the band from saved results, after a [calibration check](calibration-check.md):
   - Run the fallback once on the same `dev` and `test` cases with each Noul's exact question, save

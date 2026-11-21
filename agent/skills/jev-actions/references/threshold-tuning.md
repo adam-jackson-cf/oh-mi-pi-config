@@ -9,7 +9,8 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 - Tune whenever a Noul probability, or a Choice or Score confidence, gates behavior, with one
   `thresholds.json` entry per question ID; for an "any" flag over several Nouls, also compute its
   precision and recall by hand at the shipped thresholds.
-- Count labels per label, as [labeling cases](labeling-cases.md) defines.
+- Count labels per label with `scripts/check_labels.py`, as [labeling cases](labeling-cases.md) defines;
+  tune only when it exits 0 without `--proposals`, which needs dev cases from at least 2 units per label.
   - Fewer than about 30 of either label: do not tune; set a provisional threshold of 0.3 when a miss
     costs more, 0.7 when a false action does, else 0.5, record that cost rule, and report how many
     more of each label are needed.
@@ -36,6 +37,11 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   `python3 -B scripts/tune_threshold.py </abs/path/scores.csv> --min-precision <P> --min-recall <R>`.
   It exits 0 with a report, 1 on invalid input or a failed `--self-test`, and 2 on a usage error;
   if it cannot run, report that tuning was not done.
+- Check ranking before choosing any threshold or band, at any label count: the report gives each
+  question's AUC on `dev`, the chance a labeled 1 scores above a labeled 0, with a 95% interval from
+  resampling units, and fails it when the interval includes 0.5 or AUC is below `--min-auc` (0.7).
+  When ranking fails, do not tune or band: keep the threshold `provisional` in shadow mode, record
+  the failed ranking in `shortfalls`, and take the question to [error analysis](error-analysis.md).
 - Optional `scores.csv` columns: `split` (default all `dev`); `unit`, kept in one fold, and an exit 1
   if one spans `dev` and `test`; `model` and `question_version`, each pair its own group, marked
   `comparable: false` unless cases, labels, splits and units match; `stratum` for per-stratum results.
@@ -51,8 +57,9 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   gating on them. Otherwise stay `provisional`, record why in `shortfalls`, and grow the label set
   or narrow the question.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
-  sizes and synthetic share; minimums, reasons and metric; held-out results at 0.5 and the tuned
+  sizes and synthetic share; minimums, reasons and metric; AUC and its interval; held-out results at 0.5 and the tuned
   threshold with fold range; `test` per stratum; cost per 100 cases and latency; fields `unknown`.
 - Store the threshold in `thresholds.json` as named configuration, never as a literal in code.
 - Compare Jev models, question versions or alternatives on the same cases and splits, by tuned held-out
-  performance against measured cost and latency, never at default thresholds.
+  performance against measured cost and latency, never at default thresholds, and with one change
+  between compared runs, as [error analysis](error-analysis.md) requires.

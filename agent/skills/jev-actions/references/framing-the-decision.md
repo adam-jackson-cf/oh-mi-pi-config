@@ -24,6 +24,9 @@ or collecting cases.
   - Minimums: the precision and recall the decision must meet, and why.
   - Written policy: the rule in plain words, with exclusions and tie-breaks; it drives criteria,
     composition code and labels.
+  - Terms: each word the written policy relies on that a labeler must interpret, such as "recent",
+    "related" or "comparable", with a definition and one boundary pair, a case that counts and a
+    near-miss that does not; put both in the criteria or label guide.
 - STOP: ask in one message for the framing above, access to logs, who may review and read cases,
   the state fields judged, the Jev model ID if none is found, when `JEV_EVAL_DIR` is unset a
   capture path, and for a route the items in [route decisions](route-decisions.md); treat cases as
@@ -41,6 +44,7 @@ or collecting cases.
     costs more, or precision to 0.9 when it says a false action does; minimums given without a
     reason take reason `none given`; either keeps thresholds `provisional`.
   - Written policy: draft it from the user's goal.
+  - Terms: the agent's draft definition and boundary pair, each recorded as assumed.
   - Reviewers: none, so only the agent reads cases, quoting none, and no labels are written.
   - Capture path: none, so no case is written.
   - State fields: a placeholder path such as `<summary-field>`, leaving Q7 `not checked`.

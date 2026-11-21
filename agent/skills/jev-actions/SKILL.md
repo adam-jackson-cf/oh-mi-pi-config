@@ -56,7 +56,7 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 ## Build eval data
 
 - **Purpose**: Collect and split the cases that thresholds, calibration checks and model comparisons
-  depend on.
+  depend on, each built as production builds and asks it, over enough units to label.
 - **When**: Before a threshold is marked `ready` or gates an action that cannot be undone, before
   any confidence band or model comparison drives behavior, when a gating judgment has no cases, and
   first for reported errors with no labeled `scores.csv`.
@@ -71,12 +71,14 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 
 ## Label cases
 
-- **Purpose**: Label cases so each label measures what its question asks.
+- **Purpose**: Label cases so each label measures what its question asks, and count only labels the
+  label check accepts.
 - Runbook: [Labeling cases](references/labeling-cases.md)
 
 ## Tune thresholds
 
-- **Purpose**: Set each decision threshold from saved scores against agreed minimums.
+- **Purpose**: Set each decision threshold from saved scores against agreed minimums, once the label
+  check passes and the question ranks cases better than chance.
 - **When**: When a Noul probability, or a Choice or Score confidence, gates behavior.
 - Runbook: [Threshold tuning](references/threshold-tuning.md)
 
@@ -91,8 +93,8 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 ## Analyze errors
 
 - **Purpose**: Turn measured errors into the next fix.
-- **When**: After a new scoring run on dev, and first when the user reports errors and a labeled
-  `scores.csv` exists.
+- **When**: After a new scoring run on dev, when threshold tuning reports failed ranking, and first
+  when the user reports errors and a labeled `scores.csv` exists.
 - **STOP**: Gates each further fix pass on the user's accept-or-fix answer.
 - Runbook: [Error analysis](references/error-analysis.md)
 

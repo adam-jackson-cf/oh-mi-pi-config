@@ -8,6 +8,9 @@ Turn measured errors into the next fix.
 
 - Run this after a new scoring run on `dev`, and first when the user reports errors and a labeled
   `scores.csv` exists.
+- When [threshold tuning](threshold-tuning.md) reports failed ranking, give the question, not each
+  error, one cause: question wording, missing or clipped state, or a policy gap; never a threshold,
+  band or more cases of the same kind.
 - List each question's errors at its threshold in `thresholds.json`: the `dev` rows scoring at or
   above it with label 0, or below it with label 1; `--errors` uses only the script's own threshold.
   With no entry, ask the user once for the threshold or the file holding it; if they name none, or
@@ -34,6 +37,10 @@ Turn measured errors into the next fix.
   criteria and state: if its answer matches Jev and the written policy decides the case, it is a
   label error; if it matches the label and the state holds the evidence, a model limit; if the
   state lacks the evidence, missing state; otherwise a policy gap.
+- Between two scoring runs you compare, change only one of question text, state builder, or model or
+  route.
+  When more than one changed, score each change alone on the same cases, the cross of old and new,
+  before attributing any difference to one of them.
 - Fix the cause with the most errors first, then rerun: after label fixes, copy `scores.csv` to
   `scores.relabeled.csv` with corrected counting labels and re-tune on its `dev` rows, keeping the
   threshold `provisional`; after a version key change, re-pin as the docs runbook describes,

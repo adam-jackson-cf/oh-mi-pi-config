@@ -25,11 +25,13 @@ Store eval files where they belong, in shapes every later step and the tuning sc
   with what it blocks.
   With an escalation band, also its cut-offs, fallback judge, cascade accuracy and escalation rate
   on dev and test, and the agreed accuracy loss.
-- `cases.jsonl`: `case_id, unit, state, stratum, split, source`,
-  with `source` one of `replay`, `outcome`, `synthetic` or `adversarial`.
+- `cases.jsonl`: `case_id, unit, state, stratum, split, source, builder`,
+  with `source` one of `replay`, `outcome`, `synthetic` or `adversarial`, and `builder` the
+  version of the production state builder that made `state`.
 - `labels.jsonl`, appended per label event:
-  `case_id, question_id, label, by, provenance, rule, note, timestamp`, with `label` 1 or 0, or
-  for a Choice the correct option key, and `note` holding any adjudication reason.
+  `case_id, question_id, label, by, provenance, rule, note, timestamp, confirmed`, with `label` 1 or
+  0, or for a Choice the correct option key, `note` holding any adjudication reason, and `confirmed`
+  on `human` rows `individual` when the person decided this case shown alone, else `bulk`.
 - `questions/<question-id>@<version-key>.json`: each question version exactly as sent, beside its
   label guide `<question-id>@<version-key>.md`.
 - `scores.csv`, one row per case and question version:

@@ -47,6 +47,12 @@ rubric, and keep out judgments Jev cannot make reliably.
   user, asking once without ending the turn; run Q1-Q5 on the question text alone, and mark checks
   you cannot run `not checked`.
   Report each no with its rewrite; write fixes only when asked.
+- Treat a rewrite that changes the subject path, the state it reads, or what a criterion includes or
+  excludes as a new question meaning, even when it aims to keep the meaning: old labels do not carry
+  over.
+  Relabel a sample blind under the new text, at least 10 cases per label or all if fewer, including
+  every case whose label cites the changed part; reuse the old labels only when every sampled label
+  matches, else relabel all affected cases.
 - When fixing splits a question, give each part a new question ID and `thresholds.json` entry,
   combine them with "any" in code, mark the old entry retired, and keep the parts `provisional`;
   a report lists these as proposals.
@@ -59,9 +65,10 @@ rubric, and keep out judgments Jev cannot make reliably.
 | Q4 | Every definition, inclusion, exclusion and tie-break sits in criteria | Move it to its criterion |
 | Q5 | Each criterion or level is a concrete situation, not "not X" or the question restated | Describe what a reader sees |
 | Q6 | High probability means the condition code acts on holds | Rephrase so yes is flagged |
-| Q7 | The subject is a backticked state path | Name the path |
+| Q7 | The subject is a backticked state path | Name a path that keeps Q13 yes |
 | Q8 | It asks what the state shows, not what someone would do, think or file | Ask the observable property |
 | Q9 | No part can be computed by code from the state | Code checks what a pattern detects, such as emails or IDs, with no question, or passes it as a fact |
 | Q10 | It judges one item, not whether any item in a list qualifies; Q11's Noul is exempt | One question per item, "any" in code |
 | Q11 | A Choice is paired with a Noul asking whether any option fits, unless a catch-all option always fits | Add the Noul |
 | Q12 | A person shown only this state and question could answer at a glance | Fix the state, then the wording |
+| Q13 | The subject path holds the item judged and anything it is compared with | Widen the path, or add the compared items as named fields |

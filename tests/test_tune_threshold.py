@@ -362,3 +362,162 @@ def test_a_platt_mapping_worse_than_raw_on_test_is_rejected(
     assert (calibration["keep"], calibration["platt_rejected_on_test"]) == ("raw", True)
     code, out, _ = run_main(monkeypatch, capsys, str(csv), "--calibration")
     assert "- Platt mapping rejected: worse than raw on test" in out
+
+
+RANK_WARNING = (
+    "ranking does not beat chance on dev (AUC interval includes 0.5, is "
+    "missing, or AUC is below the floor); do not tune or band, and take the "
+    "question to error analysis as wording, missing state or a policy gap"
+)
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([(1, 0.9), (1, 0.4), (0, 0.6), (0, 0.1)], 0.75),
+        ([(1, 0.5), (0, 0.5), (1, 0.7), (0, 0.2)], 0.875),
+        ([(1, 0.1), (0, 0.9)], 0.0),
+        ([(1, 0.9), (1, 0.8)], None),
+    ],
+)
+def test_auc_counts_ties_as_half_and_needs_both_labels(
+    rows: list[tuple[int, float]], expected: float | None
+) -> None:
+    assert tune.auc(rows) == expected
+
+
+def test_ranking_is_reported_with_its_interval_in_json_and_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable())
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    [result] = json.loads(out)
+    assert result["discrimination"] == {
+        "auc": 1.0,
+        "interval": [1.0, 1.0],
+        "floor": 0.7,
+        "resamples": 1000,
+        "passes": True,
+    }
+    assert RANK_WARNING not in result["warnings"]
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert (
+        "- Ranking on dev: AUC 1.00 (95% unit interval 1.00 to 1.00; floor 0.7): passes"
+        in out
+    )
+
+
+def block_rows(unit_per_block: bool) -> list[str]:
+    blocks = [(1, 0.9), (1, 0.8), (1, 0.3), (0, 0.2), (0, 0.7), (0, 0.1)]
+    rows = []
+    for i in range(60):
+        label, score = blocks[i // 10]
+        unit = f"b{i // 10}" if unit_per_block else f"c{i}"
+        rows.append(f"c{i},{label},{score},m,,dev,,{unit}")
+    return rows
+
+
+def test_scores_from_few_units_fail_ranking_that_independent_cases_pass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    results = {}
+    for grouped in (False, True):
+        csv = unit_csv(tmp_path / f"scores-{grouped}.csv", block_rows(grouped))
+        code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+        assert code == 0
+        [results[grouped]] = json.loads(out)
+    alone, grouped_result = results[False], results[True]
+    assert alone["discrimination"]["auc"] == grouped_result["discrimination"]["auc"]
+    assert alone["discrimination"]["interval"][0] > 0.5
+    assert alone["discrimination"]["passes"] is True
+    assert grouped_result["discrimination"]["interval"][0] <= 0.5
+    assert grouped_result["discrimination"]["passes"] is False
+    assert RANK_WARNING in grouped_result["warnings"]
+
+
+def test_tied_scores_fail_ranking_and_say_why(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [f"d{i},{i % 2},0.5,m,,dev," for i in range(40)]
+    csv = scores_csv(tmp_path / "scores.csv", rows)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert code == 0
+    assert "- Ranking on dev: AUC 0.50 (95% unit interval 0.50 to 0.50" in out
+    assert f"Warning: {RANK_WARNING}" in out
+
+
+def shifted_rows() -> list[str]:
+    rows = []
+    for i in range(50):
+        rows.append(f"p{i},1,{0.2 + 0.6 * i / 49:.4f},m,,dev,")
+        rows.append(f"n{i},0,{0.1 + 0.6 * i / 49:.4f},m,,dev,")
+    return rows
+
+
+def test_ranking_above_chance_but_below_the_floor_fails_until_the_floor_drops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", shifted_rows())
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    [result] = json.loads(out)
+    rank = result["discrimination"]
+    assert rank["interval"][0] > 0.5
+    assert rank["auc"] == pytest.approx(0.6556)
+    assert rank["passes"] is False
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--min-auc", "0.6", "--json")
+    [result] = json.loads(out)
+    assert result["discrimination"]["passes"] is True
+    assert result["discrimination"]["floor"] == 0.6
+
+
+def test_the_unit_refusal_still_reports_ranking_without_an_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = unit_csv(tmp_path / "scores.csv", unit_rows(1, 30))
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == 0
+    [result] = json.loads(out)
+    assert result["discrimination"]["auc"] == 1.0
+    assert result["discrimination"]["interval"] is None
+    assert result["discrimination"]["passes"] is False
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert (
+        "- Ranking on dev: AUC 1.00 (no interval without 2 units of each label; "
+        "floor 0.7): fails"
+    ) in out
+    rows = ["a,1,0.9,m,,dev,", "b,1,0.8,m,,dev,"]
+    csv = scores_csv(tmp_path / "one-label.csv", rows)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert "- Ranking on dev: no AUC without both labels; fails" in out
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--auc-resamples", "0"), "--auc-resamples must be at least 1"),
+        (("--min-auc", "0.4"), "--min-auc must be between 0.5 and 1"),
+    ],
+)
+def test_ranking_options_are_checked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    args: tuple[str, str],
+    message: str,
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable())
+    code, _, err = run_main(monkeypatch, capsys, str(csv), *args)
+    assert code == 2
+    assert message in err

@@ -22,16 +22,26 @@ depends on.
      kept a minority and reported separately.
   4. Adversarial cases: elaborate wrong answers, judge-instructing inputs, and near-duplicates with
      opposite labels.
+- Build every case's `state` with the production state builder and asking condition, the code that
+  decides whether production asks the question and what state it sends, and record the builder's
+  version in the case's `builder`.
+  A case production would never ask is out of scope; leave it out of `cases.jsonl`.
+  Re-run replayed raw artifacts, such as whole files, records or transcripts, through the builder;
+  never store them as `state` directly.
 - When nothing can be replayed, shadow-log each input to `cases.jsonl` as `source` `replay`, stratum
   `unassigned`, with 30% of units hashed stably to `test`; label after 14 days, extending in 14-day
   steps until about 30 of each label exist.
   With no cases yet, record the provisional threshold, write the question versions and label
   guides, and end the task once logging is in place.
 - Stratify by source or segment and by failure mode, giving every stratum both labels, ideally 10
-  or more of each; grow a short stratum before rewording questions.
+  or more of each; grow a short stratum before rewording questions, unless
+  [threshold tuning](threshold-tuning.md) reports failed ranking, which wording, state or policy fixes.
 - Over-sample cases near the decision boundary from a pilot run, and rare positives.
 - Split cases 70% `dev` and 30% `test` by an independent unit, such as session, user, repository or
   conversation, before iterating on wording, state or composition.
+- Before asking for labelling spend, run
+  `python3 -B scripts/check_labels.py --cases </abs/cases.jsonl> --labels </abs/labels.jsonl> --proposals`
+  over agent pre-labels; while it exits 1, add cases from more units instead of labelling.
 - Tune and inspect errors on `dev` only, and run `test` once per shipped question version.
   Never add to `test` mid-iteration or carve it from cases already scored; once its results are
   seen, build the next one from a newer replay window.
