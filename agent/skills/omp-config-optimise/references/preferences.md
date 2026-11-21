@@ -7,7 +7,7 @@ recommendation, not a silent edit.
 ## Objective
 
 - Maximise use of the paid subscriptions (Anthropic Max, OpenAI Codex Pro and
-  Team). Spread load so neither provider's quota runs out while the other sits
+  Team, Google AI). Spread load so no provider's quota runs out while another sits
   idle. API list price is the tie-breaker, not the goal.
 
 ## Role placement
@@ -18,8 +18,8 @@ recommendation, not a silent edit.
   reasoning ≤ medium.
 - Bundled `reviewer`: Sonnet 5.5 `medium` for open-ended contextual eval judging, not the
   dynaflows proof; preserve independent cross-family sessions.
-- Implementation with a fixed plan or todo list (`task`): GPT-6.1 Sol `medium` with Codex
-  `priority` service tier (owner decision 2026-11-03).
+- Implementation with a fixed plan or todo list (`task`): Gemini 4 Carbon `medium` through
+  `agy` (owner decision 2026-11-21).
 - Image reading (`vision`): GPT Terra (current: GPT-6.1 Terra `low`, owner decision 2026-10-27).
 - Browser/computer use (`operator`): GPT-6.1 Terra `off` (owner decision 2026-11-03);
   operator-task performance remains untested here.
@@ -31,7 +31,8 @@ recommendation, not a silent edit.
 - Former plan/test/completeness judging roles: removed 2026-11-04, proof-first workflow.
 - Codex `priority` service tier applies to exactly `task`, `kiss` and `sonic`
   (owner decision 2026-11-04).
-- Innovation council: Opus leads; GPT Astra challenges; reasoning high allowed.
+- Innovation council: Opus leads; GPT Astra and Gemini 4 Neon (via `agy`) challenge; reasoning
+  high allowed (Neon challenger added 2026-11-21).
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.
 
