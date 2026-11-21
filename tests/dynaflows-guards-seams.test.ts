@@ -18,7 +18,7 @@ type GateFixture = {
 	agentMerge?: "allowed" | "disabled";
 	ci?: { requiredContext: string; runner: string }; dynaflows?: { mode: Mode };
 };
-type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
+type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; code?: string; language?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
@@ -53,7 +53,7 @@ function execute(command: string, args: string[], options: ExecuteOptions = {}):
 const wrappedPublishing = [
 	"sudo git push", "sudo -u root git push", "env git push", "env -i git push", "env FOO=x git push",
 	"time git push", "command git push", "nohup git push", "nice -n 5 git push", "exec git push",
-	"xargs git push", "xargs -n 1 git push", "timeout 5 git push", "/usr/bin/git push",
+	"timeout 5 git push", "/usr/bin/git push",
 	"if x; then git push; fi", "{ git push; }", "true; do git push; done", "false; else git push",
 	"! git push", "bash -c 'git push'", 'sh -c "git push"', "zsh -lc 'git push'",
 	"sudo env -i sh -c 'git push'",
@@ -326,18 +326,33 @@ async function originRemote(h: { origin(url: string): Promise<void> }, remote = 
 	await h.origin(remote);
 }
 
-function proveResult(h: { root: string }, head = ciHead, status = "pass") {
-	mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
-	writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
+type EvidenceHarness = { root: string; emit(name: string, event: Omit<Event, "type">): Promise<Result | undefined> };
+let evidenceCall = 0;
+
+// Writes proof evidence the way prove() and structure_review() do: inside an eval cell the rails watch.
+async function watchedProofCall(h: EvidenceHarness, write: () => void, code = "prove(repo, parent, head, frozen, objective, target_ref='origin/main')") {
+	const event = { toolName: "eval", toolCallId: `proof-${++evidenceCall}`, input: { code } };
+	assert.equal(await h.emit("tool_call", event), undefined, "the proof cell itself is allowed");
+	write();
+	await h.emit("tool_result", { ...event, isError: false });
 }
 
-function structureResult(h: { root: string }, head = ciHead) {
-	mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
-	writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
-		JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+async function proveResult(h: EvidenceHarness, head = ciHead, status = "pass") {
+	await watchedProofCall(h, () => {
+		mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
+		writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
+	});
 }
 
-export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult };
+async function structureResult(h: EvidenceHarness, head = ciHead) {
+	await watchedProofCall(h, () => {
+		mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
+		writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
+			JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+	}, "await structure_review(repo, parent, head)");
+}
+
+export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, watchedProofCall };
 export { repoCommand };
 export type { Input };
 
@@ -347,7 +362,7 @@ export type { Input };
 			for (const command of [
 				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
 				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
-				"git -C /w status", "git -c k=v log", "gh pr view", "git status; git merge x", "false || git rebase x",
+				"git -C /w status", "git -c color.ui=never log", "gh pr view", "git status; git merge x", "false || git rebase x",
 				"git cherry-pick abc", "git revert HEAD", "git am patch", "git pull",
 				"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
 			]) {
@@ -355,10 +370,9 @@ export type { Input };
 			}
 			for (const command of [
 				"git commit -m 'feat: x'", "cd repo && git push -u origin agent/x", "gh pr merge 7 --rebase",
-				"git -C /w commit", "git -c k=v commit", "git --no-pager commit", "git status\ngit commit",
+				"git -C /w commit", "git -c user.name=x commit", "git --no-pager commit", "git status\ngit commit",
 				"FOO=1 git push", "git switch -c agent/x", "git switch -C agent/x", "git switch --create=agent/x",
 				"git checkout -b agent/x", "git checkout -B agent/x", "git worktree add /w",
-				"git --git-dir=/w/.git --work-tree=/w push", "git --git-dir /w/.git --work-tree /w push",
 				'git -C "/some path" -c core.pager=cat --no-pager push',
 				"git status; git push", "true | git push", "(git push)",
 				"FOO=x BAR=y gh pr create",
@@ -493,7 +507,7 @@ export type { Input };
 			for (const command of [
 				"git commit --no-verify -m x", "git commit -n -m x", "git commit -anm x", "git commit --no-ver -m x",
 				"git -c core.hooksPath=/dev/null commit -m x", "git -c CORE.HOOKSPATH=x commit -m x",
-				"git --config-env=core.hooksPath=HOOKS commit -m x", "LEFTHOOK=0 git commit -m x",
+				"LEFTHOOK=0 git commit -m x",
 				"SKIP=checks git commit -m x", "HUSKY=0 git commit -m x", "env PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m x",
 				"GIT_CONFIG_COUNT=1 git commit -m x", "bash -c 'git commit --no-verify -m x'",
 				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath bash -c 'git commit -m x'",
@@ -784,11 +798,11 @@ async function assertBypassesBlocked(h: Harness): Promise<void> {
 		["git -c remote.origin.push=HEAD:main push", "git -c remote.origin.push changes where git push sends commits"],
 		["git -c alias.zz=push zz origin main", "git -c alias.zz defines a command the rails cannot check"],
 		["git send-pack origin main", "git send-pack bypasses the push checks"],
-		["gh api -X PUT repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
-		["gh api --method=put /repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
-		["gh api repos/owner/repo/merges -f base=main -f head=agent/test", "gh api POST repos/owner/repo/merges merges or moves branches"],
-		["gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc", "gh api PATCH repos/owner/repo/git/refs/heads/main merges or moves branches"],
-		["gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", "gh api POST graphql merges or moves branches"],
+		["gh api -X PUT repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge is refused"],
+		["gh api --method=put /repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge is refused"],
+		["gh api repos/owner/repo/merges -f base=main -f head=agent/test", "gh api POST repos/owner/repo/merges is refused"],
+		["gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc", "gh api PATCH repos/owner/repo/git/refs/heads/main is refused"],
+		["gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", "gh api graphql mutation mergePullRequest is outside"],
 	];
 	for (const [command, fragment] of routed) {
 		assertBlocked(await h.call("bash", { command }), fragment, command);
@@ -867,10 +881,17 @@ test("an invalid machine file names its fault, runs minimal mode and refuses com
 		assert.equal(await h.call("write", { path: "tests/new.test.ts" }), undefined, "minimal mode asks for no reference reads");
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "is invalid: it must be");
 		h.machineText("{broken");
+		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "changed during this session");
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "policy could not be evaluated");
 		h.machineMode("structured");
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 		h.machineMode("minimal");
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		h.notes.length = 0;
 		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 		assert.ok(h.notes.some(note => note.includes("sets mode minimal; commit checks do not run")), h.notes.join("; "));

@@ -800,9 +800,9 @@
           Results:
           <code>&lt;git-common-dir&gt;/omp-prove/&lt;head&gt;.result.json</code>
           and <code>omp-structure/&lt;head&gt;.json</code>, each also posted on
-          the PR. Provisional findings stay shadow-only. Empty manifest: 02–04
-          still run. Code:
-          <a href="../engine/workflows.py">engine/workflows.py</a>.
+          the PR. Rails accept them only from a cell this omp process watched.
+          Provisional findings stay shadow-only. Empty manifest: 02–04 still
+          run. Code: <a href="../engine/workflows.py">engine/workflows.py</a>.
         </p>
       </section>
 
@@ -898,7 +898,12 @@
               ><span
                 >git-tool read before branch, commit, push, PR · worktree
                 location · hook bypass refused · default-branch push refused ·
-                <code>agentMerge</code> policy</span
+                <code>agentMerge</code> policy · rail state and Git internals
+                unwritable · eval, launchers and gh writes that hide git refused
+                ·
+                <a href="../lib/trust.ts"
+                  >omp commit and push routes pinned off</a
+                ></span
               >
             </div>
             <p class="note">
@@ -906,6 +911,11 @@
               <a
                 href="../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md"
                 >ADR 0015</a
+              >
+              ·
+              <a
+                href="../../../../docs/adr/0018-rails-trust-only-what-they-saw.md"
+                >ADR 0018</a
               >
             </p>
           </div>

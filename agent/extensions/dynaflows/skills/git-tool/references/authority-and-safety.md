@@ -37,7 +37,9 @@ In minimal mode the owner merges it; in structured mode main merges it under
 
 The repo's record (`<harness>/repos/<owner>/<name>/`: `gate.json`, `profile.md` and anything else there) holds its
 checks, profile guardrail settings, exceptions and approvals. It is never committed and never part of a PR.
-Agents write records directly. Write approval fields only as the owner stated them in the chat.
+Agents write a record during setup the owner asked for in the session (a `$dynaflows` start whose record is missing or
+refused), or while the owner's latest message names the record, `$dynaflows`, an approval or an exception; otherwise
+rails refuse record writes. Write approval fields only as the owner stated them in the chat.
 Record-write authority does not approve repository fixes that separately require owner approval.
 
 ## Git safety

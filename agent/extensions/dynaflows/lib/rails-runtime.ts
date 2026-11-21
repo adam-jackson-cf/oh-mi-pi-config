@@ -1,4 +1,4 @@
-import { access, realpath, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
@@ -44,7 +44,9 @@ const inputSchema = z.object({
 	input: z.string().optional().catch(undefined),
 	// The write tool's whole new file text.
 	content: z.string().optional().catch(undefined),
-}).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined, content: undefined });
+	// The eval tool's cell.
+	code: z.string().optional().catch(undefined),
+}).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined, content: undefined, code: undefined });
 const detailsSchema = z.object({
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
@@ -211,7 +213,6 @@ const WRAPPER_OPTIONS = new Map<string, string[]>(Object.entries({
 	env: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"],
 	time: ["-f", "--format", "-o", "--output"],
 	command: [], nohup: [], nice: ["-n", "--adjustment"], exec: ["-a"],
-	xargs: ["-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-J", "-L", "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars"],
 	timeout: ["-k", "--kill-after", "-s", "--signal"],
 }));
 
@@ -228,13 +229,40 @@ const TOOL_LAUNCHERS = new Map<string, ToolLauncher>(Object.entries({
 const COMMAND_PREFIXES = ["then", "do", "else", "{", "!", "if", "while", "until"];
 const BLOCK_STARTS = ["then", "do", "else", "{", "!"];
 const VARIABLE_COMMANDS = ["export", "unset", "declare", "typeset", "readonly", "local"];
-const GIT_VALUED_OPTIONS = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"];
+const GIT_VALUED_OPTIONS = ["-C", "-c"];
+// Global options that point git at another repository, config or program than the one the rails check.
+const GIT_RETARGET_OPTIONS = ["--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--exec-path="];
+const SHELLS = ["bash", "sh", "zsh", "dash", "ksh"];
+// Programs that run what their arguments name: refused when any argument mentions git, gh, hub or omp.
+const LAUNCHERS = new Set(["find", "xargs", "parallel", "watch", "script", "caffeinate", "su", "doas", "ssh", "tmux", "screen",
+	"flock", "chronic", "unbuffer", "stdbuf", "setsid", "systemd-run", "entr", "expect", "fish", "pwsh", "launchctl",
+	"awk", "gawk", "nawk", "mawk", "sed", "gsed", "perl", "ruby", "php", "osascript", "lua", "deno", "tclsh", "Rscript"]);
+// Interpreters whose inline-code flags or script file the rails read for git, gh, hub or omp words.
+const INTERPRETERS = new Map<string, string[]>(Object.entries({
+	python: ["-c"], node: ["-e", "--eval", "-p", "--print"], bun: ["-e", "--eval", "-p", "--print"],
+}));
+// Programs that never run their arguments as commands.
+const INERT = new Set(["echo", "printf", "cat", "ls", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "jq", "yq", "diff",
+	"cmp", "stat", "file", "test", "[", "true", "false", "pwd", "basename", "dirname", "realpath", "readlink", "date", "sort",
+	"uniq", "cut", "tr", "less", "more", "column", "tree", "du", "df", "which", "type", "whoami", "uname", "bat", "mkdir",
+	"touch", "rm", "cp", "mv", "ln", "chmod", "tee", "sleep", "read", "set", "shopt", "trap", "wait", "exit", "return",
+	"man", "whereis", "tldr", "brew", "apt", "apt-get", "dnf", "pacman"]);
+const OMP_QUERIES = ["--version", "-v", "--help", "-h"];
+const PROCESS_WORDS = new Set(["git", "gh", "hub", "omp"]);
+const SCRIPT_BYTES = 1_048_576;
 const SHELL_NAME = /^[A-Za-z_]\w*$/;
 const SEPARATOR_TOKEN = /^(?:&&|\|\||[;&|()\n])$/;
 const SUBSTITUTION_MARK = /\0(\d+)\0/g;
 const QUOTED_TEXT = /"((?:\\.|[^"\\])*)"|'([^']*)'|\\(.)/g;
 
 const isGitWord = (word: string) => ["git", "gh"].includes(basename(word));
+const isProcessWord = (word: string) => PROCESS_WORDS.has(basename(word));
+// True when any word-like token of text names git, gh, hub or omp (so `git-tool` and `.git/x` do not).
+function mentionsGit(text: string): boolean {
+	return text.split(/[\s;&|()'"`=,[\]{}<>!]+/).some(isProcessWord);
+}
+const unseen = (what: string) =>
+	new Error(`${what} runs git, gh, hub or omp where the rails cannot check it; run git and gh directly with the bash tool`);
 
 function unquote(text: string): string {
 	return text.replace(QUOTED_TEXT, (_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
@@ -324,6 +352,15 @@ async function directory(path: string | undefined, from: string | undefined): Pr
 	return target && (await stat(target).catch(() => null))?.isDirectory() ? target : undefined;
 }
 
+// A script file's text; an oversized file reads as "git" so the rails refuse it unread.
+async function scriptText(target: string | undefined, cwd: string | undefined): Promise<string | undefined> {
+	const path = target && !target.startsWith("<") ? absolute(target, cwd ?? "/") : undefined;
+	if (!path) return undefined;
+	const found = await stat(path).catch(() => null);
+	if (!found?.isFile()) return undefined;
+	return found.size <= SCRIPT_BYTES ? readFile(path, "utf8") : "git";
+}
+
 function skipHeader(tokens: string[], start: number): number {
 	let body = start;
 	if (tokens[body] === "(" && tokens[body + 1] === ")") body += 2;
@@ -342,7 +379,8 @@ function closingBrace(tokens: string[], body: number): number {
 	return end;
 }
 
-type ScanState = { hookSkip?: string };
+// raw: the top-level command text; commands: every executable the scan dispatched, in order.
+type ScanState = { hookSkip?: string; home?: string; homePersistent?: boolean; raw?: string; commands?: string[] };
 
 function separatesWrappedCommand(launcher: string, tool: ToolLauncher, words: string[]): boolean {
 	if (tool.separator) return true;
@@ -355,7 +393,8 @@ function changesDirectory(launcher: string, name: string): boolean {
 	return (launcher === "env" && ["-C", "--chdir"].includes(name)) || (launcher === "sudo" && ["-D", "--chdir"].includes(name));
 }
 
-function markHookSkip(actions: GitAction[], hookSkip: string | undefined, cwd: string | undefined): GitAction[] {
+function markHookSkip(actions: GitAction[], scan: ScanState, cwd: string | undefined): GitAction[] {
+	const hookSkip = scan.hookSkip ?? (scan.home && (actions.length || scan.homePersistent) ? scan.home : undefined);
 	if (!hookSkip) return actions;
 	if (!actions.length) actions.push({ command: "hook environment", args: [], cwd, config: [], hookSkip });
 	for (const action of actions) action.hookSkip ??= hookSkip;
@@ -369,6 +408,9 @@ class ShellScan {
 	readonly scan: ScanState;
 	readonly depth: number;
 	cwd: string | undefined;
+	// The cwd a pipeline started in: bash runs `|` and `&` segments in subshells, so their cd never persists.
+	segmentCwd: string | undefined;
+	piped = false;
 	words: string[] = [];
 
 	constructor(substitutions: string[], scan: ScanState, depth: number, cwd: string | undefined) {
@@ -376,11 +418,16 @@ class ShellScan {
 		this.scan = scan;
 		this.depth = depth;
 		this.cwd = cwd;
+		this.segmentCwd = cwd;
 	}
 
-	touch(word: string | undefined): void {
-		const name = word?.split("=")[0] ?? "";
-		if (word !== undefined && Object.hasOwn(hookSkipVariables, name)) this.scan.hookSkip ??= word;
+	touch(word: string | undefined, persistent = true): void {
+		if (word === undefined) return;
+		const name = word.split("=")[0] ?? "";
+		if (Object.hasOwn(hookSkipVariables, name)) this.scan.hookSkip ??= word;
+		if (!Object.hasOwn(homeVariables, name)) return;
+		this.scan.home ??= word;
+		this.scan.homePersistent ||= persistent;
 	}
 
 	async nested(command: string): Promise<void> {
@@ -422,8 +469,21 @@ class ShellScan {
 			return;
 		}
 		await this.flush();
+		this.pipeline(token);
 		if (token === "(") this.subshells.push(this.cwd);
 		if (token === ")") this.cwd = this.subshells.pop();
+		if (token === "(" || token === ")") this.segmentCwd = this.cwd;
+	}
+
+	pipeline(token: string): void {
+		if (token === "|" || token === "&") {
+			this.cwd = this.segmentCwd;
+			this.piped = token === "|";
+			return;
+		}
+		if (this.piped) this.cwd = this.segmentCwd;
+		this.piped = false;
+		this.segmentCwd = this.cwd;
 	}
 
 	async flush(): Promise<void> {
@@ -444,7 +504,7 @@ class ShellScan {
 	}
 
 	skipCommandPrefixes(): void {
-		while (/^[A-Za-z_]\w*=/.test(this.words[0] ?? "") || COMMAND_PREFIXES.includes(this.words[0] ?? "")) this.touch(this.words.shift());
+		while (/^[A-Za-z_]\w*=/.test(this.words[0] ?? "") || COMMAND_PREFIXES.includes(this.words[0] ?? "")) this.touch(this.words.shift(), false);
 	}
 
 	async unwrapTool(launcher: string, tool: ToolLauncher): Promise<void> {
@@ -506,14 +566,65 @@ class ShellScan {
 	}
 
 	async dispatch(): Promise<void> {
-		const executable = basename(this.words.shift() ?? "");
+		const word = this.words.shift() ?? "";
+		const executable = basename(word);
+		if (!word) return;
+		this.scan.commands?.push(executable);
+		this.refuseDynamic(word);
 		if (executable === "alias") this.refuseGitAlias();
-		if (VARIABLE_COMMANDS.includes(executable)) this.words.forEach(word => this.touch(word));
+		if (VARIABLE_COMMANDS.includes(executable)) this.words.forEach(variable => this.touch(variable));
 		else if (executable === "eval") await this.nested(this.words.join(" "));
-		else if (["bash", "sh", "zsh"].includes(executable)) await this.shellScript();
+		else await this.command(executable);
+	}
+
+	async command(executable: string): Promise<void> {
+		if (SHELLS.includes(executable)) await this.shellScript();
 		else if (["cd", "pushd", "popd"].includes(executable)) await this.changeDirectory(executable);
 		else if (executable === "git") await this.git();
 		else if (executable === "gh") this.gh();
+		else await this.other(executable);
+	}
+
+	refuseDynamic(word: string): void {
+		if ((/[$`]/.test(word) || word.startsWith("<(")) && mentionsGit(this.scan.raw ?? "")) throw unseen(`a command word built at run time (${word})`);
+	}
+
+	async other(executable: string): Promise<void> {
+		const name = /^python[\d.]*$/.test(executable) ? "python" : executable;
+		const inline = INTERPRETERS.get(name);
+		if (name === "omp") this.omp();
+		else if (["source", "."].includes(name)) await this.script(name, this.words.find(word => !word.startsWith("-")));
+		else if (inline) await this.interpreter(name, inline);
+		else if (LAUNCHERS.has(name)) { if (this.words.some(mentionsGit)) throw unseen(name); }
+		else if (!INERT.has(name) && this.words.some(isProcessWord)) throw unseen(name);
+	}
+
+	omp(): void {
+		const [first, second] = this.words;
+		if (OMP_QUERIES.includes(first ?? "") || (first === "config" && ["get", "list", "path"].includes(second ?? ""))) return;
+		throw new Error("omp in bash starts an agent outside the rails; use the task tool for subagents");
+	}
+
+	async interpreter(name: string, inline: string[]): Promise<void> {
+		if (this.words.some(word => inline.includes(word.split("=")[0] ?? ""))) {
+			if (this.words.some(mentionsGit)) throw unseen(`${name} inline code`);
+			return;
+		}
+		if (name === "python" && this.words.includes("-m")) return;
+		const target = this.words.find(word => !word.startsWith("-") && !word.startsWith("<"));
+		if (target === undefined) { if (mentionsGit(this.scan.raw ?? "")) throw unseen(`${name} reading stdin`); return; }
+		await this.script(name, target, false);
+	}
+
+	// A script file the command runs: refused when it mentions git/gh/hub/omp; with no readable file,
+	// refused when the whole command does (the script comes from stdin, a here-doc or a process substitution).
+	async script(name: string, target: string | undefined, stdinCounts = true): Promise<void> {
+		const text = await scriptText(target, this.cwd);
+		if (text !== undefined) {
+			if (mentionsGit(text)) throw unseen(`${name} ${target}`);
+			return;
+		}
+		if (stdinCounts && mentionsGit(this.scan.raw ?? "")) throw unseen(`${name} reading a script the rails cannot open`);
 	}
 
 	refuseGitAlias(): void {
@@ -531,6 +642,7 @@ class ShellScan {
 			}
 			if (["-o", "+o", "-O"].includes(option)) this.words.shift();
 		}
+		await this.script("shell", this.words[0]);
 	}
 
 	async changeDirectory(executable: string): Promise<void> {
@@ -546,16 +658,18 @@ class ShellScan {
 	}
 
 	async gitOption(option: string, effective: string | undefined, config: string[]): Promise<string | undefined> {
+		if (GIT_RETARGET_OPTIONS.some(name => option === name || option.startsWith(name.endsWith("=") ? name : `${name}=`))) {
+			throw new Error(`git ${option.split("=")[0]} points git at another repository, config or program than the rails check; cd into the repository instead`);
+		}
 		if (GIT_VALUED_OPTIONS.includes(option)) return this.gitValuedOption(option, effective, config);
-		if (option.startsWith("--config-env=")) config.push(option.slice("--config-env=".length));
-		else if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
+		if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
 		else if (option.startsWith("-C") && option.length > 2) return directory(option.slice(2), effective);
 		return effective;
 	}
 
 	async gitValuedOption(option: string, effective: string | undefined, config: string[]): Promise<string | undefined> {
 		const value = this.words.shift();
-		if ((option === "-c" || option === "--config-env") && value) config.push(value);
+		if (option === "-c" && value) config.push(value);
 		return option === "-C" ? directory(value, effective) : effective;
 	}
 
@@ -570,11 +684,12 @@ class ShellScan {
 async function gitActions(command: string, cwd: string | undefined, scan: ScanState = {}, depth = 0): Promise<GitAction[]> {
 	if (depth > 16 || command.length > 131072) throw new Error("shell scan exceeds supported bounds");
 	if (command.includes("\0")) throw new Error("shell scan does not support NUL bytes");
+	scan.raw ??= command;
 	const { shell, substitutions } = maskSubstitutions(command);
 	const tokens = shell.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
 	const reader = new ShellScan(substitutions, scan, depth, cwd);
 	await reader.read(tokens);
-	return markHookSkip(reader.actions, scan.hookSkip, reader.cwd);
+	return markHookSkip(reader.actions, scan, reader.cwd);
 }
 
 // Environment variables that make a hook manager or Git skip the pre-commit hook. Conservatively,
@@ -582,9 +697,14 @@ async function gitActions(command: string, cwd: string | undefined, scan: ScanSt
 // commits, whatever the value or later shell state. Quoted prose such as a commit message is not
 // a command position and does not count.
 const hookSkipVariables = {
-	LEFTHOOK: true, HUSKY: true, SKIP: true, PRE_COMMIT_ALLOW_NO_CONFIG: true,
-	GIT_CONFIG_PARAMETERS: true, GIT_CONFIG_COUNT: true,
+	LEFTHOOK: true, LEFTHOOK_EXCLUDE: true, HUSKY: true, SKIP: true, PRE_COMMIT_ALLOW_NO_CONFIG: true,
+	GIT_CONFIG_PARAMETERS: true, GIT_CONFIG_COUNT: true, GIT_CONFIG: true, GIT_CONFIG_GLOBAL: true, GIT_CONFIG_SYSTEM: true,
+	GIT_CONFIG_NOSYSTEM: true, GIT_DIR: true, GIT_WORK_TREE: true, GIT_COMMON_DIR: true, GIT_INDEX_FILE: true,
+	GIT_OBJECT_DIRECTORY: true, GIT_EXEC_PATH: true, GIT_NAMESPACE: true,
+	GH_REPO: true, GH_HOST: true, GH_TOKEN: true, GITHUB_TOKEN: true, GH_ENTERPRISE_TOKEN: true, GH_CONFIG_DIR: true,
 } satisfies Record<string, true>;
+// Variables that move git's and gh's global config: refused on a git/gh command or when exported.
+const homeVariables = { HOME: true, XDG_CONFIG_HOME: true } satisfies Record<string, true>;
 
 // `git commit` options that take the next word as their value, so it is not parsed as an option.
 const commitValueShorts = { m: true, F: true, c: true, C: true, t: true } satisfies Record<string, true>;
@@ -661,6 +781,6 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	state.notes.add(message);
 	ctx.ui.notify(message, "info");
 }
-export { recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
+export { mentionsGit, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
 export { fileErrorSchema };
 export type { Mapping, RepoRecord, GitAction, State, ToolEvent };

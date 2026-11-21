@@ -29,8 +29,8 @@ unit-state digests, raw scores, findings, full thresholds and version key, `halt
 infrastructure `errors`.
 One marked PR comment is updated across reruns/heads. Provisional findings (initial threshold
 0.7 for every question) are shadow-only: no prove file, proof status or merge signal changes.
-Infrastructure failures are reported in the result/comment and never block shadow operation.
-An incomplete review has `status: incomplete`, not a clean result.
+Infrastructure failures are reported in the result/comment. An incomplete review has
+`status: incomplete`, not a clean result, and rails refuse a merge on it: fix the cause and rerun.
 
 A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`;
 [Verify](step-5-verify-workflow.md) and [Integrate](step-6-integrate-workflow.md) own the response.

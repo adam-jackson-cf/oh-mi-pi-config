@@ -83,12 +83,13 @@ Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a fail
 In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
-`<git-common-dir>/omp-structure/<head>.json` with that head and `halt: false`; ready
-structure findings block, while provisional findings and recorded infrastructure errors do not.
+`<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; ready
+structure findings and incomplete reviews block, while provisional findings do not. Rails accept
+either file only when this omp process watched the `prove()` or `structure_review()` cell write it.
 Missing or invalid files block even when all decisions are provisional. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
-check run, whoever posts it.
+check run, with no failing or pending entry of that name.
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and

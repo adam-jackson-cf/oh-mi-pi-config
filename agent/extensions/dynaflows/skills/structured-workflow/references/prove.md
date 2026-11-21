@@ -45,4 +45,5 @@ and the loaded `manifest`. Prove writes that result to
 at head (`prComment` holds the comment URL). Long proof outputs are tail-truncated in the
 comment only; the file keeps them whole. A pass whose result cannot be written or posted
 becomes `fail` with blocking `infrastructure: publishing prove result: ...`. The result file
-with `status: pass` for the exact head is the one pass signal.
+with `status: pass` for the exact head is the one pass signal, and rails accept it only from a `prove()` call
+they watched in the merging omp process.

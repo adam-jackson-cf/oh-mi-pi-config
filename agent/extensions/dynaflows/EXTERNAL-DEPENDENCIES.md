@@ -14,7 +14,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judge fallback | `agent/config.yml` | `retry.fallbackChains.judge` model when the judge fails |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.0: `z`, events, `exec` |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
-| omp tools | omp core | `bash`, `edit`, `ast_edit`, `read`, `xd://`, `skill://` shapes |
+| Pinned settings | omp core | Session start pins commit, github, task merge, handler timeout |
+| Commit prelude off | `agent/config.yml` | `commit.enabled: false` before a session |
+| omp tools | omp core | `bash`, `edit`, `ast_edit`, `write`, `eval`, `read`, `xd://`, `skill://` |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
@@ -97,6 +99,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
 | Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
+| Trust ADR | `docs/adr/0018-*.md` | What the rails trust and refuse |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records
@@ -106,8 +109,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
 | Machine mode | `~/.omp/dynaflows.json` | Optional; `minimal` forces minimal |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
-| Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
-| Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |
+| Prove results | `<git-common-dir>/omp-prove/` | Merge needs a watched `prove()` pass |
+| Structure results | `<git-common-dir>/omp-structure/` | Merge needs a watched, complete review |
+| Git and gh config | `~/.gitconfig`, `~/.config/gh/config.yml` | Agent tools never write them |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
 | Secrets | Infisical | Judge key; gate status token |
 | NUC | `codex-omarchy-nuc` | `nuc-config` deploy runs `ci_gate.py` |
