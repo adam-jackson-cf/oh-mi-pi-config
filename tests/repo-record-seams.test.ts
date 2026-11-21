@@ -97,6 +97,20 @@ describe("record resolution", () => {
 		} finally { f.cleanup(); }
 	});
 
+	test("a record's afterMerge and mergePolicies load; mergePolicies defaults to none", async () => {
+		const f = fixture();
+		try {
+			const policy = { base: "nuc-config", headPrefix: "agent/nuc-sync-", method: "merge", proof: false };
+			const record = f.writeRecord("owner/name", JSON.stringify({ ...completeGate, afterMerge: { argv: ["make", "sync"], paths: ["agent/**"] }, mergePolicies: [policy] }));
+			const gate = await loadGate(record);
+			assert.deepEqual([gate.afterMerge, gate.mergePolicies], [{ argv: ["make", "sync"], paths: ["agent/**"] }, [policy]]);
+			f.writeRecord("owner/name", JSON.stringify(completeGate));
+			assert.deepEqual([(await loadGate(record)).afterMerge, (await loadGate(record)).mergePolicies], [undefined, []]);
+			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, mergePolicies: [{ ...policy, method: "squash" }] }));
+			await assert.rejects(loadGate(record), /mergePolicies/);
+		} finally { f.cleanup(); }
+	});
+
 	test("a record declaring the dependency audit argv loads", async () => {
 		const f = fixture();
 		try {

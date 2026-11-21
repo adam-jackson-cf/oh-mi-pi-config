@@ -18,6 +18,8 @@ type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
 	agentMerge?: "allowed" | "disabled";
 	ci?: { requiredContext: string; runner: string };
+	afterMerge?: { argv: string[]; paths?: string[] };
+	mergePolicies?: { base: string; headPrefix: string; method: "rebase" | "merge"; proof: boolean }[];
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
@@ -301,10 +303,10 @@ type PrCiHarness = {
 	};
 };
 
-type PrView = { head?: string; selector?: string; failure?: string; url?: string };
+type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string };
 
 function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
-	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3" } = view;
+	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test" } = view;
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
@@ -315,7 +317,7 @@ function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, baseRefName: base, headRefName: headRef, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 

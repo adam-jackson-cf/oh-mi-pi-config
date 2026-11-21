@@ -344,6 +344,14 @@ class DraftRecordTests(InitCase):
                 {"schemaVersion": 2, "dynaflows": {"mode": "structured"}},
                 "unknown field dynaflows must be removed",
             ),
+            (
+                {"schemaVersion": 2, "afterMerge": {"argv": []}},
+                "afterMerge must be {argv, paths?}",
+            ),
+            (
+                {"schemaVersion": 2, "mergePolicies": []},
+                "mergePolicies must be a nonempty list",
+            ),
         ):
             with self.subTest(gate=gate):
                 self.write_record("gate.json", json.dumps(gate))

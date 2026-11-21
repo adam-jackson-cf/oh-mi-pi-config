@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { parseOrigin } from "./repo-record.ts";
+import { DEFAULT_MERGE_POLICY, parseOrigin, type MergePolicy } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, readRecord, repoRoot, worktreeTarget, type GitAction,
@@ -214,8 +214,32 @@ function minimalMergeReason(mode: Mode): string | undefined {
 		: undefined;
 }
 
+type AppliedPolicy = Omit<MergePolicy, "base" | "headPrefix"> & { source: string };
+const METHOD_FLAGS = new Map([["--rebase", "rebase"], ["-r", "rebase"], ["--merge", "merge"], ["-m", "merge"], ["--squash", "squash"], ["-s", "squash"]]);
+
+function adminMergeReason(args: string[]): string | undefined {
+	return args.some(arg => arg === "--admin" || arg.startsWith("--admin="))
+		? "Agent rails: gh pr merge --admin bypasses the base branch's requirements; drop --admin and merge once they pass."
+		: undefined;
+}
+
+/** The record's first mergePolicies entry for the PR's base and head branch, else the default. */
+function mergePolicyFor(policies: MergePolicy[], base: string, head: string): AppliedPolicy {
+	const match = policies.find(policy => policy.base === base && head.startsWith(policy.headPrefix));
+	if (!match) return { ...DEFAULT_MERGE_POLICY, source: "the default policy" };
+	return { method: match.method, proof: match.proof, source: `mergePolicies {base: ${match.base}, headPrefix: ${match.headPrefix}}` };
+}
+
+function mergeMethodReason(args: string[], policy: AppliedPolicy): string | undefined {
+	const methods = [...new Set(args.flatMap(arg => METHOD_FLAGS.get(arg) ?? []))];
+	if (methods.length === 1 && methods[0] === policy.method) return undefined;
+	const given = methods.length ? methods.join(" and ") : "no method";
+	return `Agent rails: ${policy.source} merges with --${policy.method}; got ${given}. Run gh pr merge with --${policy.method}.`;
+}
+
 function routeReason(action: GitAction): string | undefined {
 	return gitRouteReason(action) ?? ghApiReason(action);
 }
 
+export { adminMergeReason, mergeMethodReason, mergePolicyFor, type AppliedPolicy };
 export { PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };

@@ -36,6 +36,8 @@ A documentation-only repo still declares `checks.commit`.
 | `checks.profile` | [^n4] |
 | `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
+| `afterMerge` | Optional `{argv, paths?}`; see [After merge](#after-merge). |
+| `mergePolicies` | Optional nonempty list; see [Merge policies](#merge-policies). |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
@@ -67,6 +69,42 @@ credentials or machine runner entries block setup for owner provisioning; never 
 roles as a workaround. A non-Actions runner may retain a weekly and manual
 `workflow_dispatch` GitHub workflow as a fallback rather than running it on PRs.
 Git-tool's exact-head verification loop governs submission, waiting and fallback use.
+
+### Merge policies
+
+Each entry is `{base, headPrefix, method, proof}`. Structured rails use the first entry whose
+`base` equals the PR's base branch and whose `headPrefix` starts its head branch.
+
+| Field | Values |
+| --- | --- |
+| `base` | Base branch name |
+| `headPrefix` | Head branch prefix; `""` matches every head |
+| `method` | `rebase` or `merge`: the one `gh pr merge` flag accepted |
+| `proof` | `true` needs the `prove()` and `structure_review()` results; `false` skips them |
+
+No match means `method: rebase`, `proof: true`. Rails always refuse `--admin`; no policy waives CI.
+
+### After merge
+
+`afterMerge.argv` is a repo command structured mode requires after a merge. With `paths` (globs),
+only a merge whose PR files match one glob requires it. Rails run it in the merging checkout; until
+it exits 0, the session's turn-end obligations name it.
+
+### oh-mi-pi-config example
+
+The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
+
+```json
+{
+  "ci": { "requiredContext": "gate", "runner": "ci-gate" },
+  "mergePolicies": [
+    { "base": "nuc-config", "headPrefix": "agent/nuc-sync-", "method": "merge", "proof": false }
+  ]
+}
+```
+
+A `nuc-config` sync is a PR from `agent/nuc-sync-<date>` into `nuc-config`, merged with `--merge`
+and no proof. Every other PR rebases with proof.
 
 ### Process mode and events
 

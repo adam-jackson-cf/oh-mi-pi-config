@@ -54,6 +54,9 @@ def load_gate(record: Path) -> dict[str, Any] | None:
         raise GateError(
             f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
         )
+    reason = rules.after_merge_reason(gate) or rules.merge_policies_reason(gate)
+    if reason is not None:
+        raise GateError(f"{GATE_PATH}: {reason}")
     return gate
 
 

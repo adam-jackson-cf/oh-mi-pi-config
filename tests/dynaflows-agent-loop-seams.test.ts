@@ -116,7 +116,8 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] } }));
 			writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
 		}
-		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\nexit 1\n`, { mode: 0o755 });
+		const view = JSON.stringify({ headRefOid: head, baseRefName: "main", headRefName: "agent/unit", statusCheckRollup: [], url: "https://github.com/owner/repo/pull/1" });
+		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\n[ "$1 $2" = "pr view" ] && echo '${view}' && exit 0\nexit 1\n`, { mode: 0o755 });
 		const env = {
 			PATH: `${stubs}:${process.env["PATH"] ?? ""}`, HOME: home, TMPDIR: scratch,
 			XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"),
@@ -162,7 +163,7 @@ describe("dynaflows in the omp agent loop", () => {
 		assert.equal(outcome(result, 1).isError, false);
 		const merge = outcome(result, 2);
 		assert.ok(merge.isError && merge.text.includes(`no prove() pass for ${head}`), merge.text);
-		assert.equal(result.ghCalled, false);
+		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
 
 	test("a clone without a record runs in minimal mode", async () => {

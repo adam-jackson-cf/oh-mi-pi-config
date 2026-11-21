@@ -17,11 +17,14 @@ import {
 	recordRead, subagentPathReason, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
 } from "./lib/rails-runtime.ts";
 import {
-	PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, minimalMergeReason, pushReason, routeReason, worktreeReason,
+	PUBLISHES, adminMergeReason, agentMergeReason, commitHookReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
+	pushReason, routeReason, worktreeReason,
 } from "./lib/guards.ts";
 
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
+	baseRefName: z.string().min(1),
+	headRefName: z.string().min(1),
 	url: z.string().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/),
 	statusCheckRollup: z.array(z.union([
 		z.object({ __typename: z.literal("CheckRun"), name: z.string(), status: z.string(), conclusion: z.union([z.string(), z.literal(null)]) })
@@ -210,8 +213,19 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string): Pr
 	const ready = result.findings.filter(item => item.status === "ready").map(item => `${item.unit}: ${item.question}`);
 	return `Agent rails: ready structure findings block ${head}: ${ready.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
 }
-type PrCi = { head?: string; repository?: string; reason?: string | undefined };
+type PrCi = { reason: string } | { head: string; repository: string; base: string; headRef: string; gate: Gate | undefined; ciReason: string | undefined };
 type PrIdentity = { head: string; repository: string };
+type PrState = Exclude<PrCi, { reason: string }>;
+// The merge policy for the PR's base and head decides the method and whether proof is needed.
+async function policyMergeReason(pi: ExecApi, args: string[], at: { cwd: string; head: string }, pr: PrState): Promise<string | undefined> {
+	const { cwd, head } = at;
+	const policy = mergePolicyFor(pr.gate?.mergePolicies ?? [], pr.base, pr.headRef);
+	const method = mergeMethodReason(args, policy);
+	if (method) return method;
+	if (pr.head !== head) return `Agent rails: PR head is ${pr.head}, not ${head}; ${policy.proof ? "prove() the current head" : "merge the current head"}`;
+	const evidence = policy.proof ? (await proveResultReason(pi, cwd, head)) ?? (await structureResultReason(pi, cwd, head)) : undefined;
+	return evidence ?? pr.ciReason;
+}
 async function foreignRepository(pi: ExecApi, root: string, selector: string | undefined, repository: string): Promise<boolean> {
 	if (!selector || !/^https?:[/]{2}/i.test(selector)) return false;
 	return (await primaryGithubRepository(pi, root)).toLowerCase() !== repository.toLowerCase();
@@ -357,7 +371,7 @@ export default function dynaflows(
 		if (!cwd) throw new Error("cannot resolve PR action cwd");
 		const root = await repoRoot(cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
-		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,statusCheckRollup,url"],
+		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,baseRefName,headRefName,statusCheckRollup,url"],
 			{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
@@ -365,10 +379,10 @@ export default function dynaflows(
 		const pr = prCiSchema.parse(JSON.parse(result.stdout));
 		const identity = { head: pr.headRefOid, repository: new URL(pr.url).pathname.split("/").slice(1, 3).join("/") };
 		if (await foreignRepository(pi, root, selector, identity.repository)) {
-			return { ...identity, reason: `Agent rails: run from a checkout of ${identity.repository}` };
+			return { reason: `Agent rails: run from a checkout of ${identity.repository}` };
 		}
 		const gate = await gateAt(root, state, ctx, true);
-		return { ...identity, reason: await ciReason(root, pr.statusCheckRollup, gate, identity) };
+		return { ...identity, base: pr.baseRefName, headRef: pr.headRefName, gate, ciReason: await ciReason(root, pr.statusCheckRollup, gate, identity) };
 	}
 	async function modeAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<ModeAt> {
 		const root = await repoRoot(cwd);
@@ -505,13 +519,10 @@ export default function dynaflows(
 	async function mergeActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!action.cwd) throw new Error("cannot resolve PR action cwd");
 		const head = matchedHead(action.args);
-		const format = headFormatReason(head);
+		const format = headFormatReason(head) ?? adminMergeReason(action.args);
 		if (format || !head) return format;
-		const evidence = (await proveResultReason(pi, action.cwd, head)) ?? (await structureResultReason(pi, action.cwd, head));
-		if (evidence) return evidence;
 		const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
-		if (pr.head && pr.head !== head) return `Agent rails: PR head is ${pr.head}, not ${head}; prove() the current head`;
-		return pr.reason;
+		return "head" in pr ? policyMergeReason(pi, action.args, { cwd: action.cwd, head }, pr) : pr.reason;
 	}
 	async function publishActionReason(action: GitAction, mode: Mode, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		const merge = /^gh pr merge\b/.test(action.command);
