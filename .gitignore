@@ -131,6 +131,7 @@ tests/fixtures/*
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
 !tests/test_workflows.py
+!tests/test_extension_impact_judgment.py
 !tests/test_orca_install_seams.py
 !tests/test_workflows_seams.py
 !tests/test_device_rollout_seams.py
