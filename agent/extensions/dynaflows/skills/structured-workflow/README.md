@@ -5,14 +5,13 @@
 Structured-workflow is the six-stage delivery workflow the harness runs for a repository `modes.json` sets to structured:
 Frame, Spike, Plan, Implement, Verify and Integrate, after a preflight that resolves the mode, the record and one
 playbook. Proofs are outcome tests frozen red at base and proved green at the PR head; merge needs exact-head CI,
-`prove()` and `structure_review()`. The [design directive](../../AGENTS.md) holds the principles behind it, and
-[workflow.html](../../docs/workflow.html) explains it for people.
+`prove()` and `structure_review()`. The [design directive](../../AGENTS.md) holds the principles behind it.
 
 ## When to use it
 
 - The owner asks for a feature, bug fix, refactor, investigation or multi-PR delivery in a repo in dynaflows structured mode.
 - The owner asks for structured mode in a repo that has no record yet (harness setup).
-- Orchestrated fan-out, calibrated judgments or blind human labels are requested.
+- Orchestrated fan-out, calibrated judgments or blind labels are requested.
 
 ## Example prompts
 

@@ -36,14 +36,7 @@ Prices move; re-read the sources on every review and update the dated figures.
   `low` 9.7 credits, GPT-5.6 Terra `xhigh` 9.5 credits.
 - Codex published 5-hour local-message estimates (Plus / Pro 20×): Astra
   5–45 / 100–900, Sol 15–150 / 300–3,000, Luna 350–3,000 / 7,000–56,000.
-- GPT-5.5 retires from Codex on 2026-10-14; remove it from routes and fallbacks.
 - Anthropic Fable is **not** a separate quota. On Max it draws from the shared
   weekly limit, uses it faster than other Claude models, and is capped at 50%
   of that limit. `omp usage` shows it as `anthropic:7d:fable` (scope
   `tier: fable`) beside the shared `anthropic:7d` (scope `shared: true`).
-- Observed load before this routing (2026-09-14 to 09-28): both Codex accounts
-  hit 100% of their 7-day meter; Anthropic 7-day peaked at 12%.
-- 2026-09-28 experiment runs: 36 Codex implementation trials moved the Codex
-  Team 5-hour meter 0% → 42%; 27 Sonnet 5.5 trials moved the Anthropic 5-hour
-  meter 2% → 3%. Moving `task` and `vision` to Sonnet 5.5 shifts load to the
-  provider with headroom.

@@ -149,11 +149,11 @@ def band_outcome(rows: list[dict[str, str]], low: float, high: float) -> dict[st
     }
 
 
-def test_escalation_band_figures_follow_from_saved_scores() -> None:
+def test_measured_band_figures_follow_from_saved_scores() -> None:
     decision = thresholds()["decisions"]["impact"]
-    band = decision["escalation_band"]
+    band = decision["measured_band"]
     low, high = band["no_at_most"], band["yes_at_least"]
-    assert low < decision["threshold"] < high
+    assert decision["threshold"] == low < decision["tuned_threshold"] < high
     rows = scores()
     for split in ("dev", "test"):
         part = [row for row in rows if row["split"] == split]
@@ -168,7 +168,7 @@ def test_escalation_band_figures_follow_from_saved_scores() -> None:
 
 
 def test_band_is_the_narrowest_clean_band_on_dev() -> None:
-    band = thresholds()["decisions"]["impact"]["escalation_band"]
+    band = thresholds()["decisions"]["impact"]["measured_band"]
     dev = [row for row in scores() if row["split"] == "dev"]
     positives = [float(row["score"]) for row in dev if int(row["label"])]
     negatives = [float(row["score"]) for row in dev if not int(row["label"])]
@@ -209,9 +209,9 @@ def test_shipped_threshold_reproduces_from_saved_scores(
         code = exit_.code
     assert code in (0, None)
     report = json.loads(capsys.readouterr().out)[0]
-    assert report["shipped_threshold"] == decision["threshold"]
+    assert report["shipped_threshold"] == decision["tuned_threshold"]
     assert (
         report["test_at_shipped"]["recall"]
         == decision["results"]["tuned"]["test"]["recall"]
     )
-    assert decision["status"] == "provisional"
+    assert "status" not in decision

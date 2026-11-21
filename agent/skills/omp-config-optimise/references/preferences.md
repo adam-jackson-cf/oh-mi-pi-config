@@ -28,7 +28,6 @@ recommendation, not a silent edit.
 - Codebase discovery (`scout`): Claude Haiku 5.5 `medium` (owner decision 2026-11-03).
 - Scope cutting (`kiss`): GPT-6.1 Sol `low`; cut acceptance criteria and open questions
   before a spike, not a risk review.
-- Former plan/test/completeness judging roles: removed 2026-11-04, proof-first workflow.
 - Codex `priority` service tier applies to exactly `task`, `kiss` and `sonic`
   (owner decision 2026-11-04).
 - Innovation council: Opus leads; GPT Astra and Gemini 4 Neon (via `agy`) challenge; reasoning
@@ -44,7 +43,7 @@ recommendation, not a silent edit.
 - Above-medium reasoning outside those two is a deliberate, per-turn user
   choice for a distinctly unique problem, not a configured default.
 - Fixed-plan implementation uses the configured `task` route at `medium` (owner decision
-  2026-11-03); historical lower-effort trials do not override the current route.
+  2026-11-03).
 
 ## Evidence ladder
 
@@ -55,22 +54,9 @@ recommendation, not a silent edit.
 - Compaction stays on the native mechanism until an experiment shows a better
   boundary signal.
 
-## Removed setups
-
-- No advisor or proportionality watchdog (owner decision 2026-10-03): the Jev
-  scope watchdog, `WATCHDOG.yml`, `modelRoles.advisor`, `advisor.*` and
-  `task.agentAdvisor` were removed. Do not reintroduce them in routing reviews.
-- No Jev policy extensions (owner decision 2026-10-17): `jev-guard`,
-  `jev-ask`/`jev_ask`, `agent/jev-policies.json`, the integrity rules and their
-  weekly maintainer job, the Jev lab and the `evaluate-jev` skill were removed.
-  Do not reintroduce them in routing reviews.
-
 ## Working agreements
 
 - Explain proposals before executing config changes unless the owner asks
   for the change directly.
 - Test claims about model behaviour with a frozen experiment before routing on
   them (see `experiments.md`).
-- Agents may create `agent/*` branches, commit, push, open PRs and rebase-merge them per
-  `skill://git-tool` unless the record `gate.json` sets `agentMerge: disabled`; never commit to main
-  (owner decision 2026-11-03).

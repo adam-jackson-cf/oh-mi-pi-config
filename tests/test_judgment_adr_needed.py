@@ -165,9 +165,9 @@ def test_every_label_has_council_provenance_and_an_arbiter_decision() -> None:
     assert overridden == ["A017", "A043", "A054", "A074"]
 
 
-def test_the_escalate_band_reproduces_from_saved_scores() -> None:
+def test_the_measured_band_reproduces_from_saved_scores() -> None:
     decision = thresholds()["decisions"]["adr_needed"]
-    band = decision["escalate_band"]
+    band = decision["measured_band"]
     assert band["no_at_most"] < band["yes_at_least"] == decision["threshold"]
     rows = score_rows()
     for split in ("dev", "test"):
@@ -189,7 +189,7 @@ def test_the_tuner_ships_the_recorded_thresholds(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     rows = score_rows()
-    band = thresholds()["decisions"]["adr_needed"]["escalate_band"]
+    band = thresholds()["decisions"]["adr_needed"]["measured_band"]
     main = tuned(
         rows,
         tmp_path,

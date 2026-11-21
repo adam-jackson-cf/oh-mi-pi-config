@@ -4,13 +4,11 @@
   "model": "typesafe/jev-1.14.0",
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
-  "status": "provisional",
-  "mode": "shadow, provisional",
   "framing": {
     "decision": "Does a pull request or commit series make a design decision the repository should record as an ADR?",
-    "action": "Refuse a structured merge that needs an ADR and has none (ADR 0017)",
+    "action": "Refuse a structured merge that needs an ADR and has none",
     "baseline": "agent/RULES.md instruction: decide in-scope questions and record the decision as an ADR; no check",
-    "costs": "Assumed equal: a miss leaves a decision unrecorded (ADR 0016 records three such misses); a false action costs one unneeded ADR or prompt",
+    "costs": "Assumed equal: a miss leaves a decision unrecorded; a false action costs one unneeded ADR or prompt",
     "written_policy": "label-guide.md rules Y1-Y6, N1-N8, T1-T7",
     "reviewers": "innovation-council first pass, claude arbiter; owner may override",
     "state_fields": "change: title, plan or description, commit headlines, diff summary; decision-record files and mentions removed",
@@ -19,10 +17,6 @@
   "decisions": {
     "adr_needed": {
       "threshold": 0.67,
-      "status": "provisional",
-      "no_at_most": 0.34,
-      "yes_at_least": 0.67,
-      "band_source": "escalate_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "version_key": "8fae0819c97d1fd9433d2893f6d31d59d0ee34e8b84c00a66dbdc43d99ec6b3d",
       "score_space": "raw",
       "minimums": {
@@ -36,7 +30,8 @@
         "beta": 1
       },
       "rule": "yes at score >= 0.67",
-      "escalate_band": {
+      "measured_band": {
+        "note": "measurement record only: without a fallback judge a band cannot decide",
         "no_at_most": 0.34,
         "yes_at_least": 0.67,
         "rule": "score <= 0.34: no ADR needed; score >= 0.67: ADR needed; between: escalate",
@@ -123,11 +118,11 @@
     "The state removes decision-record files and mentions so labels and scores cannot read the outcome"
   ],
   "shortfalls": [
-    "test holds 7 negatives; grow negatives to about 30 per split before calling the band ready",
-    "fallback verdicts for the escalate band are not measured; cascade accuracy is an upper bound",
-    "framing and minimums are assumed; status stays provisional until the owner confirms them",
-    "A017's state omits the decision its commits make (missing state): pull request states hold the PR body and commit headlines, not commit bodies"
+    "test holds 7 negatives; grow negatives to about 30 per split at the next retune",
+    "framing and minimums are assumed; the owner has not confirmed them",
+    "A017's state omits the decision its commits make (missing state): pull request states hold the PR body and commit headlines, not commit bodies",
+    "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
   ],
   "wired": true,
-  "wiring": "shadow until ready: lib/judged-rails.ts mergeReason: a structured gh pr merge without an ADR file in the diff; yes refuses, escalate needs the owner's $approve; until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
+  "wiring": "lib/judged-rails.ts mergeReason, enforced from the start: a structured gh pr merge without an ADR file in the diff; yes refuses; a judge failure refuses the merge"
 }

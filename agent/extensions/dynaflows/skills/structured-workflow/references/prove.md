@@ -20,8 +20,8 @@ Prove checks four things:
    retired names in renamed folders or files. Every finding blocks, even with no frozen proofs.
    The same merge-base/head range runs naming, structure and path-check for added/renamed
    paths and new segments only. Legacy paths and content-only edits are never findings.
-   These PR pre-checks are the principles 5/7 exception in
-   [ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
+   These PR pre-checks are the principles 5/17 exception in
+   [AGENTS.md](../../../AGENTS.md#exceptions).
    A term still naming an owned directory or module stem at head is not retired (a concept split
    can preserve its old owner); this compares whole word sequences, not individual words.
 3. Map coverage: every feature-map doc under `verification_surface.feature_map_path` changed in

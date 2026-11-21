@@ -1774,15 +1774,15 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert saved == result
         return result
 
-    async def test_provisional_findings_never_block_or_change_prove_signal(
+    async def test_every_finding_blocks_and_never_changes_prove_signal(
         self,
     ) -> None:
         signal = workflow.result_path(self.repo, self.head)
         signal.parent.mkdir()
         signal.write_text('{"status":"pass"}')
         result = await self.review()
-        assert result["status"] == "shadow"
-        assert not result["halt"]
+        assert result["status"] == "blocked"
+        assert result["halt"]
         assert result["head"] == self.head
         assert len(result["findings"]) == 7
         assert len(result["units"]["src/orders"]["digest"]) == 64
@@ -1791,7 +1791,10 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             "prefix_should_be_folder"
         }
         assert result["thresholds"] == self.thresholds
-        assert "raw judgment probabilities" in workflow._structure_comment(result)
+        comment = workflow._structure_comment(result)
+        assert "raw judgment probabilities" in comment
+        assert "Every finding blocks merge" in comment
+        assert "shadow" not in comment
         assert set(result["units"]["src/orders"]["outcomes"].values()) == {"yes"}
         logged = (self.agent / workflow.JUDGMENT_CALLS).read_text().splitlines()
         assert [json.loads(line)["judgment"] for line in logged] == ["structure-naming"]
@@ -1799,11 +1802,27 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             self.calls[0][0]
         )
 
-    async def test_escalate_band_scores_are_recorded_without_findings(self) -> None:
+    async def test_scores_below_the_threshold_pass_without_findings(self) -> None:
         result = await self.review(score=0.5)
         assert not result["findings"]
-        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"escalate"}
-        assert result["status"] == "shadow"
+        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"no"}
+        assert (result["status"], result["halt"], result["errors"]) == (
+            "pass",
+            False,
+            [],
+        )
+
+    async def test_an_escalated_band_decision_leaves_the_review_incomplete(
+        self,
+    ) -> None:
+        ident = "folder_name_coverage"
+        decision = self.judgment.decisions[ident]
+        del decision["threshold"]
+        decision.update(no_at_most=0.3, yes_at_least=0.7, fallback="backup")
+        result = await self.review(score=0.5)
+        assert result["units"]["src/orders"]["outcomes"][ident] == "escalate"
+        assert (result["status"], result["halt"]) == ("incomplete", False)
+        assert any(f"{ident} escalated to backup" in e for e in result["errors"])
 
     async def test_the_inspector_route_never_serves_the_gate_judgment(self) -> None:
         with patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}):
@@ -1819,17 +1838,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert self.calls == []
         assert any("judge role is openrouter" in error for error in result["errors"])
 
-    async def test_ready_finding_sets_persisted_merge_halt(self) -> None:
+    async def test_a_finding_at_the_threshold_sets_persisted_merge_halt(self) -> None:
         ident = "folder_name_coverage"
-        self.thresholds["decisions"][ident]["status"] = "ready"
         result = await self.review(score=0.7)
         assert result["halt"]
         assert result["status"] == "blocked"
         assert result["head"] == self.head
-        assert any(
-            item["question"] == ident and item["status"] == "ready"
-            for item in result["findings"]
-        )
+        assert {
+            "unit": "src/orders",
+            "question": ident,
+            "score": 0.7,
+            "threshold": 0.7,
+        } in result["findings"]
         below = await self.review(score=0.69)
         assert not below["halt"]
 
@@ -1848,7 +1868,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert self.calls[0][0]["unit_state"]["cluster"] == eligible
         assert len(result["findings"]) == 8
 
-    async def test_judge_and_publication_errors_report_without_shadow_blocking(
+    async def test_judge_and_publication_errors_leave_the_review_incomplete(
         self,
     ) -> None:
         result = await self.review(
@@ -1952,7 +1972,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert states["src/orders"]["evidence_limits"]["base"] == self.parent
         assert states["src/orders"]["evidence_limits"]["head"] == head
 
-    def test_shadow_comment_updates_existing_marker_instead_of_posting_again(
+    def test_comment_updates_existing_marker_instead_of_posting_again(
         self,
     ) -> None:
         with (

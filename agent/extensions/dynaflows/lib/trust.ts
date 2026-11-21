@@ -1,7 +1,7 @@
 // Rails-owned trust: the omp settings the rails pin, the paths no agent tool may write, the eval
 // cells the rails refuse, the proof evidence only prove() and structure_review() runs the rails saw
 // may supply, and the rail state (mode file, origin) seen at session start. Records are agent-writable
-// at any time (ADR 0001); the rails re-read them on every action.
+// at any time; the rails re-read them on every action.
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";

@@ -35,7 +35,7 @@ diagnostics and subcommands.
 TEST.growth.justified uses descriptive test names stating the behaviour, not inline behaviour comments.
 Test files follow the same comment ban as product code.
 
-The dynaflows review task owns test-name truthfulness outside the presence-only check
-(`truthfulness_sampled_by_jev_judge_batch_outside_check`). Use `judge_batch()` to sample up to 20
+Before delivery, the implementation task samples test-name truthfulness outside the presence-only
+check (`truthfulness_sampled_by_jev_judge_batch_outside_check`). Use `judge_batch()` to sample up to 20
 new test names against their assertions. If more than 2 are vacuous, run `judge_batch()` over every
 new test name; rename, rewrite or remove each mismatch before delivery.

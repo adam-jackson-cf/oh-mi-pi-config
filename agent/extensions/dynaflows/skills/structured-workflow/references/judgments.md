@@ -15,7 +15,7 @@ Ask a calibrated judgment through one registry call and act on its yes, no or es
 | Load | Reads `questions.json` and `thresholds.json`; refuses stale version keys |
 | Model | Refuses when `omp config get modelRoles` names another judge than `thresholds.model` |
 | Judge | One `judge(state, questions)` call; a failure raises, never an outcome |
-| Decide | Per bool question: `yes` at or above `yes_at_least`, `no` at or below `no_at_most`, else `escalate` |
+| Decide | Per bool question: `yes` at or above `threshold`, else `no`; a band with a fallback judge escalates its middle |
 | Log | Appends one JSON line to `<agent dir>/dynaflows/judgment-calls.jsonl` |
 
 - The agent dir is `PI_CODING_AGENT_DIR`, else `~/.omp/agent`; never the repository.
@@ -24,6 +24,7 @@ Ask a calibrated judgment through one registry call and act on its yes, no or es
 - Choice questions return probabilities only; the caller's rubric reads them with the decision's
   `round_up_floor`.
 - Treat `escalate` as uncertain: take the conservative branch or ask the owner; never read it as `no`.
+  No shipped judgment has a band today, so none escalates.
 - Rails read the log through `lib/judgment-calls.ts` (`readJudgmentCalls`, `latestJudgmentCall`).
 
 ## Rail judgments
@@ -32,14 +33,11 @@ Structured mode only. Rails run their deterministic pre-checks first, then the s
 through `lib/decide.py` (`questions`, then `record`) with omp's judge role; the model that
 answered must be `thresholds.model`. A failed call is never an outcome.
 
-- Shadow: a judgment whose `thresholds.json` is not `ready` (every decision `ready`, minimums
-  owner-confirmed, per `skill://jev-actions`) still runs and logs, and the rails print an
-  `Agent rails (shadow)` notice of what they would have done. They refuse nothing, ask for no
-  `$approve`, and a judge outage blocks nothing. Deterministic pre-checks still apply.
-- Enforced: once `ready`, the table below applies and a failed call refuses.
-- All five rail judgments are provisional today, so all five run in shadow.
+- Every judgment is enforced.
+- A failed call refuses the commit, merge or command and leaves the evidence obligation unmet; a
+  failed `in-scope` call on an `ask` lets the question through.
 
-| Judgment (once `ready`) | Rail | yes | escalate |
+| Judgment | Rail | yes | escalate |
 | --- | --- | --- | --- |
 | `extension-impact` | Restart review | Review task | Review task |
 | `adr-needed` | `gh pr merge`, no ADR file in the PR | Refused: add an ADR | Owner |
@@ -88,5 +86,8 @@ outcome = (
 
 - `version_key`: sha256 of compact sorted JSON `{questions, state, model}`; each decision's key hashes
   `{question, state, model}`.
-- A bool decision holds `status` (`provisional` or `ready`), `no_at_most` < `yes_at_least`.
+- A bool decision is a single cutoff `{"threshold": t}`, or a band `no_at_most` < `yes_at_least` with a
+  `fallback` naming another registered judgment. A band without one, or any `status`, is refused.
+- Labels: the innovation council takes the first pass, the agent arbitrates, the owner may override.
 - Changing wording, state shape or model makes the keys stale: re-score, re-tune, then ship.
+- A judgment acts from the moment it merges: ship only thresholds fit to enforce, and list any label shortfall in its `thresholds.json`.

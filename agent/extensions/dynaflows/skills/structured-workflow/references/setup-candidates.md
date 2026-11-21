@@ -18,7 +18,7 @@ Draft the record from the harness, shadow-run repo-owned steps and prepare harne
   import-linter) to the record's `proposed/` directory for the owner to apply as a repo fix, and proves language-server
   readiness with a canary `references` query.
 - `--commit-command` and `--ci-command` name the repo's own gate commands; `--runner` and `--required-context` set the
-  record's `ci` object. Init reports a missing `checks.commit` as `required:`. There is no path-command option.
+  record's `ci` object. Init reports a missing `checks.commit` as `required:`.
 - In adopt mode, shadow-run each `repo` or `grow` step on the same clone with `guardrails <step> --repo <temporary clone>
   --record <draft record dir>` and the record's `checks.commit`. Sort every finding the harness reports and
   `checks.commit` passes:
@@ -57,5 +57,4 @@ Draft the record from the harness, shadow-run repo-owned steps and prepare harne
   Ownership areas. None is wired into the target.
 - The repo-side controls (check-only full runner, CI wiring, commit target) default the required context to `gate`.
   For GitHub Actions, the parallel-CI aggregate runs with `if: ${{ always() }}`.
-- Identify the superseded checks and config to remove, including any omp-specific files the repo holds. History is
-  exempt: never rewrite an ADR or a frozen, digest-pinned study or evaluation record to remove an omp mention.
+- Identify the superseded checks and config to remove, including any omp-specific files the repo holds.

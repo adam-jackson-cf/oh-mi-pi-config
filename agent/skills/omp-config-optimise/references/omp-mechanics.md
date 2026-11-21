@@ -36,9 +36,6 @@ the docs live at `omp://models.md`, `omp://settings.md`,
   The clamp is global, so a low `maxEffort` also caps council spawns.
 - `task.agentServiceTierOverrides[agent]` sets the Fast/priority tier per agent;
   Vibe workers use `tier.subagent` instead.
-- Priority overrides now cover only `task`, `kiss` and `sonic` (2026-11-04).
-- Dynaflows proof is TDD (red at base, green at head) with no agent review. Bundled
-  `reviewer` handles open-ended contextual eval judgments.
 - Bundled agents without a role alias in their frontmatter (e.g. `reviewer`) ignore a same-named
   `modelRoles` entry and inherit the parent model. Route them with
   `task.agentModelOverrides[agent]: "@<role>"` (verified 2026-09-28).

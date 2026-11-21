@@ -21,12 +21,10 @@ routing changes. Claude routes use `anthropic`; GPT routes use `openai-codex`; G
 - `task` → Gemini 4 Carbon : medium via `agy`. Implementation, including small fixes delegated
   by main. Owner decision 2026-11-21. agy runs its own tool loop: its edits and commands bypass
   omp's rails and `gitGuard`, and omp skills, rules and context files are not forwarded.
-  Earlier Sol and Sonnet fixed-plan measurements do not validate this route.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
   The `scout` agent is an exception: `task.agentModelOverrides.scout` explicitly selects
   `anthropic/claude-haiku-5-5:medium`, not `@smol`.
-- `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest; replaced missing
-  `gpt-5.4-mini`.
+- `tiny`, `commit` → GPT-6 Luna : low. Used by titles, commit flow. Cheapest.
 - `web` → GPT-6 Luna. Used by `web_search`. Verified working 2026-09-28.
 - `kiss` → GPT-6.1 Sol : low. Cut acceptance criteria and open questions before a spike.
 - `vision` → GPT-6.1 Terra : low. Used by image reading. Owner decision 2026-10-27.
@@ -35,15 +33,14 @@ routing changes. Claude routes use `anthropic`; GPT routes use `openai-codex`; G
   answer-only output (see `omp-mechanics.md`); operator-task performance remains untested here.
 - `innovation-council` → Opus 5.5 : high. Used by council lead. Owner decision 2026-10-30: the
   council is Opus 5.5 high (lead, and `experiment-peer` when it spawns one) plus GPT-6 Astra high
-  (challenger); the lead had drifted to Fable 5.1 high in `config.yml` while this table said Opus.
+  (challenger).
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
 - `innovation-gemini-challenger` → Gemini 4 Neon : high via `agy`. Used by council only; agy runs
   it read-only in `plan` mode because the agent has no edit or shell tools. Owner decision
   2026-11-21.
 - `experiment-design` → Fable 5.2 : high. Used by experiment lead. Owner: Fable leads novel-problem
-  framing. Owner decision 2026-11-10; Fable 5.2 released 2026-11-09, $8/$40 per Mtok input/output
-  versus Fable 5.1 $10/$50 per snapshot catalog.
+  framing. Owner decision 2026-11-10; Fable 5.2 released 2026-11-09, $8/$40 per Mtok input/output.
 - `experiment-peer` → Opus 5.5 : high. Used by experiment-design peer. Owner: Opus participates.
 
 ## Service tiers

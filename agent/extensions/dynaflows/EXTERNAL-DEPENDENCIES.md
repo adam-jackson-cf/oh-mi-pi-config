@@ -11,7 +11,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Entry file | `agent/extensions/dynaflows/package.json` | `omp.extensions` picks `index.ts` |
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
 | Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
-| Judgment status | `agent/extensions/dynaflows/judgments/` | `ready` enforces; else shadow |
+| Judgments | `agent/extensions/dynaflows/judgments/` | Thresholds `decide()` enforces |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
 | omp judge API | `package.json` | `resolveJudge`, `parseQuestions`, `toEvalJudgmentResult` |
 | omp `ask` tool | omp core | `questions` or `html` input; `in-scope` judges it |
@@ -101,15 +101,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
 | `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
-| Path-check ADR | `docs/adr/0002-*.md` | Harness owns path checks |
-| Structure ADR | `docs/adr/0003-*.md` | Checks at PR diff scope |
-| Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
-| Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
-| Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
-| Runtime rails ADR | `docs/adr/0017-*.md` | Mode file, obligations, review, handoffs |
-| Trust ADR | `docs/adr/0018-*.md` | What the rails trust and refuse |
-| Integrity ADR | `docs/adr/0019-*.md` | `implementation-integrity` replaces the main tag |
-| Judgments ADR | `docs/adr/0020-*.md` | Registry, direct judge, Inspector route |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records

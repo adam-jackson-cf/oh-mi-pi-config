@@ -7,9 +7,9 @@ Freeze proofs before implementation, then land the greening change through tasks
 ## Required actions
 
 1. Read [proofs](proofs.md) for proof, freezing and record-binding requirements.
-2. Before ordinary implementation, require a valid pathCheck-free schema-v2 record: `gate.json` has `checks.commit`,
-   and `profile.md` supplies complete path-check settings. A missing required field or a field outside the schema,
-   including obsolete `checks.pathCheck`, fails to load with an error naming the field.
+2. Before ordinary implementation, require a valid schema-v2 record: `gate.json` has `checks.commit`, and `profile.md`
+   supplies complete path-check settings. A missing required field or a field outside the schema fails to load with an
+   error naming the field.
    `agent/extensions/dynaflows/lib/repo-record.ts` (`gateSchema`) owns accepted fields and types; its Python twin
    `agent/extensions/dynaflows/lib/repo_record.py` (`gate_reason`) serves `prove()` and CI.
 3. No record, missing controls or the lazy surface trigger require the owner-approved [Project setup](project-setup.md)
@@ -24,16 +24,14 @@ Freeze proofs before implementation, then land the greening change through tasks
    path-check are excluded from them. `guardrails check` also runs the CODE.* rules and `TEST.coverage-ratchet`,
    `TEST.growth.justified`, `TEST.duplicate-path`, `TEST.golden-change-record` and `TEST.identity-artefacts` over the
    staged changes. Any finding blocks. PR/prove judges merge-base/head additions and renames;
-   full naming/structure scans need an explicit request
-   ([ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md)).
+   full naming/structure scans need an explicit request.
 6. When the commit gate reports `SECURITY.dependency-audit` findings, stop implementation and follow
    [dependency advisories](dependency-advisories.md).
 7. Never add or edit dependency-audit exceptions; raise the need to the owner, who writes every entry.
 8. Follow `skill://git-tool/references/branch-and-integrate.md` to fetch the resolved default and create the dedicated
    `agent/<slug>` branch and worktree, never from spike code.
 9. Delegate every edit, including small fixes, to sequential non-isolated tasks in that worktree using absolute paths;
-   never use isolated patch-return modes. Rails reject enclosing-root symlink escapes and refuse `git worktree add`
-   outside `<worktree.base>/<repo>/<slug>`. The assigned worktree for edit-tool writes stays an instruction boundary;
+   never use isolated patch-return modes. The assigned worktree for edit-tool writes stays an instruction boundary;
    outside-repo scratch and internal URIs remain allowed.
 10. Proof precedes implementation. Main never commits, patches implementation or writes the PR body. Run in order:
     1. The proof task writes proof files and the feature-map entries that link them, then stops uncommitted:

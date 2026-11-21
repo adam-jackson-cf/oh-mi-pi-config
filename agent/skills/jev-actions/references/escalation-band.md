@@ -8,7 +8,8 @@ cascade meets the minimums.
 ## Guidance
 
 - Add an escalation band, sending uncertain Jev answers to a fallback judge, only on judgments
-  [design patterns](design-patterns.md) keeps in Jev, with about 30 cases per label and an agreed
+  [design patterns](design-patterns.md) keeps in Jev, whose ranking passes in
+  [threshold tuning](threshold-tuning.md), with about 30 cases per label and an agreed
   accuracy loss against the fallback alone; otherwise set none, noting why in `shortfalls`.
 - Set the band from saved results, after a [calibration check](calibration-check.md):
   - Run the fallback once on the same `dev` and `test` cases with each Noul's exact question, save
@@ -21,4 +22,7 @@ cascade meets the minimums.
   Jev, or a person.
 - In production, send in-band cases to the fallback, log each decision's state, score, model and
   version key, and add reviewed cases and a labeled random sample of confident decisions to `dev`.
-- Store the band in `thresholds.json` as [eval data schemas](eval-data-schemas.md) describes.
+- A band whose escalate outcome reaches no fallback judge is no band: remove it, keep the single
+  cutoff, and report no escalation rate.
+- Store the band in `thresholds.json` as the `decision` `{"no_at_most", "yes_at_least", "fallback"}`,
+  as [eval data schemas](eval-data-schemas.md) describes.

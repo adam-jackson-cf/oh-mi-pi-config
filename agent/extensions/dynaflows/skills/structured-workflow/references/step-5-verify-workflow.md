@@ -6,7 +6,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
 
 ## Required actions
 
-1. The valid pathCheck-free schema-v2 record from [Implement](step-4-implement-workflow.md) remains required.
+1. The valid schema-v2 record from [Implement](step-4-implement-workflow.md) remains required.
 2. Confirm the writer has no pending edits and returned a ready PR as defined in [verify loop](verify-loop.md).
 3. Obtain the actual PR base branch and exact 40-hex head from GitHub, using the primary remote and default already
    resolved by `skill://git-tool/references/branch-and-integrate.md`. Fetch the actual target and record its
@@ -24,8 +24,8 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
    Infrastructure failures fail closed; they are not red proof assertions.
 9. Call `await structure_review(repo, parent, head, target_ref=target_ref)` on the same range under the
    [structure review contract](structure-review.md). It writes `<git-common-dir>/omp-structure/<head>.json`.
-   Provisional findings are shadow-only. Recorded infrastructure errors leave the review incomplete, which blocks merge.
-   A finding from a `ready` decision sets `halt`; fix it and rerun both helpers on the new head.
+   Every finding sets `halt`; fix it and rerun both helpers on the new head. Recorded infrastructure errors leave the
+   review incomplete, which blocks merge.
 10. Never write or edit a result file by hand. Post no review agent or status; re-freeze only for a discovery or a
     changed proof file.
 

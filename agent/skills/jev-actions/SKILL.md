@@ -34,7 +34,8 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 - **Purpose**: Agree what a decision does and costs, and discover its failure modes, before writing
   questions.
 - **When**: When a judgment will gate behavior or judge outputs, the task writes new questions, and
-  `thresholds.json` lacks some of its framing, unless the task starts from an existing `scores.csv`.
+  `thresholds.json` lacks some of its framing; a review or a `scores.csv` start runs only its Terms
+  step.
 - **STOP**: Gates question design and case collection on the user's framing answers.
 - Runbook: [Framing the decision](references/framing-the-decision.md)
 
@@ -56,8 +57,8 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 ## Build eval data
 
 - **Purpose**: Collect and split the cases that thresholds, calibration checks and model comparisons
-  depend on.
-- **When**: Before a threshold is marked `ready` or gates an action that cannot be undone, before
+  depend on, each built as production builds and asks it, over enough units to label.
+- **When**: Before a threshold is tuned or gates an action that cannot be undone, before
   any confidence band or model comparison drives behavior, when a gating judgment has no cases, and
   first for reported errors with no labeled `scores.csv`.
 - Runbook: [Building eval data](references/building-eval-data.md)
@@ -71,12 +72,14 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 
 ## Label cases
 
-- **Purpose**: Label cases so each label measures what its question asks.
+- **Purpose**: Label cases so each label measures what its question asks: the innovation council
+  labels, the main agent arbitrates blind, and only accepted labels count.
 - Runbook: [Labeling cases](references/labeling-cases.md)
 
 ## Tune thresholds
 
-- **Purpose**: Set each decision threshold from saved scores against agreed minimums.
+- **Purpose**: Set each enforced threshold: tuned from saved scores against agreed minimums when the
+  label check and ranking pass, else the cost-rule default with the gap in `shortfalls`.
 - **When**: When a Noul probability, or a Choice or Score confidence, gates behavior.
 - Runbook: [Threshold tuning](references/threshold-tuning.md)
 
@@ -91,9 +94,10 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 ## Analyze errors
 
 - **Purpose**: Turn measured errors into the next fix.
-- **When**: After a new scoring run on dev, and first when the user reports errors and a labeled
-  `scores.csv` exists.
-- **STOP**: Gates each further fix pass on the user's accept-or-fix answer.
+- **When**: After a new scoring run on dev, when threshold tuning reports ranking `fails`, and first
+  when the user reports errors and a labeled `scores.csv` exists.
+- **STOP**: Gates each further fix pass on the user's accept-or-fix answer, and any fix for a policy
+  gap or undefined term on the user's definition.
 - Runbook: [Error analysis](references/error-analysis.md)
 
 ## Add an escalation band

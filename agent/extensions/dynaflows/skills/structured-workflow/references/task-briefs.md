@@ -22,4 +22,3 @@ List the reads and context every proof, implementation and sweep task receives b
   a new proof comes only through a discovery re-freeze.
 - Sweep briefs supply the base and head, the record's feature-map path, [proofs](proofs.md),
   `skill://test-guidance/references/verification-surface.md` and `outcome-tests.md` under that prefix.
-- Rails require `skill://test-guidance/references/before-commit.md` before any writer handoff.

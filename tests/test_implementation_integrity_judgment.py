@@ -115,8 +115,8 @@ def test_thresholds_report_the_measured_label_set_and_band(
 ) -> None:
     thresholds = data["thresholds"]
     decision = thresholds["decisions"][QUESTION]
-    assert thresholds["status"] == decision["status"] == "provisional"
-    assert decision["threshold"] is None
+    assert "status" not in thresholds
+    assert "status" not in decision
     rows = [
         (row["split"], int(row["label"]), float(row["score"])) for row in data["scores"]
     ]
@@ -126,9 +126,9 @@ def test_thresholds_report_the_measured_label_set_and_band(
         assert label_set["positives"][split] == sum(
             label for s, label, _ in rows if s == split
         )
-    band = decision["escalation_band"]
+    band = decision["measured_band"]
     low, high = band["no_below"], band["yes_at_or_above"]
-    assert 0 < low < high < 1
+    assert 0 < low < high == decision["threshold"] < 1
     for split in ("dev", "test"):
         part = [(label, score) for s, label, score in rows if s == split]
         no = [label for label, score in part if score < low]

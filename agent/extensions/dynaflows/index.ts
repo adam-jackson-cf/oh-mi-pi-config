@@ -20,7 +20,7 @@ import {
 	prMerge, prMergeReason, pushReason, routeReason, worktreeReason, type DefaultBranches,
 } from "./lib/guards.ts";
 import {
-	defaultJudgmentsDir, defaultReviewsPath, judgmentReady, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
+	defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
 	type PrStatus,
 } from "./lib/session-rails.ts";
 import {
@@ -202,14 +202,24 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 	if (!parsesAs(result, text)) return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 	return evidence.trusts(path, text) ? undefined : untrustedEvidence("prove()", head, path);
 }
+type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string }[] };
+// Every finding blocks: only a pass with no findings, no halt and no errors admits the merge.
+function structureBlock(result: StructureVerdict, head: string): string | undefined {
+	if (result.status === "incomplete" || result.errors?.length) {
+		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
+	}
+	if (result.status === "pass" && !result.halt && !result.findings.length) return;
+	const findings = result.findings.map(item => `${item.unit}: ${item.question}`);
+	return `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+}
 async function structureResultReason(pi: ExecApi, cwd: string, head: string, evidence: Evidence): Promise<string | undefined> {
 	const path = join(await commonDir(pi, cwd), "omp-structure", `${head}.json`);
 	const finding = z.object({
-		unit: z.string(), question: z.string(), status: z.enum(["ready", "provisional"]),
+		unit: z.string(), question: z.string(),
 		score: z.number().min(0).max(1), threshold: z.number().min(0).max(1),
 	}).strict();
 	const schema = z.object({
-		head: z.literal(head), halt: z.boolean(), status: z.enum(["shadow", "incomplete", "blocked"]),
+		head: z.literal(head), halt: z.boolean(), status: z.enum(["pass", "incomplete", "blocked"]),
 		findings: z.array(finding), parent: z.string().nullable().optional(),
 		units: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
 		thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
@@ -221,12 +231,7 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 	try { text = await readFile(path, "utf8"); result = schema.parse(JSON.parse(text)); }
 	catch { return `Agent rails: no valid structure_review() result for ${head} at ${path}; run structure_review() for this head, then merge.`; }
 	if (!evidence.trusts(path, text)) return untrustedEvidence("structure_review()", head, path);
-	if (result.status === "incomplete" || result.errors?.length) {
-		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
-	}
-	if (!result.halt) return;
-	const ready = result.findings.filter(item => item.status === "ready").map(item => `${item.unit}: ${item.question}`);
-	return `Agent rails: ready structure findings block ${head}: ${ready.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+	return structureBlock(result, head);
 }
 type PrCi = { reason: string } | { head: string; repository: string; base: string; headRef: string; state: string; gate: Gate | undefined; ciReason: string | undefined };
 // The turn-end status of the agent's PR: open is unmet while agents may merge; pending or failing CI
@@ -389,7 +394,7 @@ function protectedEditReason(map: Mapping, protection: Protection, event: ToolEv
 	return undefined;
 }
 // The rail state a session trusts: the mode file and the session repo's origin. Records are not
-// part of it: agents write them at any time and the rails re-read them on every action (ADR 0001).
+// part of it: agents write them at any time and the rails re-read them on every action.
 async function captureState(snapshot: Snapshot, modesFile: string, cwd: string, notify: (text: string, level: "error") => void): Promise<void> {
 	await snapshot.capture(modesFile, () => fileState(modesFile));
 	const root = await repoRoot(cwd);
@@ -447,8 +452,6 @@ type DynaflowsOptions = {
 	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsProfileCommand: string[];
 	ompCommand: string[]; extensionDir: string; reviewsPath: string; obligationSources: ObligationSource[];
 	decideCommand: string[];
-	/** The judgments folder whose thresholds.json statuses decide which judgments the rails enforce. */
-	judgmentsDir: string;
 	/** The judge transport for judged rails; omp's judge role unless a test stubs it. */
 	judge: ((ctx: ExtensionContext) => JudgeTransport) | undefined;
 };
@@ -465,7 +468,6 @@ function defaultOptions(): DynaflowsOptions {
 		reviewsPath: defaultReviewsPath(),
 		obligationSources: [],
 		decideCommand: defaultDecideCommand,
-		judgmentsDir: defaultJudgmentsDir(),
 		judge: undefined,
 	};
 }
@@ -473,7 +475,7 @@ function defaultOptions(): DynaflowsOptions {
 export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOptions> = {}): void {
 	const {
 		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
-		decideCommand, judge, judgmentsDir,
+		decideCommand, judge,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
 	const states = new Map<string, State>(), session: SessionCache = {}, trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
@@ -504,7 +506,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	const sessionRail = sessionRails(pi, {
 		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
 		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
-		enforced: name => judgmentReady(judgmentsDir, name),
 		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
 		recordAt,

@@ -15,8 +15,9 @@ safely and stays versioned.
   choose next options.
 - Measure request budgets, cost and end-to-end latency.
 - Read answers by what they measure:
-  - Gate on named per-question thresholds from [threshold tuning](threshold-tuning.md), using its
-    provisional rule until eval data exists.
+  - Gate on each question's named `decision` from [threshold tuning](threshold-tuning.md), enforced
+    from the moment it ships, so production acts on the decision rather than logging it: a single cutoff is yes at score >= `threshold`, else no, and a band
+    sends its middle to its fallback judge; use the cost-rule default until a threshold is tuned.
   - Read a probability as a confidence only after a [calibration check](calibration-check.md).
   - Choice and Score confidence is distribution concentration, not correctness or permission to act.
     Below its threshold, code takes the Choice or Score fallback agreed at framing instead of the
@@ -27,9 +28,19 @@ safely and stays versioned.
 - Keep policy explicit and raw judgments reusable: weights for compensating preferences, and no
   rerun when only a weight or filter changes.
 - Record the model each response reports; a mismatch with the pinned model ID is a failed call.
-- Derive each question's version key as a hash of its instructions, criteria, state shape and model.
+- Scores count only from a route production can call: read the integration's route check, and mark
+  scores from any other route as non-counting.
+- Derive each question's version key as a hash of its instructions, criteria, state shape, state builder
+  version and model.
   A stored threshold or Platt mapping is stale when its version key changes; re-score and re-tune.
+  When production's key omits a component the skill keys on, record it in `shortfalls`; existing
+  keys stay valid until the code adds it, and the next re-pin includes it.
 - Treat a failed or invalid Jev call as a failed decision, never a pass.
+- Before proposing a split, a retirement, a new question or a new decision shape, read the code that
+  loads questions and decisions; list each hard-coded count, type or field check as a dependency of
+  the fix, and record it in `shortfalls` when it blocks.
+  When that code cannot express the prescribed decision shape, record the code change as a blocker
+  in `shortfalls`.
 - Source the API key from a secret store or the environment variable the SDK reads, keep it
   server-side, and never hardcode, commit, log or print it; verify it by presence, never by value.
 - Test representative cases and the resulting application behavior, and diagnose failures with

@@ -1,8 +1,7 @@
 # Authority and safety
 
-This runbook applies in both dynaflows modes. In minimal mode rails refuse `gh pr merge` and pushes to the default
-branch, and the owner merges and recovers. Merge authority, CI and recovery are structured mode only and live in
-[merge-and-recover](merge-and-recover.md).
+This runbook applies in both dynaflows modes. Merge authority, CI and recovery are structured mode only and live
+in [merge-and-recover](merge-and-recover.md).
 
 ## Record
 
@@ -30,7 +29,6 @@ In minimal mode the owner merges it; in structured mode main merges it under
   no extra checks.
 - Agents write per-repo records directly under [Who writes records](#who-writes-records).
 - Ask the owner before: force-pushing default, rewriting any other history, deleting branches the agent did not create, using another remote.
-- Never commit or push directly to the default branch.
 - Primary remote not GitHub: stop before pushing and ask the owner; this workflow authorizes no other host.
 
 ## Who writes records
@@ -45,6 +43,7 @@ Record-write authority does not approve repository fixes that separately require
 
 - First run `git status`, `git diff` and `git log`, before edits, staging, commits or pushes.
 - Inspect changed files for unrelated work and secrets; never stage secrets.
+- Never commit or push directly to the default branch.
 - Conventional Commits (`feat|fix|refactor|build|ci|chore|docs|style|perf|test`), one atomic commit per logical step.
 - Create new logical commits through `git commit`, where rails run the commit checks.
 - Never bypass configured harness commit checks or the repo's own hooks.

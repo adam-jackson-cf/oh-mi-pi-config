@@ -11,21 +11,14 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
    worktrees resolve like their main checkout. [The record contract](../../../record/README.md) owns its files.
    The repo itself holds nothing about omp or dynaflows.
 2. The extension's `modes.json` selects the mode, keyed by the lowercase `origin` owner/name. An unlisted repo,
-   no `origin` remote or, for structured mode, no valid record means minimal mode. Minimal mode keeps only the fixed
-   Git guards: no `gh pr merge` and no push to the default branch.
-3. The owner switches the mode in the main chat. A standalone directive line (case-insensitive) sets it at once:
-   - structured: `$dynaflows`, `$dynaflows` followed by an on verb (`on`, `enable`, `init`, `initialise`, `start`,
-     `set up`, `turn on`, `structured`), or an on verb before `$dynaflows`;
-   - minimal: `$dynaflows off|disable|stop|minimal` or `disable|stop|turn off|minimal $dynaflows`.
-   Two contradictory lines change nothing; ask which the owner means.
-   A standalone `$rollout` line, or the tool's `rollout` option when asked, opts this work into device rollout.
-4. Judge any other wording, such as "I want to enable dynaflows": call the `dynaflows` tool (`mode`) only when the owner
-   is asking for it, not asking about it, quoting it or negating it. Never call it on your own initiative.
-5. Asking for structured mode with no record lists the repo in `modes.json` and starts [harness setup](harness-setup.md)
+   no `origin` remote or, for structured mode, no valid record means minimal mode.
+3. The owner switches the mode or opts into device rollout in the main chat; the rails apply `$dynaflows …` and
+   `$rollout` lines themselves.
+4. Asking for structured mode with no record lists the repo in `modes.json` and starts [harness setup](harness-setup.md)
    from Step 0; write the record yourself. A refused record resumes setup, and you repair the record in place.
    Write approval fields only as the owner stated them in the chat; never ask the owner to save a file.
-6. When the prompt is only the switch ask, report the stage found and start it; with setup complete, ask for the task.
-7. Select exactly one active playbook; it holds only deltas to the stage references:
+5. When the prompt is only the switch ask, report the stage found and start it; with setup complete, ask for the task.
+6. Select exactly one active playbook; it holds only deltas to the stage references:
    - evidence-only deliverable: [Investigation](investigation.md);
    - [Project setup](project-setup.md) is a prerequisite PR when controls are missing, when user-visible work has no
      Verification surface and feature map (`verification_surface.feature_map_path`) in the record's `profile.md`,
@@ -34,20 +27,20 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
    - multiple PRs or flagged delivery: [Multi-phase](multi-phase.md);
    - otherwise the primary deliverable selects [Bug fix](bug-fix.md), behaviour-preserving [Refactor](refactor.md)
      or [Feature](feature.md).
-8. Harness-owned per-edit `path-check` never triggers setup through `guardrails.check.repo`: it always uses the
+7. Harness-owned per-edit `path-check` never triggers setup through `guardrails.check.repo`: it always uses the
    record's required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings.
    An owner-approved no-runnable-app surface exemption does not trigger setup; it declares no feature map,
    so `freeze()` accepts no proofs there.
-9. An investigation report seeds Frame of a separately requested implementation; it is not permission to implement.
-10. Route these requests on:
-    - refactors and bugs: [delivery principles](delivery-principles.md);
-    - intermittent failures: `skill://test-guidance/references/flakes.md`;
-    - an owner correction: `skill://codify-omp-workflow-corrections`;
-    - changing dynaflows itself: the design directive in [AGENTS.md](../../../AGENTS.md);
-    - `orchestrate`: frame, delegate independent units and prove each unit;
-    - `workflowz`: native `workpool()` for independent fan-out;
-    - `jevify`: deterministic prefilter, frozen rubric, and calibrated `judge()` or `judge_batch()` for
-      single-state properties; read `skill://jev-actions`.
+8. An investigation report seeds Frame of a separately requested implementation; it is not permission to implement.
+9. Route these requests on:
+   - refactors and bugs: [delivery principles](delivery-principles.md);
+   - intermittent failures: `skill://test-guidance/references/flakes.md`;
+   - an owner correction: `skill://codify-omp-workflow-corrections`;
+   - changing dynaflows itself: the design directive in [AGENTS.md](../../../AGENTS.md);
+   - `orchestrate`: frame, delegate independent units and prove each unit;
+   - `workflowz`: native `workpool()` for independent fan-out;
+   - `jevify`: deterministic prefilter, frozen rubric, and calibrated `judge()` or `judge_batch()` for
+     single-state properties; read `skill://jev-actions`.
 
 ## Done when
 

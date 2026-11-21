@@ -9,6 +9,7 @@ mapping.
 
 - Check calibration when code reads a probability itself: confidence bands, an escalation band,
   weighted composite scores, or displayed likelihoods.
+  Any score shown to a person, with or without a disclaimer, is a displayed likelihood.
   A single threshold needs only [threshold tuning](threshold-tuning.md).
 - Calibrated means, for example, about 80% of cases scored near 0.80 are true; check it on the
   user's data whatever published tests found.

@@ -54,7 +54,7 @@ Label 1 when the rule holds; the second line names what is not a violation.
 
 - Each decision's version key hashes `{question, state, model}`; the aggregate hashes
   `{questions, state, model}` (compact sorted-key JSON). `scores.csv` uses `<question>@<key>`.
-- A yes means the named violation is present. Every decision is provisional and shadow-only.
+- A yes means the named violation is present. Every yes blocks merge.
 
 ## Labels and exclusions
 
@@ -63,7 +63,7 @@ Label 1 when the rule holds; the second line names what is not a violation.
 - 2026-11-21: the innovation council labelled the 58 scored cases blind to scores and earlier
   labels; Claude arbitrated and appended one `agent_reviewed` row per case (`labeller`,
   `arbiter`, `council_label`). A human label stays the counting label until the owner confirms a
-  change; disagreements are listed in [retune-2026-11-21.md](retune-2026-11-21.md).
+  change.
 - SN038, SN040, SN042 and SN044 are decided in code (no eligible cluster), and SN005 is an
   abstention for insufficient evidence: all five stay out of scores.
 

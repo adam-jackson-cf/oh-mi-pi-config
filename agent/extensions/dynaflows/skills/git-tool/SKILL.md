@@ -20,7 +20,6 @@ The mode is the repo's dynaflows `mode`, `minimal` or `structured`. In minimal m
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
 - Run `git status`, `git diff` and `git log` first; never `git reset --hard`, `git clean`, `git restore`, `rm` or repo-wide rewrite scripts.
-- Never commit or push to the default branch, stage secrets or bypass commit checks and hooks.
 - Runbook: [Authority and safety](references/authority-and-safety.md)
 
 ## Branch and integrate

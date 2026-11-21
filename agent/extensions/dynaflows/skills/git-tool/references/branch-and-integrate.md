@@ -34,7 +34,6 @@ The assigned writer performs these steps:
    CI uses `checks.ci` when declared; do not add pre-push or handoff suite runs.
 2. Push the branch to the resolved GitHub primary remote, adding upstream tracking when needed.
    No routine rebase is needed; in structured mode [merge-and-recover](merge-and-recover.md) owns rebase conditions.
-   Never push to the default branch.
 3. Read [PR description](pr-description.md) and write the complete body. Use existing reported evidence only;
    unavailable comparable measurements are `baseline unavailable`.
 4. Open the actual PR with the prepared body, concise title, resolved base and agent branch head.

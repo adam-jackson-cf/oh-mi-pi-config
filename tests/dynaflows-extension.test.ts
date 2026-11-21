@@ -79,11 +79,9 @@ test("instructions the rails enforce or the owner dropped are gone; the unenforc
 	const policy = readFileSync(join(root, "agent/AGENTS.md"), "utf8");
 	for (const removed of ["Device rollout:", "Git: read", "device_rollout.py"]) assert.equal(policy.includes(removed), false, removed);
 	for (const kept of ["Never run Git in or copy into the NUC's", "Restart OMP sessions on each device"]) assert.ok(policy.includes(kept), kept);
-	const adr = readFileSync(join(root, "docs/adr/0017-dynaflows-runtime-rails.md"), "utf8");
-	for (const unenforced of ["No Git in the NUC's", "Restart sessions after rail changes"]) {
-		assert.ok(adr.includes(unenforced), `ADR 0017 lists ${unenforced} as not enforced`);
+	const limits = readFileSync(join(root, "agent/extensions/dynaflows/AGENTS.md"), "utf8").split("## Known limits")[1] ?? "";
+	for (const unenforced of ["no Git in the NUC's", "restart sessions after rail changes"]) {
+		assert.ok(limits.includes(unenforced), `the dynaflows known limits list ${unenforced} as not enforced`);
 	}
-	assert.ok(adr.includes("Resolve councils after 2 rounds | Dropped (owner, 2026-11-21): not kept"), "ADR 0017 records the council rule as dropped");
-	assert.equal(adr.includes("Council resolution after 2 rounds"), false, "the dropped council rule is not listed as an unenforced fact");
 	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the record docs and schema");
 });
