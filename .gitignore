@@ -130,6 +130,7 @@ tests/fixtures/*
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
+!tests/test_implementation_integrity_judgment.py
 !tests/test_workflows.py
 !tests/test_orca_install_seams.py
 !tests/test_workflows_seams.py

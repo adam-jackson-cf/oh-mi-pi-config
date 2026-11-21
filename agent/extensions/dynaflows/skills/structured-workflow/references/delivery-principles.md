@@ -6,13 +6,13 @@ Tags separate deterministic enforcement, agent judgment and guidance; a judgment
 ## Implementation integrity
 
 - No Python stub bodies (`pass`, `...`, `raise NotImplementedError`); declarations exempt. Enforced by CODE.no-placeholder-bodies (guardrails diff-check).
-- Non-Python stub bodies remain an agent judgment, not a deterministic check. Judged by main/implementation-integrity.
+- Non-Python stub bodies remain an agent judgment, not a deterministic check. Judged by implementation-integrity/weakens_verification.
 - Never add mock imports or calls to product code outside profile test, support and fixture paths. Enforced by CODE.no-product-mocks (guardrails diff-check).
-- Outside tests, never use hardcoded values or stub implementations. Judged by main/implementation-integrity.
-- Never suppress, bypass, default or work around quality-gate failures, errors, deprecation warnings or test failures. Judged by main/implementation-integrity.
-- Never alter, disable, suppress, loosen or conditionally bypass gates or tests, e.g. `--skip` or `--no-verify`. Judged by main/implementation-integrity.
-- Never add fallback modes or temporary strategies to meet task requirements. Judged by main/implementation-integrity.
-- After a failure, never change or abandon the task without the user's permission. Judged by main/implementation-integrity.
+- Outside tests, never use hardcoded values or stub implementations. Judged by implementation-integrity/weakens_verification.
+- Never suppress, bypass, default or work around gate and test failures, errors or deprecations. Judged by implementation-integrity/weakens_verification.
+- Never alter, disable, suppress, loosen or conditionally bypass gates or tests, e.g. `--no-verify`. Judged by implementation-integrity/weakens_verification.
+- Never add fallback modes or temporary strategies to meet task requirements. Judged by implementation-integrity/weakens_verification.
+- After a failure, never change or abandon the task without the user's permission. Judged by implementation-integrity/weakens_verification.
 - Add no comments, including docstrings, on added or touched lines of any file type with comments. Enforced by CODE.no-comments (guardrails diff-check).
 - Tool directives listed in catalogue `CODE.no-comments` exemptions are not comments. Enforced by CODE.no-comments (guardrails diff-check).
 - In multiline directive comments, only directive lines and empty delimiters are exempt. Enforced by CODE.no-comments (guardrails diff-check).
