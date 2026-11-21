@@ -51,10 +51,11 @@ in the repository.
 
 Structure/naming judgment runs separately after `prove()` through `structure_review()`.
 With dynaflows on, rails require both result files for the PR's exact head plus green CI.
-Ready-decision findings set `halt: true` and hard-block merge via rails, not an instruction
-to main. Provisional findings and recorded infrastructure errors remain shadow-only.
-A missing, corrupt or wrong-head structure result blocks even with all thresholds provisional:
-the review must run on that head. Fix ready findings and rerun both helpers on the new head.
+Superseded by [ADR 0021](0021-judgments-enforced-from-the-start.md): every finding sets
+`halt: true` and hard-blocks merge via rails, not an instruction to main; recorded infrastructure
+errors leave the review incomplete, which blocks too. A missing, corrupt or wrong-head structure
+result blocks: the review must run on that head. Fix findings and rerun both helpers on the new
+head.
 
 ## Deciders
 

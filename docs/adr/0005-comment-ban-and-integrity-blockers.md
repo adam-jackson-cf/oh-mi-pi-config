@@ -54,9 +54,9 @@ Python checker.
 The catalogue and proposed native settings remove Ruff D selection, pydocstyle convention and
 docstring-code-format. D-related ignores are obsolete and removed too. Repository-owned linter
 configurations and personal records are only inspected and reported, never changed by this PR.
-Existing docstrings remain structure-judge evidence; the structure judge remains shadow unless its
-independently approved decision is ready. Banning additions does not erase evidence or promote
-the judge to a blocker.
+Existing docstrings remain structure-judge evidence. Banning additions does not erase evidence.
+Superseded by [ADR 0021](0021-judgments-enforced-from-the-start.md): the structure judge blocks
+from the start; it has no shadow mode and no `ready` decision.
 
 `TEST.growth.justified` previously required inline behaviour comments and therefore contradicted the
 ban. Its input now comes from descriptive Python function names or JS/TS test titles. The deterministic

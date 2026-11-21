@@ -767,6 +767,8 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 			JSON.stringify({ head: ciHead, halt: "false", status: "pass", findings: [] }),
 			JSON.stringify({ head: ciHead, halt: false, status: "shadow", findings: [] }),
 			JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [{ unit: "u", question: "q", status: "ready", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ unit: "u", question: "q", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "blocked", findings: [] }),
 		]) {
 			await watched(content);
 			assert.equal((await h.call("bash", { command }))?.block, true);

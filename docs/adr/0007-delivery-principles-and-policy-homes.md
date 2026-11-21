@@ -19,8 +19,9 @@ Native rules are reply reminders, cover main and task, and repeat once. Flakes a
 claims remain test topics. Rails' dynaflowsRules list remains the suppression authority.
 
 Every policy bullet has one status. Enforced tags name catalogue IDs and their subcommands;
-structure judgment tags name existing threshold decisions. Provisional judgments remain
-shadow-only. `main/implementation-integrity` means ordinary agent judgment, not a calibrated
+structure judgment tags name existing threshold decisions. Superseded by ADR 0021: no judgment
+is provisional or shadow-only. `main/implementation-integrity` means ordinary agent judgment, not
+a calibrated
 judge or blocking checker. `agent-rails/*` tags name native reply-reminder questions, not
 semantic proof that an implementation obeys the rule. The policy test checks these distinctions.
 

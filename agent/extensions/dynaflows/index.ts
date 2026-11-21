@@ -202,6 +202,16 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 	if (!parsesAs(result, text)) return `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`;
 	return evidence.trusts(path, text) ? undefined : untrustedEvidence("prove()", head, path);
 }
+type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string }[] };
+// Every finding blocks (ADR 0021): only a pass with no findings, no halt and no errors admits the merge.
+function structureBlock(result: StructureVerdict, head: string): string | undefined {
+	if (result.status === "incomplete" || result.errors?.length) {
+		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
+	}
+	if (result.status === "pass" && !result.halt && !result.findings.length) return;
+	const findings = result.findings.map(item => `${item.unit}: ${item.question}`);
+	return `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+}
 async function structureResultReason(pi: ExecApi, cwd: string, head: string, evidence: Evidence): Promise<string | undefined> {
 	const path = join(await commonDir(pi, cwd), "omp-structure", `${head}.json`);
 	const finding = z.object({
@@ -221,12 +231,7 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 	try { text = await readFile(path, "utf8"); result = schema.parse(JSON.parse(text)); }
 	catch { return `Agent rails: no valid structure_review() result for ${head} at ${path}; run structure_review() for this head, then merge.`; }
 	if (!evidence.trusts(path, text)) return untrustedEvidence("structure_review()", head, path);
-	if (result.status === "incomplete" || result.errors?.length) {
-		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
-	}
-	if (!result.halt) return;
-	const findings = result.findings.map(item => `${item.unit}: ${item.question}`);
-	return `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
+	return structureBlock(result, head);
 }
 type PrCi = { reason: string } | { head: string; repository: string; base: string; headRef: string; state: string; gate: Gate | undefined; ciReason: string | undefined };
 // The turn-end status of the agent's PR: open is unmet while agents may merge; pending or failing CI
