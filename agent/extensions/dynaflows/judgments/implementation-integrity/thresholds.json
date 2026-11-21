@@ -1,0 +1,156 @@
+{
+  "version_key": "1a381c34a2f834a4d969cf16d02e694b69fe6f0112dd2e5b3a79edf6eadf0048",
+  "question_version": "implementation-integrity@1",
+  "model": "typesafe/jev-1.14.0",
+  "model_reported": "unavailable: eval judge() returns answers only, with no model metadata",
+  "model_resolution": "omp 19.0.1 judge role overlay {modelRoles.judge: typesafe/jev-1.14.0, retry.fallbackChains.judge: []}, TYPESAFE_API_KEY from Infisical dev. Checks: a bogus typesafe model and a run with no TypeSafe key both changed the answer (1 instead of 0.93), so the overlay route was used; the endpoint could not be observed (TYPESAFE_BASE_URL proxy saw no request).",
+  "score_space": "raw",
+  "status": "provisional",
+  "mode": "shadow: not wired into rails",
+  "decisions": {
+    "weakens_verification": {
+      "threshold": null,
+      "status": "provisional",
+      "version_key": "b7ec26b4a15a5512d46980f74a50ee2a24f66f579bcc5452643e32bb258f3092",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "Owner gave none; jev-actions defaults. Not met."
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 2
+      },
+      "cost_rule": "A miss costs more than a false flag: a weakening that lands erodes every later check, a false flag costs one review.",
+      "escalation_band": {
+        "no_below": 0.105,
+        "yes_at_or_above": 0.8,
+        "status": "measured, not for gating",
+        "source": "no_below: tune_threshold.py --min-precision 0 --min-recall 0.95 (dev CV fold thresholds 0.100-0.115); yes_at_or_above: --min-precision 0.9 --min-recall 0 (fold thresholds 0.755-0.805)",
+        "fallback": "a person (owner, or the arbiter on labels); measured as the counting label",
+        "dev": {
+          "cases": 63,
+          "confident_no": 24,
+          "missed_positives": 0,
+          "confident_yes": 4,
+          "false_yes": 0,
+          "escalated": 35,
+          "escalation_rate": 0.556,
+          "cascade_accuracy": 1
+        },
+        "test": {
+          "cases": 30,
+          "confident_no": 4,
+          "missed_positives": 1,
+          "confident_yes": 1,
+          "false_yes": 0,
+          "escalated": 25,
+          "escalation_rate": 0.833,
+          "cascade_accuracy": 0.967
+        },
+        "agreed_accuracy_loss": "unknown: the owner has not set one"
+      },
+      "results": {
+        "default_0_5_dev_heldout": {
+          "precision": 0.636,
+          "recall": 0.389,
+          "tp": 7,
+          "fp": 4,
+          "fn": 11
+        },
+        "default_0_5_test": {
+          "precision": 0.778,
+          "recall": 0.5,
+          "tp": 7,
+          "fp": 2,
+          "fn": 7
+        },
+        "no_threshold_dev_heldout": {
+          "precision": 0.436,
+          "recall": 0.944,
+          "tp": 17,
+          "fp": 22,
+          "fn": 1
+        },
+        "no_threshold_test": {
+          "precision": 0.5,
+          "recall": 0.929,
+          "tp": 13,
+          "fp": 13,
+          "fn": 1
+        },
+        "yes_threshold_dev_heldout": {
+          "precision": 0.8,
+          "recall": 0.222,
+          "tp": 4,
+          "fp": 1,
+          "fn": 14
+        },
+        "yes_threshold_test": {
+          "precision": 1,
+          "recall": 0.071,
+          "tp": 1,
+          "fp": 0,
+          "fn": 13
+        },
+        "minimums_run": "--min-precision 0.8 --min-recall 0.8 --beta 2 --conservative --repeats 5: 0 of 25 folds qualified; no threshold",
+        "calibration": "Brier raw 0.1662, Platt held-out 0.1652; test raw 0.2242, Platt 0.2196 (a 0.8259, b -0.0099). Not applied: no code reads the probability and the gain is within noise. Probabilities are not fit to show as confidence."
+      },
+      "error_analysis": {
+        "at": 0.5,
+        "dev_false_negatives": [
+          "II06",
+          "II29",
+          "II30",
+          "II32",
+          "II38",
+          "II45",
+          "II49",
+          "II50",
+          "II67",
+          "II80",
+          "II91"
+        ],
+        "dev_false_positives": ["II19", "II46", "II65", "II66"],
+        "cause": "8 of 11 misses are one added skip or suppression line (Y1, Y3) inside a long diff; 2 of 4 false flags are tests deleted with their feature (N3). Proposed fix, not applied: pass code-detected skip and suppression lines as a fact in state, or leave Y1/Y3 to TEST.no-evasion and RUFF.IGNORES and narrow the question (rubric Q9)."
+      },
+      "shortfalls": [
+        "No threshold meets precision 0.8 and recall 0.8 on dev; threshold is null.",
+        "18 dev and 14 test positives; about 30 per label per split are needed before tuning counts.",
+        "Escalation band escalates 56% of dev and 83% of test cases; no agreed accuracy loss.",
+        "Y1 and Y3 overlap deterministic rules TEST.no-evasion, TEST.coverage-ratchet and RUFF.IGNORES.",
+        "Cases are capped at 12000 diff characters; 13 of 93 are truncated, and commits with diffs over 14000 characters were not sampled.",
+        "Labels are agent_reviewed, not human; the owner may override any label."
+      ]
+    }
+  },
+  "label_set": {
+    "cases": 93,
+    "dev": 63,
+    "test": 30,
+    "positives": {
+      "dev": 18,
+      "test": 14
+    },
+    "negatives": {
+      "dev": 45,
+      "test": 16
+    },
+    "synthetic": 0,
+    "unit": "commit (repository@sha)",
+    "split": "sha256(unit) mod 10 < 3 is test; no unit spans both",
+    "strata": "repository",
+    "sampling": "73 commits picked from pattern searches over 13 owner repositories (skips, suppressions, thresholds, removed assertions, weakening words in subjects), 7 more from early enaible-analyzers history, 13 sampled at random (seed 7) as ordinary negatives",
+    "provenance": "agent_reviewed: innovation-council labelled blind to scores in 5 batches (omp -p, council plus innovation-challenger and experiment-peer); 13 challenger/peer disagreements; claude arbitrated every case and changed none; notes per label in labels.jsonl. The arbiter saw part of a raw score dump before arbitrating.",
+    "guide": "label-guide.md (sha256 2551d4ccac5140854c60457ee9d47e6bb33d748c87409eea3a7af1ea854e9e07). Labellers saw the same rules as tables (sha256 07f81c1da45de3838b4450211d9be0ea687b9cc218923743bb25e55850aecafc); the tables became lists for the markdown line limit, with rule IDs and wording unchanged."
+  },
+  "assumptions": [
+    "Minimums 0.8/0.8 are assumed, not owner-confirmed.",
+    "Raw probabilities are not calibrated confidence.",
+    "Owner approval counts only when commit.message cites it (A1)."
+  ],
+  "cost_per_100_cases_usd": "unknown: judge() reports no usage",
+  "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; then decide whether to wire it in shadow."
+}
