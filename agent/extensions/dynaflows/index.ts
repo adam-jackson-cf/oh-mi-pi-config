@@ -136,7 +136,7 @@ function startContent(slug: string, workflow: string): string {
 		"and start it. If the owner's message also names a task, route that task; if setup is complete and no task was " +
 		"named, report that dynaflows is ready and ask the owner for the task.";
 }
-const agentMessage = (content: string) => ({ message: { customType: "agent-rails-dynaflows", content, display: false, attribution: "agent" as const } });
+const agentMessage = (content: string) => ({ message: { customType: "dynaflows", content, display: false, attribution: "agent" as const } });
 const toolReply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 const machineModeSchema = z.object({ schemaVersion: z.literal(2), mode: z.enum(MODES) }).strict();
 const machineRequirement = '{"schemaVersion": 2, "mode": "minimal"|"structured"}';
@@ -295,11 +295,9 @@ async function recordMode(slug: string | null, dir: string, strict: boolean): Pr
 async function machineMode(path: string): Promise<Mode | undefined> {
 	const text = await readFile(path, "utf8").catch(absentFile);
 	if (text === null) return undefined;
-	const value = z.record(z.string(), z.unknown()).safeParse(JSON.parse(text));
-	const parsed = machineModeSchema.safeParse(value.success ? value.data : undefined);
+	const parsed = machineModeSchema.safeParse(JSON.parse(text));
 	if (parsed.success) return parsed.data.mode;
-	const legacy = value.success && Object.hasOwn(value.data, "enabled") ? "unknown field enabled must be removed; " : "";
-	throw new Error(`the machine default ${path} is invalid: ${legacy}it must be ${machineRequirement}`);
+	throw new Error(`the machine default ${path} is invalid: it must be ${machineRequirement}`);
 }
 async function machineModeAt(path: string, slug: string | null, strict: boolean): Promise<ModeAt | undefined> {
 	try {

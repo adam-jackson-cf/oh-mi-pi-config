@@ -1,6 +1,7 @@
 # ADR 0006: Test guidance is generic
 
-- Status: accepted
+- Status: Superseded in part by [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the retention of
+  deprecated coding-guidance files)
 - Date: 2026-11-18
 
 ## Decision

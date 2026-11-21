@@ -53,8 +53,6 @@ tools/oxlint/*
 !tools/oxlint/anti-slop/
 !tools/oxlint/anti-slop/**
 
-!adr/
-adr/*
 !docs/
 !docs/**
 !agent/
@@ -63,8 +61,6 @@ agent/*
 !agent/RULES.md
 !agent/config.yml
 !agent/lsp.json
-!agent/rules/
-agent/rules/*
 !agent/skills/
 agent/skills/*
 !agent/skills/omp-config-optimise/

@@ -136,10 +136,10 @@ class GateReason(unittest.TestCase):
         ]
         cases += [
             (
-                gate(dynaflows=switch),
+                gate(dynaflows=mode),
                 'dynaflows must be {"mode": "minimal"|"structured"}',
             )
-            for switch in (
+            for mode in (
                 None,
                 {},
                 {"mode": "on"},
@@ -147,14 +147,6 @@ class GateReason(unittest.TestCase):
                 {"mode": "minimal", "other": 1},
                 True,
             )
-        ]
-        cases += [
-            (
-                gate(dynaflows=switch),
-                "unknown field dynaflows.enabled must be removed; "
-                'dynaflows must be {"mode": "minimal"|"structured"}',
-            )
-            for switch in ({"enabled": True}, {"mode": "minimal", "enabled": False})
         ]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):

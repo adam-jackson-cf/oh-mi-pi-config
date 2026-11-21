@@ -152,8 +152,6 @@ def _settings_reason(gate: dict[str, Any]) -> str | None:
 
 
 def dynaflows_reason(dynaflows: object) -> str | None:
-    if isinstance(dynaflows, dict) and "enabled" in dynaflows:
-        return f"unknown field dynaflows.enabled must be removed; {MODE_REQUIREMENT}"
     if (
         not isinstance(dynaflows, dict)
         or set(dynaflows) != {"mode"}

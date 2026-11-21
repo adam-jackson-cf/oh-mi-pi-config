@@ -115,8 +115,8 @@ Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), wi
 bundled workflow guidance and judged rules. Its [workflow
 skill](agent/extensions/dynaflows/skills/structured-workflow/SKILL.md) is available as
 `skill://structured-workflow`; its preflight step defines how the owner switches a repository
-between minimal and structured mode in the main chat (for example a standalone `$dynaflows on` or
-`$dynaflows off` line) and how the mode, record and playbook resolve. In structured mode, rails
+between minimal and structured mode in the main chat (for example a standalone `$dynaflows structured`
+or `$dynaflows minimal` line) and how the mode, record and playbook resolve. In structured mode, rails
 inject the workflow pointer, require guardrail owner approval and guard `gh pr merge` as above.
 Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
 `git worktree add` targets must sit at `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides
@@ -129,8 +129,8 @@ mode. Existing user exclusions are preserved; structured mode leaves the setting
 
 omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Dynaflows is also
 listed as a directory in `extensions:` so its sibling skills and rules load. Both routes resolve
-the same entry file and omp de-duplicates it. A package skill keeps its bare name without a
-collision; the deprecated original is disabled to avoid one. See
+the same entry file and omp de-duplicates it. A package skill keeps its bare name unless a different
+skill of the same name collides. See
 [ADR 0009](docs/adr/0009-dynaflows-is-an-extension-package.md).
 To disable a module, add `disabledExtensions: [extension-module:<name>]`; explicitly configured
 files bypass that filter, while modules expanded from configured package directories do not.

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Superseded in part by [ADR 0014](0014-remove-owner-only-paths.md) (the `ownerOnlyPaths` commit
+block) and [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (`--enable-dynaflows` and
+`dynaflows.enabled` gave way to `--dynaflows-mode` and `dynaflows.mode`).
 
 ## Context
 

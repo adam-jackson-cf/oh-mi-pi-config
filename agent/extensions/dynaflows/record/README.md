@@ -69,11 +69,11 @@ roles as a workaround. A non-Actions runner may retain a weekly and manual
 `workflow_dispatch` GitHub workflow as a fallback rather than running it on PRs.
 Git-tool's exact-head verification loop governs submission, waiting and fallback use.
 
-### Process switch and events
+### Process mode and events
 
 `dynaflows.mode` selects the harness process: `minimal` or `structured`. No origin or no record
-means minimal mode. The obsolete `enabled` key is rejected by name. Write `structured` only when
-the owner asked for it in chat; otherwise write `minimal`. A later owner request can switch it.
+means minimal mode. Write `structured` only when the owner asked for it in chat; otherwise write
+`minimal`. A later owner request can change it.
 The machine file `~/.omp/dynaflows.json` (`{"schemaVersion": 2, "mode": "minimal"|"structured"}`)
 set to `minimal` forces minimal mode for every repository; `structured` or no file defers to the
 record. [ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the

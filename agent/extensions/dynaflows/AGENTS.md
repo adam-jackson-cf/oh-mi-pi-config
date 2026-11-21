@@ -71,8 +71,6 @@ the [exceptions](#exceptions) below are the only standing ones.
 - Principles 1–2: harness `guardrails path-check` gives one per-edit contract from record
   settings, even where repo checks overlap; repo build, tests and CI stay independent
   ([ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md)).
-- Principle 4: deprecated skills stay on disk untouched until a final owner-signed-off cleanup PR;
-  this is not a compatibility path.
 - Principles 5 and 7: automatic naming, structure and path checks judge only new paths and segments,
   and `prove()` runs those new-path pre-checks at the PR; full scans are explicit requests, and
   `structure_review()` findings are shadow-only unless a decision is `ready`

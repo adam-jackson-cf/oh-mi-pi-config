@@ -2,12 +2,14 @@
 
 ## Objective
 
-Maintain a repository-local record of each correction rule, its enforcer, and historical proof.
+Maintain a per-repository table of each correction rule, its enforcer, and historical proof.
 
 ## Guidance
 
-Use an existing repository rule registry when available; otherwise maintain `.omp/rules.md`.
-Do not put repository-specific entries in this shared reference or add fields to `.omp/gate.json`.
+Use the repository's existing rule registry when it has one; otherwise maintain `rules.md` in the
+repo's record (`<harness>/repos/<owner>/<name>/`, see the
+[record contract](../../../record/README.md)), never in the target repository. Do not put
+repository-specific entries in this shared reference or add fields to the record's `gate.json`.
 
 ### Format
 
