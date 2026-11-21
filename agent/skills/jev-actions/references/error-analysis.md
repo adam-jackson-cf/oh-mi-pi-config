@@ -8,10 +8,15 @@ Turn measured errors into the next fix.
 
 - Run this after a new scoring run on `dev`, and first when the user reports errors and a labeled
   `scores.csv` exists.
+- When reviewing a claimed change between versions, first recompute each version's ranking on the
+  cases that comparison used, and report it as the verdict on the claim.
+  Then drop cases production would never ask before error analysis; report their count, and any
+  ranking on them, separately as non-production evidence.
 - When [threshold tuning](threshold-tuning.md) reports ranking `fails`, give the question, not each
   error, one cause: question wording, missing or clipped state, question overlap, or a policy gap;
   never a threshold, band or more cases of the same kind.
-  Ranking `insufficient units` needs cases from more units, not a cause.
+  Ranking `insufficient units` gets no question-level cause and needs cases from more units; still
+  list each error below and give it a cause, including the fresh-context check.
 - List each question's errors at its threshold in `thresholds.json`: the `dev` rows scoring at or
   above it with label 0, or below it with label 1; `--errors` uses only the script's own threshold.
   With no entry, ask the user once for the threshold or the file holding it; if they name none, use
@@ -49,14 +54,16 @@ Turn measured errors into the next fix.
 - When cases come in before/after pairs, check each pair's order: the positive must score above its
   partner; an inversion under every version points to construct or criteria, not wording.
 - Before attributing a score shift between runs, re-score the same cases at least 3 times with an
-  identical state hash, and report the spread per question; treat a shift inside that spread as
-  noise.
+  identical state hash, and report the spread per question with the state hash of each run; treat a
+  shift inside that spread as noise.
 - Between two scoring runs you compare, change only one of question text, state builder, or model or
   route.
   When more than one changed, score each change alone on the same cases, the cross of old and new,
   before attributing any difference to one of them.
   When an existing comparison already mixes changes, score that cross before making any further
   change to text, state or builder.
+  In a prescribed step list, place the cross and the repeat runs before any step that changes
+  question text, state builder, model, route or cases.
 - Fix the cause with the most errors first, then rerun: after label fixes, copy `scores.csv` to
   `scores.relabeled.csv` with corrected counting labels and re-tune on its `dev` rows; after a
   version key change, re-pin as the docs runbook describes, re-score `dev`, re-tune with the stored minimums, and run `test` once the version is final.

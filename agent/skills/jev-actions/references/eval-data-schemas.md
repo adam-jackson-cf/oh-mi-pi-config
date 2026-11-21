@@ -33,7 +33,10 @@ Store eval files where they belong, in shapes every later step and the tuning sc
 - `labels.jsonl`, appended per label event:
   `case_id, question_id, question_version, label, by, provenance, rule, note, timestamp, confirmed,
   blind`, with `label` 1 or 0, for a Choice the correct option key, or `abstain` with the reason in
-  `note`, which counts as no label and is reported per question.
+  `note`, which any labeller may give, counts as no label and is reported per question; `unsure` is
+  not a label value.
+  `provenance` is one of `arbiter`, `outcome`, `agent_reviewed`, `agent`, `unknown` or `owner`, a
+  person's label, which never counts and which no labeller or arbiter sees.
   `note` holds any arbitration reason, `question_version` the version key the label was made
   under, `confirmed` on `arbiter` rows `individual` when the arbiter decided this case alone, else
   `bulk`, and `blind` true when the labeller saw no score and no earlier label for the case.

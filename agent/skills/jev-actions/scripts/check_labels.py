@@ -22,7 +22,10 @@ checks the labels a tuning run may count, per question:
 - Version key: with `--version-key QUESTION=KEY`, a row of that question whose
   `question_version` is not KEY counts as no label, as after a meaning change.
 - Abstain: a counting label of `abstain` gives its case no label; abstains are
-  reported per question.
+  reported per question. `unsure` is not a label value.
+- Owner: an `owner` row, a person's label, never counts.
+- Unit rule: when every case has its own unit, the unit is likely the judged
+  item, and every question fails until `unit` is recomputed.
 - Unit coverage: each label has counting labels on `dev` cases from at least
   `--min-units` independent units (default 2); a yes-or-no question needs both.
 
@@ -38,10 +41,12 @@ Example:
 """
 
 COUNTING = ("outcome", "agent_reviewed", "unknown")
-PROVENANCES = frozenset({"arbiter", "agent", *COUNTING})
+OWNER = "owner"
+PROVENANCES = frozenset({"arbiter", "agent", OWNER, *COUNTING})
 BLIND_REQUIRED = frozenset({"arbiter", "agent_reviewed"})
 BINARY = frozenset({"0", "1"})
 ABSTAIN = "abstain"
+UNSURE = "unsure"
 Result = dict[str, Any]
 
 
@@ -114,6 +119,10 @@ def label_value(row: dict[str, Any]) -> str:
         sys.exit(
             f"labels.jsonl line {row['_line']}: label must be 1, 0, abstain or an option key"
         )
+    if str(value).strip().lower() == UNSURE:
+        sys.exit(
+            f"labels.jsonl line {row['_line']}: unsure is not a label value; use abstain"
+        )
     return str(value)
 
 
@@ -160,6 +169,27 @@ def own_fault(row: Label) -> str | None:
     if row.confirmed != "individual":
         return "confirmed is not individual"
     return None
+
+
+def owner_rows(labels: list[Label]) -> dict[int, str]:
+    """Map the line of each owner row to its reason; a person's label never counts."""
+    return {
+        row.line: "owner label never counts"
+        for row in labels
+        if row.provenance == OWNER
+    }
+
+
+def unit_check(cases: dict[str, CaseInfo]) -> Result:
+    """Fail when every case has its own unit, the sign of a judged-item unit."""
+    units = len({case.unit for case in cases.values()})
+    passes = len(cases) < 2 or units < len(cases)
+    reason = (
+        ""
+        if passes
+        else f"every one of {len(cases)} cases has its own unit; recompute unit under unit_rule"
+    )
+    return {"cases": len(cases), "units": units, "passes": passes, "reason": reason}
 
 
 def stale_rows(labels: list[Label], versions: dict[str, str]) -> dict[int, str]:
@@ -284,7 +314,12 @@ def audit(
 ) -> Result:
     scope = scope or Scope()
     versions = scope.versions
-    dropped = stale_rows(labels, versions)
+    dropped = owner_rows(labels)
+    dropped.update(
+        (line, reason)
+        for line, reason in stale_rows(labels, versions).items()
+        if line not in dropped
+    )
     dropped.update(
         (line, reason)
         for line, reason in bulk_rows(labels).items()
@@ -302,11 +337,15 @@ def audit(
             report["passes"] = False
             report["reasons"].insert(0, "no counting labels")
     by_line = {row.line: row for row in labels}
+    units = unit_check(cases)
     return {
         "min_units": min_units,
         "proposals": proposals,
         "version_keys": dict(sorted(versions.items())),
-        "passes": all(r["passes"] for r in reports) and bool(reports),
+        "unit_check": units,
+        "passes": all(r["passes"] for r in reports)
+        and bool(reports)
+        and units["passes"],
         "questions": reports,
         "not_counted": row_list(dropped, by_line),
         "counted_as_agent": row_list(sighted, by_line),
@@ -337,6 +376,8 @@ def print_markdown(result: Result) -> None:
         f"Minimum dev units per label: {result['min_units']}; agent proposals counted: "
         f"{'yes, so this result never approves tuning' if result['proposals'] else 'no'}\n"
     )
+    if not result["unit_check"]["passes"]:
+        print(f"- FAIL: {result['unit_check']['reason']}\n")
     for r in result["questions"]:
         print(f"## {r['question_id']}\n")
         for label, n in r["labels"].items():

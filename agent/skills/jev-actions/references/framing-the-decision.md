@@ -42,6 +42,8 @@ or collecting cases.
   - Action: log only, so a Choice or Score below its threshold drives nothing.
   - Baseline: whatever runs today, else nothing.
   - Costs: equal.
+    Costs come only from the user: record an agent's rationale for unequal costs as `assumed`, and
+    keep the equal-cost defaults (threshold 0.5, F1, minimums 0.8/0.8) until the user answers.
   - Minimums: precision 0.8 and recall 0.8, raising recall to 0.9 when the Costs answer says a miss
     costs more, or precision to 0.9 when it says a false action does; minimums given without a
     reason take reason `none given`.

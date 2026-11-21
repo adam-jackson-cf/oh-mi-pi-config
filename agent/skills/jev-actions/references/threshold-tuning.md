@@ -13,6 +13,9 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   enforcement back until tuning is done.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
   fails, set the cost-rule default, record the failed gate in `shortfalls`, and ship enforced.
+  List every repository doc, ADR, plan or code comment that requires a shadow or provisional state,
+  and delete or rewrite it in the change that ships enforcement; the user's instruction decides
+  conflicts.
 - Cost-rule default: 0.3 when a miss costs more, 0.7 when a false action does, else 0.5; record the
   cost rule behind it.
 - Write each decision as a single cutoff `{"threshold": t}`: yes at score >= t, else no.
@@ -77,6 +80,9 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   1. Replace the question with deterministic facts computed in code.
   2. Retire the question.
   3. Keep enforcing it, with the weakness recorded in `shortfalls`.
+
+  A question cannot reach about 30 cases only when the full history of every source the user names,
+  such as repositories, yields fewer; ask the user once for more sources before declaring it.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
   sizes and synthetic share; minimums, reasons and metric; AUC, its interval and ranking status;
   held-out results at 0.5 and the tuned threshold with fold range; `test` per stratum; cost per 100

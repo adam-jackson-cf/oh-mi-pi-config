@@ -28,8 +28,9 @@ depends on.
   A case production would never ask is out of scope; leave it out of `cases.jsonl`.
   Re-run replayed raw artifacts, such as whole files, records or transcripts, through the builder;
   never store them as `state` directly.
-- When production asks several questions in one call, label every case on every question production
-  asks it; a question with no label on a case is outside that case's eval, not a negative.
+- When production asks a case several questions, keep the case even when it was collected for one
+  question or stratum, and label it on every question production asks it; a question with no label
+  on a case is outside that case's eval, not a negative.
 - When nothing can be replayed, log each input production asks to `cases.jsonl` as `source` `replay`, stratum
   `unassigned`, with 30% of units hashed stably to `test`; label after 14 days, extending in 14-day
   steps until about 30 of each label exist.
@@ -46,6 +47,8 @@ depends on.
   a session, user, repository or conversation; never the judged item.
   For history replays it is the repository, unless the user approves a finer unit such as a
   before/after pair; record the choice as `unit_rule` in `thresholds.json`.
+  When reviewing existing data, check that `unit` is not the judged item; if it is, recompute it
+  under `unit_rule` before running `check_labels.py`, which exits 1 when every case has its own unit.
 - Before the council label pass, run
   `python3 -B scripts/check_labels.py --cases </abs/cases.jsonl> --labels </abs/labels.jsonl> --proposals`
   over agent pre-labels; while it exits 1, add cases from more units instead of labelling.

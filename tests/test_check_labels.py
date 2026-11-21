@@ -288,6 +288,11 @@ def test_a_named_question_without_labels_fails(
         ),
         (
             '{"case_id": "c0", "unit": "u0", "split": "dev"}\n',
+            '{"case_id": "c0", "question_id": "q", "label": "unsure", "provenance": "agent"}\n',
+            "labels.jsonl line 1: unsure is not a label value; use abstain",
+        ),
+        (
+            '{"case_id": "c0", "unit": "u0", "split": "dev"}\n',
             '{"case_id": "c0", "question_id": "q", "label": true, "provenance": "arbiter"}\n',
             "labels.jsonl line 1: label must be 1, 0, abstain or an option key",
         ),
@@ -409,3 +414,48 @@ def test_after_a_meaning_change_only_labels_under_the_new_key_count(
         "label 0 has dev cases from 1 units; need 2",
         "label 1 has dev cases from 1 units; need 2",
     ]
+
+
+def test_one_unit_per_case_fails_as_a_judged_item_unit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cases = [case(f"c{i}", f"folder{i}") for i in range(8)]
+    files = eval_files(tmp_path, cases, spread_labels())
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
+    assert code == 1
+    result = json.loads(out)
+    assert result["unit_check"] == {
+        "cases": 8,
+        "units": 8,
+        "passes": False,
+        "reason": "every one of 8 cases has its own unit; recompute unit under unit_rule",
+    }
+    [report] = result["questions"]
+    assert report["passes"] is True
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--proposals")
+    assert code == 1
+    assert "- FAIL: every one of 8 cases has its own unit" in out
+
+
+def test_owner_labels_never_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    labels = spread_labels()
+    labels.append({
+        **arbiter("c0", 1, "2026-11-21T12:00:00Z"),
+        "provenance": "owner",
+        "by": "owner",
+    })
+    files = eval_files(tmp_path, spread_cases(), labels)
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert [(r["case_id"], r["reason"]) for r in result["not_counted"]] == [
+        ("c0", "owner label never counts")
+    ]
+    [report] = result["questions"]
+    assert report["counting"]["c0"] == {"label": "0", "provenance": "arbiter"}
