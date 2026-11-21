@@ -1,9 +1,10 @@
 # Current routing
 
-Routing decision updated 2026-11-10 for the owner's Fable 5.2 experiment-design upgrade.
+Routing decision updated 2026-11-21 for the owner's Google AI subscription routes (Gemini 4
+Carbon implementation, Gemini 4 Neon council challenger).
 The installed source of truth is `~/.omp/agent/config.yml`; update this reference alongside
-routing changes. Claude routes use
-`anthropic`; GPT routes use `openai-codex`.
+routing changes. Claude routes use `anthropic`; GPT routes use `openai-codex`; Gemini routes use
+`agy`, the `agent/extensions/agy-cli.ts` provider that runs Google's Antigravity CLI.
 
 ## Roles
 
@@ -17,8 +18,10 @@ routing changes. Claude routes use
   `task.agentModelOverrides.reviewer: "@reviewer"`; without the override it inherited the parent's
   model (fresh-process check 2026-09-28). Used for open-ended contextual eval judging,
   in an independent cross-family session, not dynaflows proof.
-- `task` → GPT-6.1 Sol : medium. Implementation, including small fixes delegated by main.
-  Earlier Sonnet `low` fixed-plan measurements do not validate this route.
+- `task` → Gemini 4 Carbon : medium via `agy`. Implementation, including small fixes delegated
+  by main. Owner decision 2026-11-21. agy runs its own tool loop: its edits and commands bypass
+  omp's rails and `gitGuard`, and omp skills, rules and context files are not forwarded.
+  Earlier Sol and Sonnet fixed-plan measurements do not validate this route.
 - `smol` → GPT-6 Luna : low. Used by `sonic` (Fast) and prewalk.
   The `scout` agent is an exception: `task.agentModelOverrides.scout` explicitly selects
   `anthropic/claude-haiku-5-5:medium`, not `@smol`.
@@ -35,6 +38,9 @@ routing changes. Claude routes use
   (challenger); the lead had drifted to Fable 5.1 high in `config.yml` while this table said Opus.
 - `innovation-challenger` → GPT-6 Astra : high. Used by council and experiment-design peer.
   Cross-family challenger.
+- `innovation-gemini-challenger` → Gemini 4 Neon : high via `agy`. Used by council only; agy runs
+  it read-only in `plan` mode because the agent has no edit or shell tools. Owner decision
+  2026-11-21.
 - `experiment-design` → Fable 5.2 : high. Used by experiment lead. Owner: Fable leads novel-problem
   framing. Owner decision 2026-11-10; Fable 5.2 released 2026-11-09, $8/$40 per Mtok input/output
   versus Fable 5.1 $10/$50 per snapshot catalog.
@@ -44,15 +50,21 @@ routing changes. Claude routes use
 
 `task.agentServiceTierOverrides` sets `priority` for exactly three agents:
 `sonic`, `task` and `kiss`. Their routes are respectively GPT-6 Luna `low`,
-GPT-6.1 Sol `medium` and GPT-6.1 Sol `low`. Other agents have no per-agent tier override.
+Gemini 4 Carbon `medium` via `agy` and GPT-6.1 Sol `low`. The `agy` provider has no service
+tier, so the `task` entry has no effect while `task` routes to `agy`. Other agents have no
+per-agent tier override.
 
 ## Watch items
 
 - Fable draws the shared Anthropic weekly limit faster than Opus and is capped
   at 50% of it; keep `experiment-design` for genuinely novel problems.
-- Implementation (`task`), `sonic`, `kiss`, vision and `operator` draw Codex;
-  main/planning, `designer`, `reviewer`, `scout` and Anthropic council/experiment
-  roles draw Anthropic. Monitor both quotas; old snapshots are not current capacity evidence.
+- `sonic`, `kiss`, vision and `operator` draw Codex; implementation (`task`) and the Neon
+  challenger draw the Google AI subscription through `agy`; main/planning, `designer`,
+  `reviewer`, `scout` and Anthropic council/experiment roles draw Anthropic. Monitor each
+  quota; old snapshots are not current capacity evidence.
 - The earlier fixed-plan and review-detection experiments evaluated superseded routes.
-  Do not use their ceiling scores to claim the current Sol `medium` implementation route
+  Do not use their ceiling scores to claim the current Carbon `medium` implementation route
   was measured.
+- OMP's built-in `antigravity-cli` provider is not used: Google answers 429 `RESOURCE_EXHAUSTED`
+  to specific lines of omp's system prompt sent through it, while `agy -p` with the same
+  account succeeds (checked 2026-11-21).
