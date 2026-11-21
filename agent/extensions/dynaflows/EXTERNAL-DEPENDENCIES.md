@@ -7,9 +7,11 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Extension load | `agent/config.yml` | `extensions:` entry loads `index.ts`, `skills/`, `rules/` |
+| Extension load | `agent/config.yml` | Absolute path: omp loads `~/.omp`, never a worktree |
+| Entry file | `agent/extensions/dynaflows/package.json` | `omp.extensions` picks `index.ts` |
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
-| Judge role | `agent/config.yml` | Model behind `judge()` for structure and advisories |
+| Judge role | `agent/config.yml` | Model behind `judge()`; thresholds calibrated to it |
+| Judge fallback | `agent/config.yml` | `retry.fallbackChains.judge` model when the judge fails |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.0: `z`, events, `exec` |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `read`, `xd://`, `skill://` shapes |
@@ -20,6 +22,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Config root | Repo root | Records, scripts, `dynaflows.json` resolve by position |
 | `AGENT` env var | omp runtime | Stripped from every repo command |
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
+| `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
+| `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
 
 ## Repo config and build
 
@@ -86,6 +90,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Global rules | `agent/RULES.md` | Merge on green exact-head CI |
 | Repo context | `.omp/AGENTS.md` | This repo's `ci-gate` record |
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
+| `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
 | Path-check ADR | `docs/adr/0002-*.md` | Harness owns path checks |
 | Structure ADR | `docs/adr/0003-*.md` | Checks at PR diff scope |
@@ -93,7 +98,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
 | Readme | `readme.md` | Layout, modes, record contract |
-| User skills | `~/.agents` | Also holds `codify-omp-workflow-corrections` |
 
 ## Machine state and records
 
