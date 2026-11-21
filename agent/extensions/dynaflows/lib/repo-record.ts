@@ -13,8 +13,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "@oh-my-pi/pi-coding-agent";
 
 export const GATE_FILE = "gate.json";
-export const PROFILE_FILE = "profile.md";
-export const RECORDS_DIR = "repos";
+const RECORDS_DIR = "repos";
 
 // The three GitHub origin forms. "." and ".." are refused so a slug never leaves repos/.
 const ORIGIN = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/;
@@ -91,7 +90,7 @@ const dynaflowsMode = z.object({ mode: z.enum(MODES) }).strict();
 const modeRequirement = 'dynaflows must be {"mode": "minimal"|"structured"}';
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
-export const gateSchema = z.object({
+const gateSchema = z.object({
 	schemaVersion: z.literal(2),
 	checks: z.object({
 		commit: argvSchema, ci: argvSchema.optional(), audit: argvSchema.optional(), format: argvSchema.optional(),
@@ -101,10 +100,7 @@ export const gateSchema = z.object({
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
 	dynaflows: z.unknown().optional(),
 }).strict().superRefine((gate, ctx) => {
-	if (dynaflowsMode.safeParse(gate.dynaflows).success) return;
-	const fields = z.record(z.string(), z.unknown()).safeParse(gate.dynaflows);
-	const legacy = fields.success && Object.hasOwn(fields.data, "enabled");
-	ctx.addIssue({ code: "custom", path: ["dynaflows"], message: legacy ? `unknown field dynaflows.enabled must be removed; ${modeRequirement}` : modeRequirement });
+	if (!dynaflowsMode.safeParse(gate.dynaflows).success) ctx.addIssue({ code: "custom", path: ["dynaflows"], message: modeRequirement });
 }).transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,

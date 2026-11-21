@@ -1,6 +1,8 @@
 # 0015: Dynaflows runs in minimal or structured mode
 
-Status: accepted (owner-approved, 2026-11-20). Supersedes the on/off switch of
+Status: Superseded in part by [ADR 0016](0016-skill-moves-and-legacy-removal.md) (readers no longer
+name the removed `enabled` key). Accepted (owner-approved, 2026-11-20). Supersedes the on/off
+switch of
 [ADR 0004](0004-dynaflows-flag-gates-the-harness-process.md) and the separate `agent-rails.ts` extension.
 
 ## Context

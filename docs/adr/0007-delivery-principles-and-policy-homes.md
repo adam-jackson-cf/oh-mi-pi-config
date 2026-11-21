@@ -1,6 +1,8 @@
 # ADR 0007: Delivery principles and policy homes
 
-- Status: Accepted
+- Status: Superseded in part by [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (tool-trigger
+  reads and judged-rule suppression live in the dynaflows `rails.yml` and follow its modes) and
+  [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the retention of deprecated skill files)
 - Date: 2026-11-18
 - Deciders: Adam Jackson; delivery-policy writer for delegated placement details
 

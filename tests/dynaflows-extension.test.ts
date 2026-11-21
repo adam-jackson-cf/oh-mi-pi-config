@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "bun:test";
@@ -52,5 +52,19 @@ test("delivery policy references and native reminder scope use the targeted home
 		}).parse(Bun.YAML.parse(frontmatter[1] ?? ""));
 		assert.deepEqual(rule.agents, ["main", "task"]);
 		assert.equal(rule.repeatMode, "once");
+	}
+});
+
+test("external dependency map names only repo paths that exist", () => {
+	const root = join(import.meta.dir, "..");
+	const map = readFileSync(join(root, "agent/extensions/dynaflows/EXTERNAL-DEPENDENCIES.md"), "utf8");
+	const locations = map.split("\n").filter(line => line.startsWith("| ") && !line.startsWith("| ---") && !line.startsWith("| Dependency"))
+		.flatMap(line => [...(line.split(" | ")[1] ?? "").matchAll(/`([^`]+)`/g)].map(match => match[1] ?? ""))
+		.filter(path => path.includes("/") || path.includes("."))
+		.filter(path => !path.startsWith("~") && !path.startsWith("<"));
+	assert.ok(locations.length > 40, "map lists repo paths");
+	for (const path of locations) {
+		const found = path.includes("*") ? [...new Bun.Glob(path).scanSync(root)].length > 0 : existsSync(join(root, path));
+		assert.ok(found, `${path} is missing`);
 	}
 });

@@ -115,12 +115,12 @@ class Resolve(unittest.TestCase):
             == "dynaflows minimal mode for owner/name: why"
         )
 
-    def test_no_origin_means_no_record_and_dynaflows_off(self) -> None:
+    def test_no_origin_means_no_record_and_minimal_mode(self) -> None:
         assert repo_record.repo_slug(self.repo) is None
         assert repo_record.find_record(self.repo, self.config) is None
         assert record_mode(self.repo, self.config) == "minimal"
 
-    def test_origin_without_a_record_means_dynaflows_off(self) -> None:
+    def test_origin_without_a_record_means_minimal_mode(self) -> None:
         git(
             "-C",
             str(self.repo),

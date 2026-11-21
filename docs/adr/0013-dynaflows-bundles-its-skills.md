@@ -1,7 +1,8 @@
 # 0013: Dynaflows bundles the skills it calls
 
-Status: accepted (owner-approved, 2026-11-19). Supersedes the skill-location decision in
-[ADR 0008](0008-generic-setup-skill-and-record-docs.md).
+Status: Superseded in part by [ADR 0016](0016-skill-moves-and-legacy-removal.md) (`git-tool` and
+`jev-actions` swapped locations; the `dynaflows` skill is now `structured-workflow`). It superseded
+the skill-location decision in [ADR 0008](0008-generic-setup-skill-and-record-docs.md).
 
 ## Context
 

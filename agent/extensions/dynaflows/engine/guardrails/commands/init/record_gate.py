@@ -15,14 +15,6 @@ GATE_FILE = "gate.json"
 GATE_PATH = "record:gate.json"
 SCHEMA_VERSION = 2
 RULE = "GATE.local-ci-parity"
-GATE_FIELDS = frozenset({
-    "schemaVersion",
-    "checks",
-    "agentMerge",
-    "ci",
-    "dynaflows",
-})
-CHECK_FIELDS = frozenset({"commit", "ci", "format", "profile"})
 COMMIT_TARGETS = ("gate-commit", "pre-commit", "check")
 CI_TARGETS = ("gate-ci", "ci", "check")
 GITHUB_RUNNER = "github-actions"
@@ -43,10 +35,10 @@ def record_rules() -> ModuleType:
     return module
 
 
-def dynaflows_error(gate: dict[str, Any]) -> GateError | None:
+def dynaflows_error(gate: dict[str, Any], rules: ModuleType) -> GateError | None:
     if "dynaflows" not in gate:
         return None
-    reason: str | None = record_rules().dynaflows_reason(gate["dynaflows"])
+    reason: str | None = rules.dynaflows_reason(gate["dynaflows"])
     return None if reason is None else GateError(f"{GATE_PATH}: {reason}")
 
 
@@ -60,15 +52,16 @@ def load_gate(record: Path) -> dict[str, Any] | None:
         raise GateError(f"{GATE_PATH} cannot be read: {error}") from error
     if not isinstance(gate, dict) or gate.get("schemaVersion") != SCHEMA_VERSION:
         raise GateError(f"{GATE_PATH} must use schemaVersion {SCHEMA_VERSION}")
+    rules = record_rules()
     checks = gate.get("checks", {})
-    unknown = sorted(set(gate) - GATE_FIELDS)
+    unknown = sorted(set(gate) - rules.GATE_FIELDS)
     if isinstance(checks, dict):
-        unknown += sorted(f"checks.{key}" for key in set(checks) - CHECK_FIELDS)
+        unknown += sorted(f"checks.{key}" for key in set(checks) - rules.CHECK_FIELDS)
     if unknown:
         raise GateError(
             f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
         )
-    refusal = dynaflows_error(gate)
+    refusal = dynaflows_error(gate, rules)
     if refusal is not None:
         raise refusal
     return gate
