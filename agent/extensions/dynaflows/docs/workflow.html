@@ -924,9 +924,11 @@
 │  │                    setup-repo-proofs · git-tool
 │  │                    codify-omp-workflow-corrections</span>
 │  ├─ rules/            <span class="c">judged rules</span>
-│  └─ judgments/        <span class="c">calibrated questions</span>
+│  ├─ judgments/        <span class="c">calibrated questions behind decide()</span>
+│  └─ inspector.env     <span class="c">opt-in Jev Inspector route; gates refuse it</span>
 └─ repos/&lt;owner&gt;/&lt;name&gt;/  <span class="c">record: gate.json, profile.md · gitignored</span>
-<span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span></pre>
+<span class="r">&lt;git-common-dir&gt;</span>       <span class="c">omp-manifests/ · omp-prove/ · omp-structure/</span>
+<span class="r">~/.omp/agent/dynaflows/</span> <span class="c">judgment-calls.jsonl: every decide() call</span></pre>
         </div>
         <p class="note">
           <a href="../../../config.yml">agent/config.yml</a> ·

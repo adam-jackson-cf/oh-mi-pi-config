@@ -196,11 +196,14 @@ role definitions in `scripts/device-rollout-hosts.json`.
 It copies the ignored `repos/` records one way from this device into the `repos/`
 folder of every target device that runs omp (a registry entry with an `omp` path),
 and refuses to overwrite a target record that is newer, naming it.
-On each reachable device it also streams the judge key from Infisical into
+On each reachable device it also streams the judge key (`TYPESAFE_API_KEY`, for omp's
+direct `typesafe` provider behind the `judge` role) from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
-the `find` column. Untracked remote files are preserved; tracked changes block
-pulls. Use `--check` to fetch and report only, without pulls, service starts, key
-provisioning, or record copies. The table exits nonzero for stale, failed,
+the `find` column. Each device that runs omp gets an `omp-version` row: `omp --version`
+must equal the `@oh-my-pi/pi-coding-agent` pin in `package.json`, else the row is
+`version-mismatch` and names the device's version (in both modes). Untracked remote files are
+preserved; tracked changes block pulls. Use `--check` to fetch and report only, without pulls,
+service starts, key provisioning, or record copies. The table exits nonzero for stale, failed,
 unreachable, dirty-blocked, or behind-`main` deployments, and for `find-blocked`
 devices whose canary coverage is not `complete` (including `key-failed` when key provisioning fails).
 Hosts, paths, the `infisical` project and environment (shared by the judge key
@@ -364,6 +367,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   evidence-driven process for re-tuning `agent/config.yml`.
 - `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
 - `agent/skills/jev-actions/` — TypeSafe Jev judgment design, threshold tuning and calibration.
+- `agent/extensions/dynaflows/judgments/` — calibrated judgments behind `decide()`; the
+  opt-in Jev Inspector route is `agent/extensions/dynaflows/inspector.env`.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.

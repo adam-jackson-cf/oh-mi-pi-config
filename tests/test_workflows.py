@@ -1,11 +1,16 @@
 """Consumer boundaries for frozen proofs (red at base, green at head), isolated executions and the prove() result."""
 
+import asyncio
 import copy
+import csv
 import hashlib
 import importlib.util
+import io
 import itertools
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,6 +36,14 @@ assert spec.loader is not None
 workflow = importlib.util.module_from_spec(spec)
 
 spec.loader.exec_module(workflow)
+
+READ_JUDGE_MODEL = workflow._configured_judge_model
+CONFIG = Path(__file__).resolve().parents[1] / "agent/config.yml"
+CONFIGURED_JUDGE = next(
+    line.split(":", 1)[1].strip()
+    for line in CONFIG.read_text().splitlines()
+    if line.startswith("  judge: ")
+)
 
 
 class SchemaTests(unittest.TestCase):
@@ -434,7 +447,7 @@ class DependencyAuditParsingTests(unittest.TestCase):
 
 class SeverityRubricTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.decisions = workflow.severity_thresholds()
+        self.decisions = workflow.load_judgment("dependency-severity").decisions
         self.advisory = workflow.parse_dependency_audit(ADVISORY)["advisories"][0]
         self.no_fix = workflow.parse_dependency_audit(NO_FIX)["advisories"][0]
 
@@ -443,38 +456,23 @@ class SeverityRubricTests(unittest.TestCase):
             advisory or self.advisory, evidence(**kwargs), answer, self.decisions
         )
 
-    def test_thresholds_belong_to_the_current_questions(self) -> None:
-        assert json.loads((workflow._severity_dir() / "thresholds.json").read_text())[
-            "version_key"
-        ] == workflow.severity_version_key("typesafe/jev-1.14")
+    def test_thresholds_belong_to_the_current_questions_scores_and_judge_role(
+        self,
+    ) -> None:
+        judgment = workflow.load_judgment("dependency-severity")
         assert set(self.decisions) == {"impact", *workflow.PRECONDITIONS, "reached"}
-        thresholds = json.loads(
-            (workflow._severity_dir() / "thresholds.json").read_text()
-        )
-        provenance = thresholds["score_provenance"]
-        questions, state = workflow.severity_questions()
-        source_questions = copy.deepcopy(questions)
-        for ident in (*workflow.PRECONDITIONS, "reached"):
-            source_questions[ident]["type"] = "noul"
-        source_payload = json.dumps(
-            {
-                "questions": source_questions,
-                "state": state,
-                "model": thresholds["model"],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        assert judgment.model == CONFIGURED_JUDGE
+        directory = workflow._harness_root() / workflow.JUDGMENTS / judgment.name
+        scores = (directory / "scores.csv").read_bytes()
         assert (
-            hashlib.sha256(source_payload.encode()).hexdigest()
-            == provenance["source_version_key"]
+            hashlib.sha256(scores).hexdigest() == judgment.thresholds["scores_sha256"]
         )
-        assert (
-            hashlib.sha256(
-                (workflow._severity_dir() / "scores.csv").read_bytes()
-            ).hexdigest()
-            == provenance["scores_sha256"]
-        )
+        rows = list(csv.DictReader(io.StringIO(scores.decode())))
+        assert {row["model"] for row in rows} == {judgment.model}
+        assert {row["question_version"] for row in rows} == {
+            f"{ident}@{self.decisions[ident]['version_key']}"
+            for ident in workflow.PRECONDITIONS + ("reached",)
+        }
 
     def test_the_rubric_spans_every_level_and_both_exposures(self) -> None:
         cases = [
@@ -566,6 +564,281 @@ class SeverityRubricTests(unittest.TestCase):
             )
 
 
+def write_judgment(
+    root: Path, name: str = "demo", model: str = "typesafe/jev-1.14.0", **decisions: Any
+) -> Path:
+    """A judgments/<name>/ folder under `root` with current version keys."""
+    directory: Path = root / workflow.JUDGMENTS / name
+    directory.mkdir(parents=True)
+    state = {"text": "the text judged"}
+    questions = {
+        "flag": {"type": "bool", "instructions": "Does `text` hold a secret?"},
+        "kind": {
+            "type": "choice",
+            "instructions": "What kind is `text`?",
+            "criteria": {"note": "a note", "log": "a log"},
+        },
+    }
+    (directory / "questions.json").write_text(
+        json.dumps({"state": state, "questions": questions})
+    )
+    band = {"no_at_most": 0.3, "yes_at_least": 0.7, **decisions}
+    thresholds = {
+        "model": model,
+        "score_space": "raw",
+        "version_key": workflow._judgment_digest({
+            "questions": questions,
+            "state": state,
+            "model": model,
+        }),
+        "decisions": {
+            "flag": {"status": "provisional", **band},
+            "kind": {"status": "provisional", "round_up_floor": 0.3},
+        },
+    }
+    for ident, question in questions.items():
+        thresholds["decisions"][ident]["version_key"] = workflow._judgment_digest({
+            "question": question,
+            "state": state,
+            "model": model,
+        })
+    (directory / "thresholds.json").write_text(json.dumps(thresholds))
+    return directory
+
+
+class JudgmentRegistryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name) / "harness"
+        self.agent = Path(scratch.name) / "agent"
+        self.calls: list[Any] = []
+        for patcher in (
+            patch.object(workflow, "_harness_root", return_value=self.root),
+            patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
+            patch.object(
+                workflow, "_configured_judge_model", return_value="typesafe/jev-1.14.0"
+            ),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def decide(self, flag: Any, name: str = "demo") -> Any:
+        async def judge(state: Any, questions: Any) -> Any:
+            self.calls.append((state, questions))
+            if isinstance(flag, Exception):
+                raise flag
+            return {
+                "flag": {"type": "bool", "bool": flag},
+                "kind": {"type": "choice", "probabilities": {"note": 0.8, "log": 0.2}},
+            }
+
+        with patch.object(workflow, "judge", judge, create=True):
+            return asyncio.run(workflow.decide(name, {"text": "a note"}))
+
+    def logged(self) -> list[Any]:
+        log = self.agent / workflow.JUDGMENT_CALLS
+        return [json.loads(line) for line in log.read_text().splitlines()]
+
+    def test_outcomes_follow_the_band_and_every_call_is_logged(self) -> None:
+        write_judgment(self.root)
+        for score, expected in (
+            (0.7, "yes"),
+            (0.95, "yes"),
+            (0.3, "no"),
+            (0.5, "escalate"),
+        ):
+            with self.subTest(score=score):
+                decided = self.decide(score)
+                assert decided["outcomes"] == {"flag": expected}
+                assert decided["probabilities"]["kind"] == {"note": 0.8, "log": 0.2}
+        records = self.logged()
+        assert [r["outcomes"]["flag"] for r in records] == [
+            "yes",
+            "yes",
+            "no",
+            "escalate",
+        ]
+        judgment = workflow.load_judgment("demo")
+        assert set(records[0]) == {
+            "judgment",
+            "state_sha256",
+            "model",
+            "question_version",
+            "probabilities",
+            "outcomes",
+            "timestamp",
+        }
+        assert records[0]["judgment"] == "demo"
+        assert records[0]["model"] == "typesafe/jev-1.14.0"
+        assert records[0]["question_version"] == judgment.version_key
+        assert records[0]["state_sha256"] == workflow._judgment_digest({
+            "text": "a note"
+        })
+        assert records[0]["probabilities"]["flag"] == 0.7
+        assert self.calls[0][1] == judgment.questions
+        assert (
+            workflow.judgment_call_log()
+            == self.agent / "dynaflows/judgment-calls.jsonl"
+        )
+
+    def test_stale_or_malformed_thresholds_are_refused(self) -> None:
+        directory = write_judgment(self.root)
+        thresholds = json.loads((directory / "thresholds.json").read_text())
+        questions = json.loads((directory / "questions.json").read_text())
+
+        def broken(change: Any) -> dict[str, Any]:
+            copied: dict[str, Any] = copy.deepcopy(thresholds)
+            change(copied)
+            return copied
+
+        def reword(document: dict[str, Any]) -> None:
+            document["questions"]["flag"]["instructions"] += " Really?"
+
+        cases = {
+            "stale": broken(lambda t: t.update(model="typesafe/jev-1.13.0")),
+            "stale for the current": broken(lambda t: t.update(version_key="0" * 64)),
+            "decision flag is stale": broken(
+                lambda t: t["decisions"]["flag"].update(version_key="0" * 64)
+            ),
+            "one decision per question": broken(lambda t: t["decisions"].pop("kind")),
+            "no_at_most < yes_at_least": broken(
+                lambda t: t["decisions"]["flag"].update(no_at_most=0.8)
+            ),
+            "provisional or ready": broken(
+                lambda t: t["decisions"]["flag"].update(status="retired")
+            ),
+            "round_up_floor": broken(
+                lambda t: t["decisions"]["kind"].update(round_up_floor=True)
+            ),
+            "raw score space": broken(lambda t: t.update(score_space="platt")),
+        }
+        for message, document in cases.items():
+            with self.subTest(message=message):
+                (directory / "thresholds.json").write_text(json.dumps(document))
+                with pytest.raises(workflow.WorkflowError, match=message):
+                    workflow.load_judgment("demo")
+        (directory / "thresholds.json").write_text(json.dumps(thresholds))
+        reworded = copy.deepcopy(questions)
+        reword(reworded)
+        (directory / "questions.json").write_text(json.dumps(reworded))
+        with pytest.raises(workflow.WorkflowError, match="stale"):
+            workflow.load_judgment("demo")
+        for name in ("../demo", "Demo", "", "demo/x"):
+            with (
+                self.subTest(name=name),
+                pytest.raises(workflow.WorkflowError, match="name"),
+            ):
+                workflow.load_judgment(name)
+        with pytest.raises(workflow.WorkflowError, match="cannot read"):
+            workflow.load_judgment("absent")
+
+    def test_another_judge_model_failed_or_invalid_answers_never_decide(self) -> None:
+        write_judgment(self.root)
+        with (
+            patch.object(
+                workflow,
+                "_configured_judge_model",
+                return_value="openrouter/typesafe/jev-1.14",
+            ),
+            pytest.raises(workflow.WorkflowError, match="judge role is openrouter"),
+        ):
+            self.decide(0.9)
+        assert self.calls == []
+        with pytest.raises(workflow.WorkflowError, match="judgment failed: offline"):
+            self.decide(RuntimeError("offline"))
+        for invalid in (1.5, "yes", True, float("nan")):
+            with self.subTest(invalid=invalid), pytest.raises(workflow.WorkflowError):
+                self.decide(invalid)
+        assert not (self.agent / workflow.JUDGMENT_CALLS).exists()
+        with pytest.raises(workflow.WorkflowError, match="non-empty object"):
+            asyncio.run(workflow.decide("demo", {}))
+
+    def test_configured_judge_model_reads_omp_config(self) -> None:
+        def completed(stdout: str, code: int = 0) -> Any:
+            return subprocess.CompletedProcess([], code, stdout, "")
+
+        good = json.dumps({
+            "key": "modelRoles",
+            "value": {"judge": "typesafe/jev-1.14.0"},
+        })
+        with patch.object(
+            workflow.subprocess, "run", return_value=completed(good)
+        ) as run:
+            assert READ_JUDGE_MODEL() == "typesafe/jev-1.14.0"
+        assert run.call_args.args[0] == ["omp", "config", "get", "modelRoles", "--json"]
+        for stdout, code in (
+            ("not json", 0),
+            (json.dumps({"value": {}}), 0),
+            (json.dumps({"value": {"judge": ""}}), 0),
+            (good, 1),
+        ):
+            with (
+                self.subTest(stdout=stdout, code=code),
+                patch.object(
+                    workflow.subprocess, "run", return_value=completed(stdout, code)
+                ),
+                pytest.raises(workflow.WorkflowError, match="judge model"),
+            ):
+                READ_JUDGE_MODEL()
+        with (
+            patch.object(
+                workflow.subprocess, "run", side_effect=FileNotFoundError("omp")
+            ),
+            pytest.raises(workflow.WorkflowError, match="judge model"),
+        ):
+            READ_JUDGE_MODEL()
+
+    def test_agent_dir_defaults_to_the_omp_home(self) -> None:
+        with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": ""}):
+            assert workflow.judgment_call_log() == (
+                Path.home() / ".omp/agent/dynaflows/judgment-calls.jsonl"
+            )
+
+
+class ShippedJudgmentTests(unittest.TestCase):
+    def test_the_inspector_route_is_opt_in_and_loopback_only(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        overlay = root / "agent/extensions/dynaflows/inspector.env"
+        settings = [
+            line
+            for line in overlay.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        assert settings == ["TYPESAFE_BASE_URL=http://127.0.0.1:8787"]
+        for path in (
+            root / "agent/config.yml",
+            *sorted((root / "scripts").glob("*.py")),
+            *sorted((root / "scripts").glob("*.json")),
+            *sorted((root / "scripts").glob("*.sh")),
+        ):
+            text = path.read_text()
+            assert "inspector.env" not in text, path
+            assert "TYPESAFE_BASE_URL" not in text, path
+
+    def test_shipped_judgments_load_on_the_configured_judge(self) -> None:
+        for name in ("dependency-severity", "structure-naming"):
+            with self.subTest(name=name):
+                judgment = workflow.load_judgment(name)
+                assert judgment.model == CONFIGURED_JUDGE
+                for decision in judgment.decisions.values():
+                    assert decision["status"] == "provisional"
+                directory = workflow._harness_root() / workflow.JUDGMENTS / name
+                scores = (directory / "scores.csv").read_bytes()
+                assert (
+                    hashlib.sha256(scores).hexdigest()
+                    == judgment.thresholds["scores_sha256"]
+                )
+                for row in csv.DictReader(io.StringIO(scores.decode())):
+                    ident = row["question_id"]
+                    assert row["model"] == judgment.model
+                    assert row["question_version"] == (
+                        f"{ident}@{judgment.decisions[ident]['version_key']}"
+                    )
+                    assert row["label"] in ("0", "1")
+                    assert 0 <= float(row["score"]) <= 1
+
+
 MALICIOUS = (
     "SECURITY.dependency-audit lock=package-lock.json ecosystem=npm package=eslint-scope version=3.7.2 "
     "advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw fix=3.7.3"
@@ -574,7 +847,7 @@ MALICIOUS = (
 
 class MaliciousPackageTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.decisions = workflow.severity_thresholds()
+        self.decisions = workflow.load_judgment("dependency-severity").decisions
 
     def advisory(self, line: str) -> Any:
         return workflow.parse_dependency_audit(line)["advisories"][0]
@@ -617,8 +890,6 @@ class MaliciousPackageTests(unittest.TestCase):
     def test_the_judgment_is_never_asked_for_a_malicious_package(self) -> None:
         async def judge(state: object, questions: object) -> Never:
             raise AssertionError("judge() must not run for a malicious package")
-
-        import asyncio
 
         found = workflow.parse_dependency_audit(MALICIOUS)
         key = workflow.advisory_key(found["advisories"][0])
@@ -664,9 +935,7 @@ class TriageTests(unittest.TestCase):
         async def judge(state: Any, questions: dict[str, Any]) -> Any:
             # Exercise the real frozen questions at the judge() boundary, not just the rubric.
             # Contract: xd://eval/judge; TypeSafe's wire name 'noul' is not accepted here.
-            frozen = json.loads(
-                (workflow._severity_dir() / "questions.json").read_text()
-            )["questions"]
+            frozen = workflow.load_judgment("dependency-severity").questions
             assert questions == frozen
             for ident, question in questions.items():
                 assert question["type"] in ("choice", "bool", "score"), ident
@@ -687,10 +956,20 @@ class TriageTests(unittest.TestCase):
                 raise reply
             return reply
 
-        import asyncio
-
-        with patch.object(workflow, "judge", judge, create=True):
-            return asyncio.run(workflow.triage_advisories(self.found, evidence_map))
+        with (
+            tempfile.TemporaryDirectory() as agent,
+            patch.dict(os.environ, {"PI_CODING_AGENT_DIR": agent}),
+            patch.object(
+                workflow, "_configured_judge_model", return_value=CONFIGURED_JUDGE
+            ),
+            patch.object(workflow, "judge", judge, create=True),
+        ):
+            result = asyncio.run(workflow.triage_advisories(self.found, evidence_map))
+            self.logged = [
+                json.loads(line)
+                for line in workflow.judgment_call_log().read_text().splitlines()
+            ]
+        return result
 
     def test_high_severity_halts_with_an_owner_report_and_low_is_fixed_in_flow(
         self,
@@ -718,7 +997,23 @@ class TriageTests(unittest.TestCase):
             assert text in result["report"]
         state, questions = self.calls[0]
         assert set(questions) == {"impact", *workflow.PRECONDITIONS, "reached"}
+        assert [record["judgment"] for record in self.logged] == [
+            "dependency-severity"
+        ] * 2
+        assert self.logged[0]["state_sha256"] == workflow._judgment_digest(state)
+        assert self.logged[1]["outcomes"]["reached"] == "no"
         assert state["advisory"]["text"] == "arbitrary code execution through full_load"
+
+    def test_the_inspector_route_never_serves_advisory_triage(self) -> None:
+        with (
+            patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}),
+            pytest.raises(workflow.WorkflowError, match="TYPESAFE_BASE_URL"),
+        ):
+            self.run_triage(
+                {"PyYAML": answers(), "black": answers()},
+                {self.keys[0]: evidence(), self.keys[1]: evidence()},
+            )
+        assert self.calls == []
 
     def test_low_or_medium_routes_by_fix_availability(self) -> None:
         ratings = (

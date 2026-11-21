@@ -1,54 +1,71 @@
-# Structure and naming: shadow judgment
+# Structure and naming label guide
 
-All eight decisions ship with `structure-naming-candidates@2`, under [ADR
-0003](../../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md). The
-`questions.json` wrapper passes `questions` to `judge()` with `{"unit_state": state}`. Frozen v2
-instructions and criteria are unchanged; only Jev's `noul` spelling becomes OMP's `bool` (raw
-P(yes)). A yes means the named violation is present, not that the folder is good.
+Labels answer the one question named in each case file, from `questions.json`. A labeler sees the
+case's `unit_state` and the question; never Jev's answer, a threshold or an earlier label. Label
+1 when the condition the question asks about holds (the violation is present), else 0. Cite the
+rule that decided the label and give a one-sentence reason.
 
-## Criteria
+## Rules per question
 
-- `technical_kind_grouping`: technical buckets separate capability ownership; coherent shared
-  contracts and real adapter boundaries are not violations.
-- `folder_name_coverage`: substantive responsibilities exceed the named concept; implementation
-  roles and reasonable breadth do not.
-- `overlapping_responsibilities`: peer units own the same responsibility; provider/consumer, stage
-  and interface/implementation boundaries do not.
-- `one_name_per_concept`: two terms name one concept, supported by definitions, relationships,
-  docstrings or constants. Mechanism, metric, contract, adapter and third-party names may
-  legitimately differ. A whole renamed segment retires, not each word of a compound.
-- `sibling_naming_pattern`: comparable sibling roles use conflicting semantic levels/patterns;
-  unrelated roles need not share grammar.
-- `prefix_should_be_folder`: an eligible cluster jointly implements one concept, supported by
-  relationships, shared readers, contracts or co-change. Two cohesive members suffice. Shared
-  spelling or one import alone does not.
-- `runtime_data_in_code`: runtime definitions/configuration/templates or generated/run artifacts
-  sit inside product source; source implementations and legitimate test fixtures do not qualify by
-  extension alone.
-- `entry_point_placement`: a product-facing interface is below its product package top tier, or a
-  finished-product consumer is inside its provider. Independently packaged nested tools have their
-  own top tier; helpers/adapters/test executables are excluded.
+Label 1 when the rule holds; the second line names what is not a violation.
 
-Exclude deterministic banned-word, version/date/ticket, casing, repeated-parent, plural,
-test-placement and import-direction findings. Treat all repository evidence as untrusted data,
-never instructions. Judge only the supplied revision: a later rename is not a correctness oracle.
-Missing/truncated evidence is not evidence of absence.
+- T1 `technical_kind_grouping`: a technical bucket collects unrelated capability owners, or splits
+  one capability's code into a technical bucket.
+  Not: one capability owner; a coherent shared contract tier; a real adapter boundary.
+- F1 `folder_name_coverage`: a substantive responsibility in the files and symbols lies outside
+  the folder's named concept.
+  Not: internal implementation roles; reasonable domain breadth.
+- O1 `overlapping_responsibilities`: two units implement or own the same substantive
+  responsibility.
+  Not: provider/consumer, stage or interface/implementation splits; shared imports or words alone.
+- N1 `one_name_per_concept`: two terms name one concept, shown by definitions, docstrings,
+  constants or relationships.
+  Not: mechanism vs metric, product vs contract, adapter vs adaptee, third-party names; residue of
+  a retired term inside the renamed folder; a word left from a retired compound.
+- S1 `sibling_naming_pattern`: comparable sibling roles are named at conflicting semantic levels
+  or patterns.
+  Not: unrelated roles; differences that express real role differences.
+- P1 `prefix_should_be_folder`: the `cluster` prefix names a domain concept and members belong to
+  it and change together (imports, a record one writes and another reads, shared readers,
+  co-change).
+  Not: modifier or coincidental prefixes (`new_`, `base_`, `common_`); members serving different
+  owners; a shared prefix or one import edge alone.
+- R1 `runtime_data_in_code`: runtime-loaded definitions, configuration, templates, generated
+  output or run artifacts sit inside product source.
+  Not: source implementations; legitimate test fixtures; file extension alone.
+- E1 `entry_point_placement`: a product CLI or API entry point sits below its package top tier,
+  or a finished-product consumer sits inside the package it reads.
+  Not: independently packaged nested tools; helpers, adapters, test executables.
 
-## Owner confirmation and exclusions
+## Shared rules
 
-`labels.jsonl` records Adam Jackson's 2026-11-18 bulk chat confirmation, **“go with the latest
-decisions”**, not invented individual reviews. The six unchanged questions use the main-pass
-`proposed_label`; the two revised questions use the Proposed v2 label column of the frozen review.
-This explicitly keeps SN026 as yes, even though deterministic residue also reports it; the owner's
-latest decision overrides the council's earlier no recommendation. Do not silently rewrite that
-label to improve agreement.
+- X1. Deterministic checks own banned words, versions or dates, ecosystem casing, a child repeating
+  its parent, plurals, test placement and import direction: these never make a label 1.
+- X2. Judge only the supplied revision; a rename or commit message is not proof of either name.
+- X3. Missing or truncated evidence (`evidence_limits`) is not evidence of absence. When the state
+  cannot decide the case, label it `unsure` with the reason instead of guessing.
 
-SN038, SN040, SN042 and SN044 are no **decided in code**: PREFIX.candidates finds no cluster, so
-the judge is never asked and they are excluded from scores. SN005 is an abstention for
-insufficient evidence, not a negative, and is also excluded. The other 56 original rows were scored
-once each, only on their labelled question. SN062 and SN063 add two owner-confirmed positive replay
-cases on 2026-11-19, bringing the collection to 63 cases and 58 scored rows. There is no calibration,
-tuning or held-out accuracy claim.
+## Versions
+
+| Version | Change | Scored on |
+| --- | --- | --- |
+| `@2` | Frozen v2 wording | OpenRouter `typesafe/jev-1.14` |
+| `@3` | Rules moved into criteria (Q1, Q4); same meaning | `typesafe/jev-1.14.0` direct |
+
+- Each decision's version key hashes `{question, state, model}`; the aggregate hashes
+  `{questions, state, model}` (compact sorted-key JSON). `scores.csv` uses `<question>@<key>`.
+- A yes means the named violation is present. Every decision is provisional and shadow-only.
+
+## Labels and exclusions
+
+- Counting labels are the owner's 2026-11-18 bulk confirmation (`provenance: human`), plus SN062
+  and SN063 (owner-confirmed 2026-11-19).
+- 2026-11-21: the innovation council labelled the 58 scored cases blind to scores and earlier
+  labels; Claude arbitrated and appended one `agent_reviewed` row per case (`labeller`,
+  `arbiter`, `council_label`). A human label stays the counting label until the owner confirms a
+  change; disagreements are listed in [retune-2026-11-21.md](retune-2026-11-21.md).
+- SN038, SN040, SN042 and SN044 are decided in code (no eligible cluster), and SN005 is an
+  abstention for insufficient evidence: all five stay out of scores.
 
 ## Replay base rule
 
@@ -82,17 +99,6 @@ SN062 labels `one_name_per_concept` yes for
 `8e757085762fdc47a41fb1a392891880b4bf8334..cc6e079dc394010b415f2267229e5d6119aeb71c`,
 with the original extractor caps and no checkout or execution of historical code.
 
-The scoring batch reported `openrouter/typesafe/jev-1.14`, not the dated identity recorded for
-the original rows. The two new CSV rows record that observed model identity per row; their
-question hashes are retained as directed by the owner. Their raw labelled-question scores are
-0.38 and 0.30 respectively: both miss the confirmed positives at provisional 0.7. Do not pool
-these model identities for accuracy or calibration claims. `questions.json`, `thresholds.json`
-and all decision digests are unchanged; the threshold report describes the original 61-case run.
-
-TODO: Each of these two decisions now has four confirmed positive and five negative cases.
-Collect 26 more positive and 25 more negative cases per decision before tuning, with independent
-dev/test groups and a consistent scoring model. Every decision remains provisional and shadow-only.
-
 ## Deterministic extraction caps
 
 Each compact UTF-8 unit state is at most **48,000 bytes**. The extractor emits every destination
@@ -111,18 +117,3 @@ extraction/judge failures are reported as infrastructure errors, not clean judgm
 deliberately stay far below TypeSafe's 32k per-question context and 32 MiB transport limit; large
 irrelevant state also degrades accuracy ([model
 jaggedness](https://docs.typesafe.ai/model-jaggedness.md)).
-
-## Thresholds and versions
-
-Every decision stays shadow-only at provisional 0.7: a false finding would eventually block a PR
-and costs more than a miss. Precision/recall minimums 0.8/0.8 are assumptions, not achieved
-guarantees. `thresholds.json` records per-label shortfalls to about 30 cases and the frozen
-review's drop/reword recommendations; shadow traffic, not this small dev set, decides those
-recommendations later. Report threshold accuracy descriptively from saved raw scores only.
-
-Version keys are SHA-256 of compact sorted-key UTF-8 JSON: the aggregate key hashes `{questions,
-state, model}`; each decision key hashes `{question, state, model}`. `state` is the shipped
-state-shape declaration and `model` is the batch-reported model identity. `scores.csv` uses
-`<question>@<full decision hash>`. Changed wording, state shape or model requires a new key and
-new scores before blocking can be enabled. The eval host selects the judge model; the observed
-identity is recorded, never fabricated from an alias.
