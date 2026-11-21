@@ -71,6 +71,11 @@ settings = {"mode": "run", "tier": sys.argv[2], "journal": sys.argv[3]}
 print(f"import {{ start }} from {json.dumps(pathlib.Path(sys.argv[1]).as_uri())};")
 print(f"start({json.dumps(settings)});")
 EOF
+  # Seam tests run real git, uv and omp subprocesses, so a slower gate machine stretches them;
+  # their per-test timeout matches tests/test_ci_gate.py PROCESS_TIMEOUT, not bun's 5 s default.
+  if [[ "$tier" == t2 ]]; then
+    args+=(--timeout 60000)
+  fi
   args+=(--preload "$entry")
   git ls-files -z -co --exclude-standard -- 'tests/*.test.ts' >"$scratch/bun-files"
   while IFS= read -r -d '' file; do

@@ -8,7 +8,8 @@ installation guide or an exhaustive reference.
 ## Design
 
 The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
-design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
+design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
+rules. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
 and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
@@ -25,18 +26,23 @@ locations.
 
 Routing follows the owner's standing preferences, recorded with the process
 for revisiting them in `agent/skills/omp-config-optimise/`: Claude Opus 5.5
-orchestrates and plans at medium reasoning or below; GPT-6.1 Sol implements
-fixed-plan work; Claude Sonnet 5.5 designs; GPT-6 Luna handles
-simple actions. Reasoning above medium on Opus or Astra is reserved
-for the `innovation-council` (Opus-led, Astra challenger) and
-`experiment-design` (Fable-led, Astra and Opus peers).
+orchestrates and plans at medium reasoning or below; Gemini 4 Carbon, through
+Google's Antigravity CLI (`agy`), implements fixed-plan work; Claude Sonnet 5.5
+designs; GPT-6 Luna handles simple actions. Reasoning above medium on Opus or
+Astra is reserved for the `innovation-council` (Opus-led, with Astra and Gemini 4
+Neon challengers) and `experiment-design` (Fable-led, Astra and Opus peers).
+
+The `agy-cli.ts` extension registers the `agy` provider. It runs `agy -p` under the
+user's own `agy` sign-in, so each device needs `agy` installed
+(`curl -fsSL https://antigravity.google/cli/install.sh | bash`) and one interactive
+`agy` login. agy runs its own file and shell tools, outside omp's rails.
 
 ## Ownership boundaries
 
 OMP supplies bundled agents; this repository deliberately does not shadow them
 locally. Its tracked custom-agent surface in `agent/agents/` is limited to
 judgment and specialist roles: `kiss`, `designer`, `operator`,
-`innovation-council`, `innovation-challenger`,
+`innovation-council`, `innovation-challenger`, `innovation-gemini-challenger`,
 `experiment-design`, and `experiment-peer`.
 
 The boundaries are intentional:
@@ -48,18 +54,27 @@ The boundaries are intentional:
   `extension-health.ts` reports registration health, not runtime correctness.
 
 The always-loaded dynaflows extension runs each repository in minimal or structured mode
-([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). Its guards in both modes
-require `skill://git-tool` for branch and integration commands,
-including commands with Git global options, shell separators and known command
-wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
-bounds; `cd` and `pushd` select the destination repository's policy. Unresolved
-directories fail closed for publishing. Quoted `echo` and search arguments do
-not trigger the check. Arbitrary interpreter, xargs/find and shell-write detection
-are not promised.
+([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). The tracked
+[`modes.json`](agent/extensions/dynaflows/modes.json) names the structured repositories; an unlisted
+one is minimal ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)). Its guards in both modes
+require `skill://git-tool` before the Git and GitHub writes `rails.yml` `gitCommand` lists (commit,
+push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean, restore, tag creation,
+branch delete/force/move, stash drop, fetch into a local ref, worktree add/remove, `gh` PR, release,
+repo, workflow and issue writes, `gh api` writes), including commands with Git global options, shell
+separators and known or unknown command wrappers. They refuse what they cannot check
+([ADR 0018](docs/adr/0018-rails-trust-only-what-they-saw.md)): a shell reading piped commands, a
+variable command word, a script written in the same command, launchers and unknown programs naming
+`git`, `gh`, `hub` or `omp`, inline interpreter code or script files that name them, eval cells
+that start them, GitHub API writes through `curl`, gh aliases and extensions, retargeting options
+and variables, and `git config` writes outside a short allowlist (a hooks path stays inside the
+repository). Shell `-c`, `eval` and existing shell scripts are inspected recursively within parser
+bounds; `cd` and `pushd` select the destination repository's policy, and pipeline segments keep
+their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` and search
+arguments do not trigger the check.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
-`agentMerge` and `ci` in both modes. In minimal mode (including no record), sessions get plain
+`agentMerge` and `ci` in both modes. In minimal mode (unlisted repos included), sessions get plain
 omp + git-tool + the fixed Git guards: `gh pr merge` and `git push` to the remote's default
 branch are refused, while pushes to other branches and `gh pr create` pass. Minimal mode has no
 edit read gates, path checks or verification handoff reads.
@@ -78,12 +93,43 @@ Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a fail
 In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
-`<git-common-dir>/omp-structure/<head>.json` with that head and `halt: false`; ready
-structure findings block, while provisional findings and recorded infrastructure errors do not.
+`<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; ready
+structure findings and incomplete reviews block, while provisional findings do not. Rails accept
+either file only when this omp process watched the `prove()` or `structure_review()` cell write it.
 Missing or invalid files block even when all decisions are provisional. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
-check run, whoever posts it.
+check run, whoever posts it, with no failing or pending entry of that name. The record's
+`mergePolicies` choose the merge method and whether proof is needed per base and head prefix;
+rails refuse `--admin`.
+
+Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
+
+| Rail | Modes | Behaviour |
+| --- | --- | --- |
+| Turn-end obligations | Structured | Open PR (CI pending: wait), `afterMerge`, rollout; 3 asks |
+| Device rollout | Structured | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
+| Restart review | Both | Extension changed: review; structured blocks Git writes until ack |
+| Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
+
+Judged rails, structured mode only ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)),
+run after the deterministic checks through `decide()`
+([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)). A judgment acts only once its
+`thresholds.json` is `ready`; until then it runs in shadow: logged, with an `Agent rails (shadow)`
+notice, and never refuses, asks for `$approve` or blocks on a judge outage. All five are provisional
+today. Once `ready`:
+
+| Event | Judgment | yes | escalate |
+| --- | --- | --- | --- |
+| `git commit` | `implementation-integrity` | Refused with remediation | Owner |
+| `gh pr merge` | `completion-evidence` | Refused: add evidence | Owner |
+| `gh pr merge` without an ADR file | `adr-needed` | Refused: add an ADR | Owner |
+| Turn end with the agent's PR | `completion-evidence` | Unmet obligation | Owner |
+| Restart review | `extension-impact` | Review task | Review task |
+| `ask`, `askFirstCommand` command | `in-scope` | Ask first | Ask first |
+
+`no` passes, and the review is skipped with an owner notice; an `ask` judged in scope is refused.
+The owner approves an escalation with a prompt line `$approve <judgment>:<id>` that the rails print.
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
@@ -268,11 +314,14 @@ role definitions in `scripts/device-rollout-hosts.json`.
 It copies the ignored `repos/` records one way from this device into the `repos/`
 folder of every target device that runs omp (a registry entry with an `omp` path),
 and refuses to overwrite a target record that is newer, naming it.
-On each reachable device it also streams the judge key from Infisical into
+On each reachable device it also streams the judge key (`TYPESAFE_API_KEY`, for omp's
+direct `typesafe` provider behind the `judge` role) from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
-the `find` column. Untracked remote files are preserved; tracked changes block
-pulls. Use `--check` to fetch and report only, without pulls, service starts, key
-provisioning, or record copies. The table exits nonzero for stale, failed,
+the `find` column. Each device that runs omp gets an `omp-version` row: `omp --version`
+must equal the `@oh-my-pi/pi-coding-agent` pin in `package.json`, else the row is
+`version-mismatch` and names the device's version (in both modes). Untracked remote files are
+preserved; tracked changes block pulls. Use `--check` to fetch and report only, without pulls,
+service starts, key provisioning, or record copies. The table exits nonzero for stale, failed,
 unreachable, dirty-blocked, or behind-`main` deployments, and for `find-blocked`
 devices whose canary coverage is not `complete` (including `key-failed` when key provisioning fails).
 Hosts, paths, the `infisical` project and environment (shared by the judge key
@@ -284,8 +333,9 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
 `~/.omp`. The only files it writes there are untracked: `ci-runners.json` and the
-gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see
-[`.omp/AGENTS.md`](.omp/AGENTS.md)), then rerun the command.
+gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see the
+[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example)),
+then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
 the find canary run only on devices that run omp.
@@ -311,7 +361,8 @@ without configured `wait`/`status` commands uses a built-in GitHub poller and
 needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
 missing role exits 2 and names the device_rollout.py command to run. This
-repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
+repository's runner facts live in the
+[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example).
 
 ### ci-gate service
 
@@ -434,6 +485,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   evidence-driven process for re-tuning `agent/config.yml`.
 - `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
 - `agent/skills/jev-actions/` — TypeSafe Jev judgment design, threshold tuning and calibration.
+- `agent/extensions/dynaflows/judgments/` — calibrated judgments behind `decide()`; the
+  opt-in Jev Inspector route is `agent/extensions/dynaflows/inspector.env`.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
@@ -442,6 +495,7 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime and the origin-to-record
   resolver for Python (`repo_record.py`) and TypeScript (`repo-record.ts`) callers.
 - `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
+- `agent/extensions/dynaflows/modes.json` — the per-repo mode; unlisted repositories run minimal.
 - `repos/<owner>/<name>/` — personal per-repo records; gitignored, never committed.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
@@ -452,8 +506,6 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   command from `~/.omp/ci-runners.json`.
 - `scripts/ci_gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
-- `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
-  fallback and how a nuc-config sync merges.
 - `.devcontainer/` — pinned gate image and dependency installation.
 - `tests/test_ci_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.

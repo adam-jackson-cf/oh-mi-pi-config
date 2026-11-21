@@ -98,3 +98,12 @@ names as vulnerable, in the exploitable way. No otherwise.
 - R6. When the advisory names another package's feature as the path to the vulnerable code, a
   hit using that feature is yes: "qs, as used in Express … in the query string" is reached by
   `req.query` in an Express app.
+
+## Versions and provenance
+
+- 2026-11-21: question definitions, inclusions and exclusions moved from instructions into
+  criteria (rubric Q1, Q4, Q7); the rules above and every label's meaning are unchanged.
+- Counting labels stay the owner's confirmed labels (`provenance: human`). The innovation council
+  relabelled all 56 cases blind to scores and earlier labels, and Claude arbitrated; each final
+  label is appended as an `agent_reviewed` row with `labeller`, `arbiter` and `council_label`.
+  A human label stays the counting label until the owner confirms a change.

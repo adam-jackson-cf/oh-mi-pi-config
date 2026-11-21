@@ -21,7 +21,7 @@ Establish the approved verification surface and the repo's record before guardra
   inputs accepted.
 - Plan: a setup PR that changes no behaviour (config, docs, repo fixes or the first feature map only) freezes an empty
   manifest with `freeze(..., project_setup=True)`, which tolerates an absent record. Its PR check is CI green, with the
-  record saved with `dynaflows.mode` minimal.
+  repo still unlisted (minimal) in `modes.json`.
 - Plan: a setup PR that freezes lever journeys or canaries needs the saved record with `feature_map_path` before
   freeze. The proof task writes the lever, the runner-invoked journey files and the map entries that link them,
   and main freezes them together. Implementation owns the map's prose, the profile and guardrails, not lever bytes.

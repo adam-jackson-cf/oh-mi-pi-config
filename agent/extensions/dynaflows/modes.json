@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "repos": {
+    "adam-jackson-cf/enaible-analyzers": "structured",
+    "adam-jackson-cf/oh-mi-pi-config": "structured",
+    "adam-jackson-cf/raidar": "structured",
+    "adam-jackson-cf/scout": "structured"
+  }
+}

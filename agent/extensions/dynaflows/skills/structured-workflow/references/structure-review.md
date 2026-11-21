@@ -20,17 +20,19 @@ The frozen questions and per-question thresholds live in
 `judgments/structure-naming/{questions,thresholds}.json`. Ask all seven general questions
 for every affected unit and `prefix_should_be_folder` only with eligible clusters. Independent
 questions share a request; multiple units sharing those questions use eval `judge_batch`.
-Threshold versions hash questions, state shape and the recorded model; stale or invalid
-configuration is an infrastructure error, not a clean review. Never claim a pinned model or
-calibrated confidence: eval does not report the runtime model in `judge` answers.
+The questions load through the [judgment registry](judgments.md): stale version keys, a judge role
+other than the tuned model, or `TYPESAFE_BASE_URL` set (the Jev Inspector route) are
+infrastructure errors, not a clean review. Every unit's answers are appended to the judgment call
+log. Never claim calibrated confidence: raw probabilities are not confidence.
 
 The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains `head`, `status`,
-unit-state digests, raw scores, findings, full thresholds and version key, `halt`, and
-infrastructure `errors`.
-One marked PR comment is updated across reruns/heads. Provisional findings (initial threshold
-0.7 for every question) are shadow-only: no prove file, proof status or merge signal changes.
-Infrastructure failures are reported in the result/comment and never block shadow operation.
-An incomplete review has `status: incomplete`, not a clean result.
+unit-state digests, raw scores, per-question outcomes (`yes`, `no`, `escalate`), findings,
+full thresholds and version key, `halt`, and infrastructure `errors`.
+One marked PR comment is updated across reruns/heads. A finding is a `yes` outcome (score at or
+above the decision's `yes_at_least`). Provisional findings are shadow-only: no prove file, proof
+status or merge signal changes.
+Infrastructure failures are reported in the result/comment. An incomplete review has
+`status: incomplete`, not a clean result, and rails refuse a merge on it: fix the cause and rerun.
 
 A finding for a decision explicitly marked `ready` sets `halt: true` and `status: blocked`;
 [Verify](step-5-verify-workflow.md) and [Integrate](step-6-integrate-workflow.md) own the response.
