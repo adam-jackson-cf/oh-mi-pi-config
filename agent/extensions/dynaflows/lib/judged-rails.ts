@@ -5,7 +5,7 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { SUBPROCESS_TIMEOUT_MS, absentFile, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
+import { SUBPROCESS_TIMEOUT_MS, absentFile, shellCommands, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
 import { Approvals, approvalLine, clip, digest, jsonText, verdictText, type Decide, type JudgeState, type RailJudgment, type Verdict } from "./judge.ts";
 import type { Obligation, ObligationStatus } from "./obligations.ts";
 import { readGateText } from "./repo-record.ts";
@@ -16,8 +16,7 @@ type Failure = { failure: string };
 
 /** The fixed mode descriptions extension-impact was scored with (judgments/extension-impact/cases.jsonl). */
 export const MODE_RUNS = {
-	"structured": "Everything minimal runs, plus the full workflow: record checks.commit and the harness commit checks (guardrails catalogue rules, language adapters, path, naming and structure checks), reference reads on edits, prove() and structure_review() and exact-head CI before merge, the judged dynaflows rules, the structured-workflow skill and its bundled skills (git-tool merge runbook, test-guidance, setup-repo-proofs), and dependency-audit triage.",
-	"minimal": "Fixed deterministic guards only: refuse every Git hook bypass, refuse gh pr merge, refuse git push to the remote default branch, keep worktree placement under worktree.base and subagent path checks, keep the record's agentMerge policy, require reading skill://git-tool before Git integration commands. No commit checks, path checks, prove(), structure review, CI merge checks, judged rules or workflow skill."
+	"structured": "Everything minimal runs, plus the full workflow: record checks.commit and the harness commit checks (guardrails catalogue rules, language adapters, path, naming and structure checks), reference reads on edits, prove() and structure_review() and exact-head CI before merge, the judged dynaflows rules, the structured-workflow skill and its bundled skills (git-tool merge runbook, test-guidance, setup-repo-proofs), and dependency-audit triage."
 } as const;
 /** A decision-record file: an ADR the PR adds or edits. */
 export const ADR_PATH = /(?:^|\/)(?:adrs?|decisions|decision-records)\/[^/]+\.md$/i;
@@ -38,6 +37,8 @@ const MESSAGE_FORMS = [
 	{ pattern: /^--file=(.*)$/, kind: "file", skip: 0 },
 ] as const;
 const TEXT_LIMIT = 3000;
+const SUBAGENT_PRIVILEGED = "Agent rails: subagents cannot run privileged commands (privileges, credentials, installs, other machines); " +
+	"return the command to the main agent, which asks the owner when the agreed work does not grant it.";
 const DIFF_LIMIT = 12000;
 const ADR_FILES_SHOWN = 40;
 const LARGEST_FILES = 20;
@@ -221,8 +222,12 @@ export function scopeState(branch: readonly object[], proposedAction: string) {
 		proposed_action: clip(proposedAction, SCOPE_ACTION_LIMIT),
 	} };
 }
-const privilegedCommand = (command: string | undefined, askFirst: (part: string) => boolean) =>
-	command?.split(/\s*(?:&&|\|\||;|\||\n)\s*/).some(part => askFirst(part.trim())) ? command : undefined;
+/** The command when any parsed command position in it (wrappers, subshells, -c scripts, substitutions) is ask-first. */
+async function privilegedCommand(command: string | undefined, cwd: string, askFirst: (part: string) => boolean): Promise<string | undefined> {
+	if (command === undefined) return undefined;
+	const positions = await shellCommands(command, cwd).catch(() => [command]);
+	return positions.some(position => askFirst(position.trim())) ? command : undefined;
+}
 const questionText = (input: ScopeInput): string | undefined => input.questions?.length
 	? input.questions.map(item => item.question).join("\n")
 	: input.html?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -410,6 +415,26 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		return "unmet";
 	}
 
+	async function scopeSubject(event: ToolEvent, input: ScopeInput, ctx: ExtensionContext, cwd: string) {
+		const question = event.toolName === "ask" && ctx.agent.kind === "main" ? questionText(input) : undefined;
+		const command = event.toolName === "bash" ? await privilegedCommand(event.input.command, cwd, deps.askFirst) : undefined;
+		return { question, command };
+	}
+
+	// completion-evidence holds the merge: the pre-checks, then the judgment for the head; escalate needs the owner.
+	async function evidenceMergeReason(cwd: string, view: PrView, head: string, ctx: ExtensionContext): Promise<string | undefined> {
+		const key = `completion-evidence:${head}`;
+		if (approved(ctx, key)) return undefined;
+		// CI on the head is the merge policy's check; the evidence pre-checks here are the description's (P2, P4, P8).
+		const failures = [...sectionFailures(view, undefined).filter(failure => !/^P[67] /.test(failure)), ...await shaFailures(pi, cwd, view)];
+		if (failures.length) return `Agent rails: the PR fails the completion pre-checks: ${failures.join("; ")}; fix the PR description, then merge.`;
+		const verdict = await decided("completion-evidence", evidenceState(view), ctx);
+		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
+		if (verdict.outcome === "no") return undefined;
+		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this PR shows evidence for every outcome it claims.")}`;
+		return `Agent rails: ${verdictText(verdict)}: an outcome this PR claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section, then merge.`;
+	}
+
 	return {
 		/** implementation-integrity at a structured commit, after checks.commit and the harness checks passed. */
 		async commitReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
@@ -425,11 +450,13 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 				"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
 				"or cite the owner decision (an ADR or recorded approval) in the commit message, then commit again.";
 		},
-		/** adr-needed at a structured merge, after method, head, proof and CI passed. */
+		/** completion-evidence, then adr-needed, at a structured merge, after method, head, proof and CI passed. */
 		async mergeReason(cwd: string, selector: string | undefined, head: string, ctx: ExtensionContext): Promise<string | undefined> {
 			const view = await prView(pi, cwd, selector, "number,title,body,state,headRefOid,url,commits,files,statusCheckRollup")
 				.catch((error: Error) => ({ failure: `the adr-needed judgment could not run: ${error.message}` }));
 			if ("failure" in view) return `Agent rails: ${view.failure}; retry the merge.`;
+			const evidence = await evidenceMergeReason(cwd, view, head, ctx);
+			if (evidence) return evidence;
 			const key = `adr-needed:${head}`;
 			if (view.files.some(file => ADR_PATH.test(file.path)) || approved(ctx, key)) return undefined;
 			const verdict = await adrVerdict(pi, cwd, view, ctx);
@@ -440,10 +467,10 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		},
 		/** in-scope before an ask or a privileged command the rails can see. */
 		async scopeReason(event: ToolEvent, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {
-			const question = event.toolName === "ask" ? questionText(input) : undefined;
-			const command = event.toolName === "bash" ? privilegedCommand(event.input.command, deps.askFirst) : undefined;
-			if (ctx.agent.kind !== "main" || (!question && !command)) return undefined;
-			if (!await deps.structured(ctx, event.input.cwd ?? ctx.cwd)) return undefined;
+			const cwd = event.input.cwd ?? ctx.cwd;
+			const { question, command } = await scopeSubject(event, input, ctx, cwd);
+			if ((!question && !command) || !await deps.structured(ctx, cwd)) return undefined;
+			if (ctx.agent.kind !== "main") return SUBAGENT_PRIVILEGED;
 			return question ? askReason(question, ctx) : commandReason(command ?? "", input, ctx);
 		},
 		/** completion-evidence for the agent's PR at each structured turn end. */

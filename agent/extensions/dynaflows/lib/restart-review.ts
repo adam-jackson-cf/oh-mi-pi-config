@@ -1,10 +1,21 @@
 // Review on restart: each repository stores the last dynaflows extension revision a session
 // acknowledged, under the omp agent dir. A newer revision asks for a review of the change first.
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z, type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { SUBPROCESS_TIMEOUT_MS, absentFile } from "./rails-runtime.ts";
+import { agentDir } from "./judgment-calls.ts";
+
+/** The review state under the omp agent dir, by the judgment call log's rule (PI_CODING_AGENT_DIR). */
+export const defaultReviewsPath = (): string => join(agentDir(), "dynaflows-reviews.json");
+
+/** The repository's Git common dir: the same for every worktree of one repository. */
+export async function commonDir(pi: ExecApi, cwd: string): Promise<string> {
+	const result = await pi.exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+	if (result.code !== 0 || result.killed || !result.stdout.trim()) throw new Error(`cannot resolve the Git common dir of ${cwd}: ${result.stderr.trim()}`);
+	return realpath(result.stdout.trim());
+}
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
 // Not extension behaviour: the mode file changes on every mode switch.

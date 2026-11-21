@@ -3,7 +3,8 @@
 **Structured mode only.** Read this runbook only when the repo's dynaflows `mode` is `structured`.
 
 Units target the default resolved in [branch-and-integrate](branch-and-integrate.md) and use rebase-merge,
-never squash or merge commits, unless the repository's project instructions document a target/merge-method exception.
+never squash or merge commits, unless the record's `mergePolicies` entry for the base and head prefix names another
+method; the merge rail enforces it.
 Authority and approval boundaries remain in [authority-and-safety](authority-and-safety.md).
 
 ## Merge authority

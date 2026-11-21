@@ -4,9 +4,9 @@ import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding
 import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
 import { repoSlug } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
-import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus } from "./obligations.ts";
+import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
-import { extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
+import { commonDir as gitCommonDir, defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
 import { prSelector } from "./guards.ts";
 import { verdictText, type Decide, type Verdict } from "./judge.ts";
 import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
@@ -19,7 +19,10 @@ export type SessionDeps = {
 	reviewsPath: string;
 	modeOf(ctx: ExtensionContext, cwd: string): Promise<Mode>;
 	recordAt(root: string): Promise<RepoRecord | undefined>;
-	prStatus(ctx: ExtensionContext, cwd: string, selector: string): Promise<ObligationStatus>;
+	/** The turn-end status of a branch's PR, with the reason when it is unmet (CI pending or failing, gh unreadable). */
+	prStatus(ctx: ExtensionContext, cwd: string, selector: string): Promise<PrStatus>;
+	/** Whether the branch has an open PR (gh pr view), for PRs this session did not create. */
+	prOpen(ctx: ExtensionContext, cwd: string, branch: string): Promise<boolean>;
 	repoRun(argv: string[], cwd: string, timeout: number): Promise<Run>;
 	checks: { profile: string[]; check: string[] };
 	/** The judged rails' decide(): the judgment registry with the host judge transport. */
@@ -29,16 +32,37 @@ export type SessionDeps = {
 	sources: ObligationSource[];
 	loadError(): string | undefined;
 };
-type Review = { slug: string; root: string; from: string; to: string; checks: Promise<string>; diff: Promise<string | undefined>; impact: Promise<Verdict | Failure> };
+export type PrStatus = { status: ObligationStatus; reason?: string | undefined };
+type Review = { slug: string; root: string; common: string; from: string; to: string; checks: Promise<string>; diff: Promise<string | undefined>; impact: Promise<Verdict | Failure> };
 type Handoff = { root: string; content: string; injected: boolean };
-type Session = { book: ObligationBook; review?: Review | undefined; handoff?: Handoff | undefined; started: boolean };
+type Session = { book: ObligationBook; review?: Review | undefined; handoff?: Handoff | undefined; started: boolean; discovered: Set<string> };
 // Bounded under omp's 30 s extension handler budget; a slower check is left for the agent to run.
 const REVIEW_CHECK_MS = 25_000;
 const OUTPUT_TAIL = 2000;
 const ROLLOUT_DIRECTIVE = /^\$rollout$/i;
 const ROLLOUT_ID = "rollout";
+const branchEntrySchema = z.object({ type: z.literal("message"), message: z.object({
+	role: z.string(),
+	content: z.union([z.string(), z.array(z.object({ type: z.string(), text: z.string().optional(), id: z.string().optional(), name: z.string().optional(), arguments: z.unknown().optional() }))]).optional(),
+	toolCallId: z.string().optional(), isError: z.boolean().optional(),
+}) });
+const toolArgumentsSchema = z.object({ command: z.string().optional(), cwd: z.string().optional(), rollout: z.literal(true).optional() }).catch({});
+type BranchMessage = z.infer<typeof branchEntrySchema>["message"];
+type ReplayCall = { name: string; input: z.infer<typeof toolArgumentsSchema> };
+const messageTexts = (message: BranchMessage): string[] =>
+	Array.isArray(message.content) ? message.content.map(block => block.text ?? "") : [message.content ?? ""];
+function toolCalls(message: BranchMessage): [string, ReplayCall][] {
+	const calls: [string, ReplayCall][] = [];
+	for (const block of Array.isArray(message.content) ? message.content : []) {
+		if (block.type === "toolCall" && block.id && block.name) calls.push([block.id, { name: block.name, input: toolArgumentsSchema.parse(block.arguments) }]);
+	}
+	return calls;
+}
+const asksRollout = (message: BranchMessage): boolean =>
+	message.role === "user" && messageTexts(message).some(text => text.split("\n").some(line => ROLLOUT_DIRECTIVE.test(line.trim())));
 const filesSchema = z.object({ files: z.array(z.object({ path: z.string() })) });
 const agentMessage = (content: string) => ({ message: { customType: "dynaflows", content, display: false, attribution: "agent" as const } });
+const sentenceOf = (text: string) => /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
 const tail = (text: string) => text.length > OUTPUT_TAIL ? `…${text.slice(-OUTPUT_TAIL)}` : text;
 
 async function reviewTask(review: Review): Promise<string | undefined> {
@@ -64,13 +88,17 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	const sessions = new Map<string, Session>();
 	const sessionFor = (ctx: ExtensionContext): Session => {
 		const id = ctx.sessionManager.getSessionId();
-		const found = sessions.get(id) ?? { book: new ObligationBook(), started: false };
+		const found = sessions.get(id) ?? { book: new ObligationBook(), started: false, discovered: new Set<string>() };
 		sessions.set(id, found);
 		return found;
 	};
 	const structured = async (ctx: ExtensionContext, root: string) => await deps.modeOf(ctx, root) === "structured";
-	const rolloutCommands = ["~/.omp", deps.configRoot].map(root => `python3 ${root}/scripts/device_rollout.py`);
+	// The rollout step, from the config root only: any spelling that resolves to the same script counts.
+	const rolloutStep: Step = { argv: ["python3", `${deps.configRoot.replace(/\/+$/, "")}/scripts/device_rollout.py`], root: deps.configRoot };
+	const rolloutCommand = shellJoin(rolloutStep.argv);
 	const judged = judgedRails(pi, { decide: deps.decide, structured, askFirst: deps.askFirst });
+
+	const commonDir = (cwd: string) => gitCommonDir(pi, cwd);
 
 	async function reviewChecks(root: string): Promise<string> {
 		const record = await deps.recordAt(root).catch(() => undefined);
@@ -99,7 +127,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		}
 		const record = await deps.recordAt(root).catch(() => undefined);
 		session.review = {
-			slug, root, from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
+			slug, root, common: await commonDir(root), from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
 			impact: judged.impactVerdict(ctx, { slug, record, configRoot: deps.configRoot, from, to }),
 		};
 	}
@@ -107,6 +135,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	pi.on("session_start", async (_event, ctx) => {
 		if (deps.loadError() || ctx.agent.kind !== "main") return;
 		const session = sessionFor(ctx);
+		await replay(ctx, session);
 		const root = await repoRoot(ctx.cwd);
 		if (!root) return;
 		const content = await readHandoff(root);
@@ -114,12 +143,19 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		await startReview(ctx, root, session);
 	});
 
-	async function firstPromptMessages(session: Session): Promise<string[]> {
+	async function firstPromptMessages(session: Session, ctx: ExtensionContext): Promise<string[]> {
 		const parts: string[] = [];
 		if (session.review) {
 			const task = await reviewTask(session.review);
 			if (task) parts.push(task);
-			else { await storeRevision(deps.reviewsPath, session.review.slug, session.review.to); session.review = undefined; }
+			else {
+				const { slug, from, to } = session.review;
+				const impact = await session.review.impact;
+				// A "no" skips the review task but stays visible: the owner sees it and the revision is stored.
+				ctx.ui.notify(`Agent rails: the dynaflows extension changed (${from} → ${to}); ${"failure" in impact ? "extension-impact did not run" : verdictText(impact)} for ${slug}, so no review task; revision stored.`, "info");
+				await storeRevision(deps.reviewsPath, slug, to);
+				session.review = undefined;
+			}
 		}
 		if (session.handoff && !session.handoff.injected) {
 			session.handoff.injected = true;
@@ -128,10 +164,15 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		return parts;
 	}
 
+	pi.on("session_switch", async (_event, ctx) => {
+		if (deps.loadError() || ctx.agent.kind !== "main") return;
+		await replay(ctx, sessionFor(ctx));
+	});
+
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (deps.loadError() || ctx.agent.kind !== "main" || event.reason !== "prompt") return;
 		const session = sessionFor(ctx);
-		const parts = session.started ? [] : await firstPromptMessages(session);
+		const parts = session.started ? [] : await firstPromptMessages(session, ctx);
 		session.started = true;
 		if ((event.prompt ?? "").split("\n").some(line => ROLLOUT_DIRECTIVE.test(line.trim()))) parts.push(await rails.optInRollout(ctx));
 		return parts.length ? agentMessage(parts.join("\n\n")) : undefined;
@@ -144,18 +185,44 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		session.handoff = undefined;
 	});
 
+	async function currentBranch(cwd: string): Promise<string> {
+		return (await pi.exec("git", ["symbolic-ref", "--short", "-q", "HEAD"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS })).stdout.trim();
+	}
+
+	function trackBranch(ctx: ExtensionContext, session: Session, at: { cwd: string; root: string; branch: string }): void {
+		const { cwd, root, branch } = at;
+		session.discovered.add(`${root}:${branch}`);
+		const merged = `the PR for ${branch} has green CI on its head and is unmerged; merge it (skill://git-tool/references/merge-and-recover.md)`;
+		const obligation: Obligation = { id: `pr:${branch}`, root, text: merged, status: async () => {
+			const pr = await deps.prStatus(ctx, cwd, branch);
+			obligation.text = pr.reason === undefined ? merged
+				: `the PR for ${branch} is open and not mergeable yet: ${sentenceOf(pr.reason.replace(/^Agent rails: /, ""))} Wait for CI with that command (or gh pr checks ${branch} --watch), fix any failure, then merge`;
+			return pr.status;
+		} };
+		session.book.add(obligation);
+		session.book.add(judged.evidenceObligation(ctx, { cwd, root, branch,
+			requiredContext: async () => (await deps.recordAt(root).catch(() => undefined))?.gate.requiredCi?.requiredContext }));
+	}
+
 	async function trackPr(action: GitAction, ctx: ExtensionContext, session: Session): Promise<void> {
 		if (!action.cwd) return;
 		const root = await repoRoot(action.cwd);
 		if (!root) return;
 		const flag = action.args.findIndex(arg => arg === "--head" || arg === "-H");
-		const branch = flag >= 0 ? action.args[flag + 1] : (await pi.exec("git", ["symbolic-ref", "--short", "-q", "HEAD"], { cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS })).stdout.trim();
-		if (!branch) return;
-		const cwd = action.cwd;
-		session.book.add({ id: `pr:${branch}`, root, text: `the PR for ${branch} has green CI on its head and is unmerged; merge it (skill://git-tool/references/merge-and-recover.md)`,
-			status: () => deps.prStatus(ctx, cwd, branch) });
-		session.book.add(judged.evidenceObligation(ctx, { cwd, root, branch,
-			requiredContext: async () => (await deps.recordAt(root).catch(() => undefined))?.gate.requiredCi?.requiredContext }));
+		const branch = flag >= 0 ? action.args[flag + 1] : await currentBranch(action.cwd);
+		if (branch) trackBranch(ctx, session, { cwd: action.cwd, root, branch });
+	}
+
+	// A PR this session did not open (earlier session, gh api, another tool): the current branch's open PR, once pushed.
+	async function discoverPr(ctx: ExtensionContext, session: Session): Promise<void> {
+		if (ctx.agent.kind !== "main") return;
+		const root = await repoRoot(ctx.cwd);
+		if (!root || !await structured(ctx, root)) return;
+		const branch = await currentBranch(ctx.cwd);
+		if (!branch || session.discovered.has(`${root}:${branch}`)) return;
+		const pushed = await pi.exec("git", ["rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: ctx.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+		if (pushed.code !== 0 || !await deps.prOpen(ctx, ctx.cwd, branch)) return;
+		trackBranch(ctx, session, { cwd: ctx.cwd, root, branch });
 	}
 
 	async function afterMergeStep(root: string | undefined) {
@@ -182,27 +249,63 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 	async function satisfied(event: ToolEvent, cwd: string, session: Session): Promise<void> {
 		const command = event.input.command ?? "";
-		if (ranCommand(command, rolloutCommands)) session.book.satisfy(ROLLOUT_ID);
+		if (ranCommand(command, rolloutStep, cwd)) session.book.satisfy(ROLLOUT_ID);
 		const root = await repoRoot(cwd);
 		const step = await afterMergeStep(root);
-		if (root && step && ranCommand(command, [shellJoin(step.argv)])) session.book.satisfy(`afterMerge:${root}`);
+		if (root && step && ranCommand(command, { argv: step.argv, root }, cwd)) session.book.satisfy(`afterMerge:${root}`);
+	}
+
+	async function bashResult(event: ToolEvent, ctx: ExtensionContext, session: Session): Promise<void> {
+		if (event.isError || event.input.command === undefined) return;
+		const cwd = event.input.cwd ?? ctx.cwd;
+		await satisfied(event, cwd, session);
+		for (const action of await gitActions(event.input.command, cwd).catch(() => [])) {
+			if (/^gh pr create\b/.test(action.command)) await trackPr(action, ctx, session);
+			if (/^gh pr merge\b/.test(action.command)) await requireAfterMerge(action, session);
+		}
+	}
+
+	async function addRollout(ctx: ExtensionContext, session: Session): Promise<string> {
+		const root = await repoRoot(ctx.cwd);
+		if (!root || !await structured(ctx, root)) return "Device rollout obligations need dynaflows structured mode; none was added.";
+		session.book.add({ id: ROLLOUT_ID, root, text: `device rollout was requested; run \`${rolloutCommand}\` until it exits 0`, status: async () => "unmet" });
+		return `Device rollout requested: before this work ends, run \`${rolloutCommand}\` until it exits 0.`;
+	}
+
+	async function replayResult(call: ReplayCall, id: string, ctx: ExtensionContext, session: Session): Promise<void> {
+		if (call.name === "bash") await bashResult(policyEvent({ type: "tool_call", toolName: "bash", toolCallId: id, input: call.input }), ctx, session);
+		if (call.name === "dynaflows" && call.input.rollout) await addRollout(ctx, session);
+	}
+
+	async function replayMessage(message: BranchMessage, calls: Map<string, ReplayCall>, ctx: ExtensionContext, session: Session): Promise<void> {
+		if (asksRollout(message)) await addRollout(ctx, session);
+		if (message.role === "assistant") for (const [id, call] of toolCalls(message)) calls.set(id, call);
+		const id = message.toolCallId ?? "";
+		const call = message.role === "toolResult" && !message.isError ? calls.get(id) : undefined;
+		if (call) await replayResult(call, id, ctx, session);
+	}
+
+	// Obligations live in memory: a restarted or resumed session rebuilds them from its branch, in order.
+	async function replay(ctx: ExtensionContext, session: Session): Promise<void> {
+		session.book = new ObligationBook();
+		session.discovered.clear();
+		const calls = new Map<string, ReplayCall>();
+		for (const entry of ctx.sessionManager.getBranch()) {
+			const parsed = branchEntrySchema.safeParse(entry);
+			if (parsed.success) await replayMessage(parsed.data.message, calls, ctx, session);
+		}
 	}
 
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
-		if (deps.loadError() || event.toolName !== "bash" || event.isError || event.input.command === undefined) return;
-		const session = sessionFor(ctx);
-		const cwd = event.input.cwd ?? ctx.cwd;
-		await satisfied(event, cwd, session);
-		for (const action of await gitActions(event.input.command, cwd)) {
-			if (/^gh pr create\b/.test(action.command)) await trackPr(action, ctx, session);
-			if (/^gh pr merge\b/.test(action.command)) await requireAfterMerge(action, session);
-		}
+		if (deps.loadError() || event.toolName !== "bash") return;
+		await bashResult(event, ctx, sessionFor(ctx));
 	});
 
 	pi.on("session_stop", async (_event, ctx) => {
 		if (deps.loadError()) return;
 		const session = sessionFor(ctx);
+		await discoverPr(ctx, session);
 		const extra = (await Promise.all(deps.sources.map(source => source(ctx.sessionManager.getSessionId())))).flat();
 		const reason = await session.book.turnEnd(extra, root => structured(ctx, root), text => ctx.ui.notify(text, "error"));
 		return reason ? { decision: "block" as const, reason } : undefined;
@@ -226,7 +329,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	const rails: SessionRails = {
 		async gitWriteReason(action, ctx) {
 			const review = sessionFor(ctx).review;
-			if (!review || !action.cwd || await repoRoot(action.cwd) !== review.root) return undefined;
+			if (!review || !action.cwd || await commonDir(action.cwd).catch(() => undefined) !== review.common) return undefined;
 			return `Agent rails: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it; ` +
 				"review the change, then call the dynaflows tool with acknowledge: true before Git writes.";
 		},
@@ -234,10 +337,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 			return action.cwd ? stagedHandoffReason(pi, action.cwd) : undefined;
 		},
 		async optInRollout(ctx) {
-			const root = await repoRoot(ctx.cwd);
-			if (!root || !await structured(ctx, root)) return "Device rollout obligations need dynaflows structured mode; none was added.";
-			sessionFor(ctx).book.add({ id: ROLLOUT_ID, root, text: `device rollout was requested; run \`${rolloutCommands[0]}\` until it exits 0`, status: async () => "unmet" });
-			return `Device rollout requested: before this work ends, run \`${rolloutCommands[0]}\` until it exits 0.`;
+			return addRollout(ctx, sessionFor(ctx));
 		},
 		async acknowledge(ctx) {
 			const session = sessionFor(ctx);
@@ -255,4 +355,5 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 export type { Obligation, ObligationSource, ObligationStatus };
 export { ompJudge, registryDecide, type JudgeTransport } from "./judge.ts";
+export { defaultReviewsPath };
 export { scopeInputSchema } from "./judged-rails.ts";

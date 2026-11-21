@@ -21,9 +21,10 @@ No setting names a harness directory inside the repo.
 
 ## Gate schema
 
-The record's `gate.json` uses schema version 2. Required fields are `schemaVersion`,
-`checks.commit` and `dynaflows`. Unknown top-level or `checks` fields fail
-the load with the field name; the obsolete path command field is rejected, never ignored.
+The record's `gate.json` uses schema version 2. Required fields are `schemaVersion` and
+`checks.commit`; the mode lives in [`modes.json`](../modes.json), and `dynaflows` is refused.
+Unknown top-level or `checks` fields fail the load with the field name; the obsolete path
+command field is rejected, never ignored.
 A documentation-only repo still declares `checks.commit`.
 
 | Field | Contract |
@@ -103,6 +104,9 @@ The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
 }
 ```
 
+The cutover migration `lib/migrate_records_to_mode_file.py` adds the `mergePolicies` entry
+([ADR 0017 cutover steps](../../../../docs/adr/0017-dynaflows-runtime-rails.md#cutover-steps)).
+
 | Fact | Enforced by |
 | --- | --- |
 | `nuc-config` sync: PR from `agent/nuc-sync-<date>`, `--merge`, no proof | `mergePolicies` |
@@ -111,6 +115,8 @@ The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
 | `ci-gate` is `scripts/ci_gate.py` on the NUC | `~/.omp/ci-runners.json` |
 | Missing `scripts/ci-gate-repos.json` entry: a setup PR, never a CI waiver | Not enforced |
 | A passing `ci-quality-gates.yml` run never replaces a missing `gate`; escalate | Not enforced |
+
+[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#not-enforced) records both as not enforced.
 
 The fallback dispatch is in the [readme](../../../../readme.md#ci-runners); this repo never takes
 the no-CI exception because it declares `ci`.

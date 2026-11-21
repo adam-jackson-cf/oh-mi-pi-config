@@ -8,12 +8,12 @@
   "framing": {
     "decision": "Before relying on a dynaflows change, flag each repository whose setup or agent interaction it reaches, so the change is reviewed or addressed for that repository first",
     "unit_of_judgment": "one revision range of oh-mi-pi-config crossed with one repository record and its mode",
-    "action": "reversible: a flag asks for review; nothing is blocked",
+    "action": "a flag keeps the restart review task and refuses Git writes until it is acknowledged",
     "costs": "a miss (an impacting change relied on unreviewed) costs more than a false flag (an extra review)",
-    "wiring": "not wired into rails; integration owns the call site and the state builder"
+    "wiring": "lib/session-rails.ts restart review: yes or escalate keeps the review task and its Git-write gate; no stores the revision and notifies the owner (ADR 0017)"
   },
   "scoring": {
-    "command": "infisical run --projectId <dev project> --env dev -- omp -p --no-session --config <overlay> \"run judge_batch over cases.jsonl\"",
+    "command": "infisical run --projectId <dev project> --env dev -- bun <scorer> (omp 19.0.1 library judge)",
     "overlay": {
       "modelRoles": {
         "judge": "typesafe/jev-1.14.0"
@@ -25,51 +25,51 @@
       }
     },
     "batch_status": {
-      "total": 84,
-      "done": 84,
+      "total": 53,
+      "done": 53,
       "failed": 0,
       "model": "typesafe/jev-1.14.0"
     },
-    "cost_usd": 0.021492,
-    "cost_per_100_cases_usd": 0.0256,
-    "runs": "each case scored once; a two-case smoke run (EI001, EI004) preceded it and gave the same scores"
+    "cost_usd": null,
+    "cost_per_100_cases_usd": "unknown: judge() reports no usage",
+    "runs": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0"
   },
   "decisions": {
     "impact": {
       "version_key": "7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
-      "threshold": 0.395,
+      "threshold": 0.45999999999999996,
       "status": "provisional",
-      "no_at_most": 0.34,
-      "yes_at_least": 0.48,
+      "no_at_most": 0.28,
+      "yes_at_least": 0.51,
       "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "rule": "P(impact) >= threshold flags the repository for review",
       "escalation_band": {
-        "no_at_most": 0.34,
-        "yes_at_least": 0.48,
+        "no_at_most": 0.28,
+        "yes_at_least": 0.51,
         "between": "escalate: the owner or a reviewing agent decides",
         "fallback": "owner or reviewing agent; not run on the cases, so cascade figures assume the fallback is right",
         "chosen_on": "dev only: the narrowest band with no dev positive at or below no_at_most and no dev negative at or above yes_at_least",
         "dev": {
-          "cases": 60,
-          "auto_no": 23,
+          "cases": 38,
+          "auto_no": 9,
           "auto_no_positives": 0,
-          "auto_yes": 26,
+          "auto_yes": 20,
           "auto_yes_negatives": 0,
-          "escalated": 11,
-          "escalated_positives": 3,
-          "escalation_rate": 0.183
+          "escalated": 9,
+          "escalated_positives": 2,
+          "escalation_rate": 0.237
         },
         "test": {
-          "cases": 24,
-          "auto_no": 10,
-          "auto_no_positives": 3,
-          "auto_yes": 12,
+          "cases": 15,
+          "auto_no": 4,
+          "auto_no_positives": 1,
+          "auto_yes": 8,
           "auto_yes_negatives": 0,
-          "escalated": 2,
-          "escalated_positives": 0,
-          "escalation_rate": 0.083
+          "escalated": 3,
+          "escalated_positives": 1,
+          "escalation_rate": 0.2
         },
-        "test_misses": ["EI050", "EI051", "EI082"],
+        "test_misses": ["EI082"],
         "accuracy_loss": "not agreed with the owner"
       },
       "minimums": {
@@ -83,102 +83,85 @@
         "beta": 2
       },
       "label_set": {
-        "cases": 84,
-        "positives": 44,
-        "negatives": 40,
+        "cases": 53,
+        "positives": 32,
+        "negatives": 21,
         "dev": {
-          "cases": 60,
-          "positives": 29,
+          "cases": 38,
+          "positives": 22,
           "units": 20
         },
         "test": {
-          "cases": 24,
-          "positives": 15,
+          "cases": 15,
+          "positives": 10,
           "units": 8
         },
         "split": "by unit (extension commit): the 8 units with the lowest sha256(head) are test",
         "strata": {
-          "minimal": 33,
-          "structured": 51
+          "structured": 53
         },
         "synthetic": 0,
-        "provenance": "agent_reviewed: innovation-council first pass (blind to scores; innovation-challenger and experiment-peer labelled independently, the council reconciled), claude as final arbiter agreeing on all 84; owner may override"
+        "provenance": "agent_reviewed: innovation-council first pass (blind to scores; innovation-challenger and experiment-peer labelled independently, the council reconciled), claude as final arbiter agreeing on all 84; owner may override",
+        "rebuild": "2026-11-21: the 31 minimal-stratum cases were dropped (the rail judges structured repositories only) and each record gate was rebuilt in the current schema: dynaflows removed; the oh-mi-pi-config record holds the nuc-config mergePolicies entry the cutover adds. Labels unchanged."
       },
       "results": {
         "default_0_5": {
           "dev_heldout": {
-            "precision": 1,
-            "recall": 0.862
+            "precision": 1.0,
+            "recall": 0.909
           },
           "test": {
-            "precision": 1,
+            "precision": 1.0,
             "recall": 0.8
           }
         },
         "tuned": {
           "dev_heldout": {
-            "precision": 0.78,
-            "recall": 0.952
+            "precision": 0.742,
+            "recall": 0.831
           },
-          "folds_below_minimums": "15 of 25",
-          "fold_threshold_range": [0.33, 0.48],
+          "folds_below_minimums": "11 of 25",
+          "fold_threshold_range": [0.285, 0.46],
           "test": {
-            "precision": 1,
+            "precision": 1.0,
             "recall": 0.8
           }
         },
         "test_strata": {
-          "minimal": {
-            "n": 9,
-            "precision": 1,
-            "recall": 0.6
-          },
           "structured": {
             "n": 15,
-            "precision": 1,
-            "recall": 0.9
+            "precision": 1.0,
+            "recall": 0.8
           }
         },
-        "conservative": "--conservative --repeats 5: no threshold qualifies (fewer than 50 dev cases per label)",
-        "calibration": {
-          "brier_raw_dev_heldout": 0.1009,
-          "brier_platt_dev_heldout": 0.0616,
-          "brier_raw_test": 0.1258,
-          "brier_platt_test": 0.1252,
-          "platt": {
-            "a": 2.8562,
-            "b": 0.5101
-          },
-          "applied": false,
-          "reason": "gates read raw scores; probabilities are not shown as confidence"
-        }
+        "calibration": "Not recomputed after the 2026-11-21 re-score; gates read raw scores; probabilities are not shown as confidence."
       },
       "tuning": "python3 -B agent/skills/jev-actions/scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 --errors --json"
     }
   },
   "error_analysis": {
     "dev_errors_at_threshold": {
-      "false_negatives": ["EI057"],
-      "false_positives": ["EI006", "EI041", "EI072", "EI077"]
+      "false_negatives": ["EI055", "EI057"],
+      "false_positives": []
     },
     "test_misses": {
-      "EI050": "policy gap: suppressing judged rules when dynaflows is off; mode.runs already says minimal runs no judged rules, so T2 (judge as if applied today) can read it as no change",
-      "EI051": "same as EI050",
-      "EI082": "model limit or clipped state: a refactor subject hides a prove() signature change"
+      "EI082": "auto-no below the band; not re-analysed after the re-score"
     },
     "next_fix": "clarify T2 for changes that create today's mode contract, then relabel EI049-EI051; owner to accept or fix"
   },
   "shortfalls": [
-    "test recall 0.8 is below the 0.9 minimum at the shipped threshold and at 0.5",
-    "the dev-chosen escalation band misses 3 of 15 test positives",
+    "test recall 0.8 is below the 0.9 minimum at the shipped threshold; the rail therefore notifies the owner on every no and stores the revision instead of skipping silently",
+    "the dev-chosen escalation band misses 1 of 10 test positives",
     "minimums are assumed, not owner-confirmed",
     "no owner review of labels yet",
     "fallback judge for the band not measured",
-    "about 30 dev cases per label; grow to 50+ per label, especially minimal-mode positives, before ready"
+    "the minimal stratum was dropped: about 20 dev cases per label remain; grow to 50+ per label before ready"
   ],
   "label_guide": {
     "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",
     "current_version": "7c0834d70f8be72bcd2076eb7bcb0737ed24a7966d682b076e5597285f050c14",
     "change": "Y1-Y5 table rewrapped as a list for the 100-column markdown limit after labelling; rule wording unchanged"
-  }
+  },
+  "mode": "gating, provisional",
+  "wired": true
 }

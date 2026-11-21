@@ -121,3 +121,6 @@ your response:
   changed-file list, replay individual failed attempts, add filler, or restate
   other sections.
         <!-- OMP_GLOBAL_RULES_END -->
+
+Never run Git in or copy into the NUC's `~/.omp`; `omp-config-pull.service` deploys it from `nuc-config`.
+Restart OMP sessions on each device after rails or extension changes; old sessions keep the old rails.

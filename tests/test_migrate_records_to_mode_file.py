@@ -68,6 +68,40 @@ class Migrate(unittest.TestCase):
         assert untouched.read_text() == before
         assert migration.migrate(self.root, self.modes, dry_run=False) == []
 
+    def test_adds_the_cutover_merge_policies_once(self) -> None:
+        slug = "adam-jackson-cf/oh-mi-pi-config"
+        policy = migration.CUTOVER_POLICIES[slug][0]
+        other = {"base": "main", "headPrefix": "x-", "method": "rebase", "proof": True}
+        path = self.record(
+            slug,
+            {
+                "schemaVersion": 2,
+                "checks": {"commit": ["true"]},
+                "ci": {"requiredContext": "gate", "runner": "ci-gate"},
+                "mergePolicies": [other],
+            },
+        )
+        assert migration.migrate(self.root, self.modes, dry_run=False) == [
+            f"{slug}: add 1 merge policies to {path}"
+        ]
+        gate = json.loads(path.read_text())
+        assert gate["mergePolicies"] == [other, policy]
+        assert migration.migrate(self.root, self.modes, dry_run=False) == []
+        assert policy == {
+            "base": "nuc-config",
+            "headPrefix": "agent/nuc-sync-",
+            "method": "merge",
+            "proof": False,
+        }
+
+    def test_refuses_merge_policies_that_are_not_a_list(self) -> None:
+        self.record(
+            "adam-jackson-cf/oh-mi-pi-config",
+            {"schemaVersion": 2, "mergePolicies": {"base": "x"}},
+        )
+        with pytest.raises(migration.MigrationError, match="must be a list"):
+            migration.migrate(self.root, self.modes, dry_run=True)
+
     def test_dry_run_writes_nothing(self) -> None:
         gate = self.record(
             "owner/on", {"schemaVersion": 2, "dynaflows": {"mode": "structured"}}

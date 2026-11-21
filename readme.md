@@ -57,14 +57,18 @@ The always-loaded dynaflows extension runs each repository in minimal or structu
 ([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). The tracked
 [`modes.json`](agent/extensions/dynaflows/modes.json) names the structured repositories; an unlisted
 one is minimal ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)). Its guards in both modes
-require `skill://git-tool` before every Git or GitHub write (commit, push, merge, rebase, reset,
-cherry-pick, tag, branch deletion, worktree add/remove, `gh pr create|merge|edit|close`, `gh api` writes),
-including commands with Git global options, shell separators and known command
-wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
-bounds; `cd` and `pushd` select the destination repository's policy. Unresolved
-directories fail closed for publishing. Quoted `echo` and search arguments do
-not trigger the check. Arbitrary interpreter, xargs/find and shell-write detection
-are not promised.
+require `skill://git-tool` before the Git and GitHub writes `rails.yml` `gitCommand` lists (commit,
+push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean, restore, tag creation,
+branch delete/force/move, stash drop, fetch into a local ref, worktree add/remove, `gh` PR, release,
+repo, workflow and issue writes, `gh api` writes), including commands with Git global options, shell
+separators and known or unknown command wrappers. They refuse what they cannot check: a shell
+reading piped commands, a variable command word, a script written in the same command, inline
+interpreter or eval code that starts `git` or `gh`, GitHub API writes through `curl`, `gh alias set`
+and `git config` alias or outside hook-path writes. Shell `-c`, `eval` and existing shell
+scripts are inspected recursively within parser bounds; `cd` and `pushd` select the destination
+repository's policy. Unresolved directories fail closed for publishing. Quoted `echo` and search
+arguments do not trigger the check. Script files run by other interpreters (`python3 x.py`) are
+not inspected.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
@@ -99,7 +103,7 @@ Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 
 | Rail | Modes | Behaviour |
 | --- | --- | --- |
-| Turn-end obligations | Structured | Unmerged green PR, `afterMerge`, rollout: max 3 follow-ups |
+| Turn-end obligations | Structured | Open PR (CI pending: wait), `afterMerge`, rollout; 3 asks |
 | Device rollout | Structured | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
 | Restart review | Both | Extension changed: review; structured blocks Git writes until ack |
 | Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
@@ -111,13 +115,14 @@ run after the deterministic checks through `decide()`
 | Event | Judgment | yes | escalate |
 | --- | --- | --- | --- |
 | `git commit` | `implementation-integrity` | Refused with remediation | Owner |
+| `gh pr merge` | `completion-evidence` | Refused: add evidence | Owner |
 | `gh pr merge` without an ADR file | `adr-needed` | Refused: add an ADR | Owner |
 | Turn end with the agent's PR | `completion-evidence` | Unmet obligation | Owner |
 | Restart review | `extension-impact` | Review task | Review task |
 | `ask`, `askFirstCommand` command | `in-scope` | Ask first | Ask first |
 
-`no` passes, and the review is skipped; an `ask` judged in scope is refused. The owner approves an
-escalation with a prompt line `$approve <judgment>:<id>` that the rails print.
+`no` passes, and the review is skipped with an owner notice; an `ask` judged in scope is refused.
+The owner approves an escalation with a prompt line `$approve <judgment>:<id>` that the rails print.
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and

@@ -69,14 +69,19 @@ test("external dependency map names only repo paths that exist", () => {
 	}
 });
 
-test("instructions the rails enforce are gone from the instruction files", () => {
+test("instructions the rails enforce are gone; the unenforced ones stay as instructions", () => {
 	const root = join(import.meta.dir, "..");
 	const rules = readFileSync(join(root, "agent/RULES.md"), "utf8");
-	for (const removed of ["bypass git hooks", "merge when CI is green", "ADR", "council", "HANDOFF"]) {
+	for (const removed of ["bypass git hooks", "merge when CI is green", "in-scope questions", "HANDOFF"]) {
 		assert.equal(rules.includes(removed), false, `agent/RULES.md still says ${removed}`);
 	}
-	for (const kept of ["## Security", "## Ask first", "## Code discovery order"]) assert.ok(rules.includes(kept), kept);
+	for (const kept of ["## Security", "## Ask first", "## Code discovery order", "Resolve councils: after 2 rounds"]) assert.ok(rules.includes(kept), kept);
 	const policy = readFileSync(join(root, "agent/AGENTS.md"), "utf8");
 	for (const removed of ["Device rollout:", "Git: read", "device_rollout.py"]) assert.equal(policy.includes(removed), false, removed);
+	for (const kept of ["Never run Git in or copy into the NUC's", "Restart OMP sessions on each device"]) assert.ok(policy.includes(kept), kept);
+	const adr = readFileSync(join(root, "docs/adr/0017-dynaflows-runtime-rails.md"), "utf8");
+	for (const unenforced of ["Council resolution after 2 rounds", "No Git in the NUC's", "Restart sessions after rail changes"]) {
+		assert.ok(adr.includes(unenforced), `ADR 0017 lists ${unenforced} as not enforced`);
+	}
 	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the record docs and schema");
 });

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
-import { judgmentCallLog, latestJudgmentCall, readJudgmentCalls, type JudgmentCall } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
+import { judgmentCallLog, latestJudgmentCall, readJudgmentCalls, type JudgmentCall , agentDir } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
 
 const digest = (char: string) => char.repeat(64);
 function call(overrides: Partial<JudgmentCall> = {}): JudgmentCall {
@@ -23,6 +23,8 @@ function log(lines: string[]): string {
 
 test("the log sits under the omp agent dir the engine writes to", () => {
 	assert.equal(judgmentCallLog("/agent"), "/agent/dynaflows/judgment-calls.jsonl");
+	assert.equal(agentDir("/agent"), "/agent", "the review state and the call log share one agent dir rule");
+	assert.equal(agentDir(" "), join(homedir(), ".omp/agent"));
 	assert.equal(judgmentCallLog(""), join(homedir(), ".omp/agent/dynaflows/judgment-calls.jsonl"));
 	assert.equal(judgmentCallLog(undefined), join(homedir(), ".omp/agent/dynaflows/judgment-calls.jsonl"));
 });

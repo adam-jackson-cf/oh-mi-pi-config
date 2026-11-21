@@ -5,8 +5,8 @@
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "shadow",
-  "wiring": "none: packaged only; not called by rails or workflows.py",
+  "mode": "gating, provisional",
+  "wiring": "lib/judged-rails.ts: the turn-end evidence obligation and the merge rail (yes refuses, escalate needs the owner's $approve); the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional",
   "score_provenance": {
     "run": "omp 19.0.1 -p with --config overlay (modelRoles.judge: typesafe/jev-1.14.0; retry.fallbackChains.judge: []); TYPESAFE_API_KEY injected by infisical run (project 052b4c81-…, env dev)",
     "call": "eval judge_batch(states, questions.json questions), one call per case, retries 2",
@@ -17,12 +17,13 @@
       "model": "typesafe/jev-1.14.0",
       "cost_usd": 0.00487
     },
-    "date": "2026-11-21"
+    "date": "2026-11-21",
+    "rescore": "CE029, CE030, CE034, CE036 and CE087 re-scored 2026-11-21 after pseudonymisation through the direct judge (model typesafe/jev-1.14.0); 4 scores moved by 0.01; band counts unchanged"
   },
   "framing": {
     "action": {
-      "value": "log only (shadow); later a completion gate before merge",
-      "assumed": true
+      "value": "turn-end obligation and merge refusal (ADR 0017)",
+      "assumed": false
     },
     "baseline": {
       "value": "none: completion claims are not checked today",
@@ -52,7 +53,7 @@
         "assumed": true,
         "reason": "jev-actions defaults; recall raised to 0.9 because a miss costs more"
       },
-      "cost_rule": "miss costs more: provisional single threshold 0.3 if one must gate shadow logging",
+      "cost_rule": "miss costs more: provisional single threshold 0.3; the rails read the escalation band instead (ADR 0017)",
       "provisional_threshold": 0.3,
       "escalation_band": {
         "pass_below": 0.42,
@@ -166,16 +167,18 @@
     },
     "provenance": "agent_reviewed: innovation-council first pass via omp -p (council plus innovation-challenger and experiment-peer labelling independently, then council adjudication), blind to jev scores; claude arbitrated after reading every split case, before scoring. 82 of 92 unanimous; 10 challenger/peer splits; arbiter overruled 1 (CE089 0 -> 1). Owner may override with human rows",
     "precheck_excluded": "11 of 295 PRs with request and evidence sections failed P5-P7 (no or failing checks) and were not sampled",
-    "selection": "per-repository quotas from 284 eligible merged or closed PRs in 8 adam-jackson-cf repositories; half of each quota from PRs with a Not tested paragraph, the rest by stable hash"
+    "selection": "per-repository quotas from 284 eligible merged or closed PRs in 8 adam-jackson-cf repositories; half of each quota from PRs with a Not tested paragraph, the rest by stable hash",
+    "redaction": "2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)"
   },
   "shortfalls": [
     "No threshold meets precision 0.8 / recall 0.9 on dev; threshold null",
-    "Escalation band misses on test: flagged precision 0.50 (4 false of 8); band not confirmed",
+    "Escalation band misses on test: flagged precision 0.50 (4 false of 8); band not confirmed, yet it gates the merge as the owner directed (ADR 0017)",
     "Dev positives 26 (< about 30); real replay positives only 22 of 32; scout has 0 and skills-directory 1",
     "Policy gap for owner ruling: agent-instruction docs (skills, runbooks) as E4 docs or E5 behaviour; near-duplicates CE029 (1) and CE030 (0) differ only by not_tested wording",
     "No linked plans or issues: 0 of 295 PRs link an issue, so the request is the PR's own summary; PR comments with later evidence were not read",
     "Fallback judge not run; cascade numbers assume a person resolves escalations exactly",
     "Framing values (action, baseline, costs, minimums) are assumed; owner to confirm",
     "Q10 kept no: the question judges whether any claimed outcome lacks evidence, because replayed requests are not itemised into criteria"
-  ]
+  ],
+  "wired": true
 }

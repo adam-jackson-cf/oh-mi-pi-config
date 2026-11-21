@@ -28,7 +28,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
 | `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
-| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the judgment call log |
+| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the judgment call log and review state |
 | `TYPESAFE_API_KEY` | omp runtime | Key omp's typesafe provider sends |
 | `TYPESAFE_BASE_URL` | omp runtime | Jev Inspector route; gate judgments refuse it |
 
@@ -114,13 +114,13 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | --- | --- | --- |
 | Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
-| Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged extension revision per repo |
+| Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged revision per repo; agent dir |
 | Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |
 | Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
 | Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
 | Secrets | Infisical | `TYPESAFE_API_KEY` judge key; gate status token |
-| Judgment calls | `~/.omp/agent/dynaflows/judgment-calls.jsonl` | `decide()` log; rails read it |
+| Judgment calls | `~/.omp/agent/dynaflows/judgment-calls.jsonl` | `decide()` log; agent dir |
 | NUC | `codex-omarchy-nuc` | `nuc-config` deploy runs `ci_gate.py` |
 
 ## Devices and GitHub
@@ -139,7 +139,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | `git` | PATH | Origin, aliases, status, common dir |
-| `gh` | PATH | PR head, CI rollup, body, files, compare; repo description |
+| `gh` | PATH | PR head, CI rollup, body, files, compare; repo description; `gh alias list` |
 | jev-bridge | Loopback port 8787 | Opt-in relay behind `inspector.env`; never for gates |
 | `uv` 0.13.7 | PATH | Runs `guardrails check` and `path-check` |
 | `omp` | PATH | 19.0.1; `config get worktree.base`, `config get modelRoles` |

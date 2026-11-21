@@ -18,9 +18,14 @@ export const judgmentCallSchema = z.object({
 }).strict();
 export type JudgmentCall = z.infer<typeof judgmentCallSchema>;
 
-/** The call log under the omp agent dir: PI_CODING_AGENT_DIR, else ~/.omp/agent, as the engine resolves it. */
-export function judgmentCallLog(agentDir: string | undefined = process.env["PI_CODING_AGENT_DIR"]): string {
-	return join(agentDir?.trim() || join(homedir(), ".omp", "agent"), JUDGMENT_CALLS);
+/** The omp agent dir: PI_CODING_AGENT_DIR, else ~/.omp/agent, as the engine resolves it. Rails state lives here. */
+export function agentDir(value: string | undefined = process.env["PI_CODING_AGENT_DIR"]): string {
+	return value?.trim() || join(homedir(), ".omp", "agent");
+}
+
+/** The call log under the omp agent dir. */
+export function judgmentCallLog(dir: string | undefined = process.env["PI_CODING_AGENT_DIR"]): string {
+	return join(agentDir(dir), JUDGMENT_CALLS);
 }
 
 /** Every logged call, oldest first; a missing log is no calls, and a malformed line throws naming its number. */

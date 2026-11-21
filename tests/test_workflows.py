@@ -834,6 +834,16 @@ class JudgmentRegistryTests(unittest.TestCase):
                 asked = json.loads(out.getvalue())
                 assert asked["model"] == "typesafe/jev-1.14.0"
                 assert list(asked["questions"]) == [question]
+                thresholds = json.loads(
+                    (
+                        MODULE.parents[1] / "judgments" / name / "thresholds.json"
+                    ).read_text()
+                )
+                assert thresholds["wired"] is True
+                assert thresholds["mode"] == "gating, provisional"
+                wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
+                assert "ADR 0017" in wiring
+                assert "not wired" not in json.dumps(thresholds)
 
     def test_configured_judge_model_reads_omp_config(self) -> None:
         def completed(stdout: str, code: int = 0) -> Any:

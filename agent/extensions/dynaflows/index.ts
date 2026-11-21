@@ -13,14 +13,15 @@ import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/m
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, loadMapping, detailsSchema, policyEvent, absolute, repoRoot,
 	paths, pathArguments, matches, missing, sentence, readReason, gitActions, readRecord, note, absentFile, fileErrorSchema,
+	codeRunsGit, INDEX_WRITES, commitScopeArgument,
 	recordRead, subagentPathReason, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
 } from "./lib/rails-runtime.ts";
 import {
-	PUBLISHES, adminMergeReason, agentMergeReason, commitHookReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
+	PUBLISHES, adminMergeReason, agentMergeReason, commitHookReason, configWriteReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
 	prSelector, pushReason, routeReason, worktreeReason,
 } from "./lib/guards.ts";
 import {
-	ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource, type ObligationStatus,
+	defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource, type PrStatus,
 } from "./lib/session-rails.ts";
 
 const prCiSchema = z.object({
@@ -41,6 +42,8 @@ const prCiSchema = z.object({
 // command they run (path check, checks.commit, harness checks) so repos never see the harness.
 const harnessVariables = ["AGENT"];
 const ALIAS_DEPTH = 8;
+// github tool operations that push, open PRs or move local branches.
+const GITHUB_TOOL_WRITES = ["pr_create", "pr_push", "pr_checkout"];
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
 // Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci_runner.py.
@@ -210,11 +213,12 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string): Pr
 	return `Agent rails: ready structure findings block ${head}: ${ready.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`;
 }
 type PrCi = { reason: string } | { head: string; repository: string; base: string; headRef: string; state: string; gate: Gate | undefined; ciReason: string | undefined };
-// The turn-end status of the agent's PR: green and open is unmet while agents may merge.
-function prObligation(pr: PrCi): ObligationStatus {
-	if (!("head" in pr)) return "waiting";
-	if (pr.state !== "OPEN" || pr.gate?.agentMerge === "disabled") return "met";
-	return pr.ciReason ? "waiting" : "unmet";
+// The turn-end status of the agent's PR: open is unmet while agents may merge; pending or failing CI
+// and an unreadable PR are unmet with their reason, so the turn waits for CI instead of settling.
+function prObligation(pr: PrCi): PrStatus {
+	if (!("head" in pr)) return { status: "unmet", reason: pr.reason };
+	if (pr.state !== "OPEN" || pr.gate?.agentMerge === "disabled") return { status: "met" };
+	return { status: "unmet", reason: pr.ciReason };
 }
 type PrIdentity = { head: string; repository: string };
 type PrState = Exclude<PrCi, { reason: string }>;
@@ -320,11 +324,47 @@ async function aliasActions(pi: ExecApi, cache: SessionCache, action: GitAction)
 	const config = action.config.map(entry => `-c ${shellWord(entry)}`).join(" ");
 	return gitActions(`git ${config} ${expansion} ${words}`, action.cwd);
 }
+// gh's own top-level commands; any other first word may be a gh alias.
+const GH_COMMANDS = new Set([
+	"agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co", "codespace", "completion", "config", "copilot",
+	"extension", "gist", "gpg-key", "help", "issue", "label", "org", "pr", "preview", "project", "release", "repo", "ruleset",
+	"run", "search", "secret", "ssh-key", "status", "variable", "workflow",
+]);
+const ghAliasesSchema = z.record(z.string(), z.string()).catch({});
+async function ghAliasActions(pi: ExecApi, action: GitAction): Promise<GitAction[] | undefined> {
+	const [name, ...rest] = action.args;
+	if (!action.cwd || !action.command.startsWith("gh ") || !name || name.startsWith("-") || GH_COMMANDS.has(name)) return undefined;
+	const result = await pi.exec("gh", ["alias", "list"], { cwd: action.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
+	if (result.killed) throw new Error("gh alias list was killed");
+	const expansion = result.code === 0 ? ghAliasesSchema.parse(Bun.YAML.parse(result.stdout))[name] : undefined;
+	if (!expansion) return undefined;
+	const words = rest.map(shellWord).join(" ");
+	return gitActions(expansion.startsWith("!") ? `${expansion.slice(1)} ${words}` : `gh ${expansion} ${words}`, action.cwd);
+}
 async function subagentReason(map: Mapping, event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
 	if (!map.editTools.includes(event.toolName) || ctx.agent.kind === "main") return undefined;
 	return subagentPathReason([...pathArguments(event, map), ...(event.input.path === map.resolveDevice ? state.proposal : [])]);
 }
 type Notify = (notice: string, level?: "info" | "error") => string;
+type Step = { action: GitAction; staged: boolean };
+// The staged checks (handoff, commit checks, implementation-integrity) read the index before the command runs,
+// so the committed tree must be that index.
+function committedIndexReason(step: Step, mode: Mode): string | undefined {
+	if (step.staged) return "Agent rails: run git commit in a command of its own after staging; the rails check the index as it is before the command runs.";
+	const scope = mode === "structured" ? commitScopeArgument(step.action.args) : undefined;
+	return scope === undefined ? undefined
+		: `Agent rails: structured commits commit the staged index only; stage with git add, then run git commit without -a, -i, -o, -p or paths (got ${scope}).`;
+}
+// Git writes through tools other than bash cannot be checked: eval code that starts git or gh, github tool writes.
+function otherToolReason(event: ToolEvent): string | undefined {
+	if (event.toolName === "eval" && event.input.code !== undefined && codeRunsGit(event.input.code)) {
+		return "Agent rails: eval code that runs git or gh cannot be checked; run Git and GitHub commands through bash.";
+	}
+	if (event.toolName === "github" && GITHUB_TOOL_WRITES.includes(event.input.op ?? "")) {
+		return `Agent rails: the github tool's ${event.input.op} writes outside the Git rails; run git or gh through bash.`;
+	}
+	return undefined;
+}
 type StructuredRequest = { notice: string; slug: string; dir: string; task: boolean };
 
 type DynaflowsOptions = {
@@ -343,8 +383,8 @@ function defaultOptions(): DynaflowsOptions {
 		guardrailsProfileCommand: defaultProfileCommand,
 		ompCommand: ["omp"],
 		extensionDir: fileURLToPath(new URL(".", import.meta.url)),
-		// The omp agent dir (gitignored), never a repository.
-		reviewsPath: fileURLToPath(new URL("../../dynaflows-reviews.json", import.meta.url)),
+		// The omp agent dir, by the same rule as the judgment call log; never a repository.
+		reviewsPath: defaultReviewsPath(),
 		obligationSources: [],
 		decideCommand: defaultDecideCommand,
 		judge: undefined,
@@ -383,6 +423,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
 		recordAt,
 		prStatus: async (ctx, cwd, selector) => prObligation(await prCi(cwd, selector, stateFor(ctx), ctx).catch(error => ({ reason: String(error) }))),
+		prOpen: async (ctx, cwd, branch) => {
+			const pr = await prCi(cwd, branch, stateFor(ctx), ctx).catch(() => undefined);
+			return pr !== undefined && "head" in pr && pr.state === "OPEN";
+		},
 		repoRun: (argv, cwd, timeout) => repoExec(pi, argv, cwd, timeout),
 		checks: { profile: guardrailsProfileCommand, check: guardrailsCommand },
 		loadError: () => loadError,
@@ -561,30 +605,38 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		if (/^git push\b/.test(action.command)) return pushReason(pi, action);
 		return merge ? mergeActionReason(action, state, ctx) : undefined;
 	}
-	async function gitActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
-		const bypass = hookBypassReason(action) ?? routeReason(action);
+	async function gitActionReason(step: Step, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+		const { action } = step;
+		const bypass = hookBypassReason(action) ?? routeReason(action) ?? await configWriteReason(action);
 		if (bypass || !new RegExp(map.gitCommand).test(action.command)) return bypass;
 		const mode = action.cwd ? await modeOf(ctx, action.cwd) : "minimal";
 		const urls = missing(state, map, mode, ["git"]);
 		if (urls.length) return readReason(urls, mode);
-		return (await sessionRail.gitWriteReason(action, ctx)) ?? gitWriteKindReason(action, mode, state, ctx);
+		return (await sessionRail.gitWriteReason(action, ctx)) ?? gitWriteKindReason(step, mode, state, ctx);
 	}
-	async function gitWriteKindReason(action: GitAction, mode: Mode, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+	async function gitWriteKindReason(step: Step, mode: Mode, state: State, ctx: ExtensionContext): Promise<string | undefined> {
+		const { action } = step;
 		if (/^git worktree add\b/.test(action.command)) return worktreeReason(pi, ompCommand, action);
-		if (/^git commit\b/.test(action.command)) return commitHookReason(action) ?? await sessionRail.commitReason(action) ?? await commitActionReason(action, ctx);
+		if (/^git commit\b/.test(action.command)) {
+			return commitHookReason(action) ?? committedIndexReason(step, mode) ?? await sessionRail.commitReason(action) ?? await commitActionReason(action, ctx);
+		}
 		return PUBLISHES.test(action.command) ? publishActionReason(action, mode, state, ctx) : undefined;
 	}
-	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, depth: number): Promise<string | undefined> {
-		if (depth > ALIAS_DEPTH) return `Agent rails: Git aliases nest deeper than ${ALIAS_DEPTH} levels; run the Git command itself.`;
+	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, depth: number, staged = false): Promise<string | undefined> {
+		if (depth > ALIAS_DEPTH) return `Agent rails: Git and gh aliases nest deeper than ${ALIAS_DEPTH} levels; run the command itself.`;
+		let indexChanged = staged;
 		for (const action of actions) {
-			const expanded = await aliasActions(pi, session, action);
-			const reason = expanded ? await actionsReason(expanded, state, ctx, depth + 1) : await gitActionReason(action, state, ctx);
+			const expanded = (await aliasActions(pi, session, action)) ?? (await ghAliasActions(pi, action));
+			const reason = expanded
+				? await actionsReason(expanded, state, ctx, depth + 1, indexChanged)
+				: await gitActionReason({ action, staged: indexChanged }, state, ctx);
 			if (reason) return reason;
+			indexChanged ||= INDEX_WRITES.test(action.command) || (expanded ?? []).some(item => INDEX_WRITES.test(item.command));
 		}
 		return undefined;
 	}
 	async function bashReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<string | undefined> {
-		if (event.toolName !== "bash" || event.input.command === undefined) return undefined;
+		if (event.toolName !== "bash" || event.input.command === undefined) return otherToolReason(event);
 		const cwd = absolute(event.input.cwd ?? ctx.cwd, ctx.cwd) ?? ctx.cwd;
 		return actionsReason(await gitActions(event.input.command, cwd), state, ctx, 0);
 	}

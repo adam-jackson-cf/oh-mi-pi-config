@@ -1,4 +1,5 @@
-import { dirname, isAbsolute, join } from "node:path";
+import { stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { DEFAULT_MERGE_POLICY, parseOrigin, type MergePolicy } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
@@ -49,6 +50,44 @@ function hookBypassReason(action: GitAction): string | undefined {
 	if (!PULLS_COMMITS.test(action.command)) return undefined;
 	const bypass = commitBypass(action);
 	return bypass ? `Agent rails: drop hook bypass ${bypass}` : undefined;
+}
+
+// git config options and subcommands that only read.
+const CONFIG_READS = ["--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color", "--get-colorbool", "-l", "--list", "get", "list", "--edit", "-e"];
+const CONFIG_SCOPES = ["--global", "--system", "--file", "-f", "--blob", "--worktree"];
+const CONFIG_UNSETS = ["--unset", "--unset-all", "unset", "--remove-section", "remove-section", "--rename-section", "rename-section"];
+
+const HOOKS_PATH_REFUSED = "Agent rails: git config may set core.hooksPath only to a directory inside this repository, in the repository's own config; hooks are never bypassed.";
+
+/** Whether a hooks path value stays inside the repository: relative, no `..`, and an existing directory there when the cwd is known. */
+const plainRelative = (value: string | undefined): value is string =>
+	value !== undefined && value !== "" && !isAbsolute(value) && !/^~|[$`]/.test(value) && !value.split("/").includes("..");
+
+async function hooksPathInside(value: string | undefined, cwd: string | undefined): Promise<boolean> {
+	if (!plainRelative(value)) return false;
+	// A script that changes directory through a substitution leaves the cwd unknown: a plain relative path stays in the repository.
+	if (!cwd) return true;
+	const root = await repoRoot(cwd);
+	const rel = root ? relative(root, resolve(root, value)) : "..";
+	if (!root || rel === "" || rel.startsWith("..")) return false;
+	return (await stat(resolve(root, value)).catch(() => null))?.isDirectory() ?? false;
+}
+
+async function hooksPathReason(args: string[], cwd: string | undefined): Promise<string | undefined> {
+	const key = args.findIndex(arg => /^core\.hookspath$/i.test(arg));
+	if (key < 0) return undefined;
+	if (args.some(arg => CONFIG_SCOPES.includes(arg.split("=")[0] ?? "") || CONFIG_UNSETS.includes(arg))) return HOOKS_PATH_REFUSED;
+	return await hooksPathInside(args[key + 1], cwd) ? undefined : HOOKS_PATH_REFUSED;
+}
+
+/** Persistent hook-path and alias changes: a hooks path must stay a directory inside the repository. */
+async function configWriteReason(action: GitAction): Promise<string | undefined> {
+	if (!/^git config\b/.test(action.command)) return undefined;
+	const args = action.args.slice(1);
+	if (args.some(arg => CONFIG_READS.includes(arg))) return undefined;
+	const alias = args.find(arg => /^alias(?:\.|$)/i.test(arg));
+	if (alias) return `Agent rails: git config ${alias} defines a Git command; aliases are set by the owner, never by agents.`;
+	return hooksPathReason(args, action.cwd);
 }
 
 async function configuredBase(pi: ExecApi, ompCommand: string[], cwd: string): Promise<string | undefined> {
@@ -253,4 +292,4 @@ function routeReason(action: GitAction): string | undefined {
 }
 
 export { adminMergeReason, mergeMethodReason, mergePolicyFor, prSelector, type AppliedPolicy };
-export { PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };
+export { PUBLISHES, agentMergeReason, commitHookReason, configWriteReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
@@ -11,13 +11,18 @@ import { MAX_FOLLOW_UPS, ranCommand, shellJoin } from "../agent/extensions/dynaf
 
 type Harness = ReturnType<typeof harness>;
 const reviewsSchema = z.object({ schemaVersion: z.literal(1), repos: z.record(z.string(), z.string()) });
-const rollout = "python3 ~/.omp/scripts/device_rollout.py";
+
 const bashResult = (h: Harness, command: string, isError = false) =>
 	h.emit("tool_result", { toolName: "bash", toolCallId: `result-${command}`, input: { command }, isError });
 const prompt = (h: Harness, text: string) => h.emit("before_agent_start", { reason: "prompt", prompt: text });
 type Reply = Awaited<ReturnType<Harness["emit"]>>;
 const messageText = (result: Reply) => JSON.stringify(result ?? "");
 const reviews = (h: Harness) => reviewsSchema.parse(JSON.parse(readFileSync(join(h.machine, "reviews.json"), "utf8"))).repos;
+
+type ToolArguments = { command: string };
+const toolCallEntry = (id: string, name: string, args: ToolArguments) =>
+	({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] } });
+const toolResultEntry = (id: string, isError = false) => ({ type: "message", message: { role: "toolResult", toolCallId: id, isError, content: [] } });
 
 async function exhaust(h: Harness, id: string): Promise<void> {
 	for (let turn = 1; turn <= MAX_FOLLOW_UPS; turn++) {
@@ -48,9 +53,11 @@ describe("end-of-turn obligations", () => {
 			h.mode("structured");
 			await bashResult(h, "gh pr create --head agent/other --fill");
 			mockPrCi(h, [{ __typename: "CheckRun", name: "test", status: "IN_PROGRESS", conclusion: null }], { selector: "agent/other" });
-			assert.equal(await h.emit("session_stop"), undefined, "running CI is nothing to ask for yet");
+			const pending = reasonOf(await h.emit("session_stop"));
+			assert.ok(pending.includes("[pr:agent/other]") && pending.includes("test: IN_PROGRESS") && pending.includes("gh pr checks agent/other --watch"),
+				`running CI holds the turn with the wait command: ${pending}`);
 			mockPrCi(h, greenCi, { selector: "agent/other" });
-			assert.ok(reasonOf(await h.emit("session_stop")).includes("[pr:agent/other]"), "green CI later makes it due");
+			assert.ok(reasonOf(await h.emit("session_stop")).includes("has green CI on its head and is unmerged"), "green CI asks for the merge");
 			h.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			assert.equal(await h.emit("session_stop"), undefined, "agentMerge disabled leaves the merge to the owner");
 			h.gate({ schemaVersion: 2 });
@@ -59,6 +66,59 @@ describe("end-of-turn obligations", () => {
 			assert.equal(await h.emit("session_stop"), undefined, "a merged PR meets the obligation");
 			await bashResult(h, "gh pr create --head agent/failed --fill", true);
 			assert.equal(await h.emit("session_stop"), undefined, "a failed gh pr create adds nothing");
+		} finally { h.cleanup(); }
+	});
+
+	test("pending required CI holds the turn end with the ci_runner submit and wait commands", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			h.gate({ schemaVersion: 2, ci: { requiredContext: "gate", runner: "ci-gate" } });
+			await bashResult(h, "gh pr create --fill");
+			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "PENDING" }], { selector: "agent/test" });
+			const reason = reasonOf(await h.emit("session_stop"));
+			assert.ok(reason.includes("[pr:agent/test]") && reason.includes("ci_runner.py") && reason.includes(" submit ci-gate owner/repo ") && reason.includes(" wait ci-gate owner/repo "), reason);
+		} finally { h.cleanup(); }
+	});
+
+	test("an open PR this session did not create is found at the turn end once its branch is pushed", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			mockPrCi(h, greenCi, { selector: "agent/test" });
+			let views = 0;
+			const exec = h.api.exec.bind(h.api);
+			h.api.exec = async (command, args, options) => { if (command === "gh") views++; return exec(command, args, options); };
+			assert.equal(await h.emit("session_stop"), undefined, "an unpushed branch has no PR to look for");
+			assert.equal(views, 0, "no gh call before the branch is pushed");
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "x"], { cwd: h.root });
+			await execute("git", ["update-ref", "refs/remotes/origin/agent/test", "HEAD"], { cwd: h.root });
+			assert.ok(reasonOf(await h.emit("session_stop")).includes("[pr:agent/test]"), "a pushed branch's open PR is tracked");
+			mockPrCi(h, greenCi, { selector: "agent/test", state: "MERGED" });
+			assert.equal(await h.emit("session_stop"), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test("a resumed session rebuilds PR, afterMerge and rollout obligations from its branch", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			h.gate({ schemaVersion: 2, afterMerge: { argv: ["make", "sync"] } });
+			h.branch.push(
+				{ type: "message", message: { role: "user", content: "fix it\n$rollout" } },
+				toolCallEntry("c1", "bash", { command: "gh pr create --head agent/resumed --fill" }), toolResultEntry("c1"),
+				toolCallEntry("c2", "bash", { command: `gh pr merge 4 --merge --match-head-commit ${ciHead}` }), toolResultEntry("c2"),
+				toolCallEntry("c3", "bash", { command: "gh pr create --head agent/failed --fill" }), toolResultEntry("c3", true),
+			);
+			mockPrCi(h, greenCi, { selector: "agent/resumed" });
+			h.setSession("resumed");
+			await h.emit("session_start");
+			const due = reasonOf(await h.emit("session_stop"));
+			for (const id of ["[rollout]", "[pr:agent/resumed]", `[afterMerge:${h.root}]`]) assert.ok(due.includes(id), `${id}: ${due}`);
+			assert.ok(!due.includes("agent/failed"), due);
+			h.branch.push(toolCallEntry("c4", "bash", { command: "make sync" }), toolResultEntry("c4"));
+			await h.emit("session_switch");
+			assert.ok(!reasonOf(await h.emit("session_stop")).includes("afterMerge"), "a later exit-0 run in the branch meets it");
 		} finally { h.cleanup(); }
 	});
 
@@ -118,6 +178,7 @@ describe("end-of-turn obligations", () => {
 
 	test("device rollout is opt-in by directive or tool option and met only by an exit 0 run", async () => {
 		const h = harness();
+		const rollout = `python3 ${h.records}/scripts/device_rollout.py`;
 		try {
 			h.mode("structured");
 			await prompt(h, "ship it");
@@ -130,8 +191,11 @@ describe("end-of-turn obligations", () => {
 			await bashResult(h, rollout);
 			assert.equal(await h.emit("session_stop"), undefined);
 			assert.ok((await h.tool("dynaflows", { rollout: true })).includes(rollout));
-			await bashResult(h, `python3 ${h.records}/scripts/device_rollout.py`);
-			assert.equal(await h.emit("session_stop"), undefined, "the config root's absolute path counts too");
+			await bashResult(h, `cd ${h.records} && python3 scripts/device_rollout.py 2>&1`);
+			assert.equal(await h.emit("session_stop"), undefined, "any spelling that resolves to the config root's script counts");
+			await h.tool("dynaflows", { rollout: true });
+			await bashResult(h, "python3 ~/.omp/scripts/device_rollout.py");
+			assert.ok(reasonOf(await h.emit("session_stop")).includes("[rollout]"), "the rails hold no ~/.omp literal: another root's script does not count");
 		} finally { h.cleanup(); }
 	});
 
@@ -154,10 +218,21 @@ describe("end-of-turn obligations", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("commands count only as whole shell commands", () => {
+	test("commands count only as whole shell commands joined by && with the step's own exit status", () => {
 		assert.equal(shellJoin(["make", "it's here"]), "make 'it'\\''s here'");
-		assert.equal(ranCommand("cd x && make sync; echo ok", ["make sync"]), true);
-		assert.equal(ranCommand("echo make sync", ["make sync"]), false);
+		const make = { argv: ["make", "sync"], root: "/r" };
+		assert.equal(ranCommand("cd x && make sync", make, "/r"), true);
+		for (const masked of ["cd x && make sync; echo ok", "make sync || true", "make sync; echo ok", "true || make sync", "echo x # ; make sync",
+			"make sync | tail -5", "make sync &", "echo make sync", "make sync --dry-run", "$(make sync)", "make sync\necho ok"]) {
+			assert.equal(ranCommand(masked, make, "/r"), false, masked);
+		}
+		const home = homedir();
+		const rollout = { argv: ["python3", join(home, ".omp/scripts/device_rollout.py")], root: join(home, ".omp") };
+		for (const run of ["python3 ~/.omp/scripts/device_rollout.py", "python3 ~/.omp/scripts/device_rollout.py 2>&1", "python3 ~/.omp/scripts/device_rollout.py > out.log",
+			"cd ~/.omp && python3 scripts/device_rollout.py", "python3 $HOME/.omp/scripts/device_rollout.py", `python3 '${home}/.omp/scripts/device_rollout.py'`]) {
+			assert.equal(ranCommand(run, rollout, "/tmp"), true, run);
+		}
+		assert.equal(ranCommand("python3 scripts/device_rollout.py", rollout, "/tmp"), false, "a relative path resolves from the command's directory");
 	});
 });
 
@@ -195,6 +270,31 @@ describe("review on restart", () => {
 			await h.emit("session_start");
 			assert.ok(!messageText(await prompt(h, "work")).includes("First task"), "an acknowledged revision is not reviewed again");
 		} finally { h.cleanup(); }
+	});
+
+	test("Git writes in another worktree of the reviewed repository are refused until acknowledged", async () => {
+		const h = harness();
+		const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-review-wt-"))), "wt");
+		try {
+			h.mode("structured");
+			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "base"], { cwd: h.root });
+			await execute("git", ["worktree", "add", "-q", "-b", "agent/wt", worktree], { cwd: h.root });
+			await changedExtension(h);
+			await h.emit("session_start");
+			await h.read("skill://git-tool", mergeRecover);
+			await prompt(h, "work");
+			for (const command of [`git -C '${worktree}' commit --allow-empty -m x`, `cd '${worktree}' && git commit --allow-empty -m x`]) {
+				assert.ok(reasonOf(await h.call("bash", { command })).includes("acknowledge: true"), command);
+			}
+			const other = harness();
+			try {
+				assert.equal(await other.call("bash", { command: "git status" }), undefined);
+				assert.equal(reasonOf(await h.call("bash", { command: `git -C '${other.root}' commit --allow-empty -m x` })).includes("acknowledge"), false,
+					"another repository is not held by this review");
+			} finally { other.cleanup(); }
+			await h.tool("dynaflows", { acknowledge: true });
+			assert.equal(await h.call("bash", { command: `git -C '${worktree}' commit --allow-empty -m x` }), undefined);
+		} finally { h.cleanup(); rmSync(join(worktree, ".."), { recursive: true, force: true }); }
 	});
 
 	test("failing record checks are in the task, and modes.json changes are not extension changes", async () => {
@@ -238,6 +338,8 @@ describe("review on restart", () => {
 			h.setSession("no-impact");
 			await h.emit("session_start");
 			assert.ok(!messageText(await prompt(h, "work")).includes("First task"), "a no outcome needs no review");
+			assert.ok(h.notes.some(note => note.includes("extension-impact/impact no") && note.includes("no review task; revision stored")),
+				`a no outcome is shown to the owner: ${h.notes.join("; ")}`);
 			assert.equal(reviews(h)["owner/repo"], `git:${git("rev-parse", "HEAD").toString().trim()}`);
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await commit(h), undefined);

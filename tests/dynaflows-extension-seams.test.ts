@@ -205,27 +205,28 @@ describe("dynaflows extension", () => {
 			writeFileSync(join(h.root, "staged.ts"), "export {};\n");
 			await execute("git", ["add", "staged.ts"], { cwd: h.root });
 			writeFileSync(join(h.root, "untracked.ts"), "export {};\n");
-			assert.equal(await h.call("bash", { command: "git commit -am x" }), undefined);
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 			assert.deepEqual(order, ["path check", "commit"], "the path check runs before checks.commit");
 			assert.deepEqual(checked, ["--event", "staged"],
 				"the checker derives added and renamed names from the index, not unstaged or untracked paths");
 			pathFails = true;
 			order.length = 0;
-			const blocked = await h.call("bash", { command: "git commit -am x" });
+			const blocked = await h.call("bash", { command: "git commit -m x" });
 			assert.equal(isBlocked(blocked), true);
 			assert.ok(reasonOf(blocked).includes("path check failed") && reasonOf(blocked).includes("bad path"), String(blocked?.reason));
 			assert.deepEqual(order, ["path check"], "a path check failure stops before checks.commit");
 		} finally { h.cleanup(); }
 	});
 
-	test("dynaflows commits need no sole-command, message or staging shape; only hook bypass is refused", async () => {
+	test("dynaflows commits need no message shape; staging in the command and hook bypass are refused", async () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool", mergeRecover);
 			h.gate({ schemaVersion: 2, checks: { commit: ["true"] } });
 			h.mode("structured");
+			assert.ok((await h.call("bash", { command: "git add -A && git commit -m x" }))?.reason?.includes("in a command of its own"));
 			for (const command of [
-				"git add -A && git commit -m x", "git -c core.editor=true commit", "git commit", "git commit -e -m x",
+				"git -c core.editor=true commit", "git commit", "git commit -e -m x",
 				"git --exec-path=/usr/lib/git-core commit -m x",
 			]) assert.equal(await h.call("bash", { command }), undefined, command);
 			for (const command of ["git commit --no-verify -m x", "git commit -nm x", "git -c core.hooksPath=/dev/null commit -m x"]) {

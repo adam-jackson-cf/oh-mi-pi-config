@@ -6,6 +6,10 @@
 - Verify environment variables with presence checks, never by printing values.
 - If a value must be shown, mask it to the first and last 4 characters.
 
+## Act without asking
+
+- Resolve councils: after 2 rounds, decide and record an ADR.
+
 ## Ask first
 
 - New privileges, credentials or permissions.

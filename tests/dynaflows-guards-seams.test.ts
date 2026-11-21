@@ -21,7 +21,10 @@ type GateFixture = {
 	afterMerge?: { argv: string[]; paths?: string[] };
 	mergePolicies?: { base: string; headPrefix: string; method: "rebase" | "merge"; proof: boolean }[];
 };
-type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; questions?: { question: string }[]; intent?: string };
+type Input = {
+	path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; questions?: { question: string }[]; intent?: string;
+	code?: string; op?: string;
+};
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
@@ -391,7 +394,8 @@ export type { Input };
 			for (const command of [
 				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
 				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
-				"git -C /w status", "git -c k=v log", "gh pr view", "git revert HEAD", "git am patch", "git pull",
+				"git -C /w status", "git -c k=v log", "gh pr view", "git stash list", "git stash", "git fetch origin", "git fetch origin main",
+				"git fetch https://github.com/o/r main", "gh repo view", "gh issue list", "gh run list", "gh release view v1", "git config --get core.hooksPath",
 				"git tag", "git tag -l", "git tag --list 'v*'", "git tag -n5", "git tag --contains HEAD", "git branch", "git branch -a",
 				"git branch --list", "git worktree list", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r", "gh api --method=HEAD x",
 				"gh pr checks 3", "gh pr diff 3",
@@ -414,6 +418,10 @@ export type { Input };
 				"gh api -X POST repos/o/r/issues", "gh api --method PATCH repos/o/r", "gh api --method=DELETE x", "gh api -XPUT x",
 				"gh api repos/o/r/issues -f title=x", "gh api graphql -F query=@q.graphql", "gh api x --input body.json",
 				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
+				"git revert HEAD", "git am patch", "git pull", "git update-ref refs/heads/main HEAD", "git branch -f main HEAD", "git branch -m old new",
+				"git branch -M old new", "git stash drop", "git stash clear", "git stash pop", "git restore .", "git clean -fdx", "git fetch origin main:main",
+				"git fetch origin +refs/heads/main:refs/heads/main", "gh pr ready 3", "gh pr review 3 --approve", "gh pr comment 3 -b x", "gh pr reopen 3",
+				"gh release create v1", "gh workflow run ci.yml", "gh repo delete owner/repo", "gh issue create -t x", "gh run rerun 5", "gh secret set X",
 				...wrappedPublishing,
 			]) {
 				assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
@@ -626,16 +634,14 @@ export type { Input };
 	});
 
 
-test("pulling commits in needs the Git reads but no harness check beyond hook-bypass flags", async () => {
+test("pulling commits in (merge, rebase, cherry-pick, revert, am, pull) needs the Git reads but no harness check beyond hook-bypass flags", async () => {
 	const h = harness();
 	try {
 		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
 		h.mode("structured");
 		forbidGh(h);
-		for (const command of ["git revert HEAD", "git am patch", "git pull", "git merge-base HEAD HEAD"]) {
-			assert.equal(await h.call("bash", { command }), undefined, command);
-		}
-		const writes = ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main"];
+		assert.equal(await h.call("bash", { command: "git merge-base HEAD HEAD" }), undefined);
+		const writes = ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main", "git revert HEAD", "git am patch", "git pull"];
 		for (const command of writes) assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
 		await h.read("skill://git-tool", mergeRecover);
 		for (const command of writes) assert.equal(await h.call("bash", { command }), undefined, `no checks.commit run: ${command}`);
@@ -724,6 +730,105 @@ test("command substitutions enforce hook checks without executing shell expansio
 	} finally { h.cleanup(); }
 });
 
+test("shell indirection fails closed: stdin shells, variable command words, unknown launchers, scripts and inline code", async () => {
+	const h = harness();
+	try {
+		await h.read("skill://git-tool");
+		const refused: [string, string][] = [
+			["echo 'gh pr merge 5 --rebase' | bash", "reading commands from stdin"],
+			["bash <<< 'gh pr merge 5'", "reading commands from stdin"],
+			["cat merge.txt | sh -s # gh", "reading commands from stdin"],
+			["X=gh; $X pr merge 5", "variable or substitution"],
+			["g=git; $g push origin main", "variable or substitution"],
+			["$(echo gh) pr merge 5", "variable or substitution"],
+			["`echo gh` pr merge 5", "variable or substitution"],
+			["printf 'gh pr merge 5' > m.sh; bash m.sh", "does not exist before this command"],
+			["printf 'gh pr merge 5' > m.sh && ./m.sh", "does not exist before this command"],
+			["python3 -c 'import subprocess; subprocess.run([\"gh\", \"pr\", \"merge\", \"5\"])'", "inline python3 code"],
+			["node -e 'require(\"child_process\").execSync(\"gh pr merge 5\")'", "inline node code"],
+			["perl -e '`gh pr merge 5`'", "inline perl code"],
+			["curl -X PUT https://api.github.com/repos/owner/repo/pulls/5/merge", "writes to the GitHub API"],
+			["curl -d '{}' https://api.github.com/repos/owner/repo/merges", "writes to the GitHub API"],
+			["wget --method=PUT https://api.github.com/repos/owner/repo/pulls/5/merge", "writes to the GitHub API"],
+			["http PUT https://api.github.com/repos/owner/repo/pulls/5/merge", "writes to the GitHub API"],
+			["gh alias set mm 'pr merge'", "gh alias set defines a command"],
+			["gh alias import aliases.yml", "gh alias import defines a command"],
+		];
+		for (const [command, fragment] of refused) assertBlocked(await h.call("bash", { command }), fragment, command);
+		for (const command of [
+			"dash -c 'gh pr merge 5'", "ksh -c 'gh pr merge 5'", "fish -c 'gh pr merge 5'", "mksh -c 'gh pr merge 5'",
+			"find . -exec gh pr merge 5 \\;", "stdbuf -oL gh pr merge 5", "script -q /dev/null gh pr merge 5", "caffeinate -i gh pr merge 5",
+			"arch -arm64 gh pr merge 5", "doas gh pr merge 5", "chronic gh pr merge 5", "ionice -c3 gh pr merge 5",
+		]) assertBlocked(await h.call("bash", { command }), "minimal mode", command);
+		writeFileSync(join(h.root, "merge.sh"), "#!/usr/bin/env bash\nset -e\nmerge() {\n  gh pr merge \"$1\" --rebase\n}\nmerge 5\n");
+		execFileSync("chmod", ["+x", join(h.root, "merge.sh")]);
+		for (const command of ["./merge.sh", "bash merge.sh", "sh ./merge.sh", `${h.root}/merge.sh`, "source merge.sh", "timeout 60 bash merge.sh"]) {
+			assert.equal(isBlocked(await h.call("bash", { command })), true, command);
+		}
+		writeFileSync(join(h.root, "commit.sh"), "#!/bin/sh\ngit commit --no-verify -m x\n");
+		assertBlocked(await h.call("bash", { command: "sh commit.sh" }), "pre-commit hook");
+		writeFileSync(join(h.root, "tidy.sh"), "#!/bin/sh\necho tidy\n");
+		for (const command of [
+			"echo 'gh pr merge 5'", "echo gh pr merge 5 | cat", "bash tidy.sh", "./tidy.sh", "bash -n tidy.sh", "printf x | bash",
+			"$EDITOR notes.md", "python3 -c 'print(1)'", "python3 -c 'print(\"git\")'", "node -e 'console.log(1)'",
+			"curl https://api.github.com/repos/owner/repo/pulls/5", "curl -X PUT https://example.com/pulls/5/merge",
+			"gh alias list", "rg git src", "which gh", "brew upgrade gh", "find . -name '*.ts'", "/usr/bin/true",
+		]) assert.equal(await h.call("bash", { command }), undefined, command);
+		const commitTier = join(import.meta.dir, "../scripts/run-ci-quality-gates.sh");
+		assert.equal(isBlocked(await h.call("bash", { command: `bash ${commitTier} --tier commit` })), false, "the repository's own gate script parses");
+	} finally { h.cleanup(); }
+});
+
+test("gh aliases are expanded from gh alias list and checked like the command they stand for", async () => {
+	const h = harness();
+	const previous = process.env["GH_CONFIG_DIR"];
+	const config = mkdtempSync(join(tmpdir(), "dynaflows-gh-config-"));
+	try {
+		process.env["GH_CONFIG_DIR"] = config;
+		execFileSync("gh", ["alias", "set", "mm", "pr merge"], { env: process.env });
+		execFileSync("gh", ["alias", "set", "--shell", "sm", "gh pr merge \"$1\" --rebase"], { env: process.env });
+		await h.read("skill://git-tool");
+		for (const command of ["gh mm 5 --rebase", "gh sm 5"]) assertBlocked(await h.call("bash", { command }), "minimal mode", command);
+		assert.equal(await h.call("bash", { command: "gh pr view 5" }), undefined);
+		assert.equal(await h.call("bash", { command: "gh unknown-extension" }), undefined, "an unknown command that is no alias is left to gh");
+	} finally {
+		restoreEnvironment("GH_CONFIG_DIR", previous);
+		rmSync(config, { recursive: true, force: true });
+		h.cleanup();
+	}
+});
+
+test("Git writes through the eval and github tools are refused", async () => {
+	const h = harness();
+	try {
+		for (const code of [
+			"import subprocess\nsubprocess.run(['gh', 'pr', 'merge', '5'])", "import os\nos.system('git push origin main')",
+			"const { execSync } = require('node:child_process'); execSync('gh pr merge 5');", "await Bun.$`git push`", "!git commit --no-verify -m x",
+		]) assertBlocked(await h.call("eval", { code }), "eval code that runs git or gh", code);
+		for (const code of ["print('git is a tool')", "subprocess.run(['ls'])", "prove()"]) assert.equal(await h.call("eval", { code }), undefined, code);
+		for (const op of ["pr_create", "pr_push", "pr_checkout"]) assertBlocked(await h.call("github", { op }), `github tool's ${op}`, op);
+		for (const op of ["repo_view", "search_prs", "run_watch"]) assert.equal(await h.call("github", { op }), undefined, op);
+	} finally { h.cleanup(); }
+});
+
+test("git config hook-path and alias writes are refused; an in-repo hook directory and reads pass", async () => {
+	const h = harness();
+	try {
+		mkdirSync(join(h.root, ".githooks"));
+		writeFileSync(join(h.root, ".githooks/pre-commit"), "#!/bin/sh\n");
+		for (const command of [
+			"git config core.hooksPath /dev/null", "git config core.hooksPath ''", "git config --global core.hooksPath .githooks",
+			"git config --unset core.hooksPath", "git config core.hooksPath missing", "git config core.hooksPath ../elsewhere",
+			"git config set core.hooksPath /tmp/hooks", "git config CORE.HOOKSPATH /tmp", "git config --local core.hooksPath ~/hooks",
+			"git config --global alias.x 'commit --no-verify'", "git config alias.ci commit",
+		]) assertBlocked(await h.call("bash", { command }), "git config", command);
+		for (const command of [
+			"git config core.hooksPath .githooks", "git config --get core.hooksPath", "git config --list", "git config --get alias.ci",
+			"git config user.name x", `bash ${join(import.meta.dir, "../scripts/install-quality-gates.sh")}`,
+		]) assert.equal(await h.call("bash", { command }), undefined, command);
+	} finally { h.cleanup(); }
+});
+
 test("persistent aliases and functions containing git or gh fail closed", async () => {
 	const h = harness();
 	try {
@@ -781,8 +886,6 @@ test("uv and poetry separator commits pass the tool-call handler", async () => {
 
 test("an invalid rails.yml mapping fails the load", async () => {
 	const source = readFileSync(railsConfig, "utf8");
-	assert.equal(/revert|\bam\b|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
-		"revert, am and pull are not gated git commands");
 	const dir = mkdtempSync(join(tmpdir(), "dynaflows-guards-config-"));
 	try {
 		const configPath = join(dir, "rails.yml");

@@ -5,10 +5,10 @@
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
   "status": "provisional",
-  "mode": "not wired: no rail, workflow or skill reads this judgment",
+  "mode": "gating, provisional",
   "framing": {
     "decision": "Does a pull request or commit series make a design decision the repository should record as an ADR?",
-    "action": "Assumed: advisory only (a structured-mode prompt to write or skip an ADR, reversible); no current consumer",
+    "action": "Refuse a structured merge that needs an ADR and has none (ADR 0017)",
     "baseline": "agent/RULES.md instruction: decide in-scope questions and record the decision as an ADR; no check",
     "costs": "Assumed equal: a miss leaves a decision unrecorded (ADR 0016 records three such misses); a false action costs one unneeded ADR or prompt",
     "written_policy": "label-guide.md rules Y1-Y6, N1-N8, T1-T7",
@@ -94,17 +94,19 @@
     "adr_history": "38 cases added an ADR in the change (35 labelled 1, 3 labelled 0); 26 cases labelled 1 added none, such as decisions made before ADRs existed",
     "provenance": "agent_reviewed: innovation-council first pass blind to scores and ADR history (omp 19.0.1 headless, Opus 5.5 lead; peers as the runs reported them: GPT Astra, Gemini Neon, Opus experiment-peer, 7 runs of 17-19 cases); claude (Opus 5.5) arbitrated every case and overrode 4 (A017, A043, A054, A074), each with a note in labels.jsonl. 35 cases were relabelled by the council on the final state after a redaction fix; all 35 kept their label. 24 council labels are low confidence; 11 had a peer dissent",
     "guide_version": "d47f3a4b2ac7581bfa9506925381da1338a10d858eb2081cec6fbdf9799de510",
-    "guide_note": "The council labelled from guide sha256 daf3c3150b1fd34c23ba2ec03d368e39a735ab26b18b7d6a4355173f240f47f6; only rows N1 and T5 were shortened for the 100-column Markdown limit afterwards, with the same rules"
+    "guide_note": "The council labelled from guide sha256 daf3c3150b1fd34c23ba2ec03d368e39a735ab26b18b7d6a4355173f240f47f6; only rows N1 and T5 were shortened for the 100-column Markdown limit afterwards, with the same rules",
+    "redaction": "2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)"
   },
   "results": {
-    "scores_sha256": "1a6df8d88ea04a784dba9778e364b9d70544fd25a4f7743c230e09388c908be7",
+    "scores_sha256": "6e79d24eeb8a0f7e0c55c9d07fd12880678f2c2cd52d85d57e472c15dd9498c1",
     "scoring": "one judge_batch over all 95 cases in the omp 19.0.1 eval kernel with an overlay setting modelRoles.judge to typesafe/jev-1.14.0 and no judge fallback; status reported model typesafe/jev-1.14.0, 95 done, 0 failed",
     "cost_usd": 0.006435,
     "cost_per_100_cases_usd": 0.0068,
     "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.8 --repeats 5: shipped 0.67; dev held-out P 0.91 R 0.92 F 0.91 (25 of 25 folds; fold thresholds 0.245-0.705); default 0.5 dev held-out P 0.88 R 0.93; test at 0.67 P 0.94 R 1.00, at 0.5 P 0.84 R 1.00. With --conservative --repeats 5 only 6 of 25 folds qualified (fewer than 50 dev cases per label), so the result is noisy",
     "test_per_stratum": "at 0.67: oh-mi-pi-config 13 cases P 0.91 R 1.00; game-system 4, raidar 3, scout 3 all P 1.00 R 1.00",
     "dev_errors_at_threshold": "A073 (FN 0.25), A030 (FP 0.70), A074 (FP 0.70), A031 (FP 0.72); A030, A031, A073 and A074 all had a council peer dissent, so the errors sit where labellers disagreed",
-    "test_errors_at_threshold": "A045 (FP 0.76): a model-route version bump"
+    "test_errors_at_threshold": "A045 (FP 0.76): a model-route version bump",
+    "rescore": "A038 re-scored 2026-11-21 after pseudonymisation through the direct judge (model typesafe/jev-1.14.0): 0.22; band counts unchanged"
   },
   "calibration": {
     "brier_raw": 0.08,
@@ -125,5 +127,7 @@
     "fallback verdicts for the escalate band are not measured; cascade accuracy is an upper bound",
     "framing and minimums are assumed; status stays provisional until the owner confirms them",
     "A017's state omits the decision its commits make (missing state): pull request states hold the PR body and commit headlines, not commit bodies"
-  ]
+  ],
+  "wired": true,
+  "wiring": "lib/judged-rails.ts mergeReason: a structured gh pr merge without an ADR file in the diff; yes refuses, escalate needs the owner's $approve; the owner directed gating on the provisional band (ADR 0017); thresholds stay provisional"
 }

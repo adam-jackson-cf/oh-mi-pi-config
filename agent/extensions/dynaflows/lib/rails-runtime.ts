@@ -1,4 +1,4 @@
-import { access, realpath, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
@@ -46,7 +46,10 @@ const inputSchema = z.object({
 	input: z.string().optional().catch(undefined),
 	// The write tool's whole new file text.
 	content: z.string().optional().catch(undefined),
-}).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined, content: undefined });
+	// The eval tool's cell code and the github tool's operation.
+	code: z.string().optional().catch(undefined),
+	op: z.string().optional().catch(undefined),
+}).catch({ path: undefined, command: undefined, cwd: undefined, input: undefined, content: undefined, code: undefined, op: undefined });
 const detailsSchema = z.object({
 	applied: z.boolean().optional().catch(undefined),
 	files: stringList.optional().catch(undefined),
@@ -110,6 +113,19 @@ function worktreeTarget(args: string[]): string | undefined {
 		if (!arg.startsWith("-")) return arg;
 	}
 	return undefined;
+}
+function absentScript(error: NodeJS.ErrnoException): null {
+	const parsed = fileErrorSchema.safeParse(error);
+	if (parsed.success && ["ENOENT", "EISDIR", "ENOTDIR"].includes(parsed.data.code ?? "")) return null;
+	throw error;
+}
+/** A script's text; undefined when missing, null when it is no shell script the scan reads (a large binary, another shebang). */
+async function readScript(target: string, executableOnly: boolean): Promise<string | null | undefined> {
+	const size = (await stat(target).catch(absentScript))?.size;
+	if (size === undefined) return undefined;
+	if (executableOnly && size > SCRIPT_LIMIT) return null;
+	const text = await readFile(target, "utf8").catch(absentScript);
+	return text !== null && executableOnly && !SHELL_SHEBANG.test(text) ? null : text;
 }
 function absentFile(error: NodeJS.ErrnoException): null {
 	const parsed = fileErrorSchema.safeParse(error);
@@ -344,7 +360,60 @@ function closingBrace(tokens: string[], body: number): number {
 	return end;
 }
 
-type ScanState = { hookSkip?: string };
+type ScanState = {
+	hookSkip?: string;
+	/** Every parsed command position (basename of the command word, then its words), wrappers included. */
+	commands: string[];
+	/** The whole top-level command, for checks that look for a git/gh word anywhere in it. */
+	source: string;
+};
+
+const SHELLS = ["bash", "sh", "zsh", "dash", "ksh", "mksh", "ash", "fish", "csh", "tcsh"];
+const SHELL_VALUED = ["-o", "+o", "-O", "+O", "--rcfile", "--init-file", "-C", "--init-command"];
+const SCRIPT_LIMIT = 131072;
+const SHELL_SHEBANG = /^#!\s*\S*(?:\/|\benv\s+)(?:ba|z|da|k|mk)?sh\b/;
+// Interpreters whose inline code (-c, -e, ...) may start processes; perl, ruby and php also run backticks.
+const INTERPRETER = /^(?:python[\d.]*|pypy[\d.]*|node|nodejs|bun|deno|perl|ruby|php|osascript)$/;
+const INLINE_CODE = ["-c", "-e", "-E", "--eval", "-p", "--print", "-r", "--command"];
+const BACKTICK_INTERPRETER = /^(?:perl|ruby|php)$/;
+const PROCESS_API = /\b(?:subprocess|os\.system|os\.popen|os\.exec\w*|os\.spawn\w*|pty\.spawn|Popen|child_process|exec\w*|spawn\w*|system|Bun\.\$|Deno\.Command|Deno\.run|IO\.popen|Open3|getoutput|check_output|check_call)\b|\$`|^\s*!|%%?(?:bash|sh|system|script)\b/m;
+// Commands that never run their arguments as a command, so a later git/gh word is only an argument.
+const NON_LAUNCHERS = new Set([
+	"echo", "printf", "which", "type", "whereis", "man", "help", "info", "tldr", "apropos", "rg", "grep", "egrep", "fgrep", "ag", "ack",
+	"cat", "bat", "less", "more", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "ls", "tree", "stat", "file", "du", "df",
+	"mkdir", "rmdir", "touch", "rm", "cp", "mv", "ln", "chmod", "chown", "test", "[", "[[", ":", "true", "false", "read", "jq", "yq",
+	"brew", "apt", "apt-get", "dnf", "yum", "pacman", "pip", "pip3", "pipx", "npm", "yarn", "cargo", "go", "gem", "mise", "uv",
+	"diff", "cmp", "basename", "dirname", "realpath", "readlink", "date", "sleep", "kill", "pkill", "pgrep", "ps",
+]);
+const HTTP_CLIENTS = ["curl", "wget", "http", "https", "xh", "xhs"];
+const GITHUB_API = /(?:^|[/@.])api\.github\.com\b|github\.com\/api\/|(?:^|\/)repos\/[^/\s]+\/[^/\s]+\/(?:pulls|merges|git\/refs|contents|releases)/;
+const HTTP_WRITE_FLAGS = /^(?:-d|--data(?:-\w+)?|-F|--form(?:-string)?|--json|-T|--upload-file|--post-data|--post-file|--body-data|--body-file)(?:=|$)|^-d./;
+const HTTP_WRITE_METHOD = /^(?:POST|PUT|PATCH|DELETE)$/i;
+const REDIRECTION = /^\d*(?:<<<|<<-?|<>|<&|>&|&>>?|>>|>\||<|>)(.*)$/s;
+const GH_ALIAS_WRITES = ["set", "import", "delete"];
+
+/** Whether code for an interpreter or the eval tool both names git/gh and can start a process. */
+function codeRunsGit(code: string, backticks = false): boolean {
+	if (!/\b(?:git|gh)\b/.test(code)) return false;
+	return PROCESS_API.test(code) || (backticks && code.includes("`"));
+}
+
+function httpMethod(words: string[], index: number): string | undefined {
+	const word = words[index] ?? "";
+	if (["-X", "--request", "--method"].includes(word)) return words[index + 1];
+	return /^(?:-X|--request=|--method=)(.+)$/.exec(word)?.[1];
+}
+
+/** Whether an HTTP client's words write to the GitHub API: a write method, a data flag or an httpie item. */
+function githubApiWrite(client: string, words: string[]): boolean {
+	if (!words.some(word => GITHUB_API.test(word))) return false;
+	return words.some((word, index) => {
+		const method = httpMethod(words, index);
+		if (method !== undefined) return HTTP_WRITE_METHOD.test(method);
+		if (HTTP_WRITE_FLAGS.test(word)) return true;
+		return ["http", "https", "xh", "xhs"].includes(client) && (HTTP_WRITE_METHOD.test(word) || /^[\w.-]+:?=/.test(word));
+	});
+}
 
 function separatesWrappedCommand(launcher: string, tool: ToolLauncher, words: string[]): boolean {
 	if (tool.separator) return true;
@@ -370,14 +439,16 @@ class ShellScan {
 	readonly substitutions: string[];
 	readonly scan: ScanState;
 	readonly depth: number;
+	readonly inline: boolean;
 	cwd: string | undefined;
 	words: string[] = [];
 
-	constructor(substitutions: string[], scan: ScanState, depth: number, cwd: string | undefined) {
+	constructor(substitutions: string[], scan: ScanState, depth: number, cwd: string | undefined, inline: boolean) {
 		this.substitutions = substitutions;
 		this.scan = scan;
 		this.depth = depth;
 		this.cwd = cwd;
+		this.inline = inline;
 	}
 
 	touch(word: string | undefined): void {
@@ -410,6 +481,12 @@ class ShellScan {
 	async functionDefinition(tokens: string[], body: number): Promise<number | undefined> {
 		if (tokens[body] !== "{") return undefined;
 		const end = closingBrace(tokens, body);
+		// A script file's functions end with its process: check their bodies as if they ran.
+		if (this.inline) {
+			await this.flush();
+			await this.read(tokens.slice(body + 1, end - 1));
+			return end;
+		}
 		if (hasGitWord(tokens.slice(body + 1, end - 1).join(" "), this.substitutions)) {
 			throw new Error("shell function definition contains a git/gh word; persistent shell functions cannot be parsed safely");
 		}
@@ -428,9 +505,17 @@ class ShellScan {
 		if (token === ")") this.cwd = this.subshells.pop();
 	}
 
+	/** Skips prefixes and records the command position; false when no command word is left. */
+	nextCommand(): boolean {
+		this.skipCommandPrefixes();
+		if (!this.words.length) return false;
+		this.commandWordReason();
+		this.scan.commands.push([basename(this.words[0] ?? ""), ...this.words.slice(1)].join(" "));
+		return true;
+	}
+
 	async flush(): Promise<void> {
-		while (this.words.length) {
-			this.skipCommandPrefixes();
+		while (this.nextCommand()) {
 			const launcher = basename(this.words[0] ?? "");
 			const tool = TOOL_LAUNCHERS.get(launcher);
 			if (tool && (!tool.subcommands.length || tool.subcommands.includes(this.words[1] ?? ""))) {
@@ -443,6 +528,12 @@ class ShellScan {
 		}
 		await this.dispatch();
 		this.words = [];
+	}
+
+	commandWordReason(): void {
+		if (/\$/.test(this.words[0] ?? "") && hasGitWord(this.scan.source, [])) {
+			throw new Error("a command word built from a variable or substitution, in a command with a git/gh word, cannot be checked; write the command name itself");
+		}
 	}
 
 	skipCommandPrefixes(): void {
@@ -508,14 +599,66 @@ class ShellScan {
 	}
 
 	async dispatch(): Promise<void> {
-		const executable = basename(this.words.shift() ?? "");
+		const word = this.words.shift() ?? "";
+		const executable = basename(word);
 		if (executable === "alias") this.refuseGitAlias();
-		if (VARIABLE_COMMANDS.includes(executable)) this.words.forEach(word => this.touch(word));
+		if (VARIABLE_COMMANDS.includes(executable)) this.words.forEach(item => this.touch(item));
 		else if (executable === "eval") await this.nested(this.words.join(" "));
-		else if (["bash", "sh", "zsh"].includes(executable)) await this.shellScript();
+		else if (SHELLS.includes(executable)) await this.shellScript();
+		else if (["source", "."].includes(executable)) await this.scriptFile(this.words[0], false);
 		else if (["cd", "pushd", "popd"].includes(executable)) await this.changeDirectory(executable);
 		else if (executable === "git") await this.git();
 		else if (executable === "gh") this.gh();
+		else await this.otherCommand(word, executable);
+	}
+
+	async otherCommand(word: string, executable: string): Promise<void> {
+		if (INTERPRETER.test(executable)) this.interpreterCode(executable);
+		else if (HTTP_CLIENTS.includes(executable) && githubApiWrite(executable, this.words)) {
+			throw new Error(`${executable} writes to the GitHub API outside the rails; use gh so the rails can check it`);
+		}
+		if (word.includes("/") && !INTERPRETER.test(executable)) await this.scriptFile(word, true, true);
+		// An unknown launcher (stdbuf, doas, find -exec, script, caffeinate, ...) runs a later git/gh word as a command.
+		const at = NON_LAUNCHERS.has(executable) ? -1 : this.words.findIndex(isGitWord);
+		if (at < 0) return;
+		this.words = this.words.slice(at);
+		await this.dispatch();
+	}
+
+	interpreterCode(executable: string): void {
+		const at = this.words.findIndex(item => INLINE_CODE.includes(item));
+		const code = at < 0 ? undefined : this.words[at + 1];
+		if (code !== undefined && codeRunsGit(code, BACKTICK_INTERPRETER.test(executable))) {
+			throw new Error(`inline ${executable} code that runs git/gh cannot be checked; run git and gh through bash`);
+		}
+	}
+
+	/** Throws `reason` when the whole command has a git/gh word: what the scan cannot see may run Git. */
+	refuseWithGitWord(reason: string): void {
+		if (hasGitWord(this.scan.source, [])) throw new Error(`${reason}, in a command with a git/gh word, cannot be checked; run the commands themselves in their own command`);
+	}
+
+	scriptTarget(path: string): string | undefined {
+		if (/[$`*?]/.test(path) || (!this.cwd && !isAbsolute(path) && !path.startsWith("~/"))) return undefined;
+		return absolute(path, this.cwd ?? "/");
+	}
+
+	/** Runs a shell script file: an existing one is checked as if its commands ran here. */
+	async scriptFile(path: string | undefined, inline: boolean, executableOnly = false): Promise<void> {
+		if (!path) { this.refuseWithGitWord("a shell reading commands from stdin"); return; }
+		const target = this.scriptTarget(path);
+		if (!target) { this.refuseWithGitWord(`script ${path}, unresolved,`); return; }
+		const text = await readScript(target, executableOnly);
+		if (text === undefined) { this.refuseWithGitWord(`script ${path}, which does not exist before this command,`); return; }
+		if (text === null) return;
+		if (this.scan.source.split(basename(path)).length > 2) this.refuseWithGitWord(`script ${path}, written and run in one command,`);
+		await this.scriptText(path, text, inline);
+	}
+
+	async scriptText(path: string, text: string, inline: boolean): Promise<void> {
+		if (!hasGitWord(text, [])) return;
+		if (text.length > SCRIPT_LIMIT) throw new Error(`script ${path} with a git/gh word exceeds the scan limit`);
+		this.actions.push(...await gitActions(text, this.cwd, this.scan, this.depth + 1, inline));
 	}
 
 	refuseGitAlias(): void {
@@ -525,14 +668,27 @@ class ShellScan {
 	}
 
 	async shellScript(): Promise<void> {
-		while (this.words[0]?.startsWith("-")) {
+		while (/^[-+]/.test(this.words[0] ?? "")) {
 			const option = this.words.shift() ?? "";
-			if (/^-[^-]*c/.test(option)) {
+			if (option === "--" || option === "-") break;
+			if (/^-[^-]*c/.test(option) || option === "--command") {
 				if (this.words[0]) await this.nested(this.words[0]);
 				return;
 			}
-			if (["-o", "+o", "-O"].includes(option)) this.words.shift();
+			if (SHELL_VALUED.includes(option)) this.words.shift();
 		}
+		await this.scriptFile(this.withoutRedirections()[0], true);
+	}
+
+	withoutRedirections(): string[] {
+		const words: string[] = [];
+		for (let index = 0; index < this.words.length; index++) {
+			if (this.words[index]?.startsWith("#")) break;
+			const redirection = REDIRECTION.exec(this.words[index] ?? "");
+			if (!redirection) words.push(this.words[index] ?? "");
+			else if (!redirection[1]) index++;
+		}
+		return words;
 	}
 
 	async changeDirectory(executable: string): Promise<void> {
@@ -562,6 +718,9 @@ class ShellScan {
 	}
 
 	gh(): void {
+		if (this.words[0] === "alias" && GH_ALIAS_WRITES.includes(this.words[1] ?? "")) {
+			throw new Error(`gh alias ${this.words[1]} defines a command the rails cannot check; run the gh command itself`);
+		}
 		if (this.words.some(word => ["-R", "--repo", "--hostname"].includes(word) || /^(-R.|--repo=|--hostname=)/.test(word))) {
 			throw new Error("gh remote repository overrides are unsupported; use the validated local target repository");
 		}
@@ -569,14 +728,22 @@ class ShellScan {
 	}
 }
 
-async function gitActions(command: string, cwd: string | undefined, scan: ScanState = {}, depth = 0): Promise<GitAction[]> {
-	if (depth > 16 || command.length > 131072) throw new Error("shell scan exceeds supported bounds");
+async function gitActions(command: string, cwd: string | undefined, scan?: ScanState, depth = 0, inline = false): Promise<GitAction[]> {
+	if (depth > 16 || command.length > SCRIPT_LIMIT) throw new Error("shell scan exceeds supported bounds");
 	if (command.includes("\0")) throw new Error("shell scan does not support NUL bytes");
+	const state = scan ?? { commands: [], source: command };
 	const { shell, substitutions } = maskSubstitutions(command);
 	const tokens = shell.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
-	const reader = new ShellScan(substitutions, scan, depth, cwd);
+	const reader = new ShellScan(substitutions, state, depth, cwd, inline);
 	await reader.read(tokens);
-	return markHookSkip(reader.actions, scan.hookSkip, reader.cwd);
+	return markHookSkip(reader.actions, state.hookSkip, reader.cwd);
+}
+
+/** Every command position a shell command runs (wrappers, subshells, -c scripts, substitutions, script files). */
+async function shellCommands(command: string, cwd: string | undefined): Promise<string[]> {
+	const scan: ScanState = { commands: [], source: command };
+	await gitActions(command, cwd, scan);
+	return scan.commands;
 }
 
 // Environment variables that make a hook manager or Git skip the pre-commit hook. Conservatively,
@@ -649,6 +816,42 @@ function bypassArgument(args: string[], operation: string): string | undefined {
 	return undefined;
 }
 
+// `git commit` options that commit more than the index as it stands before the command runs.
+const COMMIT_SCOPE_LONGS = ["--all", "--include", "--only", "--interactive", "--patch", "--pathspec-from-file"];
+const COMMIT_SCOPE_SHORTS = ["a", "i", "o", "p"];
+
+type ScopeStep = { scope: boolean; skipValue: boolean };
+function longScopeStep(arg: string): ScopeStep {
+	const name = arg.split("=")[0] ?? "";
+	if (name.length > 2 && COMMIT_SCOPE_LONGS.some(long => long.startsWith(name))) return { scope: true, skipValue: false };
+	return { scope: false, skipValue: longOptionStep(arg, Object.keys(commitValueLongs)).skipValue };
+}
+function shortScopeStep(arg: string): ScopeStep {
+	for (let at = 1; at < arg.length; at++) {
+		const flag = arg[at] ?? "";
+		if (COMMIT_SCOPE_SHORTS.includes(flag)) return { scope: true, skipValue: false };
+		if (flag === "u" || flag === "S") break;
+		if (flag in commitValueShorts) return { scope: false, skipValue: at === arg.length - 1 };
+	}
+	return { scope: false, skipValue: false };
+}
+
+/** The first `git commit` argument that commits paths beyond the staged index: -a, -i, -o, -p or a pathspec. */
+function commitScopeArgument(args: string[]): string | undefined {
+	for (let index = 1; index < args.length; index++) {
+		const arg = args[index] ?? "";
+		if (arg === "--") return args[index + 1];
+		if (!arg.startsWith("-") || arg === "-") return arg;
+		const step = arg.startsWith("--") ? longScopeStep(arg) : shortScopeStep(arg);
+		if (step.scope) return arg;
+		if (step.skipValue) index++;
+	}
+	return undefined;
+}
+
+// Git commands that change the index, so a later commit in the same shell command commits a tree the rails never saw.
+const INDEX_WRITES = /^git (?:add|stage|rm|mv|restore|apply|update-index|reset|read-tree|checkout|stash|switch|merge|cherry-pick|revert|am|pull|rebase)(?![-\w])/;
+
 function commitBypass(action: GitAction): string | undefined {
 	return bypassArgument(action.args.slice(1), action.args[0] ?? "") ?? hooksPathConfig(action.config) ?? action.hookSkip;
 }
@@ -669,6 +872,7 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	state.notes.add(message);
 	ctx.ui.notify(message, "info");
 }
+export { codeRunsGit, shellCommands, commitScopeArgument, INDEX_WRITES };
 export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
 export { fileErrorSchema };
 export type { Mapping, RepoRecord, GitAction, State, ToolEvent };

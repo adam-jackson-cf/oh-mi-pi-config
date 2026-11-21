@@ -93,8 +93,8 @@ def test_cases_hold_the_declared_state_and_split_by_unit() -> None:
     splits: dict[str, set[str]] = {}
     for case in cases:
         assert set(case["state"]) == shape
-        assert case["state"]["mode"]["name"] == case["stratum"]
-        assert case["state"]["record"]["gate"]["dynaflows"]["mode"] == case["stratum"]
+        assert case["stratum"] == case["state"]["mode"]["name"] == "structured"
+        assert "dynaflows" not in case["state"]["record"]["gate"]
         assert case["unit"] == case["state"]["change"]["head"][:12]
         splits.setdefault(case["unit"], set()).add(case["split"])
     assert all(len(split) == 1 for split in splits.values())

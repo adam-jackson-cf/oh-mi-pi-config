@@ -1,6 +1,6 @@
 # 0018: One judgment registry on the direct TypeSafe judge
 
-Status: proposed, 2026-11-21 (owner to accept).
+Status: accepted, 2026-11-21 (owner).
 
 ## Context
 

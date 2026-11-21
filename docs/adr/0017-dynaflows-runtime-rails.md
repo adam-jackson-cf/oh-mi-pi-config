@@ -30,25 +30,37 @@ in `agent/RULES.md`, `agent/AGENTS.md` and `.omp/AGENTS.md`, not checks.
 
 | Rail | Modes | Decision |
 | --- | --- | --- |
-| Git read gate | Both | `gitCommand` covers every Git and GitHub write |
+| Git read gate | Both | `gitCommand` lists the gated writes; anything else is ungated |
+| Shell indirection | Both | Fails closed: stdin shells, variable command words, unknown scripts |
+| Launchers | Both | Unknown launchers run a later `git`/`gh` word as a command |
+| Script files | Both | An existing shell script is scanned as if its commands ran |
+| Inline code | Both | `python -c`, `node -e`, eval cells that start `git`/`gh`: refused |
+| GitHub API | Both | `curl`/`wget`/`http` writes to it refused; `gh alias set` refused |
+| `gh` aliases | Both | Expanded from `gh alias list`, like Git aliases |
+| `github` tool | Both | `pr_create`, `pr_push`, `pr_checkout` refused |
+| `git config` | Both | Alias writes and hook paths outside the repo refused |
+| Commit shape | Both | A commit sharing a command with an index write is refused |
+| Commit scope | Structured | `-a`, `-i`, `-o`, `-p`, pathspecs refused: index only |
 | Merge policies | Structured | `mergePolicies` entries; default rebase with proof |
 | `--admin` | Structured | Always refused |
 | `afterMerge` | Structured | Required after a matching merge until a run exits 0 |
 | Obligations | Structured | Checked at `session_stop`; 3 follow-ups, then the owner is told |
+| PR discovery | Structured | Turn end finds the pushed branch's open PR via `gh pr view` |
+| Resume | Structured | `session_start`/`session_switch` replay the branch into obligations |
 | Obligation hook | Structured | `obligationSources` option for later judgments |
 | Device rollout | Structured | Opt-in only: `$rollout` line or tool `rollout` |
-| Restart review | Both | Per-repo revision in `~/.omp/agent/dynaflows-reviews.json` |
-| Review gate | Structured | Git writes refused until acknowledged; minimal notifies |
-| Impact judgment | Structured | `extension-impact` `no` stores the revision without a task |
+| Restart review | Both | Per-repo revision in `<agent dir>/dynaflows-reviews.json` |
+| Review gate | Structured | Every worktree of the repo (Git common dir) refused until ack |
+| Impact judgment | Structured | `extension-impact` `no`: owner notified, revision stored |
 | Handoff | Both | `handoff` tool; never committed; deleted after the next first turn |
 
 Obligations:
 
 | Id | Unmet when |
 | --- | --- |
-| `pr:<branch>` | The agent's PR is open, CI green on its head, `agentMerge` not disabled |
-| `afterMerge:<root>` | No whole-command run of the step exited 0 since the merge |
-| `rollout` | Rollout requested and no `device_rollout.py` run exited 0 |
+| `pr:<branch>` | Open PR, `agentMerge` not disabled; pending CI names its wait command |
+| `afterMerge:<root>` | No exit-0 run of the step, alone or in an `&&` chain, since the merge |
+| `rollout` | Rollout requested; no exit-0 run of `<config root>/scripts/device_rollout.py` |
 
 A revision is `git:<last commit touching the extension>` in a Git config root, else a content
 hash. `modes.json` is excluded, so a mode switch is not a change. A repo's first session
@@ -65,7 +77,8 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 | `adr-needed` | Merge | Method, head, proof, CI; ADR file in diff skips | Refused | Owner |
 | `implementation-integrity` | Commit | Path check, `checks.commit`, harness | Refused | Owner |
 | `completion-evidence` | Turn end | P2, P4-P8 on the agent's PR | Unmet | Owner |
-| `in-scope` | `ask`, `askFirstCommand` | Main agent | Ask first | Ask first |
+| `completion-evidence` | Merge | P2, P4, P8; CI by merge policy | Refused | Owner |
+| `in-scope` | `ask`, `askFirstCommand` | Every parsed command position | Ask first | Ask first |
 
 | Topic | Decision |
 | --- | --- |
@@ -76,6 +89,7 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 | Owner approval | Prompt line `$approve <judgment>:<id>`; one session, one subject |
 | Failure | Refuses commit, merge and command; evidence stays unmet; review shows; ask passes |
 | In-scope `no` on `ask` | Refused: the agent decides details of the agreed work itself |
+| Subagent privileged command | Refused without a judgment; the main agent asks |
 | Not wired | Completion P3 (linked plan): no PR in the cases links one |
 
 ### Removed instruction text
@@ -83,11 +97,32 @@ Deterministic pre-checks run first; `decide()` runs only on what they pass.
 | File | Removed | Now |
 | --- | --- | --- |
 | `agent/RULES.md` | Never bypass git hooks | Hook-bypass rails, both modes |
-| `agent/RULES.md` | Merge on green CI, ADR and council lines | Merge rail and PR obligation |
+| `agent/RULES.md` | Merge on green CI, in-scope ADR lines | PR obligation, in-scope, `adr-needed` |
+| `agent/RULES.md` | Resolve councils after 2 rounds | Kept as instruction: not enforced |
 | `agent/RULES.md` | Handoff to `docs/HANDOFF.md` | `handoff` tool |
 | `agent/AGENTS.md` | Git paragraph | Mode rails and `skill://git-tool` gate |
 | `agent/AGENTS.md` | Device rollout paragraph | Opt-in rollout obligation |
+| `agent/AGENTS.md` | NUC `~/.omp` and session restart lines | Kept as instruction: not enforced |
 | `.omp/AGENTS.md` | Whole file | `ci`, `mergePolicies`; other facts in the record README |
+
+### Not enforced
+
+| Fact | Why |
+| --- | --- |
+| Council resolution after 2 rounds | Council rounds are not observable events |
+| No Git in the NUC's `~/.omp` | Remote shells over `ssh` are opaque; `ssh` asks first |
+| Restart sessions after rail changes | Old sessions run old rails |
+| Missing `ci-gate-repos.json` entry needs a setup PR | Record README fact |
+| An Actions run never replaces a missing `gate` | Record README fact |
+| Obligations after 3 follow-ups | The owner is told once; the rails stop asking |
+| `$X$Y` command words without a `git`/`gh` word | No word to detect |
+
+### Cutover steps
+
+1. Run `python3 agent/extensions/dynaflows/lib/migrate_records_to_mode_file.py --dry-run`, then without.
+2. It strips `dynaflows` and adds the `nuc-config` sync policy to the oh-mi-pi-config record.
+3. Roll the records out with `device_rollout.py`.
+4. Delete the migration script and its test.
 
 ## Consequences
 

@@ -3,7 +3,9 @@
 Usage: python3 migrate_records_to_mode_file.py [--dry-run] [--config-root DIR] [--modes FILE]
 
 Reads <config root>/repos/<owner>/<name>/gate.json. A record setting structured gets a
-modes.json entry; minimal removes the entry, since an unlisted repository is minimal.
+modes.json entry; minimal removes the entry, since an unlisted repository is minimal. The
+cutover also adds the merge policies that replaced instruction text (CUTOVER_POLICIES) to the
+records that need them. One-shot: delete this script and its test once the live records ran it.
 """
 
 from __future__ import annotations
@@ -22,6 +24,17 @@ import repo_record  # noqa: E402
 MODES = ("minimal", "structured")
 SLUG = re.compile(r"[a-z0-9_.-]+/[a-z0-9_.-]+")
 DEFAULT_MODES = Path(__file__).resolve().parents[1] / "modes.json"
+# Merge policies the removed .omp/AGENTS.md text held (record/README.md, oh-mi-pi-config example).
+CUTOVER_POLICIES: dict[str, list[dict[str, Any]]] = {
+    "adam-jackson-cf/oh-mi-pi-config": [
+        {
+            "base": "nuc-config",
+            "headPrefix": "agent/nuc-sync-",
+            "method": "merge",
+            "proof": False,
+        }
+    ],
+}
 
 
 class MigrationError(RuntimeError):
@@ -69,6 +82,17 @@ def record_mode(gate_path: Path) -> tuple[dict[str, Any], str | None]:
     return gate, str(setting["mode"])
 
 
+def add_policies(gate: dict[str, Any], policies: list[dict[str, Any]]) -> int:
+    """Append each policy the record's mergePolicies lack; returns how many were added."""
+    existing = gate.get("mergePolicies", [])
+    if not isinstance(existing, list):
+        raise MigrationError("mergePolicies must be a list")
+    missing = [policy for policy in policies if policy not in existing]
+    if missing:
+        gate["mergePolicies"] = [*existing, *missing]
+    return len(missing)
+
+
 def migrate(config_root: Path, modes_path: Path, dry_run: bool) -> list[str]:
     """Plan (and unless dry_run, apply) the move; returns one line per change."""
     modes = read_modes(modes_path)
@@ -79,15 +103,19 @@ def migrate(config_root: Path, modes_path: Path, dry_run: bool) -> list[str]:
     ):
         slug = f"{gate_path.parent.parent.name}/{gate_path.parent.name}".lower()
         gate, mode = record_mode(gate_path)
-        if mode is None:
+        added = add_policies(gate, CUTOVER_POLICIES.get(slug, []))
+        if mode is None and not added:
             continue
-        del gate["dynaflows"]
         writes.append((gate_path, gate))
-        lines.append(f"{slug}: {mode}; strip dynaflows from {gate_path}")
-        if mode == "structured":
-            modes[slug] = mode
-        else:
-            modes.pop(slug, None)
+        if added:
+            lines.append(f"{slug}: add {added} merge policies to {gate_path}")
+        if mode is not None:
+            del gate["dynaflows"]
+            lines.append(f"{slug}: {mode}; strip dynaflows from {gate_path}")
+            if mode == "structured":
+                modes[slug] = mode
+            else:
+                modes.pop(slug, None)
         reason = repo_record.gate_reason(gate)
         if reason is not None:
             lines.append(f"{slug}: gate.json still refused after the move: {reason}")
