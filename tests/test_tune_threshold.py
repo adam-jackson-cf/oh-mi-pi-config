@@ -21,6 +21,9 @@ sys.modules["tune_threshold"] = tune
 spec.loader.exec_module(tune)
 
 HEADER = "case_id,label,score,model,question_version,split,stratum\n"
+NO_DECISION = (
+    "- Decision: none tuned; set the cost-rule default and record why in shortfalls"
+)
 
 
 def scores_csv(path: Path, rows: list[str]) -> Path:
@@ -90,6 +93,8 @@ def test_json_report_tunes_on_dev_and_scores_test_once(
     assert result["model"] == "m @ v1"
     assert (result["dev_cases"], result["test_cases"], result["folds"]) == (60, 10, 5)
     assert result["shipped_threshold"] == pytest.approx(0.5)
+    assert result["decision"] == {"threshold": pytest.approx(0.5)}
+    assert result["discrimination"]["status"] == "passes"
     assert result["tuned_folds"] == result["total_folds"] == 10
     assert result["test_at_shipped"]["precision"] == 1.0
     assert result["test_at_shipped"]["recall"] == 1.0
@@ -129,6 +134,7 @@ def test_markdown_report_lists_warnings_thresholds_strata_and_errors(
     assert "## m\n" in out
     assert "Warning: fewer than 50 dev cases per label; treat results as noisy" in out
     assert "- Shipped threshold: " in out
+    assert '- Decision: {"threshold": ' in out
     assert "- Brier raw " in out
     assert "Per stratum at the shipped threshold, dev (in-sample):" in out
     assert "| x1 | s0 | 0 | 0.9500 | false_positive |" in out
@@ -140,14 +146,17 @@ def test_unmet_minimums_ship_no_threshold_and_say_so(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    rows = [f"d{i},{i % 2},0.5,m,,dev," for i in range(20)]
-    csv = scores_csv(tmp_path / "scores.csv", rows)
-    code, out, _ = run_main(
-        monkeypatch, capsys, str(csv), "--min-precision", "0.9", "--min-recall", "0.9"
-    )
+    csv = scores_csv(tmp_path / "scores.csv", shifted_rows())
+    args = ("--min-auc", "0.6", "--min-precision", "0.99", "--min-recall", "0.99")
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), *args)
     assert code == 0
     assert "- Shipped threshold: none meets minimums" in out
+    assert NO_DECISION in out
     assert "no threshold met minimums on train" in out
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), *args, "--json")
+    [result] = json.loads(out)
+    assert result["discrimination"]["status"] == "passes"
+    assert result["decision"] is None
 
 
 def test_a_model_without_two_cases_of_each_label_reports_an_error(
@@ -158,8 +167,9 @@ def test_a_model_without_two_cases_of_each_label_reports_an_error(
     rows = ["a,1,0.9,lonely,,dev,", "b,0,0.1,lonely,,dev,", "c,0,0.2,lonely,,dev,"]
     csv = scores_csv(tmp_path / "scores.csv", rows)
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
-    assert code == 0
+    assert code == tune.EXIT_INSUFFICIENT_UNITS == 4
     assert "need at least 2 dev units with each label" in out
+    assert NO_DECISION in out
 
 
 def test_conservative_minimums_use_the_wilson_lower_bound() -> None:
@@ -269,7 +279,7 @@ def test_too_few_units_per_label_reports_an_error_even_with_many_cases(
 ) -> None:
     csv = unit_csv(tmp_path / "scores.csv", unit_rows(1, 30))
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
-    assert code == 0
+    assert code == 4
     assert "need at least 2 dev units with each label" in out
 
 
@@ -365,8 +375,8 @@ def test_a_platt_mapping_worse_than_raw_on_test_is_rejected(
 
 
 RANK_WARNING = (
-    "ranking does not beat chance on dev (AUC interval includes 0.5, is "
-    "missing, or AUC is below the floor); do not tune or band, and take the "
+    "ranking fails on dev (AUC interval includes 0.5, or AUC is below the "
+    "floor); do not tune or band, use the cost-rule default, and take the "
     "question to error analysis as wording, missing state or a policy gap"
 )
 
@@ -400,6 +410,7 @@ def test_ranking_is_reported_with_its_interval_in_json_and_markdown(
         "interval": [1.0, 1.0],
         "floor": 0.7,
         "resamples": 1000,
+        "status": "passes",
         "passes": True,
     }
     assert RANK_WARNING not in result["warnings"]
@@ -408,6 +419,7 @@ def test_ranking_is_reported_with_its_interval_in_json_and_markdown(
         "- Ranking on dev: AUC 1.00 (95% unit interval 1.00 to 1.00; floor 0.7): passes"
         in out
     )
+    assert '- Decision: {"threshold": 0.5000}' in out
 
 
 def block_rows(unit_per_block: bool) -> list[str]:
@@ -426,10 +438,10 @@ def test_scores_from_few_units_fail_ranking_that_independent_cases_pass(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     results = {}
-    for grouped in (False, True):
+    for grouped, expected in ((False, 0), (True, tune.EXIT_RANK_FAILS)):
         csv = unit_csv(tmp_path / f"scores-{grouped}.csv", block_rows(grouped))
         code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
-        assert code == 0
+        assert code == expected
         [results[grouped]] = json.loads(out)
     alone, grouped_result = results[False], results[True]
     assert alone["discrimination"]["auc"] == grouped_result["discrimination"]["auc"]
@@ -437,6 +449,8 @@ def test_scores_from_few_units_fail_ranking_that_independent_cases_pass(
     assert alone["discrimination"]["passes"] is True
     assert grouped_result["discrimination"]["interval"][0] <= 0.5
     assert grouped_result["discrimination"]["passes"] is False
+    assert grouped_result["discrimination"]["status"] == "fails"
+    assert grouped_result["decision"] is None
     assert RANK_WARNING in grouped_result["warnings"]
 
 
@@ -448,9 +462,11 @@ def test_tied_scores_fail_ranking_and_say_why(
     rows = [f"d{i},{i % 2},0.5,m,,dev," for i in range(40)]
     csv = scores_csv(tmp_path / "scores.csv", rows)
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
-    assert code == 0
+    assert code == 3
     assert "- Ranking on dev: AUC 0.50 (95% unit interval 0.50 to 0.50" in out
+    assert "floor 0.7): fails" in out
     assert f"Warning: {RANK_WARNING}" in out
+    assert NO_DECISION in out
 
 
 def shifted_rows() -> list[str]:
@@ -468,13 +484,14 @@ def test_ranking_above_chance_but_below_the_floor_fails_until_the_floor_drops(
 ) -> None:
     csv = scores_csv(tmp_path / "scores.csv", shifted_rows())
     code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
-    assert code == 0
+    assert code == 3
     [result] = json.loads(out)
     rank = result["discrimination"]
     assert rank["interval"][0] > 0.5
     assert rank["auc"] == pytest.approx(0.6556)
     assert rank["passes"] is False
     code, out, _ = run_main(monkeypatch, capsys, str(csv), "--min-auc", "0.6", "--json")
+    assert code == 0
     [result] = json.loads(out)
     assert result["discrimination"]["passes"] is True
     assert result["discrimination"]["floor"] == 0.6
@@ -487,20 +504,23 @@ def test_the_unit_refusal_still_reports_ranking_without_an_interval(
 ) -> None:
     csv = unit_csv(tmp_path / "scores.csv", unit_rows(1, 30))
     code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
-    assert code == 0
+    assert code == 4
     [result] = json.loads(out)
     assert result["discrimination"]["auc"] == 1.0
     assert result["discrimination"]["interval"] is None
+    assert result["discrimination"]["status"] == "insufficient units"
     assert result["discrimination"]["passes"] is False
+    assert result["decision"] is None
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
     assert (
         "- Ranking on dev: AUC 1.00 (no interval without 2 units of each label; "
-        "floor 0.7): fails"
+        "floor 0.7): insufficient units"
     ) in out
     rows = ["a,1,0.9,m,,dev,", "b,1,0.8,m,,dev,"]
     csv = scores_csv(tmp_path / "one-label.csv", rows)
     code, out, _ = run_main(monkeypatch, capsys, str(csv))
-    assert "- Ranking on dev: no AUC without both labels; fails" in out
+    assert code == 4
+    assert "- Ranking on dev: no AUC without both labels; insufficient units" in out
 
 
 @pytest.mark.parametrize(
@@ -521,3 +541,28 @@ def test_ranking_options_are_checked(
     code, _, err = run_main(monkeypatch, capsys, str(csv), *args)
     assert code == 2
     assert message in err
+
+
+def test_a_failing_group_outranks_one_with_insufficient_units_in_the_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    tied = [f"d{i},{i % 2},0.5,tied,,dev," for i in range(40)]
+    lonely = ["a,1,0.9,lonely,,dev,", "b,0,0.1,lonely,,dev,"]
+    csv = scores_csv(tmp_path / "scores.csv", tied + lonely)
+    code, out, _ = run_main(monkeypatch, capsys, str(csv), "--json")
+    assert code == tune.EXIT_RANK_FAILS
+    statuses = {r["model"]: r["discrimination"]["status"] for r in json.loads(out)}
+    assert statuses == {"lonely": "insufficient units", "tied": "fails"}
+
+
+def test_help_documents_the_exit_codes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = run_main(monkeypatch, capsys, "--help")
+    assert code == 0
+    assert "- 3 when ranking fails in any group;" in out
+    assert (
+        "- 4 when ranking has insufficient units in any group and fails in none." in out
+    )

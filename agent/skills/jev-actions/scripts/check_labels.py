@@ -6,17 +6,23 @@ import argparse
 import json
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TextIO
 
 USAGE = """\
 Reads `cases.jsonl` and `labels.jsonl` as the eval data schemas describe, and
 checks the labels a tuning run may count, per question:
 
-- Provenance: a `human` row counts only when it names its reviewer in `by`,
+- Provenance: an `arbiter` row counts only when it names the arbiter in `by`,
   has a `timestamp`, records `confirmed` as `individual`, and shares its
-  reviewer and timestamp with no other case. Every other `human` row is bulk
+  arbiter and timestamp with no other case. Every other `arbiter` row is bulk
   and counts as no label.
+- Blindness: an `arbiter` or `agent_reviewed` row without `blind` true saw a
+  score or an earlier label, and counts as `agent`.
+- Version key: with `--version-key QUESTION=KEY`, a row of that question whose
+  `question_version` is not KEY counts as no label, as after a meaning change.
+- Abstain: a counting label of `abstain` gives its case no label; abstains are
+  reported per question.
 - Unit coverage: each label has counting labels on `dev` cases from at least
   `--min-units` independent units (default 2); a yes-or-no question needs both.
 
@@ -32,8 +38,10 @@ Example:
 """
 
 COUNTING = ("outcome", "agent_reviewed", "unknown")
-PROVENANCES = frozenset({"human", "agent", *COUNTING})
+PROVENANCES = frozenset({"arbiter", "agent", *COUNTING})
+BLIND_REQUIRED = frozenset({"arbiter", "agent_reviewed"})
 BINARY = frozenset({"0", "1"})
+ABSTAIN = "abstain"
 Result = dict[str, Any]
 
 
@@ -41,6 +49,14 @@ Result = dict[str, Any]
 class CaseInfo:
     unit: str
     split: str
+
+
+@dataclass(frozen=True)
+class Scope:
+    """The questions to report, and each question's current version key."""
+
+    questions: tuple[str, ...] = ()
+    versions: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -53,6 +69,8 @@ class Label:
     provenance: str
     timestamp: str
     confirmed: str
+    blind: bool = False
+    question_version: str = ""
 
 
 def read_jsonl(f: TextIO, name: str) -> list[dict[str, Any]]:
@@ -94,7 +112,7 @@ def label_value(row: dict[str, Any]) -> str:
     value = row.get("label")
     if isinstance(value, bool) or not isinstance(value, int | str) or value == "":
         sys.exit(
-            f"labels.jsonl line {row['_line']}: label must be 1, 0 or an option key"
+            f"labels.jsonl line {row['_line']}: label must be 1, 0, abstain or an option key"
         )
     return str(value)
 
@@ -127,6 +145,8 @@ def parse_labels(rows: list[dict[str, Any]], cases: dict[str, CaseInfo]) -> list
                 provenance=provenance,
                 timestamp=optional_text(row, "timestamp"),
                 confirmed=optional_text(row, "confirmed"),
+                blind=row.get("blind") is True,
+                question_version=optional_text(row, "question_version"),
             )
         )
     return labels
@@ -134,7 +154,7 @@ def parse_labels(rows: list[dict[str, Any]], cases: dict[str, CaseInfo]) -> list
 
 def own_fault(row: Label) -> str | None:
     if not row.by:
-        return "no reviewer in by"
+        return "no arbiter in by"
     if not row.timestamp:
         return "no timestamp"
     if row.confirmed != "individual":
@@ -142,34 +162,62 @@ def own_fault(row: Label) -> str | None:
     return None
 
 
+def stale_rows(labels: list[Label], versions: dict[str, str]) -> dict[int, str]:
+    """Map the line of each row made under an older version key to its reason."""
+    stale: dict[int, str] = {}
+    for row in labels:
+        key = versions.get(row.question_id)
+        if key is not None and row.question_version != key:
+            made = row.question_version or "no version key"
+            stale[row.line] = f"made under {made}, not the current {key}"
+    return stale
+
+
 def bulk_rows(labels: list[Label]) -> dict[int, str]:
-    """Map the line of each human row that may not count as human to its reason."""
-    human = [row for row in labels if row.provenance == "human"]
-    faults = {row.line: fault for row in human if (fault := own_fault(row))}
+    """Map the line of each arbiter row that may not count to its reason."""
+    arbiter = [row for row in labels if row.provenance == "arbiter"]
+    faults = {row.line: fault for row in arbiter if (fault := own_fault(row))}
     batches: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for row in human:
+    for row in arbiter:
         if row.line not in faults:
             batches[row.by, row.timestamp].add(row.case_id)
-    for row in human:
+    for row in arbiter:
         shared = len(batches.get((row.by, row.timestamp), set())) - 1
         if row.line not in faults and shared > 0:
-            faults[row.line] = (
-                f"reviewer and timestamp shared with {shared} other cases"
-            )
+            faults[row.line] = f"arbiter and timestamp shared with {shared} other cases"
     return faults
 
 
+def sighted_rows(labels: list[Label], dropped: dict[int, str]) -> dict[int, str]:
+    """Map the line of each arbiter or agreement row that was not blind to its reason."""
+    return {
+        row.line: f"{row.provenance} row is not blind"
+        for row in labels
+        if row.line not in dropped
+        and row.provenance in BLIND_REQUIRED
+        and not row.blind
+    }
+
+
+def row_kind(row: Label, sighted: dict[int, str]) -> str:
+    if row.line in sighted:
+        return "agent"
+    return "counting" if row.provenance in COUNTING else row.provenance
+
+
 def counting_labels(
-    labels: list[Label], bulk: dict[int, str], proposals: bool
+    labels: list[Label],
+    dropped: dict[int, str],
+    sighted: dict[int, str],
+    proposals: bool,
 ) -> dict[tuple[str, str], Label]:
     """Pick each case's counting label per question; the latest row of a kind wins."""
     latest: dict[tuple[str, str, str], Label] = {}
     for row in labels:
-        if row.line in bulk:
+        if row.line in dropped:
             continue
-        kind = "counting" if row.provenance in COUNTING else row.provenance
-        latest[row.question_id, row.case_id, kind] = row
-    kinds = ["human", "counting", *(["agent"] if proposals else [])]
+        latest[row.question_id, row.case_id, row_kind(row, sighted)] = row
+    kinds = ["arbiter", "counting", *(["agent"] if proposals else [])]
     chosen: dict[tuple[str, str], Label] = {}
     for question_id, case_id in sorted({(q, c) for q, c, _ in latest}):
         for kind in kinds:
@@ -184,8 +232,14 @@ def required_labels(values: set[str]) -> set[str]:
 
 
 def question_report(
-    question_id: str, rows: list[Label], cases: dict[str, CaseInfo], min_units: int
+    question_id: str,
+    chosen: list[Label],
+    cases: dict[str, CaseInfo],
+    min_units: int,
+    sighted: dict[int, str],
 ) -> Result:
+    rows = [row for row in chosen if row.label != ABSTAIN]
+    abstain = sorted(row.case_id for row in chosen if row.label == ABSTAIN)
     dev = [row for row in rows if cases[row.case_id].split == "dev"]
     units: dict[str, set[str]] = defaultdict(set)
     totals: dict[str, int] = defaultdict(int)
@@ -193,7 +247,7 @@ def question_report(
     for row in dev:
         units[row.label].add(cases[row.case_id].unit)
         totals[row.label] += 1
-        provenance[row.provenance] += 1
+        provenance["agent" if row.line in sighted else row.provenance] += 1
     need = required_labels({row.label for row in rows})
     reasons = [
         f"label {label} has dev cases from {len(units[label])} units; need {min_units}"
@@ -207,10 +261,14 @@ def question_report(
             for label in sorted(need)
         },
         "provenance": dict(sorted(provenance.items())),
+        "abstain": abstain,
         "passes": not reasons,
         "reasons": reasons,
         "counting": {
-            row.case_id: {"label": row.label, "provenance": row.provenance}
+            row.case_id: {
+                "label": row.label,
+                "provenance": "agent" if row.line in sighted else row.provenance,
+            }
             for row in rows
         },
     }
@@ -220,16 +278,25 @@ def audit(
     cases: dict[str, CaseInfo],
     labels: list[Label],
     min_units: int,
+    *,
     proposals: bool = False,
-    questions: list[str] | None = None,
+    scope: Scope | None = None,
 ) -> Result:
-    bulk = bulk_rows(labels)
-    chosen = counting_labels(labels, bulk, proposals)
+    scope = scope or Scope()
+    versions = scope.versions
+    dropped = stale_rows(labels, versions)
+    dropped.update(
+        (line, reason)
+        for line, reason in bulk_rows(labels).items()
+        if line not in dropped
+    )
+    sighted = sighted_rows(labels, dropped)
+    chosen = counting_labels(labels, dropped, sighted, proposals)
     grouped: dict[str, list[Label]] = defaultdict(list)
     for (question_id, _), row in chosen.items():
         grouped[question_id].append(row)
-    names = questions or sorted({row.question_id for row in labels})
-    reports = [question_report(q, grouped[q], cases, min_units) for q in names]
+    names = list(scope.questions) or sorted({row.question_id for row in labels})
+    reports = [question_report(q, grouped[q], cases, min_units, sighted) for q in names]
     for report in reports:
         if not report["counting"]:
             report["passes"] = False
@@ -238,18 +305,24 @@ def audit(
     return {
         "min_units": min_units,
         "proposals": proposals,
+        "version_keys": dict(sorted(versions.items())),
         "passes": all(r["passes"] for r in reports) and bool(reports),
         "questions": reports,
-        "not_counted": [
-            {
-                "line": line,
-                "case_id": by_line[line].case_id,
-                "question_id": by_line[line].question_id,
-                "reason": reason,
-            }
-            for line, reason in sorted(bulk.items())
-        ],
+        "not_counted": row_list(dropped, by_line),
+        "counted_as_agent": row_list(sighted, by_line),
     }
+
+
+def row_list(reasons: dict[int, str], by_line: dict[int, Label]) -> list[Result]:
+    return [
+        {
+            "line": line,
+            "case_id": by_line[line].case_id,
+            "question_id": by_line[line].question_id,
+            "reason": reason,
+        }
+        for line, reason in sorted(reasons.items())
+    ]
 
 
 def load(cases_path: str, labels_path: str) -> tuple[dict[str, CaseInfo], list[Label]]:
@@ -272,16 +345,23 @@ def print_markdown(result: Result) -> None:
             )
         mix = ", ".join(f"{k} {v}" for k, v in r["provenance"].items()) or "none"
         print(f"- Counting provenance: {mix}")
+        print(f"- Abstain: {len(r['abstain'])} cases")
         for reason in r["reasons"]:
             print(f"- FAIL: {reason}")
         print(f"- Result: {'pass' if r['passes'] else 'fail'}\n")
-    if result["not_counted"]:
-        print("Human rows not counted as human:\n")
+    for key, title in (
+        ("not_counted", "Rows not counted"),
+        ("counted_as_agent", "Rows counted as agent"),
+    ):
+        if not result[key]:
+            continue
+        print(f"{title}:\n")
         print("| line | case_id | question_id | reason |\n| --- | --- | --- | --- |")
-        for row in result["not_counted"]:
+        for row in result[key]:
             print(
                 f"| {row['line']} | {row['case_id']} | {row['question_id']} | {row['reason']} |"
             )
+        print()
 
 
 def main() -> None:
@@ -295,6 +375,13 @@ def main() -> None:
     p.add_argument("--question", action="append", help="check only this question ID")
     p.add_argument("--min-units", type=int, default=2)
     p.add_argument(
+        "--version-key",
+        action="append",
+        default=[],
+        metavar="QUESTION=KEY",
+        help="count only this question's labels made under KEY",
+    )
+    p.add_argument(
         "--proposals",
         action="store_true",
         help="also count agent proposals, to plan labelling; never approves tuning",
@@ -303,11 +390,23 @@ def main() -> None:
     args = p.parse_args()
     if args.min_units < 2:
         p.error("--min-units must be at least 2")
+    versions: dict[str, str] = {}
+    for pair in args.version_key:
+        question_id, sep, key = pair.partition("=")
+        if not sep or not question_id.strip() or not key.strip():
+            p.error(f"--version-key must be QUESTION=KEY, got {pair!r}")
+        versions[question_id.strip()] = key.strip()
     try:
         cases, labels = load(args.cases, args.labels)
     except (OSError, UnicodeDecodeError) as e:
         sys.exit(f"cannot read eval files: {e}")
-    result = audit(cases, labels, args.min_units, args.proposals, args.question)
+    result = audit(
+        cases,
+        labels,
+        args.min_units,
+        proposals=args.proposals,
+        scope=Scope(tuple(args.question or ()), versions),
+    )
     if args.json:
         json.dump(result, sys.stdout, indent=2)
         print()

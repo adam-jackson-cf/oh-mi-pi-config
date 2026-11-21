@@ -36,7 +36,9 @@ or writing code.
   - Uncertainty: [confidence](https://docs.typesafe.ai/confidence.md),
     [confidence routing](https://docs.typesafe.ai/patterns/confidence-routing.md).
   - Weak spots: [models](https://docs.typesafe.ai/models.md), then the pinned version's jaggedness
-    page, such as [Jev 1.13](https://docs.typesafe.ai/model-jaggedness/jev-1.13.md).
+    page, such as [Jev 1.13](https://docs.typesafe.ai/model-jaggedness/jev-1.13.md); with no page
+    for the pinned model, use [model jaggedness](https://docs.typesafe.ai/model-jaggedness.md) and
+    say so in the report.
   - Coding agents: [Jev with coding agents](https://docs.typesafe.ai/introduction/coding-agents.md).
   - Before writing integration code: [HTTP API](https://docs.typesafe.ai/api.md),
     [Python SDK](https://docs.typesafe.ai/sdk/python.md)

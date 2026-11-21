@@ -33,6 +33,9 @@ rubric, and keep out judgments Jev cannot make reliably.
   instructions and criteria carry the complete meaning.
 - Split independently useful dimensions without breaking the relationship judged; a bounded action
   selection or contextual interpretation is one judgment.
+- Give each defect one question in a judgment: check each positive's reason against the other
+  questions' criteria; a reason that meets another question's criterion is question overlap, so
+  narrow one question or move the case before labelling.
 - Prefer binary criteria for eval judgments, and objects or arrays when they clarify criteria.
 - For source-value selection, check candidate coverage; Jev cannot choose an omitted value.
 - Design around the pinned version's jaggedness-page weak spots that apply to the input, such as
@@ -47,15 +50,26 @@ rubric, and keep out judgments Jev cannot make reliably.
   user, asking once without ending the turn; run Q1-Q5 on the question text alone, and mark checks
   you cannot run `not checked`.
   Report each no with its rewrite; write fixes only when asked.
+  Run Q14 and Q15 against the written policy after the Terms step in
+  [framing the decision](framing-the-decision.md).
+- A policy about change over time, history or future use cannot be judged from one snapshot, so Q14
+  is no unless state carries that history.
+- Near-misses for Q15 come as boundary pairs on both `true` and `false`.
+- Unlistable items: when code cannot list Q10's items, ask for the strongest instance and
+  require the judge to cite both items by name from state; otherwise narrow the question to a
+  listable pair.
 - Treat a rewrite that changes the subject path, the state it reads, or what a criterion includes or
   excludes as a new question meaning, even when it aims to keep the meaning: old labels do not carry
   over.
   Relabel a sample blind under the new text, at least 10 cases per label or all if fewer, including
   every case whose label cites the changed part; reuse the old labels only when every sampled label
   matches, else relabel all affected cases.
+  A path change is a new meaning unless the new path holds every item that the old labels' notes
+  cite; check this on at least 3 labelled cases per label.
 - When fixing splits a question, give each part a new question ID and `thresholds.json` entry,
-  combine them with "any" in code, mark the old entry retired, and keep the parts `provisional`;
-  a report lists these as proposals.
+  combine them with "any" in code, mark the old entry retired, and ship each part enforced at the
+  cost-rule default from [threshold tuning](threshold-tuning.md) until it is tuned; a report lists
+  these as proposals.
 
 | ID | Check | Usual fix for a no |
 | --- | --- | --- |
@@ -68,7 +82,9 @@ rubric, and keep out judgments Jev cannot make reliably.
 | Q7 | The subject is a backticked state path | Name a path that keeps Q13 yes |
 | Q8 | It asks what the state shows, not what someone would do, think or file | Ask the observable property |
 | Q9 | No part can be computed by code from the state | Code checks what a pattern detects, such as emails or IDs, with no question, or passes it as a fact |
-| Q10 | It judges one item, not whether any item in a list qualifies; Q11's Noul is exempt | One question per item, "any" in code |
+| Q10 | It judges one item, not whether any item in a list qualifies; Q11's Noul is exempt | One question per item, "any" in code; see unlistable items |
 | Q11 | A Choice is paired with a Noul asking whether any option fits, unless a catch-all option always fits | Add the Noul |
 | Q12 | A person shown only this state and question could answer at a glance | Fix the state, then the wording |
 | Q13 | The subject path holds the item judged and anything it is compared with | Widen the path, or add the compared items as named fields |
+| Q14 | The written policy's condition is observable in the state sent when production asks | Add history to state, change the asking condition, or demote it |
+| Q15 | Every criterion clause traces to a clause of the written policy | Take an unsourced clause, such as a carve-out, to the user as a policy change |

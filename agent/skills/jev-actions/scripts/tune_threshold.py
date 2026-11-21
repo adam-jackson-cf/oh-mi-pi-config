@@ -34,17 +34,35 @@ condition holds and `score` is a raw probability in [0, 1]. Optional columns:
 
 Before any threshold, each group reports its ranking on `dev`: AUC, the chance a
 labeled 1 scores above a labeled 0, with a 95% interval from resampling whole
-units. Ranking fails when the interval includes 0.5 or AUC is below `--min-auc`;
-then no threshold or band is meaningful, whatever the report tunes.
+units, and a ranking status:
 
-Uses only saved scores; makes no model calls. Exits 0 on a report, 1 on invalid
-input or a failed self-test, and 2 on a usage error.
+- `insufficient units`: a label has dev cases from fewer than 2 units.
+- `fails`: the interval includes 0.5, or AUC is below `--min-auc`.
+- `passes`: otherwise.
+
+Each group's `decision` is the `thresholds.json` shape `{"threshold": t}` (yes at
+score >= t, else no) when ranking passes and a threshold meets the minimums, and
+null otherwise, when the cost-rule default applies.
+
+Uses only saved scores; makes no model calls. Prints the full report, then exits:
+
+- 0 when ranking passes in every group;
+- 1 on invalid input or a failed self-test;
+- 2 on a usage error;
+- 3 when ranking fails in any group;
+- 4 when ranking has insufficient units in any group and fails in none.
 
 Example:
     python3 -B scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.8
     python3 -B scripts/tune_threshold.py scores.csv --beta 0.5 --repeats 5 --calibration --errors
     python3 -B scripts/tune_threshold.py --self-test
 """
+
+EXIT_RANK_FAILS = 3
+EXIT_INSUFFICIENT_UNITS = 4
+PASSES = "passes"
+FAILS = "fails"
+INSUFFICIENT = "insufficient units"
 
 Row = tuple[int, float]
 Counts = tuple[int, int, int]
@@ -342,29 +360,50 @@ def discrimination(cases: list[Case], opts: Options) -> Result:
         if value is not None
         else None
     )
-    passes = (
-        value is not None
-        and interval is not None
-        and interval[0] > 0.5
-        and value >= opts.min_auc
-    )
+    if value is None or interval is None:
+        status = INSUFFICIENT
+    elif interval[0] > 0.5 and value >= opts.min_auc:
+        status = PASSES
+    else:
+        status = FAILS
     return {
         "auc": value,
         "interval": list(interval) if interval else None,
         "floor": opts.min_auc,
         "resamples": opts.auc_resamples,
-        "passes": passes,
+        "status": status,
+        "passes": status == PASSES,
     }
 
 
 def rank_warnings(rank: Result) -> list[str]:
-    if rank["passes"]:
-        return []
-    return [
-        "ranking does not beat chance on dev (AUC interval includes 0.5, is "
-        "missing, or AUC is below the floor); do not tune or band, and take the "
-        "question to error analysis as wording, missing state or a policy gap"
-    ]
+    if rank["status"] == INSUFFICIENT:
+        return [
+            "ranking has insufficient units: a label has dev cases from fewer than "
+            "2 units; add units, and use the cost-rule default until ranking passes"
+        ]
+    if rank["status"] == FAILS:
+        return [
+            "ranking fails on dev (AUC interval includes 0.5, or AUC is below the "
+            "floor); do not tune or band, use the cost-rule default, and take the "
+            "question to error analysis as wording, missing state or a policy gap"
+        ]
+    return []
+
+
+def decision(rank: Result, threshold: float | None) -> dict[str, float] | None:
+    if rank["status"] != PASSES or threshold is None:
+        return None
+    return {"threshold": threshold}
+
+
+def exit_code(results: list[Result]) -> int:
+    statuses = {r["discrimination"]["status"] for r in results}
+    if FAILS in statuses:
+        return EXIT_RANK_FAILS
+    if INSUFFICIENT in statuses:
+        return EXIT_INSUFFICIENT_UNITS
+    return 0
 
 
 def brier(scored: list[tuple[int, float]]) -> float:
@@ -561,6 +600,7 @@ def report(
             "model": name,
             "error": "need at least 2 dev units with each label",
             "discrimination": discrimination(dev, opts),
+            "decision": None,
         }
     result: Result = {
         "model": name,
@@ -578,6 +618,7 @@ def report(
     result.update(tune(rows, fold_sets, opts))
     warnings += fold_warnings(result)
     t = result["shipped_threshold"]
+    result["decision"] = decision(result["discrimination"], t)
     if test and t is not None:
         warnings += score_test(result, test, t, opts)
     if t is not None and any(c["stratum"] for c in cases):
@@ -592,7 +633,7 @@ def report(
 
 
 def fmt_rank(rank: Result) -> str:
-    verdict = "passes" if rank["passes"] else "fails"
+    verdict = rank["status"]
     if rank["auc"] is None:
         return f"- Ranking on dev: no AUC without both labels; {verdict}"
     interval = rank["interval"]
@@ -605,6 +646,15 @@ def fmt_rank(rank: Result) -> str:
         f"- Ranking on dev: AUC {rank['auc']:.2f} ({spread}; floor {rank['floor']}): "
         f"{verdict}"
     )
+
+
+def fmt_decision(d: dict[str, float] | None) -> str:
+    if d is None:
+        return (
+            "- Decision: none tuned; set the cost-rule default and record why in "
+            "shortfalls"
+        )
+    return f'- Decision: {{"threshold": {d["threshold"]:.4f}}}'
 
 
 def fmt(m: Metrics | None) -> str:
@@ -626,6 +676,7 @@ def print_summary(r: Result) -> None:
         f"{fmt(r['tuned_heldout'])}"
     )
     print(f"- Shipped threshold: {'none meets minimums' if t is None else f'{t:.4f}'}")
+    print(fmt_decision(r["decision"]))
     if r["fold_thresholds"]:
         ts = r["fold_thresholds"]
         print(f"- Fold thresholds: {min(ts):.4f} to {max(ts):.4f}")
@@ -687,6 +738,7 @@ def print_markdown(results: list[Result], opts: Options) -> None:
         print(f"## {r['model']}\n")
         if "error" in r:
             print(fmt_rank(r["discrimination"]))
+            print(fmt_decision(r["decision"]))
             print(r["error"] + "\n")
             continue
         for w in r["warnings"]:
@@ -765,11 +817,18 @@ def self_test() -> list[str]:
         fails.append(f"model and version grouping: got {names}")
     return (
         fails
+        + decision_failures(r)
         + input_failures()
         + unit_failures(args)
         + comparable_failures()
         + rank_failures(args)
     )
+
+
+def decision_failures(r: Result) -> list[str]:
+    if r["decision"] != {"threshold": 0.25}:
+        return [f"split decision: expected threshold 0.25, got {r['decision']}"]
+    return []
 
 
 def rejected(text: str) -> bool:
@@ -850,14 +909,16 @@ def rank_failures(args: Options) -> list[str]:
     if auc([(1, 0.9), (1, 0.8)]) is not None:
         fails.append("AUC with one label should be None")
     flat = [unit_case(i, i % 2, 0.5, f"u{i}") for i in range(40)]
-    if discrimination(flat, args)["passes"]:
-        fails.append("tied scores passed the ranking check")
+    if discrimination(flat, args)["status"] != FAILS:
+        fails.append("tied scores did not fail the ranking check")
     ranked = [unit_case(i, i % 2, 0.2 + 0.6 * (i % 2), f"u{i}") for i in range(40)]
     if not discrimination(ranked, args)["passes"]:
         fails.append("perfect ranking failed the ranking check")
     lumped = [unit_case(i, i % 2, 0.2 + 0.6 * (i % 2), f"l{i % 2}") for i in range(40)]
     if auc_interval(lumped, 100, 0) is not None:
         fails.append("one unit per label gave an AUC interval")
+    if discrimination(lumped, args)["status"] != INSUFFICIENT:
+        fails.append("one unit per label was not reported as insufficient units")
     return fails
 
 
@@ -944,6 +1005,9 @@ def main() -> None:
         print()
     else:
         print_markdown(results, opts)
+    code = exit_code(results)
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":

@@ -26,17 +26,18 @@ def case(case_id: str, unit: str, split: str = "dev") -> dict[str, Any]:
     return {"case_id": case_id, "unit": unit, "split": split, "state": {}}
 
 
-def human(case_id: str, label: int, when: str, **extra: Any) -> dict[str, Any]:
+def arbiter(case_id: str, label: int | str, when: str, **extra: Any) -> dict[str, Any]:
     return {
         "case_id": case_id,
         "question_id": QUESTION,
         "label": label,
-        "by": "owner",
-        "provenance": "human",
+        "by": "main-agent",
+        "provenance": "arbiter",
         "rule": "r1",
         "note": "",
         "timestamp": when,
         "confirmed": "individual",
+        "blind": True,
         **extra,
     }
 
@@ -79,7 +80,7 @@ def spread_cases() -> list[dict[str, Any]]:
 
 
 def spread_labels() -> list[dict[str, Any]]:
-    return [human(f"c{i}", i % 2, f"2026-11-21T10:{i:02d}:00Z") for i in range(8)]
+    return [arbiter(f"c{i}", i % 2, f"2026-11-21T10:{i:02d}:00Z") for i in range(8)]
 
 
 def test_individually_confirmed_labels_over_enough_units_pass(
@@ -97,39 +98,41 @@ def test_individually_confirmed_labels_over_enough_units_pass(
         "0": {"dev_cases": 4, "dev_units": 2},
         "1": {"dev_cases": 4, "dev_units": 2},
     }
-    assert report["provenance"] == {"human": 8}
+    assert report["provenance"] == {"arbiter": 8}
+    assert report["abstain"] == []
     assert result["not_counted"] == []
+    assert result["counted_as_agent"] == []
     code, out, _ = run_main(monkeypatch, capsys, *files)
     assert "- Label 1: 4 dev cases from 2 units" in out
     assert "- Result: pass" in out
 
 
-def test_bulk_confirmations_do_not_count_as_human(
+def test_bulk_confirmations_do_not_count_as_arbiter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     labels = [
-        human("c0", 1, "2026-11-21T10:00:00Z"),
-        human("c1", 0, "2026-11-21T10:00:00Z"),
-        human("c2", 1, "2026-11-21T10:05:00Z", confirmed="bulk"),
-        human("c3", 0, "2026-11-21T10:06:00Z", by=""),
-        human("c4", 1, ""),
-        human("c5", 0, "2026-11-21T10:07:00Z"),
+        arbiter("c0", 1, "2026-11-21T10:00:00Z"),
+        arbiter("c1", 0, "2026-11-21T10:00:00Z"),
+        arbiter("c2", 1, "2026-11-21T10:05:00Z", confirmed="bulk"),
+        arbiter("c3", 0, "2026-11-21T10:06:00Z", by=""),
+        arbiter("c4", 1, ""),
+        arbiter("c5", 0, "2026-11-21T10:07:00Z"),
     ]
     files = eval_files(tmp_path, spread_cases(), labels)
     code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
     assert code == 1
     result = json.loads(out)
     assert [(row["case_id"], row["reason"]) for row in result["not_counted"]] == [
-        ("c0", "reviewer and timestamp shared with 1 other cases"),
-        ("c1", "reviewer and timestamp shared with 1 other cases"),
+        ("c0", "arbiter and timestamp shared with 1 other cases"),
+        ("c1", "arbiter and timestamp shared with 1 other cases"),
         ("c2", "confirmed is not individual"),
-        ("c3", "no reviewer in by"),
+        ("c3", "no arbiter in by"),
         ("c4", "no timestamp"),
     ]
     [report] = result["questions"]
-    assert report["counting"] == {"c5": {"label": "0", "provenance": "human"}}
+    assert report["counting"] == {"c5": {"label": "0", "provenance": "arbiter"}}
     assert report["reasons"] == [
         "label 0 has dev cases from 1 units; need 2",
         "label 1 has dev cases from 0 units; need 2",
@@ -139,22 +142,28 @@ def test_bulk_confirmations_do_not_count_as_human(
     assert "- FAIL: label 1 has dev cases from 0 units; need 2" in out
 
 
-def test_a_bulk_human_row_falls_back_to_the_next_counting_label() -> None:
+def test_a_bulk_arbiter_row_falls_back_to_the_next_counting_label() -> None:
     cases = {"c0": check.CaseInfo("u0", "dev")}
-    reviewed = check.Label(0, "c0", QUESTION, "1", "", "agent_reviewed", "t0", "")
-    bulk = check.Label(1, "c0", QUESTION, "0", "owner", "human", "t1", "bulk")
+    reviewed = check.Label(0, "c0", QUESTION, "1", "", "agent_reviewed", "t0", "", True)
+    bulk = check.Label(
+        1, "c0", QUESTION, "0", "main-agent", "arbiter", "t1", "bulk", True
+    )
     result = check.audit(cases, [reviewed, bulk], 2)
     [report] = result["questions"]
     assert report["counting"] == {"c0": {"label": "1", "provenance": "agent_reviewed"}}
 
 
-def test_a_later_individual_confirmation_replaces_an_earlier_one() -> None:
+def test_a_later_individual_decision_replaces_an_earlier_one() -> None:
     cases = {"c0": check.CaseInfo("u0", "dev")}
-    first = check.Label(0, "c0", QUESTION, "1", "owner", "human", "t0", "individual")
-    second = check.Label(1, "c0", QUESTION, "0", "owner", "human", "t1", "individual")
+    first = check.Label(
+        0, "c0", QUESTION, "1", "main-agent", "arbiter", "t0", "individual", True
+    )
+    second = check.Label(
+        1, "c0", QUESTION, "0", "main-agent", "arbiter", "t1", "individual", True
+    )
     agent = check.Label(2, "c0", QUESTION, "1", "", "agent", "t2", "")
     [report] = check.audit(cases, [first, second, agent], 2)["questions"]
-    assert report["counting"] == {"c0": {"label": "0", "provenance": "human"}}
+    assert report["counting"] == {"c0": {"label": "0", "provenance": "arbiter"}}
 
 
 def test_labels_from_one_unit_fail_coverage_whatever_their_count(
@@ -165,12 +174,12 @@ def test_labels_from_one_unit_fail_coverage_whatever_their_count(
     cases = [case(f"c{i}", "repo0") for i in range(60)]
     cases += [case("t0", "repo9", "test"), case("t1", "repo8", "test")]
     labels = [
-        human(f"c{i}", i % 2, f"2026-11-21T{i // 60:02d}:{i % 60:02d}:00Z")
+        arbiter(f"c{i}", i % 2, f"2026-11-21T{i // 60:02d}:{i % 60:02d}:00Z")
         for i in range(60)
     ]
     labels += [
-        human("t0", 1, "2026-11-22T00:00:00Z"),
-        human("t1", 0, "2026-11-22T00:01:00Z"),
+        arbiter("t0", 1, "2026-11-22T00:00:00Z"),
+        arbiter("t1", 0, "2026-11-22T00:01:00Z"),
     ]
     files = eval_files(tmp_path, cases, labels)
     code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
@@ -188,7 +197,7 @@ def test_proposals_count_agent_labels_for_planning_only(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     labels = [
-        {**human(f"c{i}", i % 2, ""), "provenance": "agent", "by": "session-a"}
+        {**arbiter(f"c{i}", i % 2, ""), "provenance": "agent", "by": "session-a"}
         for i in range(8)
     ]
     files = eval_files(tmp_path, spread_cases(), labels)
@@ -209,10 +218,11 @@ def test_choice_labels_need_units_for_each_option_seen() -> None:
             f"c{i}",
             "route",
             "refund" if i < 5 else "escalate",
-            "owner",
-            "human",
+            "main-agent",
+            "arbiter",
             f"t{i}",
             "individual",
+            True,
         )
         for i in range(6)
     ]
@@ -263,7 +273,7 @@ def test_a_named_question_without_labels_fails(
         ("[1]\n", "", "cases.jsonl line 1: expected a JSON object"),
         (
             '{"case_id": "c0", "unit": "u0", "split": "dev"}\n',
-            '{"case_id": "c9", "question_id": "q", "label": 1, "provenance": "human"}\n',
+            '{"case_id": "c9", "question_id": "q", "label": 1, "provenance": "arbiter"}\n',
             "labels.jsonl line 1: case_id 'c9' is not in cases.jsonl",
         ),
         (
@@ -273,8 +283,13 @@ def test_a_named_question_without_labels_fails(
         ),
         (
             '{"case_id": "c0", "unit": "u0", "split": "dev"}\n',
-            '{"case_id": "c0", "question_id": "q", "label": true, "provenance": "human"}\n',
-            "labels.jsonl line 1: label must be 1, 0 or an option key",
+            '{"case_id": "c0", "question_id": "q", "label": 1, "provenance": "human"}\n',
+            "labels.jsonl line 1: unknown provenance 'human'",
+        ),
+        (
+            '{"case_id": "c0", "unit": "u0", "split": "dev"}\n',
+            '{"case_id": "c0", "question_id": "q", "label": true, "provenance": "arbiter"}\n',
+            "labels.jsonl line 1: label must be 1, 0, abstain or an option key",
         ),
     ],
 )
@@ -298,9 +313,99 @@ def test_usage_and_read_errors(
     code, _, err = run_main(monkeypatch, capsys, *files, "--min-units", "1")
     assert code == 2
     assert "--min-units must be at least 2" in err
+    code, _, err = run_main(monkeypatch, capsys, *files, "--version-key", "no-key")
+    assert code == 2
+    assert "--version-key must be QUESTION=KEY, got 'no-key'" in err
     missing = tmp_path / "absent.jsonl"
     code, _, err = run_main(
         monkeypatch, capsys, "--cases", str(missing), "--labels", str(missing)
     )
     assert code == 1
     assert "cannot read eval files" in err
+
+
+def test_rows_that_saw_a_score_or_label_count_only_as_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    labels = spread_labels()
+    labels[0] = {**labels[0], "blind": False}
+    labels[1] = {**labels[1], "provenance": "agent_reviewed", "blind": False}
+    files = eval_files(tmp_path, spread_cases(), labels)
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
+    result = json.loads(out)
+    assert [(r["case_id"], r["reason"]) for r in result["counted_as_agent"]] == [
+        ("c0", "arbiter row is not blind"),
+        ("c1", "agent_reviewed row is not blind"),
+    ]
+    [report] = result["questions"]
+    assert set(report["counting"]) == {f"c{i}" for i in range(2, 8)}
+    assert report["provenance"] == {"arbiter": 6}
+    assert code == 0
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--proposals", "--json")
+    [report] = json.loads(out)["questions"]
+    assert report["counting"]["c0"] == {"label": "0", "provenance": "agent"}
+    assert report["provenance"] == {"agent": 2, "arbiter": 6}
+    code, out, _ = run_main(monkeypatch, capsys, *files)
+    assert "Rows counted as agent:" in out
+    assert "| 1 | c0 | folder-name-fits | arbiter row is not blind |" in out
+
+
+def test_an_abstain_gives_its_case_no_label_and_is_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    labels = spread_labels()
+    labels.append({
+        **labels[7],
+        "provenance": "agent_reviewed",
+        "timestamp": "2026-11-21T09:00:00Z",
+    })
+    labels.append(
+        arbiter("c7", "abstain", "2026-11-21T11:00:00Z", note="policy silent")
+    )
+    files = eval_files(tmp_path, spread_cases(), labels)
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
+    assert code == 0
+    [report] = json.loads(out)["questions"]
+    assert report["abstain"] == ["c7"]
+    assert "c7" not in report["counting"]
+    assert report["labels"] == {
+        "0": {"dev_cases": 4, "dev_units": 2},
+        "1": {"dev_cases": 3, "dev_units": 2},
+    }
+    code, out, _ = run_main(monkeypatch, capsys, *files)
+    assert "- Abstain: 1 cases" in out
+
+
+def test_after_a_meaning_change_only_labels_under_the_new_key_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    old = [{**row, "question_version": "v1"} for row in spread_labels()]
+    new = [
+        arbiter(f"c{i}", i % 2, f"2026-11-22T10:{i:02d}:00Z", question_version="v2")
+        for i in range(2)
+    ]
+    unkeyed = arbiter("c4", 0, "2026-11-22T11:00:00Z")
+    files = eval_files(tmp_path, spread_cases(), [*old, *new, unkeyed])
+    code, out, _ = run_main(monkeypatch, capsys, *files, "--json")
+    assert code == 0
+    code, out, _ = run_main(
+        monkeypatch, capsys, *files, "--version-key", f"{QUESTION}=v2", "--json"
+    )
+    assert code == 1
+    result = json.loads(out)
+    assert result["version_keys"] == {QUESTION: "v2"}
+    [report] = result["questions"]
+    assert set(report["counting"]) == {"c0", "c1"}
+    reasons = {(r["case_id"], r["reason"]) for r in result["not_counted"]}
+    assert ("c5", "made under v1, not the current v2") in reasons
+    assert ("c4", "made under no version key, not the current v2") in reasons
+    assert report["reasons"] == [
+        "label 0 has dev cases from 1 units; need 2",
+        "label 1 has dev cases from 1 units; need 2",
+    ]

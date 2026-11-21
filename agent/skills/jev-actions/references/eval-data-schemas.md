@@ -19,19 +19,24 @@ Store eval files where they belong, in shapes every later step and the tuning sc
   discovery and labeling wait on a capture path, and end the task.
 - Redact secrets before writing any file.
 - `thresholds.json` at the directory root, one entry per question ID, per draft ID from framing,
-  or `unknown`: the framing answers, threshold, metric, label set summary, version key, score
-  space (`raw`, or `platt` with its `a` and `b`), status (`provisional` or `ready`), the cost rule
-  behind a provisional threshold, assumptions with reasons, and `shortfalls`, each missing input
-  with what it blocks.
-  With an escalation band, also its cut-offs, fallback judge, cascade accuracy and escalation rate
-  on dev and test, and the agreed accuracy loss.
+  or `unknown`: the framing answers, `decision`, metric, label set summary, version key,
+  `unit_rule`, score space (`raw`, or `platt` with its `a` and `b`), the cost rule behind a
+  default threshold, assumptions with reasons, and `shortfalls`, each missing input, failed gate or
+  thin or assumed evidence with what it blocks.
+  - `decision` is `{"threshold": t}`, yes at score >= t, else no; only with a fallback judge may it
+    be a band `{"no_at_most", "yes_at_least", "fallback"}`.
+  - With an escalation band, also record its fallback judge, cascade accuracy and escalation rate on
+    dev and test, and the agreed accuracy loss.
 - `cases.jsonl`: `case_id, unit, state, stratum, split, source, builder`,
   with `source` one of `replay`, `outcome`, `synthetic` or `adversarial`, and `builder` the
   version of the production state builder that made `state`.
 - `labels.jsonl`, appended per label event:
-  `case_id, question_id, label, by, provenance, rule, note, timestamp, confirmed`, with `label` 1 or
-  0, or for a Choice the correct option key, `note` holding any adjudication reason, and `confirmed`
-  on `human` rows `individual` when the person decided this case shown alone, else `bulk`.
+  `case_id, question_id, question_version, label, by, provenance, rule, note, timestamp, confirmed,
+  blind`, with `label` 1 or 0, for a Choice the correct option key, or `abstain` with the reason in
+  `note`, which counts as no label and is reported per question.
+  `note` holds any arbitration reason, `question_version` the version key the label was made
+  under, `confirmed` on `arbiter` rows `individual` when the arbiter decided this case alone, else
+  `bulk`, and `blind` true when the labeller saw no score and no earlier label for the case.
 - `questions/<question-id>@<version-key>.json`: each question version exactly as sent, beside its
   label guide `<question-id>@<version-key>.md`.
 - `scores.csv`, one row per case and question version:

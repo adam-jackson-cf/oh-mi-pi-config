@@ -22,4 +22,7 @@ cascade meets the minimums.
   Jev, or a person.
 - In production, send in-band cases to the fallback, log each decision's state, score, model and
   version key, and add reviewed cases and a labeled random sample of confident decisions to `dev`.
-- Store the band in `thresholds.json` as [eval data schemas](eval-data-schemas.md) describes.
+- A band whose escalate outcome reaches no fallback judge is no band: remove it, keep the single
+  cutoff, and report no escalation rate.
+- Store the band in `thresholds.json` as the `decision` `{"no_at_most", "yes_at_least", "fallback"}`,
+  as [eval data schemas](eval-data-schemas.md) describes.
