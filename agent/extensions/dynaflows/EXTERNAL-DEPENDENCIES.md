@@ -10,9 +10,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Extension load | `agent/config.yml` | Absolute path: omp loads `~/.omp`, never a worktree |
 | Entry file | `agent/extensions/dynaflows/package.json` | `omp.extensions` picks `index.ts` |
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
-| Judge role | `agent/config.yml` | Model behind `judge()`; thresholds calibrated to it |
-| Judge fallback | `agent/config.yml` | `retry.fallbackChains.judge` model when the judge fails |
-| omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.0: `z`, events, `exec` |
+| Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
+| omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `read`, `xd://`, `skill://` shapes |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
@@ -24,6 +23,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
 | `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
+| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the judgment call log |
+| `TYPESAFE_API_KEY` | omp runtime | Key omp's typesafe provider sends |
+| `TYPESAFE_BASE_URL` | omp runtime | Jev Inspector route; gate judgments refuse it |
 
 ## Repo config and build
 
@@ -48,7 +50,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | CI runner | `scripts/ci_runner.py` | Merge block names its `submit`/`wait` command |
 | NUC CI gate | `scripts/ci_gate.py` | `ci-gate` role; imports `lib/repo_record.py` |
 | Gate allowlist | `scripts/ci-gate-repos.json` | Repos `ci_gate.py` accepts |
-| Device rollout | `scripts/device_rollout.py` | Writes `ci-runners.json`; copies records |
+| Device rollout | `scripts/device_rollout.py` | `ci-runners.json`, records, omp pin check |
 | Device registry | `scripts/device-rollout-hosts.json` | Hosts, runner roles, judge key |
 | Quality gates | `scripts/run-ci-quality-gates.sh` | Lint, type, test, coverage gates |
 | Test tiers | `scripts/run-test-tier.sh` | Loads engine bun preload, pytest plugin |
@@ -97,6 +99,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
 | Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
+| Judgments ADR | `docs/adr/0017-*.md` | Registry, direct judge, Inspector route |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records
@@ -109,7 +112,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
 | Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
-| Secrets | Infisical | Judge key; gate status token |
+| Secrets | Infisical | `TYPESAFE_API_KEY` judge key; gate status token |
+| Judgment calls | `~/.omp/agent/dynaflows/judgment-calls.jsonl` | `decide()` log; rails read it |
 | NUC | `codex-omarchy-nuc` | `nuc-config` deploy runs `ci_gate.py` |
 
 ## Devices and GitHub
@@ -121,6 +125,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Branch rules | GitHub | `guardrails init` fills `gate.json` |
 | Actions runner | GitHub | `github-actions` role runs `checks.ci` |
 | Advisories | OSV, GHSA | Dependency triage records |
+| TypeSafe API | Network | Answers `judge()` for the typesafe provider |
 
 ## External tools
 
@@ -128,8 +133,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | --- | --- | --- |
 | `git` | PATH | Origin, aliases, status, common dir |
 | `gh` | PATH | PR head, CI rollup, comments, rules |
+| jev-bridge | Loopback port 8787 | Opt-in relay behind `inspector.env`; never for gates |
 | `uv` 0.13.7 | PATH | Runs `guardrails check` and `path-check` |
-| `omp` | PATH | `omp config get worktree.base` |
+| `omp` | PATH | 19.0.1; `config get worktree.base`, `config get modelRoles` |
 | `env` | PATH | Runs repo commands without `AGENT` |
 | `python3` | PATH | Runs `ci_runner.py` |
 | Repo commands | Record | `checks.commit` before commits |

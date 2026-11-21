@@ -1,98 +1,289 @@
 {
-  "version_key": "6473f90e5318a0df6458258029b5eb5bc6782d7aa8f355093197f81008cd388b",
-  "model": "typesafe/jev-1.14",
-  "model_reported": "typesafe/jev-1.14-20261014",
+  "judgment": "dependency-severity",
+  "model": "typesafe/jev-1.14.0",
+  "version_key": "0298371f03e95e383953c0ae2464e4b1f887036873358abe3e5023e57c765ea2",
   "score_space": "raw",
-  "score_provenance": {
-    "decision": "Reuse the saved raw probabilities and provisional thresholds: only the API primitive spelling changes, not the question meanings, state, model, probability orientation or rubric. No new inference or tuning was performed.",
-    "source_commit": "d93920b48cd9c85eb663db4cd4f708ba1a433186",
-    "source_version_key": "258dd4c32c3c0dca576fa8396e08e09353e4255300277bb43f04b69de4eb4f94",
-    "scores_sha256": "599e6ba23d254a44a6061da3b61fbe4d73880d6667e621168f0fdb5290056fe2",
-    "scores_question_version": "<question>@258dd4c32c3c (retained as the original scoring identity, not relabelled as new inference)",
-    "equivalence": "The four yes/no questions changed type from TypeSafe's noul to OMP judge()'s bool. Both return raw P(yes) in [0, 1], not a boolean decision or confidence. All other question fields, state shape and the pinned model are byte-for-byte unchanged after reversing that spelling change.",
-    "contracts": [
-      "https://docs.typesafe.ai/primitives/noul.md: type noul, answer noul = P(yes)",
-      "xd://eval/judge: type bool, answer {bool: P(yes)}"
-    ],
-    "limitations": "Existing provisional status, unmet tuning minimums and prohibition on displaying probabilities as confidence are unchanged."
-  },
   "status": "provisional",
-  "decisions": {
-    "impact": {
-      "round_up_floor": 0.3,
-      "status": "provisional",
-      "rule": "the most severe impact class with probability >= floor; 0.3 because a miss (understated severity) costs more than a false action (an extra owner report)"
-    },
-    "local_only": {
-      "threshold": 0.7,
-      "status": "provisional",
-      "rule": "lowers the level only at >= 0.7: wrongly lowering costs more than escalating"
-    },
-    "needs_privileges": {
-      "threshold": 0.7,
-      "status": "provisional",
-      "rule": "as local_only"
-    },
-    "needs_interaction": {
-      "threshold": 0.7,
-      "status": "provisional",
-      "rule": "as local_only"
-    },
-    "reached": {
-      "unreached_at_most": 0.3,
-      "status": "provisional",
-      "rule": "treated as unreached only at P(reached) <= 0.3 (P(unreached) >= 0.7)"
-    }
+  "model_reported": "typesafe/jev-1.14.0",
+  "scoring": {
+    "date": "2026-11-21",
+    "route": "omp 19.0.1 eval judge_batch; omp --config overlay modelRoles.judge typesafe/jev-1.14.0 (direct TypeSafe, TYPESAFE_API_KEY from Infisical)",
+    "errors": 0,
+    "cases": 56
   },
+  "scores_sha256": "e7c1d0034fa88a3fe440fe9b0bc5bd321feba3b25b697482023c89a2339560f1",
   "minimums": {
     "precision": 0.8,
     "recall": 0.9,
     "assumed": true,
-    "reason": "assumed per jev-actions: the owner gave none; recall raised to 0.9 because a missed high/critical costs more than an extra owner report"
+    "reason": "stored minimums; a missed high/critical costs more than an extra owner report"
   },
   "label_set": {
     "cases": 56,
     "dev": 44,
     "test": 12,
-    "provenance": "human: the owner reviewed all 56 cases one at a time on the label review page (https://claude.ai/artifact/WjwY8EcMvfAB34bMnCcuxs) and confirmed every agent_reviewed proposal unchanged (280 labels, none marked unsure). The proposals came from two blind sessions (opus, sonnet) that agreed on 280 of 280 labels from the frozen guide; both reasons are kept per label; 3 impact rule citations were corrected by adjudication (C40, C49, C54)",
     "synthetic": 2,
-    "split": "dev: C01-C44 (30 original replay cases plus 14 real advisories chosen to fill scarce labels); test: C45-C56, a natural sample of real advisories published 2026-10-28 or later (first per upstream repository, pip and npm alternating)",
-    "strata": {
-      "dev/critical": 1,
-      "dev/low": 5,
-      "dev/medium": 4,
-      "dev/new": 6,
-      "runtime/critical": 5,
-      "runtime/high": 5,
-      "runtime/low": 1,
-      "runtime/medium": 9,
-      "runtime/new": 20
-    },
-    "positives": {
-      "local_only": {
-        "dev": 5,
-        "test": 2
-      },
-      "needs_privileges": {
-        "dev": 7,
-        "test": 3
-      },
-      "needs_interaction": {
-        "dev": 8,
-        "test": 2
-      },
-      "reached": {
-        "dev": 25,
-        "test": 5
-      }
+    "split": "dev C01-C44, test C45-C56 (unchanged); unit = advisory id",
+    "counting": "owner-confirmed human labels (2026-11-16)",
+    "council": {
+      "labels": 280,
+      "agree_with_owner": 278,
+      "disagree_with_owner": [
+        {
+          "case_id": "C25",
+          "question": "local_only",
+          "council": 0,
+          "human": 1,
+          "final": 1
+        },
+        {
+          "case_id": "C52",
+          "question": "reached",
+          "council": 0,
+          "human": 1,
+          "final": 1
+        }
+      ],
+      "council_split": 7,
+      "unsure": 0,
+      "arbiter_overrode_council": 2
     }
   },
-  "results": {
-    "current": "rubric severity matched the labels on 36/44 dev and 9/12 test; understated 1 dev (C34: reached scored 0.11 on an `open-webui serve` hit, so high became medium and the halt was missed) and 1 test (C45: impact read as data_exposure, medium became low, no halt change); overstated 7 dev, 2 test; halt decision (owner vs in-flow fix) matched 39/44 dev and 11/12 test",
-    "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.9: no threshold met the minimums for local_only (5 dev positives) or needs_interaction (8); needs_privileges tuned 0.58 (test P 0.75 R 1.00) and reached 0.325 (test P 0.71 R 1.00), both below the precision minimum on test; with --repeats 5 --conservative no question qualifies. The shipped values below are unchanged and stay provisional",
-    "cost_per_100_cases_usd": 0.0058,
-    "malicious_rule": "C30 (eslint-scope 3.7.2, alias MAL-GHSA-hxxf-q3w9-4xgw) never reaches the judgment: workflows.malicious_package routes it as critical to the owner",
-    "history": "v2 (version 81dff5cf, 30 cases): 27/30 severity match; superseded by the reached rewording (R6) and the guide's new rules U4, I3, P3 and named defaults"
-  },
-  "todo": "provisional: grow to about 30 positives per label for local_only, needs_privileges and needs_interaction (currently 5-8 dev positives each), re-tune and recheck calibration; probabilities are not fit to show as confidence"
+  "retune_report": "retune-2026-11-21.md",
+  "shortfalls": [
+    "fewer than 30 dev labels of each value for every bool question: thresholds stay provisional cost-rule values, untuned",
+    "no yes/no band met the minimums with --conservative --repeats 5: escalate band is the provisional 0.3/0.7, not a measured cascade",
+    "no fallback judge is measured; escalate means the conservative rubric branch",
+    "probabilities are raw, not calibrated confidence"
+  ],
+  "decisions": {
+    "impact": {
+      "version_key": "18d911c70d78a5416bc2aa286bf8ce1272191f73e0147ee4e016e834d823f330",
+      "status": "provisional",
+      "round_up_floor": 0.3,
+      "rule": "the most severe class with probability >= round_up_floor; 0.3 because understated severity costs more than an extra owner report",
+      "measured": {
+        "cases": 56,
+        "top_choice_correct": 49,
+        "label_at_or_above_floor": 51,
+        "errors": [
+          ["C08", "data_exposure", "unclear", 0.37],
+          ["C30", "rce", "data_exposure", 0.06],
+          ["C32", "auth_bypass", "integrity_loss", 0.19],
+          ["C36", "integrity_loss", "auth_bypass", 0.02],
+          ["C45", "auth_bypass", "data_exposure", 0.18],
+          ["C49", "integrity_loss", "unclear", 0.23],
+          ["C54", "integrity_loss", "auth_bypass", 0.35]
+        ]
+      }
+    },
+    "local_only": {
+      "version_key": "ccc08c6ed647275fac880423150f47ac252caf6652114da6f8da72ee8f8dc37e",
+      "status": "provisional",
+      "no_at_most": 0.3,
+      "yes_at_least": 0.7,
+      "cost_rule": "A wrong yes lowers severity (understated, missed owner halt); lowers only at yes >= 0.7, escalate never lowers",
+      "measured": {
+        "dev": {
+          "cases": 44,
+          "yes": 5,
+          "no": 39
+        },
+        "test": {
+          "cases": 12,
+          "yes": 2,
+          "no": 10
+        },
+        "conservative": {
+          "yes_threshold": null,
+          "no_threshold": 0.27,
+          "error": null
+        },
+        "point_band": {
+          "no_at_most": 0.27,
+          "yes_at_least": null
+        },
+        "at_shipped_band": {
+          "dev": {
+            "cases": 44,
+            "positives": 5,
+            "escalated": 1,
+            "escalation_rate": 0.023,
+            "decided_accuracy": 0.977,
+            "yes": 3,
+            "yes_correct": 3,
+            "no": 40,
+            "no_correct": 39
+          },
+          "test": {
+            "cases": 12,
+            "positives": 2,
+            "escalated": 0,
+            "escalation_rate": 0.0,
+            "decided_accuracy": 0.917,
+            "yes": 1,
+            "yes_correct": 1,
+            "no": 11,
+            "no_correct": 10
+          }
+        }
+      }
+    },
+    "needs_privileges": {
+      "version_key": "5226447ff80b26535c59ada21ecc386e252eb5f734335badc2d831699f24b634",
+      "status": "provisional",
+      "no_at_most": 0.3,
+      "yes_at_least": 0.7,
+      "cost_rule": "as local_only",
+      "measured": {
+        "dev": {
+          "cases": 44,
+          "yes": 7,
+          "no": 37
+        },
+        "test": {
+          "cases": 12,
+          "yes": 3,
+          "no": 9
+        },
+        "conservative": {
+          "yes_threshold": null,
+          "no_threshold": 0.67,
+          "error": null
+        },
+        "point_band": {
+          "no_at_most": 0.67,
+          "yes_at_least": 0.255
+        },
+        "at_shipped_band": {
+          "dev": {
+            "cases": 44,
+            "positives": 7,
+            "escalated": 2,
+            "escalation_rate": 0.045,
+            "decided_accuracy": 1.0,
+            "yes": 6,
+            "yes_correct": 6,
+            "no": 36,
+            "no_correct": 36
+          },
+          "test": {
+            "cases": 12,
+            "positives": 3,
+            "escalated": 2,
+            "escalation_rate": 0.167,
+            "decided_accuracy": 1.0,
+            "yes": 3,
+            "yes_correct": 3,
+            "no": 7,
+            "no_correct": 7
+          }
+        }
+      }
+    },
+    "needs_interaction": {
+      "version_key": "1f501ca5feb73f6fab0f0fc73e23e0fe6cc9b105435ee1ce20a3846c914e7bf1",
+      "status": "provisional",
+      "no_at_most": 0.3,
+      "yes_at_least": 0.7,
+      "cost_rule": "as local_only",
+      "measured": {
+        "dev": {
+          "cases": 44,
+          "yes": 8,
+          "no": 36
+        },
+        "test": {
+          "cases": 12,
+          "yes": 2,
+          "no": 10
+        },
+        "conservative": {
+          "yes_threshold": null,
+          "no_threshold": 0.855,
+          "error": null
+        },
+        "point_band": {
+          "no_at_most": 0.855,
+          "yes_at_least": null
+        },
+        "at_shipped_band": {
+          "dev": {
+            "cases": 44,
+            "positives": 8,
+            "escalated": 4,
+            "escalation_rate": 0.091,
+            "decided_accuracy": 0.95,
+            "yes": 9,
+            "yes_correct": 7,
+            "no": 31,
+            "no_correct": 31
+          },
+          "test": {
+            "cases": 12,
+            "positives": 2,
+            "escalated": 1,
+            "escalation_rate": 0.083,
+            "decided_accuracy": 1.0,
+            "yes": 2,
+            "yes_correct": 2,
+            "no": 9,
+            "no_correct": 9
+          }
+        }
+      }
+    },
+    "reached": {
+      "version_key": "b7058ae0f9e92688731557942ed5ec14011f4d9885d8f1caf93205876d65560f",
+      "status": "provisional",
+      "no_at_most": 0.3,
+      "yes_at_least": 0.7,
+      "cost_rule": "A wrong no lowers severity; treated as unreached only at no <= 0.3, escalate counts as reached",
+      "measured": {
+        "dev": {
+          "cases": 44,
+          "yes": 25,
+          "no": 19
+        },
+        "test": {
+          "cases": 12,
+          "yes": 5,
+          "no": 7
+        },
+        "conservative": {
+          "yes_threshold": null,
+          "no_threshold": null,
+          "error": null
+        },
+        "point_band": {
+          "no_at_most": 0.7,
+          "yes_at_least": 0.12000000000000001
+        },
+        "at_shipped_band": {
+          "dev": {
+            "cases": 44,
+            "positives": 25,
+            "escalated": 4,
+            "escalation_rate": 0.091,
+            "decided_accuracy": 0.925,
+            "yes": 21,
+            "yes_correct": 21,
+            "no": 19,
+            "no_correct": 16
+          },
+          "test": {
+            "cases": 12,
+            "positives": 5,
+            "escalated": 0,
+            "escalation_rate": 0.0,
+            "decided_accuracy": 0.833,
+            "yes": 5,
+            "yes_correct": 4,
+            "no": 7,
+            "no_correct": 6
+          }
+        }
+      }
+    }
+  }
 }
