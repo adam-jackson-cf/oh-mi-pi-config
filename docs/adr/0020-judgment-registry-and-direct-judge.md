@@ -1,4 +1,4 @@
-# 0018: One judgment registry on the direct TypeSafe judge
+# 0020: One judgment registry on the direct TypeSafe judge
 
 Status: accepted, 2026-11-21 (owner).
 

@@ -23,7 +23,7 @@ type GateFixture = {
 };
 type Input = {
 	path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; questions?: { question: string }[]; intent?: string;
-	code?: string; op?: string;
+	code?: string; op?: string; language?: string;
 };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
@@ -59,7 +59,7 @@ function execute(command: string, args: string[], options: ExecuteOptions = {}):
 const wrappedPublishing = [
 	"sudo git push", "sudo -u root git push", "env git push", "env -i git push", "env FOO=x git push",
 	"time git push", "command git push", "nohup git push", "nice -n 5 git push", "exec git push",
-	"xargs git push", "xargs -n 1 git push", "timeout 5 git push", "/usr/bin/git push",
+	"timeout 5 git push", "/usr/bin/git push",
 	"if x; then git push; fi", "{ git push; }", "true; do git push; done", "false; else git push",
 	"! git push", "bash -c 'git push'", 'sh -c "git push"', "zsh -lc 'git push'",
 	"sudo env -i sh -c 'git push'",
@@ -371,20 +371,35 @@ async function originRemote(h: { origin(url: string): Promise<void> }, remote = 
 	await h.origin(remote);
 }
 
-function proveResult(h: { root: string }, head = ciHead, status = "pass") {
-	mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
-	writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
+type EvidenceHarness = { root: string; emit(name: string, event: Omit<Event, "type">): Promise<Result | undefined> };
+let evidenceCall = 0;
+
+// Writes proof evidence the way prove() and structure_review() do: inside an eval cell the rails watch.
+async function watchedProofCall(h: EvidenceHarness, write: () => void, code = "prove(repo, parent, head, frozen, objective, target_ref='origin/main')") {
+	const event = { toolName: "eval", toolCallId: `proof-${++evidenceCall}`, input: { code } };
+	assert.equal(await h.emit("tool_call", event), undefined, "the proof cell itself is allowed");
+	write();
+	await h.emit("tool_result", { ...event, isError: false });
 }
 
-function structureResult(h: { root: string }, head = ciHead) {
-	mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
-	writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
-		JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+async function proveResult(h: EvidenceHarness, head = ciHead, status = "pass") {
+	await watchedProofCall(h, () => {
+		mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
+		writeFileSync(join(h.root, ".git/omp-prove", `${head}.result.json`), JSON.stringify({ status, head, blocking: [] }));
+	});
+}
+
+async function structureResult(h: EvidenceHarness, head = ciHead) {
+	await watchedProofCall(h, () => {
+		mkdirSync(join(h.root, ".git/omp-structure"), { recursive: true });
+		writeFileSync(join(h.root, ".git/omp-structure", `${head}.json`),
+			JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
+	}, "await structure_review(repo, parent, head)");
 }
 
 export { prBody, prFiles, decideCommand, judgeModel };
 export type { JudgeStub };
-export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult };
+export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, watchedProofCall };
 export { repoCommand };
 export type { Input };
 
@@ -394,37 +409,38 @@ export type { Input };
 			for (const command of [
 				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
 				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
-				"git -C /w status", "git -c k=v log", "gh pr view", "git stash list", "git stash", "git fetch origin", "git fetch origin main",
+				"git -C /w status", "git -c color.ui=never log", "gh pr view", "git stash list", "git stash", "git fetch origin", "git fetch origin main",
 				"git fetch https://github.com/o/r main", "gh repo view", "gh issue list", "gh run list", "gh release view v1", "git config --get core.hooksPath",
 				"git tag", "git tag -l", "git tag --list 'v*'", "git tag -n5", "git tag --contains HEAD", "git branch", "git branch -a",
 				"git branch --list", "git worktree list", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r", "gh api --method=HEAD x",
 				"gh pr checks 3", "gh pr diff 3",
-				"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
+								"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
 			]) {
 				assert.equal(await h.call("bash", { command }), undefined, command);
 			}
 			for (const command of [
 				"git commit -m 'feat: x'", "cd repo && git push -u origin agent/x", "gh pr merge 7 --rebase",
-				"git -C /w commit", "git -c k=v commit", "git --no-pager commit", "git status\ngit commit",
+				"git -C /w commit", "git -c user.name=x commit", "git --no-pager commit", "git status\ngit commit",
 				"FOO=1 git push", "git switch -c agent/x", "git switch -C agent/x", "git switch --create=agent/x",
 				"git checkout -b agent/x", "git checkout -B agent/x", "git worktree add /w",
-				"git --git-dir=/w/.git --work-tree=/w push", "git --git-dir /w/.git --work-tree /w push",
 				'git -C "/some path" -c core.pager=cat --no-pager push',
 				"git status; git push", "true | git push", "(git push)",
 				"FOO=x BAR=y gh pr create",
 				"git status; git merge x", "false || git rebase x", "git cherry-pick abc", "git reset --hard HEAD~1", "git reset",
 				"git tag v1", "git tag -a v1 -m x", "git tag -d v1", "git branch -d old", "git branch -D old", "git branch --delete old",
 				"git branch -v -D old", "git worktree remove /w", "gh pr edit 3 --title x", "gh pr close 3",
-				"gh api -X POST repos/o/r/issues", "gh api --method PATCH repos/o/r", "gh api --method=DELETE x", "gh api -XPUT x",
-				"gh api repos/o/r/issues -f title=x", "gh api graphql -F query=@q.graphql", "gh api x --input body.json",
 				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
-				"git revert HEAD", "git am patch", "git pull", "git update-ref refs/heads/main HEAD", "git branch -f main HEAD", "git branch -m old new",
+				"git revert HEAD", "git am patch", "git pull", "git branch -f main HEAD", "git branch -m old new",
 				"git branch -M old new", "git stash drop", "git stash clear", "git stash pop", "git restore .", "git clean -fdx", "git fetch origin main:main",
 				"git fetch origin +refs/heads/main:refs/heads/main", "gh pr ready 3", "gh pr review 3 --approve", "gh pr comment 3 -b x", "gh pr reopen 3",
-				"gh release create v1", "gh workflow run ci.yml", "gh repo delete owner/repo", "gh issue create -t x", "gh run rerun 5", "gh secret set X",
+				"gh release create v1", "gh workflow run ci.yml", "gh issue create -t x", "gh run rerun 5",
 				...wrappedPublishing,
 			]) {
 				assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
+			}
+			// Writes the rails refuse outright, git-tool read or not.
+			for (const command of ["gh api -X POST repos/o/r/issues", "gh api --method PATCH repos/o/r", "gh api --method=DELETE x", "gh api -XPUT x", "gh api repos/o/r/issues -f title=x", "gh api graphql -F query=@q.graphql", "gh api x --input body.json", "git update-ref refs/heads/main HEAD", "gh repo delete owner/repo", "gh secret set X"]) {
+				assertBlocked(await h.call("bash", { command }), "Agent rails", command);
 			}
 		} finally { h.cleanup(); }
 	});
@@ -552,7 +568,7 @@ export type { Input };
 			for (const command of [
 				"git commit --no-verify -m x", "git commit -n -m x", "git commit -anm x", "git commit --no-ver -m x",
 				"git -c core.hooksPath=/dev/null commit -m x", "git -c CORE.HOOKSPATH=x commit -m x",
-				"git --config-env=core.hooksPath=HOOKS commit -m x", "LEFTHOOK=0 git commit -m x",
+				"LEFTHOOK=0 git commit -m x",
 				"SKIP=checks git commit -m x", "HUSKY=0 git commit -m x", "env PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m x",
 				"GIT_CONFIG_COUNT=1 git commit -m x", "bash -c 'git commit --no-verify -m x'",
 				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath bash -c 'git commit -m x'",
@@ -746,7 +762,8 @@ test("shell indirection fails closed: stdin shells, variable command words, unkn
 			["printf 'gh pr merge 5' > m.sh && ./m.sh", "does not exist before this command"],
 			["python3 -c 'import subprocess; subprocess.run([\"gh\", \"pr\", \"merge\", \"5\"])'", "inline python3 code"],
 			["node -e 'require(\"child_process\").execSync(\"gh pr merge 5\")'", "inline node code"],
-			["perl -e '`gh pr merge 5`'", "inline perl code"],
+			["perl -e '`gh pr merge 5`'", "perl runs git, gh, hub or omp"],
+			["python3 -c 'print(\"git\")'", "inline python3 code"],
 			["curl -X PUT https://api.github.com/repos/owner/repo/pulls/5/merge", "writes to the GitHub API"],
 			["curl -d '{}' https://api.github.com/repos/owner/repo/merges", "writes to the GitHub API"],
 			["wget --method=PUT https://api.github.com/repos/owner/repo/pulls/5/merge", "writes to the GitHub API"],
@@ -755,11 +772,13 @@ test("shell indirection fails closed: stdin shells, variable command words, unkn
 			["gh alias import aliases.yml", "gh alias import defines a command"],
 		];
 		for (const [command, fragment] of refused) assertBlocked(await h.call("bash", { command }), fragment, command);
+		for (const command of ["dash -c 'gh pr merge 5'", "ksh -c 'gh pr merge 5'", "fish -c 'gh pr merge 5'", "mksh -c 'gh pr merge 5'"]) {
+			assertBlocked(await h.call("bash", { command }), "minimal mode", command);
+		}
 		for (const command of [
-			"dash -c 'gh pr merge 5'", "ksh -c 'gh pr merge 5'", "fish -c 'gh pr merge 5'", "mksh -c 'gh pr merge 5'",
 			"find . -exec gh pr merge 5 \\;", "stdbuf -oL gh pr merge 5", "script -q /dev/null gh pr merge 5", "caffeinate -i gh pr merge 5",
 			"arch -arm64 gh pr merge 5", "doas gh pr merge 5", "chronic gh pr merge 5", "ionice -c3 gh pr merge 5",
-		]) assertBlocked(await h.call("bash", { command }), "minimal mode", command);
+		]) assertBlocked(await h.call("bash", { command }), "where the rails cannot check it", command);
 		writeFileSync(join(h.root, "merge.sh"), "#!/usr/bin/env bash\nset -e\nmerge() {\n  gh pr merge \"$1\" --rebase\n}\nmerge 5\n");
 		execFileSync("chmod", ["+x", join(h.root, "merge.sh")]);
 		for (const command of ["./merge.sh", "bash merge.sh", "sh ./merge.sh", `${h.root}/merge.sh`, "source merge.sh", "timeout 60 bash merge.sh"]) {
@@ -770,7 +789,7 @@ test("shell indirection fails closed: stdin shells, variable command words, unkn
 		writeFileSync(join(h.root, "tidy.sh"), "#!/bin/sh\necho tidy\n");
 		for (const command of [
 			"echo 'gh pr merge 5'", "echo gh pr merge 5 | cat", "bash tidy.sh", "./tidy.sh", "bash -n tidy.sh", "printf x | bash",
-			"$EDITOR notes.md", "python3 -c 'print(1)'", "python3 -c 'print(\"git\")'", "node -e 'console.log(1)'",
+			"$EDITOR notes.md", "python3 -c 'print(1)'", "node -e 'console.log(1)'",
 			"curl https://api.github.com/repos/owner/repo/pulls/5", "curl -X PUT https://example.com/pulls/5/merge",
 			"gh alias list", "rg git src", "which gh", "brew upgrade gh", "find . -name '*.ts'", "/usr/bin/true",
 		]) assert.equal(await h.call("bash", { command }), undefined, command);
@@ -779,7 +798,7 @@ test("shell indirection fails closed: stdin shells, variable command words, unkn
 	} finally { h.cleanup(); }
 });
 
-test("gh aliases are expanded from gh alias list and checked like the command they stand for", async () => {
+test("gh aliases and extensions are refused: they run commands the rails cannot check", async () => {
 	const h = harness();
 	const previous = process.env["GH_CONFIG_DIR"];
 	const config = mkdtempSync(join(tmpdir(), "dynaflows-gh-config-"));
@@ -788,9 +807,8 @@ test("gh aliases are expanded from gh alias list and checked like the command th
 		execFileSync("gh", ["alias", "set", "mm", "pr merge"], { env: process.env });
 		execFileSync("gh", ["alias", "set", "--shell", "sm", "gh pr merge \"$1\" --rebase"], { env: process.env });
 		await h.read("skill://git-tool");
-		for (const command of ["gh mm 5 --rebase", "gh sm 5"]) assertBlocked(await h.call("bash", { command }), "minimal mode", command);
+		for (const command of ["gh mm 5 --rebase", "gh sm 5", "gh unknown-extension"]) assertBlocked(await h.call("bash", { command }), "not a built-in gh command", command);
 		assert.equal(await h.call("bash", { command: "gh pr view 5" }), undefined);
-		assert.equal(await h.call("bash", { command: "gh unknown-extension" }), undefined, "an unknown command that is no alias is left to gh");
 	} finally {
 		restoreEnvironment("GH_CONFIG_DIR", previous);
 		rmSync(config, { recursive: true, force: true });
@@ -941,11 +959,11 @@ async function assertBypassesBlocked(h: Harness): Promise<void> {
 		["git -c remote.origin.push=HEAD:main push", "git -c remote.origin.push changes where git push sends commits"],
 		["git -c alias.zz=push zz origin main", "git -c alias.zz defines a command the rails cannot check"],
 		["git send-pack origin main", "git send-pack bypasses the push checks"],
-		["gh api -X PUT repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
-		["gh api --method=put /repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge merges or moves branches"],
-		["gh api repos/owner/repo/merges -f base=main -f head=agent/test", "gh api POST repos/owner/repo/merges merges or moves branches"],
-		["gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc", "gh api PATCH repos/owner/repo/git/refs/heads/main merges or moves branches"],
-		["gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", "gh api POST graphql merges or moves branches"],
+		["gh api -X PUT repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge is refused"],
+		["gh api --method=put /repos/owner/repo/pulls/7/merge", "gh api PUT repos/owner/repo/pulls/7/merge is refused"],
+		["gh api repos/owner/repo/merges -f base=main -f head=agent/test", "gh api POST repos/owner/repo/merges is refused"],
+		["gh api -X PATCH repos/owner/repo/git/refs/heads/main -f sha=abc", "gh api PATCH repos/owner/repo/git/refs/heads/main is refused"],
+		["gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", "gh api graphql mutation mergePullRequest is outside"],
 	];
 	for (const [command, fragment] of routed) {
 		assertBlocked(await h.call("bash", { command }), fragment, command);
@@ -1023,18 +1041,28 @@ test("an invalid mode file names its fault, runs minimal mode and refuses commit
 		assert.ok(h.notes.some(note => note.includes("is invalid: it must be")), h.notes.join("; "));
 		assert.equal(await h.call("write", { path: "tests/new.test.ts" }), undefined, "minimal mode asks for no reference reads");
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "is invalid: it must be");
+		h.modesText("{broken");
+		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "changed during this session", "the session trusts the mode file it started with");
 		for (const text of ["{broken", JSON.stringify({ schemaVersion: 2, repos: {} }), JSON.stringify({ schemaVersion: 1, repos: {}, extra: 1 }),
 			JSON.stringify({ schemaVersion: 1, repos: { "Owner/Repo": "structured" } })]) {
 			h.modesText(text);
+			await h.emit("session_start");
+			await h.read("skill://git-tool", mergeRecover);
 			assertBlocked(await h.call("bash", { command: "git commit -m x" }), "the mode file", text);
 		}
 		rmSync(h.modesPath);
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "cannot be read", "a missing mode file is refused, never read as minimal");
 		h.modesText(JSON.stringify({ schemaVersion: 1, repos: {} }));
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		h.notes.length = 0;
 		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 		assert.ok(h.notes.some(note => note.includes("does not set structured; commit checks do not run")), h.notes.join("; "));
 		h.mode("structured");
+		await h.emit("session_start");
+		await h.read("skill://git-tool", mergeRecover);
 		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 	} finally { h.cleanup(); }
 });

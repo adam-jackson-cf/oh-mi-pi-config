@@ -7,7 +7,7 @@ import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
 import { commonDir as gitCommonDir, defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
-import { prSelector } from "./guards.ts";
+import { prMerge } from "./guards.ts";
 import { verdictText, type Decide, type Verdict } from "./judge.ts";
 import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
 
@@ -232,7 +232,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	// A merge needs the step unless the record names paths and the PR's files (when gh lists them) match none.
 	async function mergeMatches(action: GitAction, cwd: string, paths: string[] | undefined): Promise<boolean> {
 		if (!paths) return true;
-		const selector = prSelector(action.args);
+		const selector = prMerge(action.args).selectors[0];
 		const view = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "files"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (view.code !== 0) return true;
 		return filesSchema.parse(JSON.parse(view.stdout)).files.some(item => matches(item.path, paths));

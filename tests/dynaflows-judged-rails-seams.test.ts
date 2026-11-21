@@ -111,8 +111,8 @@ describe("implementation-integrity at a structured commit", () => {
 async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}): Promise<string> {
 	h.mode("structured");
 	await h.read("skill://git-tool", mergeRecover);
-	proveResult(h);
-	structureResult(h);
+	await proveResult(h);
+	await structureResult(h);
 	mockPrCi(h, greenCi, { head: ciHead, selector: "3", ...view });
 	return `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
 }

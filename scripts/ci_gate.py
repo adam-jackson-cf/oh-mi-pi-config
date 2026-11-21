@@ -202,6 +202,8 @@ def infisical() -> list[str]:
 
 def publish(job: Path, state: str, description: str) -> None:
     metadata = load(job / "job.json")
+    if job.resolve() != job_path(metadata["repo"], metadata["sha"]).resolve():
+        raise RuntimeError("Job directory does not match configured state directory")
     name = repositories()[metadata["repo"]]["tokenEnv"]
     token = os.environ.get(name)
     if not token:

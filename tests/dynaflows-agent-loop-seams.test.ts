@@ -166,6 +166,29 @@ describe("dynaflows in the omp agent loop", () => {
 		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
 
+	test("eval cannot commit or push around the rails, in either mode", async () => {
+		for (const mode of ["minimal", "structured"] as const) {
+			const result = await agentRun(mode, [
+				[gitTool, mergeRecover], [{ name: "eval", arguments: { language: "js", code: "await (await commit.draft()).commit('change', { noVerify: true })" } }],
+				[{ name: "eval", arguments: { language: "py", code: "sh('git push origin HEAD:main')" } }],
+			]);
+			assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("eval commit namespace commits outside the rails"), outcome(result, 2).text);
+			assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("eval may not run git"), outcome(result, 3).text);
+			assert.deepEqual(result.branches.toSorted(), ["main"]);
+		}
+	}, runTimeout * 2);
+
+	test("structured mode refuses forged proof evidence and still finds no prove() pass", async () => {
+		const result = await agentRun("structured", [
+			[gitTool, mergeRecover],
+			[{ name: "write", arguments: { path: `.git/omp-prove/${head}.result.json`, content: JSON.stringify({ head, status: "pass" }) } }],
+			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
+		]);
+		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("inside Git's internal directory"), outcome(result, 2).text);
+		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes(`no prove() pass for ${head}`), outcome(result, 3).text);
+		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
+	}, runTimeout);
+
 	test("a clone without a record runs in minimal mode", async () => {
 		const result = await agentRun(undefined, [
 			[gitTool], [bash("gh pr merge 1 --rebase")], [{ name: "write", arguments: { path: "src/app.ts", content: "export const app = 1;\n" } }],

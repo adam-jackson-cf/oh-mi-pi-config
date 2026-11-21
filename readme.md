@@ -61,14 +61,16 @@ require `skill://git-tool` before the Git and GitHub writes `rails.yml` `gitComm
 push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean, restore, tag creation,
 branch delete/force/move, stash drop, fetch into a local ref, worktree add/remove, `gh` PR, release,
 repo, workflow and issue writes, `gh api` writes), including commands with Git global options, shell
-separators and known or unknown command wrappers. They refuse what they cannot check: a shell
-reading piped commands, a variable command word, a script written in the same command, inline
-interpreter or eval code that starts `git` or `gh`, GitHub API writes through `curl`, `gh alias set`
-and `git config` alias or outside hook-path writes. Shell `-c`, `eval` and existing shell
-scripts are inspected recursively within parser bounds; `cd` and `pushd` select the destination
-repository's policy. Unresolved directories fail closed for publishing. Quoted `echo` and search
-arguments do not trigger the check. Script files run by other interpreters (`python3 x.py`) are
-not inspected.
+separators and known or unknown command wrappers. They refuse what they cannot check
+([ADR 0018](docs/adr/0018-rails-trust-only-what-they-saw.md)): a shell reading piped commands, a
+variable command word, a script written in the same command, launchers and unknown programs naming
+`git`, `gh`, `hub` or `omp`, inline interpreter code or script files that name them, eval cells
+that start them, GitHub API writes through `curl`, gh aliases and extensions, retargeting options
+and variables, and `git config` writes outside a short allowlist (a hooks path stays inside the
+repository). Shell `-c`, `eval` and existing shell scripts are inspected recursively within parser
+bounds; `cd` and `pushd` select the destination repository's policy, and pipeline segments keep
+their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` and search
+arguments do not trigger the check.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
@@ -91,13 +93,15 @@ Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a fail
 In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
-`<git-common-dir>/omp-structure/<head>.json` with that head and `halt: false`; ready
-structure findings block, while provisional findings and recorded infrastructure errors do not.
+`<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; ready
+structure findings and incomplete reviews block, while provisional findings do not. Rails accept
+either file only when this omp process watched the `prove()` or `structure_review()` cell write it.
 Missing or invalid files block even when all decisions are provisional. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
-check run, whoever posts it. The record's `mergePolicies` choose the merge method and whether proof
-is needed per base and head prefix; rails refuse `--admin`.
+check run, whoever posts it, with no failing or pending entry of that name. The record's
+`mergePolicies` choose the merge method and whether proof is needed per base and head prefix;
+rails refuse `--admin`.
 
 Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 
@@ -110,7 +114,7 @@ Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 
 Judged rails, structured mode only ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)),
 run after the deterministic checks through `decide()`
-([ADR 0018](docs/adr/0018-judgment-registry-and-direct-judge.md)):
+([ADR 0020](docs/adr/0020-judgment-registry-and-direct-judge.md)):
 
 | Event | Judgment | yes | escalate |
 | --- | --- | --- | --- |

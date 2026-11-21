@@ -48,6 +48,8 @@ lsp:
   diagnosticsOnEdit: true
 bash:
   gitGuard: true
+commit:
+  enabled: false
 worktree:
   base: ~/worktrees
 task:

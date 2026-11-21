@@ -25,6 +25,7 @@ in `agent/RULES.md`, `agent/AGENTS.md` and `.omp/AGENTS.md`, not checks.
 | Machine file | `~/.omp/dynaflows.json` support removed |
 | Migration | `lib/migrate_records_to_mode_file.py` (`--dry-run`) moves live modes |
 | Missing or invalid mode file | Error: minimal with a note; commits refused |
+| Mode file writes | Agent tools never write it; a change mid-session refuses Git ([ADR 0018](0018-rails-trust-only-what-they-saw.md)) |
 
 ### Rails
 
@@ -32,11 +33,11 @@ in `agent/RULES.md`, `agent/AGENTS.md` and `.omp/AGENTS.md`, not checks.
 | --- | --- | --- |
 | Git read gate | Both | `gitCommand` lists the gated writes; anything else is ungated |
 | Shell indirection | Both | Fails closed: stdin shells, variable command words, unknown scripts |
-| Launchers | Both | Unknown launchers run a later `git`/`gh` word as a command |
+| Launchers | Both | Launchers and unknown programs naming `git`/`gh`/`hub`/`omp` refused ([ADR 0018](0018-rails-trust-only-what-they-saw.md)) |
 | Script files | Both | An existing shell script is scanned as if its commands ran |
-| Inline code | Both | `python -c`, `node -e`, eval cells that start `git`/`gh`: refused |
+| Inline code | Both | `python -c`, `node -e` naming `git`/`gh`/`hub`/`omp`, or eval starting them |
 | GitHub API | Both | `curl`/`wget`/`http` writes to it refused; `gh alias set` refused |
-| `gh` aliases | Both | Expanded from `gh alias list`, like Git aliases |
+| `gh` aliases | Both | Refused with extensions: they run commands the rails cannot check |
 | `github` tool | Both | `pr_create`, `pr_push`, `pr_checkout` refused |
 | `git config` | Both | Alias writes and hook paths outside the repo refused |
 | Commit shape | Both | A commit sharing a command with an index write is refused |
@@ -68,7 +69,7 @@ stores the revision without review.
 
 ### Judged rails
 
-Structured mode only; the registry is [ADR 0018](0018-judgment-registry-and-direct-judge.md).
+Structured mode only; the registry is [ADR 0020](0020-judgment-registry-and-direct-judge.md).
 Deterministic pre-checks run first; `decide()` runs only on what they pass.
 
 | Judgment | Rail | Pre-check | yes | escalate |
