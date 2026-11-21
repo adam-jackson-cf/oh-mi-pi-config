@@ -84,7 +84,7 @@ establish SHA identity).
 
 A repository-specific documented fallback is autonomous merge authority only if its exact `run.headSha` is validated
 and it publishes every required status. Otherwise stop/escalate the incident for owner decision; generic Actions success
-alone is insufficient. Repository-specific fallbacks live in that repository's project instructions.
+alone is insufficient. Repository-specific fallbacks live in the record docs ([record README](../../../record/README.md)).
 
 Repositories whose record declares `ci` never qualify for the no-CI exception. Otherwise, only when host queries establish
 **no checks at all** and the repository has **no CI workflow** may exact-head local `checks.ci` replace CI.

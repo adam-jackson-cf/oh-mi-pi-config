@@ -14,7 +14,7 @@ Land independent verified units behind a flag, not long-lived or stacked branche
 - Plan: give each owner-delegated decision one ADR with a Deciders line naming the delegation.
   Mark recommendations revised after delegation as revised, and raise them to the owner before dependent units rely
   on them. Keep workflow and harness mechanics out of product ADRs.
-- Plan: assign a shared status file (e.g. `HANDOFF.md`) one owning unit per wave; other units report status in
+- Plan: assign a shared status file (e.g. `STATUS.md`; `HANDOFF.md` is the uncommitted session handoff) one owning unit per wave; other units report status in
   their PR bodies.
 - Implement: every unit completes its proof task and main's freeze before its own implementation task.
   Main coordinates independent units; the final unit's writer removes the flag and obsolete paths.

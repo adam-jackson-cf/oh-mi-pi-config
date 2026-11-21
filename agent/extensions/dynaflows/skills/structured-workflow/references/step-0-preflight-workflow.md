@@ -18,6 +18,7 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
      `set up`, `turn on`, `structured`), or an on verb before `$dynaflows`;
    - minimal: `$dynaflows off|disable|stop|minimal` or `disable|stop|turn off|minimal $dynaflows`.
    Two contradictory lines change nothing; ask which the owner means.
+   A standalone `$rollout` line, or the tool's `rollout` option when asked, opts this work into device rollout.
 4. Judge any other wording, such as "I want to enable dynaflows": call the `dynaflows` tool (`mode`) only when the owner
    is asking for it, not asking about it, quoting it or negating it. Never call it on your own initiative.
 5. Asking for structured mode with no record lists the repo in `modes.json` and starts [harness setup](harness-setup.md)

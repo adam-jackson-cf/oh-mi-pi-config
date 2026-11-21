@@ -13,6 +13,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judge role | `agent/config.yml` | Model behind `judge()`; thresholds calibrated to it |
 | Judge fallback | `agent/config.yml` | `retry.fallbackChains.judge` model when the judge fails |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.0: `z`, events, `exec` |
+| Turn-end event | omp core | `session_stop` block reason starts the obligation follow-up turn |
+| Turn-end cleanup | omp core | `agent_end` without `willContinue` deletes a consumed handoff |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `read`, `xd://`, `skill://` shapes |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
@@ -48,7 +50,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | CI runner | `scripts/ci_runner.py` | Merge block names its `submit`/`wait` command |
 | NUC CI gate | `scripts/ci_gate.py` | `ci-gate` role; imports `lib/repo_record.py` |
 | Gate allowlist | `scripts/ci-gate-repos.json` | Repos `ci_gate.py` accepts |
-| Device rollout | `scripts/device_rollout.py` | Writes `ci-runners.json`; copies records |
+| Device rollout | `scripts/device_rollout.py` | Writes `ci-runners.json`; meets rollout |
 | Device registry | `scripts/device-rollout-hosts.json` | Hosts, runner roles, judge key |
 | Quality gates | `scripts/run-ci-quality-gates.sh` | Lint, type, test, coverage gates |
 | Test tiers | `scripts/run-test-tier.sh` | Loads engine bun preload, pytest plugin |
@@ -86,9 +88,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Agent policy | `agent/AGENTS.md` | Git ownership by mode; rollout rule |
-| Global rules | `agent/RULES.md` | Merge on green exact-head CI |
-| Repo context | `.omp/AGENTS.md` | This repo's `ci-gate` record |
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
 | `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
@@ -97,6 +96,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
 | Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
+| Runtime rails ADR | `docs/adr/0017-*.md` | Mode file, obligations, review, handoffs |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records
@@ -105,6 +105,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | --- | --- | --- |
 | Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
+| Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged extension revision per repo |
+| Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |
 | Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
 | Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |

@@ -68,3 +68,15 @@ test("external dependency map names only repo paths that exist", () => {
 		assert.ok(found, `${path} is missing`);
 	}
 });
+
+test("instructions the rails enforce are gone from the instruction files", () => {
+	const root = join(import.meta.dir, "..");
+	const rules = readFileSync(join(root, "agent/RULES.md"), "utf8");
+	for (const removed of ["bypass git hooks", "merge when CI is green", "ADR", "council", "HANDOFF"]) {
+		assert.equal(rules.includes(removed), false, `agent/RULES.md still says ${removed}`);
+	}
+	for (const kept of ["## Security", "## Ask first", "## Code discovery order"]) assert.ok(rules.includes(kept), kept);
+	const policy = readFileSync(join(root, "agent/AGENTS.md"), "utf8");
+	for (const removed of ["Device rollout:", "Git: read", "device_rollout.py"]) assert.equal(policy.includes(removed), false, removed);
+	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the record docs and schema");
+});

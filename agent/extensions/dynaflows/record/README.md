@@ -103,8 +103,17 @@ The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
 }
 ```
 
-A `nuc-config` sync is a PR from `agent/nuc-sync-<date>` into `nuc-config`, merged with `--merge`
-and no proof. Every other PR rebases with proof.
+| Fact | Enforced by |
+| --- | --- |
+| `nuc-config` sync: PR from `agent/nuc-sync-<date>`, `--merge`, no proof | `mergePolicies` |
+| Every other PR rebases with proof | Default policy |
+| `gate` must be green on the exact head | `ci` |
+| `ci-gate` is `scripts/ci_gate.py` on the NUC | `~/.omp/ci-runners.json` |
+| Missing `scripts/ci-gate-repos.json` entry: a setup PR, never a CI waiver | Not enforced |
+| A passing `ci-quality-gates.yml` run never replaces a missing `gate`; escalate | Not enforced |
+
+The fallback dispatch is in the [readme](../../../../readme.md#ci-runners); this repo never takes
+the no-CI exception because it declares `ci`.
 
 ### Process mode and events
 

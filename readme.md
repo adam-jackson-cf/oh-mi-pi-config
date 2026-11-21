@@ -8,7 +8,8 @@ installation guide or an exhaustive reference.
 ## Design
 
 The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
-design principles; `agent/AGENTS.md` holds the durable operating policy. The dynaflows package owns
+design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
+rules. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
 and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
@@ -86,7 +87,17 @@ structure findings block, while provisional findings and recorded infrastructure
 Missing or invalid files block even when all decisions are provisional. The repo's
 record `gate.json` is the policy authority: when it declares `ci`,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
-check run, whoever posts it.
+check run, whoever posts it. The record's `mergePolicies` choose the merge method and whether proof
+is needed per base and head prefix; rails refuse `--admin`.
+
+Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
+
+| Rail | Modes | Behaviour |
+| --- | --- | --- |
+| Turn-end obligations | Structured | Unmerged green PR, `afterMerge`, rollout: max 3 follow-ups |
+| Device rollout | Structured | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
+| Restart review | Both | Extension changed: review; structured blocks Git writes until ack |
+| Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
 
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
@@ -196,8 +207,9 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
 `~/.omp`. The only files it writes there are untracked: `ci-runners.json` and the
-gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see
-[`.omp/AGENTS.md`](.omp/AGENTS.md)), then rerun the command.
+gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see the
+[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example)),
+then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
 the find canary run only on devices that run omp.
@@ -223,7 +235,8 @@ without configured `wait`/`status` commands uses a built-in GitHub poller and
 needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
 missing role exits 2 and names the device_rollout.py command to run. This
-repository's runner specifics and fallback live in [`.omp/AGENTS.md`](.omp/AGENTS.md).
+repository's runner facts live in the
+[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example).
 
 ### ci-gate service
 
@@ -365,8 +378,6 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   command from `~/.omp/ci-runners.json`.
 - `scripts/ci_gate.py` and `scripts/ci-gate-repos.json` — `ci-gate` job service and
   repository/token-name allowlist.
-- `.omp/AGENTS.md` — this repository's project context: CI runner specifics,
-  fallback and how a nuc-config sync merges.
 - `.devcontainer/` — pinned gate image and dependency installation.
 - `tests/test_ci_gate.py` — isolated CLI, container, and GitHub-status contracts.
 - `.gitignore` — canonical-source allowlist and runtime-state boundary.
