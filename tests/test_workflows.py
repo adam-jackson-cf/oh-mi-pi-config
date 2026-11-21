@@ -10,6 +10,7 @@ import itertools
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -753,6 +754,86 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert not (self.agent / workflow.JUDGMENT_CALLS).exists()
         with pytest.raises(workflow.WorkflowError, match="non-empty object"):
             asyncio.run(workflow.decide("demo", {}))
+
+    def bridge(self, *argv: str) -> tuple[int, Any]:
+        out = io.StringIO()
+        with patch("sys.stdout", out):
+            code = workflow.rail_bridge(list(argv))
+        return code, json.loads(out.getvalue())
+
+    def test_rail_bridge_asks_then_records_the_host_answers(self) -> None:
+        write_judgment(self.root)
+        judgment = workflow.load_judgment("demo")
+        assert self.bridge("questions", "demo") == (
+            0,
+            {
+                "judgment": "demo",
+                "model": judgment.model,
+                "questions": judgment.questions,
+            },
+        )
+        request = self.agent.parent / "answers.json"
+        answers = {
+            "flag": {"type": "bool", "bool": 0.9},
+            "kind": {"type": "choice", "probabilities": {"note": 0.6, "log": 0.4}},
+        }
+
+        def send(document: object) -> tuple[int, Any]:
+            request.write_text(json.dumps(document))
+            return self.bridge("record", "demo", str(request))
+
+        code, record = send({
+            "state": {"text": "a note"},
+            "answers": answers,
+            "model": "typesafe/jev-1.14.0",
+        })
+        assert code == 0
+        assert record["outcomes"] == {"flag": "yes"}
+        assert self.logged() == [record]
+        refusals = {
+            "but 'openrouter/typesafe/jev-1.14' answered": {
+                "state": {"text": "a note"},
+                "answers": answers,
+                "model": "openrouter/typesafe/jev-1.14",
+            },
+            "exactly state, answers and model": {"state": {"text": "a note"}},
+            "non-empty object": {
+                "state": {},
+                "answers": answers,
+                "model": "typesafe/jev-1.14.0",
+            },
+        }
+        for message, document in refusals.items():
+            with self.subTest(message=message):
+                code, refused = send(document)
+                assert code == 1
+                assert message in refused["error"]
+        assert self.bridge("record", "demo", str(request.parent / "absent.json"))[1][
+            "error"
+        ].startswith("cannot read rail answers")
+        assert self.bridge("decide", "demo")[0] == 1
+        with patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}):
+            code, refused = self.bridge("questions", "demo")
+        assert code == 1
+        assert "direct TypeSafe endpoint" in refused["error"]
+        assert len(self.logged()) == 1
+
+    def test_rail_entry_runs_the_registry_of_the_shipped_judgments(self) -> None:
+        main = runpy.run_path(str(MODULE.parents[1] / "lib/decide.py"))["main"]
+        for name, question in (
+            ("extension-impact", "impact"),
+            ("adr-needed", "adr_needed"),
+            ("in-scope", "ask_first"),
+            ("implementation-integrity", "weakens_verification"),
+            ("completion-evidence", "evidence_gap"),
+        ):
+            with self.subTest(name=name):
+                out = io.StringIO()
+                with patch("sys.stdout", out):
+                    assert main(["questions", name]) == 0
+                asked = json.loads(out.getvalue())
+                assert asked["model"] == "typesafe/jev-1.14.0"
+                assert list(asked["questions"]) == [question]
 
     def test_configured_judge_model_reads_omp_config(self) -> None:
         def completed(stdout: str, code: int = 0) -> Any:

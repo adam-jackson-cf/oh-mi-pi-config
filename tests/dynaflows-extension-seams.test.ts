@@ -892,7 +892,7 @@ test("PR query contract: requests the PR URL", async () => {
 		const exec = h.api.exec.bind(h.api);
 		let fields: string | undefined;
 		h.api.exec = async (command, args, options) => {
-			if (command === "gh" && args[1] === "view") fields = args.at(-1);
+			if (command === "gh" && args[0] === "pr" && args[1] === "view") fields ??= args.at(-1);
 			return exec(command, args, options);
 		};
 		assert.equal(await h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` }), undefined);

@@ -7,10 +7,6 @@ import { z, type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { SUBPROCESS_TIMEOUT_MS, absentFile } from "./rails-runtime.ts";
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
-export type ImpactInput = { slug: string; from: string; to: string; diff: string | undefined; checks: string };
-/** The decision seam the judge package fills; until it does, every change is surfaced. */
-export type Decide = (judgment: "extension-impact", input: ImpactInput) => Promise<"proceed" | "escalate">;
-export const escalate: Decide = async () => "escalate";
 // Not extension behaviour: the mode file changes on every mode switch.
 const IGNORED = new Set(["node_modules", "__pycache__", ".venv", "build", "modes.json"]);
 const reviewsSchema = z.object({ schemaVersion: z.literal(1), repos: z.record(z.string(), z.string().min(1)) }).strict();

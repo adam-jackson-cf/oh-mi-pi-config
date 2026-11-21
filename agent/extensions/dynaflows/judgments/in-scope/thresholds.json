@@ -19,6 +19,9 @@
     "ask_first": {
       "threshold": null,
       "status": "provisional",
+      "no_at_most": 0.115,
+      "yes_at_least": 0.64,
+      "band_source": "escalate_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "version_key": "cd0f75dc5c7efc3acb2b4f79f64efd139d0c2acfde41420f28b4254f41c2c5e8",
       "score_space": "raw",
       "minimums": {

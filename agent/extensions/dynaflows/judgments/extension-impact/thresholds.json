@@ -39,6 +39,9 @@
       "version_key": "7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
       "threshold": 0.395,
       "status": "provisional",
+      "no_at_most": 0.34,
+      "yes_at_least": 0.48,
+      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "rule": "P(impact) >= threshold flags the repository for review",
       "escalation_band": {
         "no_at_most": 0.34,

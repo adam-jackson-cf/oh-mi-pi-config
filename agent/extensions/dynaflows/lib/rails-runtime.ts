@@ -32,6 +32,7 @@ const mappingSchema = z.object({
 	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
+	askFirstCommand: regexpSource,
 	pathFields: z.record(z.string(), stringList),
 	resolveDevice: z.string(),
 	rejectDevice: z.string(),

@@ -104,6 +104,21 @@ Session rails ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)):
 | Restart review | Both | Extension changed: review; structured blocks Git writes until ack |
 | Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
 
+Judged rails, structured mode only ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)),
+run after the deterministic checks through `decide()`
+([ADR 0018](docs/adr/0018-judgment-registry-and-direct-judge.md)):
+
+| Event | Judgment | yes | escalate |
+| --- | --- | --- | --- |
+| `git commit` | `implementation-integrity` | Refused with remediation | Owner |
+| `gh pr merge` without an ADR file | `adr-needed` | Refused: add an ADR | Owner |
+| Turn end with the agent's PR | `completion-evidence` | Unmet obligation | Owner |
+| Restart review | `extension-impact` | Review task | Review task |
+| `ask`, `askFirstCommand` command | `in-scope` | Ask first | Ask first |
+
+`no` passes, and the review is skipped; an `ask` judged in scope is refused. The owner approves an
+escalation with a prompt line `$approve <judgment>:<id>` that the rails print.
+
 Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
 `checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
 `checks.ci` (the full T1 and T2 suite), each naming the repo's own command. In

@@ -21,7 +21,7 @@ type GateFixture = {
 	afterMerge?: { argv: string[]; paths?: string[] };
 	mergePolicies?: { base: string; headPrefix: string; method: "rebase" | "merge"; proof: boolean }[];
 };
-type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
+type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; questions?: { question: string }[]; intent?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
@@ -89,9 +89,26 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 type ExtensionOptions = NonNullable<Parameters<typeof dynaflowsExtension>[1]>;
 type CommandChoices = { configPath: string | undefined; ompCommand: string[] | undefined; guardrailsCommand: string[] | "default" };
 
-function extensionOptions(machine: string, records: string, choices: CommandChoices): ExtensionOptions {
+// Judged rails run the real judgment registry under the root uv project; only the judge transport is stubbed.
+const decideScript = resolve(import.meta.dir, "../agent/extensions/dynaflows/lib/decide.py");
+const decideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", decideScript];
+const judgeModel = "typesafe/jev-1.14.0";
+type JudgeStub = { scores: Record<string, number>; calls: { question: string; state: unknown }[]; model: string; failure?: string | undefined };
+function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeModel }; }
+
+function extensionOptions(machine: string, records: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
 	const options: ExtensionOptions = {
 		modesPath: join(records, "modes.json"), configRoot: records,
+		// The judgment call log goes to this harness's machine dir, never ~/.omp/agent.
+		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...decideCommand],
+		judge: () => async (state, questions) => {
+			if (judged.failure) throw new Error(judged.failure);
+			const answers = Object.fromEntries(Object.keys(questions).map(question => {
+				judged.calls.push({ question, state });
+				return [question, { type: "bool" as const, bool: judged.scores[question] ?? 0 }];
+			}));
+			return { answers, model: judged.model };
+		},
 		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsProfileCommand: ["true"],
 		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
 	};
@@ -155,7 +172,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			}
 		},
 	};
-	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand }), ...extra };
+	const judged = judgeStub();
+	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand }, judged), ...extra };
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
 	mkdirSync(join(machine, "extension"));
 	writeFileSync(join(machine, "extension", "index.ts"), "export {};\n");
@@ -190,7 +208,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		return combined;
 	}
 	return {
-		root, notes, errors, branch, context, emit, api, options, records, recordDir,
+		root, notes, errors, branch, context, emit, api, options, records, recordDir, judged,
 		pathFailure(message?: string) { pathFailure = message; },
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
@@ -310,13 +328,18 @@ type PrCiHarness = {
 	};
 };
 
-type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string; state?: string };
+type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string; state?: string; body?: string; files?: object[] };
+// A PR whose description has the request and evidence sections the completion pre-checks read.
+const prBody = "## Summary\n\nFixes the answer.\n\n## Evidence\n\n- `bun test` passed on the head.";
+const prFiles = [{ path: "existing.ts", additions: 1, deletions: 0, changeType: "MODIFIED" }];
 
 function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
-	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test", state = "OPEN" } = view;
+	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test", state = "OPEN",
+		body = prBody, files = prFiles } = view;
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
+		if (args[0] === "repo") return { code: 0, killed: false, stdout: JSON.stringify({ name: "repo", description: "a fixture repository" }), stderr: "" };
 		assert.equal(options.cwd, h.root);
 		assert.equal(options.timeout, 20000);
 		assert.deepEqual(args.slice(0, -1), ["pr", "view", ...(selector ? [selector] : []), "--json"]);
@@ -324,7 +347,10 @@ function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, baseRefName: base, headRefName: headRef, state, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({
+				number: 3, title: "Fix the answer", body, commits: [{ messageHeadline: "fix: the answer" }], files,
+				headRefOid: head, baseRefName: base, headRefName: headRef, state, statusCheckRollup: rollup, url,
+			}), stderr: "" };
 	};
 }
 
@@ -353,6 +379,8 @@ function structureResult(h: { root: string }, head = ciHead) {
 		JSON.stringify({ head, halt: false, status: "shadow", findings: [] }));
 }
 
+export { prBody, prFiles, decideCommand, judgeModel };
+export type { JudgeStub };
 export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult };
 export { repoCommand };
 export type { Input };

@@ -19,7 +19,9 @@ import {
 	PUBLISHES, adminMergeReason, agentMergeReason, commitHookReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
 	prSelector, pushReason, routeReason, worktreeReason,
 } from "./lib/guards.ts";
-import { escalate, sessionRails, type Decide, type ObligationSource, type ObligationStatus } from "./lib/session-rails.ts";
+import {
+	ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource, type ObligationStatus,
+} from "./lib/session-rails.ts";
 
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
@@ -140,6 +142,8 @@ const guardrailsProject = fileURLToPath(new URL("./engine", import.meta.url));
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
 const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
 const defaultProfileCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "profile-check"];
+// The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
+const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", fileURLToPath(new URL("./lib/decide.py", import.meta.url))];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
@@ -325,7 +329,10 @@ type StructuredRequest = { notice: string; slug: string; dir: string; task: bool
 
 type DynaflowsOptions = {
 	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsProfileCommand: string[];
-	ompCommand: string[]; extensionDir: string; reviewsPath: string; decide: Decide; obligationSources: ObligationSource[];
+	ompCommand: string[]; extensionDir: string; reviewsPath: string; obligationSources: ObligationSource[];
+	decideCommand: string[];
+	/** The judge transport for judged rails; omp's judge role unless a test stubs it. */
+	judge: ((ctx: ExtensionContext) => JudgeTransport) | undefined;
 };
 function defaultOptions(): DynaflowsOptions {
 	return {
@@ -338,14 +345,16 @@ function defaultOptions(): DynaflowsOptions {
 		extensionDir: fileURLToPath(new URL(".", import.meta.url)),
 		// The omp agent dir (gitignored), never a repository.
 		reviewsPath: fileURLToPath(new URL("../../dynaflows-reviews.json", import.meta.url)),
-		decide: escalate,
 		obligationSources: [],
+		decideCommand: defaultDecideCommand,
+		judge: undefined,
 	};
 }
 
 export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOptions> = {}): void {
 	const {
-		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, decide, obligationSources,
+		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
+		decideCommand, judge,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
 	const states = new Map<string, State>(), session: SessionCache = {};
 	let map: Mapping;
@@ -368,7 +377,9 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		return readRecord(root, configRoot);
 	}
 	const sessionRail = sessionRails(pi, {
-		configRoot, extensionDir, reviewsPath, decide, sources: [...obligationSources],
+		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
+		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
+		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
 		recordAt,
 		prStatus: async (ctx, cwd, selector) => prObligation(await prCi(cwd, selector, stateFor(ctx), ctx).catch(error => ({ reason: String(error) }))),
@@ -532,7 +543,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const at = root ? await modeAt(ctx, root, true) : await modeAt(ctx, action.cwd);
 		if (at.why) ctx.ui.notify(`Agent rails: ${at.why}; commit checks do not run.`, "info");
 		if (!root || at.mode !== "structured") return undefined;
-		return commitChecksReason(root);
+		return (await commitChecksReason(root)) ?? sessionRail.judged.commitReason(root, action, ctx);
 	}
 	async function mergeActionReason(action: GitAction, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!action.cwd) throw new Error("cannot resolve PR action cwd");
@@ -540,7 +551,8 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const format = headFormatReason(head) ?? adminMergeReason(action.args);
 		if (format || !head) return format;
 		const pr = await prCi(action.cwd, prSelector(action.args), state, ctx);
-		return "head" in pr ? policyMergeReason(pi, action.args, { cwd: action.cwd, head }, pr) : pr.reason;
+		if (!("head" in pr)) return pr.reason;
+		return (await policyMergeReason(pi, action.args, { cwd: action.cwd, head }, pr)) ?? sessionRail.judged.mergeReason(action.cwd, prSelector(action.args), head, ctx);
 	}
 	async function publishActionReason(action: GitAction, mode: Mode, state: State, ctx: ExtensionContext): Promise<string | undefined> {
 		const merge = /^gh pr merge\b/.test(action.command);
@@ -602,7 +614,8 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const state = stateFor(ctx);
 		try {
 			const reason = (await bashReason(event, ctx, state)) ?? (await subagentReason(map, event, ctx, state)) ??
-				(await editReadsReason(event, ctx, state));
+				(await editReadsReason(event, ctx, state)) ??
+				(await sessionRail.judged.scopeReason(event, scopeInputSchema.parse(runtimeEvent.input), ctx));
 			return reason ? { block: true, reason } : undefined;
 		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
 	});

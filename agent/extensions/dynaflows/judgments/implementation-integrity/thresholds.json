@@ -11,6 +11,9 @@
     "weakens_verification": {
       "threshold": null,
       "status": "provisional",
+      "no_at_most": 0.105,
+      "yes_at_least": 0.8,
+      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "version_key": "b7ec26b4a15a5512d46980f74a50ee2a24f66f579bcc5452643e32bb258f3092",
       "score_space": "raw",
       "minimums": {

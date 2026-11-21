@@ -26,6 +26,49 @@ Ask a calibrated judgment through one registry call and act on its yes, no or es
 - Treat `escalate` as uncertain: take the conservative branch or ask the owner; never read it as `no`.
 - Rails read the log through `lib/judgment-calls.ts` (`readJudgmentCalls`, `latestJudgmentCall`).
 
+## Rail judgments
+
+Structured mode only. Rails run their deterministic pre-checks first, then the same registry
+through `lib/decide.py` (`questions`, then `record`) with omp's judge role; the model that
+answered must be `thresholds.model`. A failed call is a refusal, never an outcome.
+
+| Judgment | Rail | yes | escalate |
+| --- | --- | --- | --- |
+| `extension-impact` | Restart review | Review task | Review task |
+| `adr-needed` | `gh pr merge`, no ADR file in the PR | Refused: add an ADR | Owner |
+| `implementation-integrity` | `git commit`, after the commit checks | Refused: restore checks | Owner |
+| `completion-evidence` | Turn end, agent's PR, after P2-P8 | Unmet obligation | Owner |
+| `in-scope` | `ask` tool; `rails.yml` `askFirstCommand` commands | Ask first | Ask first |
+
+- `no` passes, except an `ask` the judgment calls in scope: the rails refuse it; decide it yourself.
+- The owner approves an escalation with a prompt line `$approve <judgment>:<id>`; the rails
+  print the line. An approval holds for that session and that subject only.
+
+## In-scope call site
+
+Rails see only the `ask` tool and `askFirstCommand` commands. Before any other action the agreed
+work may not grant (another machine, a shared setting, new cost or tooling), call:
+
+```python
+outcome = (
+    await decide(
+        "in-scope",
+        {
+            "work": {
+                "agreed_scope": owner_messages,  # initial request, then the four latest owner messages
+                "agent_context": reasoning,  # your text just before the item
+                "proposed_action": action,  # one question, or "[intent] tool args"
+            }
+        },
+    )
+)["outcomes"]["ask_first"]
+```
+
+| Outcome | Then |
+| --- | --- |
+| `yes`, `escalate` | Ask the owner first |
+| `no` | Act; it is a detail of the agreed work |
+
 ## Folder contract
 
 | File | Holds |

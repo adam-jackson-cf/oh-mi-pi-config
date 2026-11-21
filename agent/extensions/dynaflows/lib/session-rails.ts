@@ -6,8 +6,10 @@ import { repoSlug } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
-import { escalate, extensionDiff, extensionRevision, storedRevision, storeRevision, type Decide } from "./restart-review.ts";
+import { extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
 import { prSelector } from "./guards.ts";
+import { verdictText, type Decide, type Verdict } from "./judge.ts";
+import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
 
 type SessionApi = Pick<ExtensionAPI, "on" | "exec" | "registerTool">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };
@@ -20,11 +22,14 @@ export type SessionDeps = {
 	prStatus(ctx: ExtensionContext, cwd: string, selector: string): Promise<ObligationStatus>;
 	repoRun(argv: string[], cwd: string, timeout: number): Promise<Run>;
 	checks: { profile: string[]; check: string[] };
+	/** The judged rails' decide(): the judgment registry with the host judge transport. */
 	decide: Decide;
+	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
+	askFirst(part: string): boolean;
 	sources: ObligationSource[];
 	loadError(): string | undefined;
 };
-type Review = { slug: string; root: string; from: string; to: string; checks: Promise<string>; diff: Promise<string | undefined> };
+type Review = { slug: string; root: string; from: string; to: string; checks: Promise<string>; diff: Promise<string | undefined>; impact: Promise<Verdict | Failure> };
 type Handoff = { root: string; content: string; injected: boolean };
 type Session = { book: ObligationBook; review?: Review | undefined; handoff?: Handoff | undefined; started: boolean };
 // Bounded under omp's 30 s extension handler budget; a slower check is left for the agent to run.
@@ -36,12 +41,23 @@ const filesSchema = z.object({ files: z.array(z.object({ path: z.string() })) })
 const agentMessage = (content: string) => ({ message: { customType: "dynaflows", content, display: false, attribution: "agent" as const } });
 const tail = (text: string) => text.length > OUTPUT_TAIL ? `…${text.slice(-OUTPUT_TAIL)}` : text;
 
+async function reviewTask(review: Review): Promise<string | undefined> {
+	const [checks, diff, impact] = await Promise.all([review.checks, review.diff, review.impact]);
+	if (!("failure" in impact) && impact.outcome === "no") return undefined;
+	const judged = "failure" in impact ? `not judged: ${impact.failure}` : verdictText(impact);
+	return `First task: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it. ` +
+		"Review the change and address anything that affects this repository's setup or its interactions with the rails first; " +
+		"Git writes are refused until you call the dynaflows tool with acknowledge: true.\n" +
+		`Extension impact: ${judged}\nExtension diff:\n${diff ?? "unavailable (not a Git revision pair)"}\nRecord checks:\n${checks}`;
+}
+
 export type SessionRails = {
 	gitWriteReason(action: GitAction, ctx: ExtensionContext): Promise<string | undefined>;
 	commitReason(action: GitAction): Promise<string | undefined>;
 	optInRollout(ctx: ExtensionContext): Promise<string>;
 	acknowledge(ctx: ExtensionContext): Promise<string>;
 	addSource(source: ObligationSource): void;
+	judged: JudgedRails;
 };
 
 export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
@@ -54,6 +70,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	};
 	const structured = async (ctx: ExtensionContext, root: string) => await deps.modeOf(ctx, root) === "structured";
 	const rolloutCommands = ["~/.omp", deps.configRoot].map(root => `python3 ${root}/scripts/device_rollout.py`);
+	const judged = judgedRails(pi, { decide: deps.decide, structured, askFirst: deps.askFirst });
 
 	async function reviewChecks(root: string): Promise<string> {
 		const record = await deps.recordAt(root).catch(() => undefined);
@@ -80,17 +97,11 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 			await storeRevision(deps.reviewsPath, slug, to);
 			return;
 		}
-		session.review = { slug, root, from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }) };
-	}
-
-	async function reviewTask(review: Review): Promise<string | undefined> {
-		const [checks, diff] = await Promise.all([review.checks, review.diff]);
-		const decision = await deps.decide("extension-impact", { slug: review.slug, from: review.from, to: review.to, diff, checks });
-		if (decision === "proceed") return undefined;
-		return `First task: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it. ` +
-			"Review the change and address anything that affects this repository's setup or its interactions with the rails first; " +
-			"Git writes are refused until you call the dynaflows tool with acknowledge: true.\n" +
-			`Extension diff:\n${diff ?? "unavailable (not a Git revision pair)"}\nRecord checks:\n${checks}`;
+		const record = await deps.recordAt(root).catch(() => undefined);
+		session.review = {
+			slug, root, from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
+			impact: judged.impactVerdict(ctx, { slug, record, configRoot: deps.configRoot, from, to }),
+		};
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -143,6 +154,8 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		const cwd = action.cwd;
 		session.book.add({ id: `pr:${branch}`, root, text: `the PR for ${branch} has green CI on its head and is unmerged; merge it (skill://git-tool/references/merge-and-recover.md)`,
 			status: () => deps.prStatus(ctx, cwd, branch) });
+		session.book.add(judged.evidenceObligation(ctx, { cwd, root, branch,
+			requiredContext: async () => (await deps.recordAt(root).catch(() => undefined))?.gate.requiredCi?.requiredContext }));
 	}
 
 	async function afterMergeStep(root: string | undefined) {
@@ -235,9 +248,11 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 			return done;
 		},
 		addSource(source) { deps.sources.push(source); },
+		judged,
 	};
 	return rails;
 }
 
-export { escalate };
-export type { Decide, Obligation, ObligationSource, ObligationStatus };
+export type { Obligation, ObligationSource, ObligationStatus };
+export { ompJudge, registryDecide, type JudgeTransport } from "./judge.ts";
+export { scopeInputSchema } from "./judged-rails.ts";

@@ -39,7 +39,7 @@ in `agent/RULES.md`, `agent/AGENTS.md` and `.omp/AGENTS.md`, not checks.
 | Device rollout | Structured | Opt-in only: `$rollout` line or tool `rollout` |
 | Restart review | Both | Per-repo revision in `~/.omp/agent/dynaflows-reviews.json` |
 | Review gate | Structured | Git writes refused until acknowledged; minimal notifies |
-| Impact seam | Both | `decide("extension-impact", …)`; `escalate` until the judge wires it |
+| Impact judgment | Structured | `extension-impact` `no` stores the revision without a task |
 | Handoff | Both | `handoff` tool; never committed; deleted after the next first turn |
 
 Obligations:
@@ -54,6 +54,30 @@ A revision is `git:<last commit touching the extension>` in a Git config root, e
 hash. `modes.json` is excluded, so a mode switch is not a change. A repo's first session
 stores the revision without review.
 
+### Judged rails
+
+Structured mode only; the registry is [ADR 0018](0018-judgment-registry-and-direct-judge.md).
+Deterministic pre-checks run first; `decide()` runs only on what they pass.
+
+| Judgment | Rail | Pre-check | yes | escalate |
+| --- | --- | --- | --- | --- |
+| `extension-impact` | Restart | Git revision pair, valid record | Review task | Review task |
+| `adr-needed` | Merge | Method, head, proof, CI; ADR file in diff skips | Refused | Owner |
+| `implementation-integrity` | Commit | Path check, `checks.commit`, harness | Refused | Owner |
+| `completion-evidence` | Turn end | P2, P4-P8 on the agent's PR | Unmet | Owner |
+| `in-scope` | `ask`, `askFirstCommand` | Main agent | Ask first | Ask first |
+
+| Topic | Decision |
+| --- | --- |
+| Transport | omp's judge role from the extension host; `lib/decide.py` asks and records |
+| Model | The answering model must equal `thresholds.model`, else refused |
+| Bands | `no_at_most` and `yes_at_least` come from each judgment's measured band |
+| Status | All five stay `provisional`; the rails act on them as the owner directed |
+| Owner approval | Prompt line `$approve <judgment>:<id>`; one session, one subject |
+| Failure | Refuses commit, merge and command; evidence stays unmet; review shows; ask passes |
+| In-scope `no` on `ask` | Refused: the agent decides details of the agreed work itself |
+| Not wired | Completion P3 (linked plan): no PR in the cases links one |
+
 ### Removed instruction text
 
 | File | Removed | Now |
@@ -67,6 +91,8 @@ stores the revision without review.
 
 ## Consequences
 
-Live records must run the migration before rails accept them. The mode is a tracked change in
-oh-mi-pi-config. Rollout no longer follows a merge unless asked. A structured session after an
-extension change cannot write Git until it acknowledges the review.
+Live records must run the migration before rails accept them. Structured commits, merges, asks
+and turn ends now call the judge; an outage refuses them until the judge answers or the owner
+approves. The measured bands escalate many cases, so owner approvals are frequent. The mode is a
+tracked change in oh-mi-pi-config. Rollout no longer follows a merge unless asked. A structured
+session after an extension change cannot write Git until it acknowledges the review.

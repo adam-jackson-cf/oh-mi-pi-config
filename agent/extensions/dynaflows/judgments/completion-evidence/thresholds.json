@@ -36,8 +36,12 @@
   },
   "decisions": {
     "evidence_gap": {
+      "version_key": "535639ffa7f958fc228ecf9394385ef958960555ffd47c36cd23a512cae1be0b",
       "threshold": null,
       "status": "provisional",
+      "no_at_most": 0.42,
+      "yes_at_least": 0.87,
+      "band_source": "escalation_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
       "metric": {
         "name": "F-beta",
         "beta": 2

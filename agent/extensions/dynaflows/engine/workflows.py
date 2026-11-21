@@ -2083,6 +2083,67 @@ async def decide(name: str, state: dict[str, Any]) -> dict[str, Any]:
     return {**judgment_record(judgment, state, answers), "answers": answers}
 
 
+def judgment_questions(name: str) -> dict[str, Any]:
+    """What a rail sends to its own judge call: the pinned model and the questions.
+
+    Rails judge from the extension host, which reports the model that answered, so the model check
+    happens in record_answers() rather than through `omp config get`.
+    """
+    judgment = load_judgment(name)
+    require_direct_judge_route()
+    return {"judgment": name, "model": judgment.model, "questions": judgment.questions}
+
+
+def record_answers(name: str, request: object) -> dict[str, Any]:
+    """decide()'s outcomes and log line for answers a rail's judge call returned.
+
+    Refuses answers from any model other than the tuned one; a refusal is never an outcome.
+    """
+    judgment = load_judgment(name)
+    require_direct_judge_route()
+    if not isinstance(request, dict) or set(request) != {"state", "answers", "model"}:
+        raise WorkflowError(
+            f"{name}: rail answers need exactly state, answers and model"
+        )
+    state, model = request["state"], request["model"]
+    if model != judgment.model:
+        raise WorkflowError(
+            f"{name}: thresholds are tuned on {judgment.model} but {model!r} answered; "
+            "re-score the cases and re-tune"
+        )
+    if not isinstance(state, dict) or not state:
+        raise WorkflowError(f"{name}: state must be a non-empty object")
+    return judgment_record(judgment, state, request["answers"])
+
+
+def rail_bridge(argv: list[str]) -> int:
+    """`questions <name>` or `record <name> <request.json>`: one JSON object on stdout.
+
+    A refusal prints {"error": ...} and exits 1.
+    """
+    try:
+        match argv:
+            case ["questions", name]:
+                result = judgment_questions(name)
+            case ["record", name, request]:
+                try:
+                    document = json.loads(Path(request).read_text())
+                except (OSError, ValueError) as exc:
+                    raise WorkflowError(
+                        f"cannot read rail answers {request}: {exc}"
+                    ) from exc
+                result = record_answers(name, document)
+            case _:
+                raise WorkflowError(
+                    "usage: questions <judgment> | record <judgment> <request.json>"
+                )
+    except WorkflowError as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
+    print(json.dumps(result, sort_keys=True, allow_nan=False))
+    return 0
+
+
 SEVERITY_JUDGMENT = "dependency-severity"
 SEVERITIES = ("low", "medium", "high", "critical")
 OWNER_SEVERITIES = ("high", "critical")

@@ -12,6 +12,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
 | Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
+| omp judge API | `package.json` | `resolveJudge`, `parseQuestions`, `toEvalJudgmentResult` |
+| omp `ask` tool | omp core | `questions` or `html` input; `in-scope` judges it |
+| Session branch | omp core | `getBranch()` owner messages build the `in-scope` state |
 | Turn-end event | omp core | `session_stop` block reason starts the obligation follow-up turn |
 | Turn-end cleanup | omp core | `agent_end` without `willContinue` deletes a consumed handoff |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
@@ -75,6 +78,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Engine tests | `tests/test_reference_*.py` | Checkers, adapters, `init` |
 | Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
 | Judgment tests | `tests/test_*judgment*.py` | `judgments/` data and version keys |
+| Judged rails tests | `tests/dynaflows-judged-rails-seams.test.ts` | Stubbed judge transport |
 | Tool settings | `tests/test_native_tool_settings.py` | Root ruff, mypy match engine |
 | Naming tests | `tests/test_naming_scope.py` | Engine layout rules |
 | Language packs | `tests/test_language_packs.py` | Engine language packs |
@@ -101,6 +105,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
 | Runtime rails ADR | `docs/adr/0017-*.md` | Mode file, obligations, review, handoffs |
 | Judgments ADR | `docs/adr/0018-*.md` | Registry, direct judge, Inspector route |
+| Integrity ADR | `docs/adr/0019-*.md` | `implementation-integrity` replaces the main tag |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records
@@ -134,7 +139,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | `git` | PATH | Origin, aliases, status, common dir |
-| `gh` | PATH | PR head, CI rollup, comments, rules |
+| `gh` | PATH | PR head, CI rollup, body, files, compare; repo description |
 | jev-bridge | Loopback port 8787 | Opt-in relay behind `inspector.env`; never for gates |
 | `uv` 0.13.7 | PATH | Runs `guardrails check` and `path-check` |
 | `omp` | PATH | 19.0.1; `config get worktree.base`, `config get modelRoles` |

@@ -143,6 +143,19 @@ Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` conf
 harness-owned per-edit contract, even where repo checks overlap; see [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md).
 At commit, rails then run `checks.commit` in the worktree followed by
 `guardrails check --repo <worktree> --record <record dir>`.
+
+Judged rails follow the deterministic checks
+([ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)):
+
+| Event | Judgment | Reads from the record |
+| --- | --- | --- |
+| Commit | `implementation-integrity` | Nothing; the staged diff and message |
+| Merge | `adr-needed` | Nothing; the PR, unless it adds an ADR file |
+| Turn end | `completion-evidence` | `ci.requiredContext` for pre-check P6 |
+| Restart | `extension-impact` | `gate.json` in full and a `profile.md` summary |
+| `ask`, privileged command | `in-scope` | Nothing; owner messages in the session |
+
+An escalated outcome waits for the owner's prompt line `$approve <judgment>:<id>`.
 Naming and structure checks cover only added or renamed paths: worktree changes at edit,
 staged changes at commit, and merge-base/head changes at PR. Only new path segments are
 checked, never unchanged legacy parent directories. Content edits do not trigger NAME/STRUCT.

@@ -214,20 +214,62 @@ describe("review on restart", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("an extension-impact decision of proceed stores the revision without a task", async () => {
-		const seen: string[] = [];
-		const h = harness({ extra: { decide: async (judgment, input) => { seen.push(`${judgment} ${input.slug}`); return "proceed"; } } });
+	test("extension-impact judges a Git revision pair: no stores it silently, yes and escalate keep the review task", async () => {
+		const records = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-impact-")));
+		const extension = join(records, "agent/extensions/dynaflows");
+		const h = harness({ configRoot: records, extra: { extensionDir: extension } });
+		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: records });
+		const change = (subject: string) => {
+			writeFileSync(join(extension, "index.ts"), `export const subject = ${JSON.stringify(subject)};\n`);
+			git("add", "agent"); git("commit", "-qm", subject);
+		};
 		try {
+			mkdirSync(extension, { recursive: true });
+			git("init", "-q");
+			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
+			git("add", ".gitignore");
+			change("feat: first rails");
 			h.mode("structured");
-			await changedExtension(h);
-			const before = reviews(h)["owner/repo"];
+			writeFileSync(join(h.recordDir(), "profile.md"), '---\n{"tiers": {"t1": "bun test"}}\n---\n# Repo test profile\n\nThe front matter holds the values.\n\n## Tiers\n');
+			await h.read("skill://git-tool", mergeRecover);
 			await h.emit("session_start");
-			assert.ok(!messageText(await prompt(h, "work")).includes("First task"));
-			assert.deepEqual(seen, ["extension-impact owner/repo"]);
-			assert.notEqual(reviews(h)["owner/repo"], before);
+			assert.match(reviews(h)["owner/repo"] ?? "", /^git:[0-9a-f]{40}$/);
+			change("refactor: rename an internal helper");
+			h.setSession("no-impact");
+			await h.emit("session_start");
+			assert.ok(!messageText(await prompt(h, "work")).includes("First task"), "a no outcome needs no review");
+			assert.equal(reviews(h)["owner/repo"], `git:${git("rev-parse", "HEAD").toString().trim()}`);
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await commit(h), undefined);
-		} finally { h.cleanup(); }
+			const judged = z.object({ mode: z.object({ name: z.string(), runs: z.string() }), record: z.object({ repo: z.string(), gate: z.object({ schemaVersion: z.number() }).passthrough(),
+				profile_summary: z.object({ frontmatter: z.record(z.string(), z.string()), headings: z.array(z.string()), intro: z.string() }) }),
+				change: z.object({ commit_subjects: z.array(z.string()), files: z.array(z.object({ path: z.string(), status: z.string() })), patch_excerpts: z.array(z.object({ path: z.string(), patch: z.string() })) }).passthrough() })
+				.parse(h.judged.calls.at(-1)?.state);
+			assert.equal(judged.mode.name, "structured");
+			assert.ok(judged.mode.runs.startsWith("Everything minimal runs"));
+			assert.equal(judged.record.repo, "owner/repo");
+			assert.deepEqual(judged.record.profile_summary, { frontmatter: { tiers: '{"t1":"bun test"}' }, headings: ["# Repo test profile", "## Tiers"], intro: "The front matter holds the values." });
+			assert.deepEqual(judged.change.commit_subjects, ["refactor: rename an internal helper"]);
+			assert.deepEqual(judged.change.files.map(file => `${file.status} ${file.path}`), ["M agent/extensions/dynaflows/index.ts"]);
+			assert.ok(judged.change.patch_excerpts[0]?.patch.startsWith("--- a/agent/extensions/dynaflows/index.ts"));
+			for (const [score, outcome] of [[0.9, "yes, P=0.90"], [0.4, "escalate, P=0.40"]] as const) {
+				h.judged.scores["impact"] = score;
+				change(`feat: change ${score}`);
+				h.setSession(`impact-${score}`);
+				await h.emit("session_start");
+				const task = messageText(await prompt(h, "work"));
+				assert.ok(task.includes("First task") && task.includes(`Extension impact: extension-impact/impact ${outcome}`), task);
+				await h.tool("dynaflows", { acknowledge: true });
+			}
+			const log = readFileSync(join(h.machine, "dynaflows/judgment-calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+			assert.deepEqual(log.map(call => call.outcomes.impact), ["no", "yes", "escalate"]);
+			h.judged.model = "openrouter/typesafe/jev-1.14";
+			change("feat: judged by another model");
+			h.setSession("other-model");
+			await h.emit("session_start");
+			const refused = messageText(await prompt(h, "work"));
+			assert.ok(refused.includes("Extension impact: not judged") && refused.includes("thresholds are tuned on typesafe/jev-1.14.0"), refused);
+		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
 	});
 
 	test("minimal mode only notifies and stores the new revision", async () => {
