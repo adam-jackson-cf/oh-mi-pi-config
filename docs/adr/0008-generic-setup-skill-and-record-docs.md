@@ -1,6 +1,9 @@
 # ADR 0008: Generic setup workflow and owned mechanism documentation
 
-- Status: Accepted
+- Status: Superseded in part by [ADR 0010](0010-dynaflows-package-layout.md) (engine and skill
+  paths), [ADR 0013](0013-dynaflows-bundles-its-skills.md) (skill locations) and
+  [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (record docs in
+  `agent/extensions/dynaflows/record/`)
 - Date: 2026-11-18
 
 ## Context

@@ -28,7 +28,6 @@ Tags separate deterministic enforcement, agent judgment and guidance; a judgment
 - `<name>/v<N>` folders or files follow [structure and naming](structure-and-naming.md). Guidance only.
 - Preserve exact wording and styling when reusing concepts, constraints, labels or user phrases across related edits. Guidance only.
 - Never introduce semantically equivalent rewrites of canonical wording, labels, limits or instructions in one project. Guidance only.
-- Deprecated skills stay untouched until a final owner-signed-off cleanup PR; migrate every caller now. Guidance only.
 
 ## Regression fixes
 

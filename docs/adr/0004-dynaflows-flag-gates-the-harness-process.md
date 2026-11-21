@@ -1,6 +1,7 @@
 # ADR 0004: Dynaflows flag gates the harness process
 
-- Status: accepted, 2026-11-18
+- Status: Superseded by [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md); its
+  `ownerOnlyPaths` refusal was removed earlier by [ADR 0014](0014-remove-owner-only-paths.md).
 
 ## Decision
 

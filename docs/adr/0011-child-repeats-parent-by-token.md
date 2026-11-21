@@ -1,6 +1,7 @@
 # 0011: Reject child names that repeat their parent by token
 
-Status: accepted (owner-approved).
+Status: Superseded in part by [ADR 0012](0012-file-parent-repeats-and-scoped-exceptions.md) (token
+matching extends to files; checks judge only new names).
 
 ## Context
 

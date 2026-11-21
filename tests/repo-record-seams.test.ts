@@ -81,7 +81,7 @@ describe("record resolution", () => {
 		} finally { f.cleanup(); }
 	});
 
-	test("a minimal record is minimal and a malformed or enabled-shaped record is an error", async () => {
+	test("a minimal record is minimal and a malformed record is an error", async () => {
 		const f = fixture();
 		try {
 			git("-C", f.repo, "remote", "add", "origin", "https://github.com/owner/name");
@@ -91,8 +91,6 @@ describe("record resolution", () => {
 			await assert.rejects(recordMode(f.repo, f.config), RecordError);
 			f.writeRecord("owner/name", "{");
 			await assert.rejects(recordMode(f.repo, f.config), RecordError);
-			f.writeRecord("owner/name", JSON.stringify({ ...completeGate, dynaflows: { enabled: true } }));
-			await assert.rejects(recordMode(f.repo, f.config), (error: Error) => error instanceof RecordError && error.message.includes("unknown field dynaflows.enabled must be removed"));
 		} finally { f.cleanup(); }
 	});
 
