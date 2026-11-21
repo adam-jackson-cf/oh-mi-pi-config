@@ -84,10 +84,13 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
 
 const nonEmpty = z.string().refine(value => value.trim().length > 0);
-export const MODES = ["minimal", "structured"] as const;
-export type Mode = typeof MODES[number];
-const dynaflowsMode = z.object({ mode: z.enum(MODES) }).strict();
-const modeRequirement = 'dynaflows must be {"mode": "minimal"|"structured"}';
+export const MERGE_METHODS = ["rebase", "merge"] as const;
+export type MergeMethod = typeof MERGE_METHODS[number];
+const afterMergeSchema = z.object({ argv: argvSchema, paths: z.array(nonEmpty).min(1).optional() }).strict();
+const mergePolicySchema = z.object({ base: nonEmpty, headPrefix: z.string(), method: z.enum(MERGE_METHODS), proof: z.boolean() }).strict();
+export type MergePolicy = z.infer<typeof mergePolicySchema>;
+/** The policy for a PR with no matching mergePolicies entry. */
+export const DEFAULT_MERGE_POLICY: Omit<MergePolicy, "base" | "headPrefix"> = { method: "rebase", proof: true };
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
 const gateSchema = z.object({
@@ -98,15 +101,15 @@ const gateSchema = z.object({
 	}).strict(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
-	dynaflows: z.unknown().optional(),
-}).strict().superRefine((gate, ctx) => {
-	if (!dynaflowsMode.safeParse(gate.dynaflows).success) ctx.addIssue({ code: "custom", path: ["dynaflows"], message: modeRequirement });
-}).transform(gate => ({
+	afterMerge: afterMergeSchema.optional(),
+	mergePolicies: z.array(mergePolicySchema).min(1).optional(),
+}).strict().transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
-	dynaflows: dynaflowsMode.parse(gate.dynaflows),
+	afterMerge: gate.afterMerge,
+	mergePolicies: gate.mergePolicies ?? [],
 }));
 export type Gate = z.infer<typeof gateSchema>;
 

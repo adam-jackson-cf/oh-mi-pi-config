@@ -1,9 +1,10 @@
 import { access, realpath, stat } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
-import { findRecord, loadGate, type Gate, type Mode } from "./repo-record.ts";
+import { findRecord, loadGate, type Gate } from "./repo-record.ts";
+import type { Mode } from "./modes.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the harness path check.
 const SUBPROCESS_TIMEOUT_MS = 20_000;
@@ -656,11 +657,17 @@ async function readRecord(root: string, configRoot: string): Promise<RepoRecord 
 	if (dir) return { dir, gate: await loadGate(dir) };
 	return undefined;
 }
+/** rails.yml parsed with mappingSchema; throws on an unreadable or invalid file. */
+function loadMapping(path: string): Mapping {
+	const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(path, "utf8")));
+	if (!parsed.success) throw new Error(`invalid mappings: ${parsed.error.message}`);
+	return parsed.data;
+}
 function note(state: State, ctx: ExtensionContext, message: string): void {
 	if (state.notes.has(message)) return;
 	state.notes.add(message);
 	ctx.ui.notify(message, "info");
 }
-export { recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
+export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
 export { fileErrorSchema };
 export type { Mapping, RepoRecord, GitAction, State, ToolEvent };

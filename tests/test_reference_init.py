@@ -198,7 +198,6 @@ class DraftRecordTests(InitCase):
             "schemaVersion": 2,
             "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
             "ci": {"requiredContext": "gate", "runner": "github-actions"},
-            "dynaflows": {"mode": "minimal"},
         }
         profile = load_profile(self.record)
         assert profile["house_style"]["version"] == load_house_style()["version"]
@@ -221,10 +220,7 @@ class DraftRecordTests(InitCase):
             in output
         )
         assert "required checks not read (--offline)" in output
-        assert "confirm: dynaflows is in minimal mode" in output
-        assert (
-            "structured mode starts when the owner asks for it in a session" in output
-        )
+        assert "dynaflows" not in output
         assert "confirm: agentMerge is the owner's to set" in output
         assert "ownerOnlyPaths" not in output
         assert "ownerOnlyPaths" not in self.gate()
@@ -243,7 +239,6 @@ class DraftRecordTests(InitCase):
             "schemaVersion": 2,
             "checks": {"commit": ["make", "verify"], "audit": ["make", "audit"]},
             "agentMerge": "allowed",
-            "dynaflows": {"mode": "structured"},
         }
         self.write_record("gate.json", json.dumps(gate))
         values = {
@@ -273,10 +268,8 @@ class DraftRecordTests(InitCase):
             "audit": ["make", "audit"],
             "ci": ["make", "gate-ci"],
         }
-        assert (drafted["agentMerge"], drafted["dynaflows"]) == (
-            "allowed",
-            {"mode": "structured"},
-        )
+        assert drafted["agentMerge"] == "allowed"
+        assert "dynaflows" not in drafted
         profile = load_profile(self.record)
         assert profile["verification_surface"]["approval"] == "ADR-7"
         assert [entry["name"] for entry in profile["adapters"]] == ["pytest"]
@@ -348,20 +341,16 @@ class DraftRecordTests(InitCase):
                 "unknown field ownerOnlyPaths must be removed",
             ),
             (
-                {"schemaVersion": 2, "dynaflows": {"mode": "bogus"}},
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                {"schemaVersion": 2, "dynaflows": {"mode": "structured"}},
+                "unknown field dynaflows must be removed",
             ),
             (
-                {"schemaVersion": 2, "dynaflows": {}},
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                {"schemaVersion": 2, "afterMerge": {"argv": []}},
+                "afterMerge must be {argv, paths?}",
             ),
             (
-                {"schemaVersion": 2, "dynaflows": "on"},
-                'dynaflows must be {"mode": "minimal"|"structured"}',
-            ),
-            (
-                {"schemaVersion": 2, "dynaflows": {"mode": "structured", "extra": 1}},
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                {"schemaVersion": 2, "mergePolicies": []},
+                "mergePolicies must be a nonempty list",
             ),
         ):
             with self.subTest(gate=gate):
@@ -393,26 +382,18 @@ class DraftRecordTests(InitCase):
         )
         return result.returncode, result.stdout + result.stderr
 
-    def test_live_record_can_be_written_in_minimal_mode(self) -> None:
+    def test_live_record_is_written_without_a_mode(self) -> None:
         live = Path(self.temporary.name).resolve() / "harness/repos"
         self.record = live / "owner/target"
-        code, output = self.harness_init()
+        code, output = self.harness_init("--commit-command", "make check")
         assert code == 0, output
         assert (self.record / "gate.json").is_file()
-        assert self.gate()["dynaflows"] == {"mode": "minimal"}
-
-    def test_dynaflows_ask_writes_the_live_record_in_structured_mode(self) -> None:
-        live = Path(self.temporary.name).resolve() / "harness/repos"
-        self.record = live / "owner/target"
-        code, output = self.harness_init(
-            "--dynaflows-mode", "structured", "--commit-command", "make check"
-        )
-        assert code == 0, output
-        assert self.gate()["dynaflows"] == {"mode": "structured"}
+        assert "dynaflows" not in self.gate()
         assert f"init: record at {self.record}" in output
-        assert "confirm: dynaflows is in minimal mode" not in output
-        self.record = live / "owner"
         code, output = self.harness_init("--dynaflows-mode", "structured")
+        assert code != 0, "the removed mode flag is refused"
+        self.record = live / "owner"
+        code, output = self.harness_init()
         assert code != 0
         assert "must be a repo's record" in output
         assert not (live / "owner/gate.json").exists()
@@ -479,7 +460,7 @@ class ExistingRecordTests(InitCase):
     def test_drafts_the_missing_required_fields(self) -> None:
         self.write_record(
             "gate.json",
-            json.dumps({"schemaVersion": 2, "dynaflows": {"mode": "structured"}}),
+            json.dumps({"schemaVersion": 2}),
         )
         self.write("Makefile", MAKEFILE)
         code, output = self.init()

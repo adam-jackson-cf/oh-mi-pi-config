@@ -6,7 +6,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { test } from "bun:test";
 import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
-import { parseOrigin, type Mode } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import { parseOrigin } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
 
 const integrity = "skill://structured-workflow/references/delivery-principles.md";
 const structure = "skill://structured-workflow/references/structure-and-naming.md";
@@ -16,14 +17,16 @@ const verification = "skill://test-guidance/references/before-commit.md";
 type GateFixture = {
 	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
 	agentMerge?: "allowed" | "disabled";
-	ci?: { requiredContext: string; runner: string }; dynaflows?: { mode: Mode };
+	ci?: { requiredContext: string; runner: string };
+	afterMerge?: { argv: string[]; paths?: string[] };
+	mergePolicies?: { base: string; headPrefix: string; method: "rebase" | "merge"; proof: boolean }[];
 };
 type Input = { path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string };
 type Details = { applied?: boolean; files?: string[]; totalReplacements?: number };
 type Event = {
 	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
-	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string; prompt?: string;
+	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string; prompt?: string; willContinue?: boolean;
 };
 type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object; model?: string[] };
 type Handler = Function;
@@ -63,7 +66,8 @@ const wrappedPublishing = [
 const mergeRecover = "skill://git-tool/references/merge-and-recover.md";
 const railsConfig = join(import.meta.dir, "../agent/extensions/dynaflows/rails.yml");
 const defaultOrigin = "git@github.com:owner/repo.git";
-const recordGateSchema = z.object({ dynaflows: z.object({ mode: z.enum(["minimal", "structured"]) }) }).passthrough();
+const recordGateSchema = z.object({ schemaVersion: z.number() }).passthrough();
+const modesFileSchema = z.object({ schemaVersion: z.literal(1), repos: z.record(z.string(), z.enum(["minimal", "structured"])) }).strict();
 
 function repoCommand(command: string, args: string[]): [string, string[]] {
 	if (command === "env") {
@@ -87,7 +91,8 @@ type CommandChoices = { configPath: string | undefined; ompCommand: string[] | u
 
 function extensionOptions(machine: string, records: string, choices: CommandChoices): ExtensionOptions {
 	const options: ExtensionOptions = {
-		machineDynaflowsPath: join(machine, "dynaflows.json"), configRoot: records,
+		modesPath: join(records, "modes.json"), configRoot: records,
+		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsProfileCommand: ["true"],
 		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
 	};
 	if (choices.configPath !== undefined) options.configPath = choices.configPath;
@@ -95,8 +100,9 @@ function extensionOptions(machine: string, records: string, choices: CommandChoi
 	return options;
 }
 
-function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand }: {
+function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, extra = {} }: {
 	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
+	extra?: Partial<ExtensionOptions>;
 } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-")));
 	const machine = mkdtempSync(join(tmpdir(), "dynaflows-guards-machine-"));
@@ -149,12 +155,16 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			}
 		},
 	};
-	const options = extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand });
+	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand }), ...extra };
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
+	mkdirSync(join(machine, "extension"));
+	writeFileSync(join(machine, "extension", "index.ts"), "export {};\n");
+	const modesPath = join(records, "modes.json");
+	if (!existsSync(modesPath)) writeFileSync(modesPath, JSON.stringify({ schemaVersion: 1, repos: {} }));
 	dynaflowsExtension(api, options);
 	let fixture: GateFixture | undefined;
-	let mode: Mode | undefined;
 	let slug = parseOrigin(remote);
+	const modes = () => modesFileSchema.parse(JSON.parse(readFileSync(modesPath, "utf8"))).repos;
 	const recordDir = (cwd = root) => {
 		const currentSlug = cwd === root ? slug : parseOrigin(execFileSync(
 			"git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8", timeout: 20000 },
@@ -167,9 +177,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		writeFileSync(join(recordDir(), "gate.json"), text);
 	};
 	const writeGate = () => {
-		const gate = { checks: { commit: ["true"] }, dynaflows: { mode: "minimal" }, ...(fixture ?? { schemaVersion: 2 }) };
-		if (mode !== undefined) gate.dynaflows = { mode };
-		writeRecord(JSON.stringify(gate));
+		writeRecord(JSON.stringify({ checks: { commit: ["true"] }, ...(fixture ?? { schemaVersion: 2 }) }));
 	};
 	let id = 0;
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
@@ -186,14 +194,21 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		pathFailure(message?: string) { pathFailure = message; },
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
-		async tool(name: string, params: { mode: Mode }) {
+		machine,
+		async tool(name: string, params: { mode?: Mode; rollout?: true; acknowledge?: true; content?: string }) {
 			const tool = tools.get(name);
 			assert.ok(tool, `missing tool ${name}`);
 			return toolResultSchema.parse(await tool.execute("tool-1", params, undefined, undefined, context)).content.map(part => part.text).join("");
 		},
 		gate(value: GateFixture) { fixture = value; writeGate(); },
 		worktreeBase(value: string) { writeFileSync(join(machine, "worktree-base"), `${value}\n`); },
-		mode(value: Mode) { mode = value; writeGate(); },
+		mode(value: Mode) {
+			assert.ok(slug, "the harness origin names a mode entry");
+			writeFileSync(modesPath, JSON.stringify({ schemaVersion: 1, repos: { ...modes(), [slug]: value } }));
+			writeGate();
+		},
+		modeOf(): Mode { return slug ? modes()[slug] ?? "minimal" : "minimal"; },
+		modesPath,
 		rawGate(text: string) { writeRecord(text); },
 		record() { return recordGateSchema.parse(JSON.parse(readFileSync(join(recordDir(), "gate.json"), "utf8"))); },
 		async origin(url: string) {
@@ -205,8 +220,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 				renameSync(previous, recordDir());
 			}
 		},
-		machineMode(value: Mode) { writeFileSync(join(machine, "dynaflows.json"), JSON.stringify({ schemaVersion: 2, mode: value })); },
-		machineText(text: string) { writeFileSync(join(machine, "dynaflows.json"), text); },
+		modesText(text: string) { writeFileSync(modesPath, text); },
 		async read(...urls: string[]) {
 			for (const path of urls) await emit("tool_result", {
 				toolName: "read", toolCallId: `read-${++id}`, input: { path }, isError: false,
@@ -256,6 +270,8 @@ function mergeResults(combined: Result | undefined, result: Result): Result {
 	const merged = { ...combined, ...result };
 	const previousContext = combined?.additionalContext;
 	if (previousContext && result.additionalContext) merged.additionalContext = `${previousContext}\n${result.additionalContext}`;
+	// omp delivers every handler's before_agent_start message.
+	if (combined?.message && result.message) merged.message = { messages: [combined.message, result.message] };
 	return merged;
 }
 
@@ -294,10 +310,10 @@ type PrCiHarness = {
 	};
 };
 
-type PrView = { head?: string; selector?: string; failure?: string; url?: string };
+type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string; state?: string };
 
 function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
-	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3" } = view;
+	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test", state = "OPEN" } = view;
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
@@ -308,7 +324,7 @@ function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, baseRefName: base, headRefName: headRef, state, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 
@@ -347,8 +363,10 @@ export type { Input };
 			for (const command of [
 				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
 				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
-				"git -C /w status", "git -c k=v log", "gh pr view", "git status; git merge x", "false || git rebase x",
-				"git cherry-pick abc", "git revert HEAD", "git am patch", "git pull",
+				"git -C /w status", "git -c k=v log", "gh pr view", "git revert HEAD", "git am patch", "git pull",
+				"git tag", "git tag -l", "git tag --list 'v*'", "git tag -n5", "git tag --contains HEAD", "git branch", "git branch -a",
+				"git branch --list", "git worktree list", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r", "gh api --method=HEAD x",
+				"gh pr checks 3", "gh pr diff 3",
 				"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
 			]) {
 				assert.equal(await h.call("bash", { command }), undefined, command);
@@ -362,6 +380,11 @@ export type { Input };
 				'git -C "/some path" -c core.pager=cat --no-pager push',
 				"git status; git push", "true | git push", "(git push)",
 				"FOO=x BAR=y gh pr create",
+				"git status; git merge x", "false || git rebase x", "git cherry-pick abc", "git reset --hard HEAD~1", "git reset",
+				"git tag v1", "git tag -a v1 -m x", "git tag -d v1", "git branch -d old", "git branch -D old", "git branch --delete old",
+				"git branch -v -D old", "git worktree remove /w", "gh pr edit 3 --title x", "gh pr close 3",
+				"gh api -X POST repos/o/r/issues", "gh api --method PATCH repos/o/r", "gh api --method=DELETE x", "gh api -XPUT x",
+				"gh api repos/o/r/issues -f title=x", "gh api graphql -F query=@q.graphql", "gh api x --input body.json",
 				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
 				...wrappedPublishing,
 			]) {
@@ -476,7 +499,7 @@ export type { Input };
 			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			assert.equal(await bashBlocked(h, `git -C '${other.root}' push`), true);
 			for (const action of ["git push", "gh pr create"]) await checkDestinationRepository(h, other, action);
-			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"mode":"on"}}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"mode":"structured"}}']) {
 				h.rawGate(invalid);
 				for (const command of commands) {
 					const reason = assertBlocked(await h.call("bash", { command }), "gate.json", command);
@@ -575,16 +598,19 @@ export type { Input };
 	});
 
 
-test("pulling commits in needs no read and no check beyond hook-bypass flags", async () => {
+test("pulling commits in needs the Git reads but no harness check beyond hook-bypass flags", async () => {
 	const h = harness();
 	try {
 		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
 		h.mode("structured");
 		forbidGh(h);
-		for (const command of ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main", "git revert HEAD",
-			"git am patch", "git pull", "git merge-base HEAD HEAD"]) {
+		for (const command of ["git revert HEAD", "git am patch", "git pull", "git merge-base HEAD HEAD"]) {
 			assert.equal(await h.call("bash", { command }), undefined, command);
 		}
+		const writes = ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main"];
+		for (const command of writes) assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
+		await h.read("skill://git-tool", mergeRecover);
+		for (const command of writes) assert.equal(await h.call("bash", { command }), undefined, `no checks.commit run: ${command}`);
 		for (const command of ["git merge --no-verify branch", "git pull --no-verify", "git rebase --no-ver main", "git -c core.hooksPath=/dev/null merge x"]) {
 			const blocked = await h.call("bash", { command });
 			assert.ok(reasonOf(blocked).includes("drop hook bypass"), `${command}: ${blocked?.reason}`);
@@ -727,8 +753,8 @@ test("uv and poetry separator commits pass the tool-call handler", async () => {
 
 test("an invalid rails.yml mapping fails the load", async () => {
 	const source = readFileSync(railsConfig, "utf8");
-	assert.equal(/merge\|rebase|cherry-pick|revert\|am\|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
-		"pulling commits in is not a gated git command");
+	assert.equal(/revert|\bam\b|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
+		"revert, am and pull are not gated git commands");
 	const dir = mkdtempSync(join(tmpdir(), "dynaflows-guards-config-"));
 	try {
 		const configPath = join(dir, "rails.yml");
@@ -856,23 +882,28 @@ test("structured mode keeps the default-branch push block and routes gh pr merge
 	} finally { h.cleanup(); }
 });
 
-test("an invalid machine file names its fault, runs minimal mode and refuses commits until fixed", async () => {
+test("an invalid mode file names its fault, runs minimal mode and refuses commits until fixed", async () => {
 	const h = harness();
 	try {
 		h.mode("structured");
-		h.machineText(JSON.stringify({ schemaVersion: 2, mode: "on" }));
+		h.modesText(JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": "on" } }));
 		await h.emit("session_start");
 		await h.read("skill://git-tool", mergeRecover);
 		assert.ok(h.notes.some(note => note.includes("is invalid: it must be")), h.notes.join("; "));
 		assert.equal(await h.call("write", { path: "tests/new.test.ts" }), undefined, "minimal mode asks for no reference reads");
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "is invalid: it must be");
-		h.machineText("{broken");
-		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "policy could not be evaluated");
-		h.machineMode("structured");
-		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
-		h.machineMode("minimal");
+		for (const text of ["{broken", JSON.stringify({ schemaVersion: 2, repos: {} }), JSON.stringify({ schemaVersion: 1, repos: {}, extra: 1 }),
+			JSON.stringify({ schemaVersion: 1, repos: { "Owner/Repo": "structured" } })]) {
+			h.modesText(text);
+			assertBlocked(await h.call("bash", { command: "git commit -m x" }), "the mode file", text);
+		}
+		rmSync(h.modesPath);
+		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "cannot be read", "a missing mode file is refused, never read as minimal");
+		h.modesText(JSON.stringify({ schemaVersion: 1, repos: {} }));
 		h.notes.length = 0;
 		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
-		assert.ok(h.notes.some(note => note.includes("sets mode minimal; commit checks do not run")), h.notes.join("; "));
+		assert.ok(h.notes.some(note => note.includes("does not set structured; commit checks do not run")), h.notes.join("; "));
+		h.mode("structured");
+		assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 	} finally { h.cleanup(); }
 });

@@ -22,8 +22,9 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
    or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,
    then pushes self-created `agent/*` history with `git push --force-with-lease`.
    Rewriting other history requires owner approval. A rebased head needs exact-head CI again.
-4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`; add `--auto` when required protection
-   supports it. Never use `--admin` or bypass protection.
+4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`, or the method the record's
+   `mergePolicies` entry for the PR's base and head names; add `--auto` when required protection supports it. Rails
+   refuse `--admin` and any other method.
 5. After every attempt, including errors or auto-merge requests, run `gh pr view <number> --json state,mergeCommit`.
    Require `MERGED` and a non-null merge commit before reporting success. An open/queued PR is not merged; inspect state
    before retrying uncertain errors.
@@ -83,7 +84,7 @@ establish SHA identity).
 
 A repository-specific documented fallback is autonomous merge authority only if its exact `run.headSha` is validated
 and it publishes every required status. Otherwise stop/escalate the incident for owner decision; generic Actions success
-alone is insufficient. Repository-specific fallbacks live in that repository's project instructions.
+alone is insufficient. Repository-specific fallbacks live in the record docs ([record README](../../../record/README.md)).
 
 Repositories whose record declares `ci` never qualify for the no-CI exception. Otherwise, only when host queries establish
 **no checks at all** and the repository has **no CI workflow** may exact-head local `checks.ci` replace CI.

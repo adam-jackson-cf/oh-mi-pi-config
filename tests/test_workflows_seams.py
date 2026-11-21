@@ -20,9 +20,6 @@ from guardrails.host.process import run_text
 pytestmark = pytest.mark.seam
 
 
-SWITCH = {"dynaflows": {"mode": "structured"}}
-
-
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
 
 
@@ -115,12 +112,6 @@ class RepositoryCase(unittest.TestCase):
         return path
 
     def write_gate(self, text: str) -> None:
-        try:
-            gate = json.loads(text)
-        except ValueError:
-            gate = None
-        if isinstance(gate, dict):
-            text = json.dumps({**SWITCH, **gate})
         self.record.mkdir(parents=True, exist_ok=True)
         (self.record / "gate.json").write_text(text)
 
@@ -657,7 +648,7 @@ class FreezeTests(RepositoryCase):
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "dynaflows": {"mode": "yes"},
+                "dynaflows": {"mode": "structured"},
             }),
         ):
             self.write_gate(text)
@@ -975,8 +966,8 @@ class RecordGateTests(RepositoryCase):
         for text, fragment in (
             ("{", "record "),
             (
-                json.dumps({**complete, "dynaflows": {"mode": "yes"}}),
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                json.dumps({**complete, "dynaflows": {"mode": "structured"}}),
+                "unknown field dynaflows must be removed",
             ),
         ):
             with self.subTest(text=text):

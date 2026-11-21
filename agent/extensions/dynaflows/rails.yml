@@ -29,10 +29,11 @@ testGlobs:
 codeGlobs:
   - "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}"
 editTools: [write, edit, ast_edit]
-# Applied to parsed command positions after env assignments and git global options.
-# Quoted echo/rg arguments are not commands and do not trigger this check. Pulling commits in
-# (merge, rebase, cherry-pick, revert, am, pull) needs no read; rails check only its hook bypass.
-gitCommand: '^(git (commit|push)\b|git worktree add\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge)\b)'
+# Applied to parsed command positions after env assignments and git global options, in both modes.
+# Quoted echo/rg arguments are not commands and do not trigger this check. Every Git and GitHub
+# write needs the read: commit, push, merge, rebase, reset, cherry-pick, tag, branch deletion,
+# worktree add/remove, branch creation, gh pr create/merge/edit/close and gh api writes.
+gitCommand: '^(git (commit|push|merge|rebase|reset|cherry-pick)(?![-\w])|git tag (?!(?:-l|--list|-n\d*|--contains|--no-contains|--points-at|--merged|--no-merged|--sort\S*|--format\S*|-v|--verify)(?:[ =]|$))\S|git branch (?:.* )?(?:-d|-D|--delete)(?: |$)|git worktree (add|remove)\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge|edit|close)\b|gh api\b(?=.* (?:(?:-X ?|--method[ =])(?!(?:GET|HEAD|get|head)\b)\S|(?:-f|-F|--field|--raw-field|--input)(?:[ =]|$))))'
 pathFields:
   read: [path]
   write: [path]
