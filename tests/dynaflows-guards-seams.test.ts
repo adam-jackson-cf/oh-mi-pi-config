@@ -356,8 +356,10 @@ export type { Input };
 			for (const command of [
 				"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
 				"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
-				"git -C /w status", "git -c k=v log", "gh pr view", "git status; git merge x", "false || git rebase x",
-				"git cherry-pick abc", "git revert HEAD", "git am patch", "git pull",
+				"git -C /w status", "git -c k=v log", "gh pr view", "git revert HEAD", "git am patch", "git pull",
+				"git tag", "git tag -l", "git tag --list 'v*'", "git tag -n5", "git tag --contains HEAD", "git branch", "git branch -a",
+				"git branch --list", "git worktree list", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r", "gh api --method=HEAD x",
+				"gh pr checks 3", "gh pr diff 3",
 				"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
 			]) {
 				assert.equal(await h.call("bash", { command }), undefined, command);
@@ -371,6 +373,11 @@ export type { Input };
 				'git -C "/some path" -c core.pager=cat --no-pager push',
 				"git status; git push", "true | git push", "(git push)",
 				"FOO=x BAR=y gh pr create",
+				"git status; git merge x", "false || git rebase x", "git cherry-pick abc", "git reset --hard HEAD~1", "git reset",
+				"git tag v1", "git tag -a v1 -m x", "git tag -d v1", "git branch -d old", "git branch -D old", "git branch --delete old",
+				"git branch -v -D old", "git worktree remove /w", "gh pr edit 3 --title x", "gh pr close 3",
+				"gh api -X POST repos/o/r/issues", "gh api --method PATCH repos/o/r", "gh api --method=DELETE x", "gh api -XPUT x",
+				"gh api repos/o/r/issues -f title=x", "gh api graphql -F query=@q.graphql", "gh api x --input body.json",
 				'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
 				...wrappedPublishing,
 			]) {
@@ -584,16 +591,19 @@ export type { Input };
 	});
 
 
-test("pulling commits in needs no read and no check beyond hook-bypass flags", async () => {
+test("pulling commits in needs the Git reads but no harness check beyond hook-bypass flags", async () => {
 	const h = harness();
 	try {
 		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
 		h.mode("structured");
 		forbidGh(h);
-		for (const command of ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main", "git revert HEAD",
-			"git am patch", "git pull", "git merge-base HEAD HEAD"]) {
+		for (const command of ["git revert HEAD", "git am patch", "git pull", "git merge-base HEAD HEAD"]) {
 			assert.equal(await h.call("bash", { command }), undefined, command);
 		}
+		const writes = ["git cherry-pick -n HEAD", "git merge origin/main", "git rebase origin/main"];
+		for (const command of writes) assertBlocked(await h.call("bash", { command }), "skill://git-tool", command);
+		await h.read("skill://git-tool", mergeRecover);
+		for (const command of writes) assert.equal(await h.call("bash", { command }), undefined, `no checks.commit run: ${command}`);
 		for (const command of ["git merge --no-verify branch", "git pull --no-verify", "git rebase --no-ver main", "git -c core.hooksPath=/dev/null merge x"]) {
 			const blocked = await h.call("bash", { command });
 			assert.ok(reasonOf(blocked).includes("drop hook bypass"), `${command}: ${blocked?.reason}`);
@@ -736,8 +746,8 @@ test("uv and poetry separator commits pass the tool-call handler", async () => {
 
 test("an invalid rails.yml mapping fails the load", async () => {
 	const source = readFileSync(railsConfig, "utf8");
-	assert.equal(/merge\|rebase|cherry-pick|revert\|am\|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
-		"pulling commits in is not a gated git command");
+	assert.equal(/revert|\bam\b|pull/.test(source.match(/^gitCommand: .*$/m)?.[0] ?? ""), false,
+		"revert, am and pull are not gated git commands");
 	const dir = mkdtempSync(join(tmpdir(), "dynaflows-guards-config-"));
 	try {
 		const configPath = join(dir, "rails.yml");

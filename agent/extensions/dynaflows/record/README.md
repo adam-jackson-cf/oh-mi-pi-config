@@ -120,7 +120,8 @@ The `dynaflows` tool and the `$dynaflows` directive write it; minimal removes th
 [ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the modes;
 [ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md) the mode file.
 
-Minimal mode keeps the fixed guards: the `skill://git-tool` read before Git integration commands,
+Minimal mode keeps the fixed guards: the `skill://git-tool` read before every Git or GitHub write
+(`rails.yml` `gitCommand`),
 hook-bypass refusal, worktree placement, subagent path safety, the `agentMerge` policy, no
 `gh pr merge` and no `git push` to the remote's default branch. Pushes to other branches and
 `gh pr create` pass.

@@ -51,7 +51,8 @@ The always-loaded dynaflows extension runs each repository in minimal or structu
 ([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). The tracked
 [`modes.json`](agent/extensions/dynaflows/modes.json) names the structured repositories; an unlisted
 one is minimal ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)). Its guards in both modes
-require `skill://git-tool` for branch and integration commands,
+require `skill://git-tool` before every Git or GitHub write (commit, push, merge, rebase, reset,
+cherry-pick, tag, branch deletion, worktree add/remove, `gh pr create|merge|edit|close`, `gh api` writes),
 including commands with Git global options, shell separators and known command
 wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
 bounds; `cd` and `pushd` select the destination repository's policy. Unresolved
