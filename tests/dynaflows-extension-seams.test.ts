@@ -55,7 +55,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("absent and invalid records leave edit reads off without throwing", async () => {
+	test("absent and invalid records ask for no edit reads and do not throw", async () => {
 		const h = harness();
 		try {
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
@@ -140,7 +140,7 @@ describe("dynaflows extension", () => {
 			const runs = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
 			h.gate({ schemaVersion: 2, checks: { commit: [script, "commit"] } });
 			assert.equal(await commit(), undefined);
-			assert.deepEqual(runs(), [], "dynaflows off: rails run no repo or harness check");
+			assert.deepEqual(runs(), [], "minimal mode: rails run no repo or harness check");
 			h.mode("structured");
 			assert.equal(await commit(), undefined);
 			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`],
@@ -170,7 +170,7 @@ describe("dynaflows extension", () => {
 			h.machineMode("minimal");
 			rmSync(log);
 			assert.equal(await commit(), undefined);
-			assert.deepEqual(runs(), [], "the machine default off turns enforcement off with dynaflows");
+			assert.deepEqual(runs(), [], "the machine default minimal runs no repo or harness check");
 		} finally {
 			if (previous === undefined) delete process.env["AGENT"]; else process.env["AGENT"] = previous;
 			delete process.env["FAIL_commit"]; delete process.env["FAIL_harness"];
@@ -320,7 +320,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("$dynaflows sets the record's switch; the machine default can only turn it off; only main prompts toggle it", async () => {
+	test("$dynaflows sets the record's mode; the machine default can only force minimal mode; only main prompts change it", async () => {
 		const h = harness();
 		try {
 			h.machineMode("structured");
@@ -329,18 +329,18 @@ describe("dynaflows extension", () => {
 			assert.ok(h.notes.some(note => note.includes("has no per-repo record, so dynaflows is already in minimal mode")), h.notes.join("; "));
 			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
 			assert.ok(h.notes.some(note => note.includes("has no per-repo record; starting repository setup")), h.notes.join("; "));
-			assert.equal(existsSync(h.recordDir()), false, "the toggle never creates a record");
+			assert.equal(existsSync(h.recordDir()), false, "the directive never creates a record");
 			h.gate({ schemaVersion: 2 });
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the record says off");
 			h.mode("structured");
 			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
 			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
-			assert.ok(pointer.includes("skill://structured-workflow"), "the record turns it on");
+			assert.ok(pointer.includes("skill://structured-workflow"), "the record sets structured mode");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
 			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
 			assert.ok(off.includes("Dynaflows minimal mode") && !off.includes("skill://structured-workflow"));
 			assert.deepEqual(h.record(), { checks: { commit: ["true"] }, dynaflows: { mode: "minimal" }, schemaVersion: 2 },
-				"only the switch changes");
+				"only the mode changes");
 			h.setSession("restarted");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "record off outlives the session and beats machine on");
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
@@ -350,13 +350,13 @@ describe("dynaflows extension", () => {
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "machine off beats record on");
 			h.setSession("sub"); h.context.agent.kind = "sub";
 			for (const prompt of ["$dynaflows off", "stop $dynaflows", "turn off $dynaflows"]) {
-				assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt }), undefined, `subagents cannot toggle dynaflows: ${prompt}`);
+				assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt }), undefined, `subagents cannot change the dynaflows mode: ${prompt}`);
 			}
 			assert.deepEqual(h.record().dynaflows, { mode: "structured" });
 		} finally { h.cleanup(); }
 	});
 
-	test("every on and off directive form sets the record's switch", async () => {
+	test("every structured and minimal directive form sets the record's mode", async () => {
 		const h = harness();
 		try {
 			h.gate({ schemaVersion: 2 });
@@ -409,7 +409,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("only a standalone directive line sets the switch; asks inside sentences are left to the agent", async () => {
+	test("only a standalone directive line sets the mode; asks inside sentences are left to the agent", async () => {
 		const h = harness();
 		try {
 			h.gate({ schemaVersion: 2 });
@@ -442,7 +442,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("the dynaflows tool sets the switch and returns the next step; subagents cannot use it", async () => {
+	test("the dynaflows tool sets the mode and returns the next step; subagents cannot use it", async () => {
 		const h = harness();
 		try {
 			const setup = await h.tool("dynaflows", { mode: "structured" });
@@ -459,7 +459,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("a repo without an origin remote has no record, so dynaflows is off", async () => {
+	test("a repo without an origin remote has no record, so dynaflows runs minimal mode", async () => {
 		const h = harness();
 		try {
 			h.mode("structured");
@@ -472,7 +472,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("dynaflows off is never silent: one note at session start and one at every commit name the slug and reason", async () => {
+	test("minimal mode is never silent: one note at session start and one at every commit name the slug and reason", async () => {
 		const h = harness();
 		try {
 			const gate = join(h.recordDir(), "gate.json");
@@ -1038,9 +1038,9 @@ test("child handoff requires its own verification read and repaired path checks"
 	} finally { h.cleanup(); }
 });
 
-test("toggle asks ignore mentions without a verb and reject contradictions and nonrepositories", async () => {
+test("mode directives ignore mentions without a verb and reject contradictions and nonrepositories", async () => {
 	const h = harness();
-	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "rails-toggle-")));
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "rails-directive-")));
 	try {
 		h.gate({ schemaVersion: 2 });
 		h.mode("structured");
@@ -1073,7 +1073,7 @@ test("linked worktrees resolve the main checkout's record", async () => {
 		await execute("git", ["worktree", "add", "-b", "agent/source", linked], { cwd: h.root });
 		h.context.cwd = linked;
 		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
-		assert.deepEqual(h.record().dynaflows, { mode: "structured" }, "the linked worktree toggles the shared record");
+		assert.deepEqual(h.record().dynaflows, { mode: "structured" }, "the linked worktree sets the shared record's mode");
 		assert.equal(existsSync(join(linked, ".omp")), false);
 		const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: linked })).stdout.trim();
 		await h.read("skill://git-tool", mergeRecover);
@@ -1099,8 +1099,8 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 		{ schemaVersion: 2, agentMerge: "maybe" },
 		{ schemaVersion: true }, { schemaVersion: 3 },
 		{ schemaVersion: 2, dynaflows: { mode: "structured" } }, { schemaVersion: 2, dynaflows: null },
-		{ schemaVersion: 2, dynaflows: {} }, { schemaVersion: 2, dynaflows: { enabled: "yes" } }, { schemaVersion: 2, dynaflows: { enabled: true } },
-		{ schemaVersion: 2, dynaflows: { mode: "on" } }, { schemaVersion: 2, dynaflows: { mode: "minimal", enabled: false } },
+		{ schemaVersion: 2, dynaflows: {} }, { schemaVersion: 2, dynaflows: { mode: "yes" } }, { schemaVersion: 2, dynaflows: { other: true } },
+		{ schemaVersion: 2, dynaflows: { mode: "on" } }, { schemaVersion: 2, dynaflows: { mode: "minimal", other: false } },
 		{ schemaVersion: 2, ownerOnlyPaths: [] }, { schemaVersion: 2, ownerOnlyPaths: ["scripts/checks/exceptions.json"] },
 	].map(value => ({ ...record, ...value }));
 	const h = harness();

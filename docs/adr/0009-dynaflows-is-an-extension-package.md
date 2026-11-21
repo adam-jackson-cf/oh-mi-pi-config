@@ -1,6 +1,9 @@
 # ADR 0009: Dynaflows is an extension package
 
-- Status: accepted
+- Status: Superseded in part by [ADR 0010](0010-dynaflows-package-layout.md) (package layout),
+  [ADR 0014](0014-remove-owner-only-paths.md) (owner-only commit refusal),
+  [ADR 0015](0015-dynaflows-minimal-and-structured-modes.md) (`agent-rails.ts`, `agent/lib` and the
+  on/off switch) and [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the disabled deprecated skill)
 - Date: 2026-11-18
 - Builds on: [ADR 0008](0008-generic-setup-skill-and-record-docs.md)
 

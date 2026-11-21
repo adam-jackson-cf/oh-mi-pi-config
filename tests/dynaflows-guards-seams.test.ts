@@ -476,7 +476,7 @@ export type { Input };
 			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
 			assert.equal(await bashBlocked(h, `git -C '${other.root}' push`), true);
 			for (const action of ["git push", "gh pr create"]) await checkDestinationRepository(h, other, action);
-			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"enabled":"yes"}}']) {
+			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"mode":"on"}}']) {
 				h.rawGate(invalid);
 				for (const command of commands) {
 					const reason = assertBlocked(await h.call("bash", { command }), "gate.json", command);
@@ -860,12 +860,12 @@ test("an invalid machine file names its fault, runs minimal mode and refuses com
 	const h = harness();
 	try {
 		h.mode("structured");
-		h.machineText(JSON.stringify({ schemaVersion: 1, enabled: true }));
+		h.machineText(JSON.stringify({ schemaVersion: 2, mode: "on" }));
 		await h.emit("session_start");
 		await h.read("skill://git-tool", mergeRecover);
-		assert.ok(h.notes.some(note => note.includes("is invalid: unknown field enabled must be removed")), h.notes.join("; "));
+		assert.ok(h.notes.some(note => note.includes("is invalid: it must be")), h.notes.join("; "));
 		assert.equal(await h.call("write", { path: "tests/new.test.ts" }), undefined, "minimal mode asks for no reference reads");
-		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "unknown field enabled must be removed");
+		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "is invalid: it must be");
 		h.machineText("{broken");
 		assertBlocked(await h.call("bash", { command: "git commit -m x" }), "policy could not be evaluated");
 		h.machineMode("structured");

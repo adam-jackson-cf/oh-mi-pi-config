@@ -241,7 +241,7 @@ class DraftRecordTests(InitCase):
     def test_recorded_values_and_approvals_are_kept(self) -> None:
         gate = {
             "schemaVersion": 2,
-            "checks": {"commit": ["make", "verify"]},
+            "checks": {"commit": ["make", "verify"], "audit": ["make", "audit"]},
             "agentMerge": "allowed",
             "dynaflows": {"mode": "structured"},
         }
@@ -270,6 +270,7 @@ class DraftRecordTests(InitCase):
         drafted = self.gate()
         assert drafted["checks"] == {
             "commit": ["make", "verify"],
+            "audit": ["make", "audit"],
             "ci": ["make", "gate-ci"],
         }
         assert (drafted["agentMerge"], drafted["dynaflows"]) == (
@@ -345,10 +346,6 @@ class DraftRecordTests(InitCase):
             (
                 {"schemaVersion": 2, "ownerOnlyPaths": []},
                 "unknown field ownerOnlyPaths must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "dynaflows": {"enabled": True}},
-                "unknown field dynaflows.enabled must be removed",
             ),
             (
                 {"schemaVersion": 2, "dynaflows": {"mode": "bogus"}},

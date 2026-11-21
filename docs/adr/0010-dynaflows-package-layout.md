@@ -1,6 +1,7 @@
 # 0010: Give dynaflows one package layout
 
-Status: accepted (owner-approved).
+Status: Superseded in part by [ADR 0016](0016-skill-moves-and-legacy-removal.md) (the `skills/dynaflows/`
+skill is now `skills/structured-workflow/`).
 
 ## Context
 

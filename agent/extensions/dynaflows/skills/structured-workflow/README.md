@@ -2,8 +2,8 @@
 
 ## Overview
 
-Structured-workflow is the six-stage delivery workflow the harness runs for a repository whose record turns it on:
-Frame, Spike, Plan, Implement, Verify and Integrate, after a preflight that resolves the switch, the record and one
+Structured-workflow is the six-stage delivery workflow the harness runs for a repository whose record sets structured mode:
+Frame, Spike, Plan, Implement, Verify and Integrate, after a preflight that resolves the mode, the record and one
 playbook. Proofs are outcome tests frozen red at base and proved green at the PR head; merge needs exact-head CI,
 `prove()` and `structure_review()`. The [design directive](../../AGENTS.md) holds the principles behind it, and
 [workflow.html](../../docs/workflow.html) explains it for people.
@@ -16,7 +16,7 @@ playbook. Proofs are outcome tests frozen red at base and proved green at the PR
 
 ## Example prompts
 
-- "$dynaflows on" in a repo without a record, then "fix the login redirect bug".
+- "$dynaflows structured" in a repo without a record, then "fix the login redirect bug".
 - "Add an export option to the report command, with proofs."
 - "Investigate why the nightly job is slow; evidence only."
 

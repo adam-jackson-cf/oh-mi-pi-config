@@ -24,7 +24,7 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
    (`guardrails init --dynaflows-mode structured`), else `minimal`. Write approval fields only as the owner stated them in
    the chat; the Step 5 STOP stays the boundary before applying repo fixes.
 8. Pin tools the repo runs through the target's package manager. Keep repo commit and CI commands unchanged.
-9. Execution events follow [the record contract](../../../record/README.md#process-switch-and-events).
+9. Execution events follow [the record contract](../../../record/README.md#process-mode-and-events).
    Any commit finding blocks, including drift from contributors who do not use omp. Merge needs `ci.requiredContext`
    green on the exact head and, in structured mode, a `prove()` pass on that head. T3 runs on a schedule, outside the
    record's checks.
