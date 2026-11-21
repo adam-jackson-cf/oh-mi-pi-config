@@ -815,22 +815,15 @@ test("shell indirection fails closed: stdin shells, variable command words, unkn
 	} finally { h.cleanup(); }
 });
 
+// The rails refuse any gh command outside gh's built-in set without reading gh's config, so
+// mm (an alias for pr merge), sm (a shell alias) and an extension are refused whether or not they exist.
 test("gh aliases and extensions are refused: they run commands the rails cannot check", async () => {
 	const h = harness();
-	const previous = process.env["GH_CONFIG_DIR"];
-	const config = mkdtempSync(join(tmpdir(), "dynaflows-gh-config-"));
 	try {
-		process.env["GH_CONFIG_DIR"] = config;
-		execFileSync("gh", ["alias", "set", "mm", "pr merge"], { env: process.env });
-		execFileSync("gh", ["alias", "set", "--shell", "sm", "gh pr merge \"$1\" --rebase"], { env: process.env });
 		await h.read("skill://git-tool");
 		for (const command of ["gh mm 5 --rebase", "gh sm 5", "gh unknown-extension"]) assertBlocked(await h.call("bash", { command }), "not a built-in gh command", command);
 		assert.equal(await h.call("bash", { command: "gh pr view 5" }), undefined);
-	} finally {
-		restoreEnvironment("GH_CONFIG_DIR", previous);
-		rmSync(config, { recursive: true, force: true });
-		h.cleanup();
-	}
+	} finally { h.cleanup(); }
 });
 
 test("Git writes through the eval and github tools are refused", async () => {

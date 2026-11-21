@@ -142,6 +142,7 @@ def test_t1_runs_fast_pytest_under_the_guards_and_bun_files_outside_the_seams(
     [bun] = bun_runs(calls)
     assert bun[2] == "--preload"
     assert bun[4:] == ["./tests/unit.test.ts"]
+    assert "--timeout" not in bun
     [pytest_call] = pytest_runs(calls)
     assert (
         pytest_call[-4:]
@@ -170,9 +171,10 @@ def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
         "--coverage-reporter=lcov",
         "--coverage-dir=/cov/bun-t2",
     ]
-    assert bun[5] == "--preload"
-    assert bun[6].endswith("/bun-t2.preload.mjs")
-    assert bun[7:] == ["./tests/flow-seams.test.ts", "NODE_V8_COVERAGE=/cov/node"]
+    assert bun[5:7] == ["--timeout", "60000"]
+    assert bun[7] == "--preload"
+    assert bun[8].endswith("/bun-t2.preload.mjs")
+    assert bun[9:] == ["./tests/flow-seams.test.ts", "NODE_V8_COVERAGE=/cov/node"]
     [pytest_call] = pytest_runs(calls)
     assert pytest_call[-11:] == [
         "-p",

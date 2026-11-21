@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
@@ -9,7 +9,12 @@ import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
 const repoRoot = resolve(import.meta.dir, "..");
 const extension = join(repoRoot, "agent/extensions/dynaflows");
 const cli = Bun.resolveSync("@oh-my-pi/pi-coding-agent/cli", import.meta.dir);
-const runTimeout = 120_000;
+// Git set-up commands get tests/test_ci_gate.py's PROCESS_TIMEOUT. omp gets far longer: under a loaded
+// gate container its start-up alone has run past 110 s. Spawn kills omp at ompTimeout, below the test's
+// own timeout, so the test awaits the exit, reports omp's stderr and log, and leaves no child behind.
+const processTimeout = 60_000;
+const ompTimeout = 240_000;
+const runTimeout = ompTimeout + processTimeout;
 const head = "a".repeat(40);
 const gitTool = { name: "read", arguments: { path: "skill://git-tool" } };
 const mergeRecover = { name: "read", arguments: { path: "skill://git-tool/references/merge-and-recover.md" } };
@@ -54,7 +59,7 @@ function scriptedModel(turns: ScriptedCall[][]) {
 }
 
 function run(cmd: string[], cwd: string, env: Record<string, string>): string {
-	const result = Bun.spawnSync({ cmd, cwd, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	const result = Bun.spawnSync({ cmd, cwd, env, timeout: processTimeout, stdout: "pipe", stderr: "pipe" });
 	if (result.exitCode !== 0) throw new Error(`${cmd.join(" ")} exited ${result.exitCode}: ${result.stderr.toString()}`);
 	return result.stdout.toString();
 }
@@ -94,10 +99,16 @@ function cloneWithRemote(scratch: string, env: Record<string, string>) {
 
 async function omp(repo: string, env: Record<string, string>): Promise<string> {
 	const cmd = [process.execPath, cli, "--offline", "--no-title", "-p", "--mode", "json", "--no-session", "--model", "scripted/turns", "go"];
-	const child = Bun.spawn({ cmd, cwd: repo, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	const child = Bun.spawn({ cmd, cwd: repo, env, timeout: ompTimeout, stdout: "pipe", stderr: "pipe" });
 	const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-	if (await child.exited !== 0) throw new Error(`omp exited ${child.exitCode}: ${stderr}`);
+	if (await child.exited !== 0) throw new Error(`omp exited ${child.exitCode}: ${stderr}${ompLogs(env["HOME"] ?? "")}`);
 	return stdout;
+}
+
+function ompLogs(home: string): string {
+	const dir = join(home, ".omp/logs");
+	if (!existsSync(dir)) return "";
+	return readdirSync(dir).map(name => `\n--- ${name} (last 4000 characters)\n${readFileSync(join(dir, name), "utf8").slice(-4000)}`).join("");
 }
 
 async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promise<Run> {
