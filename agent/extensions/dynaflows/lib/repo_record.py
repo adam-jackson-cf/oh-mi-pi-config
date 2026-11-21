@@ -100,11 +100,8 @@ GATE_FIELDS = frozenset({
     "checks",
     "agentMerge",
     "ci",
-    "dynaflows",
 })
 CHECK_FIELDS = frozenset({"commit", "ci", "audit", "format", "profile"})
-MODES = ("minimal", "structured")
-MODE_REQUIREMENT = 'dynaflows must be {"mode": "minimal"|"structured"}'
 
 
 def _argv(value: object) -> bool:
@@ -145,19 +142,9 @@ def _ci_reason(gate: dict[str, Any]) -> str | None:
 
 
 def _settings_reason(gate: dict[str, Any]) -> str | None:
-    """Why the gate's ``agentMerge`` or ``dynaflows`` setting is rejected, or None."""
+    """Why the gate's ``agentMerge`` setting is rejected, or None."""
     if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
-    return dynaflows_reason(gate.get("dynaflows"))
-
-
-def dynaflows_reason(dynaflows: object) -> str | None:
-    if (
-        not isinstance(dynaflows, dict)
-        or set(dynaflows) != {"mode"}
-        or dynaflows["mode"] not in MODES
-    ):
-        return MODE_REQUIREMENT
     return None
 
 

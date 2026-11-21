@@ -3,7 +3,8 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
-import { findRecord, loadGate, type Gate, type Mode } from "./repo-record.ts";
+import { findRecord, loadGate, type Gate } from "./repo-record.ts";
+import type { Mode } from "./modes.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the harness path check.
 const SUBPROCESS_TIMEOUT_MS = 20_000;

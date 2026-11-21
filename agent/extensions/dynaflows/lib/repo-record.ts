@@ -84,10 +84,6 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
 
 const nonEmpty = z.string().refine(value => value.trim().length > 0);
-export const MODES = ["minimal", "structured"] as const;
-export type Mode = typeof MODES[number];
-const dynaflowsMode = z.object({ mode: z.enum(MODES) }).strict();
-const modeRequirement = 'dynaflows must be {"mode": "minimal"|"structured"}';
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
 const gateSchema = z.object({
@@ -98,15 +94,11 @@ const gateSchema = z.object({
 	}).strict(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
-	dynaflows: z.unknown().optional(),
-}).strict().superRefine((gate, ctx) => {
-	if (!dynaflowsMode.safeParse(gate.dynaflows).success) ctx.addIssue({ code: "custom", path: ["dynaflows"], message: modeRequirement });
-}).transform(gate => ({
+}).strict().transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
-	dynaflows: dynaflowsMode.parse(gate.dynaflows),
 }));
 export type Gate = z.infer<typeof gateSchema>;
 

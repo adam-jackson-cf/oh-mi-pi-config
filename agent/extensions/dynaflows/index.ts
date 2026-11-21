@@ -1,5 +1,4 @@
-import { access, lstat, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { access, lstat, readFile, realpath, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -9,8 +8,9 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import {
-	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, MODES, type Mode, minimalText, readGateText, recordDir, resolveRecord,
+	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, minimalText, recordDir, resolveRecord,
 } from "./lib/repo-record.ts";
+import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, repoRoot,
 	paths, pathArguments, matches, missing, sentence, readReason, gitActions, readRecord, note, absentFile, fileErrorSchema,
@@ -91,15 +91,6 @@ async function canonicalCandidates(root: string, canonicalRoot: string, changed:
 	}
 	return [...new Set(candidates)];
 }
-async function setDynaflows(dir: string, mode: Mode): Promise<string> {
-	const path = join(dir, GATE_FILE);
-	const gate = z.record(z.string(), z.unknown()).parse(JSON.parse(await readGateText(dir)));
-	gate["dynaflows"] = { mode };
-	const temp = `${path}.${randomUUID()}.tmp`;
-	await writeFile(temp, `${JSON.stringify(gate, null, 2)}\n`);
-	await rename(temp, path);
-	return path;
-}
 function matchedHead(args: string[]): string | undefined {
 	const at = args.findIndex(arg => arg === "--match-head-commit" || arg.startsWith("--match-head-commit="));
 	if (at < 0) return undefined;
@@ -120,14 +111,13 @@ function missingRecordOutcome(notify: (notice: string) => string, slug: string, 
 	return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
 		`The owner asked for dynaflows structured mode in ${slug}, which has no per-repo record yet. ` +
 		"Start skill://structured-workflow/references/harness-setup.md setup now, from Step 0. Write the record " +
-		`yourself at ${recordPath} as setup reaches each file, with gate.json setting ` +
-		'"dynaflows": {"mode": "structured"}, so structured mode starts once the record is complete. Never ask the owner to save a file.' };
+		`yourself at ${recordPath} as setup reaches each file; structured mode starts once the record is complete. ` +
+		"Never ask the owner to save a file." };
 }
 function resumeContent(slug: string, dir: string, reason: string): string {
 	return `The owner asked for dynaflows structured mode in ${slug}, but its per-repo record ` +
 		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://structured-workflow/references/harness-setup.md setup now and repair ` +
-		'the record yourself in place, with "dynaflows": {"mode": "structured"}. ' +
-		"Never ask the owner to save a file.";
+		"the record yourself in place. Never ask the owner to save a file.";
 }
 function startContent(slug: string, workflow: string): string {
 	return `Dynaflows structured mode for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
@@ -138,8 +128,6 @@ function startContent(slug: string, workflow: string): string {
 }
 const agentMessage = (content: string) => ({ message: { customType: "dynaflows", content, display: false, attribution: "agent" as const } });
 const toolReply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
-const machineModeSchema = z.object({ schemaVersion: z.literal(2), mode: z.enum(MODES) }).strict();
-const machineRequirement = '{"schemaVersion": 2, "mode": "minimal"|"structured"}';
 interface State extends SharedState {
 	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
@@ -283,26 +271,16 @@ async function groupByRoot(map: Mapping, changed: string[], state: State): Promi
 	}
 	return groups;
 }
-async function recordMode(slug: string | null, dir: string, strict: boolean): Promise<ModeAt> {
+type Resolved = { slug: string | null; dir: string | null; reason?: string };
+// The mode file names the mode; structured mode also needs a valid record, else the repo runs minimal.
+async function resolvedMode(modesPath: string, resolved: Resolved, strict: boolean): Promise<ModeAt> {
+	const { slug, dir } = resolved;
+	if (!slug) return { mode: "minimal", why: minimalText(null, resolved.reason ?? "no GitHub origin") };
 	try {
-		if ((await loadGate(dir)).dynaflows.mode === "structured") return { mode: "structured" };
-		return { mode: "minimal", why: minimalText(slug, `the record ${join(dir, GATE_FILE)} sets dynaflows.mode minimal`) };
-	} catch (error) {
-		if (strict) throw error;
-		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
-	}
-}
-async function machineMode(path: string): Promise<Mode | undefined> {
-	const text = await readFile(path, "utf8").catch(absentFile);
-	if (text === null) return undefined;
-	const parsed = machineModeSchema.safeParse(JSON.parse(text));
-	if (parsed.success) return parsed.data.mode;
-	throw new Error(`the machine default ${path} is invalid: it must be ${machineRequirement}`);
-}
-async function machineModeAt(path: string, slug: string | null, strict: boolean): Promise<ModeAt | undefined> {
-	try {
-		if (await machineMode(path) !== "minimal") return undefined;
-		return { mode: "minimal", why: minimalText(slug, `the machine default ${path} sets mode minimal`) };
+		if (await repoMode(modesPath, slug) === "minimal") return { mode: "minimal", why: minimalText(slug, `the mode file ${modesPath} does not set structured`) };
+		if (!dir) return { mode: "minimal", why: minimalText(slug, resolved.reason ?? "no per-repo record") };
+		await loadGate(dir);
+		return { mode: "structured" };
 	} catch (error) {
 		if (strict) throw error;
 		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
@@ -336,12 +314,12 @@ type StructuredRequest = { notice: string; slug: string; dir: string; task: bool
 export default function dynaflows(
 	pi: DynaflowsApi,
 	{
-		machineDynaflowsPath = fileURLToPath(new URL("../../../dynaflows.json", import.meta.url)),
+		modesPath = defaultModesPath(),
 		configPath = fileURLToPath(new URL("./rails.yml", import.meta.url)),
 		configRoot = defaultConfigRoot(),
 		guardrailsCommand = defaultGuardrailsCommand,
 		ompCommand = ["omp"],
-	}: { machineDynaflowsPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[]; ompCommand?: string[] } = {},
+	}: { modesPath?: string; configPath?: string; configRoot?: string; guardrailsCommand?: string[]; ompCommand?: string[] } = {},
 ): void {
 	const states = new Map<string, State>();
 	const session: SessionCache = {};
@@ -394,11 +372,8 @@ export default function dynaflows(
 	}
 	async function modeAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<ModeAt> {
 		const root = await repoRoot(cwd);
-		const resolved = root ? await resolveRecord(root, configRoot) : { slug: null, dir: null, reason: "not in a Git repository" };
-		const machine = await machineModeAt(machineDynaflowsPath, resolved.slug, strict);
-		if (machine) return machine;
-		if (!root || !resolved.dir) return { mode: "minimal", why: minimalText(resolved.slug, resolved.reason ?? "no per-repo record") };
-		return recordMode(resolved.slug, resolved.dir, strict);
+		const resolved: Resolved = root ? await resolveRecord(root, configRoot) : { slug: null, dir: null, reason: "not in a Git repository" };
+		return resolvedMode(modesPath, resolved, strict);
 	}
 	async function modeOf(ctx: ExtensionContext, cwd = ctx.cwd): Promise<Mode> {
 		const at = await modeAt(ctx, cwd);
@@ -412,7 +387,7 @@ export default function dynaflows(
 	// record yet). Throws outside a Git project with a GitHub origin remote.
 	async function directiveTarget(ctx: ExtensionContext): Promise<{ slug: string; dir: string | null }> {
 		const root = await repoRoot(ctx.cwd);
-		if (!root) throw new Error("repo toggle needs a Git project; edit the machine default separately");
+		if (!root) throw new Error("repo toggle needs a Git project");
 		const resolved = await resolveRecord(root, configRoot);
 		if (!resolved.slug) throw new Error(`repo toggle needs a Git project with a GitHub origin remote: ${root} has ${resolved.reason}`);
 		return { slug: resolved.slug, dir: resolved.dir };
@@ -647,16 +622,11 @@ export default function dynaflows(
 		catch (error) { return { notice: notify(`Agent rails: ${String(error)}`, "error") }; }
 		state.pointed = false;
 		const { slug, dir } = target;
-		if (!dir) return missingRecordOutcome(notify, slug, recordDir(slug, configRoot), mode);
-		let notice: string;
-		try {
-			notice = notify(`Agent rails: dynaflows ${mode} mode (${await setDynaflows(dir, mode)}).`);
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			notice = notify(`Agent rails: cannot set dynaflows in ${join(dir, GATE_FILE)}: ${reason}`, "error");
-			return { notice, content: mode === "structured" ? resumeContent(slug, dir, reason) : undefined };
-		}
+		try { await writeMode(modesPath, slug, mode); }
+		catch (error) { return { notice: notify(`Agent rails: cannot set dynaflows for ${slug}: ${String(error)}`, "error") }; }
 		await syncRules(ctx);
+		if (!dir) return missingRecordOutcome(notify, slug, recordDir(slug, configRoot), mode);
+		const notice = notify(`Agent rails: dynaflows ${mode} mode for ${slug} (${modesPath}).`);
 		if (mode === "minimal") return { notice, content: "Dynaflows minimal mode: fixed guards only; do not apply the dynaflows workflow." };
 		return structuredOutcome(ctx, state, notify, { notice, slug, dir, task });
 	}

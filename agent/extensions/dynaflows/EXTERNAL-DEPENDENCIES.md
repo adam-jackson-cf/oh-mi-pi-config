@@ -19,7 +19,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
 | Health marker | `agent/extensions/extension-health.ts` | Expects dynaflows to register |
-| Config root | Repo root | Records, scripts, `dynaflows.json` resolve by position |
+| Config root | Repo root | Records and scripts resolve by position |
 | `AGENT` env var | omp runtime | Stripped from every repo command |
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
@@ -104,7 +104,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
-| Machine mode | `~/.omp/dynaflows.json` | Optional; `minimal` forces minimal |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
 | Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
 | Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |

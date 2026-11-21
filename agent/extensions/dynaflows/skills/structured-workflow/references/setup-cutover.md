@@ -20,9 +20,8 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
    matter and prose filled. Run `guardrails init --repo <worktree> --record <draft dir>` from the harness, write the
    confirmed values into the draft, and compare it with the approved matrix before saving. Preserve existing profile
    values when extending it. `guardrails profile-check` must pass (`PROFILE.complete`).
-7. Set `dynaflows.mode` to `structured` only when the owner asked for dynaflows in the chat
-   (`guardrails init --dynaflows-mode structured`), else `minimal`. Write approval fields only as the owner stated them in
-   the chat; the Step 5 STOP stays the boundary before applying repo fixes.
+7. The record holds no mode: the `dynaflows` tool or directive sets the repo in `modes.json` when the owner asks.
+   Write approval fields only as the owner stated them in the chat; the Step 5 STOP stays the boundary before applying repo fixes.
 8. Pin tools the repo runs through the target's package manager. Keep repo commit and CI commands unchanged.
 9. Execution events follow [the record contract](../../../record/README.md#process-mode-and-events).
    Any commit finding blocks, including drift from contributors who do not use omp. Merge needs `ci.requiredContext`
@@ -44,8 +43,8 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
 3. Prove the test-evidence wiring: the harness runs the budget checker at the agent's commit and blocks on its failure,
    and `checks.ci` never runs it. Prove machine selection against the approved limits; an unapproved machine prompts for
    a baseline and reports timing only.
-4. Parse the record's `gate.json` against [the gate schema](../../../record/README.md#gate-schema), including a
-   `dynaflows.mode` of `minimal` or `structured`; optional fields stay optional to the format validator. In an isolated checkout,
+4. Parse the record's `gate.json` against [the gate schema](../../../record/README.md#gate-schema), with no
+   `dynaflows` field; optional fields stay optional to the format validator. In an isolated checkout,
    a passing `checks.commit` with zero harness findings permits an agent commit, and a failing one blocks it.
 5. Confirm `git status` in the target shows no record, proposal, JUnit or other harness output, and that
    `git grep -n -i -w -E 'omp|guardrails|dynaflows'` finds no harness mention the change added.

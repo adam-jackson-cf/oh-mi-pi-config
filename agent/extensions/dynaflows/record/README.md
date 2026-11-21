@@ -36,13 +36,12 @@ A documentation-only repo still declares `checks.commit`.
 | `checks.profile` | [^n4] |
 | `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
-| `dynaflows` | Required object with `mode` `minimal` or `structured`; see below. |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
 `profile.md`, not extra gate fields. Substitute real discovered commands and paths in
 [the example gate](gate.json), which retains the `gate`
-context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.mode: minimal`.
+context, `github-actions` runner and `agentMerge: allowed`.
 
 ### Merge and CI policy
 
@@ -71,13 +70,17 @@ Git-tool's exact-head verification loop governs submission, waiting and fallback
 
 ### Process mode and events
 
-`dynaflows.mode` selects the harness process: `minimal` or `structured`. No origin or no record
-means minimal mode. Write `structured` only when the owner asked for it in chat; otherwise write
-`minimal`. A later owner request can change it.
-The machine file `~/.omp/dynaflows.json` (`{"schemaVersion": 2, "mode": "minimal"|"structured"}`)
-set to `minimal` forces minimal mode for every repository; `structured` or no file defers to the
-record. [ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the
-modes.
+The record holds no mode. [`modes.json`](../modes.json) in the extension is the one source:
+
+| Entry | Mode |
+| --- | --- |
+| `"<owner>/<name>": "structured"` | Structured, once the record loads |
+| Unlisted | Minimal |
+| No origin, non-GitHub origin | Minimal |
+
+The `dynaflows` tool and the `$dynaflows` directive write it; minimal removes the entry.
+[ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the modes;
+[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md) the mode file.
 
 Minimal mode keeps the fixed guards: the `skill://git-tool` read before Git integration commands,
 hook-bypass refusal, worktree placement, subagent path safety, the `agentMerge` policy, no

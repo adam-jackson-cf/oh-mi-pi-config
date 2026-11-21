@@ -35,13 +35,6 @@ def record_rules() -> ModuleType:
     return module
 
 
-def dynaflows_error(gate: dict[str, Any], rules: ModuleType) -> GateError | None:
-    if "dynaflows" not in gate:
-        return None
-    reason: str | None = rules.dynaflows_reason(gate["dynaflows"])
-    return None if reason is None else GateError(f"{GATE_PATH}: {reason}")
-
-
 def load_gate(record: Path) -> dict[str, Any] | None:
     path = record / GATE_FILE
     if not path.exists():
@@ -61,9 +54,6 @@ def load_gate(record: Path) -> dict[str, Any] | None:
         raise GateError(
             f"{GATE_PATH}: unknown field {', '.join(unknown)} must be removed"
         )
-    refusal = dynaflows_error(gate, rules)
-    if refusal is not None:
-        raise refusal
     return gate
 
 
@@ -113,7 +103,6 @@ class GateAnswers:
     ci_command: str | None
     required_context: str | None
     runner: str | None
-    dynaflows_mode: str = "minimal"
 
 
 def planned_gate(
@@ -130,7 +119,6 @@ def planned_gate(
     ci = drafted_ci(found, answers.required_context, answers.runner)
     if ci:
         planned.setdefault("ci", ci)
-    planned.setdefault("dynaflows", {"mode": answers.dynaflows_mode})
     return planned, confirmations(planned)
 
 
@@ -153,11 +141,6 @@ def confirmations(gate: dict[str, Any]) -> list[str]:
         )
     if "agentMerge" not in gate:
         lines.append(f"confirm: agentMerge is the owner's to set in {GATE_PATH}")
-    if gate.get("dynaflows") == {"mode": "minimal"}:
-        lines.append(
-            f"confirm: dynaflows is in minimal mode in {GATE_PATH}; structured mode starts when the owner "
-            "asks for it in a session (for example `enable $dynaflows`)"
-        )
     return lines
 
 

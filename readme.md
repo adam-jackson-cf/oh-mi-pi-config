@@ -48,7 +48,9 @@ The boundaries are intentional:
   `extension-health.ts` reports registration health, not runtime correctness.
 
 The always-loaded dynaflows extension runs each repository in minimal or structured mode
-([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). Its guards in both modes
+([ADR 0015](docs/adr/0015-dynaflows-minimal-and-structured-modes.md)). The tracked
+[`modes.json`](agent/extensions/dynaflows/modes.json) names the structured repositories; an unlisted
+one is minimal ([ADR 0017](docs/adr/0017-dynaflows-runtime-rails.md)). Its guards in both modes
 require `skill://git-tool` for branch and integration commands,
 including commands with Git global options, shell separators and known command
 wrappers. Shell `-c` and `eval` commands are inspected recursively within parser
@@ -59,7 +61,7 @@ are not promised.
 Record `gate.json` policies with `agentMerge: "disabled"` require owner
 approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
 closed for those actions. The record is harness config that git-tool may read for
-`agentMerge` and `ci` in both modes. In minimal mode (including no record), sessions get plain
+`agentMerge` and `ci` in both modes. In minimal mode (unlisted repos included), sessions get plain
 omp + git-tool + the fixed Git guards: `gh pr merge` and `git push` to the remote's default
 branch are refused, while pushes to other branches and `gh pr create` pass. Minimal mode has no
 edit read gates, path checks or verification handoff reads.
@@ -351,6 +353,7 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime and the origin-to-record
   resolver for Python (`repo_record.py`) and TypeScript (`repo-record.ts`) callers.
 - `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
+- `agent/extensions/dynaflows/modes.json` — the per-repo mode; unlisted repositories run minimal.
 - `repos/<owner>/<name>/` — personal per-repo records; gitignored, never committed.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.

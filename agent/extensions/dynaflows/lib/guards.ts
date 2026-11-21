@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, join } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { parseOrigin, type Mode } from "./repo-record.ts";
+import { parseOrigin } from "./repo-record.ts";
+import type { Mode } from "./modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, readRecord, repoRoot, worktreeTarget, type GitAction,
 } from "./rails-runtime.ts";

@@ -10,10 +10,9 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
    `repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's lowercase `origin` remote;
    worktrees resolve like their main checkout. [The record contract](../../../record/README.md) owns its files.
    The repo itself holds nothing about omp or dynaflows.
-2. The record's `dynaflows.mode` (`minimal` or `structured`) selects the mode. No `origin` remote or no record means
-   minimal mode. A machine default `~/.omp/dynaflows.json` of `{"schemaVersion": 2, "mode": "minimal"}` forces minimal
-   mode for every repo on that machine. Minimal mode keeps only the fixed Git guards: no `gh pr merge` and no push to
-   the default branch.
+2. The extension's `modes.json` selects the mode, keyed by the lowercase `origin` owner/name. An unlisted repo,
+   no `origin` remote or, for structured mode, no valid record means minimal mode. Minimal mode keeps only the fixed
+   Git guards: no `gh pr merge` and no push to the default branch.
 3. The owner switches the mode in the main chat. A standalone directive line (case-insensitive) sets it at once:
    - structured: `$dynaflows`, `$dynaflows` followed by an on verb (`on`, `enable`, `init`, `initialise`, `start`,
      `set up`, `turn on`, `structured`), or an on verb before `$dynaflows`;
@@ -21,8 +20,8 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
    Two contradictory lines change nothing; ask which the owner means.
 4. Judge any other wording, such as "I want to enable dynaflows": call the `dynaflows` tool (`mode`) only when the owner
    is asking for it, not asking about it, quoting it or negating it. Never call it on your own initiative.
-5. Asking for structured mode with no record starts [harness setup](harness-setup.md) from Step 0; write the record,
-   with `dynaflows.mode` `structured`, yourself. A refused record resumes setup, and you repair the record in place.
+5. Asking for structured mode with no record lists the repo in `modes.json` and starts [harness setup](harness-setup.md)
+   from Step 0; write the record yourself. A refused record resumes setup, and you repair the record in place.
    Write approval fields only as the owner stated them in the chat; never ask the owner to save a file.
 6. When the prompt is only the switch ask, report the stage found and start it; with setup complete, ask for the task.
 7. Select exactly one active playbook; it holds only deltas to the stage references:

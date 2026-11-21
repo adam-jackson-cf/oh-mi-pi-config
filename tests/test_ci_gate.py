@@ -237,7 +237,6 @@ class GateFixture(unittest.TestCase):
             "schemaVersion": 2,
             "checks": {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
             "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
-            "dynaflows": {"mode": "structured"},
         }
         gate.update(fields)
         return {key: value for key, value in gate.items() if value is not None}

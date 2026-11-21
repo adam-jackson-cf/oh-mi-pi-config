@@ -37,7 +37,6 @@ REFUSED = [
 GATE = {
     "schemaVersion": 2,
     "checks": {"commit": ["make", "gate"]},
-    "dynaflows": {"mode": "structured"},
 }
 
 
@@ -73,7 +72,6 @@ class GateReason(unittest.TestCase):
                     "profile": ["p"],
                 },
                 ci={"requiredContext": "gate", "runner": "ci-gate"},
-                dynaflows={"mode": "minimal"},
             ),
         ):
             with self.subTest(gate=valid):
@@ -135,18 +133,8 @@ class GateReason(unittest.TestCase):
             ),
         ]
         cases += [
-            (
-                gate(dynaflows=mode),
-                'dynaflows must be {"mode": "minimal"|"structured"}',
-            )
-            for mode in (
-                None,
-                {},
-                {"mode": "on"},
-                {"mode": ["minimal"]},
-                {"mode": "minimal", "other": 1},
-                True,
-            )
+            (gate(dynaflows=mode), "unknown field dynaflows must be removed")
+            for mode in ({"mode": "structured"}, {"mode": "minimal"})
         ]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):

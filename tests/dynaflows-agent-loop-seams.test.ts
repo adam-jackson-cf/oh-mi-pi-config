@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import type { Mode } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const extension = join(repoRoot, "agent/extensions/dynaflows");
@@ -113,7 +113,8 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 		if (mode) {
 			mkdirSync(join(home, ".omp/repos/owner/repo"), { recursive: true });
 			writeFileSync(join(home, ".omp/repos/owner/repo/gate.json"),
-				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] }, dynaflows: { mode } }));
+				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] } }));
+			writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
 		}
 		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\nexit 1\n`, { mode: 0o755 });
 		const env = {
