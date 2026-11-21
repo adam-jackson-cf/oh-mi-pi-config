@@ -136,6 +136,7 @@ tests/fixtures/*
 !tests/test_device_rollout_seams.py
 !tests/test_repo_record_seams.py
 !tests/test_skill_references_seams.py
+!tests/test_judgment_*.py
 
 !.omp/
 .omp/*
