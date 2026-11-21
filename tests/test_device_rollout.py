@@ -32,6 +32,8 @@ spec.loader.exec_module(rollout)
 
 HOSTS = json.loads(MODULE.with_name("device-rollout-hosts.json").read_text())
 
+PIN = rollout.omp_pin(MODULE.parents[1])
+
 CURRENT = "a" * 40
 
 OLD = "b" * 40
@@ -51,6 +53,7 @@ class Runner:
     coverage: str = "complete"
     find_output: str | None = None
     runners: str = "current"
+    version: str = f"omp/{PIN}"
     records: dict[str, list[object]] = field(default_factory=dict)
     commands: list[list[str]] = field(default_factory=list)
 
@@ -69,6 +72,8 @@ class Runner:
 
     def reads(self, text: str) -> tuple[int, str] | None:
         """Answers for the records lister, the runners writer and the find canary."""
+        if "omp --version" in text:
+            return 0, self.version + "\n"
         if "omp-records-list" in text:
             return 0, json.dumps(self.records)
         if "ci-runners.json" in text:
@@ -139,7 +144,7 @@ def execute(
         hostname=hostname,
         base=base,
     )
-    deployment = rollout.Rollout(HOSTS, machine, check=check)
+    deployment = rollout.Rollout(HOSTS, machine, check=check, pin=PIN)
     return deployment, deployment.execute()
 
 
@@ -151,11 +156,11 @@ def row(deployment: Any, device: str, component: str) -> list[str]:
 
 
 def checkouts(deployment: Any, skip: tuple[str, ...] = ()) -> list[list[str]]:
-    """Checkout and deployment rows, without the ci-runners rows or skipped devices."""
+    """Checkout and deployment rows, without ci-runners, omp-version or skipped devices."""
     return [
         item
         for item in deployment.rows
-        if item[1] != "ci-runners" and item[0] not in skip
+        if item[1] not in ("ci-runners", "omp-version") and item[0] not in skip
     ]
 
 
@@ -170,7 +175,7 @@ class DeviceRolloutTests(unittest.TestCase):
         assert {row[4] for row in checkouts(deployment, skip=("mac-cf2",))} == {
             "complete"
         }
-        assert len(deployment.rows) == 8
+        assert len(deployment.rows) == 10
         assert {row[5] for row in deployment.rows} == {"current"}
         assert not any(
             "pull" in " ".join(cmd) or "systemctl" in " ".join(cmd)
@@ -194,11 +199,13 @@ class DeviceRolloutTests(unittest.TestCase):
         deployment, code = execute(runner, hostname="Adams-MacBook-Pro.local")
         assert code == 0
         assert [row[0] for row in deployment.rows[:2]] == ["mac-cf2"] * 2
-        assert len(deployment.rows) == 6
+        assert len(deployment.rows) == 8
         assert [row[:2] for row in deployment.rows[2:]] == [
+            ["mac-cf2", "omp-version"],
             ["mac-cf2", "ci-runners"],
             ["codex-omarchy-nuc", "agents"],
             ["codex-omarchy-nuc", "omp"],
+            ["codex-omarchy-nuc", "omp-version"],
             ["codex-omarchy-nuc", "ci-runners"],
         ]
         assert all(cmd[5] != "mac-cf2" for cmd in runner.commands if cmd[0] == "ssh")
@@ -211,8 +218,9 @@ class DeviceRolloutTests(unittest.TestCase):
     def test_unreachable_is_nonzero_and_does_not_crash(self) -> None:
         deployment, code = execute(Runner(unreachable=True))
         assert code == 1
-        remote = deployment.rows[3:]
-        assert [row[5] for row in remote] == ["unreachable"] * 5
+        remote = deployment.rows[4:]
+        assert [row[5] for row in remote] == ["unreachable"] * 6
+        assert row(deployment, "codex-omarchy-nuc", "omp-version")[2] == "-"
         assert [row[4] for row in checkouts(deployment, ("mac-cf3",))] == [
             "unreachable"
         ] * 3
@@ -551,7 +559,7 @@ class RunnerConfigTests(unittest.TestCase):
             hostname="cdhvc2hw3l",
             base=Path("/base"),
         )
-        deployment = rollout.Rollout(hosts, machine, check=False)
+        deployment = rollout.Rollout(hosts, machine, check=False, pin=PIN)
         assert deployment.execute() == 1
         assert pipeline.calls == []
         assert "judge key provisioning failed" in deployment.report()
@@ -703,6 +711,74 @@ class RecordRolloutTests(RecordRolloutCase):
             "codex-omarchy-nuc: record file example-owner/example-repo/gate.json changed on the target "
             "after inventory; not overwritten" in deployment.report()
         )
+
+
+class OmpVersionTests(unittest.TestCase):
+    """Every omp device's `omp --version` against the package.json pin."""
+
+    def test_omp_version_row_per_omp_device_matches_the_pin(self) -> None:
+        runner = Runner()
+        deployment, code = execute(runner)
+        assert code == 0
+        assert [item for item in deployment.rows if item[1] == "omp-version"] == [
+            ["mac-cf3", "omp-version", PIN, PIN, "-", "current"],
+            ["codex-omarchy-nuc", "omp-version", PIN, PIN, "-", "current"],
+        ]
+        versions = [cmd for cmd in runner.commands if "omp --version" in " ".join(cmd)]
+        assert versions[0] == ["omp", "--version"]
+        assert versions[1][5] == "codex-omarchy-nuc"
+        assert versions[1][6] == "bash -lc 'omp --version'"
+        assert not any("mac-cf2" in cmd for cmd in versions)
+
+    def test_omp_version_mismatch_fails_the_row_and_reports_the_version(self) -> None:
+        for check in (True, False):
+            deployment, code = execute(Runner(version="omp/18.9.0"), check=check)
+            assert code == 1
+            assert row(deployment, "codex-omarchy-nuc", "omp-version")[2:] == [
+                "18.9.0",
+                PIN,
+                "-",
+                "version-mismatch",
+            ]
+            assert (
+                f"mac-cf3: omp 18.9.0 differs from the package.json pin {PIN}"
+                in deployment.report()
+            )
+
+    def test_unreadable_omp_version_is_failed(self) -> None:
+        for output in ("omp v19\n", f"omp/{PIN}\nomp/{PIN}", ""):
+            deployment, code = execute(Runner(version=output))
+            assert code == 1
+            assert row(deployment, "mac-cf3", "omp-version")[2:] == [
+                "-",
+                PIN,
+                "-",
+                "failed",
+            ]
+
+    def test_omp_pin_requires_an_exact_package_json_version(self) -> None:
+        assert (
+            json.loads((MODULE.parents[1] / "package.json").read_text())[
+                "devDependencies"
+            ]["@oh-my-pi/pi-coding-agent"]
+            == PIN
+        )
+        with tempfile.TemporaryDirectory(prefix="omp-pin-") as scratch:
+            checkout = Path(scratch)
+            for text in (
+                None,
+                "{",
+                json.dumps({"devDependencies": {}}),
+                json.dumps({"devDependencies": {rollout.OMP_PACKAGE: "^19.0.1"}}),
+            ):
+                if text is not None:
+                    (checkout / "package.json").write_text(text)
+                with pytest.raises(ValueError, match="pi-coding-agent"):
+                    rollout.omp_pin(checkout)
+            (checkout / "package.json").write_text(
+                json.dumps({"devDependencies": {rollout.OMP_PACKAGE: "19.0.1"}})
+            )
+            assert rollout.omp_pin(checkout) == "19.0.1"
 
 
 if __name__ == "__main__":
