@@ -9,8 +9,7 @@ every `structure_review()` finding blocks merge.
 Automatic NAME.*, STRUCT.* and path checks judge only added or renamed paths: worktree additions and untracked files after
 edits, staged additions and renames at commit, and merge-base-to-head additions and renames at PR/prove. Only new path
 segments are judged; a new file never rejudges a legacy parent name, and placement never requires existing code to move.
-Explicit `guardrails naming`, `structure` or `path-check` without paths, or with `--all`, is a full scan
-([ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md)).
+Explicit `guardrails naming`, `structure` or `path-check` without paths, or with `--all`, is a full scan.
 
 ## Structure and grouping
 
@@ -57,6 +56,7 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Use one name per concept across code, flags, record fields, docs and tests, and the project glossary if any. Judged by structure-naming/one_name_per_concept.
 - A rename changes every use in one change, with no old-name alias. Enforced by RENAME.residue (guardrails rename-residue).
 - Retire the whole renamed name (`gate_effort`), not each word; unchanged mechanism names (`gate`) stay. Enforced by RENAME.residue (guardrails rename-residue).
+- A pinned or released file moved under a renamed folder is renamed too, with locks redone and experiments rerun, or stays put. Guidance only.
 - Siblings share one pattern (`one-shot-verify`, `define-build-verify`); keep mechanism names. Judged by structure-naming/sibling_naming_pattern.
 - Use plain domain words, never grab-bag or status words (house-style `banned_words`). Enforced by NAME.conventions (guardrails naming).
 - Never add a `v<N>` suffix outside a `<name>/v<N>` folder or file. Enforced by NAME.conventions (guardrails naming).

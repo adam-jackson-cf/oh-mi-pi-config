@@ -22,7 +22,7 @@
       },
       "cost_rule": "A miss costs more than a false flag: a weakening that lands erodes every later check, a false flag costs one review.",
       "measured_band": {
-        "note": "measurement record only: without a fallback judge a band cannot decide (ADR 0021)",
+        "note": "measurement record only: without a fallback judge a band cannot decide",
         "no_below": 0.095,
         "yes_at_or_above": 0.795,
         "source": "no_below: tune_threshold.py --min-precision 0 --min-recall 0.95 --repeats 5 (dev CV fold thresholds 0.095-0.115); yes_at_or_above: --min-precision 0.9 --min-recall 0 (fold thresholds 0.735-0.805)",
@@ -151,9 +151,9 @@
     "Owner approval counts only when commit.message cites it (A1)."
   ],
   "cost_per_100_cases_usd": "unknown: judge() reports no usage",
-  "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; the rail enforces the threshold meanwhile (ADR 0021).",
+  "todo": "Grow to about 30 positives per split from newer commits, apply the error-analysis fix, re-score, re-tune; the rail enforces the threshold meanwhile.",
   "wired": true,
-  "wiring": "lib/judged-rails.ts commitReason (ADR 0017), enforced from the start (ADR 0021): every structured git commit after the commit checks; yes refuses; a judge failure refuses the commit",
+  "wiring": "lib/judged-rails.ts commitReason, enforced from the start: every structured git commit after the commit checks; yes refuses; a judge failure refuses the commit",
   "shortfalls": [
     "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
   ]

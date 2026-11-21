@@ -1851,7 +1851,7 @@ JUDGMENT_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 # Every judge() call through the registry appends one JSON line here, under the omp agent dir.
 JUDGMENT_CALLS = "dynaflows/judgment-calls.jsonl"
 OUTCOMES = ("yes", "no", "escalate")
-# A bool decision is a single cutoff, or a band whose escalations go to a named fallback judgment (ADR 0021).
+# A bool decision is a single cutoff, or a band whose escalations go to a named fallback judgment.
 CUTOFF_KEYS = frozenset({"threshold"})
 BAND_KEYS = frozenset({"no_at_most", "yes_at_least", "fallback"})
 
@@ -1926,7 +1926,7 @@ def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None
     if not isinstance(decision, dict) or "status" in decision:
         raise WorkflowError(
             f"{name}: decision {ident} must be an object without a status "
-            "(every judgment is enforced, ADR 0021)"
+            "(every judgment is enforced)"
         )
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
@@ -1964,7 +1964,7 @@ def load_judgment(name: str) -> Judgment:
         )
     if "status" in thresholds:
         raise WorkflowError(
-            f"{name}: thresholds hold a status; every judgment is enforced (ADR 0021)"
+            f"{name}: thresholds hold a status; every judgment is enforced"
         )
     if (
         not isinstance(model, str)
@@ -2685,7 +2685,7 @@ def _structure_comment(result: dict[str, Any]) -> str:
         STRUCTURE_MARKER,
         f"**Structure/naming review** for `{result['head']}`.",
         "Scores are raw judgment probabilities, not calibrated confidence. "
-        "Every finding blocks merge (ADR 0021).",
+        "Every finding blocks merge.",
     ]
     for item in result["findings"]:
         lines.append(

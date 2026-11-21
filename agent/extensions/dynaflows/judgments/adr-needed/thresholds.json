@@ -6,9 +6,9 @@
   "score_space": "raw",
   "framing": {
     "decision": "Does a pull request or commit series make a design decision the repository should record as an ADR?",
-    "action": "Refuse a structured merge that needs an ADR and has none (ADR 0017)",
+    "action": "Refuse a structured merge that needs an ADR and has none",
     "baseline": "agent/RULES.md instruction: decide in-scope questions and record the decision as an ADR; no check",
-    "costs": "Assumed equal: a miss leaves a decision unrecorded (ADR 0016 records three such misses); a false action costs one unneeded ADR or prompt",
+    "costs": "Assumed equal: a miss leaves a decision unrecorded; a false action costs one unneeded ADR or prompt",
     "written_policy": "label-guide.md rules Y1-Y6, N1-N8, T1-T7",
     "reviewers": "innovation-council first pass, claude arbiter; owner may override",
     "state_fields": "change: title, plan or description, commit headlines, diff summary; decision-record files and mentions removed",
@@ -31,7 +31,7 @@
       },
       "rule": "yes at score >= 0.67",
       "measured_band": {
-        "note": "measurement record only: without a fallback judge a band cannot decide (ADR 0021)",
+        "note": "measurement record only: without a fallback judge a band cannot decide",
         "no_at_most": 0.34,
         "yes_at_least": 0.67,
         "rule": "score <= 0.34: no ADR needed; score >= 0.67: ADR needed; between: escalate",
@@ -124,5 +124,5 @@
     "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
   ],
   "wired": true,
-  "wiring": "lib/judged-rails.ts mergeReason (ADR 0017), enforced from the start (ADR 0021): a structured gh pr merge without an ADR file in the diff; yes refuses; a judge failure refuses the merge"
+  "wiring": "lib/judged-rails.ts mergeReason, enforced from the start: a structured gh pr merge without an ADR file in the diff; yes refuses; a judge failure refuses the merge"
 }

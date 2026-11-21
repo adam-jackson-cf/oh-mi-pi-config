@@ -20,5 +20,5 @@ records follow batch/case input order; `batch` is a zero-based index. `votes` ma
 labeller names to their `{id,label,evidence,rationale}` answer records.
 Only input IDs appear. Missing/duplicate answers remain disputed; unknown answer
 IDs invalidate the labeller's batch. Failed/off-schema results are not votes.
-The orchestrator settles disputes; a human confirms every label before writing.
+The agent arbitrates disputes; the owner may override (see [judgments](judgments.md#folder-contract)).
 The helper itself writes no labels.

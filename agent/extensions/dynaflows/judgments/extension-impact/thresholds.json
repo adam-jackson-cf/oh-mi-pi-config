@@ -9,7 +9,7 @@
     "unit_of_judgment": "one revision range of oh-mi-pi-config crossed with one repository record and its mode",
     "action": "a flag keeps the restart review task and refuses Git writes until it is acknowledged",
     "costs": "a miss (an impacting change relied on unreviewed) costs more than a false flag (an extra review)",
-    "wiring": "lib/session-rails.ts restart review (ADR 0017), enforced from the start (ADR 0021): yes keeps the review task and its Git-write gate; no stores the revision and notifies the owner; a judge failure keeps the review task"
+    "wiring": "lib/session-rails.ts restart review, enforced from the start: yes keeps the review task and its Git-write gate; no stores the revision and notifies the owner; a judge failure keeps the review task"
   },
   "scoring": {
     "command": "infisical run --projectId <dev project> --env dev -- bun <scorer> (omp 19.0.1 library judge)",
@@ -37,10 +37,10 @@
     "impact": {
       "version_key": "7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
       "tuned_threshold": 0.47,
-      "threshold": 0.48,
+      "threshold": 0.28,
       "rule": "P(impact) >= threshold flags the repository for review",
       "measured_band": {
-        "note": "measurement record only: without a fallback judge a band cannot decide (ADR 0021)",
+        "note": "measurement record only: without a fallback judge a band cannot decide",
         "no_at_most": 0.28,
         "yes_at_least": 0.48,
         "between": "escalate: the owner or a reviewing agent decides",
@@ -148,12 +148,13 @@
     "next_fix": "T2 is owner-confirmed and EI049 relabelled; EI055 and EI057 (a worktree-placement guard that today's mode.runs already lists) stay 1 under Y2, which T2's clarification keeps; grow the structured set before tuning again"
   },
   "shortfalls": [
-    "test recall 0.8 is below the 0.9 minimum at the shipped threshold; the rail therefore notifies the owner on every no and stores the revision instead of skipping silently",
+    "test recall 0.8 is below the 0.9 minimum at the tuned threshold 0.47; the rail therefore notifies the owner on every no and stores the revision instead of skipping silently",
     "the dev-chosen escalation band misses 1 of 10 test positives",
     "minimums are assumed, not owner-confirmed",
     "owner review covers the T2 ruling only; no per-case owner review of the other labels",
     "the minimal stratum was dropped: about 20 dev cases per label remain; grow to 50+ per label at the next retune",
-    "band removed: no fallback judge; threshold is the former yes_at_least pending retune"
+    "band removed: no fallback judge; threshold is the former no_at_most pending retune",
+    "safe side: yes allows the ask / keeps the review; retune pending"
   ],
   "label_guide": {
     "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",

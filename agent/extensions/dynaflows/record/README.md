@@ -13,10 +13,9 @@ Worktrees share their main checkout's record. [repo_record.py](../lib/repo_recor
 [repo-record.ts](../lib/repo-record.ts) implement resolution and gate validation.
 No supported GitHub origin means no record; record setup reports that prerequisite and stops.
 
-Agents write and repair records at any time, through any tool, in any session
-([ADR 0001](../../../../docs/adr/0001-agents-write-records.md)). Rails never refuse a record write
-and never snapshot the record: they re-read it on every action, so a changed record takes effect
-on the next commit, merge or check ([ADR 0018](../../../../docs/adr/0018-rails-trust-only-what-they-saw.md)).
+Agents write and repair records at any time, through any tool, in any session. Rails never refuse a
+record write and never snapshot the record: they re-read it on every action, so a changed record
+takes effect on the next commit, merge or check.
 
 `/repos/` is gitignored. Never stage, commit, include a record in a PR, or copy it into the
 target repository. Device rollout copies records to every device. The target repository
@@ -27,9 +26,8 @@ No setting names a harness directory inside the repo.
 ## Gate schema
 
 The record's `gate.json` uses schema version 2. Required fields are `schemaVersion` and
-`checks.commit`; the mode lives in [`modes.json`](../modes.json), and `dynaflows` is refused.
-Unknown top-level or `checks` fields fail the load with the field name; the obsolete path
-command field is rejected, never ignored.
+`checks.commit`; the mode lives in [`modes.json`](../modes.json). Unknown top-level or `checks`
+fields fail the load with the field name.
 A documentation-only repo still declares `checks.commit`.
 
 | Field | Contract |
@@ -109,9 +107,6 @@ The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
 }
 ```
 
-The cutover migration `lib/migrate_records_to_mode_file.py` adds the `mergePolicies` entry
-([ADR 0017 cutover steps](../../../../docs/adr/0017-dynaflows-runtime-rails.md#cutover-steps)).
-
 | Fact | Enforced by |
 | --- | --- |
 | `nuc-config` sync: PR from `agent/nuc-sync-<date>`, `--merge`, no proof | `mergePolicies` |
@@ -121,14 +116,12 @@ The cutover migration `lib/migrate_records_to_mode_file.py` adds the `mergePolic
 | Missing `scripts/ci-gate-repos.json` entry: a setup PR, never a CI waiver | Not enforced |
 | A passing `ci-quality-gates.yml` run never replaces a missing `gate`; escalate | Not enforced |
 
-[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#not-enforced) records both as not enforced.
-
 The fallback dispatch is in the [readme](../../../../readme.md#ci-runners); this repo never takes
 the no-CI exception because it declares `ci`.
 
 ### Process mode and events
 
-The record holds no mode. [`modes.json`](../modes.json) in the extension is the one source:
+[`modes.json`](../modes.json) in the extension is the one source of each repo's mode:
 
 | Entry | Mode |
 | --- | --- |
@@ -137,8 +130,6 @@ The record holds no mode. [`modes.json`](../modes.json) in the extension is the 
 | No origin, non-GitHub origin | Minimal |
 
 The `dynaflows` tool and the `$dynaflows` directive write it; minimal removes the entry.
-[ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the modes;
-[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md) the mode file.
 
 Minimal mode keeps the fixed guards: the `skill://git-tool` read before every Git or GitHub write
 (`rails.yml` `gitCommand`),
@@ -151,12 +142,11 @@ Structured mode keeps those guards except the merge refusal. Rails also require 
 `prove()` pass, a `structure_review()` result and green exact-head CI before `gh pr merge`, and run
 `guardrails path-check --repo <worktree> --record <record dir>` after edits and before commit.
 Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` configure this
-harness-owned per-edit contract, even where repo checks overlap; see [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md).
+harness-owned per-edit contract, even where repo checks overlap.
 At commit, rails then run `checks.commit` in the worktree followed by
 `guardrails check --repo <worktree> --record <record dir>`.
 
-Judged rails follow the deterministic checks
-([ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)):
+Judged rails follow the deterministic checks:
 
 | Event | Judgment | Reads from the record |
 | --- | --- | --- |

@@ -4,7 +4,7 @@
   "model": "typesafe/jev-1.14.0",
   "model_reported": "typesafe/jev-1.14.0",
   "score_space": "raw",
-  "wiring": "lib/judged-rails.ts (ADR 0017), enforced from the start (ADR 0021): the turn-end evidence obligation and the merge rail; yes leaves the obligation unmet and refuses the merge; a judge failure does the same",
+  "wiring": "lib/judged-rails.ts, enforced from the start: the turn-end evidence obligation and the merge rail; yes leaves the obligation unmet and refuses the merge; a judge failure does the same",
   "score_provenance": {
     "run": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, retries 2, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0",
     "call": "judge({state, questions}) per case through resolveJudge (omp judge role), questions.json questions",
@@ -21,7 +21,7 @@
   },
   "framing": {
     "action": {
-      "value": "turn-end obligation and merge refusal (ADR 0017)",
+      "value": "turn-end obligation and merge refusal",
       "assumed": false
     },
     "baseline": {
@@ -48,9 +48,9 @@
         "assumed": true,
         "reason": "jev-actions defaults; recall raised to 0.9 because a miss costs more"
       },
-      "cost_rule": "miss costs more: the cost-rule threshold 0.3 was not adopted; the threshold is the former band's yes side (ADR 0021)",
+      "cost_rule": "miss costs more: the cost-rule threshold 0.3 was not adopted; the threshold is the former band's yes side",
       "measured_band": {
-        "note": "measurement record only: without a fallback judge a band cannot decide (ADR 0021)",
+        "note": "measurement record only: without a fallback judge a band cannot decide",
         "pass_below": 0.4,
         "flag_at_or_above": 0.91,
         "between": "escalate to the owner (fallback judge: a person)",

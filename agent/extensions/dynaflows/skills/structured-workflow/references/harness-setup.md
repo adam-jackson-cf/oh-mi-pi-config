@@ -20,28 +20,25 @@ Add the record, engine and approval mechanics to each step of the generic reposi
   Never install, pin, copy or fork it into a target. `guardrails catalogue` lists its rule catalogue.
 - A stack gets a skill reference once two repositories need it (the rule of two); Python has `guardrails`.
   The engine's own tests prove every harness rule once; the repo's tests prove the repo's checkers.
-- Harness process additions apply only in dynaflows structured mode for the target
-  ([ADR 0015](../../../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md)); minimal mode means the fixed Git
+- Harness process additions apply only in dynaflows structured mode for the target; minimal mode means the fixed Git
   guards and repo-native checks.
 - The target never depends on, contains or mentions omp or dynaflows. It keeps only conforming code and the controls the
   project would want without the harness: build, tests, its own linters and checks, gate targets, hook config and
   CI job. Harness opinions and their checks live in oh-mi-pi-config; per-repo settings live in the record.
-- The repo's own controls come first under the [design directive](../../../AGENTS.md) principle 2.
+- The repo's own controls come first under the [design directive](../../../AGENTS.md) principle 14.
   The record's `guardrails.check.repo` lists the checker files that enforce each step's rules, and `guardrails check`
   leaves that step out. [Step 2](setup-rule-mapping.md) defines the `repo`, `grow` and `harness` outcomes.
-- Harness `guardrails path-check` is the explicit
-  [ADR 0002](../../../../../../docs/adr/0002-harness-owns-path-checks.md) exception: it always runs with the required
-  profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings, even where repo checks
-  overlap, and `guardrails.check.repo` never delegates it. `gate.json` has no path-check command field;
-  repo `checks.commit` and `checks.ci` stay repo-owned.
+- Harness `guardrails path-check` is the explicit exception (design directive, [Exceptions](../../../AGENTS.md#exceptions)):
+  it always runs with the required profile `guardrails.structure`, `guardrails.naming` and `guardrails.paths` settings,
+  even where repo checks overlap, and `guardrails.check.repo` never delegates it. Repo `checks.commit` and `checks.ci`
+  stay repo-owned.
 - Harness checks cover the whole repository without baselines; generated, vendored and fixture exclusions come from the
-  record. Naming, structure and path-check use the new-path event scope of
-  [ADR 0012](../../../../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md).
+  record. Naming, structure and path-check use the new-path event scope.
 
 ## Step 0: safety and modes
 
 1. Record candidate scope exclusions only for generated, vendored and fixture paths, with evidence; they become record
-   config after approval. Third-party code is excluded at the boundary (design directive principle 10).
+   config after approval. Third-party code is excluded at the boundary (design directive principle 20).
 2. Select the temporary candidate root outside the target checkout and outside the records directory.
    Steps 0–5 make no record writes either.
 3. Record every setup mode that applies:

@@ -382,7 +382,7 @@ const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/ju
 const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional() }).passthrough();
 const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSchema) }).passthrough();
 
-describe("every judgment is enforced from the start (ADR 0021)", () => {
+describe("every judgment is enforced from the start", () => {
 	test("no shipped judgment has a status or a band: each bool decision is one threshold", () => {
 		const names = readdirSync(shippedJudgments);
 		assert.ok(names.length >= 7, names.join(", "));
@@ -433,10 +433,10 @@ describe("every judgment is enforced from the start (ADR 0021)", () => {
 			h.judged.scores["adr_needed"] = 0.66;
 			body("fourth run.");
 			assert.equal(await h.call("bash", { command }), undefined, "below both thresholds merges");
-			h.judged.scores["ask_first"] = 0.5;
-			assert.ok(reasonOf(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC?" }] })).includes("ask_first no, P=0.50"),
-				"an ask below the 0.695 threshold is in scope and refused");
-			h.judged.scores["ask_first"] = 0.7;
+			h.judged.scores["ask_first"] = 0.11;
+			assert.ok(reasonOf(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC?" }] })).includes("ask_first no, P=0.11"),
+				"an ask below the 0.115 threshold is in scope and refused");
+			h.judged.scores["ask_first"] = 0.115;
 			assert.equal(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC now?" }] }), undefined);
 			assert.ok(reasonOf(await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" })).includes("$approve in-scope:"));
 		} finally { h.cleanup(); }

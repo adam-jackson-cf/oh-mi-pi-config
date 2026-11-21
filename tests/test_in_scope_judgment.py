@@ -151,21 +151,21 @@ def test_label_set_summary_matches_the_counting_labels() -> None:
     assert thresholds["label_set"]["cases"] == len(cases)
 
 
-def test_the_enforced_threshold_is_the_former_band_yes_side() -> None:
+def test_the_enforced_threshold_is_the_former_band_no_side() -> None:
     _, thresholds, _ = load()
     decision = thresholds["decisions"]["ask_first"]
     assert "status" not in thresholds
     assert "status" not in decision
     assert thresholds["wired"] is True
     assert "scopeReason" in thresholds["wiring"]
-    assert "ADR 0021" in thresholds["wiring"]
+    assert "enforced from the start" in thresholds["wiring"]
     assert thresholds["score_space"] == "raw"
     band = decision["measured_band"]
     assert (
-        0 <= band["no_threshold"] < band["yes_threshold"] == decision["threshold"] <= 1
+        0 <= decision["threshold"] == band["no_threshold"] < band["yes_threshold"] <= 1
     )
     assert band["adopted"] is False
-    assert "ADR 0021" in band["adopted_by"]
+    assert band["adopted_by"]
     assert band["why_not"]
     for split in ("dev", "test"):
         assert 0 <= band[split]["escalation_rate"] <= 1

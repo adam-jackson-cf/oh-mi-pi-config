@@ -48,7 +48,6 @@
       "arbiter_overrode_council": 2
     }
   },
-  "retune_report": "retune-2026-11-21.md",
   "shortfalls": [
     "fewer than 30 dev labels of each value for every bool question: thresholds are cost-rule values, untuned",
     "no yes/no band met the minimums with --conservative --repeats 5",
@@ -229,7 +228,7 @@
     "reached": {
       "version_key": "b7058ae0f9e92688731557942ed5ec14011f4d9885d8f1caf93205876d65560f",
       "threshold": 0.3,
-      "cost_rule": "A wrong no lowers severity; unreached only below the threshold 0.3 (the former no_at_most), so triage still never lowers severity on an uncertain score (ADR 0021)",
+      "cost_rule": "A wrong no lowers severity; unreached only below the threshold 0.3 (the former no_at_most), so triage still never lowers severity on an uncertain score",
       "measured": {
         "dev": {
           "cases": 44,

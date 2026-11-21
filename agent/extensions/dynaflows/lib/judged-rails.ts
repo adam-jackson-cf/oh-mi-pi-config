@@ -1,7 +1,7 @@
 // Judged rails, structured mode only: each runs its deterministic pre-checks first and calls decide()
 // only on what they pass. extension-impact gates the restart review, adr-needed the merge,
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
-// the turn end. Every judgment is enforced from the start (ADR 0021): the rails act on each verdict,
+// the turn end. Every judgment is enforced from the start: the rails act on each verdict,
 // and a judge failure refuses. An escalated outcome goes to the owner, who approves with a $approve prompt line.
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";

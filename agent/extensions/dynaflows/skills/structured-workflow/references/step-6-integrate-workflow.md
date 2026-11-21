@@ -6,7 +6,7 @@ Merge the verified exact head under git-tool's authority, and recover a red defa
 
 ## Required actions
 
-1. The valid pathCheck-free schema-v2 record from [Implement](step-4-implement-workflow.md) remains required;
+1. The valid schema-v2 record from [Implement](step-4-implement-workflow.md) remains required;
    the Git no-CI exception does not waive setup.
 2. Main never commits. Follow `skill://git-tool/references/merge-and-recover.md` for merge method, confirmation and
    recovery. Git-tool owns Git authority: `agentMerge: disabled` requires owner approval.
@@ -21,8 +21,6 @@ Merge the verified exact head under git-tool's authority, and recover a red defa
    A revert still needs both exact-head helpers. If it changes a feature-map doc without a linked frozen proof,
    `prove()` blocks; escalate with those doc paths rather than waive the gate.
 6. The durable fix gets its own PR with proofs reproducing the failure.
-7. Turn-end obligations follow: an open PR with green CI, a pending record `afterMerge` step and a requested device
-   rollout each send a follow-up until met (three at most).
 
 ## Done when
 

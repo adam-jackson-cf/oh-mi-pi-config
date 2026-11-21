@@ -1,79 +1,153 @@
 # Dynaflows
 
-Keep [workflow.html](docs/workflow.html) aligned with the canonical skill and extension implementation;
-the page explains them and does not define another contract.
+Dynaflows is the omp extension that runs the structured workflow, its rails, judgments and checks.
 
 ## Design directive
 
 Every change to dynaflows, its skills, `guardrails`, the agent rails and the record schema follows
-these principles. A change that conflicts with one needs the owner's explicit decision first;
-the [exceptions](#exceptions) below are the only standing ones.
+these principles. A change that conflicts with one needs the owner's explicit decision first; the
+[exceptions](#exceptions) below are the only standing ones.
 
-1. **The repo stays independent.** A repository holds no omp or dynaflows files, pins, mentions or
-   workarounds. Anyone can clone, build, test and run its checks without the harness.
-2. **Grow the repo's controls; the harness covers only the rest.** Where a repository can hold a
-   control (its own checkers, linters, test runner or CI gate), the missing rules are added to it
-   by a repo PR. The harness enforces a rule only when the repo could not hold it without depending
-   on omp or dynaflows, such as checks on the record itself.
-   - Never run a harness copy of a rule beside a repo control, even while the repo PR is pending,
-     and never as the route when the owner declines that PR.
-   - Every claim that a repo control covers or lacks a rule cites source evidence, rule ID by rule ID.
-   - For a rule the repo owns, the repo control is the authority: never reshape repo code to satisfy
-     a harness copy. A disagreement means a repo PR or a stale harness setting to remove.
-3. **Per-repo configuration lives in the harness.** Each repository's settings are a gitignored
-   record in oh-mi-pi-config, keyed by the clone's `origin` owner and name, never committed or part
-   of a PR. oh-mi-pi-config is the bespoke harness: setup for one machine belongs in its deploy
-   branches, and workflow code holds no environment values except configuration a skill sets on purpose.
-4. **Required means required.** No optional checks, skipping defaults, fallbacks, compatibility shims
-   or tolerance of old formats. Cutovers migrate every caller and delete superseded fields and code.
-   Many failures in a repository are cleaned up, never answered by softening the check.
-5. **Quality gates block without baselines.** Repository quality gates and harness commit checks
-   cover the whole repository. Placement never requires moving existing code.
-6. **Events trigger checks, with no ceremony.** Edits and commits run the harness checks; CI reruns
-   the gates offline on the events the repository chose, with no time budget. Pulling or merging
-   commits into a branch needs no proof; a resulting commit runs the normal checks. Behaviour is the
-   same on any CI host with the harness deployed. Harness process additions run only in dynaflows
-   structured mode for the path's repo; minimal mode keeps fixed guards only
-   ([ADR 0015](../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md)).
-   Approvals work for a single owner.
-7. **Proof means outcome tests.** A proof is an outcome test or lever journey linked from the feature
-   map, frozen red at base and passing at head, checked by `prove()` at the PR. There are no agent
-   code reviews. Quality checkers run at commit, never inside `prove()`, with no separate proof
-   command; the repo's tests prove its checkers and `guardrails`' tests prove the harness checkers.
-8. **Deterministic first.** Use deterministic checks wherever possible, a calibrated jev-actions
-   judgment where they cannot work, and LLM instructions only as a last resort.
-9. **Never version code to keep results comparable.** A code change that invalidates an experiment
-   means the experiment is rerun.
-10. **Verify and design only the code the repository owns.** Third-party code (installed packages,
-    vendored copies, generated clients, toolchains, third-party programs used as fixtures) is excluded
-    at the boundary; the repo never bends its own code or rules to make it pass.
-    - **Scope.** Checkers list owned files only, from `git ls-files`. Each exclusion names its
-      path or package with origin evidence. A vendored copy the repo edits is owned code with the
-      full rules. Anything a checker's derived scope cannot cover is a failure, not a skip.
-    - **No in-repo copies or shims.** Never keep copies, generated stubs or shims of third-party code
-      to satisfy a rule, or exempt such files from checkers. A dependency upgrade never requires
-      regenerating files in the repo.
-    - **Types from upstream.** Use the package's own annotations (mypy `follow_untyped_imports`
-      for a named package without `py.typed`) or a published stub package; ignore missing imports
-      only for a package with neither.
-    - **Design at the boundary.** Owned code reaches a third party through an owned adapter; the rest
-      depends on repo-defined interfaces such as Protocols. Structure, naming and complexity rules judge
-      those interfaces, never the third party's API.
-    - **Tests.** Tests replace the owned interface, not the third party. Adapter tests prove how the
-      repo uses the third party, never its own behaviour. Coverage and test integrity measure owned
-      code.
-    - **Upstream faults.** Fix a wrong call in owned code. Keep a workaround for the third party's own
-      fault inside its adapter, citing the upstream issue so it is removed when the fix lands.
+### Mechanism order
+
+**1. Deterministic process in extension code or omp mechanisms first.** Next, a Jev decision that
+selects one action from a fixed set. Agent instructions last, only for what neither can decide.
+Skills hold only that last tier.
+
+### What dynaflows enforces
+
+**2. Structure and naming.** The naming, structure and grouping of code objects across a repo:
+deterministic path checks, then Jev judgments.
+
+**3. Verification layers.** LLM analysis designs the layers; enforced deterministic checks run them.
+Nothing weakens a layer: no suppressed, skipped, loosened or bypassed checks, stub bodies, hardcoded
+results or fallback modes (implementation integrity).
+
+**4. Tests prove user journeys.** Every test drives a reachable user path from its feature-map entry
+to a caller-visible outcome, and together they prove the journey's acceptance criteria are met. A
+case no caller or real data can reach, a single bug-value pin, an internal or wiring assertion, or a
+duplicate of an outcome class already asserted is dropped, not added. LLM analysis creates the
+patterns tests are generated from; checks on the suite itself are deterministic where possible.
+
+**5. Proofs.** Deterministic gates prove that principles 2-4 and 6-9 were respected. A proof is an
+outcome test frozen red at base and passing at head, checked by `prove()` at the PR. There are no
+agent code reviews.
+
+**6. Clean cutovers.** A change replaces the old design outright: no backward compatibility, shims,
+aliases or dual paths, and legacy references and version-suffixed names are removed.
+
+**7. Regression repair.** A bug fix names the broken rule, repairs its root cause rather than the
+reported input, and protects the rule with a journey or property case shown failing first.
+
+**8. Measured claims.** A performance or quality conclusion states its sample size and variance, or
+is labelled provisional.
+
+**9. Flaky tests.** An intermittent failure is reproduced and its cause removed; a green re-run,
+retry or quarantine repairs nothing.
+
+### Workflows
+
+Plan, build, PR and merge are the normal flow; the directive defines only these:
+
+**10. Onboarding initiates a repository.** It sets up the repo's verification (repo-native controls,
+principles 13-14), the repo's default agent permission, and the rest of its harness configuration.
+Nothing else runs in structured mode for a repo until onboarding completes.
+
+**11. A spike is a bounded experiment that never ships.** It starts from a plan (user input and
+context), runs in scratch space, and ends in one decision: promote, with the final build plan and
+its learnings, or discard and stop. Spike code is discarded either way.
+
+**12. Merge-through follows the agent permission.** Agents and subagents respect the principles
+throughout. Where the repo's agent permission allows merge-through, they commit on a work branch
+under the commit checks, open the PR, and merge it once every verification and proof is green on the
+exact head; otherwise they stop at a green PR.
+
+### Repository boundary
+
+**13. No part of dynaflows enters a repository.** A repository holds no omp or dynaflows files,
+pins, mentions, dependencies or workarounds; anyone can clone, build, test and run its checks
+without the harness. Dynaflows may create repo-native controls alongside the repo's norms, such as
+verification, hooks, tests and CI, which run without the harness.
+
+**14. Grow the repo's controls; the harness covers only the rest.** Where a repository can hold a
+control (its own checkers, linters, test runner or CI gate), the missing rules are added to it by a
+repo PR. The harness enforces a rule only when the repo could not hold it without depending on omp
+or dynaflows, such as checks on the record itself.
+
+- Never run a harness copy of a rule beside a repo control, even while the repo PR is pending, and
+  never as the route when the owner declines that PR.
+- Every claim that a repo control covers or lacks a rule cites source evidence, rule ID by rule ID.
+- For a rule the repo owns, the repo control is the authority: never reshape repo code to satisfy a
+  harness copy. A disagreement means a repo PR or a stale harness setting to remove.
+
+**15. Per-repo configuration lives in the harness.** Each repository's settings are a gitignored
+record in oh-mi-pi-config, keyed by the clone's `origin` owner and name, never committed or part of
+a PR. oh-mi-pi-config is the bespoke harness: setup for one machine belongs in its deploy branches,
+and workflow code holds no environment values except configuration a skill sets on purpose.
+
+**16. Required means required.** No optional checks, skipping defaults, fallbacks, compatibility
+shims or tolerance of old formats. Cutovers migrate every caller and delete superseded fields and
+code. Many failures in a repository are cleaned up, never answered by softening the check.
+
+**17. Quality gates block without baselines.** Repository quality gates and harness commit checks
+cover the whole repository. Placement never requires moving existing code.
+
+**18. Events trigger checks, with no ceremony.** Edits and commits run the harness checks; CI reruns
+the gates offline on the events the repository chose, with no time budget. Pulling or merging
+commits into a branch needs no proof; a resulting commit runs the normal checks. Behaviour is the
+same on any CI host with the harness deployed. Harness process additions run only in dynaflows
+structured mode for the path's repo; minimal mode keeps fixed guards only. Approvals work for a
+single owner.
+
+**19. Never version code to keep results comparable.** A code change that invalidates an experiment
+means the experiment is rerun.
+
+**20. Verify and design only the code the repository owns.** Third-party code (installed packages,
+vendored copies, generated clients, toolchains, third-party programs used as fixtures) is excluded
+at the boundary; the repo never bends its own code or rules to make it pass.
+
+- **Scope.** Checkers list owned files only, from `git ls-files`. Each exclusion names its path or
+  package with origin evidence. A vendored copy the repo edits is owned code with the full rules.
+  Anything a checker's derived scope cannot cover is a failure, not a skip.
+- **No in-repo copies or shims.** Never keep copies, generated stubs or shims of third-party code to
+  satisfy a rule, or exempt such files from checkers. A dependency upgrade never requires
+  regenerating files in the repo.
+- **Types from upstream.** Use the package's own annotations (mypy `follow_untyped_imports` for a
+  named package without `py.typed`) or a published stub package; ignore missing imports only for a
+  package with neither.
+- **Design at the boundary.** Owned code reaches a third party through an owned adapter; the rest
+  depends on repo-defined interfaces such as Protocols. Structure, naming and complexity rules judge
+  those interfaces, never the third party's API.
+- **Tests.** Tests replace the owned interface, not the third party. Adapter tests prove how the
+  repo uses the third party, never its own behaviour. Coverage and test integrity measure owned
+  code.
+- **Upstream faults.** Fix a wrong call in owned code. Keep a workaround for the third party's own
+  fault inside its adapter, citing the upstream issue so it is removed when the fix lands.
 
 ### Exceptions
 
-- Principle 1: history keeps its wording: ADRs, and frozen study or evaluation records pinned by digest.
-- Principles 1–2: harness `guardrails path-check` gives one per-edit contract from record
-  settings, even where repo checks overlap; repo build, tests and CI stay independent
-  ([ADR 0002](../../../docs/adr/0002-harness-owns-path-checks.md)).
-- Principles 5 and 7: automatic naming, structure and path checks judge only new paths and segments,
-  and `prove()` runs those new-path pre-checks at the PR; full scans are explicit requests, and
-  `structure_review()` findings block merge
-  ([ADR 0021](../../../docs/adr/0021-judgments-enforced-from-the-start.md);
-  [ADR 0012](../../../docs/adr/0012-file-parent-repeats-and-scoped-exceptions.md), extending
-  [ADR 0003](../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md)).
+- Principle 13: frozen study or evaluation records pinned by digest keep their wording.
+- Principles 13-14: harness `guardrails path-check` gives one per-edit contract from record
+  settings, even where repo checks overlap; repo build, tests and CI stay independent.
+- Principles 5 and 17: automatic naming, structure and path checks judge only new paths and
+  segments, and `prove()` runs those new-path pre-checks at the PR; full scans are explicit
+  requests, and `structure_review()` findings block merge.
+
+## Known limits
+
+- `RENAME.residue` sees a rename only at Git's 50% similarity (`RENAME_THRESHOLD` in
+  `rename_residue.py`). A rewrite recorded as delete plus add gives no rename evidence, and a
+  retired term reused outside the renamed folder or file is not flagged.
+- A mode switch changes `ttsr.disabledRules` for later matches only; a `dynaflows-*` reminder
+  already delivered in the session is not retracted.
+- No rail stops an agent commit that edits a repo's dependency-audit exception file; the owner
+  catches it at PR review.
+- A command word built only from variables, with no literal `git` or `gh` text (`$X$Y pr merge`), is
+  not detected.
+- `completion-evidence` pre-check P3 (linked plan) is not wired: no labelled PR links a plan or
+  issue. Turn-end obligations stop after 3 follow-ups (`MAX_FOLLOW_UPS`); the owner is told once.
+- Rails scan shell and eval text, so obfuscated code can evade them. The owner keeps server-side
+  protection: the default-branch ruleset and a required `gate` status only the gate identity can
+  post.
+- Two rules stay instructions in `agent/AGENTS.md`: no Git in the NUC's `~/.omp` (remote `ssh`
+  shells are opaque), and restart sessions after rail changes (old sessions keep old rails).

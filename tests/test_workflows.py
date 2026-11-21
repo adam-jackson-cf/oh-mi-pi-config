@@ -866,7 +866,7 @@ class JudgmentRegistryTests(unittest.TestCase):
                 assert "mode" not in thresholds
                 assert "status" not in thresholds
                 wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
-                assert "ADR 0021" in wiring
+                assert "enforced from the start" in wiring
                 assert "not wired" not in json.dumps(thresholds)
 
     def test_configured_judge_model_reads_omp_config(self) -> None:

@@ -101,15 +101,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
 | `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
-| Path-check ADR | `docs/adr/0002-*.md` | Harness owns path checks |
-| Structure ADR | `docs/adr/0003-*.md` | Checks at PR diff scope |
-| Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
-| Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
-| Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
-| Runtime rails ADR | `docs/adr/0017-*.md` | Mode file, obligations, review, handoffs |
-| Trust ADR | `docs/adr/0018-*.md` | What the rails trust and refuse |
-| Integrity ADR | `docs/adr/0019-*.md` | `implementation-integrity` replaces the main tag |
-| Judgments ADR | `docs/adr/0020-*.md` | Registry, direct judge, Inspector route |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records

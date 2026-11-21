@@ -93,7 +93,6 @@ class SkillReferenceTests(unittest.TestCase):
             PACKAGE / "rails.yml",
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
-            PACKAGE / "docs/workflow.html",
             PACKAGE / "engine/workflows.py",
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
@@ -149,14 +148,6 @@ class SkillReferenceTests(unittest.TestCase):
                 unresolved.extend(unresolved_links(source))
         if unresolved:
             self.fail("\n".join(unresolved))
-
-    def test_workflow_page_relative_links_resolve_after_layout_moves(self) -> None:
-        source = PACKAGE / "docs/workflow.html"
-        for target in re.findall(r'href="([^"]+)"', source.read_text(encoding="utf-8")):
-            if target.startswith("#") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
-                continue
-            with self.subTest(target=target):
-                assert (source.parent / target.split("#", 1)[0]).is_file()
 
     def test_core_skill_frontmatter_names_match_directories(self) -> None:
         for name in CORE_SKILLS:

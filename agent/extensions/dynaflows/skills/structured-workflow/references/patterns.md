@@ -20,13 +20,3 @@ Load the orchestration helpers and find each helper's contract.
 - Prove fails closed with JSON-safe evidence and cleans its scratch trees; there is no automatic fix loop or fallback pass.
 - Never catch a cap or contract error and continue as if verified. Main owns changes, CI and follow-up routing under
   the stage and Git contracts.
-
-## Rails command parsing
-
-- Rails inspect `git`/`gh` words inside supported tool-runner launchers: `mise exec`/`mise x` (with `--` before
-  the command), `pnpm exec`/`pnpm dlx`, `npx`, `bunx`, `uv run` and `poetry run`.
-- `uv run` and `poetry run` honour `--` as the end of launcher options. Without it, ambiguous launcher options with a
-  later `git`/`gh` word block rather than silently skipping checks; put the Git command first after options or use `--`.
-- Rails recursively scan `$(...)` and backtick command substitutions, including inside double quotes,
-  without evaluating their output.
-- Alias and shell function definitions whose bodies contain a `git` or `gh` word fail closed.

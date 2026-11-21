@@ -99,7 +99,7 @@ const judgeModel = "typesafe/jev-1.14.0";
 type JudgeStub = { scores: Record<string, number>; calls: { question: string; state: unknown }[]; model: string; failure?: string | undefined };
 function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeModel }; }
 
-// The rails' escalate branches need a band, which no shipped judgment has (ADR 0021): this registry
+// The rails' escalate branches need a band, which no shipped judgment has: this registry
 // double runs the same bridge with every bool decision widened to 0.3-0.7, as a band with a fallback judge would be.
 const bandedBridge = [
 	"import dataclasses, importlib.util, sys",

@@ -33,9 +33,7 @@ Structured mode only. Rails run their deterministic pre-checks first, then the s
 through `lib/decide.py` (`questions`, then `record`) with omp's judge role; the model that
 answered must be `thresholds.model`. A failed call is never an outcome.
 
-- Every judgment is enforced from the moment it ships
-  ([ADR 0021](../../../../../../docs/adr/0021-judgments-enforced-from-the-start.md)): no shadow or
-  provisional mode exists.
+- Every judgment is enforced.
 - A failed call refuses the commit, merge or command and leaves the evidence obligation unmet; a
   failed `in-scope` call on an `ask` lets the question through.
 
@@ -92,3 +90,4 @@ outcome = (
   `fallback` naming another registered judgment. A band without one, or any `status`, is refused.
 - Labels: the innovation council takes the first pass, the agent arbitrates, the owner may override.
 - Changing wording, state shape or model makes the keys stale: re-score, re-tune, then ship.
+- A judgment acts from the moment it merges: ship only thresholds fit to enforce, and list any label shortfall in its `thresholds.json`.

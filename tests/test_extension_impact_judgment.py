@@ -153,7 +153,7 @@ def test_measured_band_figures_follow_from_saved_scores() -> None:
     decision = thresholds()["decisions"]["impact"]
     band = decision["measured_band"]
     low, high = band["no_at_most"], band["yes_at_least"]
-    assert low < decision["tuned_threshold"] < high == decision["threshold"]
+    assert decision["threshold"] == low < decision["tuned_threshold"] < high
     rows = scores()
     for split in ("dev", "test"):
         part = [row for row in rows if row["split"] == split]

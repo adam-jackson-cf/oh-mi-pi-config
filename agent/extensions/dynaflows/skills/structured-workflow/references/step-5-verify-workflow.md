@@ -6,7 +6,7 @@ Run `prove()` and then `structure_review()` on the PR's exact current head, even
 
 ## Required actions
 
-1. The valid pathCheck-free schema-v2 record from [Implement](step-4-implement-workflow.md) remains required.
+1. The valid schema-v2 record from [Implement](step-4-implement-workflow.md) remains required.
 2. Confirm the writer has no pending edits and returned a ready PR as defined in [verify loop](verify-loop.md).
 3. Obtain the actual PR base branch and exact 40-hex head from GitHub, using the primary remote and default already
    resolved by `skill://git-tool/references/branch-and-integrate.md`. Fetch the actual target and record its

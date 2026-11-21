@@ -98,7 +98,6 @@
       "arbiter_overrode_council": 9
     }
   },
-  "retune_report": "retune-2026-11-21.md",
   "proposals": {
     "entry_point_placement": "split into two questions (rubric Q2: two conditions joined by or)",
     "runtime_data_in_code": "split runtime-loaded data from generated run output (Q2)",

@@ -203,7 +203,7 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 	return evidence.trusts(path, text) ? undefined : untrustedEvidence("prove()", head, path);
 }
 type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string }[] };
-// Every finding blocks (ADR 0021): only a pass with no findings, no halt and no errors admits the merge.
+// Every finding blocks: only a pass with no findings, no halt and no errors admits the merge.
 function structureBlock(result: StructureVerdict, head: string): string | undefined {
 	if (result.status === "incomplete" || result.errors?.length) {
 		return `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`;
@@ -394,7 +394,7 @@ function protectedEditReason(map: Mapping, protection: Protection, event: ToolEv
 	return undefined;
 }
 // The rail state a session trusts: the mode file and the session repo's origin. Records are not
-// part of it: agents write them at any time and the rails re-read them on every action (ADR 0001).
+// part of it: agents write them at any time and the rails re-read them on every action.
 async function captureState(snapshot: Snapshot, modesFile: string, cwd: string, notify: (text: string, level: "error") => void): Promise<void> {
 	await snapshot.capture(modesFile, () => fileState(modesFile));
 	const root = await repoRoot(cwd);

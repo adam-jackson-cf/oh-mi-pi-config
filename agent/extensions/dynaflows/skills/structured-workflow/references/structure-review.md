@@ -14,7 +14,6 @@ Main calls this after prove on the same exact head and merge-base range. The ext
 isolated Python (`-I -S`) from the harness reference:
 `structure-state --repo R --base SHA --head SHA`. It reads Git objects only, never imports
 or executes target-repository code, and emits `{unit_path: unit_state}` for affected units.
-See [ADR 0003](../../../../../../docs/adr/0003-structure-checks-at-pr-diff-scope.md).
 
 The frozen questions and per-question thresholds live in
 `judgments/structure-naming/{questions,thresholds}.json`. Ask all seven general questions
@@ -33,8 +32,7 @@ above the decision's `threshold`). No prove file or proof status changes.
 Infrastructure failures are reported in the result/comment. An incomplete review has
 `status: incomplete`, not a clean result, and rails refuse a merge on it: fix the cause and rerun.
 
-Every finding sets `halt: true` and `status: blocked`; a clean review is `status: pass`
-([ADR 0021](../../../../../../docs/adr/0021-judgments-enforced-from-the-start.md)).
+Every finding sets `halt: true` and `status: blocked`; a clean review is `status: pass`.
 [Verify](step-5-verify-workflow.md) and [Integrate](step-6-integrate-workflow.md) own the response.
 Retuning thresholds requires jev-actions labeling, tuning and calibration evidence; raw
 probabilities are not calibrated confidence. Nothing turns infrastructure errors into findings.
