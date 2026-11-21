@@ -154,7 +154,7 @@
     "owner review covers the T2 ruling only; no per-case owner review of the other labels",
     "the minimal stratum was dropped: about 20 dev cases per label remain; grow to 50+ per label at the next retune",
     "band removed: no fallback judge; threshold is the former no_at_most pending retune",
-    "safe side: yes allows the ask / keeps the review; retune pending"
+    "safe side: yes keeps the review task; retune pending"
   ],
   "label_guide": {
     "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",
