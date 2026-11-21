@@ -37,7 +37,6 @@ REFUSED = [
 GATE = {
     "schemaVersion": 2,
     "checks": {"commit": ["make", "gate"]},
-    "dynaflows": {"mode": "structured"},
 }
 
 
@@ -73,7 +72,18 @@ class GateReason(unittest.TestCase):
                     "profile": ["p"],
                 },
                 ci={"requiredContext": "gate", "runner": "ci-gate"},
-                dynaflows={"mode": "minimal"},
+            ),
+            gate(afterMerge={"argv": ["make", "sync"]}),
+            gate(afterMerge={"argv": ["make"], "paths": ["agent/**"]}),
+            gate(
+                mergePolicies=[
+                    {
+                        "base": "nuc-config",
+                        "headPrefix": "agent/nuc-sync-",
+                        "method": "merge",
+                        "proof": False,
+                    }
+                ]
             ),
         ):
             with self.subTest(gate=valid):
@@ -134,19 +144,45 @@ class GateReason(unittest.TestCase):
                 "unknown field ownerOnlyPaths must be removed",
             ),
         ]
+        after = "afterMerge must be {argv, paths?} with argv an argv array"
+        bad_steps: tuple[object, ...] = (
+            "make",
+            {"argv": []},
+            {"argv": ["m"], "other": 1},
+        )
+        cases += [(gate(afterMerge=value), after) for value in bad_steps]
         cases += [
             (
-                gate(dynaflows=mode),
-                'dynaflows must be {"mode": "minimal"|"structured"}',
+                gate(afterMerge={"argv": ["m"], "paths": paths}),
+                "afterMerge.paths must be a nonempty list of nonblank globs",
             )
-            for mode in (
-                None,
-                {},
-                {"mode": "on"},
-                {"mode": ["minimal"]},
-                {"mode": "minimal", "other": 1},
-                True,
+            for paths in ([], [" "], "agent/**")
+        ]
+        policy: dict[str, object] = {
+            "base": "main",
+            "headPrefix": "",
+            "method": "rebase",
+            "proof": True,
+        }
+        bad_policies: tuple[object, ...] = (
+            [],
+            {},
+            [{**policy, "method": "squash"}],
+            [{**policy, "proof": "yes"}],
+            [{**policy, "base": " "}],
+            [{**policy, "admin": True}],
+            [{k: v for k, v in policy.items() if k != "proof"}],
+        )
+        cases += [
+            (
+                gate(mergePolicies=value),
+                "mergePolicies must be a nonempty list of {base, headPrefix, method: rebase|merge, proof: true|false}",
             )
+            for value in bad_policies
+        ]
+        cases += [
+            (gate(dynaflows=mode), "unknown field dynaflows must be removed")
+            for mode in ({"mode": "structured"}, {"mode": "minimal"})
         ]
         for invalid, reason in cases:
             with self.subTest(gate=invalid):

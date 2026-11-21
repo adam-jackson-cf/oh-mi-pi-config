@@ -1,7 +1,8 @@
 # 0015: Dynaflows runs in minimal or structured mode
 
 Status: Superseded in part by [ADR 0016](0016-skill-moves-and-legacy-removal.md) (readers no longer
-name the removed `enabled` key). Accepted (owner-approved, 2026-11-20). Supersedes the on/off
+name the removed `enabled` key) and [ADR 0017](0017-dynaflows-runtime-rails.md) (the mode file replaces
+`dynaflows.mode` and the machine file). Accepted (owner-approved, 2026-11-20). Supersedes the on/off
 switch of
 [ADR 0004](0004-dynaflows-flag-gates-the-harness-process.md) and the separate `agent-rails.ts` extension.
 

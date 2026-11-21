@@ -5,6 +5,5 @@
     "ci": ["make", "gate-ci"]
   },
   "ci": { "requiredContext": "gate", "runner": "github-actions" },
-  "agentMerge": "allowed",
-  "dynaflows": { "mode": "minimal" }
+  "agentMerge": "allowed"
 }

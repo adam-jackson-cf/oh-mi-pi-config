@@ -3,7 +3,8 @@
 
 Apply mode also provisions the judge key into each device's omp credential store
 (Infisical -> builder -> `omp auth import -`, streamed over stdin only), runs a
-`omp find` canary per device, and writes
+`omp find` canary per device, fails a device whose `omp --version` differs from the
+package.json pin of @oh-my-pi/pi-coding-agent (both modes), and writes
 each device's `<omp base>/ci-runners.json` from the registry's `ciRunners` roles, and copies the
 gitignored per-repo records (`<omp base>/repos/<owner>/<name>/`) one way from this checkout to
 every remote device that runs omp, refusing to overwrite a target record that is newer.
@@ -24,6 +25,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# The omp package whose package.json pin every device's `omp --version` must equal.
+OMP_PACKAGE = "@oh-my-pi/pi-coding-agent"
+# `omp --version` prints one line such as `omp/19.0.1`.
+OMP_VERSION_LINE = re.compile(r"^omp/(\d+\.\d+\.\d+)$", re.MULTILINE)
 # Configuration keys in the registry that are not hosts.
 SETTINGS = ("local", "infisical", "judgeKey", "findCanary", "ciRunners")
 # Reads the secret named by argv[1] from the environment and prints an
@@ -144,6 +149,18 @@ GITHUB_LOGS = (
     '| while read -r id; do gh run view "$id" --repo "$1" --log-failed; done '
     '| tail -n "$3"'
 )
+
+
+def omp_pin(checkout: Path) -> str:
+    """The exact @oh-my-pi/pi-coding-agent version package.json pins in `checkout`."""
+    try:
+        document = json.loads((checkout / "package.json").read_text())
+        pin = document["devDependencies"][OMP_PACKAGE]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"package.json has no {OMP_PACKAGE} pin: {error}") from None
+    if not isinstance(pin, str) or not re.fullmatch(r"\d+\.\d+\.\d+", pin):
+        raise ValueError(f"package.json must pin {OMP_PACKAGE} to an exact version")
+    return pin
 
 
 def infisical_settings(infisical: dict[str, Any] | None) -> list[str]:
@@ -362,8 +379,10 @@ class Rollout:
         machine: Machine | None = None,
         *,
         check: bool = False,
+        pin: str,
     ) -> None:
         machine = Machine() if machine is None else machine
+        self.pin = pin
         hostname = machine.hostname.split(".")[0].lower()
         self.local: str = hosts.get("local", {}).get(hostname, hostname)
         self.hosts = {
@@ -538,6 +557,28 @@ class Rollout:
             row[4] = coverage or "-"
             if coverage and coverage != "complete" and row[5] == "current":
                 row[5] = "find-blocked"
+
+    def omp_version(self, device: str, start: int, host: str | None = None) -> None:
+        """Record the device's `omp --version` against the package.json pin as a row."""
+        reported = "-"
+        if any(row[5] == "unreachable" for row in self.rows[start:]):
+            state = "unreachable"
+        else:
+            try:
+                output = self.command(["omp", "--version"], host).stdout
+                found = OMP_VERSION_LINE.findall(output)
+                if len(found) != 1:
+                    raise CommandError("failed")
+                reported = found[0]
+                state = "current" if reported == self.pin else "version-mismatch"
+            except CommandError as error:
+                state = error.state
+        if state == "version-mismatch":
+            self.notes.append(
+                f"{device}: omp {reported} differs from the package.json pin {self.pin}; "
+                f"install omp {self.pin} there"
+            )
+        self.rows.append([device, "omp-version", reported, self.pin, "-", state])
 
     def runners(self, device: str, start: int, host: str | None = None) -> None:
         """Check or write the device's ci-runners.json and record it as a row."""
@@ -762,6 +803,7 @@ class Rollout:
         agents = self.machine.home / ".agents"
         self.checkout(self.local, "agents", agents)
         self.finish_device(self.local, 0)
+        self.omp_version(self.local, 0)
         self.runners(self.local, 0)
         for host, config in self.hosts.items():
             start = len(self.rows)
@@ -771,6 +813,8 @@ class Rollout:
                     host, config["omp"], local_ready=local_omp in {"current", "stale"}
                 )
             self.finish_device(host, start, host, omp="omp" in config)
+            if "omp" in config:
+                self.omp_version(host, start, host)
             self.runners(host, start, host)
             if "omp" in config:
                 self.records(host, config["omp"], start)
@@ -800,7 +844,12 @@ def main(argv: list[str] | None = None, machine: Machine | None = None) -> int:
     )
     args = parser.parse_args(argv)
     registry = Path(__file__).with_name("device-rollout-hosts.json")
-    rollout = Rollout(json.loads(registry.read_text()), machine, check=args.check)
+    rollout = Rollout(
+        json.loads(registry.read_text()),
+        machine,
+        check=args.check,
+        pin=omp_pin(Path(__file__).resolve().parents[1]),
+    )
     code = rollout.execute()
     print(rollout.report())
     return code

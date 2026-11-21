@@ -1,7 +1,7 @@
 # Branch and integrate
 
-One unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the repository's
-project instructions document a target/merge-method exception.
+One unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the record's
+`mergePolicies` name another base and method for the head prefix.
 Authority and safety belong to [authority-and-safety](authority-and-safety.md).
 This runbook applies in both dynaflows modes; steps marked **Structured mode only** apply only in structured mode.
 

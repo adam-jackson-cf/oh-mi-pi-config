@@ -13,6 +13,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Any, Required, TypedDict, TypeGuard, Unpack
@@ -22,6 +23,7 @@ __all__ = [
     "FreezeOptions",
     "FreezeRequest",
     "FreezeResult",
+    "Judgment",
     "Lineage",
     "Placement",
     "ProveBlockedError",
@@ -32,24 +34,28 @@ __all__ = [
     "advisory_key",
     "assess_advisory",
     "blind_label",
+    "decide",
     "dependency_audit_findings",
     "deterministic_checks",
     "freeze",
     "gate_policy",
+    "judgment_call_log",
+    "judgment_record",
+    "load_judgment",
     "load_manifest",
     "malicious_assessment",
     "malicious_package",
     "no_record_reason",
+    "outcome",
     "owner_report",
     "parse_dependency_audit",
     "prove",
     "rate_advisory",
     "read_record",
+    "require_direct_judge_route",
+    "require_judge_model",
     "result_path",
     "run_check",
-    "severity_questions",
-    "severity_thresholds",
-    "severity_version_key",
     "structure_review",
     "triage_advisories",
 ]
@@ -215,13 +221,14 @@ def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
 
     The record is the personal, gitignored `repos/<owner>/<name>/` directory under the harness,
     named by the clone's origin remote; worktrees resolve to their main checkout's record. A record
-    that exists but is unreadable or that rails would reject raises.
+    that exists but is unreadable or that rails would reject raises, and so does an origin remote
+    that cannot be read: that is not "no record".
     """
     resolver = _resolver()
-    record = resolver.find_record(repo, _records_root())
-    if record is None:
-        return None, None
     try:
+        record = resolver.find_record(repo, _records_root())
+        if record is None:
+            return None, None
         gate = resolver.load_gate(record)
     except resolver.RecordError as exc:
         raise WorkflowError(f"record {exc}") from exc
@@ -231,7 +238,10 @@ def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
 def no_record_reason(repo: StrPath) -> str:
     """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
     resolver = _resolver()
-    slug, _, reason = resolver.resolve_record(repo, _records_root())
+    try:
+        slug, _, reason = resolver.resolve_record(repo, _records_root())
+    except resolver.RecordError as exc:
+        raise WorkflowError(f"record {exc}") from exc
     text: str = resolver.minimal_text(slug, reason or "no per-repo record")
     return text
 
@@ -1836,7 +1846,309 @@ _FAILURE_LINE = re.compile(
     re.escape(DEPENDENCY_AUDIT)
     + r" failure=(?P<kind>\S+) path=(?P<path>\S+) reason=(?P<reason>\S.*)"
 )
-SEVERITY_JUDGMENT = "agent/extensions/dynaflows/judgments/dependency-severity"
+JUDGMENTS = "agent/extensions/dynaflows/judgments"
+JUDGMENT_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+# Every judge() call through the registry appends one JSON line here, under the omp agent dir.
+JUDGMENT_CALLS = "dynaflows/judgment-calls.jsonl"
+OUTCOMES = ("yes", "no", "escalate")
+DECISION_STATUSES = ("provisional", "ready")
+
+
+def _judgment_digest(value: object) -> str:
+    """sha256 of compact, sorted-key JSON: the registry's version keys and state digests."""
+    return hashlib.sha256(
+        json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+    ).hexdigest()
+
+
+@dataclass(frozen=True)
+class Judgment:
+    """One judgments/<name>/ folder, validated: questions, state shape, pinned model, decisions."""
+
+    name: str
+    questions: dict[str, Any]
+    state: dict[str, Any]
+    model: str
+    version_key: str
+    decisions: dict[str, Any]
+    thresholds: dict[str, Any]
+
+
+def _fraction(value: object) -> TypeGuard[int | float]:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 <= value <= 1
+    )
+
+
+def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
+    """A decision fits its question type; a bool decision holds a no/yes band, no_at_most < yes_at_least."""
+    if (
+        not isinstance(decision, dict)
+        or decision.get("status") not in DECISION_STATUSES
+    ):
+        raise WorkflowError(
+            f"{name}: decision {ident} needs status provisional or ready"
+        )
+    kind = question.get("type") if isinstance(question, dict) else None
+    if kind == "bool":
+        low, high = decision.get("no_at_most"), decision.get("yes_at_least")
+        if not (_fraction(low) and _fraction(high) and low < high):
+            raise WorkflowError(
+                f"{name}: decision {ident} needs 0 <= no_at_most < yes_at_least <= 1"
+            )
+    elif kind == "choice":
+        if not _fraction(decision.get("round_up_floor")):
+            raise WorkflowError(
+                f"{name}: decision {ident} needs a round_up_floor in [0, 1]"
+            )
+    else:
+        raise WorkflowError(
+            f"{name}: question {ident} must be a bool or choice question"
+        )
+
+
+def load_judgment(name: str) -> Judgment:
+    """judgments/<name>/ with its thresholds; stale version keys raise (re-score, then re-tune)."""
+    if not isinstance(name, str) or not JUDGMENT_NAME.fullmatch(name):
+        raise WorkflowError(f"invalid judgment name: {name!r}")
+    directory = _harness_root() / JUDGMENTS / name
+    try:
+        document = json.loads((directory / "questions.json").read_text())
+        thresholds = json.loads((directory / "thresholds.json").read_text())
+        questions, state = document["questions"], document["state"]
+        model, decisions = thresholds["model"], thresholds["decisions"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise WorkflowError(f"cannot read judgment {name}: {exc}") from exc
+    if (
+        not isinstance(questions, dict)
+        or not questions
+        or not isinstance(decisions, dict)
+    ):
+        raise WorkflowError(
+            f"{name}: questions and decisions must be non-empty objects"
+        )
+    if (
+        not isinstance(model, str)
+        or not model
+        or thresholds.get("score_space") != "raw"
+    ):
+        raise WorkflowError(
+            f"{name}: thresholds need a pinned model and raw score space"
+        )
+    if thresholds.get("version_key") != _judgment_digest({
+        "questions": questions,
+        "state": state,
+        "model": model,
+    }):
+        raise WorkflowError(
+            f"{name}: thresholds are stale for the current questions or model; re-score the cases and re-tune"
+        )
+    if set(decisions) != set(questions):
+        raise WorkflowError(f"{name}: thresholds must hold one decision per question")
+    for ident, question in questions.items():
+        decision = decisions[ident]
+        _check_decision(name, ident, question, decision)
+        expected = _judgment_digest({
+            "question": question,
+            "state": state,
+            "model": model,
+        })
+        if decision.get("version_key") != expected:
+            raise WorkflowError(
+                f"{name}: decision {ident} is stale; re-score and re-tune it"
+            )
+    return Judgment(
+        name, questions, state, model, thresholds["version_key"], decisions, thresholds
+    )
+
+
+def outcome(decision: dict[str, Any], probability: float) -> str:
+    """yes at or above yes_at_least, no at or below no_at_most, escalate in between."""
+    if probability >= decision["yes_at_least"]:
+        return "yes"
+    if probability <= decision["no_at_most"]:
+        return "no"
+    return "escalate"
+
+
+def _agent_dir() -> Path:
+    """The omp agent state directory: PI_CODING_AGENT_DIR, else ~/.omp/agent (omp's default)."""
+    configured = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".omp/agent"
+
+
+def judgment_call_log() -> Path:
+    return _agent_dir() / JUDGMENT_CALLS
+
+
+def _configured_judge_model() -> str:
+    """The judge role omp resolves for this directory, from `omp config get modelRoles --json`."""
+    try:
+        completed = subprocess.run(
+            ["omp", "config", "get", "modelRoles", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        model = json.loads(completed.stdout)["value"]["judge"]
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise WorkflowError(f"cannot read the configured judge model: {exc}") from exc
+    if completed.returncode != 0 or not isinstance(model, str) or not model:
+        raise WorkflowError("omp config get modelRoles names no judge model")
+    return model
+
+
+def require_direct_judge_route() -> None:
+    """Gate judgments run on TypeSafe directly: refuse while TYPESAFE_BASE_URL reroutes judge calls.
+
+    The opt-in Jev Inspector route (inspector.env) sets it; it serves interactive inspection only.
+    """
+    if os.environ.get("TYPESAFE_BASE_URL", "").strip():
+        raise WorkflowError(
+            "gate judgments run on the direct TypeSafe endpoint; start omp without "
+            "TYPESAFE_BASE_URL (the Jev Inspector route is for interactive inspection only)"
+        )
+
+
+def require_judge_model(judgment: Judgment) -> None:
+    """Refuse a judgment whose thresholds were tuned on another model than the judge role."""
+    configured = _configured_judge_model()
+    if configured != judgment.model:
+        raise WorkflowError(
+            f"{judgment.name}: thresholds are tuned on {judgment.model} but the judge role is "
+            f"{configured}; re-score the cases and re-tune"
+        )
+
+
+def judgment_record(
+    judgment: Judgment,
+    state: object,
+    answers: object,
+    asked: Collection[str] | None = None,
+) -> dict[str, Any]:
+    """Probabilities and outcomes for one state's answers (to `asked`, default all), appended to the call log."""
+    probabilities: dict[str, Any] = {}
+    outcomes: dict[str, str] = {}
+    for ident in judgment.questions if asked is None else asked:
+        question = judgment.questions[ident]
+        if question["type"] == "bool":
+            probabilities[ident] = _probability(answers, ident, "bool")
+            outcomes[ident] = outcome(judgment.decisions[ident], probabilities[ident])
+        else:
+            probabilities[ident] = _probability(
+                answers, ident, "choice", question["criteria"]
+            )
+    record = {
+        "judgment": judgment.name,
+        "state_sha256": _judgment_digest(state),
+        "model": judgment.model,
+        "question_version": judgment.version_key,
+        "probabilities": probabilities,
+        "outcomes": outcomes,
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    path = judgment_call_log()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
+    except OSError as exc:
+        raise WorkflowError(
+            f"cannot append the judgment call log {path}: {exc}"
+        ) from exc
+    return record
+
+
+async def decide(name: str, state: dict[str, Any]) -> dict[str, Any]:
+    """Judge `state` with judgments/<name>/: yes | no | escalate per bool question, logged.
+
+    Refuses stale thresholds and a judge role other than the tuned model. A failed or invalid
+    judgment raises; it is never read as an outcome. Returns the logged record plus `answers`.
+    """
+    judgment = load_judgment(name)
+    require_judge_model(judgment)
+    if not isinstance(state, dict) or not state:
+        raise WorkflowError(f"{name}: state must be a non-empty object")
+    try:
+        answers = await _kernel("judge")(state, judgment.questions)
+    except Exception as exc:
+        raise WorkflowError(f"{name}: judgment failed: {exc}") from exc
+    return {**judgment_record(judgment, state, answers), "answers": answers}
+
+
+def judgment_questions(name: str) -> dict[str, Any]:
+    """What a rail sends to its own judge call: the pinned model and the questions.
+
+    Rails judge from the extension host, which reports the model that answered, so the model check
+    happens in record_answers() rather than through `omp config get`.
+    """
+    judgment = load_judgment(name)
+    require_direct_judge_route()
+    return {"judgment": name, "model": judgment.model, "questions": judgment.questions}
+
+
+def record_answers(name: str, request: object) -> dict[str, Any]:
+    """decide()'s outcomes and log line for answers a rail's judge call returned.
+
+    Refuses answers from any model other than the tuned one; a refusal is never an outcome.
+    """
+    judgment = load_judgment(name)
+    require_direct_judge_route()
+    if not isinstance(request, dict) or set(request) != {"state", "answers", "model"}:
+        raise WorkflowError(
+            f"{name}: rail answers need exactly state, answers and model"
+        )
+    state, model = request["state"], request["model"]
+    if model != judgment.model:
+        raise WorkflowError(
+            f"{name}: thresholds are tuned on {judgment.model} but {model!r} answered; "
+            "re-score the cases and re-tune"
+        )
+    if not isinstance(state, dict) or not state:
+        raise WorkflowError(f"{name}: state must be a non-empty object")
+    return judgment_record(judgment, state, request["answers"])
+
+
+def rail_bridge(argv: list[str]) -> int:
+    """`questions <name>` or `record <name> <request.json>`: one JSON object on stdout.
+
+    A refusal prints {"error": ...} and exits 1.
+    """
+    try:
+        match argv:
+            case ["questions", name]:
+                result = judgment_questions(name)
+            case ["record", name, request]:
+                try:
+                    document = json.loads(Path(request).read_text())
+                except (OSError, ValueError) as exc:
+                    raise WorkflowError(
+                        f"cannot read rail answers {request}: {exc}"
+                    ) from exc
+                result = record_answers(name, document)
+            case _:
+                raise WorkflowError(
+                    "usage: questions <judgment> | record <judgment> <request.json>"
+                )
+    except WorkflowError as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
+    print(json.dumps(result, sort_keys=True, allow_nan=False))
+    return 0
+
+
+SEVERITY_JUDGMENT = "dependency-severity"
 SEVERITIES = ("low", "medium", "high", "critical")
 OWNER_SEVERITIES = ("high", "critical")
 # The fixed rubric: an impact class sets the base level; each mitigating dimension that the
@@ -1929,44 +2241,6 @@ def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
     return {"ok": ok, **found}
 
 
-def _severity_dir() -> Path:
-    return _harness_root() / SEVERITY_JUDGMENT
-
-
-def severity_questions() -> tuple[dict[str, Any], dict[str, Any]]:
-    """The frozen severity questions as judge() takes them, and their state shape."""
-    try:
-        document = json.loads((_severity_dir() / "questions.json").read_text())
-    except (OSError, ValueError) as exc:
-        raise WorkflowError(f"cannot read the severity questions: {exc}") from exc
-    return document["questions"], document["state"]
-
-
-def severity_version_key(model: object) -> str:
-    """sha256 over the questions, the state shape and the pinned model (compose-and-integrate)."""
-    questions, state = severity_questions()
-    payload = json.dumps(
-        {"questions": questions, "state": state, "model": model},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def severity_thresholds() -> dict[str, Any]:
-    """thresholds.json for the current question version; a stale version key raises (re-score, re-tune)."""
-    try:
-        thresholds = json.loads((_severity_dir() / "thresholds.json").read_text())
-    except (OSError, ValueError) as exc:
-        raise WorkflowError(f"cannot read the severity thresholds: {exc}") from exc
-    if thresholds.get("version_key") != severity_version_key(thresholds.get("model")):
-        raise WorkflowError(
-            "severity thresholds are stale for the current questions; re-score the cases and re-tune"
-        )
-    decisions: dict[str, Any] = thresholds["decisions"]
-    return decisions
-
-
 def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
     """The cited evidence for one advisory, validated; a gap raises naming the advisory."""
     key = advisory_key(advisory)
@@ -2028,7 +2302,9 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
     return evidence
 
 
-def _probability(answers: object, question: str, kind: str) -> Any:
+def _probability(
+    answers: object, question: str, kind: str, labels: Collection[str] = IMPACT_LEVEL
+) -> Any:
     answer = answers.get(question) if isinstance(answers, dict) else None
     if kind == "choice":
         probabilities = (
@@ -2036,15 +2312,13 @@ def _probability(answers: object, question: str, kind: str) -> Any:
         )
         if (
             not isinstance(probabilities, dict)
-            or set(probabilities) != set(IMPACT_LEVEL)
+            or set(probabilities) != set(labels)
             or not all(
                 isinstance(p, (int, float)) and 0 <= p <= 1
                 for p in probabilities.values()
             )
         ):
-            raise WorkflowError(
-                f"severity judgment returned no valid {question} answer"
-            )
+            raise WorkflowError(f"judgment returned no valid {question} answer")
         return probabilities
     value = answer.get("bool") if isinstance(answer, dict) else None
     if (
@@ -2052,7 +2326,7 @@ def _probability(answers: object, question: str, kind: str) -> Any:
         or isinstance(value, bool)
         or not 0 <= value <= 1
     ):
-        raise WorkflowError(f"severity judgment returned no valid {question} answer")
+        raise WorkflowError(f"judgment returned no valid {question} answer")
     return value
 
 
@@ -2064,9 +2338,9 @@ def rate_advisory(
 ) -> dict[str, Any]:
     """Apply the fixed rubric to the judgment's answers: severity, route and the cited evidence.
 
-    Rounds up: the impact is the most severe class at or above the round-up floor, and a
-    mitigating dimension lowers the level only when the judgment clears its threshold. A malicious
-    package never reaches the rubric.
+    Rounds up: the impact is the most severe class at or above the round-up floor, a
+    mitigating dimension lowers the level only on a yes outcome, and exposure only on a no
+    outcome for `reached`; escalate never lowers it. A malicious package never reaches the rubric.
     """
     if malicious_package(advisory):
         return malicious_assessment(advisory, evidence)
@@ -2081,9 +2355,9 @@ def rate_advisory(
     preconditions = {q: _probability(answers, q, "bool") for q in PRECONDITIONS}
     reached = _probability(answers, "reached", "bool")
     cleared = [
-        q for q in PRECONDITIONS if preconditions[q] >= decisions[q]["threshold"]
+        q for q in PRECONDITIONS if outcome(decisions[q], preconditions[q]) == "yes"
     ]
-    unreached = reached <= decisions["reached"]["unreached_at_most"]
+    unreached = outcome(decisions["reached"], reached) == "no"
     level = (
         IMPACT_LEVEL[impact] - bool(cleared) - (evidence["scope"] == "dev") - unreached
     )
@@ -2215,8 +2489,7 @@ async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[st
     if malicious_package(advisory):
         return malicious_assessment(advisory, evidence)
     evidence = _evidence(advisory, evidence)
-    questions, _ = severity_questions()
-    decisions = severity_thresholds()
+    require_direct_judge_route()
     state = {
         "advisory": {
             "id": advisory["advisory"],
@@ -2231,12 +2504,13 @@ async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[st
         "code_search": evidence["code_search"],
     }
     try:
-        answers = await _kernel("judge")(state, questions)
-    except Exception as exc:
+        decided = await decide(SEVERITY_JUDGMENT, state)
+    except WorkflowError as exc:
         raise WorkflowError(
             f"{advisory_key(advisory)}: severity judgment failed: {exc}"
         ) from exc
-    return rate_advisory(advisory, evidence, answers, decisions)
+    decisions = load_judgment(SEVERITY_JUDGMENT).decisions
+    return rate_advisory(advisory, evidence, decided["answers"], decisions)
 
 
 def owner_report(
@@ -2317,53 +2591,20 @@ async def triage_advisories(
     }
 
 
-STRUCTURE_JUDGMENT = "agent/extensions/dynaflows/judgments/structure-naming"
+STRUCTURE_JUDGMENT = "structure-naming"
 STRUCTURE_MARKER = "<!-- omp-structure-review -->"
 
 
-def _structure_digest(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode()
-    ).hexdigest()
-
-
-def _structure_config() -> tuple[dict[str, Any], dict[str, Any]]:
-    directory = _harness_root() / STRUCTURE_JUDGMENT
-    document = json.loads((directory / "questions.json").read_text())
-    thresholds = json.loads((directory / "thresholds.json").read_text())
-    questions = document["questions"]
-    if len(questions) != 8 or any(q.get("type") != "bool" for q in questions.values()):
+def _structure_config() -> Judgment:
+    """The structure-naming judgment: eight bool questions with current decisions."""
+    judgment = load_judgment(STRUCTURE_JUDGMENT)
+    if len(judgment.questions) != 8 or any(
+        q.get("type") != "bool" for q in judgment.questions.values()
+    ):
         raise WorkflowError(
             "structure questions must contain eight eval bool questions"
         )
-    version = _structure_digest({
-        "questions": questions,
-        "state": document["state"],
-        "model": thresholds["model"],
-    })
-    if thresholds["version_key"] != version or thresholds["score_space"] != "raw":
-        raise WorkflowError("structure thresholds are stale or not in raw score space")
-    if set(thresholds["decisions"]) != set(questions):
-        raise WorkflowError("structure thresholds must cover every question")
-    for ident, question in questions.items():
-        decision = thresholds["decisions"][ident]
-        expected = _structure_digest({
-            "question": question,
-            "state": document["state"],
-            "model": thresholds["model"],
-        })
-        threshold = decision["threshold"]
-        if (
-            decision["version_key"] != expected
-            or decision["status"] not in ("provisional", "ready")
-            or isinstance(threshold, bool)
-            or not isinstance(threshold, (int, float))
-            or not 0 <= threshold <= 1
-        ):
-            raise WorkflowError(f"invalid or stale structure decision: {ident}")
-    return questions, thresholds
+    return judgment
 
 
 def _structure_states(
@@ -2491,19 +2732,22 @@ async def structure_review(
         published = _common(repo) / "omp-structure" / f"{head}.json"
         parent, _ = _range(repo, parent, head, target_ref)
         result["parent"] = parent
-        questions, thresholds = _structure_config()
-        result["thresholds"] = thresholds
-        result["version_key"] = thresholds["version_key"]
-        # eval's judge API exposes answers, not a pinned/reported model. Do not invent one.
+        judgment = _structure_config()
+        result["thresholds"] = judgment.thresholds
+        result["version_key"] = judgment.version_key
+        # eval's judge API exposes answers, not a reported model: the judge role is checked instead.
         result["model_note"] = (
-            "eval judge selects the runtime model; response model metadata unavailable"
+            f"judge role checked against the tuned model {judgment.model}; "
+            "response model metadata unavailable"
         )
+        require_direct_judge_route()
+        require_judge_model(judgment)
         groups = _structure_units(
-            _structure_states(repo, parent, head), questions, result
+            _structure_states(repo, parent, head), judgment.questions, result
         )
-        judgment = StructureJudgment(questions, thresholds, result)
+        review = StructureJudgment(judgment, result)
         for eligible, group in groups.items():
-            await judgment.judge_group(eligible, group)
+            await review.judge_group(eligible, group)
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"infrastructure: {exc}")
     except Exception as exc:
@@ -2539,8 +2783,8 @@ def _structure_units(
         ):
             raise WorkflowError(f"{unit}: invalid deterministic judgment scope")
         result["units"][unit] = {
-            "digest": _structure_digest(state),
-            "judgment_digest": _structure_digest(state),
+            "digest": _judgment_digest(state),
+            "judgment_digest": _judgment_digest(state),
             "judged_paths": state["introduced_paths"],
             "judged_directories": state["introduced_directories"],
             "questions": eligible,
@@ -2554,27 +2798,25 @@ def _structure_units(
 class StructureJudgment:
     """Judge structure units through the eval kernel and record scores and findings in the result."""
 
-    def __init__(
-        self,
-        questions: dict[str, Any],
-        thresholds: dict[str, Any],
-        result: dict[str, Any],
-    ) -> None:
-        self.questions = questions
-        self.thresholds = thresholds
+    def __init__(self, judgment: Judgment, result: dict[str, Any]) -> None:
+        self.judgment = judgment
+        self.questions = judgment.questions
         self.result = result
 
-    def record(self, unit: str, answers: object, selected: dict[str, Any]) -> None:
-        scores = {ident: _probability(answers, ident, "bool") for ident in selected}
-        self.result["units"][unit]["scores"] = scores
-        for ident, score in scores.items():
-            decision = self.thresholds["decisions"][ident]
-            if score >= decision["threshold"]:
+    def record(
+        self, unit: str, state: object, answers: object, selected: dict[str, Any]
+    ) -> None:
+        logged = judgment_record(self.judgment, state, answers, selected)
+        self.result["units"][unit]["scores"] = logged["probabilities"]
+        self.result["units"][unit]["outcomes"] = logged["outcomes"]
+        for ident, verdict in logged["outcomes"].items():
+            decision = self.judgment.decisions[ident]
+            if verdict == "yes":
                 finding = {
                     "unit": unit,
                     "question": ident,
-                    "score": score,
-                    "threshold": decision["threshold"],
+                    "score": logged["probabilities"][ident],
+                    "threshold": decision["yes_at_least"],
                     "status": decision["status"],
                 }
                 self.result["findings"].append(finding)
@@ -2587,7 +2829,9 @@ class StructureJudgment:
         if len(group) == 1:
             unit, state = next(iter(group.items()))
             try:
-                self.record(unit, await _kernel("judge")(state, selected), selected)
+                self.record(
+                    unit, state, await _kernel("judge")(state, selected), selected
+                )
             except INFRASTRUCTURE_ERRORS as exc:
                 self.result["errors"].append(f"{unit}: judgment: {exc}")
             return
@@ -2599,7 +2843,7 @@ class StructureJudgment:
                 try:
                     if not item.ok:
                         raise WorkflowError(item.error)
-                    self.record(unit, item.answers, selected)
+                    self.record(unit, group[unit], item.answers, selected)
                 except INFRASTRUCTURE_ERRORS as exc:
                     self.result["errors"].append(f"{unit}: judgment: {exc}")
         finally:

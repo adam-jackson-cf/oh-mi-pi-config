@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import pytest
-from test_device_rollout import HOSTS, MODULE, RecordRolloutCase, rollout
+from test_device_rollout import HOSTS, MODULE, PIN, RecordRolloutCase, rollout
 
 from guardrails.host.process import run_bytes, run_text
 
@@ -28,6 +28,7 @@ class RunnerConfigTests(unittest.TestCase):
                 {"ciRunners": HOSTS["ciRunners"], "infisical": HOSTS["infisical"]},
                 machine,
                 check=True,
+                pin=PIN,
             )
             target = Path(base) / "ci-runners.json"
             deployment.runners("dev", 0)
@@ -109,7 +110,7 @@ class RunnerConfigTests(unittest.TestCase):
                 "-c",
                 rollout.CREDENTIAL_BUILDER,
                 "FAKE_JUDGE_KEY",
-                "openrouter",
+                "typesafe",
             ],
             env=env,
             check=False,
@@ -120,7 +121,7 @@ class RunnerConfigTests(unittest.TestCase):
             "version": 1,
             "credentials": [
                 {
-                    "provider": "openrouter",
+                    "provider": "typesafe",
                     "credential": {"type": "api_key", "key": "fake-value"},
                 }
             ],
@@ -131,7 +132,7 @@ class RunnerConfigTests(unittest.TestCase):
                 "-c",
                 rollout.CREDENTIAL_BUILDER,
                 "FAKE_JUDGE_KEY",
-                "openrouter",
+                "typesafe",
             ],
             env={"PATH": "/usr/bin:/bin"},
             check=False,

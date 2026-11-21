@@ -340,7 +340,6 @@ class ProveScopeTests(NamingScopeCase):
             json.dumps({
                 "schemaVersion": 2,
                 "checks": {"commit": ["true"]},
-                "dynaflows": {"mode": "structured"},
             })
         )
         (record / "profile.md").write_text(

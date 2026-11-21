@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import type { Mode } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const extension = join(repoRoot, "agent/extensions/dynaflows");
 const cli = Bun.resolveSync("@oh-my-pi/pi-coding-agent/cli", import.meta.dir);
-const runTimeout = 120_000;
+// Git set-up commands get tests/test_ci_gate.py's PROCESS_TIMEOUT. omp gets far longer: under a loaded
+// gate container its start-up alone has run past 110 s. Spawn kills omp at ompTimeout, below the test's
+// own timeout, so the test awaits the exit, reports omp's stderr and log, and leaves no child behind.
+const processTimeout = 60_000;
+const ompTimeout = 240_000;
+const runTimeout = ompTimeout + processTimeout;
 const head = "a".repeat(40);
 const gitTool = { name: "read", arguments: { path: "skill://git-tool" } };
 const mergeRecover = { name: "read", arguments: { path: "skill://git-tool/references/merge-and-recover.md" } };
@@ -54,7 +59,7 @@ function scriptedModel(turns: ScriptedCall[][]) {
 }
 
 function run(cmd: string[], cwd: string, env: Record<string, string>): string {
-	const result = Bun.spawnSync({ cmd, cwd, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	const result = Bun.spawnSync({ cmd, cwd, env, timeout: processTimeout, stdout: "pipe", stderr: "pipe" });
 	if (result.exitCode !== 0) throw new Error(`${cmd.join(" ")} exited ${result.exitCode}: ${result.stderr.toString()}`);
 	return result.stdout.toString();
 }
@@ -94,10 +99,16 @@ function cloneWithRemote(scratch: string, env: Record<string, string>) {
 
 async function omp(repo: string, env: Record<string, string>): Promise<string> {
 	const cmd = [process.execPath, cli, "--offline", "--no-title", "-p", "--mode", "json", "--no-session", "--model", "scripted/turns", "go"];
-	const child = Bun.spawn({ cmd, cwd: repo, env, timeout: runTimeout, stdout: "pipe", stderr: "pipe" });
+	const child = Bun.spawn({ cmd, cwd: repo, env, timeout: ompTimeout, stdout: "pipe", stderr: "pipe" });
 	const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-	if (await child.exited !== 0) throw new Error(`omp exited ${child.exitCode}: ${stderr}`);
+	if (await child.exited !== 0) throw new Error(`omp exited ${child.exitCode}: ${stderr}${ompLogs(env["HOME"] ?? "")}`);
 	return stdout;
+}
+
+function ompLogs(home: string): string {
+	const dir = join(home, ".omp/logs");
+	if (!existsSync(dir)) return "";
+	return readdirSync(dir).map(name => `\n--- ${name} (last 4000 characters)\n${readFileSync(join(dir, name), "utf8").slice(-4000)}`).join("");
 }
 
 async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promise<Run> {
@@ -113,9 +124,11 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 		if (mode) {
 			mkdirSync(join(home, ".omp/repos/owner/repo"), { recursive: true });
 			writeFileSync(join(home, ".omp/repos/owner/repo/gate.json"),
-				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] }, dynaflows: { mode } }));
+				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] } }));
+			writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
 		}
-		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\nexit 1\n`, { mode: 0o755 });
+		const view = JSON.stringify({ headRefOid: head, baseRefName: "main", headRefName: "agent/unit", state: "OPEN", statusCheckRollup: [], url: "https://github.com/owner/repo/pull/1" });
+		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\n[ "$1 $2" = "pr view" ] && echo '${view}' && exit 0\nexit 1\n`, { mode: 0o755 });
 		const env = {
 			PATH: `${stubs}:${process.env["PATH"] ?? ""}`, HOME: home, TMPDIR: scratch,
 			XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"),
@@ -161,7 +174,30 @@ describe("dynaflows in the omp agent loop", () => {
 		assert.equal(outcome(result, 1).isError, false);
 		const merge = outcome(result, 2);
 		assert.ok(merge.isError && merge.text.includes(`no prove() pass for ${head}`), merge.text);
-		assert.equal(result.ghCalled, false);
+		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
+	}, runTimeout);
+
+	test("eval cannot commit or push around the rails, in either mode", async () => {
+		for (const mode of ["minimal", "structured"] as const) {
+			const result = await agentRun(mode, [
+				[gitTool, mergeRecover], [{ name: "eval", arguments: { language: "js", code: "await (await commit.draft()).commit('change', { noVerify: true })" } }],
+				[{ name: "eval", arguments: { language: "py", code: "sh('git push origin HEAD:main')" } }],
+			]);
+			assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("eval commit namespace commits outside the rails"), outcome(result, 2).text);
+			assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("eval may not run git"), outcome(result, 3).text);
+			assert.deepEqual(result.branches.toSorted(), ["main"]);
+		}
+	}, runTimeout * 2);
+
+	test("structured mode refuses forged proof evidence and still finds no prove() pass", async () => {
+		const result = await agentRun("structured", [
+			[gitTool, mergeRecover],
+			[{ name: "write", arguments: { path: `.git/omp-prove/${head}.result.json`, content: JSON.stringify({ head, status: "pass" }) } }],
+			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
+		]);
+		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("inside Git's internal directory"), outcome(result, 2).text);
+		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes(`no prove() pass for ${head}`), outcome(result, 3).text);
+		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
 
 	test("a clone without a record runs in minimal mode", async () => {

@@ -13,6 +13,11 @@ Worktrees share their main checkout's record. [repo_record.py](../lib/repo_recor
 [repo-record.ts](../lib/repo-record.ts) implement resolution and gate validation.
 No supported GitHub origin means no record; record setup reports that prerequisite and stops.
 
+Agents write and repair records at any time, through any tool, in any session
+([ADR 0001](../../../../docs/adr/0001-agents-write-records.md)). Rails never refuse a record write
+and never snapshot the record: they re-read it on every action, so a changed record takes effect
+on the next commit, merge or check ([ADR 0018](../../../../docs/adr/0018-rails-trust-only-what-they-saw.md)).
+
 `/repos/` is gitignored. Never stage, commit, include a record in a PR, or copy it into the
 target repository. Device rollout copies records to every device. The target repository
 contains no harness package, configuration, pin or mention; its own controls remain independent.
@@ -21,9 +26,10 @@ No setting names a harness directory inside the repo.
 
 ## Gate schema
 
-The record's `gate.json` uses schema version 2. Required fields are `schemaVersion`,
-`checks.commit` and `dynaflows`. Unknown top-level or `checks` fields fail
-the load with the field name; the obsolete path command field is rejected, never ignored.
+The record's `gate.json` uses schema version 2. Required fields are `schemaVersion` and
+`checks.commit`; the mode lives in [`modes.json`](../modes.json), and `dynaflows` is refused.
+Unknown top-level or `checks` fields fail the load with the field name; the obsolete path
+command field is rejected, never ignored.
 A documentation-only repo still declares `checks.commit`.
 
 | Field | Contract |
@@ -36,13 +42,14 @@ A documentation-only repo still declares `checks.commit`.
 | `checks.profile` | [^n4] |
 | `agentMerge` | [^n5] |
 | `ci` | Optional object with nonblank `requiredContext` and `runner`; see below. |
-| `dynaflows` | Required object with `mode` `minimal` or `structured`; see below. |
+| `afterMerge` | Optional `{argv, paths?}`; see [After merge](#after-merge). |
+| `mergePolicies` | Optional nonempty list; see [Merge policies](#merge-policies). |
 
 Commands are argv arrays, never shell strings. Repo gate and formatter commands name the
 repo's own controls, not omp paths. Test globs, tier selectors and layout belong in
 `profile.md`, not extra gate fields. Substitute real discovered commands and paths in
 [the example gate](gate.json), which retains the `gate`
-context, `github-actions` runner, `agentMerge: allowed` and `dynaflows.mode: minimal`.
+context, `github-actions` runner and `agentMerge: allowed`.
 
 ### Merge and CI policy
 
@@ -69,17 +76,72 @@ roles as a workaround. A non-Actions runner may retain a weekly and manual
 `workflow_dispatch` GitHub workflow as a fallback rather than running it on PRs.
 Git-tool's exact-head verification loop governs submission, waiting and fallback use.
 
+### Merge policies
+
+Each entry is `{base, headPrefix, method, proof}`. Structured rails use the first entry whose
+`base` equals the PR's base branch and whose `headPrefix` starts its head branch.
+
+| Field | Values |
+| --- | --- |
+| `base` | Base branch name |
+| `headPrefix` | Head branch prefix; `""` matches every head |
+| `method` | `rebase` or `merge`: the one `gh pr merge` flag accepted |
+| `proof` | `true` needs the `prove()` and `structure_review()` results; `false` skips them |
+
+No match means `method: rebase`, `proof: true`. Rails always refuse `--admin`; no policy waives CI.
+
+### After merge
+
+`afterMerge.argv` is a repo command structured mode requires after a merge. With `paths` (globs),
+only a merge whose PR files match one glob requires it. The agent runs it in that repository as a
+whole shell command; until a run exits 0, the session's turn-end obligations name it.
+
+### oh-mi-pi-config example
+
+The record for `adam-jackson-cf/oh-mi-pi-config` (personal, not tracked) holds:
+
+```json
+{
+  "ci": { "requiredContext": "gate", "runner": "ci-gate" },
+  "mergePolicies": [
+    { "base": "nuc-config", "headPrefix": "agent/nuc-sync-", "method": "merge", "proof": false }
+  ]
+}
+```
+
+The cutover migration `lib/migrate_records_to_mode_file.py` adds the `mergePolicies` entry
+([ADR 0017 cutover steps](../../../../docs/adr/0017-dynaflows-runtime-rails.md#cutover-steps)).
+
+| Fact | Enforced by |
+| --- | --- |
+| `nuc-config` sync: PR from `agent/nuc-sync-<date>`, `--merge`, no proof | `mergePolicies` |
+| Every other PR rebases with proof | Default policy |
+| `gate` must be green on the exact head | `ci` |
+| `ci-gate` is `scripts/ci_gate.py` on the NUC | `~/.omp/ci-runners.json` |
+| Missing `scripts/ci-gate-repos.json` entry: a setup PR, never a CI waiver | Not enforced |
+| A passing `ci-quality-gates.yml` run never replaces a missing `gate`; escalate | Not enforced |
+
+[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#not-enforced) records both as not enforced.
+
+The fallback dispatch is in the [readme](../../../../readme.md#ci-runners); this repo never takes
+the no-CI exception because it declares `ci`.
+
 ### Process mode and events
 
-`dynaflows.mode` selects the harness process: `minimal` or `structured`. No origin or no record
-means minimal mode. Write `structured` only when the owner asked for it in chat; otherwise write
-`minimal`. A later owner request can change it.
-The machine file `~/.omp/dynaflows.json` (`{"schemaVersion": 2, "mode": "minimal"|"structured"}`)
-set to `minimal` forces minimal mode for every repository; `structured` or no file defers to the
-record. [ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the
-modes.
+The record holds no mode. [`modes.json`](../modes.json) in the extension is the one source:
 
-Minimal mode keeps the fixed guards: the `skill://git-tool` read before Git integration commands,
+| Entry | Mode |
+| --- | --- |
+| `"<owner>/<name>": "structured"` | Structured, once the record loads |
+| Unlisted | Minimal |
+| No origin, non-GitHub origin | Minimal |
+
+The `dynaflows` tool and the `$dynaflows` directive write it; minimal removes the entry.
+[ADR 0015](../../../../docs/adr/0015-dynaflows-minimal-and-structured-modes.md) records the modes;
+[ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md) the mode file.
+
+Minimal mode keeps the fixed guards: the `skill://git-tool` read before every Git or GitHub write
+(`rails.yml` `gitCommand`),
 hook-bypass refusal, worktree placement, subagent path safety, the `agentMerge` policy, no
 `gh pr merge` and no `git push` to the remote's default branch. Pushes to other branches and
 `gh pr create` pass.
@@ -92,6 +154,19 @@ Required `guardrails.structure`, `guardrails.naming` and `guardrails.paths` conf
 harness-owned per-edit contract, even where repo checks overlap; see [ADR 0002](../../../../docs/adr/0002-harness-owns-path-checks.md).
 At commit, rails then run `checks.commit` in the worktree followed by
 `guardrails check --repo <worktree> --record <record dir>`.
+
+Judged rails follow the deterministic checks
+([ADR 0017](../../../../docs/adr/0017-dynaflows-runtime-rails.md#judged-rails)):
+
+| Event | Judgment | Reads from the record |
+| --- | --- | --- |
+| Commit | `implementation-integrity` | Nothing; the staged diff and message |
+| Merge | `adr-needed` | Nothing; the PR, unless it adds an ADR file |
+| Turn end | `completion-evidence` | `ci.requiredContext` for pre-check P6 |
+| Restart | `extension-impact` | `gate.json` in full and a `profile.md` summary |
+| `ask`, privileged command | `in-scope` | Nothing; owner messages in the session |
+
+An escalated outcome waits for the owner's prompt line `$approve <judgment>:<id>`.
 Naming and structure checks cover only added or renamed paths: worktree changes at edit,
 staged changes at commit, and merge-base/head changes at PR. Only new path segments are
 checked, never unchanged legacy parent directories. Content edits do not trigger NAME/STRUCT.

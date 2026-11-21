@@ -10,20 +10,30 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Extension load | `agent/config.yml` | Absolute path: omp loads `~/.omp`, never a worktree |
 | Entry file | `agent/extensions/dynaflows/package.json` | `omp.extensions` picks `index.ts` |
 | Worktree base | `agent/config.yml` | `worktree.base`; guard requires worktrees under it |
-| Judge role | `agent/config.yml` | Model behind `judge()`; thresholds calibrated to it |
-| Judge fallback | `agent/config.yml` | `retry.fallbackChains.judge` model when the judge fails |
-| omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.0: `z`, events, `exec` |
+| Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
+| Judgment status | `agent/extensions/dynaflows/judgments/` | `ready` enforces; else shadow |
+| omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
+| omp judge API | `package.json` | `resolveJudge`, `parseQuestions`, `toEvalJudgmentResult` |
+| omp `ask` tool | omp core | `questions` or `html` input; `in-scope` judges it |
+| Session branch | omp core | `getBranch()` owner messages build the `in-scope` state |
+| Turn-end event | omp core | `session_stop` block reason starts the obligation follow-up turn |
+| Turn-end cleanup | omp core | `agent_end` without `willContinue` deletes a consumed handoff |
 | omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
-| omp tools | omp core | `bash`, `edit`, `ast_edit`, `read`, `xd://`, `skill://` shapes |
+| Pinned settings | omp core | Session start pins commit, github, task merge, handler timeout |
+| Commit prelude off | `agent/config.yml` | `commit.enabled: false` before a session |
+| omp tools | omp core | `bash`, `edit`, `ast_edit`, `write`, `eval`, `read`, `xd://`, `skill://` |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
 | Health marker | `agent/extensions/extension-health.ts` | Expects dynaflows to register |
-| Config root | Repo root | Records, scripts, `dynaflows.json` resolve by position |
+| Config root | Repo root | Records and scripts resolve by position |
 | `AGENT` env var | omp runtime | Stripped from every repo command |
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
 | `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
+| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the judgment call log and review state |
+| `TYPESAFE_API_KEY` | omp runtime | Key omp's typesafe provider sends |
+| `TYPESAFE_BASE_URL` | omp runtime | Jev Inspector route; gate judgments refuse it |
 
 ## Repo config and build
 
@@ -48,7 +58,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | CI runner | `scripts/ci_runner.py` | Merge block names its `submit`/`wait` command |
 | NUC CI gate | `scripts/ci_gate.py` | `ci-gate` role; imports `lib/repo_record.py` |
 | Gate allowlist | `scripts/ci-gate-repos.json` | Repos `ci_gate.py` accepts |
-| Device rollout | `scripts/device_rollout.py` | Writes `ci-runners.json`; copies records |
+| Device rollout | `scripts/device_rollout.py` | Runner list, records, omp pin; meets rollout |
 | Device registry | `scripts/device-rollout-hosts.json` | Hosts, runner roles, judge key |
 | Quality gates | `scripts/run-ci-quality-gates.sh` | Lint, type, test, coverage gates |
 | Test tiers | `scripts/run-test-tier.sh` | Loads engine bun preload, pytest plugin |
@@ -70,6 +80,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Record tests | `tests/test_repo_record*.py` | `lib/repo_record.py` |
 | Engine tests | `tests/test_reference_*.py` | Checkers, adapters, `init` |
 | Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
+| Judgment tests | `tests/test_*judgment*.py` | `judgments/` data and version keys |
+| Judged rails tests | `tests/dynaflows-judged-rails-seams.test.ts` | Stubbed judge transport |
 | Tool settings | `tests/test_native_tool_settings.py` | Root ruff, mypy match engine |
 | Naming tests | `tests/test_naming_scope.py` | Engine layout rules |
 | Language packs | `tests/test_language_packs.py` | Engine language packs |
@@ -86,9 +98,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Agent policy | `agent/AGENTS.md` | Git ownership by mode; rollout rule |
-| Global rules | `agent/RULES.md` | Merge on green exact-head CI |
-| Repo context | `.omp/AGENTS.md` | This repo's `ci-gate` record |
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
 | `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
@@ -97,19 +106,26 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Exceptions ADR | `docs/adr/0012-*.md` | Scoped naming exceptions |
 | Skills ADR | `docs/adr/0013-*.md` | Package bundles its skills |
 | Modes ADR | `docs/adr/0015-*.md` | Minimal and structured modes |
+| Runtime rails ADR | `docs/adr/0017-*.md` | Mode file, obligations, review, handoffs |
+| Trust ADR | `docs/adr/0018-*.md` | What the rails trust and refuse |
+| Integrity ADR | `docs/adr/0019-*.md` | `implementation-integrity` replaces the main tag |
+| Judgments ADR | `docs/adr/0020-*.md` | Registry, direct judge, Inspector route |
 | Readme | `readme.md` | Layout, modes, record contract |
 
 ## Machine state and records
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md` |
-| Machine mode | `~/.omp/dynaflows.json` | Optional; `minimal` forces minimal |
+| Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md`; agents write any time |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
-| Prove results | `<git-common-dir>/omp-prove/` | Merge needs a pass for the head |
-| Structure results | `<git-common-dir>/omp-structure/` | Merge needs no halt |
+| Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged revision; agents never write |
+| Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |
+| Prove results | `<git-common-dir>/omp-prove/` | Merge needs a watched `prove()` pass |
+| Structure results | `<git-common-dir>/omp-structure/` | Merge needs a watched, complete review |
+| Git and gh config | `~/.gitconfig`, `~/.config/gh/config.yml` | Agent tools never write them |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
-| Secrets | Infisical | Judge key; gate status token |
+| Secrets | Infisical | `TYPESAFE_API_KEY` judge key; gate status token |
+| Judgment calls | `~/.omp/agent/dynaflows/judgment-calls.jsonl` | `decide()` log; agent dir |
 | NUC | `codex-omarchy-nuc` | `nuc-config` deploy runs `ci_gate.py` |
 
 ## Devices and GitHub
@@ -121,15 +137,17 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Branch rules | GitHub | `guardrails init` fills `gate.json` |
 | Actions runner | GitHub | `github-actions` role runs `checks.ci` |
 | Advisories | OSV, GHSA | Dependency triage records |
+| TypeSafe API | Network | Answers `judge()` for the typesafe provider |
 
 ## External tools
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | `git` | PATH | Origin, aliases, status, common dir |
-| `gh` | PATH | PR head, CI rollup, comments, rules |
+| `gh` | PATH | PR head, CI rollup, body, files, compare; repo description |
+| jev-bridge | Loopback port 8787 | Opt-in relay behind `inspector.env`; never for gates |
 | `uv` 0.13.7 | PATH | Runs `guardrails check` and `path-check` |
-| `omp` | PATH | `omp config get worktree.base` |
+| `omp` | PATH | 19.0.1; `config get worktree.base`, `config get modelRoles` |
 | `env` | PATH | Runs repo commands without `AGENT` |
 | `python3` | PATH | Runs `ci_runner.py` |
 | Repo commands | Record | `checks.commit` before commits |

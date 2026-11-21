@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -19,6 +20,14 @@ _ORIGIN = re.compile(
 
 class RecordError(RuntimeError):
     pass
+
+
+class OriginError(RecordError):
+    """The origin remote could not be read: git was killed, timed out, could not start, or failed
+    for a reason other than a missing remote or a path outside a Git repository."""
+
+
+ORIGIN_TIMEOUT_S = 20
 
 
 def config_root() -> Path:
@@ -40,16 +49,35 @@ def repo_slug(repo: str | Path) -> str | None:
 
 
 def origin_url(repo: str | Path) -> str | None:
+    """The origin remote URL, or None when there is no origin remote or ``repo`` is not in a Git
+    repository. Any other failure raises OriginError."""
+    command = f"git remote get-url origin in {repo}"
     try:
         process = subprocess.run(
             ["git", "-C", str(repo), "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
             errors="replace",
+            env={**os.environ, "LC_ALL": "C", "LANGUAGE": "C"},
+            timeout=ORIGIN_TIMEOUT_S,
         )
-    except OSError:
+    except subprocess.TimeoutExpired as exc:
+        raise OriginError(f"{command} was killed (timeout)") from exc
+    except OSError as exc:
+        raise OriginError(f"{command} could not run: {exc}") from exc
+    if process.returncode == 0:
+        return process.stdout
+    stderr = process.stderr.strip()
+    if (process.returncode == 2 and "No such remote" in stderr) or (
+        process.returncode == 128 and "not a git repository" in stderr
+    ):
         return None
-    return None if process.returncode else process.stdout
+    how = (
+        f"was killed (signal {-process.returncode})"
+        if process.returncode < 0
+        else f"exited {process.returncode}"
+    )
+    raise OriginError(f"{command} {how}{f': {stderr}' if stderr else ''}")
 
 
 def record_dir(slug: str, root: str | Path | None = None) -> Path:
@@ -100,11 +128,10 @@ GATE_FIELDS = frozenset({
     "checks",
     "agentMerge",
     "ci",
-    "dynaflows",
+    "afterMerge",
+    "mergePolicies",
 })
 CHECK_FIELDS = frozenset({"commit", "ci", "audit", "format", "profile"})
-MODES = ("minimal", "structured")
-MODE_REQUIREMENT = 'dynaflows must be {"mode": "minimal"|"structured"}'
 
 
 def _argv(value: object) -> bool:
@@ -144,21 +171,58 @@ def _ci_reason(gate: dict[str, Any]) -> str | None:
     return None
 
 
+MERGE_METHODS = ("rebase", "merge")
+MERGE_POLICY_FIELDS = frozenset({"base", "headPrefix", "method", "proof"})
+
+
+def after_merge_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's optional ``afterMerge`` object is rejected, or None."""
+    if "afterMerge" not in gate:
+        return None
+    step = gate["afterMerge"]
+    if (
+        not isinstance(step, dict)
+        or not set(step) <= {"argv", "paths"}
+        or not _argv(step.get("argv"))
+    ):
+        return "afterMerge must be {argv, paths?} with argv an argv array"
+    paths = step.get("paths", ["*"])
+    if not _argv(paths):
+        return "afterMerge.paths must be a nonempty list of nonblank globs"
+    return None
+
+
+def _merge_policy(policy: object) -> bool:
+    return (
+        isinstance(policy, dict)
+        and set(policy) == MERGE_POLICY_FIELDS
+        and isinstance(policy["base"], str)
+        and bool(policy["base"].strip())
+        and isinstance(policy["headPrefix"], str)
+        and policy["method"] in MERGE_METHODS
+        and isinstance(policy["proof"], bool)
+    )
+
+
+def merge_policies_reason(gate: dict[str, Any]) -> str | None:
+    """Why the gate's optional ``mergePolicies`` list is rejected, or None."""
+    if "mergePolicies" not in gate:
+        return None
+    policies = gate["mergePolicies"]
+    if (
+        not isinstance(policies, list)
+        or not policies
+        or not all(_merge_policy(policy) for policy in policies)
+    ):
+        return "mergePolicies must be a nonempty list of {base, headPrefix, method: rebase|merge, proof: true|false}"
+    return None
+
+
 def _settings_reason(gate: dict[str, Any]) -> str | None:
-    """Why the gate's ``agentMerge`` or ``dynaflows`` setting is rejected, or None."""
+    """Why the gate's ``agentMerge`` setting is rejected, or None."""
     if gate.get("agentMerge", "allowed") not in {"allowed", "disabled"}:
         return "agentMerge must be allowed or disabled"
-    return dynaflows_reason(gate.get("dynaflows"))
-
-
-def dynaflows_reason(dynaflows: object) -> str | None:
-    if (
-        not isinstance(dynaflows, dict)
-        or set(dynaflows) != {"mode"}
-        or dynaflows["mode"] not in MODES
-    ):
-        return MODE_REQUIREMENT
-    return None
+    return after_merge_reason(gate) or merge_policies_reason(gate)
 
 
 def gate_reason(gate: object) -> str | None:

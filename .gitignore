@@ -100,6 +100,10 @@ tests/*
 !tests/dynaflows-guards-seams.test.ts
 !tests/dynaflows-extension-seams.test.ts
 !tests/dynaflows-agent-loop-seams.test.ts
+!tests/dynaflows-session-seams.test.ts
+!tests/dynaflows-judged-rails-seams.test.ts
+!tests/dynaflows-judgment-calls-seams.test.ts
+!tests/dynaflows-bypass-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
 !tests/analyse.test.ts
@@ -132,17 +136,21 @@ tests/fixtures/*
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
+!tests/test_implementation_integrity_judgment.py
 !tests/test_workflows.py
+!tests/test_extension_impact_judgment.py
 !tests/test_orca_install_seams.py
 !tests/test_workflows_seams.py
 !tests/test_device_rollout_seams.py
 !tests/test_repo_record_seams.py
+!tests/test_migrate_records_to_mode_file.py
 !tests/test_skill_references_seams.py
+!tests/test_in_scope_judgment.py
+!tests/test_judgment_*.py
 
 !.omp/
 .omp/*
 !.omp/lsp.json
-!.omp/AGENTS.md
 
 !.devcontainer/
 .devcontainer/*

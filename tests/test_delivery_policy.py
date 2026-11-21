@@ -12,9 +12,9 @@ POLICY = ROOT / "agent/extensions/dynaflows/skills/structured-workflow/reference
 CATALOGUE = (
     ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
 )
-THRESHOLDS = (
-    ROOT / "agent/extensions/dynaflows/judgments/structure-naming/thresholds.json"
-)
+JUDGMENTS = ROOT / "agent/extensions/dynaflows/judgments"
+THRESHOLDS = JUDGMENTS / "structure-naming/thresholds.json"
+INTEGRITY = JUDGMENTS / "implementation-integrity/thresholds.json"
 ENFORCED = re.compile(
     r"Enforced by ([A-Z]+\.[A-Za-z0-9.-]+) \(guardrails ([a-z-]+(?:, [a-z-]+)*)\)\."
 )
@@ -26,7 +26,7 @@ def assert_policy_line(
     line: str,
     rules: dict[str, set[str]],
     native_rules: set[str],
-    decisions: dict[str, object],
+    decisions: dict[str, dict[str, object]],
 ) -> None:
     enforced = list(ENFORCED.finditer(line))
     judged = list(JUDGED.finditer(line))
@@ -47,10 +47,11 @@ def assert_policy_line(
         judgment, decision = match.groups()
         if name == "structure-and-naming.md":
             assert judgment == "structure-naming"
-            assert decision in decisions
+            assert decision in decisions[judgment]
+        elif judgment == "implementation-integrity":
+            assert decision in decisions[judgment]
         else:
             assert (judgment, decision) in {
-                ("main", "implementation-integrity"),
                 ("dynaflows", "clean-cutovers"),
                 ("dynaflows", "regression-coverage"),
             }
@@ -67,7 +68,14 @@ class DeliveryPolicyTests(unittest.TestCase):
         native_rules = {
             row["id"] for row in catalogue["rules"] if row["kind"] == "tool"
         }
-        decisions = json.loads(THRESHOLDS.read_text(encoding="utf-8"))["decisions"]
+        decisions = {
+            "structure-naming": json.loads(THRESHOLDS.read_text(encoding="utf-8"))[
+                "decisions"
+            ],
+            "implementation-integrity": json.loads(
+                INTEGRITY.read_text(encoding="utf-8")
+            )["decisions"],
+        }
         for name in ("structure-and-naming.md", "delivery-principles.md"):
             lines = (POLICY / name).read_text(encoding="utf-8").splitlines()
             rule_lines = [

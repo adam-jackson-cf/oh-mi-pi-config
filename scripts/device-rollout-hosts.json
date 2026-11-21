@@ -8,8 +8,8 @@
     "environment": "dev"
   },
   "judgeKey": {
-    "secret": "OPENROUTER_API_KEY",
-    "provider": "openrouter"
+    "secret": "TYPESAFE_API_KEY",
+    "provider": "typesafe"
   },
   "findCanary": {
     "query": "check that referenced file paths exist",

@@ -1,0 +1,133 @@
+{
+  "version_key": "7d6e1220b3d6778ebde1cde839173f2ba8d51df4bd22dc6b35f47d4ef92c6483",
+  "question_version": "adr_needed@7d6e1220b3d6",
+  "model": "typesafe/jev-1.14.0",
+  "model_reported": "typesafe/jev-1.14.0",
+  "score_space": "raw",
+  "status": "provisional",
+  "mode": "shadow, provisional",
+  "framing": {
+    "decision": "Does a pull request or commit series make a design decision the repository should record as an ADR?",
+    "action": "Refuse a structured merge that needs an ADR and has none (ADR 0017)",
+    "baseline": "agent/RULES.md instruction: decide in-scope questions and record the decision as an ADR; no check",
+    "costs": "Assumed equal: a miss leaves a decision unrecorded (ADR 0016 records three such misses); a false action costs one unneeded ADR or prompt",
+    "written_policy": "label-guide.md rules Y1-Y6, N1-N8, T1-T7",
+    "reviewers": "innovation-council first pass, claude arbiter; owner may override",
+    "state_fields": "change: title, plan or description, commit headlines, diff summary; decision-record files and mentions removed",
+    "assumed": true
+  },
+  "decisions": {
+    "adr_needed": {
+      "threshold": 0.67,
+      "status": "provisional",
+      "no_at_most": 0.34,
+      "yes_at_least": 0.67,
+      "band_source": "escalate_band: the measured band, read by decide() at the rails; no_at_most is inclusive",
+      "version_key": "8fae0819c97d1fd9433d2893f6d31d59d0ee34e8b84c00a66dbdc43d99ec6b3d",
+      "score_space": "raw",
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "assumed": true,
+        "reason": "assumed per jev-actions framing defaults: the owner gave none and costs are assumed equal"
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 1
+      },
+      "rule": "yes at score >= 0.67",
+      "escalate_band": {
+        "no_at_most": 0.34,
+        "yes_at_least": 0.67,
+        "rule": "score <= 0.34: no ADR needed; score >= 0.67: ADR needed; between: escalate",
+        "fallback": "owner or the main agent reading the change; not measured",
+        "accuracy_loss": "not agreed; assumed none beyond the minimums",
+        "derivation": "yes_at_least: tune_threshold.py on scores.csv --min-precision 0.9 --min-recall 0.8 --repeats 5 (shipped 0.67, folds 0.615-0.705). no_at_most: 1 - shipped threshold of tune_threshold.py on scores with label and score inverted (P(no)) --min-precision 0.9 --min-recall 0.5 --repeats 5 (shipped 0.66, folds 0.33-0.68); at --min-recall 0.8 no threshold qualified",
+        "dev": {
+          "cases": 72,
+          "yes": 45,
+          "no": 21,
+          "escalated": 6,
+          "escalation_rate": 0.083,
+          "yes_precision": 0.933,
+          "no_precision": 0.952,
+          "positives_answered_yes": 0.933,
+          "negatives_answered_no": 0.741,
+          "cascade_accuracy_if_fallback_correct": 0.944
+        },
+        "test": {
+          "cases": 23,
+          "yes": 17,
+          "no": 4,
+          "escalated": 2,
+          "escalation_rate": 0.087,
+          "yes_precision": 0.941,
+          "no_precision": 1,
+          "positives_answered_yes": 1,
+          "negatives_answered_no": 0.571,
+          "cascade_accuracy_if_fallback_correct": 0.957
+        },
+        "cascade_note": "cascade accuracy assumes the fallback answers every escalated case correctly; an upper bound until fallback verdicts are measured"
+      }
+    }
+  },
+  "label_set": {
+    "cases": 95,
+    "dev": 72,
+    "test": 23,
+    "positives": {
+      "dev": 45,
+      "test": 16
+    },
+    "negatives": {
+      "dev": 27,
+      "test": 7
+    },
+    "unit": "one pull request (oh-mi-pi-config) or one commit (game-system, raidar, scout); split 70/30 by sha256(unit) mod 100 < 30 = test",
+    "strata": {
+      "oh-mi-pi-config": 45,
+      "game-system": 31,
+      "raidar": 10,
+      "scout": 9
+    },
+    "sources": "replay only, read-only: oh-mi-pi-config merged PRs (sync PRs excluded), game-system, raidar and scout commits; no synthetic cases",
+    "adr_history": "38 cases added an ADR in the change (35 labelled 1, 3 labelled 0); 26 cases labelled 1 added none, such as decisions made before ADRs existed",
+    "provenance": "agent_reviewed: innovation-council first pass blind to scores and ADR history (omp 19.0.1 headless, Opus 5.5 lead; peers as the runs reported them: GPT Astra, Gemini Neon, Opus experiment-peer, 7 runs of 17-19 cases); claude (Opus 5.5) arbitrated every case and overrode 4 (A017, A043, A054, A074), each with a note in labels.jsonl. 35 cases were relabelled by the council on the final state after a redaction fix; all 35 kept their label. 24 council labels are low confidence; 11 had a peer dissent",
+    "guide_version": "d47f3a4b2ac7581bfa9506925381da1338a10d858eb2081cec6fbdf9799de510",
+    "guide_note": "The council labelled from guide sha256 daf3c3150b1fd34c23ba2ec03d368e39a735ab26b18b7d6a4355173f240f47f6; only rows N1 and T5 were shortened for the 100-column Markdown limit afterwards, with the same rules",
+    "redaction": "2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)"
+  },
+  "results": {
+    "scores_sha256": "6e79d24eeb8a0f7e0c55c9d07fd12880678f2c2cd52d85d57e472c15dd9498c1",
+    "scoring": "one judge_batch over all 95 cases in the omp 19.0.1 eval kernel with an overlay setting modelRoles.judge to typesafe/jev-1.14.0 and no judge fallback; status reported model typesafe/jev-1.14.0, 95 done, 0 failed",
+    "cost_usd": 0.006435,
+    "cost_per_100_cases_usd": 0.0068,
+    "tuning": "tune_threshold.py --min-precision 0.8 --min-recall 0.8 --repeats 5: shipped 0.67; dev held-out P 0.91 R 0.92 F 0.91 (25 of 25 folds; fold thresholds 0.245-0.705); default 0.5 dev held-out P 0.88 R 0.93; test at 0.67 P 0.94 R 1.00, at 0.5 P 0.84 R 1.00. With --conservative --repeats 5 only 6 of 25 folds qualified (fewer than 50 dev cases per label), so the result is noisy",
+    "test_per_stratum": "at 0.67: oh-mi-pi-config 13 cases P 0.91 R 1.00; game-system 4, raidar 3, scout 3 all P 1.00 R 1.00",
+    "dev_errors_at_threshold": "A073 (FN 0.25), A030 (FP 0.70), A074 (FP 0.70), A031 (FP 0.72); A030, A031, A073 and A074 all had a council peer dissent, so the errors sit where labellers disagreed",
+    "test_errors_at_threshold": "A045 (FP 0.76): a model-route version bump",
+    "rescore": "A038 re-scored 2026-11-21 after pseudonymisation through the direct judge (model typesafe/jev-1.14.0): 0.22; band counts unchanged"
+  },
+  "calibration": {
+    "brier_raw": 0.08,
+    "brier_platt_heldout": 0.081,
+    "test_brier_raw": 0.069,
+    "test_brier_platt": 0.055,
+    "keep": "raw: Platt did not improve the held-out dev Brier score",
+    "largest_reliability_gap": 0.084,
+    "display": "probabilities stay internal: the label set is noisy and every bin holds only 24 cases"
+  },
+  "assumptions": [
+    "Framing (action, costs, minimums, fallback) is assumed; the owner has not confirmed it",
+    "Labels are agent_reviewed, not human; the owner may override any label",
+    "The state removes decision-record files and mentions so labels and scores cannot read the outcome"
+  ],
+  "shortfalls": [
+    "test holds 7 negatives; grow negatives to about 30 per split before calling the band ready",
+    "fallback verdicts for the escalate band are not measured; cascade accuracy is an upper bound",
+    "framing and minimums are assumed; status stays provisional until the owner confirms them",
+    "A017's state omits the decision its commits make (missing state): pull request states hold the PR body and commit headlines, not commit bodies"
+  ],
+  "wired": true,
+  "wiring": "shadow until ready: lib/judged-rails.ts mergeReason: a structured gh pr merge without an ADR file in the diff; yes refuses, escalate needs the owner's $approve; until its thresholds are ready the rail runs it in shadow: logged and noticed, never acted on (ADR 0017); thresholds stay provisional"
+}

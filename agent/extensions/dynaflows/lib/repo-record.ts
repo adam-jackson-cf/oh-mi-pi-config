@@ -6,7 +6,6 @@
 // The clone's origin remote names the record; a worktree shares its main checkout's remotes.
 //
 // The Python twin is repo_record.py in this directory; keep both in step.
-import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +18,14 @@ const RECORDS_DIR = "repos";
 const ORIGIN = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/;
 
 export class RecordError extends Error {}
+/**
+ * The origin remote could not be read: git was killed, timed out, could not start, or failed for
+ * a reason other than a missing remote or a path outside a Git repository. The repository's mode
+ * is then unknown; callers refuse writes and never read it as "no origin".
+ */
+export class OriginError extends RecordError {}
+
+const ORIGIN_TIMEOUT_MS = 20_000;
 
 export function configRoot(): string {
 	return fileURLToPath(new URL("../../../..", import.meta.url));
@@ -31,13 +38,36 @@ export function parseOrigin(url: string): string | null {
 	return `${match[1]}/${match[2]}`.toLowerCase();
 }
 
-/** owner/name of the clone or worktree at repo from its origin remote, else null. */
-export function repoSlug(repo: string): Promise<string | null> {
-	return new Promise(done => {
-		execFile("git", ["-C", repo, "remote", "get-url", "origin"], { encoding: "utf8" }, (error, stdout) => {
-			done(error ? null : parseOrigin(stdout));
+/**
+ * The origin remote URL of the clone or worktree at repo, or null when it has no origin remote or
+ * repo is not in a Git repository. Any other failure throws OriginError.
+ */
+export async function originUrl(repo: string): Promise<string | null> {
+	const command = `git remote get-url origin in ${repo}`;
+	let child;
+	try {
+		child = Bun.spawn(["git", "-C", repo, "remote", "get-url", "origin"], {
+			env: { ...process.env, LC_ALL: "C", LANGUAGE: "C" }, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: ORIGIN_TIMEOUT_MS,
 		});
-	});
+	} catch (error) {
+		throw new OriginError(`${command} could not run: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+	if (child.exitCode === 0) return stdout;
+	if (noOrigin(child.exitCode, stderr)) return null;
+	const how = child.signalCode ? `was killed (${child.signalCode})` : `exited ${child.exitCode}`;
+	throw new OriginError(`${command} ${how}${stderr.trim() ? `: ${stderr.trim()}` : ""}`);
+}
+
+// git's own words for the two cases that mean "no origin": no such remote (exit 2) and a path outside a repository (exit 128).
+function noOrigin(code: number | null, stderr: string): boolean {
+	return (code === 2 && /No such remote/.test(stderr)) || (code === 128 && /not a git repository/.test(stderr));
+}
+
+/** owner/name of the clone or worktree at repo from its origin remote, else null; throws OriginError when origin cannot be read. */
+export async function repoSlug(repo: string): Promise<string | null> {
+	const url = await originUrl(repo);
+	return url === null ? null : parseOrigin(url);
 }
 
 /** Directory of the record for owner/name; it may not exist. */
@@ -50,23 +80,25 @@ export function minimalText(slug: string | null, reason: string): string {
 	return `dynaflows minimal mode for ${slug ?? "none"}: ${reason}`;
 }
 
+/** The rails' words when the repository's mode cannot be resolved: never minimal mode. */
+export function unresolvedText(error: OriginError): string {
+	return `Agent rails: could not resolve this repository's dynaflows mode: ${error.message}; retry.`;
+}
+
 /**
  * The clone's slug and record directory, or the reason it has no record: no origin remote, an
- * origin that is not a GitHub owner/name URL, or no gate.json at the record directory.
+ * origin that is not a GitHub owner/name URL, or no gate.json at the record directory. An origin
+ * remote that cannot be read throws OriginError: that is not "no origin remote".
  */
-export function resolveRecord(repo: string, root: string = configRoot()): Promise<{ slug: string | null; dir: string | null; reason?: string }> {
-	return new Promise(done => {
-		execFile("git", ["-C", repo, "remote", "get-url", "origin"], { encoding: "utf8" }, (error, stdout) => {
-			if (error) { done({ slug: null, dir: null, reason: "no origin remote" }); return; }
-			const slug = parseOrigin(stdout);
-			if (slug === null) { done({ slug: null, dir: null, reason: `origin ${stdout.trim()} is not a GitHub owner/name URL` }); return; }
-			const dir = recordDir(slug, root);
-			stat(join(dir, GATE_FILE)).then(
-				found => done(found.isFile() ? { slug, dir } : { slug, dir: null, reason: `no per-repo record at ${join(dir, GATE_FILE)}` }),
-				() => done({ slug, dir: null, reason: `no per-repo record at ${join(dir, GATE_FILE)}` }),
-			);
-		});
-	});
+export async function resolveRecord(repo: string, root: string = configRoot()): Promise<{ slug: string | null; dir: string | null; reason?: string }> {
+	const url = await originUrl(repo);
+	if (url === null) return { slug: null, dir: null, reason: "no origin remote" };
+	const slug = parseOrigin(url);
+	if (slug === null) return { slug: null, dir: null, reason: `origin ${url.trim()} is not a GitHub owner/name URL` };
+	const dir = recordDir(slug, root);
+	const gate = join(dir, GATE_FILE);
+	const found = await stat(gate).then(info => info.isFile(), () => false);
+	return found ? { slug, dir } : { slug, dir: null, reason: `no per-repo record at ${gate}` };
 }
 
 /** Record directory for the clone at repo when its gate.json exists, else null. */
@@ -84,10 +116,13 @@ export async function findRecord(repo: string, root: string = configRoot()): Pro
 const argvSchema = z.array(z.string().refine(value => value.trim().length > 0)).min(1);
 
 const nonEmpty = z.string().refine(value => value.trim().length > 0);
-export const MODES = ["minimal", "structured"] as const;
-export type Mode = typeof MODES[number];
-const dynaflowsMode = z.object({ mode: z.enum(MODES) }).strict();
-const modeRequirement = 'dynaflows must be {"mode": "minimal"|"structured"}';
+export const MERGE_METHODS = ["rebase", "merge"] as const;
+export type MergeMethod = typeof MERGE_METHODS[number];
+const afterMergeSchema = z.object({ argv: argvSchema, paths: z.array(nonEmpty).min(1).optional() }).strict();
+const mergePolicySchema = z.object({ base: nonEmpty, headPrefix: z.string(), method: z.enum(MERGE_METHODS), proof: z.boolean() }).strict();
+export type MergePolicy = z.infer<typeof mergePolicySchema>;
+/** The policy for a PR with no matching mergePolicies entry. */
+export const DEFAULT_MERGE_POLICY: Omit<MergePolicy, "base" | "headPrefix"> = { method: "rebase", proof: true };
 // The per-repo record's gate.json; repo_record.py's gate_reason is its Python twin. Every field
 // is current: an unknown field, at the top level or in `checks`, is rejected by name.
 const gateSchema = z.object({
@@ -98,15 +133,15 @@ const gateSchema = z.object({
 	}).strict(),
 	agentMerge: z.enum(["allowed", "disabled"]).optional(),
 	ci: z.object({ requiredContext: nonEmpty, runner: nonEmpty }).optional(),
-	dynaflows: z.unknown().optional(),
-}).strict().superRefine((gate, ctx) => {
-	if (!dynaflowsMode.safeParse(gate.dynaflows).success) ctx.addIssue({ code: "custom", path: ["dynaflows"], message: modeRequirement });
-}).transform(gate => ({
+	afterMerge: afterMergeSchema.optional(),
+	mergePolicies: z.array(mergePolicySchema).min(1).optional(),
+}).strict().transform(gate => ({
 	commit: gate.checks.commit,
 	ciCheck: gate.checks.ci,
 	agentMerge: gate.agentMerge,
 	requiredCi: gate.ci,
-	dynaflows: dynaflowsMode.parse(gate.dynaflows),
+	afterMerge: gate.afterMerge,
+	mergePolicies: gate.mergePolicies ?? [],
 }));
 export type Gate = z.infer<typeof gateSchema>;
 
