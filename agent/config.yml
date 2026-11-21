@@ -25,7 +25,7 @@ modelRoles:
   kiss: openai-codex/gpt-6.1-sol:low
   operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
-  judge: openrouter/typesafe/jev-1.14
+  judge: typesafe/jev-1.14.0
   default: anthropic/claude-opus-5-5:medium
 textVerbosity: low
 disabledProviders:
@@ -88,8 +88,6 @@ codexResets:
   autoRedeem: "yes"
 retry:
   fallbackChains:
-    judge:
-      - openrouter/typesafe/jev-1.13
     web:
       - web/perplexity
       - google/gemini-2.5-flash
