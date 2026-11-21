@@ -70,6 +70,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Record tests | `tests/test_repo_record*.py` | `lib/repo_record.py` |
 | Engine tests | `tests/test_reference_*.py` | Checkers, adapters, `init` |
 | Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
+| Judgment tests | `tests/test_judgment_*.py` | Unwired `judgments/` files |
 | Tool settings | `tests/test_native_tool_settings.py` | Root ruff, mypy match engine |
 | Naming tests | `tests/test_naming_scope.py` | Engine layout rules |
 | Language packs | `tests/test_language_packs.py` | Engine language packs |
