@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { findRecord, loadGate, minimalText, RecordError, repoSlug, resolveRecord } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import { findRecord, loadGate, minimalText, OriginError, RecordError, repoSlug, resolveRecord } from "../agent/extensions/dynaflows/lib/repo-record.ts";
 import { defaultModesPath, repoMode, writeMode } from "../agent/extensions/dynaflows/lib/modes.ts";
 
 const completeGate = { schemaVersion: 2, checks: { commit: ["make", "gate"] } };
@@ -49,6 +49,27 @@ describe("record resolution", () => {
 			assert.equal(minimalText(null, "no origin remote"), "dynaflows minimal mode for none: no origin remote");
 			assert.equal(minimalText("owner/name", "why"), "dynaflows minimal mode for owner/name: why");
 		} finally { f.cleanup(); }
+	});
+
+	test("an origin remote read that fails for another reason throws OriginError, never 'no origin remote'", async () => {
+		const f = fixture();
+		const previous = process.env["PATH"];
+		try {
+			git("-C", f.repo, "remote", "add", "origin", "git@github.com:Owner/Name.git");
+			mkdirSync(join(f.temp, "not-a-repo"));
+			assert.equal(await resolveRecord(join(f.temp, "not-a-repo"), f.config).then(resolved => resolved.reason), "no origin remote", "outside a Git repository");
+			const bin = join(f.temp, "bin");
+			mkdirSync(bin);
+			for (const [script, words] of [["echo 'fatal: unable to read config' >&2; exit 128", "exited 128: fatal: unable to read config"], ["kill -KILL $$", "was killed (SIGKILL)"]] as const) {
+				writeFileSync(join(bin, "git"), `#!/bin/sh\n${script}\n`);
+				chmodSync(join(bin, "git"), 0o755);
+				process.env["PATH"] = `${bin}:${previous ?? ""}`;
+				for (const read of [() => resolveRecord(f.repo, f.config), () => repoSlug(f.repo), () => findRecord(f.repo, f.config)]) {
+					await assert.rejects(read(), (error: Error) => error instanceof OriginError && error.message === `git remote get-url origin in ${f.repo} ${words}`);
+				}
+				process.env["PATH"] = previous;
+			}
+		} finally { process.env["PATH"] = previous; f.cleanup(); }
 	});
 
 	test("no origin means no record and minimal mode", async () => {

@@ -6,7 +6,7 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, minimalText, recordDir, repoSlug, resolveRecord,
+	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, minimalText, OriginError, recordDir, repoSlug, resolveRecord, unresolvedText,
 } from "./lib/repo-record.ts";
 import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/modes.ts";
 import {
@@ -390,11 +390,30 @@ function protectedEditReason(map: Mapping, protection: Protection, event: ToolEv
 }
 // The rail state a session trusts: the mode file and the session repo's origin. Records are not
 // part of it: agents write them at any time and the rails re-read them on every action (ADR 0001).
-async function captureState(snapshot: Snapshot, modesFile: string, cwd: string): Promise<void> {
+async function captureState(snapshot: Snapshot, modesFile: string, cwd: string, notify: (text: string, level: "error") => void): Promise<void> {
 	await snapshot.capture(modesFile, () => fileState(modesFile));
 	const root = await repoRoot(cwd);
 	if (!root) return;
-	await snapshot.capture(`the origin remote of ${root}`, async () => `${await repoSlug(root)}`);
+	const key = `the origin remote of ${root}`;
+	const read = async () => `${await repoSlug(root)}`;
+	try { await snapshot.capture(key, read); }
+	catch (error) {
+		if (!(error instanceof OriginError)) throw error;
+		// No trusted origin: later git and gh actions are refused until the owner restarts omp.
+		snapshot.unread(key, read, error.message);
+		notify(`Agent rails: could not read ${key} at session start (${error.message}); git and gh actions are refused until the owner restarts omp.`, "error");
+	}
+}
+async function driftOutcome(snapshot: Snapshot): Promise<{ reason?: string | undefined; unresolved?: OriginError | undefined }> {
+	try { return { reason: await snapshot.driftReason() }; }
+	catch (error) {
+		if (error instanceof OriginError) return { unresolved: error };
+		throw error;
+	}
+}
+function notedUnresolved(reason: string | undefined, unresolved: OriginError | undefined, state: State, ctx: ExtensionContext): string | undefined {
+	if (!reason && unresolved) note(state, ctx, unresolvedText(unresolved));
+	return reason;
 }
 function mergeAloneReason(actions: GitAction[]): string | undefined {
 	return actions.length > 1 && actions.some(action => /^gh pr merge\b/.test(action.command))
@@ -402,7 +421,8 @@ function mergeAloneReason(actions: GitAction[]): string | undefined {
 		: undefined;
 }
 type Notify = (notice: string, level?: "info" | "error") => string;
-type Step = { action: GitAction; staged: boolean };
+// unresolved: the origin remote could not be read for this bash call, so every git or gh write in it is refused.
+type Step = { action: GitAction; staged: boolean; unresolved?: OriginError | undefined };
 // The staged checks (handoff, commit checks, implementation-integrity) read the index before the command runs,
 // so the committed tree must be that index.
 function committedIndexReason(step: Step, mode: Mode): string | undefined {
@@ -533,8 +553,15 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		if (at.invalid && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
 		return at.mode;
 	}
+	// For actions that write nothing through git or gh: an unresolvable mode is notified, the action
+	// goes on, and no structured-only addition runs. Git and gh writes call modeOf and refuse instead.
 	async function structuredAt(ctx: ExtensionContext, cwd = ctx.cwd): Promise<boolean> {
-		return await modeOf(ctx, cwd) === "structured";
+		try { return await modeOf(ctx, cwd) === "structured"; }
+		catch (error) {
+			if (!(error instanceof OriginError)) throw error;
+			note(stateFor(ctx), ctx, unresolvedText(error));
+			return false;
+		}
 	}
 	// The dynaflows directive's target: the repo's slug and record directory (null when it has no
 	// record yet). Throws outside a Git project with a GitHub origin remote.
@@ -624,20 +651,24 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const calls = new Map<string, ToolEvent>();
 		for (const entry of ctx.sessionManager.getBranch()) await replayEntry(entry, calls, ctx, state);
 	}
-	async function syncRules(ctx: ExtensionContext): Promise<ModeAt> {
-		const at = await modeAt(ctx).catch((error): ModeAt => ({ mode: "minimal", why: minimalText(null, String(error)) }));
+	// An unresolvable mode is notified and leaves the structured rules on: never minimal on an error.
+	async function syncRules(ctx: ExtensionContext): Promise<ModeAt | undefined> {
+		const at = await modeAt(ctx).catch((error: Error) => {
+			ctx.ui.notify(error instanceof OriginError ? unresolvedText(error) : `Agent rails: could not resolve this repository's dynaflows mode: ${String(error)}; retry.`, "error");
+			return undefined;
+		});
 		const rules = ompSetting("ttsr.disabledRules");
 		const user = session.userRules ??= stringList.parse(rules.get(pi.pi.settings));
-		rules.override(pi.pi.settings, at.mode === "structured" ? user : [...new Set([...user, ...map.structuredRules])]);
+		rules.override(pi.pi.settings, at?.mode === "minimal" ? [...new Set([...user, ...map.structuredRules])] : user);
 		return at;
 	}
 	pi.on("session_start", async (event, ctx) => {
 		await rebuild(event, ctx);
 		if (loadError) return;
 		pinSettings(pi.pi.settings);
-		await captureState(trust.snapshot, modesPath, ctx.cwd);
+		await captureState(trust.snapshot, modesPath, ctx.cwd, (text, level) => ctx.ui.notify(text, level));
 		const at = await syncRules(ctx);
-		if (at.mode === "minimal" && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
+		if (at?.mode === "minimal" && at.why) note(stateFor(ctx), ctx, sentence(`Agent rails: ${at.why}`));
 	});
 	pi.on("session_switch", rebuild);
 	pi.on("session_branch", rebuild);
@@ -678,6 +709,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const { action } = step;
 		const bypass = hookBypassReason(action) ?? routeReason(action) ?? await configWriteReason(action);
 		if (bypass || !new RegExp(map.gitCommand).test(action.command)) return bypass;
+		if (step.unresolved) return unresolvedText(step.unresolved);
 		const mode = action.cwd ? await modeOf(ctx, action.cwd) : "minimal";
 		const urls = missing(state, map, mode, ["git"]);
 		if (urls.length) return readReason(urls, mode);
@@ -692,8 +724,8 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		return PUBLISHES.test(action.command) ? publishActionReason(action, mode, state, ctx) : undefined;
 	}
 	// at: the alias depth, the bash call, and whether an earlier action in it changed the index.
-	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, at: { depth: number; call: BashCall; staged: boolean }): Promise<string | undefined> {
-		const { depth, call } = at;
+	async function actionsReason(actions: GitAction[], state: State, ctx: ExtensionContext, at: { depth: number; call: BashCall; staged: boolean; unresolved?: OriginError | undefined }): Promise<string | undefined> {
+		const { depth, call, unresolved } = at;
 		if (depth > ALIAS_DEPTH) return `Agent rails: Git and gh aliases nest deeper than ${ALIAS_DEPTH} levels; run the command itself.`;
 		let indexChanged = at.staged;
 		for (const action of actions) {
@@ -701,8 +733,8 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			if (route) return route;
 			const expanded = await aliasActions(pi, session, action);
 			const reason = expanded
-				? await actionsReason(expanded, state, ctx, { depth: depth + 1, call, staged: indexChanged })
-				: await gitActionReason({ action, staged: indexChanged }, state, ctx, call);
+				? await actionsReason(expanded, state, ctx, { depth: depth + 1, call, staged: indexChanged, unresolved })
+				: await gitActionReason({ action, staged: indexChanged, unresolved }, state, ctx, call);
 			if (reason) return reason;
 			indexChanged ||= INDEX_WRITES.test(action.command) || (expanded ?? []).some(item => INDEX_WRITES.test(item.command));
 		}
@@ -715,7 +747,11 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const actions = await gitActions(event.input.command, cwd, scan);
 		const stateReason = shellStateReason(event.input.command, trust.protection) ?? tokenReason(event.input.command);
 		if (stateReason || !actions.length) return stateReason;
-		return mergeAloneReason(actions) ?? (await trust.snapshot.driftReason()) ?? actionsReason(actions, state, ctx, { depth: 0, call: { actions, executables: scan.executables }, staged: false });
+		// An origin remote that cannot be read now refuses every git or gh write in the call; the rest go on, notified.
+		const drift = await driftOutcome(trust.snapshot);
+		return mergeAloneReason(actions) ?? drift.reason ?? notedUnresolved(
+			await actionsReason(actions, state, ctx, { depth: 0, call: { actions, executables: scan.executables }, staged: false, unresolved: drift.unresolved }),
+			drift.unresolved, state, ctx);
 	}
 	async function pathTriggers(path: string, ctx: ExtensionContext, state: State): Promise<string[]> {
 		const root = await repoRoot(path);
@@ -747,7 +783,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 				(await editReadsReason(event, ctx, state)) ??
 				(await sessionRail.judged.scopeReason(event, scopeInputSchema.parse(runtimeEvent.input), ctx));
 			return reason ? { block: true, reason } : undefined;
-		} catch (error) { return { block: true, reason: `Agent rails: policy could not be evaluated: ${String(error)}` }; }
+		} catch (error) {
+			// Only git and gh writes resolve the mode without notifying (structuredAt notifies): they refuse.
+			return { block: true, reason: error instanceof OriginError ? unresolvedText(error) : `Agent rails: policy could not be evaluated: ${String(error)}` };
+		}
 	});
 	pi.on("tool_result", async (runtimeEvent, ctx) => {
 		const event = policyEvent(runtimeEvent);
@@ -762,7 +801,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const reasons: string[] = [];
 		let editedDynaflowsRepo = false;
 		for (const root of new Set([...state.edits, ...state.pathFailures.keys()])) {
-			if (!await structuredAt(ctx, root)) continue;
+			if (await modeOf(ctx, root) !== "structured") continue;
 			if (state.edits.has(root)) editedDynaflowsRepo = true;
 			const failedPaths = state.pathFailures.get(root);
 			const error = failedPaths ? await checkPaths(root, failedPaths, state) : undefined;
@@ -778,11 +817,18 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		try {
 			const reasons = await handoffReasons(ctx, state);
 			return reasons.length ? { decision: "block", reason: `Agent rails: ${reasons.join("; ")}, then retry handoff.` } : undefined;
-		} catch (error) { return { decision: "block", reason: `Agent rails: handoff policy failed: ${String(error)}` }; }
+		} catch (error) {
+			return { decision: "block", reason: error instanceof OriginError ? unresolvedText(error) : `Agent rails: handoff policy failed: ${String(error)}` };
+		}
 	});
 	const workflowReferences = () => (map.references.structured["workflow"] ?? []).join(" and ");
 	async function structuredOutcome(ctx: ExtensionContext, state: State, notify: Notify, request: StructuredRequest): Promise<Applied> {
-		const at = await modeAt(ctx);
+		let at: ModeAt;
+		try { at = await modeAt(ctx); }
+		catch (error) {
+			if (!(error instanceof OriginError)) throw error;
+			return { notice: notify(unresolvedText(error), "error") };
+		}
 		if (at.invalid) {
 			return { notice: request.notice, content: resumeContent(request.slug, request.dir, at.why ?? "invalid record") };
 		}
@@ -799,7 +845,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const notify: Notify = (notice, level = "info") => { ctx.ui.notify(notice, level); return notice; };
 		let target: { slug: string; dir: string | null };
 		try { target = await directiveTarget(ctx); }
-		catch (error) { return { notice: notify(`Agent rails: ${String(error)}`, "error") }; }
+		catch (error) { return { notice: notify(error instanceof OriginError ? unresolvedText(error) : `Agent rails: ${String(error)}`, "error") }; }
 		state.pointed = false;
 		const { slug, dir } = target;
 		try {

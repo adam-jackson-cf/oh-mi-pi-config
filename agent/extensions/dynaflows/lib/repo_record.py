@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -19,6 +20,14 @@ _ORIGIN = re.compile(
 
 class RecordError(RuntimeError):
     pass
+
+
+class OriginError(RecordError):
+    """The origin remote could not be read: git was killed, timed out, could not start, or failed
+    for a reason other than a missing remote or a path outside a Git repository."""
+
+
+ORIGIN_TIMEOUT_S = 20
 
 
 def config_root() -> Path:
@@ -40,16 +49,35 @@ def repo_slug(repo: str | Path) -> str | None:
 
 
 def origin_url(repo: str | Path) -> str | None:
+    """The origin remote URL, or None when there is no origin remote or ``repo`` is not in a Git
+    repository. Any other failure raises OriginError."""
+    command = f"git remote get-url origin in {repo}"
     try:
         process = subprocess.run(
             ["git", "-C", str(repo), "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
             errors="replace",
+            env={**os.environ, "LC_ALL": "C", "LANGUAGE": "C"},
+            timeout=ORIGIN_TIMEOUT_S,
         )
-    except OSError:
+    except subprocess.TimeoutExpired as exc:
+        raise OriginError(f"{command} was killed (timeout)") from exc
+    except OSError as exc:
+        raise OriginError(f"{command} could not run: {exc}") from exc
+    if process.returncode == 0:
+        return process.stdout
+    stderr = process.stderr.strip()
+    if (process.returncode == 2 and "No such remote" in stderr) or (
+        process.returncode == 128 and "not a git repository" in stderr
+    ):
         return None
-    return None if process.returncode else process.stdout
+    how = (
+        f"was killed (signal {-process.returncode})"
+        if process.returncode < 0
+        else f"exited {process.returncode}"
+    )
+    raise OriginError(f"{command} {how}{f': {stderr}' if stderr else ''}")
 
 
 def record_dir(slug: str, root: str | Path | None = None) -> Path:

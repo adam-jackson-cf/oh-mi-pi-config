@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, test } from "bun:test";
@@ -8,6 +9,38 @@ import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { harness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig, mergeRecover, watchedProofCall } from "./dynaflows-guards-seams.test";
 
 const proofs = "skill://structured-workflow/references/proofs.md";
+
+function assertRefused(result: Parameters<typeof reasonOf>[0], fragment: string): void {
+	assert.equal(isBlocked(result), true, fragment);
+	assert.ok(reasonOf(result).includes(fragment), reasonOf(result));
+}
+
+// A git on PATH whose origin remote read fails as the file `how` says (exit128, kill), else runs the real git.
+async function withFailingOriginRead(body: (fail: (how: "exit128" | "kill" | "pass") => void) => Promise<void>): Promise<void> {
+	const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), "failing-git-")));
+	const how = join(dir, "how");
+	writeFileSync(how, "pass");
+	writeFileSync(join(dir, "git"), [
+		"#!/bin/sh",
+		`case " $* " in *" remote get-url origin "*)`,
+		`  case "$(cat '${how}')" in`,
+		"    exit128) echo 'fatal: unable to read config file: Resource temporarily unavailable' >&2; exit 128 ;;",
+		"    kill) kill -KILL $$ ;;",
+		"  esac ;;",
+		"esac",
+		`exec '${real}' "$@"`,
+		"",
+	].join("\n"));
+	chmodSync(join(dir, "git"), 0o755);
+	const previous = process.env["PATH"];
+	process.env["PATH"] = `${dir}:${previous ?? ""}`;
+	try { await body(value => writeFileSync(how, value)); }
+	finally {
+		process.env["PATH"] = previous;
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
 
 describe("dynaflows extension", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
@@ -479,6 +512,43 @@ describe("dynaflows extension", () => {
 			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+		} finally { h.cleanup(); }
+	});
+
+	test.each(["exit128", "kill"] as const)("an origin remote read that fails (%s) refuses commits and pushes in a structured repo, never minimal mode", async how => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			await withFailingOriginRead(async fail => {
+				await h.read("skill://git-tool", mergeRecover);
+				fail(how);
+				const unresolved = "could not resolve this repository's dynaflows mode: git remote get-url origin in";
+				for (const command of ["git commit -m x", "git push origin HEAD:agent/feature"]) {
+					const refused = await h.call("bash", { command });
+					assert.equal(isBlocked(refused), true, command);
+					assert.ok(reasonOf(refused).includes(unresolved) && reasonOf(refused).endsWith("; retry."), reasonOf(refused));
+					assert.ok(!reasonOf(refused).includes("minimal mode"), reasonOf(refused));
+				}
+				assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes(how === "kill" ? "was killed" : "exited 128"));
+				h.notes.length = 0;
+				assert.equal(await h.call("edit", { path: "existing.ts" }), undefined, "an edit writes nothing through git: notified, not refused");
+				assert.ok(h.notes.some(note => note.includes(unresolved)), h.notes.join("; "));
+				assert.ok(!h.notes.some(note => note.includes("dynaflows minimal mode")), h.notes.join("; "));
+
+				h.notes.length = 0;
+				h.setSession(`start-${how}`);
+				await h.emit("session_start");
+				assert.ok(h.notes.some(note => note.includes("at session start") && note.includes("refused until the owner restarts omp")), h.notes.join("; "));
+				fail("pass");
+				assertRefused(await h.call("bash", { command: "git commit -m x" }), "could not be read at session start");
+
+				await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
+				h.setSession(`no-origin-${how}`);
+				await h.emit("session_start");
+				await h.read("skill://git-tool", mergeRecover);
+				assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a repo with no origin remote still runs minimal mode");
+				assert.ok(h.notes.some(note => note.includes("dynaflows minimal mode for none: no origin remote")), h.notes.join("; "));
+			});
 		} finally { h.cleanup(); }
 	});
 

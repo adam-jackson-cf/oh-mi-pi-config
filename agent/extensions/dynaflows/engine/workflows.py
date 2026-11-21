@@ -221,13 +221,14 @@ def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
 
     The record is the personal, gitignored `repos/<owner>/<name>/` directory under the harness,
     named by the clone's origin remote; worktrees resolve to their main checkout's record. A record
-    that exists but is unreadable or that rails would reject raises.
+    that exists but is unreadable or that rails would reject raises, and so does an origin remote
+    that cannot be read: that is not "no record".
     """
     resolver = _resolver()
-    record = resolver.find_record(repo, _records_root())
-    if record is None:
-        return None, None
     try:
+        record = resolver.find_record(repo, _records_root())
+        if record is None:
+            return None, None
         gate = resolver.load_gate(record)
     except resolver.RecordError as exc:
         raise WorkflowError(f"record {exc}") from exc
@@ -237,7 +238,10 @@ def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
 def no_record_reason(repo: StrPath) -> str:
     """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
     resolver = _resolver()
-    slug, _, reason = resolver.resolve_record(repo, _records_root())
+    try:
+        slug, _, reason = resolver.resolve_record(repo, _records_root())
+    except resolver.RecordError as exc:
+        raise WorkflowError(f"record {exc}") from exc
     text: str = resolver.minimal_text(slug, reason or "no per-repo record")
     return text
 

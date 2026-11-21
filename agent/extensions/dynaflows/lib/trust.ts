@@ -142,14 +142,25 @@ class Evidence {
 
 // Rail state seen at session start (the mode file and the session repo's origin): a change
 // during the session, other than through the rails' own mode switch, refuses
-// every git and gh action until the owner restores it or restarts omp.
+// every git and gh action until the owner restores it or restarts omp. State that could not be read
+// at session start has no trusted value, so it refuses them until the owner restarts omp. A reader
+// that fails during the session throws: the caller decides what that refuses.
 class Snapshot {
 	readonly #seen = new Map<string, string>();
 	readonly #readers = new Map<string, () => Promise<string>>();
+	readonly #unread = new Map<string, string>();
 
 	async capture(key: string, read: () => Promise<string>): Promise<void> {
 		this.#readers.set(key, read);
+		this.#unread.delete(key);
 		this.#seen.set(key, await read());
+	}
+
+	/** key could not be read at session start: why. */
+	unread(key: string, read: () => Promise<string>, why: string): void {
+		this.#readers.set(key, read);
+		this.#seen.delete(key);
+		this.#unread.set(key, why);
 	}
 
 	accept(key: string, value: string): void {
@@ -157,6 +168,9 @@ class Snapshot {
 	}
 
 	async driftReason(): Promise<string | undefined> {
+		for (const [key, why] of this.#unread) {
+			return `Agent rails: ${key} could not be read at session start (${why}), so the rails have no trusted state for it; the owner restarts omp.`;
+		}
 		for (const [key, read] of this.#readers) {
 			if (await read() !== this.#seen.get(key)) {
 				return `Agent rails: ${key} changed during this session; rails trust the state seen at session start. Restore it, or the owner restarts omp after changing it.`;

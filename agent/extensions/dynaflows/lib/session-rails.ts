@@ -2,7 +2,7 @@
 // restart and handoffs between sessions. index.ts wires them into the Git rails and the dynaflows tool.
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
-import { repoSlug } from "./repo-record.ts";
+import { OriginError, repoSlug, unresolvedText } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
@@ -37,7 +37,8 @@ export type SessionDeps = {
 export type PrStatus = { status: ObligationStatus; reason?: string | undefined };
 type Review = { slug: string; root: string; common: string; from: string; to: string; checks: Promise<string>; diff: Promise<string | undefined>; impact: Promise<Verdict | Failure> };
 type Handoff = { root: string; content: string; injected: boolean };
-type Session = { book: ObligationBook; review?: Review | undefined; handoff?: Handoff | undefined; started: boolean; discovered: Set<string> };
+// reviewError: the origin remote could not be read at session start, so the extension review is unknown and Git writes refuse.
+type Session = { book: ObligationBook; review?: Review | undefined; reviewError?: string | undefined; handoff?: Handoff | undefined; started: boolean; discovered: Set<string> };
 // Bounded under omp's 30 s extension handler budget; a slower check is left for the agent to run.
 const REVIEW_CHECK_MS = 25_000;
 const OUTPUT_TAIL = 2000;
@@ -95,10 +96,19 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		return found;
 	};
 	const structured = async (ctx: ExtensionContext, root: string) => await deps.modeOf(ctx, root) === "structured";
+	// For judgments on actions that write nothing through git or gh: an unresolvable mode is notified and the judgment does not run.
+	const structuredOrNotify = async (ctx: ExtensionContext, root: string) => {
+		try { return await structured(ctx, root); }
+		catch (error) {
+			if (!(error instanceof OriginError)) throw error;
+			ctx.ui.notify(unresolvedText(error), "error");
+			return false;
+		}
+	};
 	// The rollout step, from the config root only: any spelling that resolves to the same script counts.
 	const rolloutStep: Step = { argv: ["python3", `${deps.configRoot.replace(/\/+$/, "")}/scripts/device_rollout.py`], root: deps.configRoot };
 	const rolloutCommand = shellJoin(rolloutStep.argv);
-	const judged = judgedRails(pi, { decide: deps.decide, enforced: deps.enforced, structured, askFirst: deps.askFirst });
+	const judged = judgedRails(pi, { decide: deps.decide, enforced: deps.enforced, structured: structuredOrNotify, askFirst: deps.askFirst });
 
 	const commonDir = (cwd: string) => gitCommonDir(pi, cwd);
 
@@ -142,7 +152,12 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		if (!root) return;
 		const content = await readHandoff(root);
 		if (content !== null) session.handoff = { root, content, injected: false };
-		await startReview(ctx, root, session);
+		session.reviewError = undefined;
+		await startReview(ctx, root, session).catch((error: Error) => {
+			if (!(error instanceof OriginError)) throw error;
+			session.reviewError = error.message;
+			ctx.ui.notify(`Agent rails: could not check the dynaflows extension review for ${root} (${error.message}); Git writes are refused until the owner restarts omp.`, "error");
+		});
 	});
 
 	async function firstPromptMessages(session: Session, ctx: ExtensionContext): Promise<string[]> {
@@ -269,7 +284,12 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 	async function addRollout(ctx: ExtensionContext, session: Session): Promise<string> {
 		const root = await repoRoot(ctx.cwd);
-		if (!root || !await structured(ctx, root)) return "Device rollout obligations need dynaflows structured mode; none was added.";
+		const applies = root ? await structured(ctx, root).catch((error: Error) => {
+			if (error instanceof OriginError) return error;
+			throw error;
+		}) : false;
+		if (applies instanceof OriginError) return `${unresolvedText(applies)} No device rollout obligation was added.`;
+		if (!root || !applies) return "Device rollout obligations need dynaflows structured mode; none was added.";
 		session.book.add({ id: ROLLOUT_ID, root, text: `device rollout was requested; run \`${rolloutCommand}\` until it exits 0`, status: async () => "unmet" });
 		return `Device rollout requested: before this work ends, run \`${rolloutCommand}\` until it exits 0.`;
 	}
@@ -307,10 +327,16 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	pi.on("session_stop", async (_event, ctx) => {
 		if (deps.loadError()) return;
 		const session = sessionFor(ctx);
-		await discoverPr(ctx, session);
-		const extra = (await Promise.all(deps.sources.map(source => source(ctx.sessionManager.getSessionId())))).flat();
-		const reason = await session.book.turnEnd(extra, root => structured(ctx, root), text => ctx.ui.notify(text, "error"));
-		return reason ? { decision: "block" as const, reason } : undefined;
+		try {
+			await discoverPr(ctx, session);
+			const extra = (await Promise.all(deps.sources.map(source => source(ctx.sessionManager.getSessionId())))).flat();
+			const reason = await session.book.turnEnd(extra, root => structured(ctx, root), text => ctx.ui.notify(text, "error"));
+			return reason ? { decision: "block" as const, reason } : undefined;
+		} catch (error) {
+			// Obligations of a repository whose mode is unknown are not dropped: the work cannot end yet.
+			if (error instanceof OriginError) return { decision: "block" as const, reason: unresolvedText(error) };
+			throw error;
+		}
 	});
 
 	const handoffParams = z.object({ content: z.string().min(1).describe("The handoff: state, decisions, next steps") });
@@ -330,7 +356,8 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 	const rails: SessionRails = {
 		async gitWriteReason(action, ctx) {
-			const review = sessionFor(ctx).review;
+			const { review, reviewError } = sessionFor(ctx);
+			if (reviewError) return `Agent rails: could not check the dynaflows extension review at session start (${reviewError}); the owner restarts omp.`;
 			if (!review || !action.cwd || await commonDir(action.cwd).catch(() => undefined) !== review.common) return undefined;
 			return `Agent rails: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it; ` +
 				"review the change, then call the dynaflows tool with acknowledge: true before Git writes.";

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -119,6 +120,46 @@ class Resolve(unittest.TestCase):
         assert repo_record.repo_slug(self.repo) is None
         assert repo_record.find_record(self.repo, self.config) is None
         assert record_mode(self.repo, self.config) == "absent"
+
+    def test_an_origin_read_that_fails_for_another_reason_raises_origin_error(
+        self,
+    ) -> None:
+        git(
+            "-C",
+            str(self.repo),
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:Owner/Name.git",
+        )
+        plain = self.temp / "not-a-repo"
+        plain.mkdir()
+        assert repo_record.resolve_record(plain, self.config)[2] == "no origin remote"
+        bin_dir = self.temp / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "git"
+        for script, words in (
+            (
+                "echo 'fatal: unable to read config' >&2; exit 128",
+                "exited 128: fatal: unable to read config",
+            ),
+            ("kill -KILL $$", "was killed (signal 9)"),
+        ):
+            fake.write_text(f"#!/bin/sh\n{script}\n")
+            fake.chmod(0o755)
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+                for read in (
+                    lambda: repo_record.resolve_record(self.repo, self.config),
+                    lambda: repo_record.repo_slug(self.repo),
+                    lambda: repo_record.find_record(self.repo, self.config),
+                ):
+                    with pytest.raises(repo_record.OriginError) as raised:
+                        read()
+                    assert (
+                        str(raised.value)
+                        == f"git remote get-url origin in {self.repo} {words}"
+                    )
 
     def test_origin_without_a_record_means_minimal_mode(self) -> None:
         git(
