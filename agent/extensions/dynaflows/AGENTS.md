@@ -31,7 +31,8 @@ patterns tests are generated from; checks on the suite itself are deterministic 
 
 **5. Proofs.** Deterministic gates prove that principles 2-4 and 6-9 were respected. A proof is an
 outcome test frozen red at base and passing at head, checked by `prove()` at the PR. There are no
-agent code reviews.
+agent code reviews. Quality checkers run at commit, never inside `prove()`, with no separate proof
+command; the repo's tests prove its checkers and `guardrails`' tests prove the harness checkers.
 
 **6. Clean cutovers.** A change replaces the old design outright: no backward compatibility, shims,
 aliases or dual paths, and legacy references and version-suffixed names are removed.
