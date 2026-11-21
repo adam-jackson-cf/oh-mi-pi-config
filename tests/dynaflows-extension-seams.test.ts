@@ -896,7 +896,7 @@ test("PR query contract: requests the PR URL", async () => {
 			return exec(command, args, options);
 		};
 		assert.equal(await h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` }), undefined);
-		assert.equal(fields, "headRefOid,baseRefName,headRefName,statusCheckRollup,url");
+		assert.equal(fields, "headRefOid,baseRefName,headRefName,state,statusCheckRollup,url");
 	} finally { h.cleanup(); }
 });
 

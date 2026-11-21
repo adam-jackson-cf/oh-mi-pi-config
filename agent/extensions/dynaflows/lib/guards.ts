@@ -214,6 +214,17 @@ function minimalMergeReason(mode: Mode): string | undefined {
 		: undefined;
 }
 
+const PR_FLAGS = ["--auto", "--admin", "--delete-branch", "-d", "--squash", "-s", "--merge", "-m", "--rebase", "-r", "--help"];
+function prSelector(args: string[]): string | undefined {
+	for (let i = 2; i < args.length; i++) {
+		const arg = args[i] ?? "";
+		if (arg === "--") return args[i + 1];
+		if (!arg.startsWith("-")) return arg;
+		if (!arg.includes("=") && !PR_FLAGS.includes(arg)) i++;
+	}
+	return undefined;
+}
+
 type AppliedPolicy = Omit<MergePolicy, "base" | "headPrefix"> & { source: string };
 const METHOD_FLAGS = new Map([["--rebase", "rebase"], ["-r", "rebase"], ["--merge", "merge"], ["-m", "merge"], ["--squash", "squash"], ["-s", "squash"]]);
 
@@ -241,5 +252,5 @@ function routeReason(action: GitAction): string | undefined {
 	return gitRouteReason(action) ?? ghApiReason(action);
 }
 
-export { adminMergeReason, mergeMethodReason, mergePolicyFor, type AppliedPolicy };
+export { adminMergeReason, mergeMethodReason, mergePolicyFor, prSelector, type AppliedPolicy };
 export { PUBLISHES, agentMergeReason, commitHookReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };

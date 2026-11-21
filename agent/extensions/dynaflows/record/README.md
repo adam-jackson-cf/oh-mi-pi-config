@@ -87,8 +87,8 @@ No match means `method: rebase`, `proof: true`. Rails always refuse `--admin`; n
 ### After merge
 
 `afterMerge.argv` is a repo command structured mode requires after a merge. With `paths` (globs),
-only a merge whose PR files match one glob requires it. Rails run it in the merging checkout; until
-it exits 0, the session's turn-end obligations name it.
+only a merge whose PR files match one glob requires it. The agent runs it in that repository as a
+whole shell command; until a run exits 0, the session's turn-end obligations name it.
 
 ### oh-mi-pi-config example
 

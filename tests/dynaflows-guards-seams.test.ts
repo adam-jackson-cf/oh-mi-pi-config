@@ -26,7 +26,7 @@ type Details = { applied?: boolean; files?: string[]; totalReplacements?: number
 type Event = {
 	type: string; cwd?: string; toolName?: string; toolCallId?: string; input?: Input;
 	details?: Details; isError?: boolean; reason?: string;
-	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string; prompt?: string;
+	agent?: string; patterns?: string[]; modelRole?: string; invocationKind?: string; prompt?: string; willContinue?: boolean;
 };
 type Result = { block?: boolean; reason?: string; decision?: string; additionalContext?: string; message?: object; model?: string[] };
 type Handler = Function;
@@ -92,6 +92,7 @@ type CommandChoices = { configPath: string | undefined; ompCommand: string[] | u
 function extensionOptions(machine: string, records: string, choices: CommandChoices): ExtensionOptions {
 	const options: ExtensionOptions = {
 		modesPath: join(records, "modes.json"), configRoot: records,
+		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsProfileCommand: ["true"],
 		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
 	};
 	if (choices.configPath !== undefined) options.configPath = choices.configPath;
@@ -99,8 +100,9 @@ function extensionOptions(machine: string, records: string, choices: CommandChoi
 	return options;
 }
 
-function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand }: {
+function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCommand = ["true"], ompCommand, extra = {} }: {
 	configPath?: string; configRoot?: string; remote?: string; guardrailsCommand?: string[] | "default"; ompCommand?: string[];
+	extra?: Partial<ExtensionOptions>;
 } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-")));
 	const machine = mkdtempSync(join(tmpdir(), "dynaflows-guards-machine-"));
@@ -153,8 +155,10 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			}
 		},
 	};
-	const options = extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand });
+	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand }), ...extra };
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
+	mkdirSync(join(machine, "extension"));
+	writeFileSync(join(machine, "extension", "index.ts"), "export {};\n");
 	const modesPath = join(records, "modes.json");
 	if (!existsSync(modesPath)) writeFileSync(modesPath, JSON.stringify({ schemaVersion: 1, repos: {} }));
 	dynaflowsExtension(api, options);
@@ -190,7 +194,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		pathFailure(message?: string) { pathFailure = message; },
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
-		async tool(name: string, params: { mode: Mode }) {
+		machine,
+		async tool(name: string, params: { mode?: Mode; rollout?: true; acknowledge?: true; content?: string }) {
 			const tool = tools.get(name);
 			assert.ok(tool, `missing tool ${name}`);
 			return toolResultSchema.parse(await tool.execute("tool-1", params, undefined, undefined, context)).content.map(part => part.text).join("");
@@ -265,6 +270,8 @@ function mergeResults(combined: Result | undefined, result: Result): Result {
 	const merged = { ...combined, ...result };
 	const previousContext = combined?.additionalContext;
 	if (previousContext && result.additionalContext) merged.additionalContext = `${previousContext}\n${result.additionalContext}`;
+	// omp delivers every handler's before_agent_start message.
+	if (combined?.message && result.message) merged.message = { messages: [combined.message, result.message] };
 	return merged;
 }
 
@@ -303,10 +310,10 @@ type PrCiHarness = {
 	};
 };
 
-type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string };
+type PrView = { head?: string; selector?: string; failure?: string; url?: string; base?: string; headRef?: string; state?: string };
 
 function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
-	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test" } = view;
+	const { head = ciHead, selector, failure, url = "https://github.com/owner/repo/pull/3", base = "main", headRef = "agent/test", state = "OPEN" } = view;
 	const exec = h.api.exec.bind(h.api);
 	h.api.exec = async (command, args, options) => {
 		if (command !== "gh") return exec(command, args, options);
@@ -317,7 +324,7 @@ function mockPrCi(h: PrCiHarness, rollup: object[], view: PrView = {}) {
 		assert.ok(args.at(-1)?.split(",").includes("statusCheckRollup"));
 		return failure
 			? { code: 1, killed: false, stdout: "", stderr: failure }
-			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, baseRefName: base, headRefName: headRef, statusCheckRollup: rollup, url }), stderr: "" };
+			: { code: 0, killed: false, stdout: JSON.stringify({ headRefOid: head, baseRefName: base, headRefName: headRef, state, statusCheckRollup: rollup, url }), stderr: "" };
 	};
 }
 

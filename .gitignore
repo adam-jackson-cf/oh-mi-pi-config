@@ -98,6 +98,7 @@ tests/*
 !tests/dynaflows-guards-seams.test.ts
 !tests/dynaflows-extension-seams.test.ts
 !tests/dynaflows-agent-loop-seams.test.ts
+!tests/dynaflows-session-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
 !tests/analyse.test.ts
