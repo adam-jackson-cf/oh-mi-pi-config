@@ -19,8 +19,7 @@
 - The template's `structure` supplies capability owners, tiers and import direction;
   `house_style` supplies the installed version; `guardrails` supplies per-checker settings
   and owner-approved `exceptions` (`rule`, `path` or glob, `reason`, optional `check`).
-  `structure.tiers` and `guardrails.exceptions` may be empty. No ADR is required.
-  Checker module documentation defines per-checker settings.
+  `structure.tiers` and `guardrails.exceptions` may be empty.  Checker module documentation defines per-checker settings.
 - During approved setup, implementation writes the feature map in the repo and profile/guardrail
   settings in the record. Hand mapping gaps to the approved setup extension. Owner-approved budget
   edits belong to implementation, not the frozen proof task; first limits and raises require the

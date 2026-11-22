@@ -1,7 +1,7 @@
 // Judged rails, structured mode only: each runs its deterministic pre-checks first and calls decide()
-// only on what they pass. extension-impact gates the restart review, adr-needed the merge,
+// only on what they pass. extension-impact gates the restart review,
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
-// the turn end. Every judgment is enforced from the start: the rails act on each verdict,
+// the merge and the turn end. Every judgment is enforced from the start: the rails act on each verdict,
 // and a judge failure refuses. An escalated outcome goes to the owner, who approves with a $approve prompt line.
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -19,16 +19,12 @@ type Failure = { failure: string };
 export const MODE_RUNS = {
 	"structured": "Everything minimal runs, plus the full workflow: record checks.commit and the harness commit checks (guardrails catalogue rules, language adapters, path, naming and structure checks), reference reads on edits, prove() and structure_review() and exact-head CI before merge, the judged dynaflows rules, the structured-workflow skill and its bundled skills (git-tool merge runbook, test-guidance, setup-repo-proofs), and dependency-audit triage."
 } as const;
-/** A decision-record file: an ADR the PR adds or edits. */
-export const ADR_PATH = /(?:^|\/)(?:adrs?|decisions|decision-records)\/[^/]+\.md$/i;
-const ADR_MENTION = /\bADRs?\b|architecture decision/i;
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const REQUEST_HEADINGS = ["in short", "summary", "why", "changes"];
 const EVIDENCE_HEADINGS = ["evidence", "verification", "testing", "test plan"];
 const NOT_TESTED = /^\s*(?:[-*]\s*)?\*\*Not tested:?\*\*:?\s*(.*)$/i;
 const PENDING_CHECK = /^(?:QUEUED|IN_PROGRESS|PENDING|EXPECTED|WAITING|REQUESTED)$/;
 const FAILED_CHECK = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED"]);
-const CHANGE_LETTERS = new Map([["ADDED", "A"], ["DELETED", "D"], ["RENAMED", "R"], ["COPIED", "C"]]);
 // git commit message arguments: an inline value, or a value or file path in the next argument.
 const MESSAGE_FORMS = [
 	{ pattern: /^--message=([\s\S]*)$/, kind: "text", skip: 0 },
@@ -41,7 +37,6 @@ const TEXT_LIMIT = 3000;
 const SUBAGENT_PRIVILEGED = "Agent rails: subagents cannot run privileged commands (privileges, credentials, installs, other machines); " +
 	"return the command to the main agent, which asks the owner when the agreed work does not grant it.";
 const DIFF_LIMIT = 12000;
-const ADR_FILES_SHOWN = 40;
 const LARGEST_FILES = 20;
 const IMPACT_FILES = 80;
 const PATCH_LIMIT = 2500;
@@ -59,18 +54,16 @@ const checkSchema = z.union([
 		.transform(check => ({ check: check.context, result: check.state })),
 ]);
 type Check = z.infer<typeof checkSchema>;
-const fileSchema = z.object({ path: z.string(), additions: z.number(), deletions: z.number(), changeType: z.string().optional() });
+const fileSchema = z.object({ path: z.string(), additions: z.number(), deletions: z.number() });
 type PrFile = z.infer<typeof fileSchema>;
 const prViewSchema = z.object({
 	number: z.number(), title: z.string(), body: z.string(), state: z.string(),
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
 	url: z.string().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/),
-	commits: z.array(z.object({ messageHeadline: z.string() })).optional(),
 	files: z.array(fileSchema),
 	statusCheckRollup: z.array(checkSchema).optional(),
 });
 type PrView = z.infer<typeof prViewSchema>;
-const repoViewSchema = z.object({ name: z.string(), description: z.union([z.string(), z.literal(null)]).optional() });
 const branchMessageSchema = z.object({ type: z.literal("message"), message: z.object({
 	role: z.string(), content: z.union([z.string(), z.array(z.object({ type: z.string(), text: z.string().optional() }))]).optional(),
 }) });
@@ -91,7 +84,6 @@ async function prView(pi: ExecApi, cwd: string, selector: string | undefined, fi
 	return prViewSchema.parse(jsonText.parse(result.stdout));
 }
 const repositoryOf = (view: PrView) => new URL(view.url).pathname.split("/").slice(1, 3).join("/");
-const withoutMentions = (text: string) => text.split("\n").filter(line => !ADR_MENTION.test(line)).join("\n");
 const sessionOf = (ctx: ExtensionContext) => ctx.sessionManager.getSessionId();
 const ownerReason = (verdict: Verdict, key: string, question: string) =>
 	`${verdictText(verdict)} is uncertain; ask the owner ${question} If they approve, they send ${approvalLine(key)} as a line of their own.`;
@@ -133,39 +125,8 @@ export function evidenceText(body: string) {
 	return { tested: tested.join("\n\n"), notTested: notTested.filter(Boolean).join("\n\n") };
 }
 
-type DiffSummary = {
-	total_files: number; added: number; deleted: number;
-	directories: Record<string, { files: number; added: number; deleted: number }>;
-	files: string[]; files_note?: string;
-};
-const directoryOf = (path: string) => { const parts = path.split("/").slice(0, -1); return parts.length ? parts.slice(0, 2).join("/") : "."; };
 const bySize = (left: PrFile, right: PrFile) => right.additions + right.deletions - (left.additions + left.deletions) || left.path.localeCompare(right.path);
 const sum = (files: PrFile[], field: "additions" | "deletions") => files.reduce((total, file) => total + file[field], 0);
-function adrDiffSummary(files: PrFile[]): DiffSummary {
-	const directories = new Map<string, { files: number; added: number; deleted: number }>();
-	for (const file of files) {
-		const entry = directories.get(directoryOf(file.path)) ?? { files: 0, added: 0, deleted: 0 };
-		directories.set(directoryOf(file.path), { files: entry.files + 1, added: entry.added + file.additions, deleted: entry.deleted + file.deletions });
-	}
-	const shown = files.length > ADR_FILES_SHOWN ? files.toSorted(bySize).slice(0, ADR_FILES_SHOWN) : files;
-	const summary: DiffSummary = {
-		total_files: files.length, added: sum(files, "additions"), deleted: sum(files, "deletions"),
-		directories: Object.fromEntries(directories),
-		files: shown.map(file => `${CHANGE_LETTERS.get(file.changeType ?? "") ?? "M"} ${file.path} +${file.additions}/-${file.deletions}`),
-	};
-	if (shown.length < files.length) summary.files_note = `largest ${ADR_FILES_SHOWN} of ${files.length} files shown`;
-	return summary;
-}
-/** The adr-needed `change` state: decision-record files and mentions removed, as the cases were built. */
-export function adrState(view: PrView, repository: string) {
-	return { change: {
-		repository, kind: "pull request", title: view.title,
-		description: clip(withoutMentions(view.body).trim(), DIFF_LIMIT),
-		commits: (view.commits ?? []).map(commit => commit.messageHeadline).filter(line => !ADR_MENTION.test(line)),
-		diff_summary: adrDiffSummary(view.files.filter(file => !ADR_PATH.test(file.path))),
-	} };
-}
-
 function messageArg(args: string[], index: number) {
 	const arg = args[index] ?? "";
 	const form = MESSAGE_FORMS.find(entry => entry.pattern.test(arg));
@@ -372,14 +333,6 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		return { message: { customType: "dynaflows", content, display: false, attribution: "agent" as const } };
 	});
 
-	async function adrVerdict(pi2: ExecApi, cwd: string, view: PrView, ctx: ExtensionContext): Promise<Verdict | Failure> {
-		const repository = repositoryOf(view);
-		const about = await run(pi2, "gh", ["repo", "view", repository, "--json", "name,description"], cwd).catch(() => undefined);
-		const repo = about?.code === 0 ? repoViewSchema.safeParse(jsonText.parse(about.stdout)) : undefined;
-		const line = repo?.success ? [repo.data.name, repo.data.description].filter(Boolean).join(": ") : repository;
-		return decided("adr-needed", adrState(view, line), ctx);
-	}
-
 	async function askReason(question: string, ctx: ExtensionContext): Promise<string | undefined> {
 		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), question), ctx);
 		if ("failure" in verdict || verdict.outcome !== "no") return undefined;
@@ -453,17 +406,7 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this staged change may weaken how the repository verifies itself.")}`;
 		return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour. ` +
 			"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
-			"or cite the owner decision (an ADR or recorded approval) in the commit message, then commit again.";
-	}
-
-	async function adrReason(cwd: string, view: PrView, head: string, ctx: ExtensionContext): Promise<string | undefined> {
-		const key = `adr-needed:${head}`;
-		if (view.files.some(file => ADR_PATH.test(file.path)) || approved(ctx, key)) return undefined;
-		const verdict = await adrVerdict(pi, cwd, view, ctx);
-		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
-		if (verdict.outcome === "no") return undefined;
-		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this PR makes a design decision that needs an ADR; add one, or")}`;
-		return `Agent rails: ${verdictText(verdict)}: this PR makes a design decision. Add an ADR file (for example docs/adr/NNNN-<title>.md) to the PR, then merge the new head.`;
+			"or cite the owner's recorded approval in the commit message, then commit again.";
 	}
 
 	async function impactDecided(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {
@@ -484,12 +427,12 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		async commitReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
 			return integrityReason(root, action, ctx);
 		},
-		/** completion-evidence, then adr-needed, at a structured merge, after method, head, proof and CI passed. */
+		/** completion-evidence at a structured merge, after method, head, proof and CI passed. */
 		async mergeReason(cwd: string, selector: string | undefined, head: string, ctx: ExtensionContext): Promise<string | undefined> {
-			const view = await prView(pi, cwd, selector, "number,title,body,state,headRefOid,url,commits,files,statusCheckRollup")
+			const view = await prView(pi, cwd, selector, "number,title,body,state,headRefOid,url,files,statusCheckRollup")
 				.catch((error: Error) => ({ failure: `the merge judgments could not read the PR: ${error.message}` }));
 			if ("failure" in view) return `Agent rails: ${view.failure}; retry the merge.`;
-			return (await evidenceMergeReason(cwd, view, head, ctx)) ?? adrReason(cwd, view, head, ctx);
+			return evidenceMergeReason(cwd, view, head, ctx);
 		},
 		/** in-scope before an ask or a privileged command the rails can see. */
 		async scopeReason(event: ToolEvent, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {

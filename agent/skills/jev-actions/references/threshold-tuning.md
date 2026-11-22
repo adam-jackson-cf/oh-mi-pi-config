@@ -13,7 +13,7 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   enforcement back until tuning is done.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
   fails, set the cost-rule default, record the failed gate in `shortfalls`, and ship enforced.
-  List every repository doc, ADR, plan or code comment that requires a shadow or provisional state,
+  List every repository doc, plan or code comment that requires a shadow or provisional state,
   and delete or rewrite it in the change that ships enforcement; the user's instruction decides
   conflicts.
 - Cost-rule default: 0.3 when a miss costs more, 0.7 when a false action does, else 0.5; record the

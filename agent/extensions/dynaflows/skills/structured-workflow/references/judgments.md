@@ -40,9 +40,8 @@ answered must be `thresholds.model`. A failed call is never an outcome.
 | Judgment | Rail | yes | escalate |
 | --- | --- | --- | --- |
 | `extension-impact` | Restart review | Review task | Review task |
-| `adr-needed` | `gh pr merge`, no ADR file in the PR | Refused: add an ADR | Owner |
 | `implementation-integrity` | `git commit`, after the commit checks | Refused: restore checks | Owner |
-| `completion-evidence` | Turn end, agent's PR, after P2-P8 | Unmet obligation | Owner |
+| `completion-evidence` | Turn end and `gh pr merge`, agent's PR, after P2-P8 | Unmet obligation; merge refused | Owner |
 | `in-scope` | `ask` tool; `rails.yml` `askFirstCommand` commands | Ask first | Ask first |
 
 - `no` passes, except an `ask` the judgment calls in scope: the rails refuse it; decide it yourself.

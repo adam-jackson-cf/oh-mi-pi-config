@@ -10,7 +10,7 @@ from typing import Any, TypeGuard
 from guardrails.context.config.profile import PLACEHOLDER
 
 DATA_FILE = "native-tools.json"
-HEADER = "# Proposed native-tool configuration; edit the values per ADR.\n"
+HEADER = "# Proposed native-tool configuration; edit with owner approval.\n"
 REQUIRES = re.compile(r">=\s*(\d+)\.(\d+)")
 SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
 

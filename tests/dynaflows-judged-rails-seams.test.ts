@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
-import { adrState, commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
+import { commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
 import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
 
 type Harness = ReturnType<typeof harness>;
@@ -117,42 +117,7 @@ async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}):
 	return `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
 }
 
-describe("adr-needed at a structured merge", () => {
-	test("yes needs an ADR in the diff, escalate needs the owner, an ADR file skips the judgment", async () => {
-		const h = harness({ registry: "banded" });
-		try {
-			const command = await mergeable(h, { body: "## Summary\n\nMove checks to the repo.\nSee ADR 0007.\n\n## Evidence\n\n- ran it.\n" });
-			assert.equal(await h.call("bash", { command }), undefined);
-			const change = z.object({ change: z.object({ repository: z.string(), kind: z.string(), description: z.string(), commits: z.array(z.string()),
-				diff_summary: z.object({ total_files: z.number(), files: z.array(z.string()), directories: z.record(z.string(), z.object({ files: z.number() })) }) }) })
-				.parse(h.judged.calls.at(-1)?.state).change;
-			assert.equal(change.repository, "repo: a fixture repository");
-			assert.equal(change.kind, "pull request");
-			assert.ok(!change.description.includes("ADR") && change.description.includes("Move checks"), change.description);
-			assert.deepEqual(change.diff_summary.files, ["M existing.ts +1/-0"]);
-			h.judged.scores["adr_needed"] = 0.9;
-			mockPrCi(h, greenCi, { head: ciHead, selector: "3", body: "## Summary\n\nAdopt a new record format.\n\n## Evidence\n\n- ran it.\n" });
-			const refused = reasonOf(await h.call("bash", { command }));
-			assert.ok(refused.includes("adr-needed/adr_needed yes, P=0.90") && refused.includes("Add an ADR file"), refused);
-			h.judged.scores["adr_needed"] = 0.5;
-			mockPrCi(h, greenCi, { head: ciHead, selector: "3", body: "## Summary\n\nAdopt another record format.\n\n## Evidence\n\n- ran it.\n" });
-			const escalated = reasonOf(await h.call("bash", { command }));
-			const key = approvalOf(escalated);
-			assert.equal(key, `adr-needed:${ciHead}`, escalated);
-			await prompt(h, `$approve ${key}`);
-			assert.equal(await h.call("bash", { command }), undefined);
-			const calls = h.judged.calls.length;
-			const withAdr = harness();
-			try {
-				withAdr.judged.scores["adr_needed"] = 0.9;
-				const merge = await mergeable(withAdr, { files: [{ path: "docs/adr/0020-move-checks.md", additions: 20, deletions: 0, changeType: "ADDED" }] });
-				assert.equal(await withAdr.call("bash", { command: merge }), undefined);
-				assert.equal(withAdr.judged.calls.filter(call => call.question === "adr_needed").length, 0, "an ADR in the diff needs no judgment");
-			} finally { withAdr.cleanup(); }
-			assert.equal(h.judged.calls.length, calls);
-		} finally { h.cleanup(); }
-	});
-
+describe("completion-evidence at a structured merge", () => {
 	test("completion-evidence holds the merge: pre-checks, yes refuses, escalate needs the owner, no merges", async () => {
 		const h = harness({ registry: "banded" });
 		try {
@@ -174,24 +139,6 @@ describe("adr-needed at a structured merge", () => {
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command }), undefined, "a no verdict merges");
 		} finally { h.cleanup(); }
-	});
-
-	test("the adr-needed state drops decision records and lists the largest files of big PRs", () => {
-		const files = Array.from({ length: 45 }, (_, index) => ({ path: `src/deep/dir/f${index}.ts`, additions: index, deletions: 0, changeType: "ADDED" }));
-		const state = adrState({
-			number: 1, title: "t", body: "Keep this\nADR: drop this", state: "OPEN", headRefOid: ciHead, url: "https://github.com/o/r/pull/1",
-			commits: [{ messageHeadline: "docs: add ADR" }, { messageHeadline: "feat: x" }],
-			files: [...files, { path: "decisions/0001.md", additions: 9, deletions: 0 }, { path: "README.md", additions: 1, deletions: 1 }],
-		}, "r");
-		const change = z.object({ change: z.object({ description: z.string(), commits: z.array(z.string()), diff_summary: z.object({
-			total_files: z.number(), files: z.array(z.string()), files_note: z.string(), directories: z.record(z.string(), z.object({ files: z.number() })) }) }) }).parse(state).change;
-		assert.equal(change.description, "Keep this");
-		assert.deepEqual(change.commits, ["feat: x"]);
-		assert.equal(change.diff_summary.total_files, 46);
-		assert.equal(change.diff_summary.files.length, 40);
-		assert.equal(change.diff_summary.files[0], "A src/deep/dir/f44.ts +44/-0");
-		assert.equal(change.diff_summary.files_note, "largest 40 of 46 files shown");
-		assert.deepEqual(Object.keys(change.diff_summary.directories).toSorted(), [".", "src/deep"]);
 	});
 });
 
@@ -371,9 +318,9 @@ describe("judged-rails helpers", () => {
 
 	test("owner approvals are prompt lines per session; an empty registry command is refused", () => {
 		const approvals = new Approvals();
-		assert.deepEqual(approvals.fromPrompt("s", "ok\n$approve adr-needed:abcdefabcdef12\n say $approve in-scope:x"), ["adr-needed:abcdefabcdef12"]);
-		assert.equal(approvals.has("s", "adr-needed:abcdefabcdef12"), true);
-		assert.equal(approvals.has("other", "adr-needed:abcdefabcdef12"), false);
+		assert.deepEqual(approvals.fromPrompt("s", "ok\n$approve completion-evidence:abcdefabcdef12\n say $approve in-scope:x"), ["completion-evidence:abcdefabcdef12"]);
+		assert.equal(approvals.has("s", "completion-evidence:abcdefabcdef12"), true);
+		assert.equal(approvals.has("other", "completion-evidence:abcdefabcdef12"), false);
 		assert.throws(() => registryDecide({ exec: async () => ({ code: 0, killed: false, stdout: "", stderr: "" }) }, [], () => async () => ({ answers: {}, model: "m" })), /empty/);
 	});
 });
@@ -385,7 +332,7 @@ const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSche
 describe("every judgment is enforced from the start", () => {
 	test("no shipped judgment has a status or a band: each bool decision is one threshold", () => {
 		const names = readdirSync(shippedJudgments);
-		assert.ok(names.length >= 7, names.join(", "));
+		assert.ok(names.length >= 6, names.join(", "));
 		for (const name of names) {
 			const thresholds = thresholdsSchema.parse(JSON.parse(readFileSync(join(shippedJudgments, name, "thresholds.json"), "utf8")));
 			assert.equal("status" in thresholds, false, name);
@@ -422,17 +369,13 @@ describe("every judgment is enforced from the start", () => {
 			h.judged.scores["evidence_gap"] = 0.91;
 			body("first run.");
 			assert.ok(reasonOf(await h.call("bash", { command })).includes("completion-evidence/evidence_gap yes, P=0.91"));
-			h.judged.scores["evidence_gap"] = 0.9;
-			h.judged.scores["adr_needed"] = 0.67;
-			body("second run.");
-			assert.ok(reasonOf(await h.call("bash", { command })).includes("adr-needed/adr_needed yes, P=0.67"));
 			h.judged.failure = "judge offline";
-			body("third run.");
+			body("second run.");
 			assert.ok(reasonOf(await h.call("bash", { command })).includes("completion-evidence judgment could not run: judge offline"));
 			h.judged.failure = undefined;
-			h.judged.scores["adr_needed"] = 0.66;
-			body("fourth run.");
-			assert.equal(await h.call("bash", { command }), undefined, "below both thresholds merges");
+			h.judged.scores["evidence_gap"] = 0.9;
+			body("third run.");
+			assert.equal(await h.call("bash", { command }), undefined, "below the threshold merges");
 			h.judged.scores["ask_first"] = 0.11;
 			assert.ok(reasonOf(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC?" }] })).includes("ask_first no, P=0.11"),
 				"an ask below the 0.115 threshold is in scope and refused");

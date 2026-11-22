@@ -15,7 +15,6 @@ type ExecApi = Pick<ExtensionAPI, "exec">;
 /** Each rail judgment and the one bool question its rail reads. */
 export const RAIL_JUDGMENTS = {
 	"extension-impact": "impact",
-	"adr-needed": "adr_needed",
 	"in-scope": "ask_first",
 	"implementation-integrity": "weakens_verification",
 	"completion-evidence": "evidence_gap",
@@ -80,7 +79,7 @@ export const verdictText = (verdict: Verdict): string =>
 	`${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} ${verdict.outcome}, P=${verdict.probability.toFixed(2)}`;
 
 // An owner approval is a line of its own in the owner's prompt; agents cannot write owner prompts.
-const APPROVE = /^\$approve ((?:adr-needed|in-scope|implementation-integrity|completion-evidence):[0-9a-f]{12,64})$/;
+const APPROVE = /^\$approve ((?:in-scope|implementation-integrity|completion-evidence):[0-9a-f]{12,64})$/;
 export const approvalLine = (key: string): string => `\`$approve ${key}\``;
 
 /** Escalated decisions the owner approved, per session, keyed <judgment>:<subject digest or SHA>. */
