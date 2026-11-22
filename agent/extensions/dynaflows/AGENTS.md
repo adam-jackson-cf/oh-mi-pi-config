@@ -60,11 +60,12 @@ context), runs in scratch space, and ends in one decision: promote, with the fin
 its learnings, or discard and stop. Spike code is discarded either way.
 
 **12. Merge-through follows the agent permission.** Agents and subagents respect the principles
-throughout. Where the repo is in structured mode and its agent permission allows merge-through
-(`agentMerge: allowed`, the default), they commit on a work branch under the commit checks, open the
-PR, and merge it once every verification and proof is green on the exact head. In minimal mode they
-stop at a green PR; with `agentMerge: disabled` they ask the owner before pushing, opening or
-merging a PR.
+throughout. They decide the details of the agreed work themselves and surface to the owner any
+change to the agreed direction. Where the repo is in structured mode and its agent permission allows
+merge-through (`agentMerge: allowed`, the default), they commit on a work branch under the commit
+checks, open the PR, and merge it once every verification and proof is green on the exact head. In
+minimal mode they stop at a green PR; with `agentMerge: disabled` they ask the owner before pushing,
+opening or merging a PR.
 
 ### Repository boundary
 

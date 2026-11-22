@@ -845,7 +845,6 @@ class JudgmentRegistryTests(unittest.TestCase):
         main = runpy.run_path(str(MODULE.parents[1] / "lib/decide.py"))["main"]
         for name, question in (
             ("extension-impact", "impact"),
-            ("adr-needed", "adr_needed"),
             ("in-scope", "ask_first"),
             ("implementation-integrity", "weakens_verification"),
             ("completion-evidence", "evidence_gap"),

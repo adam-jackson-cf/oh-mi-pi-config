@@ -151,7 +151,7 @@ Judged rails follow the deterministic checks:
 | Event | Judgment | Reads from the record |
 | --- | --- | --- |
 | Commit | `implementation-integrity` | Nothing; the staged diff and message |
-| Merge | `adr-needed` | Nothing; the PR, unless it adds an ADR file |
+| Merge | `completion-evidence` | Nothing; the PR description and its checks |
 | Turn end | `completion-evidence` | `ci.requiredContext` for pre-check P6 |
 | Restart | `extension-impact` | `gate.json` in full and a `profile.md` summary |
 | `ask`, privileged command | `in-scope` | Nothing; owner messages in the session |
