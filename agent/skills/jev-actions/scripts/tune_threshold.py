@@ -53,11 +53,14 @@ Uses only saved scores; makes no model calls. Prints the full report, then exits
 - 4 when ranking has insufficient units in any group and fails in none.
 
 Example:
-    python3 -B scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.8
+    python3 -B scripts/tune_threshold.py scores.csv --min-precision 0.8
     python3 -B scripts/tune_threshold.py scores.csv --beta 0.5 --repeats 5 --calibration --errors
     python3 -B scripts/tune_threshold.py --self-test
 """
 
+# A judgment is useful only at this held-out precision or above; a lower minimum needs the
+# user's recorded override.
+USEFUL_PRECISION = 0.75
 EXIT_RANK_FAILS = 3
 EXIT_INSUFFICIENT_UNITS = 4
 PASSES = "passes"
@@ -936,6 +939,25 @@ def comparable_failures() -> list[str]:
     return fails
 
 
+def check_args(p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.repeats < 1:
+        p.error("--repeats must be at least 1")
+    if args.auc_resamples < 1:
+        p.error("--auc-resamples must be at least 1")
+    if not 0.5 <= args.min_auc <= 1:
+        p.error("--min-auc must be between 0.5 and 1")
+    report_only = args.min_precision == 0 and args.min_recall == 0
+    if (
+        args.min_precision < USEFUL_PRECISION
+        and not report_only
+        and not args.owner_override
+    ):
+        p.error(
+            f"--min-precision {args.min_precision} is below the usefulness floor "
+            f"{USEFUL_PRECISION}; pass --owner-override only when the user recorded the override"
+        )
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Tune a decision threshold and check calibration from saved scores.",
@@ -946,7 +968,12 @@ def main() -> None:
     p.add_argument(
         "--self-test", action="store_true", help="run built-in checks and exit"
     )
-    p.add_argument("--min-precision", type=float, default=0.0)
+    p.add_argument(
+        "--min-precision",
+        type=float,
+        default=USEFUL_PRECISION,
+        help=f"default and floor {USEFUL_PRECISION}; 0 with --min-recall 0 is a report-only run",
+    )
     p.add_argument("--min-recall", type=float, default=0.0)
     p.add_argument(
         "--conservative",
@@ -977,6 +1004,11 @@ def main() -> None:
         default=1000,
         help="unit resamples for the AUC interval",
     )
+    p.add_argument(
+        "--owner-override",
+        action="store_true",
+        help="accept a --min-precision below the usefulness floor; the user recorded the override",
+    )
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
     if args.self_test:
@@ -987,12 +1019,7 @@ def main() -> None:
         sys.exit(1 if fails else 0)
     if not args.csv:
         p.error("the csv argument is required unless --self-test is given")
-    if args.repeats < 1:
-        p.error("--repeats must be at least 1")
-    if args.auc_resamples < 1:
-        p.error("--auc-resamples must be at least 1")
-    if not 0.5 <= args.min_auc <= 1:
-        p.error("--min-auc must be between 0.5 and 1")
+    check_args(p, args)
     try:
         groups = load(args.csv)
     except (OSError, ValueError) as e:

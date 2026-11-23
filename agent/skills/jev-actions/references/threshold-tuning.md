@@ -9,15 +9,26 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 - Tune whenever a Noul probability, or a Choice or Score confidence, gates behavior, with one
   `thresholds.json` entry per question ID; for an "any" flag over several Nouls, also compute its
   precision and recall by hand at the shipped thresholds.
-- Enforce every judgment from the moment it ships; no shadow, advisory or provisional state holds
+- No threshold is universal: each question's cutoff is tuned for precision against its own target.
+  Usefulness floor: a judgment is useful only when its held-out precision at the shipped threshold
+  is 0.75 or higher, counted over at least 10 held-out flags. A precision target, or a shipped
+  result, below 0.75 needs the user's recorded override: `override` in `thresholds.json` with who
+  gave it, when and why. `scripts/tune_threshold.py` refuses a lower `--min-precision` without
+  `--owner-override`.
+- A judgment ships enforced or not at all; no shadow, advisory or provisional state holds
   enforcement back until tuning is done.
+  An untuned judgment has no measured precision, so it ships only under the user's recorded
+  override, at the cost-rule default, with the missing measurement in `shortfalls`.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
-  fails, set the cost-rule default, record the failed gate in `shortfalls`, and ship enforced.
+  fails, keep the cost-rule default and record the failed gate in `shortfalls`.
   List every repository doc, plan or code comment that requires a shadow or provisional state,
   and delete or rewrite it in the change that ships enforcement; the user's instruction decides
   conflicts.
-- Cost-rule default: 0.3 when a miss costs more, 0.7 when a false action does, else 0.5; record the
-  cost rule behind it.
+- Precision target: 0.75 for every question by default; at 0.75, three of every four flags are real.
+  Raise it only when the user, asked what a wrong flag costs, sets a higher target; record the
+  target, that the user set it, and their reason. Never raise it from the kind of action alone.
+- Starting cutoff: an untuned judgment runs at a cutoff of 0.8, the cost-rule default; tuning
+  replaces it with the cutoff the labels support.
 - Write each decision as a single cutoff `{"threshold": t}`: yes at score >= t, else no.
   Write a band `{"no_at_most", "yes_at_least", "fallback"}` only when
   [escalation band](escalation-band.md) sets one; a band with no fallback judge is no band.
@@ -26,14 +37,13 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   - Label floor: under about 30 counting labels of either label, do not tune; set the cost-rule
     default, and record in `shortfalls` how many more of each label are needed.
   - About 30 or more of each: tune.
-- Treat 0.5, cookbook thresholds, illustrative floors and demo results as starting points, never as
-  tuned thresholds.
-- Use the minimum precision (flagged cases that are real) and recall (real cases flagged) from
-  [framing the decision](framing-the-decision.md), favoring precision for automated actions and
-  recall for screening; its defaults fill anything `thresholds.json` lacks, recorded as assumed in
-  `shortfalls` and listed for the user to confirm.
-- Set the metric from the Costs answer only: `--beta 2` when a miss costs more, `--beta 0.5` when a
-  false action costs more, otherwise F1.
+- Treat 0.5, 0.8, cookbook thresholds, illustrative floors and demo results as starting points,
+  never as tuned thresholds.
+- Tune for precision: pass the question's precision target as `--min-precision`, and a
+  `--min-recall` only when the user framed one; report recall at every cutoff either way.
+  Targets come from [framing the decision](framing-the-decision.md); a missing one is 0.75.
+- Set the metric to `--beta 0.5`, favouring precision, unless the user says a miss costs at least
+  as much as a false action; then use F1.
 - Run each question once over the labeled cases, save the raw scores in `scores.csv`, and tune on
   the saved scores without new model calls.
   Check an existing `scores.csv` against the [eval data schemas](eval-data-schemas.md).
@@ -61,30 +71,42 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 
   Unless ranking passes, `decision` is null: set no tuned threshold or band, set the cost-rule
   default, and record the ranking status in `shortfalls`.
+- Hold out by source: group folds by repository or source and leave one out at a time. When several
+  arms or compositions are compared, choose the arm inside each training fold, or confirm the chosen
+  one on a fresh set, since the best of several on the same held-out data overstates it; report a
+  bootstrap interval for held-out precision.
 - Optional `scores.csv` columns: `split` (default all `dev`); `unit`, kept in one fold, and an exit 1
   if one spans `dev` and `test`; `model` and `question_version`, each pair its own group, marked
   `comparable: false` unless cases, labels, splits and units match; `stratum` for per-stratum results.
 - Under about 50 dev cases per label, add `--conservative --repeats 5` and report the result as
   noisy; add `--conservative` alone when the Action answer says the action cannot be undone.
 - `--errors` lists errors for [error analysis](error-analysis.md); `--json` gives machine output.
-- If no threshold meets the minimums, `decision` is null: set the cost-rule default and record the
-  unmet minimums in `shortfalls`; for information only, rerun with `--min-precision 0 --min-recall 0`
-  and report its best-metric threshold, and never relax a minimum silently.
+- If no threshold meets the minimums, `decision` is null: keep the cost-rule default and record
+  the unmet minimums in `shortfalls`; for information only, rerun with
+  `--min-precision 0 --min-recall 0` and report the precision and recall at each cutoff, and never
+  relax a minimum silently.
+- Before the end states, review errors at the best cutoff with [error analysis](error-analysis.md):
+  ranking near or below chance (AUC about 0.5 or less) is a question-shape problem no cutoff fixes.
 - Ship one threshold chosen on all `dev` cases with the same rule, and report the cross-validated
   numbers as its expected performance.
 - Score `test` once at the shipped threshold; when it misses the minimums, record why in
   `shortfalls` and grow the label set or narrow the question, keeping the threshold enforced.
   Report the fold range and per-stratum results without gating on them.
-- End states: when a question cannot reach about 30 in-scope cases per label, or still fails ranking
-  after one fix pass, ask the user to choose, and end the turn:
+- End states: when held-out precision stays below 0.75 at every cutoff, a question cannot reach
+  about 30 in-scope cases per label, or ranking still fails after the fix passes in
+  [error analysis](error-analysis.md), including a decomposition from
+  [question design](question-design.md), ask the user to choose, and end the turn:
   1. Replace the question with deterministic facts computed in code.
-  2. Retire the question.
-  3. Keep enforcing it, with the weakness recorded in `shortfalls`.
+  2. Turn it into an agent instruction on a deterministic harness event, such as a tool-call hook.
+  3. Retire the question.
+  4. Keep enforcing it under the user's recorded override, with the measured precision in
+     `shortfalls`.
 
   A question cannot reach about 30 cases only when the full history of every source the user names,
   such as repositories, yields fewer; ask the user once for more sources before declaring it.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
-  sizes and synthetic share; minimums, reasons and metric; AUC, its interval and ranking status;
+  sizes and synthetic share; precision target and who set it, minimums, reasons and metric; held-out
+  precision against the 0.75 floor with its flag count, and any override; AUC, its interval and ranking status;
   held-out results at 0.5 and the tuned threshold with fold range; `test` per stratum; cost per 100
   cases and latency; fields `unknown`.
 - Store the decision in `thresholds.json` as named configuration, never as a literal in code.

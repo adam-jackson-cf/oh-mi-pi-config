@@ -22,6 +22,41 @@ depends on.
      kept a minority and reported separately.
   4. Adversarial cases: elaborate wrong answers, judge-instructing inputs, and near-duplicates with
      opposite labels.
+- When real positives are rare in the user's own history, mine external data labelled by outcome,
+  such as review comments a later fix confirmed, refactoring histories of renames, moves and merges,
+  and expert architecture ground truths, and rebuild each case with the production builder at the
+  commit before the fix.
+  An outcome shows that something changed, not that the judged violation existed: label mined
+  cases like any other, and use provenance `outcome` only when the outcome itself states the
+  judgment.
+- Draw candidates from every repository or source the judgment will govern, at several points in
+  its history, by running the candidate generator over each snapshot and deduplicating items; leave
+  out content the written policy does not govern, such as vendored bundles or fixture corpora, and
+  record each exclusion and why.
+- Settle policy rulings in the label guide before mining: a ruling on what counts can move
+  prevalence and every label.
+- Label a random sample of items the generator does not propose as well: precision on proposed
+  items says nothing about violations the generator never proposes.
+- Build negatives at natural prevalence by running the candidate generator over the whole
+  pre-fix tree, never by hand-picking, and add hard negatives from the same candidate pool where
+  the property is plausible; report precision on both, since a clean census can hide false flags.
+- Synthetic or mutated cases serve regression only, at most 20% of `dev` and never `test` or
+  threshold data; discard a set when a names-only baseline or a mutated-versus-sham discriminator
+  scores AUC 0.6 or above.
+  Have a separate agent author them from real code: list the directions the written policy can go,
+  each rule both ways, about 5 cases per direction with hard cases in each (positives that look
+  clean, negatives that look like violations), with no wording that reveals the direction.
+  The council labels them blind to the intended label; a disagreement shows an unclear guide.
+  Report each design's result per direction.
+- Give samples stratified by score population weights before estimating recall from them.
+- Before spending labels, run a signal check: score outcome-positive candidates, their near-misses
+  and natural-prevalence units, and compare. A flat or inverted ranking shows a design that cannot
+  work; a good ranking with low probabilities shows where the cutoff will sit.
+- Check what the production builder extracts per language and where its caps cut: a builder that
+  parses one language sends others as bare paths, and a tree cap in sorted order can drop the
+  changed files' evidence in large repositories.
+- Key each candidate item by question as well as path; one file can be a candidate for two
+  questions.
 - Build every case's `state` with the production state builder and asking condition, the code that
   decides whether production asks the question and what state it sends, and record the builder's
   version in the case's `builder`.
@@ -35,8 +70,8 @@ depends on.
   `unassigned`, with 30% of units hashed stably to `test`; label after 14 days, extending in 14-day
   steps until about 30 of each label exist.
   With no cases yet, ship the judgment enforced at the cost-rule default from
-  [threshold tuning](threshold-tuning.md), write the question versions and label guides, and end
-  the task once logging is in place.
+  [threshold tuning](threshold-tuning.md) only under the user's recorded override, write the
+  question versions and label guides, and end the task once logging is in place.
 - Stratify by source or segment and by failure mode, giving every stratum both labels, ideally 10
   or more of each; grow a short stratum before rewording questions, unless
   [threshold tuning](threshold-tuning.md) reports ranking `fails`, which wording, state or policy fixes.

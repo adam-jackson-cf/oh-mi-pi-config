@@ -20,9 +20,11 @@ Store eval files where they belong, in shapes every later step and the tuning sc
 - Redact secrets before writing any file.
 - `thresholds.json` at the directory root, one entry per question ID, per draft ID from framing,
   or `unknown`: the framing answers, `decision`, metric, label set summary, version key,
-  `unit_rule`, score space (`raw`, or `platt` with its `a` and `b`), the cost rule behind a
-  default threshold, assumptions with reasons, and `shortfalls`, each missing input, failed gate or
-  thin or assumed evidence with what it blocks.
+  `unit_rule`, score space (`raw`, or `platt` with its `a` and `b`), the precision target with
+  who set it (`default` or the user) and why, the starting cutoff, held-out precision with its flag count, any `override`
+  (`by`, `timestamp`, `reason`) that keeps a judgment below the 0.75 usefulness floor enforced,
+  assumptions with reasons, and `shortfalls`, each missing input, failed gate or thin or assumed
+  evidence with what it blocks.
   - `decision` is `{"threshold": t}`, yes at score >= t, else no; only with a fallback judge may it
     be a band `{"no_at_most", "yes_at_least", "fallback"}`.
   - With an escalation band, also record its fallback judge, cascade accuracy and escalation rate on
