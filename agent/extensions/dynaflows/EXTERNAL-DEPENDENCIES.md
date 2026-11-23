@@ -13,7 +13,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judge role | `agent/config.yml` | `typesafe/jev-1.14.0` direct; `decide()` refuses any other |
 | Judgments | `agent/extensions/dynaflows/judgments/` | Thresholds `decide()` enforces |
 | omp extension API | `package.json` | `@oh-my-pi/pi-coding-agent` 19.0.1: `z`, events, `exec` |
-| omp judge API | `package.json` | `resolveJudge`, `parseQuestions`, `toEvalJudgmentResult` |
+| omp judge API | `package.json` | Public `judgment` export: `resolveJudge`, `sharedJudgmentCache` |
 | omp `ask` tool | omp core | `questions` or `html` input; `in-scope` judges it |
 | Session branch | omp core | `getBranch()` owner messages build the `in-scope` state |
 | Turn-end event | omp core | `session_stop` block reason starts the obligation follow-up turn |

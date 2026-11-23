@@ -8,7 +8,9 @@ Extensions in this folder MUST NOT import packages from `node_modules` (for exam
 - Validation: `import { z } from "@oh-my-pi/pi-coding-agent"` (zod-compatible, omptype) or
   `import { type } from "@oh-my-pi/pi-ai"` (ArkType-compatible, omptype).
 - Host APIs: `@oh-my-pi/*` packages the binary provides (type imports or runtime), and `node:`
-  built-ins.
+  built-ins. Runtime imports must name a module the binary bundles (a public package export);
+  any other path falls back to `node_modules` source the binary cannot resolve, and the
+  extension fails to load. `tests/omp-export-surface.test.ts` checks this.
 
 Why: the extension loader pays roughly 0.1–0.3 s per module it loads from `node_modules`,
 synchronously, before the TUI accepts input. `zod` alone is about 80 modules, so each extension
