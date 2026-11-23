@@ -23,7 +23,10 @@ Produce labels that measure exactly what each question asks, with their provenan
   A decision made over several cases at once is `confirmed` `bulk` and counts as none.
 - Record a person's label as provenance `owner`; it never counts, and no labeller or arbiter sees it.
 - Give every council labeller a working shell or readable copy of each repository its cases come
-  from; labellers that cannot open a repository abstain.
+  from, with git for cases pinned to past commits; labellers that cannot open a repository abstain.
+- Batch council work: council sessions are slow, so collect every case that needs a council label,
+  across questions and rounds, and send the whole set in one council run once results show which
+  cases need labels, rather than a session for each small batch as cases appear.
 - Treat another project's published labels as model labels unless their provenance shows a person
   made them.
 - Use model pre-labels only to order review, never to skip confident cases;

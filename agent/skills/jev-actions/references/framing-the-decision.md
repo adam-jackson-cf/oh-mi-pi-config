@@ -23,9 +23,10 @@ or collecting cases.
   - Baseline: what runs without Jev (rules, a person, an LLM judge, an existing route, or nothing).
   - Costs: of one false action and of one miss; for a Choice, following a wrong top option is a
     false action, and falling back from a right one is a miss.
-  - Minimums: the precision the decision must meet, from the cost tier in
-    [threshold tuning](threshold-tuning.md) and never below 0.75 without the user's override; a
-    recall minimum only when misses matter enough to set one; and why.
+  - Minimums: the precision the decision must meet, 0.75 unless the user sets a higher target
+    after hearing what a wrong flag costs, and never below 0.75 without the user's override, as
+    [threshold tuning](threshold-tuning.md) describes; a recall minimum only when misses matter
+    enough to set one; and why.
   - Written policy: the rule in plain words, with exclusions and tie-breaks; it drives criteria,
     composition code and labels.
   - Terms: each word the written policy relies on that a labeler must interpret, such as "recent",
@@ -44,9 +45,9 @@ or collecting cases.
   - Action: log only, so a Choice or Score below its threshold drives nothing.
   - Baseline: whatever runs today, else nothing.
   - Costs: equal.
-    Costs come only from the user: record an agent's rationale for a higher tier as `assumed`,
-    and keep the lowest cost tier until the user answers.
-  - Minimums: the precision target of the cost tier, 0.75 for the lowest, and no recall minimum;
+    Costs come only from the user: record an agent's case for a higher target as `assumed`,
+    and keep 0.75 until the user answers.
+  - Minimums: precision 0.75 and no recall minimum;
     minimums given without a reason take reason `none given`.
     A recorded minimum with reason `assumed` is replaced by these defaults with the Costs answer
     applied; keep a minimum the user gave.

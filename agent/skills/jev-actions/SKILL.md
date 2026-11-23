@@ -78,8 +78,8 @@ compatibility: "Uses TypeSafe AI's Jev API or SDKs (TypeSafe account and API key
 
 ## Tune thresholds
 
-- **Purpose**: Tune each threshold for precision against its cost-tier target; below 0.75 held-out
-  precision, a judgment needs the user's recorded override.
+- **Purpose**: Tune each threshold for precision against its target, 0.75 unless the user sets a
+  higher one; below 0.75 held-out precision, a judgment needs the user's recorded override.
 - **When**: When a Noul probability, or a Choice or Score confidence, gates behavior.
 - Runbook: [Threshold tuning](references/threshold-tuning.md)
 

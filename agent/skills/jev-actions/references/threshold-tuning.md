@@ -24,17 +24,11 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   List every repository doc, plan or code comment that requires a shadow or provisional state,
   and delete or rewrite it in the change that ships enforcement; the user's instruction decides
   conflicts.
-- Cost tiers: set each question's precision target and starting cutoff from the cost of one false
-  action, and record the tier and its reason:
-
-  | False action | Precision target | Starting cutoff |
-  | --- | --- | --- |
-  | Cheap and reversible, such as an agent asked to rename or explain | 0.75 | 0.8 |
-  | Blocks work until a person clears it | 0.8 | 0.85 |
-  | Cannot be undone, or reaches outside the repository | 0.9 | 0.9 |
-
-  The starting cutoff is the cost-rule default: the cutoff an untuned judgment runs at. It is a
-  starting point; tuning replaces it with the cutoff the labels support.
+- Precision target: 0.75 for every question by default; at 0.75, three of every four flags are real.
+  Raise it only when the user, asked what a wrong flag costs, sets a higher target; record the
+  target, that the user set it, and their reason. Never raise it from the kind of action alone.
+- Starting cutoff: an untuned judgment runs at a cutoff of 0.8, the cost-rule default; tuning
+  replaces it with the cutoff the labels support.
 - Write each decision as a single cutoff `{"threshold": t}`: yes at score >= t, else no.
   Write a band `{"no_at_most", "yes_at_least", "fallback"}` only when
   [escalation band](escalation-band.md) sets one; a band with no fallback judge is no band.
@@ -47,8 +41,7 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   never as tuned thresholds.
 - Tune for precision: pass the question's precision target as `--min-precision`, and a
   `--min-recall` only when the user framed one; report recall at every cutoff either way.
-  Targets come from [framing the decision](framing-the-decision.md) and the cost tiers above; a
-  missing one takes its tier's value, recorded as assumed in `shortfalls` for the user to confirm.
+  Targets come from [framing the decision](framing-the-decision.md); a missing one is 0.75.
 - Set the metric to `--beta 0.5`, favouring precision, unless the user says a miss costs at least
   as much as a false action; then use F1.
 - Run each question once over the labeled cases, save the raw scores in `scores.csv`, and tune on
@@ -108,7 +101,7 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   A question cannot reach about 30 cases only when the full history of every source the user names,
   such as repositories, yields fewer; ask the user once for more sources before declaring it.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
-  sizes and synthetic share; cost tier, precision target, minimums, reasons and metric; held-out
+  sizes and synthetic share; precision target and who set it, minimums, reasons and metric; held-out
   precision against the 0.75 floor with its flag count, and any override; AUC, its interval and ranking status;
   held-out results at 0.5 and the tuned threshold with fold range; `test` per stratum; cost per 100
   cases and latency; fields `unknown`.

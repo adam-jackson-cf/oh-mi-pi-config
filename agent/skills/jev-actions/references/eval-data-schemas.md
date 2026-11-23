@@ -20,8 +20,8 @@ Store eval files where they belong, in shapes every later step and the tuning sc
 - Redact secrets before writing any file.
 - `thresholds.json` at the directory root, one entry per question ID, per draft ID from framing,
   or `unknown`: the framing answers, `decision`, metric, label set summary, version key,
-  `unit_rule`, score space (`raw`, or `platt` with its `a` and `b`), the cost tier with its
-  precision target and starting cutoff, held-out precision with its flag count, any `override`
+  `unit_rule`, score space (`raw`, or `platt` with its `a` and `b`), the precision target with
+  who set it (`default` or the user) and why, the starting cutoff, held-out precision with its flag count, any `override`
   (`by`, `timestamp`, `reason`) that keeps a judgment below the 0.75 usefulness floor enforced,
   assumptions with reasons, and `shortfalls`, each missing input, failed gate or thin or assumed
   evidence with what it blocks.
