@@ -94,18 +94,20 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 - Score `test` once at the shipped threshold; when it misses the minimums, record why in
   `shortfalls` and grow the label set or narrow the question, keeping the threshold enforced.
   Report the fold range and per-stratum results without gating on them.
-- End states: when held-out precision stays below 0.75 at every cutoff, a question cannot reach
-  about 30 in-scope cases per label, or ranking still fails after the fix passes in
+- End states: when held-out precision stays below 0.75 at every cutoff, or ranking still fails
+  after the fix passes in
   [error analysis](error-analysis.md), including a decomposition from
   [question design](question-design.md), ask the user to choose, and end the turn:
   1. Replace the question with deterministic facts computed in code.
   2. Turn it into an agent instruction on a deterministic harness event, such as a tool-call hook.
-  3. Retire the question.
+  3. Retire the question, only when real positives show it misses or buries them; never for rarity.
   4. Keep enforcing it under the user's recorded override, with the measured precision in
      `shortfalls`.
 
   A question cannot reach about 30 cases only when the full history of every source the user names,
   such as repositories, yields fewer; ask the user once for more sources before declaring it.
+  Too few cases is a data gap, not an end state: keep the question enforced under the user's override,
+  its cutoff set from measured false flags and synthetic catches, the gap in `shortfalls`; re-measure as cases arrive.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
   sizes and synthetic share; precision target and who set it, minimums, reasons and metric; held-out
   precision against the 0.75 floor with its flag count, and any override; AUC, its interval and ranking status;
