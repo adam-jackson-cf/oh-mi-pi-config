@@ -43,30 +43,43 @@ shape and template.
 - Judge the evidence unit: ask about the smallest item whose state holds the evidence a labeller
   would cite, such as one proposed pair of passages or one file, never the container holding it,
   and let code combine the answers, for example by the maximum per container. A container-level
-  question dilutes one decisive item among unrelated ones.
+  question dilutes one decisive item among unrelated ones; an item merged from several occurrences,
+  such as every definition of one word, is a container too. The item is one code holds whole, such
+  as a symbol, file or passage, never a fragment cut from one, such as a word inside a name.
+  Code proposes, and keeps its score, at the unit the rule acts on, such as the pair to merge or the
+  file to move, picks the evidence units inside it, and reports each finding there.
 - Keep the proposer's score: the code that proposes candidates usually measures something, such as
   a similarity, a count or a rule match. Combine it with Jev's answer in code, for example as a
   product, so code supplies what it can measure and Jev removes the cases code cannot tell apart.
-  Always measure the proposer's score alone as an arm; when it meets the target, ship it as a
-  deterministic check instead of a judgment.
+  Measure as arms: the literal rule, the written policy's observable condition applied to code
+  facts with no weights or added features; the proposer's score alone; each Jev question alone; and
+  each Jev question combined with the proposer. When a deterministic arm meets the target, ship the
+  one closest to the written policy as a check instead of a judgment. When the condition has several
+  code readings, measure each, narrowest first. Measurement decides the end state: an arm counted on
+  fewer held-out flags than tuning needs may order arms but never decides it.
+  Every condition in a proposer filter or Chain link traces to a clause of the written policy or an
+  owner ruling; a feature that is only evidence for a clause is an optional arm, never a required
+  condition.
 - Score the violation itself: the answer that drives a flag must state the policy's condition, not a
   correlate of it. "Jev would place this item elsewhere" or "these share a topic" can rank well and
   still flag mostly clean cases.
 - Chain: each link is a simple observable condition, such as "is this file run by a person" and
   "does it only read the package"; code asks later links only for items earlier links and code
   facts keep, and flags only when every link holds, which raises precision where "any" lowers it.
-- Place: Jev places one item among options well and compares two items poorly. Judge sameness,
-  membership or fit by placing the item among the real alternatives, such as sibling folders,
-  existing names or responsibilities, and let code flag when an alternative beats the current
-  placement by a margin. When a pair must be judged, judge one code-proposed pair of evidence units,
-  such as two passages rather than the folders or documents holding them, ask it in both orders and
+- Place: Jev places one item among options well and compares two items poorly. When an item has
+  one right home among mutually exclusive alternatives, such as sibling folders, owners or routes,
+  place it among them and let code flag when an alternative beats the current placement by a
+  margin. When several alternatives can each be a separate violation, such as duplicates or
+  conflicting names, judge each code-proposed pair and take the maximum in code. For a policy not
+  about placement, a Place question is only an arm. To judge a pair, judge one code-proposed pair
+  of evidence units, such as two passages rather than the folders or documents holding them, ask it in both orders and
   average, and combine the answer with the proposer's measured similarity in code.
 - Set each threshold from which mistake costs more, as [threshold tuning](threshold-tuning.md)
   describes; an uncertainty band needs an [escalation band](escalation-band.md) check.
 - Send these to code or a reasoning model instead, saying so in the result, never routing them by
   Jev's confidence:
   - a second judgment that needs the first one's answer inside the same step;
-  - derivations such as math, dates, counts, code correctness or logic;
+  - derivations such as math, dates, counts, code correctness, behavioural equivalence or logic;
   - open-ended rankings, such as "is this worth attention", with no observable property;
   - state beyond the pinned model's limit on the [models](https://docs.typesafe.ai/models.md) page;
   - factual claims with no reference evidence in state.

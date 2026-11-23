@@ -66,11 +66,13 @@ or collecting cases.
     0.8 at recall 0.5 allows a false-flag rate of about 0.16% per unit; a question with no real
     positives in the available history cannot be tuned until data exists.
   - Code-detectable sub-cases: split out every shape of positive that code can detect, such as a
-    retired term still in use, an alias binding or a pattern match, and let code own those; Jev
-    keeps only the cases that need meaning.
+    pattern match. Code owns a shape outright only when every match is a violation and the shape
+    alone meets the precision target; a shape that is sometimes legitimate becomes a proposer rule
+    whose matches go to Jev. Jev keeps only the cases that need meaning.
   - Unit of judgment: check where real positives occur before fixing the unit production asks
-    about. A folder-name judgment asked only of new folders misses violations that arrive as new
-    files in existing folders.
+    about. Ask of every item a change adds or modifies by default; narrow to new items only when
+    labelled positives show modified items carry none. A folder-name judgment asked only of new
+    folders misses violations that arrive as new files in existing folders.
 - Discover failure modes before writing questions:
   - Read 30 to 50 real inputs or traces, note what went wrong in free form, not as labels, and group
     the notes into named failure modes; each triggering reason of a flag is a mode.
