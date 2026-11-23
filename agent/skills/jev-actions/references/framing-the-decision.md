@@ -23,7 +23,9 @@ or collecting cases.
   - Baseline: what runs without Jev (rules, a person, an LLM judge, an existing route, or nothing).
   - Costs: of one false action and of one miss; for a Choice, following a wrong top option is a
     false action, and falling back from a right one is a miss.
-  - Minimums: the precision and recall the decision must meet, and why.
+  - Minimums: the precision the decision must meet, from the cost tier in
+    [threshold tuning](threshold-tuning.md) and never below 0.75 without the user's override; a
+    recall minimum only when misses matter enough to set one; and why.
   - Written policy: the rule in plain words, with exclusions and tie-breaks; it drives criteria,
     composition code and labels.
   - Terms: each word the written policy relies on that a labeler must interpret, such as "recent",
@@ -42,11 +44,10 @@ or collecting cases.
   - Action: log only, so a Choice or Score below its threshold drives nothing.
   - Baseline: whatever runs today, else nothing.
   - Costs: equal.
-    Costs come only from the user: record an agent's rationale for unequal costs as `assumed`, and
-    keep the equal-cost defaults (threshold 0.5, F1, minimums 0.8/0.8) until the user answers.
-  - Minimums: precision 0.8 and recall 0.8, raising recall to 0.9 when the Costs answer says a miss
-    costs more, or precision to 0.9 when it says a false action does; minimums given without a
-    reason take reason `none given`.
+    Costs come only from the user: record an agent's rationale for a higher tier as `assumed`,
+    and keep the lowest cost tier until the user answers.
+  - Minimums: the precision target of the cost tier, 0.75 for the lowest, and no recall minimum;
+    minimums given without a reason take reason `none given`.
     A recorded minimum with reason `assumed` is replaced by these defaults with the Costs answer
     applied; keep a minimum the user gave.
   - Written policy: draft it from the user's goal.
@@ -59,6 +60,16 @@ or collecting cases.
 - List every assumed value in the result and in `shortfalls`, and ask the user to confirm or correct
   each one; the judgment is enforced from the moment it ships, whether or not they have answered.
   Input logging follows only the capture rule in [eval data schemas](eval-data-schemas.md).
+- Before writing questions, check the judgment can be measured and is a judgment at all:
+  - Base rate: estimate how often real positives occur per unit asked. At 1% prevalence, precision
+    0.8 at recall 0.5 allows a false-flag rate of about 0.16% per unit; a question with no real
+    positives in the available history cannot be tuned until data exists.
+  - Code-detectable sub-cases: split out every shape of positive that code can detect, such as a
+    retired term still in use, an alias binding or a pattern match, and let code own those; Jev
+    keeps only the cases that need meaning.
+  - Unit of judgment: check where real positives occur before fixing the unit production asks
+    about. A folder-name judgment asked only of new folders misses violations that arrive as new
+    files in existing folders.
 - Discover failure modes before writing questions:
   - Read 30 to 50 real inputs or traces, note what went wrong in free form, not as labels, and group
     the notes into named failure modes; each triggering reason of a flag is a mode.

@@ -22,6 +22,10 @@ Produce labels that measure exactly what each question asks, with their provenan
   `confirmed` `individual`, `blind` true and the reason in `note`.
   A decision made over several cases at once is `confirmed` `bulk` and counts as none.
 - Record a person's label as provenance `owner`; it never counts, and no labeller or arbiter sees it.
+- Give every council labeller a working shell or readable copy of each repository its cases come
+  from; labellers that cannot open a repository abstain.
+- Treat another project's published labels as model labels unless their provenance shows a person
+  made them.
 - Use model pre-labels only to order review, never to skip confident cases;
   LLM judges tend to repeat Jev's confident errors.
 - When many labels cite one rule, check whether it was read too broadly, clarify it, and re-derive

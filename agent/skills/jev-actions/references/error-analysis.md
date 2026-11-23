@@ -41,6 +41,9 @@ Turn measured errors into the next fix.
     or move the case, as [question design](question-design.md) describes.
   - Rule a parser could decide: move it into code or the deterministic router.
   - Model limit: check the jaggedness page, then split the question or escalate that case type.
+  - Question shape: the question asks for a whole verdict, compares two items, or searches a list;
+    decompose it into a Chain or Place from [design patterns](design-patterns.md) and label each
+    link, before rewording or retiring it.
   - Code or service failure: fix the integration; it is not a model error.
 - Before recording a model limit, show a fresh-context subagent, or the user, only the question,
   criteria and state: if its answer matches Jev and the written policy decides the case, it is a
@@ -64,6 +67,8 @@ Turn measured errors into the next fix.
   change to text, state or builder.
   In a prescribed step list, place the cross and the repeat runs before any step that changes
   question text, state builder, model, route or cases.
+- Confirm a gain on held-out units from other repositories before claiming it: gains measured on
+  one source's labels can vanish on another's.
 - Fix the cause with the most errors first, then rerun: after label fixes, copy `scores.csv` to
   `scores.relabeled.csv` with corrected counting labels and re-tune on its `dev` rows; after a
   version key change, re-pin as the docs runbook describes, re-score `dev`, re-tune with the stored minimums, and run `test` once the version is final.

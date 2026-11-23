@@ -126,6 +126,7 @@ def test_markdown_report_lists_warnings_thresholds_strata_and_errors(
         str(csv),
         "--min-precision",
         "0.5",
+        "--owner-override",
         "--calibration",
         "--errors",
     )
@@ -566,3 +567,43 @@ def test_help_documents_the_exit_codes(
     assert (
         "- 4 when ranking has insufficient units in any group and fails in none." in out
     )
+
+
+def test_min_precision_defaults_to_the_usefulness_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable())
+    code, out, _ = run_main(monkeypatch, capsys, str(csv))
+    assert code == 0
+    assert f"Minimums: precision {tune.USEFUL_PRECISION}, recall 0.0" in out
+
+
+def test_a_minimum_below_the_usefulness_floor_needs_the_owner_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable())
+    code, _, err = run_main(monkeypatch, capsys, str(csv), "--min-precision", "0.6")
+    assert code == 2
+    assert "below the usefulness floor 0.75" in err
+    code, out, _ = run_main(
+        monkeypatch, capsys, str(csv), "--min-precision", "0.6", "--owner-override"
+    )
+    assert code == 0
+    assert "Minimums: precision 0.6" in out
+
+
+def test_a_report_only_run_sets_no_minimums_without_an_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    csv = scores_csv(tmp_path / "scores.csv", separable())
+    code, out, _ = run_main(
+        monkeypatch, capsys, str(csv), "--min-precision", "0", "--min-recall", "0"
+    )
+    assert code == 0
+    assert "no precision or recall minimums set" in out

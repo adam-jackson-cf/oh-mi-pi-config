@@ -29,6 +29,15 @@ rubric, and keep out judgments Jev cannot make reliably.
   - Drop the data clause, the template's first sentence, only when no state text is untrusted.
 - Give each question the state and reference evidence it needs: source text, identities,
   relationships, policies and current facts; Jev cannot judge facts it has not seen.
+  Names alone rarely carry a structure judgment: send the contents it rests on, such as symbols,
+  docstrings and imports.
+- Give each item only the state its question reads (Q18); fields built for other questions sway
+  answers, and an empty list reads as a signal.
+- Decompose before rewording: when the written policy's violation needs several conditions, such as
+  "names a domain concept", "another name in scope names the same concept" and "the two are not
+  deliberately distinct", write one question per condition as a Chain or Place from
+  [design patterns](design-patterns.md), not one question that asks for the whole verdict.
+  Label each link separately, so [error analysis](error-analysis.md) can see which link fails.
 - Use named JSON fields for multi-part context; question IDs are not sent to the model, so
   instructions and criteria carry the complete meaning.
 - Split independently useful dimensions without breaking the relationship judged; a bounded action
@@ -74,9 +83,10 @@ rubric, and keep out judgments Jev cannot make reliably.
   A path change is a new meaning unless the new path holds every item that the old labels' notes
   cite; check this on at least 3 labelled cases per label.
 - When fixing splits a question, give each part a new question ID and `thresholds.json` entry,
-  combine them with "any" in code, mark the old entry retired, and ship each part enforced at the
-  cost-rule default from [threshold tuning](threshold-tuning.md) until it is tuned; a report lists
-  these as proposals.
+  combine them in code ("any" for alternative triggers, "all" for a Chain's links), mark the old
+  entry retired, and ship each part enforced at the cost-rule default from
+  [threshold tuning](threshold-tuning.md) under the user's recorded override until it is tuned; a
+  report lists these as proposals.
 
 Q1-Q5 apply to the instructions and to each criterion separately.
 
@@ -98,3 +108,6 @@ Q1-Q5 apply to the instructions and to each criterion separately.
 | Q14 | The written policy's condition is observable in the state sent when production asks | Add history to state, change the asking condition, or demote it |
 | Q15 | Every criterion clause traces to a clause of the written policy | Take an unsourced clause, such as a carve-out, to the user as a policy change |
 | Q16 | No other question's criteria accept this question's positive reasons | Narrow one question or move the case |
+| Q17 | It judges or places one item; it never asks if two items are the same | A Place Choice, or a both-orders Score with observable levels |
+| Q18 | The state holds only fields this question reads | Drop fields built for other questions |
+| Q19 | Code asks only when the state can show the premise | Skip items with no extracted evidence, such as empty symbols or generic names |
