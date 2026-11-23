@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import { parseQuestions, toEvalJudgmentResult, type EvalJudgmentResult } from "@oh-my-pi/pi-coding-agent/eval/judgment-bridge";
-import { resolveJudge, sharedJudgmentCache, type JudgeDeps } from "@oh-my-pi/pi-coding-agent/judgment/index";
+import { resolveJudge, sharedJudgmentCache, type JudgeDeps } from "@oh-my-pi/pi-coding-agent/judgment";
+import { registryQuestions, toJudgeQuestions, toJudgeResult, type JudgeResult } from "./judge-questions.ts";
 import { judgmentCallSchema, type JudgmentCall } from "./judgment-calls.ts";
 import { SUBPROCESS_TIMEOUT_MS } from "./rails-runtime.ts";
 
@@ -22,9 +22,9 @@ export const RAIL_JUDGMENTS = {
 export type RailJudgment = keyof typeof RAIL_JUDGMENTS;
 /** A judged state: the JSON object omp's judge() takes. */
 export type JudgeState = Exclude<Parameters<ReturnType<typeof resolveJudge>["judge"]>[0]["state"], string | readonly unknown[]>;
-const questionsSchema = z.object({ judgment: z.string(), model: z.string().min(1), questions: z.record(z.string(), z.unknown()) }).strict();
+const questionsSchema = z.object({ judgment: z.string(), model: z.string().min(1), questions: registryQuestions }).strict();
 export type JudgeQuestions = z.infer<typeof questionsSchema>["questions"];
-export type JudgeAnswer = { answers: EvalJudgmentResult["answers"]; model: string };
+export type JudgeAnswer = { answers: JudgeResult["answers"]; model: string };
 /** One judge call: the answers and the provider/model that produced them. Tests stub this. */
 export type JudgeTransport = (state: JudgeState, questions: JudgeQuestions) => Promise<JudgeAnswer>;
 export type Verdict = { judgment: RailJudgment; outcome: "yes" | "no" | "escalate"; probability: number; call: JudgmentCall };
@@ -68,7 +68,7 @@ export function ompJudge(settings: Settings): (ctx: ExtensionContext) => JudgeTr
 		const deps: JudgeDeps = { settings, registry: ctx.modelRegistry, sessionId: ctx.sessionManager.getSessionId(), purpose: "dynaflows-rails" };
 		const cache = sharedJudgmentCache();
 		if (cache) deps.cache = cache;
-		const result = toEvalJudgmentResult(await resolveJudge(deps).judge({ state, questions: parseQuestions(questions) }));
+		const result = toJudgeResult(await resolveJudge(deps).judge({ state, questions: toJudgeQuestions(questions) }));
 		return { answers: result.answers, model: result.model };
 	};
 }
