@@ -29,15 +29,21 @@ rubric, and keep out judgments Jev cannot make reliably.
   - Drop the data clause, the template's first sentence, only when no state text is untrusted.
 - Give each question the state and reference evidence it needs: source text, identities,
   relationships, policies and current facts; Jev cannot judge facts it has not seen.
-  Names alone rarely carry a structure judgment: send the contents it rests on, such as symbols,
-  docstrings and imports.
+  Names alone rarely carry a judgment: send each item's own bounded content, such as its signature,
+  description and first lines of body; add use sites only when the criteria read use, and about 3
+  member names for an item judged against a container's name. A fact the proposer measures stays in code.
 - Give each item only the state its question reads (Q18); fields built for other questions sway
   answers, and an empty list reads as a signal.
-- Decompose before rewording: when the written policy's violation needs several conditions, such as
-  "names a domain concept", "another name in scope names the same concept" and "the two are not
-  deliberately distinct", write one question per condition as a Chain or Place from
+- Sameness: ask for the parts that make two items the same under the policy, read side by side,
+  such as the same steps on the same input for the same purpose; ask whether either could replace
+  the other in every use only when the policy is about names. `false` names what sets them apart
+  (owner, contract, unit, external API), one calling, wrapping or testing the other, and boilerplate.
+- Decompose before rewording: when the written policy's violation needs several conditions a
+  labeller can observe apart, such as "the answer cites a source", "the source is in state" and
+  "the source supports the answer", write one question per condition as a Chain or Place from
   [design patterns](design-patterns.md), not one question that asks for the whole verdict.
   Label each link separately, so [error analysis](error-analysis.md) can see which link fails.
+  A condition that only marks another's boundary belongs in that question's `false` criterion.
 - Use named JSON fields for multi-part context; question IDs are not sent to the model, so
   instructions and criteria carry the complete meaning.
 - Split independently useful dimensions without breaking the relationship judged; a bounded action
@@ -97,7 +103,7 @@ Q1-Q5 apply to the instructions and to each criterion separately.
 | Q3 | No "unless", "except" or "other than" clause | A `<near-miss>` of each question whose yes cases it removes; list unclear ones as assumed |
 | Q4 | Every definition, inclusion, exclusion and tie-break sits in criteria | Move it to its criterion |
 | Q5 | Each criterion or level is a concrete situation, not "not X" or the question restated | Describe what a reader sees |
-| Q6 | High probability means the condition code acts on holds | Rephrase so yes is flagged |
+| Q6 | High probability means the condition code acts on holds | Rephrase so yes is flagged; a missing relation: ask it, naming its forms; score 1 - P |
 | Q7 | The subject is a backticked state path | Name a path that keeps Q13 yes |
 | Q8 | It asks what the state shows, not what someone would do, think or file | Ask the observable property |
 | Q9 | No part can be computed by code from the state | Code checks what a pattern detects, such as emails or IDs, with no question, or passes it as a fact |
@@ -110,4 +116,4 @@ Q1-Q5 apply to the instructions and to each criterion separately.
 | Q16 | No other question's criteria accept this question's positive reasons | Narrow one question or move the case |
 | Q17 | It judges or places one item, or one code-proposed pair of evidence units, never two containers | A Place Choice, or a both-orders pair question |
 | Q18 | The state holds only fields this question reads | Drop fields built for other questions |
-| Q19 | Code asks only when the state can show the premise | Skip items with no extracted evidence, such as empty symbols or generic names |
+| Q19 | Code asks only when the state can show the premise | Skip items with no evidence, or judged against a generic name or a memberless container |

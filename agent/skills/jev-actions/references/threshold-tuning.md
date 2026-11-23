@@ -29,6 +29,8 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   target, that the user set it, and their reason. Never raise it from the kind of action alone.
 - Starting cutoff: an untuned judgment runs at a cutoff of 0.8, the cost-rule default; tuning
   replaces it with the cutoff the labels support.
+- Score every arm, deterministic ones included, with the owner exceptions production honours
+  applied, and report how many false flags an exception would absorb.
 - Write each decision as a single cutoff `{"threshold": t}`: yes at score >= t, else no.
   Write a band `{"no_at_most", "yes_at_least", "fallback"}` only when
   [escalation band](escalation-band.md) sets one; a band with no fallback judge is no band.
