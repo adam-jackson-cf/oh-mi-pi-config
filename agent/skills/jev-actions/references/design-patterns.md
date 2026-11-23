@@ -40,14 +40,27 @@ shape and template.
 - Code proposes, Jev judges, code combines: code lists the candidate items, Jev answers one narrow
   question per item, and code counts, compares and aggregates. Never ask Jev to search a large
   state for any qualifying item or pair.
+- Judge the evidence unit: ask about the smallest item whose state holds the evidence a labeller
+  would cite, such as one proposed pair of passages or one file, never the container holding it,
+  and let code combine the answers, for example by the maximum per container. A container-level
+  question dilutes one decisive item among unrelated ones.
+- Keep the proposer's score: the code that proposes candidates usually measures something, such as
+  a similarity, a count or a rule match. Combine it with Jev's answer in code, for example as a
+  product, so code supplies what it can measure and Jev removes the cases code cannot tell apart.
+  Always measure the proposer's score alone as an arm; when it meets the target, ship it as a
+  deterministic check instead of a judgment.
+- Score the violation itself: the answer that drives a flag must state the policy's condition, not a
+  correlate of it. "Jev would place this item elsewhere" or "these share a topic" can rank well and
+  still flag mostly clean cases.
 - Chain: each link is a simple observable condition, such as "is this file run by a person" and
   "does it only read the package"; code asks later links only for items earlier links and code
   facts keep, and flags only when every link holds, which raises precision where "any" lowers it.
 - Place: Jev places one item among options well and compares two items poorly. Judge sameness,
   membership or fit by placing the item among the real alternatives, such as sibling folders,
   existing names or responsibilities, and let code flag when an alternative beats the current
-  placement by a margin. When a pair must be judged, use a Score whose levels describe observable
-  situations, asked in both orders.
+  placement by a margin. When a pair must be judged, judge one code-proposed pair of evidence units,
+  such as two passages rather than the folders or documents holding them, ask it in both orders and
+  average, and combine the answer with the proposer's measured similarity in code.
 - Set each threshold from which mistake costs more, as [threshold tuning](threshold-tuning.md)
   describes; an uncertainty band needs an [escalation band](escalation-band.md) check.
 - Send these to code or a reasoning model instead, saying so in the result, never routing them by

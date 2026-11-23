@@ -41,9 +41,10 @@ Turn measured errors into the next fix.
     or move the case, as [question design](question-design.md) describes.
   - Rule a parser could decide: move it into code or the deterministic router.
   - Model limit: check the jaggedness page, then split the question or escalate that case type.
-  - Question shape: the question asks for a whole verdict, compares two items, or searches a list;
-    decompose it into a Chain or Place from [design patterns](design-patterns.md) and label each
-    link, before rewording or retiring it.
+  - Question shape: the question asks for a whole verdict, compares two items, searches a list,
+    asks about a container rather than the evidence unit, or scores a correlate of the violation;
+    redesign it with [design patterns](design-patterns.md) and label each link, before rewording or
+    retiring it.
   - Code or service failure: fix the integration; it is not a model error.
 - Before recording a model limit, show a fresh-context subagent, or the user, only the question,
   criteria and state: if its answer matches Jev and the written policy decides the case, it is a

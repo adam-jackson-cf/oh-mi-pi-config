@@ -71,6 +71,10 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 
   Unless ranking passes, `decision` is null: set no tuned threshold or band, set the cost-rule
   default, and record the ranking status in `shortfalls`.
+- Hold out by source: group folds by repository or source and leave one out at a time. When several
+  arms or compositions are compared, choose the arm inside each training fold, or confirm the chosen
+  one on a fresh set, since the best of several on the same held-out data overstates it; report a
+  bootstrap interval for held-out precision.
 - Optional `scores.csv` columns: `split` (default all `dev`); `unit`, kept in one fold, and an exit 1
   if one spans `dev` and `test`; `model` and `question_version`, each pair its own group, marked
   `comparable: false` unless cases, labels, splits and units match; `stratum` for per-stratum results.

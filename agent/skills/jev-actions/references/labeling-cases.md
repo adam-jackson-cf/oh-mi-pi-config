@@ -16,14 +16,18 @@ Produce labels that measure exactly what each question asks, with their provenan
 - Council label pass: at least two independent council labellers per case, sessions with no shared
   context, ideally from different model families, each appended as an `agent` row with the labeller
   in `by`; when they agree, append the agreed label as `agent_reviewed`.
-- Arbiter: the main agent decides each disputed or unconfirmed case individually, shown only the
-  case, its evidence and the frozen guide, blind to scores and to every earlier label.
+- Arbiter: the main agent, or Claude subagents it briefs with the same inputs, decides each disputed
+  or unconfirmed case individually, shown only the case, its evidence and the frozen guide, blind to
+  scores and to every earlier label.
   Append each decision as an `arbiter` row with the arbiter in `by`, its own `timestamp`,
   `confirmed` `individual`, `blind` true and the reason in `note`.
   A decision made over several cases at once is `confirmed` `bulk` and counts as none.
 - Record a person's label as provenance `owner`; it never counts, and no labeller or arbiter sees it.
 - Give every council labeller a working shell or readable copy of each repository its cases come
   from, with git for cases pinned to past commits; labellers that cannot open a repository abstain.
+- Label with the evidence the question shows: a labeller who cannot read the source behind a case
+  abstains rather than labelling from a summary, since labels made from less evidence than Jev saw
+  are noisiest where a redesign is most confident.
 - Batch council work: council sessions are slow, so collect every case that needs a council label,
   across questions and rounds, and send the whole set in one council run once results show which
   cases need labels, rather than a session for each small batch as cases appear.

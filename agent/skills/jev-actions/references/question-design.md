@@ -108,6 +108,6 @@ Q1-Q5 apply to the instructions and to each criterion separately.
 | Q14 | The written policy's condition is observable in the state sent when production asks | Add history to state, change the asking condition, or demote it |
 | Q15 | Every criterion clause traces to a clause of the written policy | Take an unsourced clause, such as a carve-out, to the user as a policy change |
 | Q16 | No other question's criteria accept this question's positive reasons | Narrow one question or move the case |
-| Q17 | It judges or places one item; it never asks if two items are the same | A Place Choice, or a both-orders Score with observable levels |
+| Q17 | It judges or places one item, or one code-proposed pair of evidence units, never two containers | A Place Choice, or a both-orders pair question |
 | Q18 | The state holds only fields this question reads | Drop fields built for other questions |
 | Q19 | Code asks only when the state can show the premise | Skip items with no extracted evidence, such as empty symbols or generic names |

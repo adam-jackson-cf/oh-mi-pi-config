@@ -29,12 +29,25 @@ depends on.
   An outcome shows that something changed, not that the judged violation existed: label mined
   cases like any other, and use provenance `outcome` only when the outcome itself states the
   judgment.
+- Draw candidates from every repository or source the judgment will govern, at several points in
+  its history, by running the candidate generator over each snapshot and deduplicating items; leave
+  out content the written policy does not govern, such as vendored bundles or fixture corpora, and
+  record each exclusion and why.
+- Settle policy rulings in the label guide before mining: a ruling on what counts can move
+  prevalence and every label.
+- Label a random sample of items the generator does not propose as well: precision on proposed
+  items says nothing about violations the generator never proposes.
 - Build negatives at natural prevalence by running the candidate generator over the whole
   pre-fix tree, never by hand-picking, and add hard negatives from the same candidate pool where
   the property is plausible; report precision on both, since a clean census can hide false flags.
 - Synthetic or mutated cases serve regression only, at most 20% of `dev` and never `test` or
   threshold data; discard a set when a names-only baseline or a mutated-versus-sham discriminator
   scores AUC 0.6 or above.
+  Have a separate agent author them from real code: list the directions the written policy can go,
+  each rule both ways, about 5 cases per direction with hard cases in each (positives that look
+  clean, negatives that look like violations), with no wording that reveals the direction.
+  The council labels them blind to the intended label; a disagreement shows an unclear guide.
+  Report each design's result per direction.
 - Give samples stratified by score population weights before estimating recall from them.
 - Before spending labels, run a signal check: score outcome-positive candidates, their near-misses
   and natural-prevalence units, and compare. A flat or inverted ranking shows a design that cannot
