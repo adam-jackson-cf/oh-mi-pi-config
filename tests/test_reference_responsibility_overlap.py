@@ -7,7 +7,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 from guardrails.host.process import run_text
 
@@ -18,6 +20,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure import responsibility_overlap as overlap
+from guardrails.commands.structure.rename_residue import GitError
 from guardrails.foundation.findings import catalogue_rules, remediations
 
 FIXTURE = json.loads(
@@ -46,6 +49,25 @@ class DefinitionTests(unittest.TestCase):
         small = "def one():\n    pass\n    pass\n    pass\n    return 1\n"
         assert overlap.definitions("a", "a/x.py", short) == []
         assert overlap.definitions("a", "a/x.py", small) == []
+
+    def test_methods_are_definitions_named_by_their_class(self) -> None:
+        method = "".join(
+            "    " + line if line else line for line in COPIED.splitlines(keepends=True)
+        ).replace("def summarise_orders(", "def summarise(self, ")
+        source = "class Report:\n    kind = 1\n\n" + method
+        assert [item.name for item in overlap.definitions("a", "a/x.py", source)] == [
+            "Report",
+            "Report.summarise",
+        ]
+
+    def test_no_blobs_need_no_git_and_a_failed_batch_is_a_git_error(self) -> None:
+        assert overlap._blobs(Path("."), []) == {}
+        failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
+        with (
+            patch.object(overlap, "run_bytes", return_value=failed),
+            pytest.raises(GitError, match="bad object"),
+        ):
+            overlap._blobs(Path("."), ["0" * 40])
 
     def test_the_cutoff_and_owner_evidence_live_in_the_catalogue(self) -> None:
         rule = next(item for item in catalogue_rules() if item["id"] == overlap.RULE)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 from guardrails.host.process import run_text
 
@@ -18,6 +21,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure import prefix_folder
+from guardrails.commands.structure.rename_residue import GitError
 from guardrails.foundation.findings import catalogue_rules, remediations
 
 FIXTURE = json.loads(
@@ -58,6 +62,58 @@ class PrefixFolderScoreTests(unittest.TestCase):
         assert set(contract["weights"]) == set(prefix_folder.FEATURES)
         assert contract["evidence"]["accepted_on"] == "2026-11-23"
         assert remediations()[prefix_folder.RULE].render().startswith("root cause: ")
+
+
+@pytest.mark.fast
+class ImportGraphTests(unittest.TestCase):
+    def test_imports_resolve_to_the_nearest_owned_module(self) -> None:
+        sources = {
+            "pkg/__init__.py": "",
+            "pkg/util.py": "",
+            "pkg/sub/__init__.py": "",
+            "pkg/sub/util.py": "",
+            "pkg/sub/main.py": (
+                "import util\nfrom ..... import nothing\n"
+                "import pkg.util.missing.deeper\nimport nowhere.at.all\n"
+                "from pkg import util as u\nfrom pkg.sub import *\n"
+            ),
+            "a/x/helpers.py": "",
+            "a/y/helpers.py": "",
+            "a/x/run.py": "import x.helpers\n",
+            "c/helpers.py": "",
+            "c/use.py": "import helpers\n",
+            "tools/helpers.py": "",
+            "b/main.py": "import helpers\n",
+        }
+        trees: dict[str, ast.Module | None] = {
+            path: ast.parse(text) for path, text in sources.items()
+        }
+        trees["broken.py"] = None
+        graph = prefix_folder.ImportGraph(trees)
+        assert {
+            path: sorted(found) for path, found in graph.edges.items() if found
+        } == {
+            "a/x/run.py": ["a/x/helpers.py"],
+            "b/main.py": ["tools/helpers.py"],
+            "c/use.py": ["c/helpers.py"],
+            "pkg/sub/main.py": [
+                "pkg/__init__.py",
+                "pkg/sub/__init__.py",
+                "pkg/sub/util.py",
+                "pkg/util.py",
+            ],
+        }
+        assert "broken.py" not in graph.edges
+        assert prefix_folder.domain_words(None) == set()
+
+    def test_no_blobs_need_no_git_and_a_failed_batch_is_a_git_error(self) -> None:
+        assert prefix_folder.read_blobs(Path("."), []) == {}
+        failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
+        with (
+            patch.object(prefix_folder, "run_bytes", return_value=failed),
+            pytest.raises(GitError, match="bad object"),
+        ):
+            prefix_folder.read_blobs(Path("."), ["0" * 40])
 
 
 @pytest.mark.seam

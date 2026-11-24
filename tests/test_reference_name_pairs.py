@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 from guardrails.host.process import run_text
 
@@ -63,6 +67,42 @@ class NamePairTests(unittest.TestCase):
         assert len(second["uses"]) <= name_pairs.USE_SITES
         assert pair["det_score"] == 0.5 * pair["features"]["name_sim"] + 0.5
         assert pair["id"] == "src/shop/api.py::get_user<>src/shop/store.py::fetch_user"
+
+    def test_external_and_member_names_carry_their_own_evidence(self) -> None:
+        tree = {
+            "app/__init__.py": "",
+            "app/models.py": "class Store:\n    def get(self):\n        return 1\n",
+            "app/views.py": (
+                "from app.models import Store\nreader = Store.missing\nother = thing.value\n"
+                + "print(thing.value, Store.missing)\n" * 4
+            ),
+        }
+        pairs = {
+            pair["id"]: pair["state"]["second"]
+            for pair in name_pairs.name_pairs(tree, {"app/views.py"}, {})
+        }
+        external = pairs["app/views.py::other<>::thing.value"]
+        member = pairs["app/views.py::reader<>app/models.py::Store.missing"]
+        assert (external["kind"], external["definition"]) == (
+            "name not defined in this repository",
+            None,
+        )
+        assert external["uses"] == [
+            "app/views.py:3: other = thing.value",
+            "app/views.py:4: print(thing.value, Store.missing)",
+            "app/views.py:5: print(thing.value, Store.missing)",
+        ]
+        assert member["kind"] == "member of class Store"
+        assert member["definition"]["signature"] == "class Store:"
+        assert name_pairs.evidence(
+            tree, {"name": "x", "kind": "function", "path": "a.py"}
+        ) == {
+            "name": "x",
+            "kind": "function",
+            "path": "a.py",
+            "definition": None,
+            "uses": [],
+        }
 
 
 @pytest.mark.seam
@@ -137,6 +177,36 @@ class NamePairsCommandTests(unittest.TestCase):
             "---\n" + json.dumps(profile) + "\n---\n"
         )
         assert self.pairs("--record", str(self.record)) == []
+
+    def test_the_run_prints_pairs_from_the_head_tree(self) -> None:
+        printed = io.StringIO()
+        with redirect_stdout(printed):
+            assert (
+                name_pairs.run(
+                    self.repo, {}, ["--base", self.base, "--head", self.head]
+                )
+                == []
+            )
+        assert [pair["id"] for pair in json.loads(printed.getvalue())["pairs"]] == [
+            "src/shop/api.py::get_user<>src/shop/store.py::fetch_user"
+        ]
+
+    def test_a_renamed_file_is_changed_under_its_new_path(self) -> None:
+        self.git("mv", "src/shop/api.py", "src/shop/client.py")
+        self.git("commit", "-qm", "rename")
+        renamed = self.git("rev-parse", "HEAD")
+        assert name_pairs.changed_paths(self.repo, self.head, renamed) == {
+            "src/shop/client.py"
+        }
+        assert name_pairs.head_tree(self.repo, renamed, ["*.py"]) == {}
+
+    def test_an_unreadable_blob_batch_is_a_finding(self) -> None:
+        failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
+        with patch.object(name_pairs, "run_bytes", return_value=failed):
+            (finding,) = name_pairs.run(
+                self.repo, {}, ["--base", self.base, "--head", self.head]
+            )
+        assert finding.message == "bad object"
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         (finding,) = name_pairs.run(

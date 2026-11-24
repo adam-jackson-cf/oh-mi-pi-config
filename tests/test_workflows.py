@@ -1423,6 +1423,66 @@ class StructureProposalTests(unittest.TestCase):
         (row,) = self.rows()
         assert (row["mode"], row["outcome"]) == ("shadow", "flag")
 
+    def proposals(self, output: str, ok: bool = True) -> tuple[Any, list[Any]]:
+        commands: list[Any] = []
+
+        def run_check(cmd: Any, *args: Any, **kwargs: Any) -> tuple[bool, str]:
+            commands.append(cmd)
+            return ok, output
+
+        record: tuple[Path, dict[str, Any]] = (Path("/records/owner/repo"), {})
+        return (
+            patch.multiple(
+                workflow,
+                run_check=run_check,
+                read_record=lambda repo: record,
+            ),
+            commands,
+        )
+
+    def test_a_proposer_reads_the_record_and_returns_its_json(self) -> None:
+        found = {
+            "pairs": [
+                {"id": "p", "det_score": 0.5, "state": {"first": {}, "second": {}}}
+            ]
+        }
+        patched, commands = self.proposals(json.dumps(found))
+        with patched:
+            assert workflow._name_pairs(Path("."), "b" * 40, "h" * 40) == found["pairs"]
+        (command,) = commands
+        assert command[command.index("--record") + 1] == "/records/owner/repo"
+        assert command[command.index("name-pairs") + 1 : command.index("--record")] == [
+            "--repo",
+            ".",
+        ]
+
+    def test_a_failed_proposer_is_a_workflow_error(self) -> None:
+        patched, _ = self.proposals("boom", ok=False)
+        with (
+            patched,
+            pytest.raises(workflow.WorkflowError, match="kind-candidates failed: boom"),
+        ):
+            workflow._kind_candidates(Path("."), "b" * 40, "h" * 40)
+
+    def test_a_proposal_of_the_wrong_shape_is_a_workflow_error(self) -> None:
+        readers = {
+            "name-pairs": (workflow._name_pairs, "pairs"),
+            "consumer-candidates": (workflow._consumer_candidates, "candidates"),
+            "kind-candidates": (workflow._kind_candidates, "candidates"),
+        }
+        shapes = [None, [1], [{"path": "a.py", "id": "a", "det_score": 2, "state": {}}]]
+        for subcommand, (reader, key) in readers.items():
+            for shape in shapes:
+                with self.subTest(subcommand=subcommand, shape=shape):
+                    patched, _ = self.proposals(json.dumps({key: shape}))
+                    with (
+                        patched,
+                        pytest.raises(
+                            workflow.WorkflowError, match=f"{subcommand} must emit"
+                        ),
+                    ):
+                        reader(Path("."), "b" * 40, "h" * 40)
+
     def test_a_choice_decision_names_one_of_its_options(self) -> None:
         question = self.judgment.questions[workflow.CONSUMER_QUESTION]
         decision = self.judgment.decisions[workflow.CONSUMER_QUESTION]
