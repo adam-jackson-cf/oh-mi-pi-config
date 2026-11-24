@@ -1,41 +1,61 @@
 # Structure and naming label guide
 
-Labels answer the one question named in each case file, from `questions.json`. A labeler sees the
-case's `unit_state` and the question; never Jev's answer, a threshold or an earlier label. Label
-1 when the condition the question asks about holds (the violation is present), else 0. Cite the
-rule that decided the label and give a one-sentence reason.
+Version `@6`. Each case is one code-proposed file or name pair, built exactly as
+`structure_review()` builds it: `kind-candidates` and `consumer-candidates` propose files and
+`name-pairs` proposes pairs. A labeller sees the case's state, the questions it is labelled for and
+this guide; never Jev's scores, the sampling stratum or another labeller's label. For each question
+give 1 when the violation the question asks about is present, else 0, the rule ID that decided it
+and a one-sentence reason that cites the state. A `same_thing` labeller reads the source at the
+pair's commit.
+`abstain` with a reason is allowed when the state cannot decide; it never counts.
 
 ## Rules per question
 
-Label 1 when the rule holds; the second line names what is not a violation.
+Each rule quotes the question's criteria in [questions.json](questions.json).
 
-- T1 `technical_kind_grouping`: a technical bucket collects unrelated capability owners, or splits
-  one capability's code into a technical bucket.
-  Not: one capability owner; a coherent shared contract tier; a real adapter boundary.
-- F1 `folder_name_coverage`: a substantive responsibility in the files and symbols lies outside
-  the folder's named concept.
-  Not: internal implementation roles; reasonable domain breadth.
-- O1 `overlapping_responsibilities`: two units implement or own the same substantive
-  responsibility.
-  Not: provider/consumer, stage or interface/implementation splits; shared imports or words alone.
-- N1 `one_name_per_concept`: two terms name one concept, shown by definitions, docstrings,
-  constants or relationships.
-  Not: mechanism vs metric, product vs contract, adapter vs adaptee, third-party names; residue of
-  a retired term inside the renamed folder; a word left from a retired compound.
-- S1 `sibling_naming_pattern`: comparable sibling roles are named at conflicting semantic levels
-  or patterns.
-  Not: unrelated roles; differences that express real role differences.
-- P1 `prefix_should_be_folder`: the `cluster` prefix names a domain concept and members belong to
-  it and change together (imports, a record one writes and another reads, shared readers,
-  co-change).
-  Not: modifier or coincidental prefixes (`new_`, `base_`, `common_`); members serving different
-  owners; a shared prefix or one import edge alone.
-- R1 `runtime_data_in_code`: runtime-loaded definitions, configuration, templates, generated
-  output or run artifacts sit inside product source.
-  Not: source implementations; legitimate test fixtures; file extension alone.
-- E1 `entry_point_placement`: a product CLI or API entry point sits below its package top tier,
-  or a finished-product consumer sits inside the package it reads.
-  Not: independently packaged nested tools; helpers, adapters, test executables.
+- T1 `technical_kind_grouping` (one code-proposed file in a technical-kind folder, asked as the
+  `own_capability` question; shadow mode):
+- Yes: The file serves one capability or domain: its symbols model, call or serve that capability's
+    records or workflow, and its importers sit in that one capability. Example: a billing invoice
+    model in a `models` folder that only billing code imports, or a `services` file whose functions
+    run only the checkout workflow and are called only from checkout code.
+- No: The file is shared by several owners or has no domain of its own: a shared contract or type
+    that importers in several capabilities read, such as a base record class or an event schema
+    imported by billing and shipping code; a generic helper with no domain, such as string, path,
+    retry or logging helpers; code in a repository that is one capability as a whole, such as a
+    single-purpose tool whose every module serves the same job; or the kind folder's own
+    infrastructure, such as a base class or registry that the other files in that folder build on.
+  - The council's guide for the labelled files is
+    [questions/technical_kind_grouping@a856af7e3d083f02f854ab8dab200709d9cc2124a8fa21ab7c420324c2c594db.md](questions/technical_kind_grouping@a856af7e3d083f02f854ab8dab200709d9cc2124a8fa21ab7c420324c2c594db.md).
+- N1 `same_thing` (one name per concept, asked per name pair in both orders):
+  - Yes: Both names denote one thing in this repository: every use of one could be renamed to the
+    other without changing meaning, and no owner, contract, mechanism, unit or third-party API sets
+    them apart. This covers an alias binding used interchangeably with its target, a retired name
+    still used for the renamed thing, and a constant whose name uses a different term from the
+    value it holds, such as `DEFAULT_STORE = "repository"` where store and repository mean the same
+    thing.
+  - No: The names denote different things a reader must keep apart: a target and the component that
+    enforces it (`latency_budget` and `Throttler`), an adapter and what it wraps (`StripeClient`
+    and `Charge`), rows and cols, equal values with different roles (`timeout_seconds = 30` and
+    `max_retries = 30`), or one name is a third-party API name the code must match.
+  - The council's guide for the labelled pairs is
+    [questions/same_thing@58135b4af5078201bee9ca6e4699458f3401e74c7d3b560cdfa3416e3a96c237.md](questions/same_thing@58135b4af5078201bee9ca6e4699458f3401e74c7d3b560cdfa3416e3a96c237.md).
+
+- C1 `consumer_placement` (one code-proposed runnable file, asked as the `kind` Choice in two
+  option orders; a finding is mean P(`finished_tool`) at or above the threshold):
+- `finished_tool`: A dashboard, report tool or operator console that people run to view or operate
+    on what the package produces: it loads the package's results, runs or stored data and shows them
+    as pages, tables, charts, a printed report or interactive commands.
+- `package_cli`: The package's own command-line or server entry point: it parses subcommands or
+    serves requests that start the package's main job, such as running, building or serving what the
+    package does.
+- `support_script`: A fixture generator, test executable, migration, build or packaging script: it
+    prepares test data, runs tests, changes a schema or builds a release for the developers of the
+    package.
+- `library`: Code other code is meant to import: classes and functions that callers use, with at
+    most a small demo or self-check under a main guard.
+  - The council's guide for the labelled files is
+    [questions/consumer_placement@b85c890c3a97490cc4553a1d3d28222d4b874ed98bf8292b223c8655dfdb2cdb.md](questions/consumer_placement@b85c890c3a97490cc4553a1d3d28222d4b874ed98bf8292b223c8655dfdb2cdb.md).
 
 ## Shared rules
 
@@ -43,77 +63,36 @@ Label 1 when the rule holds; the second line names what is not a violation.
   its parent, plurals, test placement and import direction: these never make a label 1.
 - X2. Judge only the supplied revision; a rename or commit message is not proof of either name.
 - X3. Missing or truncated evidence (`evidence_limits`) is not evidence of absence. When the state
-  cannot decide the case, label it `unsure` with the reason instead of guessing.
+  cannot decide, abstain with the reason instead of guessing.
+- X4. A mechanism name is the name of the mechanism the folder implements (`process_checks`
+  implementing process-compliance checks); keeping it is never an N1 finding by itself.
+- X5. Runtime data inside code, entry modules below a package's top tier and code repeated
+  across folders are deterministic checks (STRUCT.runtime-data-placement,
+  STRUCT.entry-point-placement, STRUCT.overlapping-responsibilities), not questions; they never
+  make a label 1.
 
-## Versions
+## Worked examples
 
-| Version | Change | Scored on |
-| --- | --- | --- |
-| `@2` | Frozen v2 wording | OpenRouter `typesafe/jev-1.14` |
-| `@3` | Rules moved into criteria (Q1, Q4); same meaning | `typesafe/jev-1.14.0` direct |
+- T1, label 1: `src/pages/`, `src/api/` and `src/utils/types.ts` for runs beside a `quality/`
+  feature folder holding the same roles.
+- T1, label 0: `harness/` holding one harness definition and the per-harness extraction keyed off
+  it.
 
-- Each decision's version key hashes `{question, state, model}`; the aggregate hashes
-  `{questions, state, model}` (compact sorted-key JSON). `scores.csv` uses `<question>@<key>`.
-- A yes means the named violation is present. Every yes blocks merge.
+## Cases and sampling
 
-## Labels and exclusions
+- Cases come from first-parent history of raidar, scout, enaible-analyzers and oh-mi-pi-config:
+  one row per introduced unit, from the commit that introduced it (`base` = first parent).
+- Jev scored every case once; per question the labelled sample is the 60 highest scores, 30 drawn
+  at random between the 90th percentile and that cut, and 30 drawn at random below the 90th
+  percentile. `thresholds.json` records each stratum's population for weighted estimates.
+- The tuning unit is `<repo>:<folder>`, recorded as `unit_rule`.
+- `same_thing` cases are 160 code-proposed pairs sampled across 7 repositories plus 40 synthetic
+  pairs; their tuning unit is the repository.
 
-- Counting labels are the owner's 2026-11-18 bulk confirmation (`provenance: human`), plus SN062
-  and SN063 (owner-confirmed 2026-11-19).
-- 2026-11-21: the innovation council labelled the 58 scored cases blind to scores and earlier
-  labels; Claude arbitrated and appended one `agent_reviewed` row per case (`labeller`,
-  `arbiter`, `council_label`). A human label stays the counting label until the owner confirms a
-  change.
-- SN038, SN040, SN042 and SN044 are decided in code (no eligible cluster), and SN005 is an
-  abstention for insufficient evidence: all five stay out of scores.
+## Labels
 
-## Replay base rule
-
-All 61 original IDs and frozen revisions are retained. Source repositories are read through git
-objects only; no checkout, imports or execution of their code. `cases.jsonl` stores the
-regenerated `state`, its digest, `base`, `rev`, `candidate_base`, original provenance and a
-question stratum. All rows are `dev`; related historical pairs are not presented as independent
-held-out cases.
-
-- **After** rows: base is the recorded provenance parent, head is the row's frozen revision.
-  Changes and candidates come from that actual past diff.
-- **Before** rows: base equals head, so rename/retired-term/residue arrays are empty and never
-  leak the future regrouping. Candidate extraction uses the empty tree
-  (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`) through that frozen revision as a historical
-  introduction window. This makes existing candidate clusters observable without inventing future
-  additions. It is archived folder evidence, **not a claim that this folder would be selected in a
-  PR at that revision**.
-- **Current-tree** rows: base equals head, with no future change. These three rows are not prefix
-  decisions.
-
-An explicit-unit extractor API regenerates historical units even when they are not destination
-folders in a present PR. Production uses only CLI-selected destination folders in the actual
-parent..head diff.
-
-### Additional owner-confirmed replay cases
-
-SN062 labels `one_name_per_concept` yes for
-`agent/extensions/dynaflows/guardrails/omp_guardrails`; SN063 labels `folder_name_coverage` yes for
-`agent/extensions/dynaflows/skills/omp-dyna-workflows/templates`, whose `workflows.py` is a
-1,494-line orchestration implementation. Both states come directly from `structure-state` over
-`8e757085762fdc47a41fb1a392891880b4bf8334..cc6e079dc394010b415f2267229e5d6119aeb71c`,
-with the original extractor caps and no checkout or execution of historical code.
-
-## Deterministic extraction caps
-
-Each compact UTF-8 unit state is at most **48,000 bytes**. The extractor emits every destination
-folder without a folder-count cap; each state scans at most 4,096 tracked paths and retains at
-most 256 recursive files per unit. Python parsing is capped at 256 KiB per blob and 8 MiB total;
-128 symbols and 128 imports per file; module/symbol docstrings at 512 characters. Context retains
-24 units with 64 direct files each; each edge partition has 512 rows. Term owners retain 128 terms
-with 24 paths each; clusters 32; co-change history 128 commits; change arrays 256 rows.
-Evidence-limit rows are capped at 24 with 512-character text.
-
-Caps apply in sorted deterministic order. To satisfy the final byte budget, the extractor
-repeatedly halves the largest retained collection, preserving schema fields.
-`evidence_limits.caps`, truncation records and `state_budget_omissions` expose incomplete
-evidence. Byte bounds do not guarantee sufficient semantic context or model-token fit:
-extraction/judge failures are reported as infrastructure errors, not clean judgments. These limits
-deliberately stay far below TypeSafe's 32k per-question context and 32 MiB transport limit; large
-irrelevant state also degrades accuracy ([model
-jaggedness](https://docs.typesafe.ai/model-jaggedness.md)).
+- First pass: Claude labels every sampled question blind. The innovation council then reviews the
+  complete label set in batches, blind to scores; Claude arbitrates each disagreement blind to
+  scores and records `confirmed: individual` and `blind: true` (provenance `arbiter`).
+- Each decision's version key hashes `{question, state, model}` (compact sorted-key JSON).
+  A yes means the named violation is present. Every yes blocks merge.

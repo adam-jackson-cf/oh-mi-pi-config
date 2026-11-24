@@ -201,7 +201,7 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
         init_command = checker_module(SUBCOMMANDS[name].modules[0])
         drafted: list[Finding] = init_command.run_init(target.repo, target.record, argv)
         return drafted
-    if name == "structure-state" and target.record is None:
+    if SUBCOMMANDS[name].record_optional and target.record is None:
         return run_modules(module_names(name, {}), target.repo, {}, argv)
     assert target.record is not None
     try:
@@ -234,7 +234,7 @@ def early_exit(args: list[str]) -> int | None:
     if (
         wants_help(rest)
         and name != "adapter"
-        and (SUBCOMMANDS[name].needs_profile or name == "structure-state")
+        and (SUBCOMMANDS[name].needs_profile or SUBCOMMANDS[name].record_optional)
     ):
         print(subcommand_help(name))
         return 0
@@ -248,7 +248,9 @@ def main(argv: list[str] | None = None) -> int:
         return early
     name, rest = args[0], args[1:]
     try:
-        target, rest = resolve_target(rest, needs_record=name != "structure-state")
+        target, rest = resolve_target(
+            rest, needs_record=not SUBCOMMANDS[name].record_optional
+        )
         trigger, rest = split_decision_log(rest)
     except UsageError as error:
         print(f"{name}: {error}", file=sys.stderr)

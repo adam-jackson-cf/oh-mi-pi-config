@@ -284,7 +284,7 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 	if (!parsesAs(result, text)) return refuse("merge-prove", `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`);
 	return evidence.trusts(path, text) ? undefined : untrustedEvidence("prove()", head, path);
 }
-type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string; mode: "enforced" | "shadow" }[] };
+type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { item: string; question: string; mode: "enforced" | "shadow" }[] };
 // Every enforced finding blocks: only a pass with no enforced finding, no halt and no errors admits the merge.
 // A shadow finding is logged for review and never blocks.
 function structureBlock(result: StructureVerdict, head: string): Refusal | undefined {
@@ -293,19 +293,20 @@ function structureBlock(result: StructureVerdict, head: string): Refusal | undef
 	}
 	const enforced = result.findings.filter(item => item.mode === "enforced");
 	if (result.status === "pass" && !result.halt && !enforced.length) return;
-	const findings = enforced.map(item => `${item.unit}: ${item.question}`);
+	const findings = enforced.map(item => `${item.item}: ${item.question}`);
 	return refuse("merge-structure", `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`);
 }
 async function structureResultReason(pi: ExecApi, cwd: string, head: string, evidence: Evidence): Promise<Refusal | undefined> {
 	const path = join(await commonDir(pi, cwd), "omp-structure", `${head}.json`);
 	const finding = z.object({
-		unit: z.string(), question: z.string(), mode: z.enum(["enforced", "shadow"]),
+		item: z.string(), question: z.string(), mode: z.enum(["enforced", "shadow"]),
 		score: z.number().min(0).max(1), threshold: z.number().min(0).max(1),
 	}).strict();
 	const schema = z.object({
 		head: z.literal(head), halt: z.boolean(), status: z.enum(["pass", "incomplete", "blocked"]),
 		findings: z.array(finding), parent: z.string().nullable().optional(),
-		units: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
+		pairs: z.record(z.string(), z.unknown()).optional(), kind_files: z.record(z.string(), z.unknown()).optional(),
+		consumers: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
 		thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
 		model_reported: z.string().nullable().optional(), model_note: z.string().optional(),
 		prComment: z.string().optional(),

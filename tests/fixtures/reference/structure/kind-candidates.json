@@ -1,0 +1,54 @@
+{
+  "about": "In-memory trees for the structure-naming kind-folder file proposer: each case lists the files changed in the reviewed change, an optional profile, and the candidate paths expected.",
+  "tree": {
+    "app/__init__.py": "",
+    "app/billing/__init__.py": "",
+    "app/billing/charge.py": "from app.models.invoice import Invoice\n\n\ndef charge(invoice: Invoice) -> None:\n    \"\"\"Charge one invoice.\"\"\"\n",
+    "app/models/__init__.py": "",
+    "app/models/invoice.py": "\"\"\"Billing invoices.\"\"\"\n\n\nclass Invoice:\n    \"\"\"A billing invoice.\"\"\"\n",
+    "app/models/constants.py": "LIMIT = 10\n",
+    "app/utils/strings.py": "def slug(text: str) -> str:\n    return text.lower()\n",
+    "app/skill/SKILL.md": "# Skill\n",
+    "app/skill/helpers/run.py": "def run():\n    pass\n",
+    "app/.cache/models/cached.py": "class Cached:\n    pass\n"
+  },
+  "cases": [
+    {
+      "name": "files with definitions in technical-kind folders",
+      "changed": [
+        "app/__init__.py",
+        "app/billing/__init__.py",
+        "app/billing/charge.py",
+        "app/models/__init__.py",
+        "app/models/invoice.py",
+        "app/models/constants.py",
+        "app/utils/strings.py",
+        "app/skill/SKILL.md",
+        "app/skill/helpers/run.py",
+        "app/.cache/models/cached.py"
+      ],
+      "candidates": ["app/models/invoice.py", "app/utils/strings.py"]
+    },
+    {
+      "name": "only changed files are candidates",
+      "changed": ["app/models/invoice.py", "app/billing/charge.py"],
+      "candidates": ["app/models/invoice.py"]
+    },
+    {
+      "name": "an owner exception drops the file",
+      "changed": ["app/models/invoice.py", "app/utils/strings.py"],
+      "profile": {
+        "guardrails": {
+          "exceptions": [
+            {
+              "rule": "structure-naming/technical_kind_grouping",
+              "path": "app/utils",
+              "reason": "the string helpers are shared by every capability"
+            }
+          ]
+        }
+      },
+      "candidates": ["app/models/invoice.py"]
+    }
+  ]
+}

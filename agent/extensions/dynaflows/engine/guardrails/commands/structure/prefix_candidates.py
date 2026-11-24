@@ -20,11 +20,6 @@ from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "PREFIX.candidates"
-WORDS = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[^A-Za-z]|$)|[A-Z]?[a-z]+|[0-9]+")
-
-
-def _words(name: str) -> tuple[str, ...]:
-    return tuple(word.lower() for word in WORDS.findall(name))
 
 
 def _added_or_moved(repo: Path, base: str, head: str) -> set[str]:
@@ -44,15 +39,6 @@ def _added_or_moved(repo: Path, base: str, head: str) -> set[str]:
                 found.add(tokens[index + 1])
             index += 2
     return found
-
-
-def _prefix_members(paths: list[str]) -> dict[tuple[str, ...], list[str]]:
-    prefixes: dict[tuple[str, ...], list[str]] = defaultdict(list)
-    for path in paths:
-        words = _words(PurePosixPath(path).stem)
-        for length in range(1, len(words) + 1):
-            prefixes[words[:length]].append(path)
-    return prefixes
 
 
 def _owner_module(imported: str, modules: dict[str, str]) -> str | None:
@@ -75,54 +61,118 @@ def _importers(members: list[str], edges: set[tuple[str, str]]) -> dict[str, lis
     }
 
 
+SKIPPED_FOLDERS = frozenset({
+    "__pycache__",
+    "build",
+    "dist",
+    "examples",
+    "node_modules",
+    "third_party",
+    "vendor",
+})
+TEST_FOLDERS = frozenset({"test", "tests"})
+MODIFIERS = frozenset({
+    "abstract",
+    "base",
+    "common",
+    "core",
+    "default",
+    "generic",
+    "get",
+    "helper",
+    "helpers",
+    "main",
+    "my",
+    "new",
+    "old",
+    "run",
+    "set",
+    "simple",
+    "test",
+    "tests",
+    "tmp",
+    "util",
+    "utils",
+})
+BUNDLE_MANIFEST = "SKILL.md"
+MIN_PREFIX = 3
+
+
+def singular(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def name_tokens(stem: str) -> list[str]:
+    return [token for token in re.split(r"[_\-]+", stem.lower()) if token]
+
+
+def owned_python(paths: list[str]) -> list[str]:
+    bundles = {
+        PurePosixPath(path).parent.as_posix()
+        for path in paths
+        if PurePosixPath(path).name == BUNDLE_MANIFEST
+    }
+
+    def skipped(path: str) -> bool:
+        folders = PurePosixPath(path).parts[:-1]
+        if any(part.startswith(".") or part in SKIPPED_FOLDERS for part in folders):
+            return True
+        parent = PurePosixPath(path).parent.as_posix()
+        return any(
+            root == "." or parent == root or parent.startswith(root + "/")
+            for root in bundles
+        )
+
+    return [path for path in paths if path.endswith(".py") and not skipped(path)]
+
+
+def _test_like(path: str, profile: dict[str, Any]) -> bool:
+    pure = PurePosixPath(path)
+    return (
+        is_test_file(path, profile)
+        or pure.name == "conftest.py"
+        or bool(TEST_FOLDERS.intersection(pure.parts[:-1]))
+    )
+
+
 def _groups(
     paths: list[str], added: set[str], profile: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    folders = {
-        parent.as_posix() for path in paths for parent in PurePosixPath(path).parents
-    }
     siblings: dict[str, list[str]] = defaultdict(list)
-    for path in paths:
-        part = PurePosixPath(path)
-        if (
-            part.suffix == ".py"
-            and part.stem != "__init__"
-            and not is_test_file(path, profile)
-        ):
-            siblings[part.parent.as_posix()].append(path)
+    for path in owned_python(paths):
+        if PurePosixPath(path).name != "__init__.py" and not _test_like(path, profile):
+            siblings[PurePosixPath(path).parent.as_posix()].append(path)
     clusters: list[dict[str, Any]] = []
     touched = {PurePosixPath(path).parent.as_posix() for path in added}
     for folder in sorted(touched):
-        prefixes = _prefix_members(siblings.get(folder, []))
+        name = PurePosixPath(folder).name
+        own = (
+            {singular(token) for token in name_tokens(name)} if folder != "." else set()
+        )
+        groups: dict[str, list[str]] = defaultdict(list)
+        for path in siblings.get(folder, []):
+            tokens = name_tokens(PurePosixPath(path).stem)
+            if tokens:
+                groups[tokens[0]].append(path)
         clusters.extend(
             {
                 "folder": folder,
-                "prefix": "_".join(words),
+                "prefix": prefix,
                 "members": sorted(members),
                 "added_or_moved": sorted(added.intersection(members)),
             }
-            for words, members in sorted(prefixes.items())
-            if _longest_new_prefix(folder, words, members, prefixes, added)
-            and (PurePosixPath(folder) / "_".join(words)).as_posix() not in folders
+            for prefix, members in sorted(groups.items())
+            if len(members) >= 2
+            and len(prefix) >= MIN_PREFIX
+            and prefix not in MODIFIERS
+            and singular(prefix) not in own
+            and added.intersection(members)
         )
     return clusters
-
-
-def _longest_new_prefix(
-    folder: str,
-    words: tuple[str, ...],
-    members: list[str],
-    prefixes: dict[tuple[str, ...], list[str]],
-    added: set[str],
-) -> bool:
-    if len(members) < 2 or not added.intersection(members):
-        return False
-    if any(
-        len(other) == len(words) + 1 and other[:-1] == words and group == members
-        for other, group in prefixes.items()
-    ):
-        return False
-    return words != _words(PurePosixPath(folder).name)
 
 
 def _module_names(path: str, profile: dict[str, Any]) -> list[str]:

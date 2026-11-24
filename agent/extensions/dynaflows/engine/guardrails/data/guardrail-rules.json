@@ -184,6 +184,174 @@
       ]
     },
     {
+      "id": "STRUCT.runtime-data-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "data_suffixes": [
+          ".cfg",
+          ".hbs",
+          ".ini",
+          ".j2",
+          ".jinja",
+          ".jinja2",
+          ".json",
+          ".jsonl",
+          ".mustache",
+          ".tmpl",
+          ".toml",
+          ".tpl",
+          ".yaml",
+          ".yml"
+        ],
+        "code_folder": "the nearest folder above the file that holds Python source (.py or .pyi files other than a bundle manifest), which includes every package folder holding __init__.py; the repository root is never one",
+        "bundle_manifests": [
+          "SKILL.md",
+          "pyproject.toml",
+          "setup.cfg",
+          "setup.py"
+        ],
+        "bundle_root_without_python_ends_the_search": true,
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "exceptions": "record guardrails.exceptions entries {rule, path, reason}",
+        "diagnostic_names_file_and_code_folder": true
+      },
+      "summary": "Reject runtime data and template files inside a folder of Python code.",
+      "remediation": {
+        "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its Python code, so data changes look like code changes and one folder mixes two kinds of content.",
+        "fix": "Move the file to a root data folder outside the code, load it from there by explicit path, and update every reader in the same change."
+      },
+      "reference": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.entry-point-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "entry_modules": ["__main__.py", "cli.py"],
+        "package_root": "the top folder of the unbroken chain of folders holding __init__.py that contains the entry module's folder",
+        "top_tier": "the package root and the folders directly under it",
+        "reject_entry_modules_deeper_than_top_tier": true,
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "internal_tool_exemption": "an owner-approved record guardrails.exceptions entry {rule, path, reason}",
+        "diagnostic_names_file_depth_and_package": true
+      },
+      "summary": "Keep __main__.py and cli.py entry modules in their package's top tier.",
+      "remediation": {
+        "root_cause": "A command entry module was added deep inside an implementation tier, so the package's interface is spread across its internals instead of sitting at its top tier.",
+        "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved guardrails.exceptions entry instead."
+      },
+      "reference": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure.paths"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.overlapping-responsibilities",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "unit": "the .py files directly in one folder below the repository root, outside folders named __pycache__, build, dist, examples, fixtures, migrations, node_modules, site-packages, test, testing, tests, third_party or vendor, hidden folders, and any folder at or below one holding SKILL.md, after the record's check and python exclusions",
+        "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
+        "tokens": "identifiers and single non-space characters",
+        "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
+        "definition_similarity": "Jaccard similarity of the two 3-gram sets",
+        "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
+        "scope": "units holding a .py file added, modified or renamed in base..head, compared with every other unit at head",
+        "pair_score_cutoff": 0.336,
+        "evidence": {
+          "accepted_by": "owner",
+          "accepted_on": "2026-11-23",
+          "held_out_precision": 0.74,
+          "held_out_flags": "80/108",
+          "held_out_recall": 0.81,
+          "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
+          "note": "the owner accepted 0.74 held-out precision as a pass"
+        },
+        "exceptions": "a record guardrails.exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
+        "diagnostic_names_both_units_and_closest_definition_pair": true
+      },
+      "summary": "Reject a changed folder whose Python code repeats another folder's code.",
+      "remediation": {
+        "root_cause": "The same logic was written in two folders, so each copy changes on its own and the two drift apart.",
+        "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved guardrails.exceptions entry {rule, path, reason} when the copies must stay apart."
+      },
+      "reference": [
+        {
+          "subcommand": "responsibility-overlap",
+          "module": "guardrails.commands.structure.responsibility_overlap"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.prefix-folder",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "candidates": "PREFIX.candidates clusters: sibling .py files in one folder (not __init__.py, not test files, conftest.py or files under a tests or test folder; not hidden, node_modules, vendor, third_party, __pycache__, dist, build or examples folders, nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "pair_features": {
+          "import_edge": "either member imports the other",
+          "shared_reader": "another owned .py file, tests included, imports both",
+          "co_change": "commits touching both divided by commits touching either, over the last 200 first-parent commits up to head (merges diffed against their first parent)",
+          "prefix_is_domain_word": "the singular prefix appears as a word in a docstring or class-name token of either member"
+        },
+        "weights": {
+          "import_edge": 0.35,
+          "shared_reader": 0.25,
+          "co_change": 0.25,
+          "prefix_is_domain_word": 0.15
+        },
+        "pair_score": "sum of weight * feature, co_change capped at 1",
+        "cluster_score": "the highest pair score among the cluster's members",
+        "cluster_score_cutoff": 0.15,
+        "evidence": {
+          "accepted_by": "owner",
+          "accepted_on": "2026-11-23",
+          "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
+          "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
+          "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
+          "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
+          "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+        },
+        "exceptions": "a record guardrails.exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
+        "diagnostic_names_prefix_members_and_closest_pair": true
+      },
+      "summary": "Reject sibling files sharing a name prefix that implement one concept outside a folder named for it.",
+      "remediation": {
+        "root_cause": "Files for one concept were added beside each other with a shared name prefix instead of a folder that names the concept, so the concept has no owner in the tree.",
+        "fix": "Move the prefixed files into a folder named for the prefix's concept, drop the prefix from their names, and update their imports in the same change."
+      },
+      "reference": [
+        {
+          "subcommand": "prefix-folder",
+          "module": "guardrails.commands.structure.prefix_folder"
+        }
+      ]
+    },
+    {
       "id": "NAME.conventions",
       "kind": "bespoke",
       "applicability": "always",
@@ -3133,22 +3301,78 @@
       ]
     },
     {
-      "id": "STRUCTURE.state",
+      "id": "STRUCTURE.kind-candidates",
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
         "base_and_head_required": true,
-        "unreadable_commits_are_a_finding": true
+        "unreadable_commits_are_a_finding": true,
+        "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles",
+        "scope": "candidates whose file is added, modified or renamed in base..head",
+        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
       },
-      "summary": "Report unreadable base or head commits when extracting structure state.",
+      "summary": "Report unreadable base or head commits when proposing structure-naming kind-folder files.",
       "remediation": {
-        "root_cause": "Structure state extraction received commits it cannot read, so it has no base and head to compare.",
-        "fix": "Pass readable base and head commits of this repository, fetching them first when the clone lacks them."
+        "root_cause": "Kind-folder file proposal received commits it cannot read, so it has no head tree to search for technical-kind folders.",
+        "fix": "Fetch the base and head commits into this clone and rerun kind-candidates once both resolve with git rev-parse."
       },
       "reference": [
         {
-          "subcommand": "structure-state",
-          "module": "guardrails.commands.structure.state"
+          "subcommand": "kind-candidates",
+          "module": "guardrails.commands.structure.kind_candidates"
+        }
+      ]
+    },
+    {
+      "id": "STRUCTURE.consumer-candidates",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "base_and_head_required": true,
+        "unreadable_commits_are_a_finding": true,
+        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
+        "scope": "candidates whose file is added, modified or renamed in base..head",
+        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
+      },
+      "summary": "Report unreadable base or head commits when proposing structure-naming consumer files.",
+      "remediation": {
+        "root_cause": "Consumer-file proposal received commits it cannot read, so it has no head tree to search for runnable files.",
+        "fix": "Make both commits readable in the clone (fetch them from the remote if needed), then rerun consumer-candidates for that range."
+      },
+      "reference": [
+        {
+          "subcommand": "consumer-candidates",
+          "module": "guardrails.commands.structure.consumer_candidates"
+        }
+      ]
+    },
+    {
+      "id": "STRUCTURE.name-pairs",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "base_and_head_required": true,
+        "unreadable_commits_are_a_finding": true,
+        "proposer_rules": [
+          "alias",
+          "head_noun",
+          "synonym",
+          "const_value",
+          "clone"
+        ],
+        "det_score": "0.5 * name_sim + 0.5 * body_sim",
+        "scope": "pairs with at least one name defined in a file added, modified or renamed in base..head",
+        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
+      },
+      "summary": "Report unreadable base or head commits when proposing structure-naming name pairs.",
+      "remediation": {
+        "root_cause": "Name-pair proposal received commits it cannot read, so it has no head tree to propose pairs from.",
+        "fix": "Fetch the missing base or head commit into the clone, then rerun name-pairs over that exact merge-base and head range."
+      },
+      "reference": [
+        {
+          "subcommand": "name-pairs",
+          "module": "guardrails.commands.structure.name_pairs"
         }
       ]
     }
