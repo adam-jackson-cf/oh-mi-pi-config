@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -365,8 +365,27 @@ class ProofRunTests(RepositoryCase):
                 ).fetchall()
             assert logged == [
                 (checker, "pass", "prove", "example-owner/example-repo", self.head)
-                for checker in ("path-check", "rename-residue", "structure")
+                for checker in (
+                    "path-check",
+                    "prefix-folder",
+                    "rename-residue",
+                    "responsibility-overlap",
+                    "structure",
+                )
             ], "each prove checker logs its rule results as passes"
+            with closing(sqlite3.connect(store)) as connection:
+                rules = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT judgment FROM decisions WHERE source = 'check'"
+                    )
+                }
+            assert {
+                "STRUCT.prefix-folder",
+                "STRUCT.overlapping-responsibilities",
+                "STRUCT.runtime-data-placement",
+                "STRUCT.entry-point-placement",
+            } <= rules, "the deterministic structure checks log a row per rule"
             self.ci.return_value = "pending"
             result = workflow.prove(
                 self.repo,
@@ -1725,6 +1744,9 @@ class InjectedRemovalError(RuntimeError):
     pass
 
 
+PAIR_ID = "src/a.py::get_user<>src/b.py::fetch_user"
+
+
 class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-structure-test-")
@@ -1755,6 +1777,22 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(agent.cleanup)
         self.agent = Path(agent.name)
         self.judge_role = self.judgment.model
+        self.kinds: list[dict[str, Any]] = [
+            {
+                "path": "src/models/order.py",
+                "state": {"file": {}, "folder": "src/models", "importers": []},
+            }
+        ]
+        self.pairs: list[dict[str, Any]] = [
+            {
+                "id": PAIR_ID,
+                "det_score": 0.5,
+                "state": {"first": {"name": "x"}, "second": {"name": "y"}},
+            }
+        ]
+        self.consumers: list[dict[str, Any]] = [
+            {"path": "src/orders/dash.py", "state": {"file": {}, "package": {}}}
+        ]
 
     async def review(
         self,
@@ -1763,11 +1801,44 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         error: Exception | None = None,
         post_error: Exception | None = None,
     ) -> Any:
-        async def judge(state: Any, questions: dict[str, Any]) -> dict[str, Any]:
-            self.calls.append((state, questions))
-            if error:
-                raise error
-            return {ident: {"bool": score} for ident in questions}
+        from types import SimpleNamespace
+
+        calls = self.calls
+
+        def answer(questions: dict[str, Any]) -> dict[str, Any]:
+            ident = next(iter(questions))
+            if questions[ident]["type"] == "bool":
+                return {ident: {"bool": score}}
+            options = list(questions[ident]["criteria"])
+            rest = (1 - score) / (len(options) - 1) if score == score else score
+            return {
+                ident: {
+                    "probabilities": {
+                        option: score if option == "finished_tool" else rest
+                        for option in options
+                    }
+                }
+            }
+
+        def judge_batch(states: Any, questions: Any, **kwargs: Any) -> Any:
+            calls.append((states, questions))
+
+            class Batch:
+                async def drain_iter(self) -> Any:
+                    for key in states:
+                        yield (
+                            key,
+                            SimpleNamespace(
+                                ok=error is None,
+                                error=str(error),
+                                answers=None if error else answer(questions),
+                            ),
+                        )
+
+                def close(self) -> None:
+                    calls.append("closed")
+
+            return Batch()
 
         with (
             patch.object(workflow, "_structure_config", return_value=self.judgment),
@@ -1776,7 +1847,10 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
             patch.object(workflow, "_structure_states", return_value=self.states),
-            patch.object(workflow, "judge", judge, create=True),
+            patch.object(workflow, "_kind_candidates", return_value=self.kinds),
+            patch.object(workflow, "_name_pairs", return_value=self.pairs),
+            patch.object(workflow, "_consumer_candidates", return_value=self.consumers),
+            patch.object(workflow, "judge_batch", judge_batch, create=True),
             patch.object(
                 workflow,
                 "_post_structure_comment",
@@ -1810,6 +1884,10 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
                 mode="shadow", shadow_exit={"labelled_flags": 10}
             )
 
+    def enforce(self, ident: str) -> None:
+        self.judgment.decisions[ident]["mode"] = "enforced"
+        self.judgment.decisions[ident].pop("shadow_exit", None)
+
     async def test_every_enforced_finding_blocks_and_never_changes_prove_signal(
         self,
     ) -> None:
@@ -1817,60 +1895,70 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         signal.parent.mkdir()
         signal.write_text('{"status":"pass"}')
         result = await self.review()
-        assert result["status"] == "blocked"
-        assert result["halt"]
-        assert result["head"] == self.head
-        assert len(result["findings"]) == 7
+        assert (result["status"], result["halt"], result["head"]) == (
+            "blocked",
+            True,
+            self.head,
+        )
+        assert {(item["question"], item["mode"]) for item in result["findings"]} == {
+            (workflow.KIND_QUESTION, "shadow"),
+            (workflow.PAIR_QUESTION, "enforced"),
+            (workflow.CONSUMER_QUESTION, "enforced"),
+        }
         assert len(result["units"]["src/orders"]["digest"]) == 64
         assert signal.read_text() == '{"status":"pass"}'
-        assert set(self.calls[0][1]) == set(self.questions) - {
-            "prefix_should_be_folder"
-        }
         assert result["thresholds"] == self.thresholds
         comment = workflow._structure_comment(result)
         assert "raw judgment probabilities" in comment
         assert "Every enforced finding blocks merge" in comment
-        assert "(shadow, not blocking)" not in comment
-        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"yes"}
+        assert comment.count("(shadow, not blocking)") == 1
         logged = self.logged()
-        assert len(logged) == 7
         assert {
-            (row["judgment"], row["outcome"], row["mode"], row["trigger"])
+            (row["question"], row["outcome"], row["mode"], row["trigger"], row["item"])
             for row in logged
-        } == {("structure-naming", "flag", "enforced", "pr")}
-        assert {
-            (row["repo"], row["commit_sha"], row["item_kind"], row["item"])
-            for row in logged
-        } == {("owner/repo", self.head, "unit", "src/orders")}
-        assert logged[0]["state_sha256"] == workflow._judgment_digest(self.calls[0][0])
+        } == {
+            (workflow.KIND_QUESTION, "flag", "shadow", "pr", "src/models/order.py"),
+            (workflow.PAIR_QUESTION, "flag", "enforced", "pr", PAIR_ID),
+            (
+                workflow.CONSUMER_QUESTION,
+                "flag",
+                "enforced",
+                "pr",
+                "src/orders/dash.py",
+            ),
+        }
+        assert {(row["repo"], row["commit_sha"]) for row in logged} == {
+            ("owner/repo", self.head)
+        }
 
     async def test_shadow_findings_are_reported_and_logged_but_never_block(
         self,
     ) -> None:
-        self.shadow(*self.questions)
+        self.shadow(workflow.PAIR_QUESTION, workflow.CONSUMER_QUESTION)
         result = await self.review()
         assert (result["status"], result["halt"]) == ("pass", False)
-        assert len(result["findings"]) == 7
         assert {item["mode"] for item in result["findings"]} == {"shadow"}
         comment = workflow._structure_comment(result)
-        assert comment.count("(shadow, not blocking)") == 7
+        assert comment.count("(shadow, not blocking)") == 3
         assert "**Blocked:**" not in comment
         assert {(row["mode"], row["outcome"]) for row in self.logged()} == {
             ("shadow", "flag")
         }
-        self.judgment.decisions["folder_name_coverage"].update(mode="enforced")
-        del self.judgment.decisions["folder_name_coverage"]["shadow_exit"]
+        self.enforce(workflow.PAIR_QUESTION)
         mixed = await self.review()
         assert (mixed["status"], mixed["halt"]) == ("blocked", True)
         assert [
             item["question"] for item in mixed["findings"] if item["mode"] == "enforced"
-        ] == ["folder_name_coverage"]
-        assert workflow._structure_comment(mixed).count("(shadow, not blocking)") == 6
+        ] == [workflow.PAIR_QUESTION]
 
     async def test_scores_below_the_threshold_pass_without_findings(self) -> None:
-        result = await self.review(score=0.5)
+        result = await self.review(score=0.05)
         assert not result["findings"]
-        assert set(result["units"]["src/orders"]["outcomes"].values()) == {"no"}
+        assert {
+            item["outcome"]
+            for group in ("kind_files", "pairs", "consumers")
+            for item in result[group].values()
+        } == {"no"}
         assert (result["status"], result["halt"], result["errors"]) == (
             "pass",
             False,
@@ -1880,14 +1968,14 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_escalated_band_decision_leaves_the_review_incomplete(
         self,
     ) -> None:
-        ident = "folder_name_coverage"
-        decision = self.judgment.decisions[ident]
+        decision = self.judgment.decisions[workflow.KIND_QUESTION]
         del decision["threshold"]
-        decision.update(no_at_most=0.3, yes_at_least=0.7, fallback="backup")
+        decision.update(no_at_most=0.3, yes_at_least=0.9, fallback="backup")
+        self.pairs, self.consumers = [], []
         result = await self.review(score=0.5)
-        assert result["units"]["src/orders"]["outcomes"][ident] == "escalate"
+        assert result["kind_files"]["src/models/order.py"]["outcome"] == "escalate"
         assert (result["status"], result["halt"]) == ("incomplete", False)
-        assert any(f"{ident} escalated to backup" in e for e in result["errors"])
+        assert any("escalated to backup" in e for e in result["errors"])
 
     async def test_the_inspector_route_never_serves_the_gate_judgment(self) -> None:
         with patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}):
@@ -1904,35 +1992,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert any("judge role is openrouter" in error for error in result["errors"])
 
     async def test_a_finding_at_the_threshold_sets_persisted_merge_halt(self) -> None:
-        ident = "folder_name_coverage"
-        result = await self.review(score=0.7)
-        assert result["halt"]
-        assert result["status"] == "blocked"
-        assert result["head"] == self.head
+        self.pairs = []
+        result = await self.review(score=0.8)
+        assert (result["halt"], result["status"]) == (True, "blocked")
         assert {
-            "unit": "src/orders",
-            "question": ident,
+            "unit": "src/orders/dash.py",
+            "question": workflow.CONSUMER_QUESTION,
             "mode": "enforced",
-            "score": 0.7,
-            "threshold": 0.7,
+            "score": 0.8,
+            "threshold": 0.8,
         } in result["findings"]
-        below = await self.review(score=0.69)
+        below = await self.review(score=0.79)
         assert not below["halt"]
-
-    async def test_prefix_question_only_sees_eligible_clusters(self) -> None:
-        (self.repo / "src/orders/order_reader.py").write_text("ORDER_LIMIT = 10\n")
-        (self.repo / "src/orders/order_writer.py").write_text("ORDER_LIMIT = 10\n")
-        git(self.repo, "add", ".")
-        git(self.repo, "commit", "-qm", "add order siblings")
-        self.head = git(self.repo, "rev-parse", "HEAD")
-        self.states = workflow._structure_states(self.repo, self.parent, self.head)
-        eligible = self.states["src/orders"]["cluster"]
-        result = await self.review()
-        assert set(self.calls[0][1]) == set(self.questions)
-        assert eligible
-        assert all(cluster["eligible"] for cluster in eligible)
-        assert self.calls[0][0]["unit_state"]["cluster"] == eligible
-        assert len(result["findings"]) == 8
 
     async def test_judge_and_publication_errors_leave_the_review_incomplete(
         self,
@@ -1956,51 +2027,14 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert not result["halt"]
         assert not result["findings"]
 
-    async def test_shared_question_sets_use_batch(self) -> None:
-        from types import SimpleNamespace
-
-        (self.repo / "src/billing").mkdir()
-        (self.repo / "src/billing/api.py").write_text("BILLING_LIMIT = 10\n")
-        git(self.repo, "add", ".")
-        git(self.repo, "commit", "-qm", "add billing unit")
-        self.head = git(self.repo, "rev-parse", "HEAD")
-        self.states = workflow._structure_states(self.repo, self.parent, self.head)
-        calls: list[Any] = []
-        states, questions = self.states, self.questions
-
-        class Batch:
-            closed = False
-
-            async def drain_iter(self) -> AsyncIterator[tuple[Any, SimpleNamespace]]:
-                for unit in states:
-                    yield (
-                        unit,
-                        SimpleNamespace(
-                            ok=True,
-                            answers={
-                                ident: {"bool": 0.9}
-                                for ident in questions
-                                if ident != "prefix_should_be_folder"
-                            },
-                        ),
-                    )
-
-            def close(self) -> None:
-                self.closed = True
-
-        batch = Batch()
-
-        def judge_batch(states: Any, questions: Any, **kwargs: Any) -> Batch:
-            calls.append((states, questions))
-            return batch
-
-        with patch.object(workflow, "judge_batch", judge_batch, create=True):
-            result = await self.review()
-        assert len(calls) == 1
-        assert len(calls[0][0]) == 2
-        assert len(result["findings"]) == 14
-        assert self.calls == []
-        assert batch.closed
+    async def test_every_proposal_question_is_asked_through_one_batch_per_order(
+        self,
+    ) -> None:
+        await self.review()
+        asked = [list(call[1]) for call in self.calls if call != "closed"]
+        assert asked == [["own_capability"], ["same_thing"], ["kind"], ["kind"]]
+        assert self.calls.count("closed") == 4
+        assert set(self.calls[2][0]) == {PAIR_ID + "##ab", PAIR_ID + "##ba"}
 
     def test_extractor_uses_isolated_harness_cli_and_exact_commit_range(self) -> None:
         with patch.object(

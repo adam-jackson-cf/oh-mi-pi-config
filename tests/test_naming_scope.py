@@ -442,14 +442,10 @@ class ProveScopeTests(NamingScopeCase):
             "legacyUtils/misc.py" in context["files"]
             for context in legacy["related_context"]
         )
-        assert "folder_name_coverage" not in legacy["judgment_questions"]
         assert "technical_kind_grouping" not in legacy["judgment_questions"]
         assert "sibling_naming_pattern" not in legacy["judgment_questions"]
         assert "overlapping_responsibilities" not in legacy["judgment_questions"]
-        assert (
-            "folder_name_coverage"
-            in units["legacyUtils/shipping"]["judgment_questions"]
-        )
+        assert units["legacyUtils/shipping"]["judgment_questions"] == []
         assert "legacyUtils/misc.py" not in legacy["introduced_paths"]
         assert units["legacyUtils/shipping"]["introduced_paths"] == [
             "legacyUtils/shipping/writer.py"
@@ -466,7 +462,7 @@ class ProveScopeTests(NamingScopeCase):
         units = state.extract(self.repo, self.base, head, self.profile)
         assert set(units) == {"catalogue/shipping", "catalogue/shipping/parcel"}
         for unit in units.values():
-            assert "folder_name_coverage" in unit["judgment_questions"]
+            assert unit["judgment_questions"] == []
             assert "catalogue" not in unit["introduced_directories"]
 
     def test_structure_dispatch_does_not_require_legacy_prefix_members_to_move(

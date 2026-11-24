@@ -127,17 +127,21 @@ class PrefixCandidateTests(unittest.TestCase):
         assert cluster["prefix"] == "coverage"
         assert cluster["added_or_moved"] == ["src/shop/grading/coverage_offline.py"]
 
-    def test_existing_child_folder_and_parent_name_are_skipped(self) -> None:
+    def test_a_prefix_naming_the_folder_is_skipped_but_a_child_folder_is_not(
+        self,
+    ) -> None:
         self.write("src/shop/grading/coverage/records.py")
         self.write("src/shop/grading/coverage_store.py")
-        self.write("src/shop/grading/grading_store.py")
+        self.write("src/shop/gradings/grading_store.py")
         base = self.commit("Existing owner folders")
         self.write("src/shop/grading/coverage_offline.py")
-        self.write("src/shop/grading/grading_producer.py")
-        self.commit("Add redundant prefixed siblings")
-        assert self.candidates(base) == []
+        self.write("src/shop/gradings/grading_producer.py")
+        self.commit("Add prefixed siblings")
+        assert [cluster["prefix"] for cluster in self.candidates(base)] == ["coverage"]
 
-    def test_tests_and_init_files_do_not_join_groups(self) -> None:
+    def test_tests_init_modifiers_short_tokens_and_skipped_folders_make_no_group(
+        self,
+    ) -> None:
         base = self.commit("Empty base")
         for path in [
             "src/shop/test_coverage.py",
@@ -146,18 +150,31 @@ class PrefixCandidateTests(unittest.TestCase):
             "src/shop/prefix_test.py",
             "src/shop/__init__.py",
             "src/shop/init_store.py",
+            "src/shop/base_reader.py",
+            "src/shop/base_writer.py",
+            "src/shop/io_reader.py",
+            "src/shop/io_writer.py",
+            "src/shop/tests/audit_writer.py",
+            "src/shop/tests/audit_store.py",
+            "src/shop/.cache/audit_writer.py",
+            "src/shop/.cache/audit_store.py",
+            "src/skill/SKILL.md",
+            "src/skill/audit_writer.py",
+            "src/skill/audit_store.py",
+            "src/shop/conftest.py",
+            "src/shop/conftest_store.py",
         ]:
             self.write(path)
         self.commit("Add tests and package marker")
         assert self.candidates(base) == []
 
-    def test_whole_stem_member_counts_and_longest_words_win(self) -> None:
+    def test_the_leading_name_token_is_the_prefix(self) -> None:
         self.write("src/shop/cross_mode.py", "VALUE = 1\n")
         base = self.commit("Whole-stem sibling")
         self.write("src/shop/cross_mode_metrics.py", "from .cross_mode import VALUE\n")
         self.commit("Add metrics sibling")
         (cluster,) = self.candidates(base)
-        assert cluster["prefix"] == "cross_mode"
+        assert cluster["prefix"] == "cross"
         assert cluster["members"] == [
             "src/shop/cross_mode.py",
             "src/shop/cross_mode_metrics.py",

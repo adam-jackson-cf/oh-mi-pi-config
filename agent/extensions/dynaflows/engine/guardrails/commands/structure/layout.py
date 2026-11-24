@@ -4,6 +4,7 @@ import ast
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails.commands.structure import package_placement
 from guardrails.commands.structure.import_direction import native_findings
 from guardrails.commands.structure.import_graph import run as import_graph_findings
 from guardrails.context import scope
@@ -211,6 +212,12 @@ def path_findings(
     )
 
 
+def package_placement_findings(
+    paths: list[str], inventory: list[str], profile: dict[str, Any]
+) -> list[Finding]:
+    return package_placement.package_file_findings(paths, inventory, profile)
+
+
 def configuration_findings(config: dict[str, Any]) -> list[Finding]:
     if isinstance(config.get("root_directories"), list) and isinstance(
         config.get("root_files"), list
@@ -262,6 +269,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 )
             )
             found.extend(forbidden_import_findings(root, paths, config))
+            found.extend(package_placement_findings(paths, selected.inventory, profile))
             found.extend(native_findings(root, paths, profile))
     except InventoryError as error:
         return [placement(".", str(error), "provide a readable Git snapshot")]

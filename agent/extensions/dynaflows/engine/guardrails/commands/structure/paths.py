@@ -84,6 +84,12 @@ def path_findings(
     ]
 
 
+def owned_paths(root: Path, raw_paths: list[str], profile: dict[str, Any]) -> list[str]:
+    skip = as_list(settings(profile, "paths").get("skip"))
+    found = (normalized_path(root, raw) for raw in raw_paths)
+    return [path for path in found if path is not None and not matches_any(path, skip)]
+
+
 def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
@@ -101,6 +107,13 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 )
             ]
             found.extend(native_findings(root, selected.paths, profile))
+            found.extend(
+                layout.package_placement_findings(
+                    owned_paths(root, selected.paths, profile),
+                    selected.inventory,
+                    profile,
+                )
+            )
             found.extend(
                 scope.restrict(
                     layout.instance_findings(

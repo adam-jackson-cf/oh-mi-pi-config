@@ -130,6 +130,16 @@ def gate_cost():
         assert unit["sibling_context"][0]["files"] == [
             "src/shop/scoring/other/reader.py"
         ]
+        assert [row["unit_path"] for row in unit["sibling_context"]] == [
+            "src/shop/scoring/other",
+            "src/shop/scoring/verification_effort",
+        ]
+        assert unit["file_facts"][scorer] == {
+            "bytes": len(Path(self.repo, scorer).read_bytes()),
+            "lines": len(Path(self.repo, scorer).read_bytes().splitlines()),
+            "functions": 1,
+            "classes": 0,
+        }
         assert unit["evidence_limits"]["truncations"] == []
         self.write(scorer, "invalid python !!!")
         self.git("add", scorer)
@@ -283,19 +293,21 @@ def gate_cost():
         assert output.getvalue() == ""
         assert [f.rule_id for f in findings] == ["STRUCTURE.state"]
 
-    def test_every_destination_is_emitted_even_beyond_tree_evidence_cap(self) -> None:
+    def test_changed_files_keep_their_evidence_beyond_tree_evidence_cap(self) -> None:
         self.write_many("bulk", state.CAPS["tree_files"])
         base = self.commit("A tree at the evidence cap")
         folders = [f"src/owner_{index:03}" for index in range(70)]
         for folder in folders:
             self.write(folder + "/contract.json", "{}")
-        head = self.commit("Seventy destination owners")
+        self.write("zz/late.py", "def late_symbol():\n    pass\n")
+        head = self.commit("Seventy destination owners and a late module")
         result = state.extract(self.repo, base, head)
-        assert list(result) == ["src", *folders]
-        assert result[folders[-1]]["files"] == []
+        assert list(result) == ["src", *folders, "zz"]
+        assert result[folders[-1]]["files"] == [folders[-1] + "/contract.json"]
+        assert result["zz"]["top_level_symbols"] == {"zz/late.py": ["late_symbol"]}
         assert any(
             row["field"] == "tree"
-            for row in result[folders[-1]]["evidence_limits"]["truncations"]
+            for row in result["zz"]["evidence_limits"]["truncations"]
         )
 
     def test_compact_state_byte_budget_preserves_schema_and_reports_lost_evidence(

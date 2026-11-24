@@ -28,17 +28,7 @@ from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
-DIRECTORY_QUESTIONS = frozenset({
-    "technical_kind_grouping",
-    "folder_name_coverage",
-    "overlapping_responsibilities",
-    "sibling_naming_pattern",
-})
-FILE_QUESTIONS = frozenset({
-    "one_name_per_concept",
-    "runtime_data_in_code",
-    "entry_point_placement",
-})
+DIRECTORY_QUESTIONS = frozenset({"technical_kind_grouping"})
 CAPS = {
     "tree_files": 4096,
     "unit_files": 256,
@@ -312,6 +302,7 @@ class SourceIndex:
     symbols: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     docs: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
     constants: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
+    facts: dict[str, dict[str, int]] = dataclasses.field(default_factory=dict)
 
 
 def _directories(repo: Path, revision: str) -> set[str]:
@@ -352,10 +343,15 @@ class Snapshot:
         )
         objects = _owned_blobs(repo, head, self.excluded)
         self.owned_paths = set(objects)
-        self.paths = self.cap(sorted(objects), "tree_files", "tree")
         renames, added = _changes(repo, base, head)
         _, candidate_added = _changes(repo, candidate_base, head)
         self.changes = Changes(renames, added, candidate_added)
+        # The tree cap fills with the change's own files first, then context.
+        changed = sorted(
+            path for path in objects if path in added or path in candidate_added
+        )
+        context = [path for path in sorted(objects) if path not in set(changed)]
+        self.paths = sorted(self.cap(changed + context, "tree_files", "tree"))
         self.parsed = SourceIndex(self.read_sources(objects))
         for path, source in self.parsed.sources.items():
             self.index(path, source)
@@ -370,6 +366,15 @@ class Snapshot:
             self.log.parse_errors.append({"path": path, "error": str(error)})
             return
         self.parsed.trees[path] = tree
+        self.parsed.facts[path] = {
+            "bytes": len(source),
+            "lines": len(source.splitlines()),
+            "functions": sum(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                for node in tree.body
+            ),
+            "classes": sum(isinstance(node, ast.ClassDef) for node in tree.body),
+        }
         visitor = TopLevelNames()
         visitor.visit(tree)
         docs: dict[str, str] = {}
@@ -393,7 +398,10 @@ class Snapshot:
         self.parsed.constants[path] = {name: constants[name] for name in constant_names}
 
     def read_sources(self, objects: dict[str, str]) -> dict[str, bytes]:
-        paths = [path for path in self.paths if path.endswith(".py")]
+        paths = sorted(
+            (path for path in self.paths if path.endswith(".py")),
+            key=lambda path: (path not in self.changes.added, path),
+        )
         if not paths:
             return {}
         oids = sorted({objects[path] for path in paths})
@@ -622,6 +630,9 @@ class Snapshot:
             "top_level_symbols": {
                 p: self.parsed.symbols[p] for p in paths if p in self.parsed.symbols
             },
+            "file_facts": {
+                p: self.parsed.facts[p] for p in paths if p in self.parsed.facts
+            },
             "import_edges": {
                 kind: self.cap(rows, "edges", "import_edges." + kind)
                 for kind, rows in edge_groups.items()
@@ -684,8 +695,7 @@ class Snapshot:
             for p in self.paths
             if _inside(p, parent)
         })
-        siblings = [(PurePosixPath(parent) / name).as_posix() for name in sibling_names]
-        return [p for p in siblings if p != folder]
+        return [(PurePosixPath(parent) / name).as_posix() for name in sibling_names]
 
     def term_owners(self, folder: str, paths: list[str]) -> dict[str, set[str]]:
         unit_words: set[str] = set()
@@ -736,7 +746,12 @@ class Snapshot:
                 },
             })
         state["files"] = sorted(introduced)
-        for field in ("top_level_symbols", "docstrings", "constant_values"):
+        for field in (
+            "top_level_symbols",
+            "file_facts",
+            "docstrings",
+            "constant_values",
+        ):
             state[field] = {
                 path: value
                 for path, value in state[field].items()
@@ -755,12 +770,8 @@ class Snapshot:
             for cluster in state["cluster"]
             if cluster["members"] and set(cluster["members"]).issubset(introduced)
         ]
-        questions = set(FILE_QUESTIONS) if introduced else set()
-        if folder in state["introduced_directories"]:
-            questions.update(DIRECTORY_QUESTIONS)
-        if state["cluster"]:
-            questions.add("prefix_should_be_folder")
-        state["judgment_questions"] = sorted(questions)
+        # Every structure-naming question now judges code-proposed files or pairs, not units.
+        state["judgment_questions"] = []
         return _bounded(state)
 
 

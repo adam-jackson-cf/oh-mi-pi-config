@@ -22,6 +22,9 @@ Prove checks four things:
    error is listed in `decisionLogErrors` and never changes a verdict.
    The same merge-base/head range runs naming, structure and path-check for added/renamed
    paths and new segments only. Legacy paths and content-only edits are never findings.
+   `guardrails responsibility-overlap` compares every folder with an added, modified or renamed
+   `.py` file against the rest of the head tree and blocks on repeated code, and
+   `guardrails prefix-folder` blocks sibling files that share a name prefix for one concept.
    These PR pre-checks are the principles 5/17 exception in
    [AGENTS.md](../../../AGENTS.md#exceptions).
    A term still naming an owned directory or module stem at head is not retired (a concept split

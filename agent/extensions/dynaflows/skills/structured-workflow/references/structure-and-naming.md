@@ -23,14 +23,15 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - A part lives under its one owner; a second user moves it to a shared lower tier. Enforced by STRUCT.single-owner-placement (guardrails structure, path-check).
 - No grab-bag folders (house-style `banned_words`); shared code goes in the lowest tier, named for content. Enforced by NAME.conventions (guardrails naming).
 - Extract candidates when sibling files share a name prefix for one concept (`audit_*`). Enforced by PREFIX.candidates (guardrails prefix-candidates).
-- Files jointly implementing one concept go in a folder named for it (`audit/`). Judged by structure-naming/prefix_should_be_folder.
-- Merge units with overlapping responsibilities into one owner; no near-duplicates. Judged by structure-naming/overlapping_responsibilities.
-- Run-time data (definitions, configuration, templates) lives in a root folder outside the code package. Judged by structure-naming/runtime_data_in_code.
+- Files jointly implementing one concept go in a folder named for it (`audit/`). Enforced by STRUCT.prefix-folder (guardrails prefix-folder).
+- Code repeated across folders moves into one shared mechanism. Enforced by STRUCT.overlapping-responsibilities (guardrails responsibility-overlap).
+- Run-time data (definitions, config, templates) stays out of Python code folders. Enforced by STRUCT.runtime-data-placement (guardrails structure, path-check).
 - Tests follow the language pack's placement; fixtures sit beside tests loading them. Enforced by STRUCT.folder-placement (guardrails structure, path-check).
 - Name each test file for the behaviour it checks. Enforced by NAME.test-files (guardrails naming).
 - A code move updates test imports in the same step; test files stay where they are. Guidance only.
-- A CLI or API entry point is the package's interface and lives in its top tier. Judged by structure-naming/entry_point_placement.
-- A finished-product consumer (dashboard, report tool) gets its own root folder and is never imported. Judged by structure-naming/entry_point_placement.
+- `__main__.py` and `cli.py` sit in the package root or a folder directly under it. Enforced by STRUCT.entry-point-placement (guardrails structure, path-check).
+- A deeper internal-tool entry module needs an owner `guardrails.exceptions` entry. Enforced by STRUCT.entry-point-placement (guardrails structure, path-check).
+- A finished-product consumer (dashboard, report tool) gets its own root folder and is never imported. Judged by structure-naming/consumer_placement.
 - Generated output and run artifacts live outside the checkout or behind ignored links. Enforced by STRUCT.folder-placement (guardrails structure, path-check).
 - Version only what must be reproduced or compared, as `<name>/v<N>`; name the current version in one place. Guidance only.
 - Never edit a measured version; a change is a new version. Guidance only.
@@ -44,7 +45,8 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 
 - Folder and module names are singular lowercase nouns for their concept or tier (`capability`, `engine`). Enforced by NAME.conventions (guardrails naming).
 - Plurals name only a catalogue of same-kind items addressed by name (house-style `catalogue_plurals`). Enforced by NAME.conventions (guardrails naming).
-- A name covers everything its folder holds; rename the folder when its contents outgrow it. Judged by structure-naming/folder_name_coverage.
+- A name covers everything its folder holds, including the parts of its concept. Guidance only.
+- Rename a folder when its contents outgrow its name. Guidance only.
 - A child name never repeats its parent's tokens: `harness/tokens.js`, not `harness/harness-tokens.js`. Enforced by NAME.conventions (guardrails naming).
 - Tokens split at `_`, `-`, `.`, lower-or-digit-to-upper and acronym-to-word boundaries; drop empty ones. Enforced by NAME.conventions (guardrails naming).
 - A repeat is the parent's tokens, contiguous, ordered and whole, anywhere in the child, ignoring case. Enforced by NAME.conventions (guardrails naming).
@@ -53,11 +55,11 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Owner-approved `guardrails.exceptions` with `check: child-repeats-parent` keep other naming checks. Enforced by NAME.conventions (guardrails naming).
 - Name by behaviour, never version, date or ticket (`test_base_comparison`, not `test_policy4`). Enforced by NAME.conventions (guardrails naming).
 - Dates only name time-ordered records such as decisions and reviews; versions only `<name>/v<N>`. Enforced by NAME.conventions (guardrails naming).
-- Use one name per concept across code, flags, record fields, docs and tests, and the project glossary if any. Judged by structure-naming/one_name_per_concept.
+- Use one name per concept across code, flags, record fields, docs and tests, and the project glossary if any. Judged by structure-naming/same_thing.
 - A rename changes every use in one change, with no old-name alias. Enforced by RENAME.residue (guardrails rename-residue).
 - Retire the whole renamed name (`gate_effort`), not each word; unchanged mechanism names (`gate`) stay. Enforced by RENAME.residue (guardrails rename-residue).
 - A pinned or released file moved under a renamed folder is renamed too, with locks redone and experiments rerun, or stays put. Guidance only.
-- Siblings share one pattern (`one-shot-verify`, `define-build-verify`); keep mechanism names. Judged by structure-naming/sibling_naming_pattern.
+- A new folder follows the pattern its same-role peers under one parent share; a mechanism name may stay. Guidance only.
 - Use plain domain words, never grab-bag or status words (house-style `banned_words`). Enforced by NAME.conventions (guardrails naming).
 - Never add a `v<N>` suffix outside a `<name>/v<N>` folder or file. Enforced by NAME.conventions (guardrails naming).
 - Code files use the language pack's casing; non-code asset ids use house-style `asset_id` casing. Enforced by NAME.conventions (guardrails naming).
