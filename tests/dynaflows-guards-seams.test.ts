@@ -134,6 +134,8 @@ function extensionOptions(machine: string, records: string, choices: CommandChoi
 			return { answers, model: judged.model };
 		},
 		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsProfileCommand: ["true"],
+		// The rails ledger goes to this harness's machine dir (its decision store), never ~/.omp/agent.
+		storePath: join(machine, "dynaflows", "dynaflows.db"),
 		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
 	};
 	if (choices.configPath !== undefined) options.configPath = choices.configPath;

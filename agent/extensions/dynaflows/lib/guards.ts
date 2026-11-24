@@ -6,6 +6,7 @@ import type { Mode } from "./modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, mentionsGit, readRecord, repoRoot, worktreeTarget, type GitAction,
 } from "./rails-runtime.ts";
+import { assignmentName, refuse, type Refusal } from "./rails-ledger.ts";
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type PushPlan = { remote: string | undefined; refspecs: string[]; all: boolean };
@@ -41,30 +42,36 @@ const GH_REFUSED = new Set(["auth token", "config set", "repo set-default", "rep
 const validBase = (value: string | undefined): value is string =>
 	value !== undefined && (isAbsolute(value) || value.startsWith("~/"));
 
-function worktreeTargetReason(args: string[], cwd: string, base: string, name: string): string | undefined {
+function worktreeTargetReason(args: string[], cwd: string, base: string, name: string): Refusal | undefined {
 	const target = worktreeTarget(args);
 	if (!target) throw new Error("git worktree add requires a target path");
-	if (/[$`]/.test(target)) return `Agent rails: received unexpanded shell text \`${target}\`; rails check the literal command, so pass the worktree path itself`;
+	if (/[$`]/.test(target)) return refuse("unexpanded-shell", `Agent rails: received unexpanded shell text \`${target}\`; rails check the literal command, so pass the worktree path itself`);
 	const resolved = absolute(target, cwd);
 	if (!resolved) throw new Error("git worktree add requires a filesystem target");
 	if (dirname(canonicalPath(resolved)) !== canonicalPath(join(base, name))) {
-		return `Agent rails: create worktrees at ${base}/${name}/<slug>; got ${resolved}.`;
+		return refuse("worktree-placement", `Agent rails: create worktrees at ${base}/${name}/<slug>; got ${resolved}.`);
 	}
 	return undefined;
 }
 
-function commitHookReason(action: GitAction): string | undefined {
+const CWD_UNRESOLVED = "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before";
+
+function commitHookReason(action: GitAction): Refusal | undefined {
 	const bypass = commitBypass(action);
-	if (bypass) return `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`;
-	if (!action.cwd) return "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git commit.";
+	if (bypass) {
+		return refuse("hook-bypass", `Agent rails: commits must run the pre-commit hook; drop ${bypass} and commit again.`,
+			`Agent rails: commits must run the pre-commit hook; drop ${assignmentName(bypass)} and commit again.`);
+	}
+	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git commit.`);
 	return undefined;
 }
 
-function hookBypassReason(action: GitAction): string | undefined {
-	if (action.hookSkip) return `Agent rails: pre-commit hook environment mutation is forbidden: ${action.hookSkip}`;
+function hookBypassReason(action: GitAction): Refusal | undefined {
+	const forbidden = "Agent rails: pre-commit hook environment mutation is forbidden:";
+	if (action.hookSkip) return refuse("hook-env", `${forbidden} ${action.hookSkip}`, `${forbidden} ${assignmentName(action.hookSkip)}`);
 	if (!PULLS_COMMITS.test(action.command)) return undefined;
 	const bypass = commitBypass(action);
-	return bypass ? `Agent rails: drop hook bypass ${bypass}` : undefined;
+	return bypass ? refuse("hook-bypass", `Agent rails: drop hook bypass ${bypass}`, `Agent rails: drop hook bypass ${assignmentName(bypass)}`) : undefined;
 }
 
 // git config options and subcommands that only read.
@@ -72,7 +79,7 @@ const CONFIG_READS = ["--get", "--get-all", "--get-regexp", "--get-urlmatch", "-
 const CONFIG_SCOPES = ["--global", "--system", "--file", "-f", "--blob", "--worktree"];
 const CONFIG_UNSETS = ["--unset", "--unset-all", "unset", "--remove-section", "remove-section", "--rename-section", "rename-section"];
 
-const HOOKS_PATH_REFUSED = "Agent rails: git config may set core.hooksPath only to a directory inside this repository, in the repository's own config; hooks are never bypassed.";
+const HOOKS_PATH_REFUSED = refuse("hooks-path-write", "Agent rails: git config may set core.hooksPath only to a directory inside this repository, in the repository's own config; hooks are never bypassed.");
 
 /** Whether a hooks path value stays inside the repository: relative, no `..`, and an existing directory there when the cwd is known. */
 const plainRelative = (value: string | undefined): value is string =>
@@ -88,7 +95,7 @@ async function hooksPathInside(value: string | undefined, cwd: string | undefine
 	return (await stat(resolve(root, value)).catch(() => null))?.isDirectory() ?? false;
 }
 
-async function hooksPathReason(args: string[], cwd: string | undefined): Promise<string | undefined> {
+async function hooksPathReason(args: string[], cwd: string | undefined): Promise<Refusal | undefined> {
 	const key = args.findIndex(arg => /^core\.hookspath$/i.test(arg));
 	if (key < 0) return undefined;
 	if (args.some(arg => CONFIG_SCOPES.includes(arg.split("=")[0] ?? "") || CONFIG_UNSETS.includes(arg))) return HOOKS_PATH_REFUSED;
@@ -98,12 +105,12 @@ async function hooksPathReason(args: string[], cwd: string | undefined): Promise
 }
 
 /** Persistent hook-path and alias changes: a hooks path must stay a directory inside the repository. */
-async function configWriteReason(action: GitAction): Promise<string | undefined> {
+async function configWriteReason(action: GitAction): Promise<Refusal | undefined> {
 	if (!/^git config\b/.test(action.command)) return undefined;
 	const args = action.args.slice(1);
 	if (args.some(arg => CONFIG_READS.includes(arg))) return undefined;
 	const alias = args.find(arg => /^alias(?:\.|$)/i.test(arg));
-	if (alias) return `Agent rails: git config ${alias} defines a Git command; aliases are set by the owner, never by agents.`;
+	if (alias) return refuse("config-alias-write", `Agent rails: git config ${alias} defines a Git command; aliases are set by the owner, never by agents.`);
 	return hooksPathReason(args, action.cwd);
 }
 
@@ -123,24 +130,26 @@ async function gitText(pi: ExecApi, cwd: string, args: string[]): Promise<string
 	return result.code === 0 ? result.stdout.trim() : undefined;
 }
 
-async function worktreeReason(pi: ExecApi, ompCommand: string[], action: GitAction): Promise<string | undefined> {
+async function worktreeReason(pi: ExecApi, ompCommand: string[], action: GitAction): Promise<Refusal | undefined> {
 	if (!action.cwd) throw new Error("cannot resolve git worktree add effective cwd");
 	const base = await configuredBase(pi, ompCommand, action.cwd);
 	const expandedBase = validBase(base) ? absolute(base, action.cwd) : undefined;
-	if (!expandedBase || !isAbsolute(expandedBase)) return "Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.";
+	if (!expandedBase || !isAbsolute(expandedBase)) return refuse("worktree-base-unset", "Agent rails: worktree.base is unset; set it (agent/config.yml) before git worktree add.");
 	const origin = await gitText(pi, action.cwd, ["remote", "get-url", "origin"]);
-	if (origin === undefined) return "Agent rails: no origin remote; cannot create a worktree.";
+	if (origin === undefined) return refuse("worktree-origin", "Agent rails: no origin remote; cannot create a worktree.");
 	const name = parseOrigin(origin)?.split("/")[1];
-	if (!name) return `Agent rails: origin ${origin} is not a GitHub owner/name URL; cannot create a worktree.`;
+	if (!name) return refuse("worktree-origin", `Agent rails: origin ${origin} is not a GitHub owner/name URL; cannot create a worktree.`);
 	return worktreeTargetReason(action.args, action.cwd, expandedBase, name);
 }
 
-async function agentMergeReason(action: GitAction, configRoot: string): Promise<string | undefined> {
-	if (!action.cwd) return "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.";
+async function agentMergeReason(action: GitAction, configRoot: string): Promise<Refusal | undefined> {
+	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git push or gh pr create/merge.`);
 	const root = await repoRoot(action.cwd);
 	if (!root) throw new Error("publishing requires a validated local Git repository");
 	const record = await readRecord(root, configRoot);
-	if (record?.gate.agentMerge === "disabled") return "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.";
+	if (record?.gate.agentMerge === "disabled") {
+		return refuse("agent-merge-disabled", "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.");
+	}
 	return undefined;
 }
 
@@ -212,8 +221,8 @@ async function protectedBranches(pi: ExecApi, cwd: string, remote: string, defau
 	return [...new Set([defaults.get(key) ?? branch, branch])];
 }
 
-async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranches): Promise<string | undefined> {
-	if (!action.cwd) return "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push.";
+async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranches): Promise<Refusal | undefined> {
+	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git push.`);
 	const plan = pushPlan(action.args);
 	const current = await gitText(pi, action.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
 	const remote = plan.remote ?? await implicitRemote(pi, action.cwd, current);
@@ -222,14 +231,14 @@ async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranc
 		: await implicitTargets(pi, action.cwd, remote, current);
 	const branches = await protectedBranches(pi, action.cwd, remote, defaults);
 	if (!branches) {
-		return `Agent rails: cannot resolve the default branch of remote ${remote} (refs/remotes/${remote}/HEAD); ` +
-			`run git remote set-head ${remote} --auto, then push again.`;
+		return refuse("push-remote-head", `Agent rails: cannot resolve the default branch of remote ${remote} (refs/remotes/${remote}/HEAD); ` +
+			`run git remote set-head ${remote} --auto, then push again.`);
 	}
 	const mirror = await gitText(pi, action.cwd, ["config", "--bool", "--get", `remote.${remote}.mirror`]) === "true";
 	const hit = branches.find(branch => targets.includes(branch));
 	if (!plan.all && !mirror && !targets.includes(EVERY_BRANCH) && !hit) return undefined;
-	return `Agent rails: git push to ${remote}'s default branch ${hit ?? branches[0]} is blocked in minimal and structured mode; ` +
-		"push a feature branch and open a PR instead.";
+	return refuse("push-default-branch", `Agent rails: git push to ${remote}'s default branch ${hit ?? branches[0]} is blocked in minimal and structured mode; ` +
+		"push a feature branch and open a PR instead.");
 }
 
 function configKey(entry: string): string {
@@ -247,18 +256,18 @@ const CONFIG_WRITE_FLAGS = ["--add", "--unset", "--unset-all", "--replace-all"];
 const CONFIG_READ_FLAGS = ["--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list", "--get-color", "--get-colorbool"];
 const CONFIG_VALUED = ["-f", "--file", "--blob", "-t", "--type", "--default", "--comment", "--value"];
 
-function oneShotConfigReason(action: GitAction): string | undefined {
+function oneShotConfigReason(action: GitAction): Refusal | undefined {
 	const keys = action.config.map(configKey);
 	const alias = keys.find(key => key.startsWith("alias."));
-	if (alias) return `Agent rails: git -c ${alias} defines a command the rails cannot check; run the Git command itself.`;
+	if (alias) return refuse("config-alias", `Agent rails: git -c ${alias} defines a command the rails cannot check; run the Git command itself.`);
 	const pushing = keys.find(key => /^(?:push|remote|branch)\./.test(key));
 	if (pushing && /^git push\b/.test(action.command)) {
-		return `Agent rails: git -c ${pushing} changes where git push sends commits; drop it and push with the repository's own configuration.`;
+		return refuse("push-config-override", `Agent rails: git -c ${pushing} changes where git push sends commits; drop it and push with the repository's own configuration.`);
 	}
 	// Commits and commit-pulling commands name the hook bypass themselves (commitHookReason, hookBypassReason).
-	if (keys.includes("core.hookspath")) return /^git commit\b/.test(action.command) || PULLS_COMMITS.test(action.command) ? undefined : "Agent rails: git -c core.hooksPath skips hooks; drop it.";
+	if (keys.includes("core.hookspath")) return /^git commit\b/.test(action.command) || PULLS_COMMITS.test(action.command) ? undefined : refuse("hooks-path-override", "Agent rails: git -c core.hooksPath skips hooks; drop it.");
 	const other = keys.find(key => !ALLOWED_CONFIG.test(key));
-	return other ? `Agent rails: git -c ${other} is refused; one-shot config may set only ${ALLOWED_CONFIG_TEXT}.` : undefined;
+	return other ? refuse("config-oneshot", `Agent rails: git -c ${other} is refused; one-shot config may set only ${ALLOWED_CONFIG_TEXT}.`) : undefined;
 }
 
 type ConfigArgs = { positional: string[]; write: boolean; unnamed: boolean; read: boolean };
@@ -287,12 +296,12 @@ function configWriteKey(args: string[]): string | undefined {
 	return write || positional.length > 1 ? first.toLowerCase() : undefined;
 }
 
-function persistentConfigReason(action: GitAction): string | undefined {
+function persistentConfigReason(action: GitAction): Refusal | undefined {
 	if (action.args[0] !== "config") return undefined;
 	const key = configWriteKey(action.args);
 	// configWriteReason owns core.hooksPath: only an existing directory inside the repository, in its own config.
 	return key !== undefined && key !== "core.hookspath" && !ALLOWED_CONFIG.test(key)
-		? `Agent rails: git config writes to ${key === "*" ? "unnamed keys" : key} are refused (hooks, aliases, includes, remotes and branches steer what the rails check); ask the owner.`
+		? refuse("config-write", `Agent rails: git config writes to ${key === "*" ? "unnamed keys" : key} are refused (hooks, aliases, includes, remotes and branches steer what the rails check); ask the owner.`)
 		: undefined;
 }
 
@@ -313,13 +322,13 @@ function remoteWrite(args: string[]): boolean {
 	return operation === "remote" && REMOTE_WRITES.includes(sub) && !(sub === "set-head" && args.some(arg => ["-a", "--auto"].includes(arg)));
 }
 
-function stateWriteReason(action: GitAction): string | undefined {
+function stateWriteReason(action: GitAction): Refusal | undefined {
 	const [operation = "", sub = ""] = action.args;
-	if (/^git (?:send-pack|http-push|receive-pack)\b/.test(action.command)) return `Agent rails: git ${operation} bypasses the push checks; use git push.`;
-	if (PLUMBING.test(action.command)) return `Agent rails: git ${operation} creates commits or moves refs outside the rails; use git commit and git push.`;
-	if (remoteWrite(action.args)) return `Agent rails: git remote ${sub} changes which repository and default branch the rails check; ask the owner.`;
-	if (operation === "symbolic-ref" && symbolicRefWrite(action.args)) return "Agent rails: git symbolic-ref writes move refs the push checks read; ask the owner.";
-	return mentionsGit(nestedCommand(action.args)) ? `Agent rails: git ${operation} would run git or gh commands the rails cannot check; run them directly.` : undefined;
+	if (/^git (?:send-pack|http-push|receive-pack)\b/.test(action.command)) return refuse("push-bypass", `Agent rails: git ${operation} bypasses the push checks; use git push.`);
+	if (PLUMBING.test(action.command)) return refuse("git-plumbing", `Agent rails: git ${operation} creates commits or moves refs outside the rails; use git commit and git push.`);
+	if (remoteWrite(action.args)) return refuse("remote-write", `Agent rails: git remote ${sub} changes which repository and default branch the rails check; ask the owner.`);
+	if (operation === "symbolic-ref" && symbolicRefWrite(action.args)) return refuse("symbolic-ref-write", "Agent rails: git symbolic-ref writes move refs the push checks read; ask the owner.");
+	return mentionsGit(nestedCommand(action.args)) ? refuse("nested-git", `Agent rails: git ${operation} would run git or gh commands the rails cannot check; run them directly.`) : undefined;
 }
 
 function rebaseExec(args: string[]): string {
@@ -333,7 +342,7 @@ function rebaseExec(args: string[]): string {
 	return values.join(" ");
 }
 
-function gitRouteReason(action: GitAction): string | undefined {
+function gitRouteReason(action: GitAction): Refusal | undefined {
 	if (!action.command.startsWith("git ")) return undefined;
 	return oneShotConfigReason(action) ?? persistentConfigReason(action) ?? stateWriteReason(action);
 }
@@ -374,52 +383,52 @@ function apiEndpoint(endpoint: string): string {
 	return path.replace(/\/+/g, "/").replace(/^\/|\/$/g, "").toLowerCase();
 }
 
-function graphqlReason(request: GhApiRequest): string | undefined {
+function graphqlReason(request: GhApiRequest): Refusal | undefined {
 	if (request.input || request.fields.some(field => field.startsWith("query=@"))) {
-		return "Agent rails: gh api graphql with --input or query=@file sends a body the rails cannot read; pass the query inline.";
+		return refuse("gh-graphql-body", "Agent rails: gh api graphql with --input or query=@file sends a body the rails cannot read; pass the query inline.");
 	}
 	const query = request.fields.filter(field => field.startsWith("query=")).join("\n");
 	if (!/\bmutation\b/.test(query)) return undefined;
 	const body = query.slice(query.search(/\bmutation\b/)).replace(/^mutation\s*(?:[A-Za-z_]\w*)?/, "");
 	const refused = [...body.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)]
 		.map(match => match[1] ?? "").filter(name => !GRAPHQL_MUTATIONS.has(name));
-	return refused.length ? `Agent rails: gh api graphql mutation ${refused.join(", ")} is outside the allowed PR conversation mutations.` : undefined;
+	return refused.length ? refuse("gh-graphql-mutation", `Agent rails: gh api graphql mutation ${refused.join(", ")} is outside the allowed PR conversation mutations.`) : undefined;
 }
 
-function ghApiReason(action: GitAction): string | undefined {
+function ghApiReason(action: GitAction): Refusal | undefined {
 	if (!/^gh api\b/.test(action.command)) return undefined;
 	const request = ghApiRequest(action.args);
-	if (/[$`\0]/.test(request.endpoint)) return `Agent rails: gh api endpoint ${request.endpoint} is built at run time; pass the literal endpoint.`;
+	if (/[$`\0]/.test(request.endpoint)) return refuse("gh-api-dynamic-endpoint", `Agent rails: gh api endpoint ${request.endpoint} is built at run time; pass the literal endpoint.`);
 	const endpoint = apiEndpoint(request.endpoint);
 	if (endpoint === "graphql") return graphqlReason(request);
 	const method = request.method || (request.fields.length || request.input ? "POST" : "GET");
 	if (["GET", "HEAD"].includes(method) || GH_API_WRITES.some(pattern => pattern.test(endpoint))) return undefined;
-	return `Agent rails: gh api ${method} ${endpoint} is refused; agents may write only PR and issue comments, reviews and labels through gh api.`;
+	return refuse("gh-api-write", `Agent rails: gh api ${method} ${endpoint} is refused; agents may write only PR and issue comments, reviews and labels through gh api.`);
 }
 
-function ghCommandReason(action: GitAction): string | undefined {
+function ghCommandReason(action: GitAction): Refusal | undefined {
 	if (!action.command.startsWith("gh ")) return undefined;
 	const [command = "", sub = ""] = action.args;
 	if (!command.startsWith("-") && !GH_COMMANDS.has(command)) {
-		return `Agent rails: gh ${command} is not a built-in gh command; gh aliases and extensions run commands the rails cannot check.`;
+		return refuse("gh-external-command", `Agent rails: gh ${command} is not a built-in gh command; gh aliases and extensions run commands the rails cannot check.`);
 	}
 	return GH_REFUSED.has(`${command} ${sub}`)
-		? `Agent rails: gh ${command} ${sub} changes repository settings or targets the rails depend on; ask the owner.`
+		? refuse("gh-settings", `Agent rails: gh ${command} ${sub} changes repository settings or targets the rails depend on; ask the owner.`)
 		: undefined;
 }
 
-function minimalMergeReason(mode: Mode): string | undefined {
+function minimalMergeReason(mode: Mode): Refusal | undefined {
 	return mode === "minimal"
-		? "Agent rails: gh pr merge is blocked in dynaflows minimal mode; the owner merges, or switches this repository to structured mode."
+		? refuse("minimal-merge", "Agent rails: gh pr merge is blocked in dynaflows minimal mode; the owner merges, or switches this repository to structured mode.")
 		: undefined;
 }
 
 type AppliedPolicy = Omit<MergePolicy, "base" | "headPrefix"> & { source: string };
 const METHOD_FLAGS = new Map([["--rebase", "rebase"], ["-r", "rebase"], ["--merge", "merge"], ["-m", "merge"], ["--squash", "squash"], ["-s", "squash"]]);
 
-function adminMergeReason(args: string[]): string | undefined {
+function adminMergeReason(args: string[]): Refusal | undefined {
 	return args.some(arg => arg === "--admin" || arg.startsWith("--admin="))
-		? "Agent rails: gh pr merge --admin bypasses the base branch's requirements; drop --admin and merge once they pass."
+		? refuse("merge-admin", "Agent rails: gh pr merge --admin bypasses the base branch's requirements; drop --admin and merge once they pass.")
 		: undefined;
 }
 
@@ -430,14 +439,14 @@ function mergePolicyFor(policies: MergePolicy[], base: string, head: string): Ap
 	return { method: match.method, proof: match.proof, source: `mergePolicies {base: ${match.base}, headPrefix: ${match.headPrefix}}` };
 }
 
-function mergeMethodReason(args: string[], policy: AppliedPolicy): string | undefined {
+function mergeMethodReason(args: string[], policy: AppliedPolicy): Refusal | undefined {
 	const methods = [...new Set(args.flatMap(arg => METHOD_FLAGS.get(arg) ?? []))];
 	if (methods.length === 1 && methods[0] === policy.method) return undefined;
 	const given = methods.length ? methods.join(" and ") : "no method";
-	return `Agent rails: ${policy.source} merges with --${policy.method}; got ${given}. Run gh pr merge with --${policy.method}.`;
+	return refuse("merge-method", `Agent rails: ${policy.source} merges with --${policy.method}; got ${given}. Run gh pr merge with --${policy.method}.`);
 }
 
-function routeReason(action: GitAction): string | undefined {
+function routeReason(action: GitAction): Refusal | undefined {
 	return gitRouteReason(action) ?? ghCommandReason(action) ?? ghApiReason(action);
 }
 
@@ -478,10 +487,10 @@ function prMerge(args: string[]): PrMerge {
 	return merge;
 }
 
-function prMergeReason(merge: PrMerge): string | undefined {
-	if (merge.unknown) return `Agent rails: gh pr merge flag ${merge.unknown} is not one the rails know; use gh's documented merge flags.`;
-	if (merge.heads.length > 1) return "Agent rails: gh pr merge takes one --match-head-commit; gh uses the last, so pass exactly one.";
-	return merge.selectors.length > 1 ? "Agent rails: gh pr merge takes one PR selector." : undefined;
+function prMergeReason(merge: PrMerge): Refusal | undefined {
+	if (merge.unknown) return refuse("merge-flag-unknown", `Agent rails: gh pr merge flag ${merge.unknown} is not one the rails know; use gh's documented merge flags.`);
+	if (merge.heads.length > 1) return refuse("merge-args-ambiguous", "Agent rails: gh pr merge takes one --match-head-commit; gh uses the last, so pass exactly one.");
+	return merge.selectors.length > 1 ? refuse("merge-args-ambiguous", "Agent rails: gh pr merge takes one PR selector.") : undefined;
 }
 
 export { adminMergeReason, mergeMethodReason, mergePolicyFor, prMerge, prMergeReason, type AppliedPolicy, type DefaultBranches };

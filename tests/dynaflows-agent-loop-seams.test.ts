@@ -74,7 +74,12 @@ function outcomes(stdout: string): ToolOutcome[] {
 function deployExtension(home: string, port: number): void {
 	const target = join(home, ".omp/agent/extensions/dynaflows");
 	const skipped = new Set(["engine", "docs", "judgments"]);
-	cpSync(extension, target, { recursive: true, filter: source => !skipped.has(relative(extension, source).split("/")[0] ?? "") });
+	// The decision store schema is the one engine file the extension reads.
+	const schema = "engine/guardrails/data/decision-store.sql";
+	cpSync(extension, target, { recursive: true, filter: source => {
+		const path = relative(extension, source);
+		return !skipped.has(path.split("/")[0] ?? "") || path === schema || schema.startsWith(`${path}/`);
+	} });
 	symlinkSync(join(repoRoot, "node_modules"), join(home, ".omp/node_modules"));
 	writeFileSync(join(home, ".omp/agent/config.yml"), "extensions:\n  - ~/.omp/agent/extensions/dynaflows\n");
 	writeFileSync(join(home, ".omp/agent/models.yml"), [

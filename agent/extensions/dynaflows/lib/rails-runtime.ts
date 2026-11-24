@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
 import { findRecord, loadGate, type Gate } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
+import { RailError, refuse, type Refusal } from "./rails-ledger.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the harness path check.
 const SUBPROCESS_TIMEOUT_MS = 20_000;
@@ -172,31 +173,31 @@ async function realTarget(lexical: string): Promise<string> {
 		}
 	}
 }
-async function rootEscapeReason(path: string, enclosingRoot: string | undefined, resolved: string): Promise<string | undefined> {
+async function rootEscapeReason(path: string, enclosingRoot: string | undefined, resolved: string): Promise<Refusal | undefined> {
 	let root = enclosingRoot;
 	while (root) {
 		const outside = relative(await realpath(root), resolved);
 		if (outside === ".." || outside.startsWith("../") || isAbsolute(outside)) {
-			return `Agent rails: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`;
+			return refuse("subagent-path", `Agent rails: subagent write path "${path}" resolves to "${resolved}", outside git root "${root}"; use an absolute path inside your assigned worktree without a symlink escape.`);
 		}
 		const above = dirname(root);
 		root = above === root ? undefined : await repoRoot(above);
 	}
 	return undefined;
 }
-async function subagentTargetReason(target: string): Promise<string | undefined> {
+async function subagentTargetReason(target: string): Promise<Refusal | undefined> {
 	const path = target.startsWith("~/") ? resolve(homedir(), target.slice(2)) : target;
 	if (/^[a-z][\w+.-]*:\/\//i.test(path)) return undefined;
-	if (!isAbsolute(path)) return `Agent rails: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`;
+	if (!isAbsolute(path)) return refuse("subagent-path", `Agent rails: subagent write path "${path}" is relative; use an absolute path inside your assigned worktree.`);
 	try {
 		const lexical = resolve(path);
 		const root = await repoRoot(lexical);
 		return await rootEscapeReason(path, root, await realTarget(lexical));
 	} catch (error) {
-		return `Agent rails: cannot evaluate subagent write path "${path}": ${String(error)}`;
+		return refuse("subagent-path", `Agent rails: cannot evaluate subagent write path "${path}": ${String(error)}`);
 	}
 }
-async function subagentPathReason(targets: string[]): Promise<string | undefined> {
+async function subagentPathReason(targets: string[]): Promise<Refusal | undefined> {
 	for (const target of targets) {
 		const reason = await subagentTargetReason(target);
 		if (reason) return reason;
@@ -220,8 +221,8 @@ function missing(state: State, map: Mapping, mode: Mode, triggers: string[]): st
 function sentence(text: string): string {
 	return /[.!?]$/.test(text) ? text : `${text}.`;
 }
-function readReason(urls: string[], mode: Mode): string {
-	return `Agent rails (${mode} mode): read ${urls.join(" and ")}, then retry.`;
+function readReason(urls: string[], mode: Mode): Refusal {
+	return refuse("read-gate", `Agent rails (${mode} mode): read ${urls.join(" and ")}, then retry.`);
 }
 
 const WRAPPER_OPTIONS = new Map<string, string[]>(Object.entries({
@@ -280,7 +281,7 @@ function mentionsGit(text: string): boolean {
 // mentionsGit, or a git/gh word anywhere (a path like x/git or a word like git-tool): the wider, fail-closed test.
 const mentionsProcess = (text: string) => mentionsGit(text) || /\b(?:git|gh)\b/.test(text);
 const unseen = (what: string) =>
-	new Error(`${what} runs git, gh, hub or omp where the rails cannot check it; run git and gh directly with the bash tool`);
+	new RailError("git-unseen", `${what} runs git, gh, hub or omp where the rails cannot check it; run git and gh directly with the bash tool`);
 
 function unquote(text: string): string {
 	return text.replace(QUOTED_TEXT, (_match, double: string | undefined, single: string | undefined, escaped: string | undefined) =>
@@ -318,7 +319,7 @@ function nestedOpening(command: string, index: number, closing: string): NestedO
 }
 
 function closingIndex(command: string, start: number, closing: string, nesting = 0): number {
-	if (nesting > 16) throw new Error("shell scan exceeds supported bounds");
+	if (nesting > 16) throw new RailError("shell-unparseable", "shell scan exceeds supported bounds");
 	for (let i = start; i < command.length; i++) {
 		const char = command[i];
 		if (char === "\\" && closing !== "'") { i++; continue; }
@@ -327,7 +328,7 @@ function closingIndex(command: string, start: number, closing: string, nesting =
 		const nested = nestedOpening(command, i, closing);
 		if (nested) i = closingIndex(command, nested.start, nested.closing, nesting + 1);
 	}
-	throw new Error("unterminated shell quote or command substitution; cannot parse safely");
+	throw new RailError("shell-unparseable", "unterminated shell quote or command substitution; cannot parse safely");
 }
 
 function substitutionAt(command: string, index: number): Substitution {
@@ -393,7 +394,7 @@ function closingBrace(tokens: string[], body: number): number {
 		if (tokens[end] === "{") braces++;
 		if (tokens[end] === "}") braces--;
 	}
-	if (braces) throw new Error("unterminated shell function definition; cannot parse safely");
+	if (braces) throw new RailError("shell-unparseable", "unterminated shell function definition; cannot parse safely");
 	return end;
 }
 
@@ -527,7 +528,7 @@ class ShellScan {
 			return end;
 		}
 		if (hasGitWord(tokens.slice(body + 1, end - 1).join(" "), this.substitutions)) {
-			throw new Error("shell function definition contains a git/gh word; persistent shell functions cannot be parsed safely");
+			throw new RailError("shell-unparseable", "shell function definition contains a git/gh word; persistent shell functions cannot be parsed safely");
 		}
 		await this.flush();
 		return end;
@@ -590,11 +591,11 @@ class ShellScan {
 		this.words.shift();
 		if (tool.subcommands.length) this.words.shift();
 		if (tool.separator && !this.words.includes("--")) {
-			throw new Error(`${launcher} exec/x requires -- before the wrapped command; cannot parse safely`);
+			throw new RailError("shell-unparseable", `${launcher} exec/x requires -- before the wrapped command; cannot parse safely`);
 		}
 		await this.skipToolOptions(launcher, tool, separatesWrappedCommand(launcher, tool, this.words));
 		if (!isGitWord(this.words[0] ?? "") && this.words.some(isGitWord)) {
-			throw new Error(`${launcher} wrapped command could not be parsed safely; put git first after options or use --`);
+			throw new RailError("shell-unparseable", `${launcher} wrapped command could not be parsed safely; put git first after options or use --`);
 		}
 	}
 
@@ -684,7 +685,7 @@ class ShellScan {
 
 	program(name: string, executable: string): void {
 		if (HTTP_CLIENTS.includes(name) && githubApiWrite(name, this.words)) {
-			throw new Error(`${executable} writes to the GitHub API outside the rails; use gh so the rails can check it`);
+			throw new RailError("http-github-write", `${executable} writes to the GitHub API outside the rails; use gh so the rails can check it`);
 		}
 		const launches = LAUNCHERS.has(name) ? this.words.some(mentionsGit) : !INERT.has(name) && this.words.some(isProcessWord);
 		if (launches) throw unseen(name);
@@ -693,7 +694,7 @@ class ShellScan {
 	omp(): void {
 		const [first, second] = this.words;
 		if (OMP_QUERIES.includes(first ?? "") || (first === "config" && ["get", "list", "path"].includes(second ?? ""))) return;
-		throw new Error("omp in bash starts an agent outside the rails; use the task tool for subagents");
+		throw new RailError("omp-in-bash", "omp in bash starts an agent outside the rails; use the task tool for subagents");
 	}
 
 	async interpreter(executable: string, inline: string[]): Promise<void> {
@@ -713,7 +714,7 @@ class ShellScan {
 
 	/** Throws `reason` when the whole command has a git/gh word: what the scan cannot see may run Git. */
 	refuseWithGitWord(reason: string): void {
-		if (mentionsProcess(this.scan.source)) throw new Error(`${reason}, in a command with a git/gh word, cannot be checked; run the commands themselves in their own command`);
+		if (mentionsProcess(this.scan.source)) throw new RailError("script-unchecked", `${reason}, in a command with a git/gh word, cannot be checked; run the commands themselves in their own command`);
 	}
 
 	scriptTarget(path: string): string | undefined {
@@ -735,13 +736,13 @@ class ShellScan {
 
 	async scriptText(path: string, text: string, inline: boolean): Promise<void> {
 		if (!mentionsProcess(text)) return;
-		if (text.length > SCRIPT_LIMIT) throw new Error(`script ${path} with a git/gh word exceeds the scan limit`);
+		if (text.length > SCRIPT_LIMIT) throw new RailError("shell-unparseable", `script ${path} with a git/gh word exceeds the scan limit`);
 		this.actions.push(...await gitActions(text, this.cwd, this.scan, this.depth + 1, inline));
 	}
 
 	refuseGitAlias(): void {
 		if (this.words.some(word => word.includes("=") && hasGitWord(word.slice(word.indexOf("=") + 1), this.substitutions))) {
-			throw new Error("alias definition contains a git/gh word; persistent shell aliases cannot be parsed safely");
+			throw new RailError("shell-unparseable", "alias definition contains a git/gh word; persistent shell aliases cannot be parsed safely");
 		}
 	}
 
@@ -783,7 +784,7 @@ class ShellScan {
 
 	async gitOption(option: string, effective: string | undefined, config: string[]): Promise<string | undefined> {
 		if (GIT_RETARGET_OPTIONS.some(name => option === name || option.startsWith(name.endsWith("=") ? name : `${name}=`))) {
-			throw new Error(`git ${option.split("=")[0]} points git at another repository, config or program than the rails check; cd into the repository instead`);
+			throw new RailError("git-retarget", `git ${option.split("=")[0]} points git at another repository, config or program than the rails check; cd into the repository instead`);
 		}
 		if (GIT_VALUED_OPTIONS.includes(option)) return this.gitValuedOption(option, effective, config);
 		if (option.startsWith("-c") && option.length > 2) config.push(option.slice(2));
@@ -799,18 +800,18 @@ class ShellScan {
 
 	gh(): void {
 		if (this.words[0] === "alias" && GH_ALIAS_WRITES.includes(this.words[1] ?? "")) {
-			throw new Error(`gh alias ${this.words[1]} defines a command the rails cannot check; run the gh command itself`);
+			throw new RailError("gh-alias-write", `gh alias ${this.words[1]} defines a command the rails cannot check; run the gh command itself`);
 		}
 		if (this.words.some(word => ["-R", "--repo", "--hostname"].includes(word) || /^(-R.|--repo=|--hostname=)/.test(word))) {
-			throw new Error("gh remote repository overrides are unsupported; use the validated local target repository");
+			throw new RailError("gh-repo-override", "gh remote repository overrides are unsupported; use the validated local target repository");
 		}
 		this.actions.push({ command: `gh ${this.words.join(" ")}`, args: [...this.words], cwd: this.cwd, config: [] });
 	}
 }
 
 async function gitActions(command: string, cwd: string | undefined, scan?: ScanState, depth = 0, inline = false): Promise<GitAction[]> {
-	if (depth > 16 || command.length > SCRIPT_LIMIT) throw new Error("shell scan exceeds supported bounds");
-	if (command.includes("\0")) throw new Error("shell scan does not support NUL bytes");
+	if (depth > 16 || command.length > SCRIPT_LIMIT) throw new RailError("shell-unparseable", "shell scan exceeds supported bounds");
+	if (command.includes("\0")) throw new RailError("shell-unparseable", "shell scan does not support NUL bytes");
 	const state = scan ?? { commands: [], executables: [], source: command };
 	const { shell, substitutions } = maskSubstitutions(command);
 	const tokens = shell.match(/(?:[^\s;&|()"'\\]+|\\.|"(?:\\.|[^"\\])*"|'[^']*')+|&&|\|\||[;&|()\n]/g) ?? [];
@@ -961,3 +962,7 @@ export { codeRunsGit, mentionsGit, shellCommands, commitScopeArgument, INDEX_WRI
 export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
 export { fileErrorSchema };
 export type { Mapping, RepoRecord, GitAction, State, ToolEvent };
+export {
+	blockLine, closeEpisodes, coded, insertEntries, openEpisode, RailError, refuse, resolvedLine, storePath,
+	type Episode, type LedgerLine, type RailCode, type Refusal,
+} from "./rails-ledger.ts";

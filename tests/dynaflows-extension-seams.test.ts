@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
+import { machineName, storePath, withStore } from "../agent/extensions/dynaflows/lib/decision-store.ts";
 import { harness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, railsConfig, mergeRecover, watchedProofCall } from "./dynaflows-guards-seams.test";
 
 const proofs = "skill://structured-workflow/references/proofs.md";
@@ -1384,4 +1385,135 @@ test("a record merge policy sets the method and whether proof is needed for its 
 		assert.ok(reasonOf(await sync("--merge")).includes("the default policy merges with --rebase"), "another head prefix gets the default");
 		assert.ok(reasonOf(await sync("--rebase")).includes("no prove() pass"));
 	} finally { h.cleanup(); }
+});
+
+type LedgerHarness = ReturnType<typeof harness>;
+type LedgerRow = {
+	ts: string; session: string; repo: string | null; mode: string | null; tool: string; kind: string; code: string;
+	reason: string | null; calls: number | null; refusals: number | null; machine: string;
+};
+
+function ledger(h: LedgerHarness): LedgerRow[] {
+	const path = storePath(h.machine);
+	if (!existsSync(path)) return [];
+	return withStore(db => db.query<LedgerRow, []>(
+		"SELECT ts, session, repo, mode, tool, kind, code, reason, calls, refusals, machine FROM rail_events ORDER BY id",
+	).all(), path);
+}
+
+function brief(entries: LedgerRow[]): string[] {
+	return entries.map(entry => `${entry.kind} ${entry.code} ${entry.tool}${entry.kind === "resolved" ? ` calls=${entry.calls} refusals=${entry.refusals}` : ""}`);
+}
+
+describe("rails ledger", () => {
+	test("a refusal writes a coded block row and a later passing call on the same target resolves it", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
+			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
+			await h.call("bash", { command: "ls" });
+			const [first] = ledger(h);
+			assert.ok(first);
+			assert.equal(first.session, "first");
+			assert.equal(first.repo, "owner/repo");
+			assert.equal(first.mode, "structured");
+			assert.equal(first.machine, machineName());
+			assert.equal(first.reason, `Agent rails (structured mode): read ${integrity}, then retry.`);
+			await h.read(integrity, structure);
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			assert.deepEqual(brief(ledger(h)), ["block read-gate edit", "block read-gate edit", "resolved read-gate edit calls=3 refusals=2"],
+				"an unrelated passing call resolves nothing; the episode counts both refusals and the calls to the pass");
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			assert.equal(ledger(h).length, 3, "passing calls with no open episode write nothing");
+		} finally { h.cleanup(); }
+	});
+
+	test("Git refusals carry their own codes and resolve on the same Git verb", async () => {
+		const h = harness();
+		try {
+			assert.equal(isBlocked(await h.call("bash", { command: "git commit -m x" })), true);
+			await h.read("skill://git-tool");
+			assert.equal(isBlocked(await h.call("bash", { command: "git push origin main" })), true);
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+			const override = await h.call("bash", { command: "gh pr create -R other/repo" });
+			assert.ok(reasonOf(override).startsWith("Agent rails: policy could not be evaluated: Error: gh remote repository overrides"), "the text is unchanged");
+			assert.equal(isBlocked(await h.call("bash", { command: "echo 'unterminated" })), true);
+			assert.deepEqual(brief(ledger(h)), ["block read-gate bash", "block push-default-branch bash", "resolved read-gate bash calls=2 refusals=1",
+				"block gh-repo-override bash", "block shell-unparseable bash"]);
+			assert.equal(ledger(h)[0]?.mode, "minimal");
+		} finally { h.cleanup(); }
+	});
+
+	test("ledger rows never carry command output bodies or hook-skip values", async () => {
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-ledger-")));
+		const script = join(scratch, "check.sh");
+		writeFileSync(script, "#!/bin/sh\necho 'COMMIT-BODY finding in src/x.py'\nexit 3\n", { mode: 0o755 });
+		const h = harness();
+		try {
+			await h.read("skill://git-tool", mergeRecover);
+			h.gate({ schemaVersion: 2, checks: { commit: [script] } });
+			h.mode("structured");
+			const blocked = await h.call("bash", { command: "git commit -m x" });
+			assert.ok(reasonOf(blocked).includes("COMMIT-BODY"), "the agent still sees the output");
+			h.pathFailure("STAGED-BODY naming finding");
+			assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes("STAGED-BODY"));
+			assert.equal(isBlocked(await h.call("bash", { command: "SKIP=SKIP-VALUE git commit -m x" })), true);
+			const entries = ledger(h);
+			assert.deepEqual(entries.map(entry => entry.code), ["commit-checks", "staged-path-check", "hook-env"]);
+			const summaries = [
+				`Agent rails: checks.commit (${script}) failed in ${h.root} (exit 3)`,
+				`Agent rails: staged path check failed in ${h.root}`,
+				"Agent rails: pre-commit hook environment mutation is forbidden: SKIP",
+			];
+			entries.forEach((entry, index) => {
+				const reason = entry.reason ?? "";
+				assert.ok(reason.length <= 200, `reasons are capped at 200 characters: ${reason}`);
+				assert.ok((summaries[index] ?? "").startsWith(reason.replace(/…$/, "")), `the reason is the summary: ${reason}`);
+			});
+			const stored = JSON.stringify(entries);
+			for (const body of ["COMMIT-BODY", "STAGED-BODY", "SKIP-VALUE"]) assert.equal(stored.includes(body), false, body);
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
+	});
+
+	test("post-edit path-check failures are logged without their findings and resolve when the path check passes", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			await h.read(integrity, structure);
+			h.pathFailure("FINDING-BODY use feature ownership");
+			writeFileSync(join(h.root, "another.ts"), "export {};\n");
+			const result = await h.call("edit", { path: "another.ts" });
+			assert.ok(result?.additionalContext?.includes("FINDING-BODY"));
+			h.pathFailure();
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			const entries = ledger(h);
+			assert.deepEqual(brief(entries), ["context path-check edit", "resolved path-check edit calls=1 refusals=1"]);
+			assert.equal(entries[0]?.reason, `Agent rails: path check failed in ${h.root}`);
+		} finally { h.cleanup(); }
+	});
+
+	test("a refused handoff resolves when a later handoff passes", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			await h.read(integrity, structure);
+			await h.call("edit", { path: "existing.ts" });
+			assert.equal((await h.emit("session_stop"))?.decision, "block");
+			await h.read(verification);
+			assert.equal(await h.emit("session_stop"), undefined);
+			assert.deepEqual(brief(ledger(h)), ["block handoff-read session_stop", "resolved handoff-read session_stop calls=0 refusals=1"]);
+		} finally { h.cleanup(); }
+	});
+
+	test("a ledger write failure is noted and never changes the decision", async () => {
+		const h = harness();
+		try {
+			writeFileSync(join(h.machine, "dynaflows"), "not a directory\n");
+			const blocked = await h.call("bash", { command: "git commit -m x" });
+			assert.equal(isBlocked(blocked), true);
+			assert.ok(reasonOf(blocked).includes("read skill://git-tool"));
+			assert.ok(h.notes.some(note => note.startsWith(`Agent rails: cannot write the rails ledger ${storePath(h.machine)}:`)), h.notes.join("\n"));
+		} finally { h.cleanup(); }
+	});
 });

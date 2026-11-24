@@ -106,6 +106,7 @@ tests/*
 !tests/dynaflows-bypass-seams.test.ts
 !tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
+!tests/dynaflows-ledger-report.test.ts
 !tests/analyse.test.ts
 !tests/extension-health.test.ts
 !tests/orca-terminal-themes.test.ts
