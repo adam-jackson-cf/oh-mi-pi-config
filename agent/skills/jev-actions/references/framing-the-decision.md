@@ -59,7 +59,7 @@ or collecting cases.
   - State fields: a placeholder path such as `<summary-field>`, leaving Q7 `not checked`.
   - Other user-only report fields, such as label provenance: `unknown`.
 - List every assumed value in the result and in `shortfalls`, and ask the user to confirm or correct
-  each one; the judgment is enforced from the moment it ships, whether or not they have answered.
+  each one; the judgment runs in its mode from the moment it ships, whether or not they have answered.
   Input logging follows only the capture rule in [eval data schemas](eval-data-schemas.md).
 - Before writing questions, check the judgment can be measured and is a judgment at all:
   - Base rate: estimate how often real positives occur per unit asked. At 1% prevalence, precision

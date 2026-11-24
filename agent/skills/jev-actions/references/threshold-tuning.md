@@ -15,15 +15,13 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   result, below 0.75 needs the user's recorded override: `override` in `thresholds.json` with who
   gave it, when and why. `scripts/tune_threshold.py` refuses a lower `--min-precision` without
   `--owner-override`.
-- A judgment ships enforced or not at all; no shadow, advisory or provisional state holds
-  enforcement back until tuning is done.
-  An untuned judgment has no measured precision, so it ships only under the user's recorded
-  override, at the cost-rule default, with the missing measurement in `shortfalls`.
+- A measured judgment ships enforced. One whose precision cannot be measured yet ships, by the
+  user's choice, enforced under their recorded override or in shadow, at the cost-rule default,
+  with the missing measurement in `shortfalls`. Shadow asks and logs like enforced but never
+  blocks; every result is stored for review, and `shadow_exit`, such as 10 labelled flags, ends it:
+  enforce when precision meets the target, else apply the end states below.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
   fails, keep the cost-rule default and record the failed gate in `shortfalls`.
-  List every repository doc, plan or code comment that requires a shadow or provisional state,
-  and delete or rewrite it in the change that ships enforcement; the user's instruction decides
-  conflicts.
 - Precision target: 0.75 for every question by default; at 0.75, three of every four flags are real.
   Raise it only when the user, asked what a wrong flag costs, sets a higher target; record the
   target, that the user set it, and their reason. Never raise it from the kind of action alone.
@@ -106,7 +104,7 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 
   A question cannot reach about 30 cases only when the full history of every source the user names,
   such as repositories, yields fewer; ask the user once for more sources before declaring it.
-  Too few cases is a data gap, not an end state: keep the question enforced under the user's override,
+  Too few cases is a data gap, not an end state: run the question enforced under override or in shadow,
   its cutoff set from measured false flags and synthetic catches, the gap in `shortfalls`; re-measure as cases arrive.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
   sizes and synthetic share; precision target and who set it, minimums, reasons and metric; held-out

@@ -24,9 +24,10 @@ safely and stays versioned.
 - omp's judge takes a Choice as `criteria: {label: rubric}`; an `options` map fails every call.
 - Measure request budgets, cost and end-to-end latency.
 - Read answers by what they measure:
-  - Gate on each question's named `decision` from [threshold tuning](threshold-tuning.md), enforced
-    from the moment it ships, so production acts on the decision rather than logging it: a single cutoff is yes at score >= `threshold`, else no, and a band
-    sends its middle to its fallback judge; use the cost-rule default, under the user's recorded override, until a threshold is tuned.
+  - Gate on each question's named `decision` from [threshold tuning](threshold-tuning.md), in its
+    `mode` from the moment it ships: enforced acts on the decision, shadow logs it for review.
+    A single cutoff is yes at score >= `threshold`, else no, and a band sends its middle to its
+    fallback judge; use the cost-rule default, under override or in shadow, until a threshold is tuned.
   - Read a probability as a confidence only after a [calibration check](calibration-check.md).
   - Choice and Score confidence is distribution concentration, not correctness or permission to act.
     Below its threshold, code takes the Choice or Score fallback agreed at framing instead of the

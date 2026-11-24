@@ -69,8 +69,8 @@ depends on.
 - When nothing can be replayed, log each input production asks to `cases.jsonl` as `source` `replay`, stratum
   `unassigned`, with 30% of units hashed stably to `test`; label after 14 days, extending in 14-day
   steps until about 30 of each label exist.
-  With no cases yet, ship the judgment enforced at the cost-rule default from
-  [threshold tuning](threshold-tuning.md) only under the user's recorded override, write the
+  With no cases yet, ship the judgment enforced under the user's recorded override, or in shadow,
+  at the cost-rule default from [threshold tuning](threshold-tuning.md), write the
   question versions and label guides, and end the task once logging is in place.
 - Stratify by source or segment and by failure mode, giving every stratum both labels, ideally 10
   or more of each; grow a short stratum before rewording questions, unless
