@@ -24,7 +24,13 @@ Store eval files where they belong, in shapes every later step and the tuning sc
   who set it (`default` or the user) and why, the starting cutoff, held-out precision with its flag count, any `override`
   (`by`, `timestamp`, `reason`) that keeps a judgment below the 0.75 usefulness floor enforced,
   assumptions with reasons, and `shortfalls`, each missing input, failed gate or thin or assumed
-  evidence with what it blocks.
+  evidence with what it blocks, plus `mode` (`enforced` or `shadow`) and, for shadow, `shadow_exit`.
+  - The question's kind, for analysis across judgments: `approach` (the [design patterns](design-patterns.md)
+    row: Gate, Route, Rerank, Select, Grade, Verify or Eval judge), `overlays` (Face-value, Changing
+    state, Chain, Place), `primitive` (`noul`, `choice`, `score`), `evidence_unit` (`item`, `pair`,
+    `placement`), `combination` (`jev_only`, `proposer_product`, `chain_all`, `any`,
+    `max_per_unit`), `action` (`block`, `confirm`, `review_queue`, `log`, `route`) and
+    `policy_area`, a kebab-case word for the policy it enforces.
   - `decision` is `{"threshold": t}`, yes at score >= t, else no; only with a fallback judge may it
     be a band `{"no_at_most", "yes_at_least", "fallback"}`.
   - With an escalation band, also record its fallback judge, cascade accuracy and escalation rate on

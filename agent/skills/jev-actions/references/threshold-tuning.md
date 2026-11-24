@@ -15,15 +15,13 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   result, below 0.75 needs the user's recorded override: `override` in `thresholds.json` with who
   gave it, when and why. `scripts/tune_threshold.py` refuses a lower `--min-precision` without
   `--owner-override`.
-- A judgment ships enforced or not at all; no shadow, advisory or provisional state holds
-  enforcement back until tuning is done.
-  An untuned judgment has no measured precision, so it ships only under the user's recorded
-  override, at the cost-rule default, with the missing measurement in `shortfalls`.
+- A measured judgment ships enforced. One whose precision cannot be measured yet ships, by the
+  user's choice, enforced under their recorded override or in shadow, at the cost-rule default,
+  with the missing measurement in `shortfalls`. Shadow asks and logs like enforced but never
+  blocks; every result is stored for review, and `shadow_exit`, such as 10 labelled flags, ends it:
+  enforce when precision meets the target, else apply the end states below.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
   fails, keep the cost-rule default and record the failed gate in `shortfalls`.
-  List every repository doc, plan or code comment that requires a shadow or provisional state,
-  and delete or rewrite it in the change that ships enforcement; the user's instruction decides
-  conflicts.
 - Precision target: 0.75 for every question by default; at 0.75, three of every four flags are real.
   Raise it only when the user, asked what a wrong flag costs, sets a higher target; record the
   target, that the user set it, and their reason. Never raise it from the kind of action alone.
@@ -94,18 +92,20 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
 - Score `test` once at the shipped threshold; when it misses the minimums, record why in
   `shortfalls` and grow the label set or narrow the question, keeping the threshold enforced.
   Report the fold range and per-stratum results without gating on them.
-- End states: when held-out precision stays below 0.75 at every cutoff, a question cannot reach
-  about 30 in-scope cases per label, or ranking still fails after the fix passes in
+- End states: when held-out precision stays below 0.75 at every cutoff, or ranking still fails
+  after the fix passes in
   [error analysis](error-analysis.md), including a decomposition from
   [question design](question-design.md), ask the user to choose, and end the turn:
   1. Replace the question with deterministic facts computed in code.
   2. Turn it into an agent instruction on a deterministic harness event, such as a tool-call hook.
-  3. Retire the question.
+  3. Retire the question, only when real positives show it misses or buries them; never for rarity.
   4. Keep enforcing it under the user's recorded override, with the measured precision in
      `shortfalls`.
 
   A question cannot reach about 30 cases only when the full history of every source the user names,
   such as repositories, yields fewer; ask the user once for more sources before declaring it.
+  Too few cases is a data gap, not an end state: run the question enforced under override or in shadow,
+  its cutoff set from measured false flags and synthetic catches, the gap in `shortfalls`; re-measure as cases arrive.
 - Report per decision: question ID, version key and model; cases per label, provenance mix, split
   sizes and synthetic share; precision target and who set it, minimums, reasons and metric; held-out
   precision against the 0.75 floor with its flag count, and any override; AUC, its interval and ranking status;

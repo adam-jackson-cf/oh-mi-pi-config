@@ -59,12 +59,13 @@ or collecting cases.
   - State fields: a placeholder path such as `<summary-field>`, leaving Q7 `not checked`.
   - Other user-only report fields, such as label provenance: `unknown`.
 - List every assumed value in the result and in `shortfalls`, and ask the user to confirm or correct
-  each one; the judgment is enforced from the moment it ships, whether or not they have answered.
+  each one; the judgment runs in its mode from the moment it ships, whether or not they have answered.
   Input logging follows only the capture rule in [eval data schemas](eval-data-schemas.md).
 - Before writing questions, check the judgment can be measured and is a judgment at all:
   - Base rate: estimate how often real positives occur per unit asked. At 1% prevalence, precision
     0.8 at recall 0.5 allows a false-flag rate of about 0.16% per unit; a question with no real
-    positives in the available history cannot be tuned until data exists.
+    positives in the available history cannot be tuned until data exists. Rarity is a data gap to
+    close by mining full history and more sources, never a reason to retire.
   - Code-detectable sub-cases: split out every shape of positive that code can detect, such as a
     pattern match. Code owns a shape outright only when every match is a violation and the shape
     alone meets the precision target; a shape that is sometimes legitimate becomes a proposer rule
