@@ -23,8 +23,16 @@ from typing import Any, Never
 from unittest.mock import patch
 
 import pytest
+from test_reference_decision_store import (
+    no_unclosed_connections as no_unclosed_connections,
+)
 
-pytestmark = pytest.mark.fast
+# A sqlite3 connection left open fails the test where it is freed, and the guard fixture finds the rest.
+pytestmark = [
+    pytest.mark.fast,
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
 
 
 @pytest.fixture(autouse=True)

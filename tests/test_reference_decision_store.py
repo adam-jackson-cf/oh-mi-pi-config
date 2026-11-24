@@ -1,12 +1,16 @@
 """The decision store, deterministic check logging and guardrails shadow-review."""
 
+import gc
 import json
 import shutil
 import sqlite3
 import subprocess
 import tempfile
 import unittest
+import warnings
+from collections.abc import Callable, Iterator
 from contextlib import closing, redirect_stderr, redirect_stdout
+from functools import partial
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -19,7 +23,35 @@ from guardrails.commands.shadow_review import command, inspector, stores
 from guardrails.foundation import decision_store
 from guardrails.foundation.findings import Finding
 
-pytestmark = pytest.mark.fast
+# A connection the store leaves open is an error: its ResourceWarning fails the test where it is freed.
+pytestmark = [
+    pytest.mark.fast,
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
+
+
+def unclosed_connections(action: Callable[[], object]) -> list[str]:
+    """The sqlite3 connections `action` leaves open, found by their ResourceWarning after a full collection."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        action()
+        gc.collect()
+    return [
+        str(item.message)
+        for item in caught
+        if issubclass(item.category, ResourceWarning)
+        and "unclosed database" in str(item.message)
+    ]
+
+
+@pytest.fixture(autouse=True)
+def no_unclosed_connections() -> Iterator[None]:
+    """Every test leaves no sqlite3 connection open, including one only a cycle still holds."""
+    gc.collect()
+    yield
+    assert unclosed_connections(lambda: None) == []
+
 
 # The Jev Inspector session shape, vendored as key sets from jev-inspector's
 # crates/jev-inspector/src/session.rs (Session) and crates/jev-protocol/src/lib.rs
@@ -214,6 +246,38 @@ class DecisionStoreTests(StoreCase):
                 pytest.raises(decision_store.StoreError, match="schema version 2"),
             ):
                 opener(self.store)
+
+    def test_the_leak_guard_finds_a_connection_left_open(self) -> None:
+        assert unclosed_connections(lambda: sqlite3.connect(":memory:")) != []
+
+    def test_a_refused_open_closes_its_connection(self) -> None:
+        garbage = self.dir / "garbage.db"
+        garbage.write_bytes(
+            b"not a sqlite database, but long enough to look like one " * 4
+        )
+        future = self.dir / "future.db"
+        with decision_store.opened(future) as connection:
+            connection.execute("PRAGMA user_version = 9")
+
+        def refused(opener: Callable[[Path], sqlite3.Connection], path: Path) -> None:
+            with pytest.raises(decision_store.StoreError):
+                opener(path)
+
+        for opener in (decision_store.connect, decision_store.connect_read_only):
+            for path in (garbage, future):
+                with self.subTest(opener=opener.__name__, path=path.name):
+                    assert unclosed_connections(partial(refused, opener, path)) == []
+
+    def test_a_failed_merge_closes_its_in_memory_store(self) -> None:
+        with decision_store.opened(self.store) as local:
+            local.execute("DROP VIEW shadow_progress")
+            local.execute("DROP TABLE questions")
+
+            def merge() -> None:
+                with pytest.raises(sqlite3.OperationalError):
+                    stores.Stores(local, [])
+
+            assert unclosed_connections(merge) == []
 
     def test_a_store_that_cannot_be_written_raises_a_store_error(self) -> None:
         blocked = self.dir / "file"

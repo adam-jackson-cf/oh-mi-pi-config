@@ -160,43 +160,65 @@ def _version(connection: sqlite3.Connection) -> int:
     return int(row[0])
 
 
-def _checked(connection: sqlite3.Connection, path: Path) -> sqlite3.Connection:
+def _check_version(connection: sqlite3.Connection, path: Path) -> None:
     version = _version(connection)
     if version != schema_version():
-        connection.close()
         raise StoreError(
             f"the decision store {path} is at schema version {version}; "
             f"this harness reads version {schema_version()} only"
         )
-    return connection
+
+
+@contextmanager
+def closing_on_error(
+    connection: sqlite3.Connection,
+) -> Generator[sqlite3.Connection, None, None]:
+    """Close `connection` when the block raises, so no failed open leaves a handle behind."""
+    try:
+        yield connection
+    except BaseException:
+        connection.close()
+        raise
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
-    """Open the store, creating it on first use. Statements autocommit unless wrapped in `transaction`."""
+    """Open the store, creating it on first use. Statements autocommit unless wrapped in `transaction`.
+
+    The caller closes the connection (`opened` does); a failed open closes it before raising.
+    """
     path = store_path() if path is None else path
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(
             path, timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None
         )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode = WAL")
-        if _version(connection) == 0:
-            connection.executescript(schema_text())
+        with closing_on_error(connection):
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode = WAL")
+            if _version(connection) == 0:
+                connection.executescript(schema_text())
     except (OSError, sqlite3.Error) as exc:
         raise StoreError(f"cannot open the decision store {path}: {exc}") from exc
-    return _checked(connection, path)
+    with closing_on_error(connection):
+        _check_version(connection, path)
+    return connection
 
 
 def connect_read_only(path: Path) -> sqlite3.Connection:
-    """Open a static store copy (another machine's) without writing to it or beside it."""
+    """Open a static store copy (another machine's) without writing to it or beside it.
+
+    The caller closes the connection; a failed open closes it before raising.
+    """
     try:
         connection = sqlite3.connect(f"{path.as_uri()}?mode=ro&immutable=1", uri=True)
-        connection.row_factory = sqlite3.Row
-        _version(connection)
+        with closing_on_error(connection):
+            connection.row_factory = sqlite3.Row
+            _version(connection)
     except sqlite3.Error as exc:
         raise StoreError(f"cannot read the decision store {path}: {exc}") from exc
-    return _checked(connection, path)
+    with closing_on_error(connection):
+        _check_version(connection, path)
+    return connection
 
 
 @contextmanager

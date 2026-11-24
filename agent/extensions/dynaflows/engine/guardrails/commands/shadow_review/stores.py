@@ -73,20 +73,27 @@ class Stores:
 
     def _merge(self) -> sqlite3.Connection:
         merged = sqlite3.connect(":memory:", isolation_level=None)
-        merged.row_factory = sqlite3.Row
-        merged.executescript(decision_store.schema_text())
-        for connection in self.all():
-            for table in MERGED_TABLES:
-                rows = connection.execute(f"SELECT * FROM {table}").fetchall()
-                if not rows:
-                    continue
-                columns = rows[0].keys()
-                marks = ", ".join("?" for _ in columns)
-                merged.executemany(
-                    f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) VALUES ({marks})",
-                    [tuple(row) for row in rows],
-                )
+        with decision_store.closing_on_error(merged):
+            merged.row_factory = sqlite3.Row
+            merged.executescript(decision_store.schema_text())
+            for connection in self.all():
+                for table in MERGED_TABLES:
+                    self._copy(connection, merged, table)
         return merged
+
+    @staticmethod
+    def _copy(
+        source: sqlite3.Connection, merged: sqlite3.Connection, table: str
+    ) -> None:
+        rows = source.execute(f"SELECT * FROM {table}").fetchall()
+        if not rows:
+            return
+        columns = rows[0].keys()
+        marks = ", ".join("?" for _ in columns)
+        merged.executemany(
+            f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) VALUES ({marks})",
+            [tuple(row) for row in rows],
+        )
 
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         """Rows from the merged view of every store."""

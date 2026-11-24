@@ -15,11 +15,19 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from test_reference_decision_store import (
+    no_unclosed_connections as no_unclosed_connections,
+)
 from test_workflows import workflow
 
 from guardrails.host.process import run_text
 
-pytestmark = pytest.mark.seam
+# A sqlite3 connection left open fails the test where it is freed, and the guard fixture finds the rest.
+pytestmark = [
+    pytest.mark.seam,
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
 
 
 @pytest.fixture(autouse=True)

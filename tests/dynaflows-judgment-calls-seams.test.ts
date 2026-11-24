@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Database } from "bun:sqlite";
 import { test } from "bun:test";
 import { agentDir, openStore, storePath, withStore } from "../agent/extensions/dynaflows/lib/decision-store.ts";
 import { latestJudgmentCall, readJudgmentCalls } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
@@ -81,4 +82,12 @@ test("a store at an unknown schema version is refused, never read or upgraded", 
 	withStore(db => db.exec("PRAGMA user_version = 99"), path);
 	assert.throws(() => openStore(path), /schema version 99; this harness reads version 1 only/);
 	assert.throws(() => readJudgmentCalls(path), /schema version 99/);
+});
+
+test("every store handle is closed after use, also when the use throws", () => {
+	const path = store([{ call: callId("1"), question: "reached" }]);
+	const handles: Database[] = [];
+	withStore(db => { handles.push(db); }, path);
+	assert.throws(() => withStore(db => { handles.push(db); throw new Error("query failed"); }, path), /query failed/);
+	for (const handle of handles) assert.throws(() => handle.query("SELECT 1").get(), /closed/i);
 });
