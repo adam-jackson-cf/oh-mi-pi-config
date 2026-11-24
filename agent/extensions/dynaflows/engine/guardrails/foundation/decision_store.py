@@ -31,7 +31,7 @@ BUSY_TIMEOUT_SECONDS = 5.0
 # One pass in PASS_SAMPLE keeps its payload, chosen by hash so the choice is stable.
 PASS_SAMPLE = 10
 TRIGGERS = ("commit", "prove", "pr", "manual")
-MODES = ("enforced", "shadow")
+JUDGMENT_MODES = ("enforced", "shadow")
 OUTCOME_NAMES = {"yes": "flag", "no": "pass", "escalate": "escalate"}
 DECISION_COLUMNS = (
     "id",

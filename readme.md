@@ -13,8 +13,8 @@ rules. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
 and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
-`codify-omp-workflow-corrections`. `git-tool` serves both dynaflows modes; its merge, CI and recovery
-runbook applies in structured mode only. `jev-actions` is a standalone skill in `agent/skills/`.
+`codify-omp-workflow-corrections`. `git-tool` owns Git, PR, CI and merge authority, with its merge,
+CI and recovery runbook. `jev-actions` is a standalone skill in `agent/skills/`.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -50,10 +50,13 @@ The boundaries are intentional:
 - **Extensions** implement runtime mechanics (`agent/extensions/`);
   `extension-health.ts` reports registration health, not runtime correctness.
 
-The always-loaded dynaflows extension runs each repository in minimal or structured mode. The
-tracked [`modes.json`](agent/extensions/dynaflows/modes.json) names the structured repositories; an
-unlisted one is minimal. Its guards in both modes
-require `skill://git-tool` before the Git and GitHub writes `rails.yml` `gitCommand` lists (commit,
+The always-loaded dynaflows extension has one governed state. Its
+[rails scope](agent/extensions/dynaflows/CONFIG.md#rails-scope) comes from the repository's config:
+a repository with no GitHub origin gets the fixed guards only, and one with a missing or invalid
+config refuses edits, commits, pushes, PRs, merges and `askFirst` commands until the owner runs
+`/agentrails onboard`. The fixed guards
+require `skill://git-tool` and `skill://git-tool/references/merge-and-recover.md` before the Git
+and GitHub writes `rails.yml` `gitCommand` lists (commit,
 push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean, restore, tag creation,
 branch delete/force/move, stash drop, fetch into a local ref, worktree add/remove, `gh` PR, release,
 repo, workflow and issue writes, `gh api` writes), including commands with Git global options, shell
@@ -69,16 +72,11 @@ their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` 
 arguments do not trigger the check.
 The repo config's [`autonomy`](agent/extensions/dynaflows/CONFIG.md#autonomy) sets `git push`,
 `gh pr create` and `gh pr merge` to `allowed` or `ask`; `ask` waits for the owner's
-`$approve autonomy:<action>:<subject>` line. The rails read `autonomy` and `ci` in both modes.
-In minimal mode (unlisted repos included), sessions get plain
-omp + git-tool + the fixed Git guards: `gh pr merge` and `git push` to the remote's default
-branch are refused, while pushes to other branches and `gh pr create` pass. Minimal mode has no
-edit read gates, path checks or verification handoff reads.
-In structured mode, Git integration commands also need
-`skill://git-tool/references/merge-and-recover.md`, the default-branch push stays refused, and
-for the edited path's repo targeted integrity/new-code/test reads
+`$approve autonomy:<action>:<subject>` line. A `git push` to the remote's default branch is always
+refused. While a repository onboards, `gh pr merge` is refused: the owner merges the bootstrap PR.
+In a governed repository, targeted integrity/new-code/test reads for the edited path's repo
 fire before edits. All-session handoff, including subagents, stays blocked until
-verification references are read after that session's code edits in a structured-mode repo
+verification references are read after that session's code edits in a governed repo
 and failed harness `path-check` paths pass on retry. Rails run
 `guardrails path-check --repo <worktree>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
@@ -86,7 +84,7 @@ untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
 `git status` query fails the check. Handoff runs no suite.
 
-In structured mode, rails guard `gh pr merge`: CI must be green on the PR's exact
+In a governed repository, rails guard `gh pr merge`: CI must be green on the PR's exact
 head, and `prove()`'s result file `<git-common-dir>/omp-prove/<head>.result.json`
 must say `status: pass` for that head. Rails also require
 `<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; structure
@@ -101,14 +99,15 @@ rails refuse `--admin`.
 
 Session rails:
 
-| Rail | Modes | Behaviour |
+| Rail | Scope | Behaviour |
 | --- | --- | --- |
-| Turn-end obligations | Structured | Open PR (CI pending: wait), `afterMerge`, rollout; 3 asks |
-| Device rollout | Structured | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
-| Restart review | Both | Extension changed: review; structured blocks Git writes until ack |
-| Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
+| Turn-end obligations | Governed | Open PR (CI pending: wait), `afterMerge`, rollout; 3 asks |
+| Device rollout | Governed | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
+| Restart review | Every repo | Extension changed: review; governed blocks Git writes until ack |
+| Handoff | Every repo | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
 
-Judged rails, structured mode only, run after the deterministic checks through `decide()`. Every
+Judged rails run in governed repositories, except in-scope, which runs in every Git repository. They
+run after the deterministic checks through `decide()`. Every
 enforced judgment acts from the moment it ships; a judge failure refuses, except that an `ask` goes
 through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
 result and rail refusal lands in one SQLite decision store, `~/.omp/agent/dynaflows/dynaflows.db`;
@@ -118,8 +117,8 @@ lists each rail, its outcomes and the owner's `$approve` line.
 
 Repository checks follow the test tiers. The repo config declares
 `commands.commit` (static checks, all T1 tests and T2 seams only for affected code) and
-`commands.ci` (the full T1 and T2 suite), each naming the repo's own command. In
-structured mode, each agent commit runs harness `guardrails path-check --repo <worktree>`,
+`commands.ci` (the full T1 and T2 suite), each naming the repo's own command. In a
+governed repository, each agent commit runs harness `guardrails path-check --repo <worktree>`,
 then `commands.commit`, and then `guardrails check --repo <worktree>`, also run from this
 checkout, over the whole repo. Any finding blocks the commit;
 there are no baselines and no diff scoping, and scope exclusions come from the config.
@@ -144,17 +143,13 @@ not `.githooks` or the hook differs from the expected text. Run the formatters w
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
 bundled workflow guidance and judged rules. Its [workflow
 skill](agent/extensions/dynaflows/skills/structured-workflow/SKILL.md) is available as
-`skill://structured-workflow`; its preflight step defines how the owner switches a repository
-between minimal and structured mode in the main chat (for example a standalone `$dynaflows structured`
-or `$dynaflows minimal` line) and how the mode, config and playbook resolve. In structured mode, rails
-inject the workflow pointer and guard `gh pr merge` as above.
+`skill://structured-workflow`.
 Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
 `git worktree add` targets must sit at `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides
 the base). `skill://git-tool` owns Git, PR, CI and merge authority.
 
-Native judged reply rules live inside the package. At session start its extension appends the
-configured `structuredRules` names to `ttsr.disabledRules` when the session repo is in minimal
-mode. Existing user exclusions are preserved; structured mode leaves the setting untouched.
+Native judged reply rules live inside the package and always load; the extension never changes
+`ttsr.disabledRules`.
 
 omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Dynaflows is also
 listed as a directory in `extensions:` so its sibling skills and rules load. Both routes resolve
@@ -175,9 +170,9 @@ A repo never depends on or mentions omp or dynaflows in tracked files. Its rails
 in `.agentrails/config.json` in its main checkout, kept out of git through
 `<git-common-dir>/info/exclude`; linked worktrees read the main checkout's file.
 [The config contract](agent/extensions/dynaflows/CONFIG.md) defines its sections, their writers,
-strict validation and export and import. Agent tools never write it. When dynaflows
-resolves to minimal mode, rails say why once at session start and at every commit, naming the slug
-(or `none`) and the reason; `workflows.py` uses the same words when it refuses. Rails and
+strict validation and export and import. Agent tools never write it. A repository whose config
+is missing or invalid is refused with the onboarding text, naming the slug and the engine's
+problems; `workflows.py` refuses with the same route to `/agentrails onboard`. Rails and
 `workflows.py` strip the harness's `AGENT` variable from every repo command they run.
 
 ## Normal workflow
@@ -383,7 +378,6 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime, Git paths and the repo
   config resolver.
 - `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
-- `agent/extensions/dynaflows/modes.json` — the per-repo mode; unlisted repositories run minimal.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.

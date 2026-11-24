@@ -10,10 +10,11 @@ export { storePath } from "./decision-store.ts";
 // Every code a rail decision can carry, one per rule. A refusal's text is for the agent; the code is for counting.
 export const RAIL_CODES = [
 	// The rails themselves: rails.yml, an evaluation error, the origin remote and rail state.
-	"rails-config", "policy-error", "post-edit-error", "handoff-error", "mode-unresolved", "rail-state-drift", "rail-state-write",
-	"protected-path", "extension-review", "github-token", "config-unresolved",
-	// The agent-rails config: a setup-section write the rails refused, and a repository that needs onboarding.
-	"agentrails-config-write", "onboarding-required",
+	"rails-config", "policy-error", "post-edit-error", "handoff-error", "rail-state-drift", "rail-state-write",
+	"protected-path", "extension-review", "github-token",
+	// The agent-rails config: one that cannot be resolved, a setup-section write the rails refused, a repository
+	// that needs onboarding (missing or invalid config) and a merge while the owner onboards it.
+	"config-unresolved", "agentrails-config-write", "onboarding-required", "config-invalid", "onboarding-merge",
 	// Reads, subagents and tools other than bash.
 	"read-gate", "subagent-path", "eval-git", "eval-refused", "github-tool-write", "judged-scope",
 	// The shell scan.
@@ -31,7 +32,7 @@ export const RAIL_CODES = [
 	"commit-alone", "commit-after-staging", "commit-scope", "commit-unstaged", "handoff-staged", "staged-path-check",
 	"commit-checks", "harness-checks", "judged-integrity",
 	// Publishing: push, PR and merge.
-	"autonomy-ask", "minimal-merge", "push-remote-head", "push-default-branch", "merge-alone", "merge-admin",
+	"autonomy-ask", "push-remote-head", "push-default-branch", "merge-alone", "merge-admin",
 	"merge-flag-unknown", "merge-args-ambiguous", "merge-head-format", "merge-method", "merge-head-stale", "merge-prove",
 	"merge-structure", "merge-evidence-untrusted", "merge-pr-unreadable", "merge-foreign-repo", "merge-ci", "judged-evidence",
 	// Edits and handoff.

@@ -1,4 +1,5 @@
-// Judged rails, structured mode only: each runs its deterministic pre-checks first and calls decide()
+// Judged rails run in governed repositories (a config the engine accepted), except in-scope, which runs
+// in every Git repository. Each runs its deterministic pre-checks first and calls decide()
 // only on what they pass. extension-impact gates the restart review,
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
 // the merge and the turn end. An enforced verdict acts and a judge failure refuses; a shadow verdict is
@@ -18,10 +19,6 @@ type ExecApi = Pick<ExtensionAPI, "exec">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };
 type Failure = { failure: string };
 
-/** The fixed mode descriptions extension-impact was scored with (judgments/extension-impact/cases.jsonl). */
-export const MODE_RUNS = {
-	"structured": "Everything minimal runs, plus the full workflow: record checks.commit and the harness commit checks (guardrails catalogue rules, language adapters, path, naming and structure checks), reference reads on edits, prove() and structure_review() and exact-head CI before merge, the judged dynaflows rules, the structured-workflow skill and its bundled skills (git-tool merge runbook, test-guidance, setup-repo-proofs), and dependency-audit triage."
-} as const;
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const REQUEST_HEADINGS = ["in short", "summary", "why", "changes"];
 const EVIDENCE_HEADINGS = ["evidence", "verification", "testing", "test plan"];
@@ -221,14 +218,14 @@ function excerptsOf(patches: { path: string; patch: string }[]) {
 	}
 	return { excerpts, clipped };
 }
-/** The extension-impact `change` state for one config-root revision range (every file but modes.json). */
+/** The extension-impact `change` state for one config-root revision range. */
 export async function impactChange(pi: ExecApi, top: string, range: { from: string; to: string }) {
 	const git = async (args: string[]) => {
 		const result = await run(pi, "git", args, top);
 		if (result.code !== 0 || result.killed) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
 		return result.stdout;
 	};
-	const scope = [range.from, range.to, "--", ".", ":(exclude,glob)**/modes.json"];
+	const scope = [range.from, range.to, "--", "."];
 	const rows = async (args: string[]) => (await git(["diff", "--no-renames", ...args, ...scope])).split("\n").filter(Boolean).map(line => line.split("\t"));
 	const statuses = new Map((await rows(["--name-status"])).map(([status = "M", path = ""]) => [path, status]));
 	const files = (await rows(["--numstat"])).map(([added = "-", deleted = "-", path = ""]) =>
@@ -288,7 +285,8 @@ export type JudgedDeps = {
 	decide: Decide;
 	/** The owner's approvals for this extension instance: escalated judgments and autonomy asks share them. */
 	approvals: Approvals;
-	structured(ctx: ExtensionContext, cwd: string): Promise<boolean>;
+	/** Whether cwd is inside a Git repository: in-scope runs in every one, whatever its config state. */
+	inGitRepo(cwd: string): Promise<boolean>;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
 	askFirst(part: string): boolean;
 };
@@ -413,7 +411,6 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		if (!input.config) return { failure: "no valid .agentrails/config.json to judge against" };
 		const { config } = input;
 		const state = await (async () => ({
-			mode: { name: "structured", runs: MODE_RUNS.structured },
 			config: impactConfig(config),
 			change: await impactChange(pi, (await run(pi, "git", ["rev-parse", "--show-toplevel"], input.configRoot)).stdout.trim(), { from, to }),
 		}))().catch((error: Error) => ({ failure: `the extension-impact judgment could not run: ${error.message}` }));
@@ -421,26 +418,30 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	}
 
 	return {
-		/** implementation-integrity at a structured commit, after commands.commit and the harness checks passed. */
+		/** implementation-integrity at a governed commit, after commands.commit and the harness checks passed. */
 		async commitReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
 			return integrityReason(root, action, ctx);
 		},
-		/** completion-evidence at a structured merge, after method, head, proof and CI passed. */
+		/** completion-evidence at a governed merge, after method, head, proof and CI passed. */
 		async mergeReason(cwd: string, selector: string | undefined, head: string, ctx: ExtensionContext): Promise<string | undefined> {
 			const view = await prView(pi, cwd, selector, "number,title,body,state,headRefOid,url,files,statusCheckRollup")
 				.catch((error: Error) => ({ failure: `the merge judgments could not read the PR: ${error.message}` }));
 			if ("failure" in view) return `Agent rails: ${view.failure}; retry the merge.`;
 			return evidenceMergeReason(cwd, view, head, ctx);
 		},
-		/** in-scope before an ask or a privileged command the rails can see. */
+		/** The askFirst command a bash call runs, when it runs one (rails.yml askFirstCommand). */
+		async askFirstCommand(event: ToolEvent, cwd: string): Promise<string | undefined> {
+			return event.toolName === "bash" ? privilegedCommand(event.input.command, cwd, deps.askFirst) : undefined;
+		},
+		/** in-scope before an ask or a privileged command the rails can see, in any Git repository. */
 		async scopeReason(event: ToolEvent, input: ScopeInput, ctx: ExtensionContext): Promise<string | undefined> {
 			const cwd = event.input.cwd ?? ctx.cwd;
 			const { question, command } = await scopeSubject(event, input, ctx, cwd);
-			if ((!question && !command) || !await deps.structured(ctx, cwd)) return undefined;
+			if ((!question && !command) || !await deps.inGitRepo(cwd)) return undefined;
 			if (ctx.agent.kind !== "main") return SUBAGENT_PRIVILEGED;
 			return question ? askReason(question, ctx) : commandReason(command ?? "", input, ctx);
 		},
-		/** completion-evidence for the agent's PR at each structured turn end. */
+		/** completion-evidence for the agent's PR at each governed turn end. */
 		evidenceObligation(ctx: ExtensionContext, at: EvidenceTarget): Obligation {
 			const obligation: Obligation = {
 				id: `evidence:${at.branch}`, root: at.root, text: `the PR for ${at.branch} needs completion evidence`,
@@ -448,7 +449,7 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 			};
 			return obligation;
 		},
-		/** extension-impact for a structured repo's restart review: "no" skips the review task; yes or a failure keeps it. */
+		/** extension-impact for a governed repo's restart review: "no" skips the review task; yes or a failure keeps it. */
 		impactVerdict(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {
 			return impactDecided(ctx, input);
 		},

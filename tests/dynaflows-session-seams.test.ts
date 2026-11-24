@@ -40,7 +40,7 @@ describe("end-of-turn obligations", () => {
 	test("an open PR with green CI must be merged before the turn ends, at most three follow-ups", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await bashResult(h, "gh pr create --fill");
 			mockPrCi(h, greenCi, { selector: "agent/test" });
 			await exhaust(h, "pr:agent/test");
@@ -51,7 +51,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		try {
 			h.config({ ci: { enabled: true, runner: "github-actions", requiredContext: "test" } });
-			h.mode("structured");
+			h.govern();
 			await bashResult(h, "gh pr create --head agent/other --fill");
 			mockPrCi(h, [{ __typename: "CheckRun", name: "test", status: "IN_PROGRESS", conclusion: null }], { selector: "agent/other" });
 			const pending = reasonOf(await h.emit("session_stop"));
@@ -73,7 +73,7 @@ describe("end-of-turn obligations", () => {
 	test("pending required CI holds the turn end with the ci_runner submit and wait commands", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			h.config(ciGate);
 			await bashResult(h, "gh pr create --fill");
 			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "PENDING" }], { selector: "agent/test" });
@@ -85,7 +85,7 @@ describe("end-of-turn obligations", () => {
 	test("an open PR this session did not create is found at the turn end once its branch is pushed", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			mockPrCi(h, greenCi, { selector: "agent/test" });
 			let views = 0;
 			const exec = h.api.exec.bind(h.api);
@@ -103,7 +103,7 @@ describe("end-of-turn obligations", () => {
 	test("a resumed session rebuilds PR, afterMerge and rollout obligations from its branch", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			h.config({ afterMerge: { argv: ["make", "sync"] } });
 			h.branch.push(
 				{ type: "message", message: { role: "user", content: "fix it\n$rollout" } },
@@ -123,14 +123,14 @@ describe("end-of-turn obligations", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("minimal mode adds no obligations", async () => {
+	test("a repository that is onboarding adds no obligations", async () => {
 		const h = harness();
 		try {
-			h.mode("minimal");
+			await h.onboard();
 			await bashResult(h, "gh pr create --fill");
 			mockPrCi(h, greenCi, { selector: "agent/test" });
 			assert.equal(await h.emit("session_stop"), undefined);
-			assert.ok(messageText(await prompt(h, "$rollout")).includes("need dynaflows structured mode"));
+			assert.ok(messageText(await prompt(h, "$rollout")).includes("need an onboarded repository (a valid .agentrails/config.json)"));
 			assert.equal(await h.emit("session_stop"), undefined);
 		} finally { h.cleanup(); }
 	});
@@ -138,7 +138,7 @@ describe("end-of-turn obligations", () => {
 	test("a merge whose files match afterMerge.paths needs the step to exit 0", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			h.config({ afterMerge: { argv: ["make", "sync"], paths: ["agent/**"] } });
 			let files = ["readme.md"];
 			const exec = h.api.exec.bind(h.api);
@@ -168,7 +168,7 @@ describe("end-of-turn obligations", () => {
 	test("afterMerge without paths follows every merge", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			h.config({ afterMerge: { argv: ["./sync", "--all"] } });
 			await bashResult(h, "gh pr merge 3 --merge --match-head-commit x");
 			assert.ok(reasonOf(await h.emit("session_stop")).includes("./sync --all"));
@@ -181,7 +181,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		const rollout = `python3 ${h.records}/scripts/device_rollout.py`;
 		try {
-			h.mode("structured");
+			h.govern();
 			await prompt(h, "ship it");
 			assert.equal(await h.emit("session_stop"), undefined, "rollout is never automatic");
 			assert.ok(messageText(await prompt(h, "fix the rails\n$rollout")).includes(rollout));
@@ -206,8 +206,8 @@ describe("end-of-turn obligations", () => {
 		const source = async () => [{ id: "evidence", root, text: "attach completion evidence", status: async () => status }];
 		const h = harness({ extra: { obligationSources: [source] } });
 		try {
-			h.mode("structured");
-			assert.equal(await h.emit("session_stop"), undefined, "an obligation outside a structured repo does not apply");
+			h.govern();
+			assert.equal(await h.emit("session_stop"), undefined, "an obligation outside a governed repo does not apply");
 			root = h.root;
 			assert.ok(reasonOf(await h.emit("session_stop")).includes("[evidence] attach completion evidence"));
 			status = "waiting";
@@ -247,10 +247,10 @@ async function changedExtension(h: Harness): Promise<void> {
 }
 
 describe("review on restart", () => {
-	test("structured mode injects a review task and refuses Git writes until acknowledged", async () => {
+	test("a governed repository gets a review task and refuses Git writes until acknowledged", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			await changedExtension(h);
 			const before = reviews(h)["owner/repo"];
@@ -277,7 +277,7 @@ describe("review on restart", () => {
 		const h = harness();
 		const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-review-wt-"))), "wt");
 		try {
-			h.mode("structured");
+			h.govern();
 			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "base"], { cwd: h.root });
 			await execute("git", ["worktree", "add", "-q", "-b", "agent/wt", worktree], { cwd: h.root });
 			await changedExtension(h);
@@ -298,18 +298,16 @@ describe("review on restart", () => {
 		} finally { h.cleanup(); rmSync(join(worktree, ".."), { recursive: true, force: true }); }
 	});
 
-	test("failing config checks are in the task, and modes.json changes are not extension changes", async () => {
+	test("failing config checks are in the task; an acknowledged revision asks for no second review", async () => {
 		const h = harness({ guardrailsCommand: ["sh", "-c", "echo 'PROFILE.complete missing'; exit 1", "check"] });
 		try {
-			h.mode("structured");
+			h.govern();
 			await changedExtension(h);
-			writeFileSync(join(h.machine, "extension", "modes.json"), "{}\n");
 			await h.emit("session_start");
 			const task = messageText(await prompt(h, "work"));
 			assert.ok(task.includes("guardrails check: exit 1") && task.includes("PROFILE.complete missing"), task);
 			await h.tool("dynaflows", { acknowledge: true });
-			writeFileSync(join(h.machine, "extension", "modes.json"), JSON.stringify({ schemaVersion: 1, repos: {} }));
-			h.setSession("mode-switch");
+			h.setSession("acknowledged");
 			await h.emit("session_start");
 			assert.ok(!messageText(await prompt(h, "work")).includes("First task"));
 		} finally { h.cleanup(); }
@@ -331,7 +329,7 @@ describe("review on restart", () => {
 			git("add", ".gitignore");
 			change("feat: first rails");
 			h.config({ afterMerge: { argv: ["make", "sync"] } });
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			await h.emit("session_start");
 			assert.match(reviews(h)["owner/repo"] ?? "", /^git:[0-9a-f]{40}$/);
@@ -344,11 +342,9 @@ describe("review on restart", () => {
 			assert.equal(reviews(h)["owner/repo"], `git:${git("rev-parse", "HEAD").toString().trim()}`);
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await commit(h), undefined);
-			const judged = z.object({ mode: z.object({ name: z.string(), runs: z.string() }), config: z.record(z.string(), z.unknown()),
+			const judged = z.object({ config: z.record(z.string(), z.unknown()),
 				change: z.object({ commit_subjects: z.array(z.string()), files: z.array(z.object({ path: z.string(), status: z.string() })), patch_excerpts: z.array(z.object({ path: z.string(), patch: z.string() })) }).passthrough() })
 				.strict().parse(h.judged.calls.at(-1)?.state);
-			assert.equal(judged.mode.name, "structured");
-			assert.ok(judged.mode.runs.startsWith("Everything minimal runs"));
 			const config = harnessConfig("owner/repo", { afterMerge: { argv: ["make", "sync"] } });
 			assert.deepEqual(judged.config, {
 				autonomy: config.autonomy, ci: config.ci, gates: config.gates, judgments: config.judgments, mergePolicies: config.mergePolicies,
@@ -392,7 +388,7 @@ describe("review on restart", () => {
 			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
-			h.mode("structured");
+			h.govern();
 			h.config({ judgments: { "extension-impact/impact": { enabled: false } } });
 			await h.emit("session_start");
 			change("refactor: rename an internal helper");
@@ -407,16 +403,15 @@ describe("review on restart", () => {
 		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
 	});
 
-	test("minimal mode only notifies and stores the new revision", async () => {
+	test("a repository that is not governed only notifies and stores the new revision", async () => {
 		const h = harness();
 		try {
-			h.mode("minimal");
 			await changedExtension(h);
 			await h.emit("session_start");
 			assert.ok(h.notes.some(note => note.includes("the dynaflows extension changed")), h.notes.join("; "));
 			assert.equal(await prompt(h, "work"), undefined);
-			await h.read("skill://git-tool");
-			assert.equal(await commit(h), undefined);
+			await h.read("skill://git-tool", mergeRecover);
+			assert.equal(await h.call("bash", { command: "git switch -c agent/next" }), undefined, "no review holds Git writes");
 			h.setSession("again");
 			h.notes.length = 0;
 			await h.emit("session_start");
@@ -438,17 +433,16 @@ describe("review on restart", () => {
 			writeFileSync(join(extension, "index.ts"), "export {};\n");
 			git("add", "."); git("commit", "-qm", "one");
 			const from = await extensionRevision(exec, root, extension);
-			writeFileSync(join(extension, "modes.json"), "{}\n");
 			writeFileSync(join(root, "other.md"), "x\n");
-			git("add", "."); git("commit", "-qm", "modes and other");
-			assert.equal(await extensionRevision(exec, root, extension), from, "modes.json and other paths do not move the revision");
+			git("add", "."); git("commit", "-qm", "other");
+			assert.equal(await extensionRevision(exec, root, extension), from, "paths outside the extension do not move the revision");
 			writeFileSync(join(extension, "index.ts"), "export const x = 1;\n");
 			git("add", "."); git("commit", "-qm", "two");
 			const to = await extensionRevision(exec, root, extension);
 			assert.match(to, /^git:[0-9a-f]{40}$/);
 			assert.notEqual(to, from);
 			const diff = await extensionDiff(exec, root, extension, { from, to });
-			assert.ok(diff?.includes("agent/extensions/dynaflows/index.ts") && !diff.includes("other.md") && !diff.includes("modes.json"), String(diff));
+			assert.ok(diff?.includes("agent/extensions/dynaflows/index.ts") && !diff.includes("other.md"), String(diff));
 			assert.equal(await extensionDiff(exec, root, extension, { from: "sha256:x", to }), undefined);
 		} finally { rmSync(root, { recursive: true, force: true }); }
 	});
@@ -468,10 +462,10 @@ describe("handoffs", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test.each(["minimal", "structured"])("a staged HANDOFF.md refuses the commit (%s mode)", async name => {
+	test.each(["onboarding", "governed"])("a staged HANDOFF.md refuses the commit (%s)", async name => {
 		const h = harness();
 		try {
-			h.mode(name === "structured" ? "structured" : "minimal");
+			if (name === "governed") h.govern(); else await h.onboard();
 			await h.read("skill://git-tool", mergeRecover);
 			await h.tool("handoff", { content: "state" });
 			await execute("git", ["add", "-f", "HANDOFF.md"], { cwd: h.root });

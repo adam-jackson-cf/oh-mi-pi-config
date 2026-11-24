@@ -51,9 +51,9 @@ retry or quarantine repairs nothing.
 Plan, build, PR and merge are the normal flow; the directive defines only these:
 
 **10. Onboarding initiates a repository.** It sets up the repo's verification (repo-native controls,
-principles 13-14), the repo's default agent permission (the record's `agentMerge`), and the rest of
-its harness configuration. Nothing else runs in structured mode for a repo until onboarding
-completes.
+principles 13-14), the repo's agent permissions (the config's `autonomy`), and the rest of its
+harness configuration. Until onboarding completes, the rails refuse ordinary work in the repo and
+route it to onboarding.
 
 **11. A spike is a bounded experiment that never ships.** It starts from a plan (user input and
 context), runs in scratch space, and ends in one decision: promote, with the final build plan and
@@ -61,11 +61,10 @@ its learnings, or discard and stop. Spike code is discarded either way.
 
 **12. Merge-through follows the agent permission.** Agents and subagents respect the principles
 throughout. They decide the details of the agreed work themselves and surface to the owner any
-change to the agreed direction. Where the repo is in structured mode and its agent permission allows
-merge-through (`agentMerge: allowed`, the default), they commit on a work branch under the commit
-checks, open the PR, and merge it once every verification and proof is green on the exact head. In
-minimal mode they stop at a green PR; with `agentMerge: disabled` they ask the owner before pushing,
-opening or merging a PR.
+change to the agreed direction. Where the repo is onboarded and its `autonomy` allows each step, they
+commit on a work branch under the commit checks, open the PR, and merge it once every verification
+and proof is green on the exact head. A step its `autonomy` sets to `ask` waits for the owner's
+approval.
 
 ### Repository boundary
 
@@ -100,9 +99,8 @@ cover the whole repository. Placement never requires moving existing code.
 **18. Events trigger checks, with no ceremony.** Edits and commits run the harness checks; CI reruns
 the gates offline on the events the repository chose, with no time budget. Pulling or merging
 commits into a branch needs no proof; a resulting commit runs the normal checks. Behaviour is the
-same on any CI host with the harness deployed. Harness process additions run only in dynaflows
-structured mode for the path's repo; minimal mode keeps fixed guards only. Approvals work for a
-single owner.
+same on any CI host with the harness deployed. Harness process additions run only in an onboarded
+repo for the path; any other repo keeps the fixed guards only. Approvals work for a single owner.
 
 **19. Never version code to keep results comparable.** A code change that invalidates an experiment
 means the experiment is rerun.

@@ -3,7 +3,6 @@ import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
-import type { Mode } from "./modes.ts";
 import { RailError, refuse, type Refusal } from "./rails-ledger.ts";
 
 // The one hang guard for the rails' own short git/gh reads and the harness path check.
@@ -12,23 +11,20 @@ const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { return RegExp(value).source.length > 0; } catch { return false; }
 });
-function referenceSet(mode: Mode, keys: string[]) {
-	return z.record(z.string(), stringList).superRefine((references, ctx) => {
-		for (const key of new Set([...keys, ...Object.keys(references)])) {
-			const urls = references[key];
-			if (!keys.includes(key) || !urls?.length || urls.some(url => !url.startsWith("skill://"))) {
-				ctx.addIssue({ code: "custom", message: `invalid references.${mode}.${key}` });
-			}
+// The skill reads each trigger needs: edits (firstEdit, newFile, testFile) and handoff (verification)
+// in governed repositories, git writes (git) everywhere.
+const REFERENCE_TRIGGERS = ["firstEdit", "newFile", "testFile", "verification", "git"];
+const referencesSchema = z.record(z.string(), stringList).superRefine((references, ctx) => {
+	for (const key of new Set([...REFERENCE_TRIGGERS, ...Object.keys(references)])) {
+		const urls = references[key];
+		if (!REFERENCE_TRIGGERS.includes(key) || !urls?.length || urls.some(url => !url.startsWith("skill://"))) {
+			ctx.addIssue({ code: "custom", message: `invalid references.${key}` });
 		}
-	});
-}
+	}
+});
 const mappingSchema = z.object({
-	references: z.object({
-		minimal: referenceSet("minimal", ["git"]),
-		structured: referenceSet("structured", ["firstEdit", "newFile", "testFile", "verification", "workflow", "git"]),
-	}).strict(),
+	references: referencesSchema,
 	testGlobs: stringList,
-	structuredRules: stringList,
 	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
@@ -210,17 +206,12 @@ function recordRead(event: ToolEvent, state: State): void {
 function matches(path: string, globs: string[]): boolean {
 	return globs.some(glob => new Bun.Glob(glob).match(path));
 }
-function missing(state: State, map: Mapping, mode: Mode, triggers: string[]): string[] {
-	const references: Record<string, string[]> = map.references[mode];
-	return [...new Set(triggers.flatMap(trigger => references[trigger] ?? []))]
+function missing(state: State, map: Mapping, triggers: string[]): string[] {
+	return [...new Set(triggers.flatMap(trigger => map.references[trigger] ?? []))]
 		.filter(url => !state.reads.has(url));
 }
-// Ends `text` with a full stop unless it already ends a sentence.
-function sentence(text: string): string {
-	return /[.!?]$/.test(text) ? text : `${text}.`;
-}
-function readReason(urls: string[], mode: Mode): Refusal {
-	return refuse("read-gate", `Agent rails (${mode} mode): read ${urls.join(" and ")}, then retry.`);
+function readReason(urls: string[]): Refusal {
+	return refuse("read-gate", `Agent rails: read ${urls.join(" and ")}, then retry.`);
 }
 
 const WRAPPER_OPTIONS = new Map<string, string[]>(Object.entries({
@@ -952,7 +943,7 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	ctx.ui.notify(message, "info");
 }
 export { codeRunsGit, mentionsGit, shellCommands, commitScopeArgument, INDEX_WRITES };
-export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, note };
+export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, readReason, gitActions, commitBypass, note };
 export { fileErrorSchema };
 export type { Mapping, GitAction, State, ToolEvent };
 export {

@@ -31,7 +31,7 @@ from guardrails.foundation import decision_store
 
 # The harness's judgments, beside this engine: agent/extensions/dynaflows/judgments.
 JUDGMENTS = Path(__file__).resolve().parents[4] / "judgments"
-MODES = ("enforced", "shadow")
+JUDGMENT_MODES = ("enforced", "shadow")
 VERDICTS = ("true_flag", "false_flag", "missed", "true_pass")
 OUTCOMES = ("flag", "pass", "escalate")
 QUESTION_REPORT = """
@@ -84,7 +84,7 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("judgment")
     export.add_argument("--question")
     export.add_argument("--sample-passes", type=int, default=10)
-    export.add_argument("--mode", choices=MODES, default="shadow")
+    export.add_argument("--mode", choices=JUDGMENT_MODES, default="shadow")
     export.add_argument("--seed", type=int, default=0)
     labels = commands.add_parser(
         "import", help="labels back into the store and eval data"
@@ -102,7 +102,7 @@ def parser() -> argparse.ArgumentParser:
     session.add_argument("--question")
     session.add_argument("--verdict", choices=VERDICTS)
     session.add_argument("--outcome", choices=OUTCOMES)
-    session.add_argument("--mode", choices=MODES)
+    session.add_argument("--mode", choices=JUDGMENT_MODES)
     return root
 
 

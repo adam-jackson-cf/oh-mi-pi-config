@@ -20,11 +20,11 @@ async function staged(h: Harness, name: string, text: string): Promise<void> {
 	await execute("git", ["add", name], { cwd: h.root });
 }
 
-describe("implementation-integrity at a structured commit", () => {
+describe("implementation-integrity at a governed commit", () => {
 	test("no commits, yes refuses with remediation, escalate needs the owner's approval line", async () => {
 		const h = harness({ registry: "banded" });
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command: "git commit --allow-empty -m empty" }), undefined, "nothing staged is not judged");
 			assert.equal(h.judged.calls.length, 0);
@@ -56,7 +56,7 @@ describe("implementation-integrity at a structured commit", () => {
 	test("the judged tree is the committed tree: -a, -i, -o, -p, pathspecs and staging in the same command are refused", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			await h.tool("handoff", { content: "state" });
 			for (const command of [
@@ -70,17 +70,18 @@ describe("implementation-integrity at a structured commit", () => {
 			assert.equal(h.judged.calls.length, 0, "a refused shape never reaches the judge");
 			await staged(h, "a.ts", "export const a = 1;\n");
 			assert.equal(await h.call("bash", { command: "git commit -m 'feat: a' --author 'A <a@a>'" }), undefined);
-			h.mode("minimal");
-			assert.equal(await h.call("bash", { command: "git commit -am x" }), undefined, "minimal mode has no judged tree");
+			h.unconfigure();
+			await h.onboard();
+			assert.equal(await h.call("bash", { command: "git commit -am x" }), undefined, "an onboarding repository has no judged tree");
 			assert.ok(reasonOf(await h.call("bash", { command: "git add -f HANDOFF.md && git commit -m x" })).includes("in a command of its own"),
-				"the staged handoff check reads the index in both modes");
+				"the staged handoff check reads the index while onboarding too");
 		} finally { h.cleanup(); }
 	});
 
-	test("a failed judge call or another model refuses the commit; minimal mode never judges", async () => {
+	test("a failed judge call or another model refuses the commit; an onboarding repository never judges", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			await staged(h, "a.ts", "export const a = 1;\n");
 			h.judged.failure = "offline";
@@ -88,7 +89,8 @@ describe("implementation-integrity at a structured commit", () => {
 			h.judged.failure = undefined;
 			h.judged.model = "openrouter/typesafe/jev-1.14";
 			assert.ok(reasonOf(await h.call("bash", { command: "git commit -m a" })).includes("thresholds are tuned on typesafe/jev-1.14.0"));
-			h.mode("minimal");
+			h.unconfigure();
+			await h.onboard();
 			const calls = h.judged.calls.length;
 			assert.equal(await h.call("bash", { command: "git commit -m a" }), undefined);
 			assert.equal(h.judged.calls.length, calls);
@@ -110,7 +112,7 @@ describe("implementation-integrity at a structured commit", () => {
 });
 
 async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}): Promise<string> {
-	h.mode("structured");
+	h.govern();
 	await h.read("skill://git-tool", mergeRecover);
 	await proveResult(h);
 	await structureResult(h);
@@ -118,7 +120,7 @@ async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}):
 	return `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
 }
 
-describe("completion-evidence at a structured merge", () => {
+describe("completion-evidence at a governed merge", () => {
 	test("completion-evidence holds the merge: pre-checks, yes refuses, escalate needs the owner, no merges", async () => {
 		const h = harness({ registry: "banded" });
 		try {
@@ -147,7 +149,7 @@ describe("in-scope before asks and privileged commands", () => {
 	test("a question inside the agreed work is refused; yes and escalate let the agent ask", async () => {
 		const h = harness({ registry: "banded" });
 		try {
-			h.mode("structured");
+			h.govern();
 			h.branch.push({ type: "message", message: { role: "user", content: "fix the flaky merge test" } },
 				{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "I found two options." }] } });
 			const ask = { questions: [{ question: "Should I name the helper retryMerge?" }] };
@@ -162,10 +164,10 @@ describe("in-scope before asks and privileged commands", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("a privileged command needs the owner unless in-scope says no; other commands and minimal mode are not judged", async () => {
+	test("a privileged command needs the owner unless in-scope says no; it waits for onboarding and is never judged outside Git", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			assert.equal(await h.call("bash", { command: "ls -la" }), undefined);
 			assert.equal(h.judged.calls.length, 0);
 			h.judged.scores["ask_first"] = 0.9;
@@ -181,18 +183,29 @@ describe("in-scope before asks and privileged commands", () => {
 			h.judged.failure = "offline";
 			assert.ok(reasonOf(await h.call("bash", { command: "ssh nuc uptime" })).includes("ask the owner before running it"));
 			h.judged.failure = undefined;
-			h.mode("minimal");
-			const calls = h.judged.calls.length;
+			h.unconfigure();
+			let calls = h.judged.calls.length;
+			assert.ok(reasonOf(await h.call("bash", { command: "ssh nuc uptime" })).includes("owner/repo is not onboarded (missing)"),
+				"an askFirst command in a repository that is not onboarded waits for onboarding");
+			assert.equal(h.judged.calls.length, calls, "and is not judged");
+			assert.ok(reasonOf(await h.call("ask", { questions: [{ question: "Rename the helper?" }] })).includes("in-scope/ask_first no"),
+				"an ask in a repository that is not onboarded is judged: in-scope runs in every Git repository");
+			assert.equal(h.judged.calls.length, calls + 1);
+			await h.onboard();
+			h.judged.scores["ask_first"] = 0.9;
+			assert.match(approvalOf(reasonOf(await h.call("bash", { command: "ssh nuc uptime" }))), /^in-scope:[0-9a-f]{16}$/, "in-scope runs while the repository onboards");
+			h.context.cwd = h.machine;
+			calls = h.judged.calls.length;
 			assert.equal(await h.call("bash", { command: "ssh nuc uptime" }), undefined);
 			assert.equal(await h.call("ask", { questions: [{ question: "Rename it?" }] }), undefined);
-			assert.equal(h.judged.calls.length, calls);
+			assert.equal(h.judged.calls.length, calls, "outside a Git repository in-scope does not run");
 		} finally { h.cleanup(); }
 	});
 
 	test("privileged commands are found at every parsed command position; subagents are refused", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			h.judged.scores["ask_first"] = 0.9;
 			for (const command of [
 				"/usr/bin/ssh nuc ls", "env ssh nuc ls", "command sudo ls", "FOO=1 ssh nuc ls", "(ssh nuc ls)", "bash -c 'ssh nuc ls'",
@@ -220,7 +233,7 @@ describe("in-scope before asks and privileged commands", () => {
 });
 
 async function prCreated(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}, rollup: object[] = greenCi): Promise<void> {
-	h.mode("structured");
+	h.govern();
 	h.config(askAutonomy);
 	await bashResult(h, "gh pr create --fill");
 	mockPrCi(h, rollup, { selector: "agent/test", ...view });
@@ -310,7 +323,7 @@ describe("judged-rails helpers", () => {
 		] as const) {
 			const h = harness({ extra: { decideCommand: ["sh", "-c", script] } });
 			try {
-				h.mode("structured");
+				h.govern();
 				await h.read("skill://git-tool", mergeRecover);
 				await staged(h, "a.ts", "export const a = 1;\n");
 				assert.ok(reasonOf(await h.call("bash", { command: "git commit -m a" })).includes(expected), expected);
@@ -360,7 +373,7 @@ describe("every shipped judgment acts or is in reviewable shadow", () => {
 	test("a shipped threshold decides the commit: below it commits, at it refuses, and nothing escalates", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			h.judged.scores["weakens_verification"] = 0.79;
 			await staged(h, "below.test.ts", "test.skip('slow', () => {});\n");
@@ -403,7 +416,7 @@ describe("the repo config softens a judgment's global mode", () => {
 	test("off makes no judge call and writes no row; a repo shadow logs a shadow row and never blocks", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read("skill://git-tool", mergeRecover);
 			h.config({ judgments: { "implementation-integrity/weakens_verification": { enabled: false } } });
 			h.judged.scores["weakens_verification"] = 0.95;

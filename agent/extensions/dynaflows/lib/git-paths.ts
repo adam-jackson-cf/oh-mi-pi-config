@@ -15,8 +15,9 @@ const ORIGIN_TIMEOUT_MS = 20_000;
 
 /**
  * The origin remote could not be read: git was killed, timed out, could not start, or failed for
- * a reason other than a missing remote or a path outside a Git repository. The repository's mode
- * is then unknown; callers refuse writes and never read it as "no origin".
+ * a reason other than a missing remote or a path outside a Git repository, or the repository's
+ * agent-rails config could not be resolved. The rails' scope is then unknown; callers refuse writes
+ * and never read it as "no origin".
  */
 export class OriginError extends Error {}
 
@@ -64,13 +65,9 @@ export async function repoSlug(repo: string): Promise<string | null> {
 	return url === null ? null : parseOrigin(url);
 }
 
-export function minimalText(slug: string | null, reason: string): string {
-	return `dynaflows minimal mode for ${slug ?? "none"}: ${reason}`;
-}
-
-/** The rails' words when the repository's mode cannot be resolved: never minimal mode. */
-export function unresolvedText(error: OriginError): string {
-	return `Agent rails: could not resolve this repository's dynaflows mode: ${error.message}; retry.`;
+/** The rails' words when the repository's origin or agent-rails config cannot be resolved: git and gh writes refuse. */
+export function unresolvedText(reason: string): string {
+	return `Agent rails: could not resolve this repository's agent-rails config: ${reason}; retry.`;
 }
 
 /** The directory is in no Git repository. */

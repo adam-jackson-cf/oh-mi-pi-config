@@ -11,8 +11,8 @@ import { agentDir } from "./decision-store.ts";
 export const defaultReviewsPath = (): string => join(agentDir(), "dynaflows-reviews.json");
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
-// Not extension behaviour: the mode file changes on every mode switch.
-const IGNORED = new Set(["node_modules", "__pycache__", ".venv", "build", "modes.json"]);
+// Not extension behaviour: installed packages, caches and build output.
+const IGNORED = new Set(["node_modules", "__pycache__", ".venv", "build"]);
 const reviewsSchema = z.object({ schemaVersion: z.literal(1), repos: z.record(z.string(), z.string().min(1)) }).strict();
 
 async function gitText(pi: ExecApi, cwd: string, args: string[]): Promise<string | undefined> {
@@ -40,7 +40,7 @@ export async function extensionRevision(pi: ExecApi, configRoot: string, extensi
 	const top = await gitText(pi, configRoot, ["rev-parse", "--show-toplevel"]);
 	if (top !== undefined) {
 		const path = relative(top, extensionDir);
-		const sha = await gitText(pi, top, ["log", "-1", "--format=%H", "--", path, `:(exclude)${path}/modes.json`]);
+		const sha = await gitText(pi, top, ["log", "-1", "--format=%H", "--", path]);
 		if (sha) return `git:${sha}`;
 	}
 	return contentHash(extensionDir);
@@ -53,7 +53,7 @@ export async function extensionDiff(pi: ExecApi, configRoot: string, extensionDi
 	const top = await gitText(pi, configRoot, ["rev-parse", "--show-toplevel"]);
 	if (top === undefined) return undefined;
 	const path = relative(top, extensionDir);
-	return gitText(pi, top, ["diff", "--stat", from, to, "--", path, `:(exclude)${path}/modes.json`]);
+	return gitText(pi, top, ["diff", "--stat", from, to, "--", path]);
 }
 
 export async function storedRevision(path: string, slug: string): Promise<string | undefined> {

@@ -11,10 +11,11 @@ import {
 type Harness = ReturnType<typeof harness>;
 const other = "b".repeat(40);
 
-async function withHarness(mode: "minimal" | "structured" | undefined, body: (h: Harness) => Promise<void>): Promise<void> {
+// governed: the repository has a valid agent-rails config; otherwise it is not onboarded and only the fixed guards decide.
+async function withHarness(governed: boolean, body: (h: Harness) => Promise<void>): Promise<void> {
 	const h = harness();
 	try {
-		if (mode) h.mode(mode);
+		if (governed) h.govern();
 		await h.read("skill://git-tool", mergeRecover);
 		await body(h);
 	} finally { h.cleanup(); }
@@ -32,7 +33,7 @@ async function assertAllowed(h: Harness, tool: string, input: Record<string, str
 }
 
 describe("dynaflows closes routes around the bash rails", () => {
-	test("shell carriers that hide git, gh or omp fail closed", () => withHarness(undefined, async h => {
+	test("shell carriers that hide git, gh or omp fail closed", () => withHarness(true, async h => {
 		writeFileSync(join(h.root, "p.sh"), "git push origin HEAD:main\n");
 		for (const command of [
 			"python3 -c \"import subprocess;subprocess.run(['git','commit','-n','-m','x'])\"",
@@ -51,14 +52,14 @@ describe("dynaflows closes routes around the bash rails", () => {
 		]) await assertAllowed(h, "bash", { command });
 	}));
 
-	test("pipelines and background jobs keep the cwd, so cd cannot move a commit out of its repository", () => withHarness("structured", async h => {
+	test("pipelines and background jobs keep the cwd, so cd cannot move a commit out of its repository", () => withHarness(true, async h => {
 		h.config({ commands: { commit: ["false"] } });
 		for (const command of ["cd / | git commit -m x", "cd /tmp & git commit -m x"]) {
 			await assertRefused(h, "bash", { command }, "commands.commit (false) failed");
 		}
 	}));
 
-	test("git options and variables that retarget the repository, config or hooks are refused", () => withHarness(undefined, async h => {
+	test("git options and variables that retarget the repository, config or hooks are refused", () => withHarness(false, async h => {
 		for (const command of [
 			"git --git-dir=/x/.git push origin agent/test:main", "git --git-dir /x/.git push", "GIT_DIR=/x/.git git push origin agent/test:main",
 			"GIT_WORK_TREE=/x git commit -m x", "git --work-tree=/x commit -m x", "git -c include.path=/tmp/x.cfg commit -m x",
@@ -69,7 +70,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		]) await assertRefused(h, "bash", { command });
 	}));
 
-	test("persistent Git config, remote and ref writes that steer the rails are refused", () => withHarness(undefined, async h => {
+	test("persistent Git config, remote and ref writes that steer the rails are refused", () => withHarness(false, async h => {
 		for (const command of [
 			"git config core.hooksPath /dev/null", "git config --global core.hooksPath x", "git config alias.pm 'push origin HEAD:main'",
 			"git config remote.pushDefault evil", "git config include.path /tmp/x", "git config --unset core.hooksPath", "git config set core.hooksPath x",
@@ -84,7 +85,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		]) await assertAllowed(h, "bash", { command });
 	}));
 
-	test("commands that create commits or run git outside git commit and git push are refused", () => withHarness(undefined, async h => {
+	test("commands that create commits or run git outside git commit and git push are refused", () => withHarness(false, async h => {
 		for (const command of [
 			"git commit-tree HEAD^{tree} -m x", "git fast-import < stream", "git replay --onto main a..b", "git subtree push --prefix=d origin main",
 			"git filter-branch --tree-filter true", "git rebase -x 'git commit --amend --no-verify --no-edit' HEAD~1",
@@ -94,7 +95,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertAllowed(h, "bash", { command: "git rebase -x 'bun test' HEAD~1" });
 	}));
 
-	test("the default branch stays protected when push config or the local remote HEAD moves", () => withHarness(undefined, async h => {
+	test("the default branch stays protected when push config or the local remote HEAD moves", () => withHarness(true, async h => {
 		await assertAllowed(h, "bash", { command: "git push origin agent/test" });
 		await execute("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/zzz"], { cwd: h.root });
 		await assertRefused(h, "bash", { command: "git push origin HEAD:main" }, "default branch main");
@@ -107,7 +108,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertRefused(h, "bash", { command: "git push origin" }, "default branch");
 	}));
 
-	test("gh aliases, extensions, settings writes and API writes outside PR conversation are refused", () => withHarness(undefined, async h => {
+	test("gh aliases, extensions, settings writes and API writes outside PR conversation are refused", () => withHarness(false, async h => {
 		for (const command of [
 			"gh alias set mm 'pr merge'", "gh mm 3", "gh extension install x/y", "gh repo set-default o/r", "gh repo edit --default-branch x",
 			"gh secret set X", "gh auth token", "gh api 'repos/o/r/pulls/1/merge#' -X PUT", "gh api -X PUT repos/o/r/contents/x -f branch=main",
@@ -127,7 +128,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		assert.deepEqual(prMerge(["pr", "merge", "-ds", "7", "--match-head-commit", ciHead]).selectors, ["7"]);
 		assert.deepEqual(prMerge(["pr", "merge", "--disable-auto", "7", "--match-head-commit", ciHead]).selectors, ["7"]);
 		assert.deepEqual(prMerge(["pr", "merge", "-t", "subject", "7"]).selectors, ["7"]);
-		await withHarness("structured", async h => {
+		await withHarness(true, async h => {
 			for (const command of [
 				`gh pr merge 3 --squash --match-head-commit ${ciHead} --match-head-commit ${other}`,
 				`gh pr merge --match-head-commit=${ciHead} 3 --squash --match-head-commit=${other}`,
@@ -137,7 +138,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		});
 	});
 
-	test("proof evidence counts only when a watched prove() or structure_review() call wrote it", () => withHarness("structured", async h => {
+	test("proof evidence counts only when a watched prove() or structure_review() call wrote it", () => withHarness(true, async h => {
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const merge = { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` };
 		mkdirSync(join(h.root, ".git/omp-prove"), { recursive: true });
@@ -154,7 +155,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertAllowed(h, "bash", merge);
 	}));
 
-	test("a failing required context blocks the merge even beside a green one of the same name", () => withHarness("structured", async h => {
+	test("a failing required context blocks the merge even beside a green one of the same name", () => withHarness(true, async h => {
 		h.config(ciGate);
 		await proveResult(h);
 		await structureResult(h);
@@ -165,19 +166,17 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertRefused(h, "bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` }, 'required CI context "gate" is FAILURE');
 	}));
 
-	test("agent tools cannot write the mode file, review state, live extension, harness config or Git config", () => withHarness(undefined, async h => {
+	test("agent tools cannot write the review state, live extension, harness config or Git config", () => withHarness(false, async h => {
 		const extension = dirname(railsConfig);
 		for (const path of [
-			h.options.modesPath ?? "", h.options.reviewsPath ?? "", join(extension, "modes.json"), join(extension, "rails.yml"), join(extension, "index.ts"),
+			h.options.reviewsPath ?? "", join(extension, "rails.yml"), join(extension, "index.ts"),
 			join(extension, "../../config.yml"), join(h.root, ".git/hooks/pre-commit"), join(h.root, ".git/config"),
 		]) await assertRefused(h, "write", { path, content: "x" });
-		await assertRefused(h, "bash", { command: `printf '{"schemaVersion":1,"repos":{}}' > '${h.options.modesPath ?? ""}'` }, "writes near rail state");
-		await assertRefused(h, "bash", { command: "printf '{}' > agent/extensions/dynaflows/modes.json" }, "writes near rail state");
 		await assertRefused(h, "bash", { command: `printf '{}' > '${h.options.reviewsPath ?? ""}'` }, "writes near rail state");
 		await assertRefused(h, "bash", { command: "chmod -x .git/hooks/pre-commit" }, "writes near rail state");
 	}));
 
-	test("agents never write a repository's agent-rails config, through any tool; reads pass", () => withHarness(undefined, async h => {
+	test("agents never write a repository's agent-rails config, through any tool; reads pass", () => withHarness(false, async h => {
 		h.config();
 		await assertRefused(h, "write", { path: h.repoConfigPath, content: "x" }, "agents read it but never write it");
 		await assertRefused(h, "write", { path: join(h.root, ".agentrails", "other.json"), content: "x" }, "agents read it but never write it");
@@ -188,7 +187,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertAllowed(h, "read", { path: h.repoConfigPath });
 	}));
 
-	test("an owner's config change during a session takes effect on the next action; mode file changes refuse git and gh", () => withHarness("structured", async h => {
+	test("an owner's config change during a session takes effect on the next action, including its removal", () => withHarness(true, async h => {
 		await h.emit("session_start");
 		await h.read("skill://git-tool", mergeRecover);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
@@ -197,18 +196,18 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertRefused(h, "bash", { command: "git commit -m x" }, "commands.commit (false) failed");
 		h.rawConfig(saved);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
-		h.mode("minimal");
-		await assertRefused(h, "bash", { command: "git push origin agent/test" }, "changed during this session");
+		h.unconfigure();
+		await assertRefused(h, "bash", { command: "git push origin agent/test" }, "owner/repo is not onboarded (missing)");
 	}));
 
-	test("an origin rewrite during a session refuses git actions", () => withHarness("structured", async h => {
+	test("an origin rewrite during a session refuses git actions", () => withHarness(true, async h => {
 		await h.emit("session_start");
 		await h.read("skill://git-tool", mergeRecover);
 		await execute("git", ["remote", "set-url", "origin", "https://github.com/owner/other.git"], { cwd: h.root });
 		await assertRefused(h, "bash", { command: "git commit -m x" }, "origin remote");
 	}));
 
-	test("eval cannot commit, run git or gh, or launch omp", () => withHarness(undefined, async h => {
+	test("eval cannot commit, run git or gh, or launch omp", () => withHarness(false, async h => {
 		for (const code of [
 			"sh(\"git commit --no-verify -m x\")", "import subprocess\nsubprocess.run(['git', 'push', 'origin', 'HEAD:main'])",
 			"d = await commit.draft()\nawait d.commit('msg', no_verify=True)", "await (await commit.draft()).commit('m')",
@@ -220,7 +219,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		}
 	}));
 
-	test("session start pins the omp settings behind the eval commit, github push, branch-merge and handler-timeout routes", () => withHarness(undefined, async h => {
+	test("session start pins the omp settings behind the eval commit, github push, branch-merge and handler-timeout routes", () => withHarness(false, async h => {
 		const settings = h.api.pi.settings;
 		for (const id of ["commit.enabled", "github.enabled"]) lookup(id)?.override(settings, true);
 		lookup("task.isolation.merge")?.override(settings, "branch");
@@ -231,7 +230,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 		assert.ok(Number(lookup("extensionHandlers.toolCallTimeoutMs")?.get(settings)) > 600_000);
 	}));
 
-	test("commit checks run under a timeout below the pinned tool-call budget", () => withHarness("structured", async h => {
+	test("commit checks run under a timeout below the pinned tool-call budget", () => withHarness(true, async h => {
 		const timeouts: (number | undefined)[] = [];
 		const exec = h.api.exec.bind(h.api);
 		h.api.exec = async (command, args, options) => {

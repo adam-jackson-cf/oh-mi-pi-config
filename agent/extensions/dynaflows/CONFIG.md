@@ -90,6 +90,37 @@ The Q&A is fixed in [questionnaire.ts](lib/questionnaire.ts), version 1. It neve
 `config-check --list-rules` and `--list-questions` give the rule and judgment choices.
 `/agentrails configure` also repairs a config refused only for an older questionnaire version.
 
+## Rails scope
+
+The rails decide what runs in a repository from its config state, on every action.
+There is one governed state, with no mode switch.
+
+| Scope | When | What runs |
+| --- | --- | --- |
+| Outside | No Git repository, or no GitHub origin | Fixed guards only |
+| Unresolved | Git or the engine cannot resolve the config | Git and gh writes refused |
+| Not onboarded | Missing or invalid config, no onboarding this session | Onboarding refusal |
+| Onboarding | The owner ran `/agentrails onboard` this session | Fixed guards; no merge |
+| Governed | A config the engine accepted | Every rail, as `gates` and `autonomy` say |
+
+The onboarding refusal (`onboarding-required`, or `config-invalid` with the engine's problems)
+applies to:
+
+- edit and write tools on paths inside the repository;
+- `git commit`, `git push`, `gh pr create` and `gh pr merge`, after their fixed guards;
+- `askFirst` commands.
+
+Reads, other commands, the `agentrails_config` tool and the `handoff` tool still run.
+
+While a repository is onboarding, edits, commits, pushes of non-default branches and
+`gh pr create` run under the fixed guards. Commit checks, path checks, reference reads and the
+judged commit rails wait for the config. `gh pr merge` is refused (`onboarding-merge`): the
+owner merges the bootstrap PR. Agents never write `.git/info/exclude`: the extension excludes
+`/.agentrails/` and `/.proofs/`. An agent may set `core.hooksPath` only to a directory inside
+the repository, such as `.githooks`; `/agentrails onboard` also offers it to the owner.
+
+`in-scope/ask_first` runs in every Git repository, whatever its config state.
+
 While a repository is onboarding, `$approve` and `$revoke` lines write the draft's
 `exceptions` and `approvals`, so budgets and exemptions can be approved before the config exists.
 `approvedBy` is the login `gh api user` returns, read once per session.

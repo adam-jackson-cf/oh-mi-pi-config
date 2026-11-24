@@ -1,9 +1,8 @@
-// Session rails: end-of-turn obligations (structured mode), opt-in device rollout, review on
+// Session rails: end-of-turn obligations (governed repositories), opt-in device rollout, review on
 // restart and handoffs between sessions. index.ts wires them into the Git rails and the dynaflows tool.
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type ToolEvent } from "./rails-runtime.ts";
 import { OriginError, repoSlug, unresolvedText } from "./git-paths.ts";
-import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
 import { defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
@@ -19,7 +18,10 @@ export type SessionDeps = {
 	reviewsPath: string;
 	/** The real path of the Git common dir of the repository holding cwd (git-paths.ts). */
 	commonDir(cwd: string): Promise<string>;
-	modeOf(ctx: ExtensionContext, cwd: string): Promise<Mode>;
+	/** Whether the repository holding cwd is governed (a config the engine accepted); throws OriginError when its scope cannot be resolved. */
+	governed(ctx: ExtensionContext, cwd: string): Promise<boolean>;
+	/** Whether cwd is inside a Git repository: in-scope runs there, whatever its config state. */
+	inGitRepo(cwd: string): Promise<boolean>;
 	/** The agent-rails config of the repository holding root when the engine accepted it (repo-config.ts); else undefined. */
 	configOf(root: string): Promise<ImpactInput["config"]>;
 	/** The turn-end status of a branch's PR, with the reason when it is unmet (CI pending or failing, gh unreadable). */
@@ -99,20 +101,11 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		sessions.set(id, found);
 		return found;
 	};
-	const structured = async (ctx: ExtensionContext, root: string) => await deps.modeOf(ctx, root) === "structured";
-	// For judgments on actions that write nothing through git or gh: an unresolvable mode is notified and the judgment does not run.
-	const structuredOrNotify = async (ctx: ExtensionContext, root: string) => {
-		try { return await structured(ctx, root); }
-		catch (error) {
-			if (!(error instanceof OriginError)) throw error;
-			ctx.ui.notify(unresolvedText(error), "error");
-			return false;
-		}
-	};
+	const governed = (ctx: ExtensionContext, root: string) => deps.governed(ctx, root);
 	// The rollout step, from the config root only: any spelling that resolves to the same script counts.
 	const rolloutStep: Step = { argv: ["python3", `${deps.configRoot.replace(/\/+$/, "")}/scripts/device_rollout.py`], root: deps.configRoot };
 	const rolloutCommand = shellJoin(rolloutStep.argv);
-	const judged = judgedRails(pi, { decide: deps.decide, approvals: deps.approvals, structured: structuredOrNotify, askFirst: deps.askFirst });
+	const judged = judgedRails(pi, { decide: deps.decide, approvals: deps.approvals, inGitRepo: deps.inGitRepo, askFirst: deps.askFirst });
 	// The repository's config when the engine accepted it; any other state, or a failure to resolve it, has none to read.
 	const configOf = (root: string) => deps.configOf(root).catch(() => undefined);
 
@@ -135,7 +128,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		const from = await storedRevision(deps.reviewsPath, slug);
 		if (from === undefined) { await storeRevision(deps.reviewsPath, slug, to); return; }
 		if (from === to) return;
-		if (!await structured(ctx, root)) {
+		if (!await governed(ctx, root)) {
 			ctx.ui.notify(`Agent rails: the dynaflows extension changed (${from} → ${to}) since ${slug} last acknowledged it; review the change.`, "info");
 			await storeRevision(deps.reviewsPath, slug, to);
 			return;
@@ -240,7 +233,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	async function discoverPr(ctx: ExtensionContext, session: Session): Promise<void> {
 		if (ctx.agent.kind !== "main") return;
 		const root = await repoRoot(ctx.cwd);
-		if (!root || !await structured(ctx, root)) return;
+		if (!root || !await governed(ctx, root)) return;
 		const branch = await currentBranch(ctx.cwd);
 		if (!branch || session.discovered.has(`${root}:${branch}`)) return;
 		const pushed = await pi.exec("git", ["rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: ctx.cwd, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -290,12 +283,12 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 
 	async function addRollout(ctx: ExtensionContext, session: Session): Promise<string> {
 		const root = await repoRoot(ctx.cwd);
-		const applies = root ? await structured(ctx, root).catch((error: Error) => {
+		const applies = root ? await governed(ctx, root).catch((error: Error) => {
 			if (error instanceof OriginError) return error;
 			throw error;
 		}) : false;
-		if (applies instanceof OriginError) return `${unresolvedText(applies)} No device rollout obligation was added.`;
-		if (!root || !applies) return "Device rollout obligations need dynaflows structured mode; none was added.";
+		if (applies instanceof OriginError) return `${unresolvedText(applies.message)} No device rollout obligation was added.`;
+		if (!root || !applies) return "Device rollout obligations need an onboarded repository (a valid .agentrails/config.json); none was added.";
 		session.book.add({ id: ROLLOUT_ID, root, text: `device rollout was requested; run \`${rolloutCommand}\` until it exits 0`, status: async () => "unmet" });
 		return `Device rollout requested: before this work ends, run \`${rolloutCommand}\` until it exits 0.`;
 	}
@@ -336,11 +329,11 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		try {
 			await discoverPr(ctx, session);
 			const extra = (await Promise.all(deps.sources.map(source => source(ctx.sessionManager.getSessionId())))).flat();
-			const reason = await session.book.turnEnd(extra, root => structured(ctx, root), text => ctx.ui.notify(text, "error"));
+			const reason = await session.book.turnEnd(extra, root => governed(ctx, root), text => ctx.ui.notify(text, "error"));
 			return reason ? { decision: "block" as const, reason } : undefined;
 		} catch (error) {
-			// Obligations of a repository whose mode is unknown are not dropped: the work cannot end yet.
-			if (error instanceof OriginError) return { decision: "block" as const, reason: unresolvedText(error) };
+			// Obligations of a repository whose scope is unknown are not dropped: the work cannot end yet.
+			if (error instanceof OriginError) return { decision: "block" as const, reason: unresolvedText(error.message) };
 			throw error;
 		}
 	});

@@ -1,6 +1,6 @@
 // Rails-owned trust: the omp settings the rails pin, the paths no agent tool may write, the eval
 // cells the rails refuse, the proof evidence only prove() and structure_review() runs the rails saw
-// may supply, and the rail state (mode file, origin) seen at session start. A repository's agent-rails
+// may supply, and the rail state (the session repo's origin) seen at session start. A repository's agent-rails
 // config (<main checkout>/.agentrails/) is rail state too: agents read it but never write it, and the
 // rails re-read it on every action.
 import { createHash } from "node:crypto";
@@ -32,12 +32,12 @@ function pinSettings(settings: SettingsScope): void {
 	if (z.number().catch(0).parse(timeout.get(settings)) < TOOL_CALL_TIMEOUT_MS) timeout.override(settings, TOOL_CALL_TIMEOUT_MS);
 }
 
-// modesFile: the tracked per-repo mode file; reviewsFile: the restart-review acknowledgements.
-type Protection = { modesFile: string; reviewsFile: string; extensionDir: string; harnessConfig: string };
+// reviewsFile: the restart-review acknowledgements.
+type Protection = { reviewsFile: string; extensionDir: string; harnessConfig: string };
 
 function protectedRoots(protection: Protection): string[] {
 	const home = homedir();
-	return [protection.modesFile, protection.reviewsFile, protection.extensionDir, protection.harnessConfig,
+	return [protection.reviewsFile, protection.extensionDir, protection.harnessConfig,
 		join(home, ".gitconfig"), join(home, ".config/git/config"), join(home, ".config/gh/config.yml")];
 }
 
@@ -50,7 +50,7 @@ const inside = (path: string, root: string) => {
 const CONFIG_SEGMENT = ".agentrails";
 
 // Why an agent tool may not write path: Git internals (hooks, config, refs, proof evidence), a
-// repository's agent-rails config, the mode file, the review state, the live extension, the harness
+// repository's agent-rails config, the review state, the live extension, the harness
 // config, or Git and gh config.
 function protectedPathReason(path: string, protection: Protection): string | undefined {
 	const forms = [path, canonicalPath(path)];
@@ -67,18 +67,18 @@ function protectedPathReason(path: string, protection: Protection): string | und
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Text naming rail state: Git internals, proof evidence and agent-rails configs anywhere, Git and gh
-// config, and the mode file, review state, extension and harness config by absolute or ~/ path.
+// config, and the review state, extension and harness config by absolute or ~/ path.
 function markerPattern(protection: Protection): RegExp {
 	const home = homedir();
 	const roots = protectedRoots(protection).flatMap(root => root.startsWith(`${home}/`) ? [root, `~${root.slice(home.length)}`] : [root]);
-	return new RegExp(`(?:^|[\\s'"=:/(])\\.git(?:/|$|[\\s'";)])|\\.agentrails|omp-prove|omp-structure|dynaflows-reviews\\.json|dynaflows/modes\\.json|\\.gitconfig|git/config\\b|gh/config\\.yml|${roots.map(escape).join("|")}`, "m");
+	return new RegExp(`(?:^|[\\s'"=:/(])\\.git(?:/|$|[\\s'";)])|\\.agentrails|omp-prove|omp-structure|dynaflows-reviews\\.json|\\.gitconfig|git/config\\b|gh/config\\.yml|${roots.map(escape).join("|")}`, "m");
 }
 
 const SHELL_WRITES = /(?<!<)>(?!&)|\b(?:tee|cp|mv|rm|ln|install|rsync|dd|truncate|chmod|chown|touch|mkdir|unlink|shred|patch|python[\d.]*|node|bun|perl|ruby|deno)\b|-delete\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)/;
 
 function shellStateReason(command: string, protection: Protection): string | undefined {
 	return markerPattern(protection).test(command) && SHELL_WRITES.test(command)
-		? "Agent rails: this command writes near rail state (Git internals, proof evidence, an agent-rails config, the mode file, the review state, the extension or Git/gh config); only the owner changes it."
+		? "Agent rails: this command writes near rail state (Git internals, proof evidence, an agent-rails config, the review state, the extension or Git/gh config); only the owner changes it."
 		: undefined;
 }
 
@@ -94,7 +94,7 @@ function evalReason(code: string, protection: Protection): string | undefined {
 	if (EVAL_COMMIT.test(code)) return "Agent rails: the eval commit namespace commits outside the rails; commit with git commit in the bash tool.";
 	if (EVAL_PROCESS.test(code) && mentionsGit(code)) return "Agent rails: eval may not run git, gh, hub or omp; run them with the bash tool so the rails check them.";
 	if (markerPattern(protection).test(code) && (EVAL_WRITES.test(code) || EVAL_PROCESS.test(code))) {
-		return "Agent rails: eval may not write rail state (Git internals, proof evidence, an agent-rails config, the mode file, the review state, the extension or Git/gh config).";
+		return "Agent rails: eval may not write rail state (Git internals, proof evidence, an agent-rails config, the review state, the extension or Git/gh config).";
 	}
 	return EVAL_TAMPER.test(code) ? "Agent rails: eval may not redefine the proof workflow or reach builtins; call prove() and structure_review() as loaded." : undefined;
 }
@@ -148,8 +148,7 @@ class Evidence {
 	}
 }
 
-// Rail state seen at session start (the mode file and the session repo's origin): a change
-// during the session, other than through the rails' own mode switch, refuses
+// Rail state seen at session start (the session repo's origin): a change during the session refuses
 // every git and gh action until the owner restores it or restarts omp. State that could not be read
 // at session start has no trusted value, so it refuses them until the owner restarts omp. A reader
 // that fails during the session throws: the caller decides what that refuses.
@@ -171,10 +170,6 @@ class Snapshot {
 		this.#unread.set(key, why);
 	}
 
-	accept(key: string, value: string): void {
-		if (this.#seen.has(key)) this.#seen.set(key, value);
-	}
-
 	async driftReason(): Promise<string | undefined> {
 		for (const [key, why] of this.#unread) {
 			return `Agent rails: ${key} could not be read at session start (${why}), so the rails have no trusted state for it; the owner restarts omp.`;
@@ -188,11 +183,6 @@ class Snapshot {
 	}
 }
 
-async function fileState(path: string): Promise<string> {
-	const text = await readFile(path, "utf8").catch(absentFile);
-	return text === null ? "absent" : digest(text);
-}
 
-
-export { COMMIT_CHECKS_TIMEOUT_MS, TOOL_CALL_TIMEOUT_MS, Evidence, Snapshot, evalReason, fileState, pinSettings, protectedPathReason, setting, shellStateReason };
+export { COMMIT_CHECKS_TIMEOUT_MS, TOOL_CALL_TIMEOUT_MS, Evidence, Snapshot, evalReason, pinSettings, protectedPathReason, shellStateReason };
 export type { Protection };

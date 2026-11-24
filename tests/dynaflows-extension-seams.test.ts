@@ -7,7 +7,7 @@ import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { machineName, storePath, withStore } from "../agent/extensions/dynaflows/lib/decision-store.ts";
-import { harness, execute, reasonOf, isBlocked, repoCommand, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, askAutonomy, ciGate, ciRunner, harnessConfig, type Input, originRemote, proveResult, structureResult, railsConfig, mergeRecover, watchedProofCall } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, repoCommand, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, askAutonomy, ciGate, ciRunner, harnessConfig, type Input, originRemote, proveResult, structureResult, railsConfig, mergeRecover, watchedProofCall } from "./dynaflows-guards-seams.test";
 
 const proofs = "skill://structured-workflow/references/proofs.md";
 
@@ -47,7 +47,7 @@ describe("dynaflows extension", () => {
 	test("blocks new code and test files until every mapped reference is successfully read", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			const input = { path: "tests/new.test.ts", content: "test('behaviour', () => {});" };
 			const blocked = await h.call("write", input);
 			assert.equal(isBlocked(blocked), true);
@@ -63,7 +63,7 @@ describe("dynaflows extension", () => {
 	test("dynaflows gates both existing code and new tests on their mapped reads", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.reason?.includes(integrity));
 			await h.read(integrity, structure);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
@@ -78,7 +78,7 @@ describe("dynaflows extension", () => {
 		try {
 			h.pathFailure("use feature ownership");
 			h.config();
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity, structure);
 			writeFileSync(join(h.root, "another.ts"), "export {};\n");
 			const result = await h.call("edit", { paths: ["existing.ts", "another.ts"] });
@@ -89,28 +89,25 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("absent and invalid configs ask for no edit reads and do not throw", async () => {
+	test("absent and invalid configs refuse edits with the onboarding text before any reference read, and do not throw", async () => {
 		const h = harness();
 		try {
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.equal(h.notes.length, 0, "a repo without a config is normal, not noteworthy");
-			h.mode("structured");
+			assert.ok(reasonOf(await h.call("edit", { path: "existing.ts" })).includes("owner/repo is not onboarded (missing)"));
 			h.rawConfig("{broken");
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.ok(h.notes.some(note => note.includes(`the agent-rails config ${h.repoConfigPath} is invalid`)), h.notes.join("; "));
+			assert.ok(reasonOf(await h.call("edit", { path: "existing.ts" })).includes("owner/repo is not onboarded (invalid: "));
 			h.rawConfig(JSON.stringify({ ...harnessConfig("owner/repo"), commands: { commit: "not an argv array" } }));
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.ok(h.notes.some(note => note.includes("commands.commit: must be a non-empty argv array")), h.notes.join("; "));
+			const invalid = reasonOf(await h.call("edit", { path: "existing.ts" }));
+			assert.ok(invalid.includes("commands.commit: must be a non-empty argv array") && !invalid.includes(integrity), invalid);
+			assert.deepEqual(h.notes, [], "the refusal carries the problems; nothing else is noted");
+			h.govern();
 			await h.read(integrity);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 		} finally { h.cleanup(); }
 	});
 
-	test.each(["minimal", "structured"])("handoff needs only the verification read after code edits, never a check run (dynaflows %s mode)", async name => {
-		const mode = name === "structured" ? "structured" : "minimal";
+	test("handoff needs only the verification read after code edits in a governed repository, never a check run", async () => {
 		const h = harness();
 		try {
-			h.mode(mode);
 			h.config({ commands: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
 			await h.emit("session_start");
 			writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
@@ -119,11 +116,9 @@ describe("dynaflows extension", () => {
 			await h.read(integrity, structure);
 			await h.call("edit", { path: "existing.ts" });
 			const blocked = await h.emit("session_stop");
-			if (mode === "structured") {
-				assert.equal(blocked?.decision, "block");
-				assert.ok(reasonOf(blocked).includes(verification));
-				assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
-			} else assert.equal(blocked, undefined);
+			assert.equal(blocked?.decision, "block");
+			assert.ok(reasonOf(blocked).includes(verification));
+			assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
 			await h.read(verification);
 			writeFileSync(join(h.root, "session.log"), "grew again\n");
 			assert.equal(await h.emit("session_stop"), undefined);
@@ -147,7 +142,7 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-scratch-")));
 		try {
-			h.mode("structured");
+			h.govern();
 			assert.equal(await h.call("write", { path: join(scratch, "notes.md"), content: "# notes\n" }), undefined,
 				"a new file outside any repository needs no reads");
 			await h.read(integrity);
@@ -173,10 +168,9 @@ describe("dynaflows extension", () => {
 			await h.read("skill://git-tool", mergeRecover);
 			const commit = () => h.call("bash", { command: "git commit -m x" });
 			const runs = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+			assert.ok(reasonOf(await commit()).includes("owner/repo is not onboarded (missing)"));
+			assert.deepEqual(runs(), [], "an unconfigured repository's commit is refused before any check runs");
 			h.config({ commands: { commit: [script, "commit"] } });
-			assert.equal(await commit(), undefined);
-			assert.deepEqual(runs(), [], "minimal mode: rails run no repo or harness check");
-			h.mode("structured");
 			assert.equal(await commit(), undefined);
 			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} AGENT=unset`],
 				"the repo command first, then the harness over the whole repo (its config); AGENT never reaches either");
@@ -202,10 +196,10 @@ describe("dynaflows extension", () => {
 			assert.equal((await commit())?.block, true, "harness checks run even when commands.commit checks nothing");
 			assert.deepEqual(runs(), [`harness --repo ${h.root} AGENT=unset`]);
 			delete process.env["FAIL_harness"];
-			h.mode("minimal");
+			h.unconfigure();
 			rmSync(log);
-			assert.equal(await commit(), undefined);
-			assert.deepEqual(runs(), [], "minimal mode runs no repo or harness check");
+			assert.ok(reasonOf(await commit()).includes("owner/repo is not onboarded (missing)"));
+			assert.deepEqual(runs(), [], "a removed config runs no repo or harness check");
 		} finally {
 			if (previous === undefined) delete process.env["AGENT"]; else process.env["AGENT"] = previous;
 			delete process.env["FAIL_commit"]; delete process.env["FAIL_harness"];
@@ -234,7 +228,7 @@ describe("dynaflows extension", () => {
 				return exec(command, args, options);
 			};
 			h.config({ commands: { commit: ["commit-check"] } });
-			h.mode("structured");
+			h.govern();
 			writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
 			writeFileSync(join(h.root, "staged.ts"), "export {};\n");
 			await execute("git", ["add", "existing.ts", "staged.ts"], { cwd: h.root });
@@ -257,7 +251,7 @@ describe("dynaflows extension", () => {
 		try {
 			await h.read("skill://git-tool", mergeRecover);
 			h.config({ commands: { commit: ["true"] } });
-			h.mode("structured");
+			h.govern();
 			assert.ok((await h.call("bash", { command: "git add -A && git commit -m x" }))?.reason?.includes("in a command of its own"));
 			for (const command of [
 				"git -c core.editor=true commit", "git commit", "git commit -e -m x", "git status && git commit -m x", "cd . && git commit -m x",
@@ -280,7 +274,7 @@ describe("dynaflows extension", () => {
 		const h = harness({ guardrailsCommand: "default" });
 		try {
 			await h.read("skill://git-tool", mergeRecover);
-			h.mode("structured");
+			h.govern();
 			const seen: string[][] = [];
 			const exec = h.api.exec.bind(h.api);
 			h.api.exec = async (command, args, options) => {
@@ -300,7 +294,7 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		try {
 			await h.read("skill://git-tool", mergeRecover);
-			h.mode("structured");
+			h.govern();
 			const complete = harnessConfig("owner/repo");
 			for (const [config, named] of [
 				[{ ...complete, ownerOnlyPaths: [] }, "ownerOnlyPaths: is not a config section"],
@@ -325,7 +319,7 @@ describe("dynaflows extension", () => {
 		try {
 			h.pathFailure("bad path");
 			h.config();
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity, structure);
 			await h.read(verification);
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
@@ -344,7 +338,7 @@ describe("dynaflows extension", () => {
 	test("isolates sessions, restores successful branch reads, and forgets compacted reads", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity);
 			h.setSession("second");
 			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
@@ -364,177 +358,51 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("$dynaflows sets the repo's entry in the mode file; only main prompts change it", async () => {
+	test("a $dynaflows line is ordinary prompt text, and the dynaflows tool only opts into rollout or acknowledges a review", async () => {
 		const h = harness();
 		try {
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "pull latest" }), undefined, "an unlisted repo runs minimal");
-			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" });
-			assert.ok(h.notes.some(note => note.includes("has no agent-rails config, so dynaflows is already in minimal mode")), h.notes.join("; "));
-			await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
-			assert.ok(h.notes.some(note => note.includes(`has no agent-rails config at ${h.repoConfigPath}; structured mode starts once the owner onboards it`)), h.notes.join("; "));
-			assert.equal(existsSync(h.repoConfigPath), false, "the directive never creates a config");
-			assert.equal(h.modeOf(), "structured", "the directive lists the repo even before its config exists");
-			h.mode("minimal");
-			h.config();
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the mode file says minimal");
-			h.mode("structured");
-			assert.equal(await h.emit("before_agent_start", { reason: "revive", prompt: "" }), undefined);
-			const pointer = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }));
-			assert.ok(pointer.includes("skill://structured-workflow"), "the mode file sets structured mode");
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "again" }), undefined, "pointer once per session");
-			const off = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows off" }));
-			assert.ok(off.includes("Dynaflows minimal mode") && !off.includes("skill://structured-workflow"));
+			h.govern();
+			for (const prompt of ["$dynaflows on", "$dynaflows off", "enable $dynaflows\nfix the login bug", "work"]) {
+				assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt }), undefined, prompt);
+			}
 			assert.deepEqual(JSON.parse(h.configText()), harnessConfig("owner/repo"), "the config is never written");
-			assert.equal(h.modeOf(), "minimal");
-			assert.deepEqual(JSON.parse(readFileSync(h.modesPath, "utf8")), { schemaVersion: 1, repos: {} }, "minimal removes the entry");
-			h.setSession("restarted");
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined, "minimal outlives the session");
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "price $dynaflowsy" }), undefined, "keyword needs a word boundary");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" })).includes("skill://structured-workflow"));
-			h.setSession("sub"); h.context.agent.kind = "sub";
-			for (const prompt of ["$dynaflows off", "stop $dynaflows", "turn off $dynaflows"]) {
-				assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt }), undefined, `subagents cannot change the dynaflows mode: ${prompt}`);
-			}
-			assert.equal(h.modeOf(), "structured");
-		} finally { h.cleanup(); }
-	});
-
-	test("every structured and minimal directive form sets the repo's mode", async () => {
-		const h = harness();
-		try {
-			h.config();
-			const on = ["$dynaflows", "$DYNAFLOWS ON", "  $dynaflows enable  "];
-			for (const verb of ["on", "enable", "init", "initialise", "initialize", "start", "setup", "set up", "turn on", "structured"]) {
-				on.push(`$dynaflows ${verb}`, `${verb} $dynaflows`, `${verb.toUpperCase()}  $Dynaflows`);
-			}
-			const off = ["$dynaflows off", "$dynaflows disable", "$dynaflows stop", "disable $dynaflows", "stop $dynaflows", "Turn  Off $dynaflows", "$dynaflows minimal", "Minimal $dynaflows"];
-			for (const prompt of on) {
-				h.mode("minimal");
-				await h.emit("before_agent_start", { reason: "prompt", prompt });
-				assert.deepEqual(h.modeOf(), "structured", prompt);
-			}
-			for (const prompt of off) {
-				h.mode("structured");
-				const result = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
-				assert.deepEqual(h.modeOf(), "minimal", prompt);
-				assert.ok(result.includes("Dynaflows minimal mode"), prompt);
-			}
-		} finally { h.cleanup(); }
-	});
-
-	test("enabling dynaflows starts from the repo's stage", async () => {
-		const h = harness();
-		try {
-			const start = async (prompt: string) => JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
-			const setup = await start("init $dynaflows");
-			assert.ok(setup.includes("which has no agent-rails config") && setup.includes("Agents never write that file") && setup.includes("owner/repo"), setup);
-			assert.equal(existsSync(h.repoConfigPath), false, "enabling never creates a config");
-			assert.ok(h.notes.some(note => note.includes("structured mode starts once the owner onboards it")), h.notes.join("; "));
-			assert.deepEqual(h.errors, [], "no config is a stage, not an error");
-			h.rawConfig(JSON.stringify({ ...harnessConfig("owner/repo"), dynaflows: { mode: "structured" } }));
-			const invalid = await start("$dynaflows enable");
-			assert.ok(invalid.includes(`its agent-rails config ${h.repoConfigPath} is refused: `) && invalid.includes("dynaflows: is not a config section"), invalid);
-			assert.ok(invalid.includes("report the problems to the owner"), invalid);
-			h.rawConfig("{broken");
-			const broken = await start("$dynaflows enable");
-			assert.ok(broken.includes("is refused: ") && broken.includes("Agents never write that file"), broken);
-			h.config();
-			const kickoff = await start("$dynaflows on");
-			assert.ok(kickoff.includes("Dynaflows structured mode for owner/repo") && kickoff.includes("skill://structured-workflow"), kickoff);
-			assert.ok(kickoff.includes("Report the stage you found and start it") && kickoff.includes("ask the owner for the task"), kickoff);
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "next" }), undefined, "the kickoff counts as the pointer");
-			const route = await start("enable $dynaflows\nfix the login bug");
-			assert.ok(route.includes("Dynaflows structured mode. Route this work with skill://structured-workflow") && !route.includes("Report the stage"), route);
-			const off = await start("$dynaflows off");
-			assert.ok(off.includes("Dynaflows minimal mode") && h.modeOf() === "minimal", off);
-		} finally { h.cleanup(); }
-	});
-
-	test("only a standalone directive line sets the mode; asks inside sentences are left to the agent", async () => {
-		const h = harness();
-		try {
-			h.config();
-			h.mode("minimal");
-			for (const prompt of ["I want to enable dynaflows", "please enable $dynaflows", "what does `$dynaflows init` do?",
-				"don't enable dynaflows", "type enable $dynaflows to start", "$dynaflows on."]) {
-				await h.emit("before_agent_start", { reason: "prompt", prompt });
-				assert.deepEqual(h.modeOf(), "minimal", prompt);
-			}
-			for (const prompt of ["enable $dynaflows", "  Turn On   $dynaflows ", "$dynaflows init"]) {
-				h.mode("minimal");
-				await h.emit("before_agent_start", { reason: "prompt", prompt });
-				assert.deepEqual(h.modeOf(), "structured", prompt);
-			}
-			const route = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows\nfix the login bug" }));
-			assert.ok(route.includes("Route this work with") && !route.includes("Report the stage"), route);
-		} finally { h.cleanup(); }
-	});
-
-	test("contradictory asks change nothing and tell the agent to ask the owner", async () => {
-		const h = harness();
-		try {
-			h.config();
-			for (const prompt of ["enable $dynaflows\ndisable $dynaflows", "$dynaflows on\n$dynaflows off"]) {
-				const result = JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt }));
-				assert.ok(result.includes("both dynaflows minimal and structured mode") && result.includes("Ask the owner"), result);
-				assert.deepEqual(h.modeOf(), "minimal", prompt);
-			}
-			assert.ok(h.errors.some(error => error.includes("contradictory dynaflows directives")), h.errors.join("; "));
-		} finally { h.cleanup(); }
-	});
-
-	test("the dynaflows tool sets the mode and returns the next step; subagents cannot use it", async () => {
-		const h = harness();
-		try {
-			const setup = await h.tool("dynaflows", { mode: "structured" });
-			assert.ok(setup.includes("which has no agent-rails config") && setup.includes(h.repoConfigPath), setup);
-			h.config();
-			const kickoff = await h.tool("dynaflows", { mode: "structured" });
-			assert.equal(h.modeOf(), "structured");
-			assert.ok(kickoff.includes("Dynaflows structured mode for owner/repo") && kickoff.includes("Report the stage you found"), kickoff);
-			assert.ok((await h.tool("dynaflows", { mode: "minimal" })).includes("only when the owner's latest message asks about dynaflows"));
-			assert.equal(h.modeOf(), "structured", "the agent cannot drop to minimal mode on its own initiative");
-			await h.emit("before_agent_start", { reason: "prompt", prompt: "please turn dynaflows off for now" });
-			assert.ok((await h.tool("dynaflows", { mode: "minimal" })).includes("Dynaflows minimal mode"));
-			assert.equal(h.modeOf(), "minimal");
+			assert.equal(await h.tool("dynaflows", {}), "Agent rails: pass rollout or acknowledge.");
+			assert.equal(await h.tool("dynaflows", { acknowledge: true }), "Agent rails: no extension change is waiting for acknowledgement.");
 			h.context.agent.kind = "sub";
-			assert.ok((await h.tool("dynaflows", { mode: "structured" })).includes("only the main agent"));
-			assert.equal(h.modeOf(), "minimal");
+			assert.equal(await h.tool("dynaflows", { acknowledge: true }), "Agent rails: only the main agent can call the dynaflows tool.");
 		} finally { h.cleanup(); }
 	});
 
-	test("a repo without an origin remote has no record, so dynaflows runs minimal mode", async () => {
+	test("a repo without an origin remote runs the fixed guards only, whatever its config", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
-			assert.ok(JSON.stringify(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" })).includes("skill://structured-workflow"));
+			h.config({ commands: { commit: ["false"] } });
+			await h.read("skill://git-tool", mergeRecover);
+			assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes("commands.commit (false) failed"));
 			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
 			h.setSession("no-origin");
-			assert.equal(await h.emit("before_agent_start", { reason: "prompt", prompt: "work" }), undefined);
 			await h.read("skill://git-tool", mergeRecover);
-			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
+			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "no commit checks outside GitHub repositories");
+			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined, "no onboarding refusal or reference reads");
 		} finally { h.cleanup(); }
 	});
 
-	test.each(["exit128", "kill"] as const)("an origin remote read that fails (%s) refuses commits and pushes in a structured repo, never minimal mode", async how => {
+	test.each(["exit128", "kill"] as const)("an origin remote read that fails (%s) refuses commits and pushes in a governed repo; edits are noted", async how => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await withFailingOriginRead(async fail => {
 				await h.read("skill://git-tool", mergeRecover);
 				fail(how);
-				const unresolved = "could not resolve this repository's dynaflows mode: git remote get-url origin in";
+				const unresolved = "could not resolve this repository's agent-rails config: git remote get-url origin in";
 				for (const command of ["git commit -m x", "git push origin HEAD:agent/feature"]) {
 					const refused = await h.call("bash", { command });
 					assert.equal(isBlocked(refused), true, command);
 					assert.ok(reasonOf(refused).includes(unresolved) && reasonOf(refused).endsWith("; retry."), reasonOf(refused));
-					assert.ok(!reasonOf(refused).includes("minimal mode"), reasonOf(refused));
 				}
-				assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes(how === "kill" ? "was killed" : "exited 128"));
 				h.notes.length = 0;
 				assert.equal(await h.call("edit", { path: "existing.ts" }), undefined, "an edit writes nothing through git: notified, not refused");
 				assert.ok(h.notes.some(note => note.includes(unresolved)), h.notes.join("; "));
-				assert.ok(!h.notes.some(note => note.includes("dynaflows minimal mode")), h.notes.join("; "));
 
 				h.notes.length = 0;
 				h.setSession(`start-${how}`);
@@ -547,45 +415,8 @@ describe("dynaflows extension", () => {
 				h.setSession(`no-origin-${how}`);
 				await h.emit("session_start");
 				await h.read("skill://git-tool", mergeRecover);
-				assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a repo with no origin remote still runs minimal mode");
-				assert.ok(h.notes.some(note => note.includes("dynaflows minimal mode for none: no origin remote")), h.notes.join("; "));
+				assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a repo with no origin remote runs the fixed guards only");
 			});
-		} finally { h.cleanup(); }
-	});
-
-	test("minimal mode is never silent: one note at session start and one at every commit name the slug and reason", async () => {
-		const h = harness();
-		try {
-			const cases: [string, () => Promise<void> | void, string][] = [
-				["unlisted", () => {}, `dynaflows minimal mode for owner/repo: the mode file ${h.modesPath} does not set structured`],
-				["structured without a config", () => { h.mode("structured"); rmSync(h.repoConfigPath); },
-					`dynaflows minimal mode for owner/repo: no agent-rails config at ${h.repoConfigPath}`],
-				["config back, mode off", () => { h.mode("minimal"); }, `dynaflows minimal mode for owner/repo: the mode file ${h.modesPath} does not set structured`],
-				["non-GitHub origin", async () => {
-					h.mode("structured");
-					await execute("git", ["remote", "set-url", "origin", "https://gitlab.com/owner/repo.git"], { cwd: h.root });
-				}, "dynaflows minimal mode for none: origin https://gitlab.com/owner/repo.git is not a GitHub owner/name URL"],
-				["no origin", () => execute("git", ["remote", "remove", "origin"], { cwd: h.root }).then(() => {}), "dynaflows minimal mode for none: no origin remote"],
-			];
-			for (const [name, arrange, text] of cases) {
-				await arrange();
-				h.notes.length = 0;
-				h.setSession(name);
-				await h.emit("session_start");
-				await h.read("skill://git-tool", mergeRecover);
-				assert.equal(h.notes.filter(note => note.includes(text)).length, 1, `${name}: ${h.notes.join("; ")}`);
-				for (let commit = 0; commit < 2; commit++) assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, name);
-				const commits = h.notes.filter(note => note.includes(text) && note.includes("commit checks do not run"));
-				assert.equal(commits.length, 2, `${name}: every commit says why: ${h.notes.join("; ")}`);
-			}
-			await execute("git", ["remote", "add", "origin", defaultOrigin], { cwd: h.root });
-			h.mode("structured");
-			h.notes.length = 0;
-			h.setSession("on");
-			await h.emit("session_start");
-			await h.read("skill://git-tool", mergeRecover);
-			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
-			assert.deepEqual(h.notes.filter(note => note.includes("dynaflows minimal mode")), [], "structured mode adds no minimal-mode note");
 		} finally { h.cleanup(); }
 	});
 
@@ -594,7 +425,7 @@ describe("dynaflows extension", () => {
 		try {
 			h.pathFailure("bad path");
 			h.config();
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity, structure);
 			assert.equal(await h.call("ast_edit", { paths: ["existing.ts"] }, {
 				applied: false, files: ["existing.ts"], totalReplacements: 1,
@@ -623,7 +454,7 @@ test("path checks forget deleted and ignored failures without skipping live repo
 			return exec(command, args, options);
 		};
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		await h.call("edit", { paths: ["existing.ts", "ignored.ts", "deleted.ts"] });
 		assert.deepEqual(checked, [["--event", "edit", join(h.root, "existing.ts")]]);
@@ -650,7 +481,7 @@ test("edit tools never write Git directory internals, and live files still reach
 			return exec(command, args, options);
 		};
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		assert.ok(reasonOf(await h.call("edit", { paths: [internal, live] })).includes("inside Git's internal directory"));
 		await h.call("edit", { paths: [live] });
@@ -674,7 +505,7 @@ test("path checks ignore content edits to existing tracked names", async () => {
 			return exec(command, args, options);
 		};
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		assert.equal(await h.call("edit", { path }), undefined);
 		assert.deepEqual(checked, []);
@@ -703,7 +534,7 @@ test("path checks keep ignored files excluded when a path crosses a symlink", as
 			return exec(command, args, options);
 		};
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		await h.call("edit", { paths: [ignored, join(h.root, "link/file")] });
 		assert.ok(!checked.some(args => args.some(path => path.includes("node_modules/"))),
@@ -719,8 +550,8 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 		const head = "a".repeat(40);
 		const command = `env gh pr merge 3 --rebase --match-head-commit=${head}`;
 		mockPrCi(h, greenCi, { head, selector: "3" });
-		assert.ok(reasonOf(await h.call("bash", { command })).includes("blocked in dynaflows minimal mode"), "minimal mode blocks every merge");
-		h.mode("structured");
+		assert.ok(reasonOf(await h.call("bash", { command })).includes("owner/repo is not onboarded (missing)"), "an unconfigured repository refuses every merge");
+		h.govern();
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("--match-head-commit"));
 		const missing = await h.call("bash", { command });
 		assert.ok(reasonOf(missing).includes(`no prove() pass for ${head}`), String(missing?.reason));
@@ -751,8 +582,8 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 		await proveResult(h);
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const command = `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
-		assert.ok(reasonOf(await h.call("bash", { command })).includes("blocked in dynaflows minimal mode"), "minimal mode blocks every merge");
-		h.mode("structured");
+		assert.ok(reasonOf(await h.call("bash", { command })).includes("owner/repo is not onboarded (missing)"), "an unconfigured repository refuses every merge");
+		h.govern();
 		const missing = await h.call("bash", { command });
 		assert.equal(isBlocked(missing), true);
 		assert.ok(reasonOf(missing).includes(`no valid structure_review() result for ${ciHead}`));
@@ -783,9 +614,9 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 		assert.ok(reasonOf(blocked).includes("src/orders/report.py: consumer_placement"));
 		assert.ok(!reasonOf(blocked).includes("technical_kind_grouping"), "a shadow finding is never a merge block");
 		assert.ok(reasonOf(blocked).includes("fix them and rerun prove() and structure_review() on the new head"));
-		h.mode("minimal");
-		assert.ok(reasonOf(await h.call("bash", { command })).includes("blocked in dynaflows minimal mode"), "minimal mode blocks the merge before halt is read");
-		h.mode("structured");
+		h.unconfigure();
+		assert.ok(reasonOf(await h.call("bash", { command })).includes("owner/repo is not onboarded (missing)"), "a removed config refuses the merge before halt is read");
+		h.govern();
 		await watched(JSON.stringify({ head: ciHead, halt: false, status: "incomplete",
 			findings: [], errors: ["judge offline"] }));
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("is incomplete (judge offline)"), "an incomplete review never admits a merge");
@@ -810,7 +641,7 @@ test.each([
 	try {
 		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ci: { enabled: false } });
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3" });
@@ -842,7 +673,7 @@ test.each([
 		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, "git@github.com:base-owner/base-repo.git");
 		h.config(ciGate);
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, [...scenario.rollup], { head: ciHead, selector: "3", url: "https://github.com/base-owner/base-repo/pull/3" });
@@ -888,13 +719,15 @@ test("agent tools never write a repository's agent-rails config; reads pass", as
 	} finally { h.cleanup(); }
 });
 
-test("minimal-mode merges are blocked without querying GitHub", async () => {
+test("merges in a repository that is not onboarded, or is onboarding, are refused without querying GitHub", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.config();
 		forbidGh(h);
-		assert.ok(reasonOf(await h.call("bash", { command: "gh pr merge 3 --rebase" })).includes("blocked in dynaflows minimal mode"));
+		const merge = `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
+		assert.ok(reasonOf(await h.call("bash", { command: merge })).includes("owner/repo is not onboarded (missing)"));
+		await h.onboard();
+		assert.ok(reasonOf(await h.call("bash", { command: merge })).includes("the owner merges the bootstrap PR"));
 	} finally { h.cleanup(); }
 });
 
@@ -913,7 +746,7 @@ test.each(["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"]
 		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, remote);
 		h.config(ciGate);
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		const url = "https://github.com/other/checkout/pull/3";
@@ -930,7 +763,7 @@ test("PR URL selector accepts the checkout repository case-insensitively", async
 		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, "git@github.com:OWNER/REPO.git");
 		h.config(ciGate);
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		const url = "https://github.com/owner/repo/pull/3";
@@ -943,7 +776,7 @@ test("required context blocks merge despite a prove() pass", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		h.config(ciGate);
 		await proveResult(h);
 		await structureResult(h);
@@ -959,7 +792,7 @@ test("PR query contract: requests the PR URL", async () => {
 	try {
 		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h);
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
@@ -978,7 +811,7 @@ test("a merge reports a gh failure while reading the PR", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, [], { head: ciHead, selector: "3", failure: "not authenticated" });
@@ -992,7 +825,7 @@ test.each(["head mismatch", "red CI", "green CI"])("merge CI gate: %s", async sc
 	try {
 		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ci: { enabled: true, runner: "github-actions", requiredContext: "test" } });
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		const head = scenario === "head mismatch" ? "b".repeat(40) : ciHead;
@@ -1008,15 +841,15 @@ test.each(["head mismatch", "red CI", "green CI"])("merge CI gate: %s", async sc
 	} finally { h.cleanup(); }
 });
 
-test("minimal mode blocks merges before the CI guard and autonomy, even with a declared ci", async () => {
+test("an invalid config refuses merges before the CI guard and autonomy", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.config(ciGate);
 		forbidGh(h);
-		assert.ok(reasonOf(await h.call("bash", { command: "gh pr merge 3 --merge" })).includes("blocked in dynaflows minimal mode"));
-		h.config({ ...ciGate, ...askAutonomy });
-		assert.ok(reasonOf(await h.call("bash", { command: "gh pr merge 3 --merge" })).includes("blocked in dynaflows minimal mode"));
+		for (const config of [{ ...harnessConfig("owner/repo", ciGate), mergePolicies: "none" }, { ...harnessConfig("owner/repo", { ...ciGate, ...askAutonomy }), extra: 1 }]) {
+			h.rawConfig(JSON.stringify(config));
+			assert.ok(reasonOf(await h.call("bash", { command: `gh pr merge 3 --merge --match-head-commit ${ciHead}` })).includes("owner/repo is not onboarded (invalid: "));
+		}
 	} finally { h.cleanup(); }
 });
 
@@ -1025,7 +858,7 @@ test("autonomy.merge ask refuses a structured merge until the owner approves tha
 	try {
 		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ...ciGate, autonomy: { merge: "ask" } });
-		h.mode("structured");
+		h.govern();
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "SUCCESS" }], { head: ciHead, selector: "agent/test" });
@@ -1050,7 +883,7 @@ test.each([
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 ${scenario.args}` });
 		assert.equal(isBlocked(result), true);
@@ -1062,7 +895,7 @@ test("merge diagnostics gate: missing prove() result", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` });
 		assert.equal(isBlocked(result), true);
@@ -1078,7 +911,7 @@ test("path checks canonicalize a symlinked repository root before executing", as
 		symlinkSync(h.root, alias);
 		h.context.cwd = alias;
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		const exec = h.api.exec.bind(h.api);
 		let checked = false;
@@ -1108,7 +941,7 @@ test("path check runs under the one fixed rails timeout; a killed checker is sur
 			return exec(command, args, options);
 		};
 		h.config();
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
 		assert.deepEqual(timeouts, [20000]);
@@ -1122,7 +955,7 @@ test("child handoff requires its own verification read and repaired path checks"
 		assert.equal(await h.emit("session_stop"), undefined);
 		h.pathFailure("bad path");
 		h.config({ commands: { commit: ["not-run"], ci: ["not-run"] } });
-		h.mode("structured");
+		h.govern();
 		await h.read(integrity, structure);
 		await h.call("edit", { path: join(h.root, "existing.ts") });
 		assert.equal((await h.emit("session_stop"))?.decision, "block");
@@ -1133,32 +966,6 @@ test("child handoff requires its own verification read and repaired path checks"
 	} finally { h.cleanup(); }
 });
 
-test("mode directives ignore mentions without a verb and reject contradictions and nonrepositories", async () => {
-	const h = harness();
-	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "rails-directive-")));
-	try {
-		h.config();
-		h.mode("structured");
-		const config = h.configText();
-		for (const prompt of ['"$dynaflows"', "$dynaflows status", "$dynaflows on\n$dynaflows off", "init $dynaflows\nstop $dynaflows",
-			"$dynaflows enabled", "off $dynaflows", "$dynaflowson"]) {
-			await h.emit("before_agent_start", { reason: "prompt", prompt });
-			assert.equal(h.configText(), config, prompt);
-		}
-		for (const prompt of ["please $dynaflows on", "please enable $dynaflows", "`$dynaflows init`", "$dynaflows on."]) {
-			await h.emit("before_agent_start", { reason: "prompt", prompt });
-			assert.equal(h.configText(), config, prompt);
-		}
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "turn off $dynaflows" });
-		assert.equal(h.modeOf(), "minimal");
-		assert.equal(existsSync(join(h.root, ".omp")), false, "the repo tree is never written");
-		h.context.cwd = scratch;
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows" });
-		assert.equal(existsSync(join(scratch, ".omp")), false);
-		assert.ok(h.notes.some(note => note.includes("Git project")));
-	} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
-});
-
 test("linked worktrees resolve the main checkout's config", async () => {
 	const h = harness();
 	const linked = `${h.root}-linked`;
@@ -1167,9 +974,7 @@ test("linked worktrees resolve the main checkout's config", async () => {
 		await execute("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "seed"], { cwd: h.root });
 		await execute("git", ["worktree", "add", "-b", "agent/source", linked], { cwd: h.root });
 		h.context.cwd = linked;
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows on" });
-		assert.equal(h.modeOf(), "structured", "the linked worktree sets the shared origin's mode");
-		assert.equal(existsSync(join(linked, ".omp")), false);
+		assert.equal(existsSync(join(linked, ".agentrails")), false, "the linked worktree holds no config of its own");
 		const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: linked })).stdout.trim();
 		await h.read("skill://git-tool", mergeRecover);
 		mockPrCi({ ...h, root: linked }, greenCi, { head, selector: "3" });
@@ -1183,7 +988,7 @@ test("mise commits run the record's checks in a real repository", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		h.config({ commands: { commit: ["true"] } });
 		assert.equal(await h.emit("tool_call", { toolName: "bash", input: { command: "mise exec -- git commit -m x" } }), undefined);
 		h.config({ commands: { commit: ["false"] } });
@@ -1197,7 +1002,7 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 	try {
 		await h.read("skill://git-tool", mergeRecover);
 		target.config({ commands: { commit: ["true"] } });
-		target.mode("structured");
+		target.govern();
 		target.config({ commands: { commit: ["false"] } });
 		for (const command of [
 			`mise x -C '${target.root}' -- git commit -m x`,
@@ -1212,13 +1017,13 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 	} finally { h.cleanup(); target.cleanup(); }
 });
 
-test.each(["absent", "minimal", "structured"])("repo-scoped harness process follows the dynaflows mode (%s) while Git reads always apply", async record => {
-	const h = harness();
+test.each(["outside", "governed"])("repo-scoped harness process runs only in a governed repository (%s) while Git reads always apply", async scope => {
+	const h = harness(scope === "outside" ? { remote: "https://gitlab.com/owner/repo.git" } : {});
 	try {
-		if (record !== "absent") h.mode(record === "structured" ? "structured" : "minimal");
+		if (scope === "governed") h.govern();
 		h.pathFailure("path policy violation");
 		const edit = await h.call("write", { path: "tests/new.test.ts" });
-		if (record === "structured") {
+		if (scope === "governed") {
 			assert.equal(isBlocked(edit), true);
 			for (const url of [integrity, structure, tiers, enforcement]) assert.ok(reasonOf(edit).includes(url));
 			await h.read(integrity, structure, tiers, enforcement);
@@ -1241,76 +1046,43 @@ test.each(["absent", "minimal", "structured"])("repo-scoped harness process foll
 
 test("edit and handoff policy follows each edited repo, not the session cwd", async () => {
 	const h = harness();
-	const other = harness({ configRoot: h.records, remote: "git@github.com:owner/other.git" });
+	const other = harness({ configRoot: h.records, remote: "https://gitlab.com/owner/other.git" });
 	try {
-		h.mode("structured");
-		other.mode("minimal");
+		h.govern();
 		h.pathFailure("enabled repo violation");
 		assert.equal(await h.call("edit", { path: join(other.root, "existing.ts") }), undefined);
-		assert.equal(await h.emit("session_stop"), undefined, "editing only an off repo does not require a handoff read");
+		assert.equal(await h.emit("session_stop"), undefined, "editing only an ungoverned repo does not require a handoff read");
 		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.reason?.includes(integrity));
 		await h.read(integrity, structure);
 		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.additionalContext?.includes("enabled repo violation"));
 		assert.equal((await h.emit("session_stop"))?.decision, "block");
-		h.mode("minimal");
-		assert.equal(await h.emit("session_stop"), undefined, "turning off suppresses both outstanding retries and handoff reads");
-		assert.equal(await h.call("edit", { path: join(h.root, "existing.ts") }), undefined);
+		h.unconfigure();
+		assert.equal(await h.emit("session_stop"), undefined, "a removed config suppresses both outstanding retries and handoff reads");
+		assert.ok(reasonOf(await h.call("edit", { path: join(h.root, "existing.ts") })).includes("owner/repo is not onboarded (missing)"));
 	} finally { h.cleanup(); other.cleanup(); }
 });
 
-test.each(["no record", "minimal", "structured"])("native judged rules follow the session dynaflows mode (%s) and preserve user exclusions", async record => {
-	const h = harness();
-	try {
-		if (record !== "no record") h.mode(record === "structured" ? "structured" : "minimal");
-		const rules = lookup("ttsr.disabledRules");
-		assert.ok(rules);
-		rules.override(h.api.pi.settings, ["user-disabled-rule"]);
-		const config = z.object({ structuredRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-		for (const name of config.structuredRules) {
-			assert.ok(existsSync(join(import.meta.dir, "../agent/extensions/dynaflows/rules", `${name}.md`)), `configured native rule exists: ${name}`);
-		}
-		await h.emit("session_start");
-		assert.deepEqual(rules.get(h.api.pi.settings), record === "structured"
-			? ["user-disabled-rule"]
-			: ["user-disabled-rule", ...config.structuredRules]);
-		await h.emit("session_start");
-		assert.deepEqual(rules.get(h.api.pi.settings), record === "structured"
-			? ["user-disabled-rule"]
-			: ["user-disabled-rule", ...config.structuredRules], "restarting the session does not duplicate exclusions");
-	} finally { h.cleanup(); }
-});
-
-test("native judged rules follow each mode switch through the directive, the dynaflows tool and a new session", async () => {
-	const h = harness();
-	try {
-		h.mode("minimal");
-		const rules = lookup("ttsr.disabledRules");
-		assert.ok(rules);
-		rules.override(h.api.pi.settings, ["user-disabled-rule"]);
-		const config = z.object({ structuredRules: z.array(z.string()).min(1) }).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-		const minimalRules = ["user-disabled-rule", ...config.structuredRules];
-		await h.emit("session_start");
-		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules);
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "enable $dynaflows" });
-		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "the structured directive turns the judged rules on");
-		await h.emit("before_agent_start", { reason: "prompt", prompt: "$dynaflows minimal" });
-		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules, "the minimal directive turns them off");
-		await h.tool("dynaflows", { mode: "structured" });
-		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "the dynaflows tool turns them on");
-		h.mode("minimal");
-		await h.emit("session_start");
-		assert.deepEqual(rules.get(h.api.pi.settings), minimalRules, "a new session in minimal mode turns them off");
-		h.mode("structured");
-		await h.emit("session_start");
-		assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], "a new session in structured mode turns them on");
-	} finally { h.cleanup(); }
+test("native rules always load: session start never changes the user's ttsr.disabledRules", async () => {
+	for (const governed of [false, true]) {
+		const h = harness();
+		try {
+			if (governed) h.govern();
+			const rules = lookup("ttsr.disabledRules");
+			assert.ok(rules);
+			rules.override(h.api.pi.settings, ["user-disabled-rule"]);
+			await h.emit("session_start");
+			assert.deepEqual(rules.get(h.api.pi.settings), ["user-disabled-rule"], `governed: ${governed}`);
+			const mapping = z.record(z.string(), z.unknown()).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+			assert.equal("structuredRules" in mapping, false, "rails.yml lists no rules to switch");
+		} finally { h.cleanup(); }
+	}
 });
 
 test("structured merges refuse --admin before reading the PR", async () => {
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		forbidGh(h);
 		for (const flag of ["--admin", "--admin=true"]) {
 			const refused = await h.call("bash", { command: `gh pr merge 3 --rebase ${flag} --match-head-commit ${ciHead}` });
@@ -1323,7 +1095,7 @@ test("without a matching merge policy a merge must rebase and carry proof", asyn
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		for (const flags of ["", "--merge", "--squash", "-s", "--rebase --merge"]) {
 			const refused = await h.call("bash", { command: `gh pr merge 3 ${flags} --match-head-commit ${ciHead}` });
@@ -1353,7 +1125,7 @@ test("gates.commitChecks and gates.pathCheck switch the commit checks and the pa
 			return exec(command, args, options);
 		};
 		h.pathFailure("bad path");
-		h.mode("structured");
+		h.govern();
 		h.config({ commands: { commit: [script, "commit"] } });
 		assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes("staged path check failed"), "every gate is on by default");
 		h.config({ commands: { commit: [script, "commit"] }, gates: { pathCheck: false } });
@@ -1378,7 +1150,7 @@ test("gates.prove and gates.structureReview decide which proof a proof merge pol
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const merge = () => h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` });
 		assert.ok(reasonOf(await merge()).includes("no prove() pass"));
@@ -1397,7 +1169,7 @@ test("a config merge policy sets the method and whether proof is needed for its 
 	const h = harness();
 	try {
 		await h.read("skill://git-tool", mergeRecover);
-		h.mode("structured");
+		h.govern();
 		h.config({
 			ci: { enabled: true, runner: "github-actions", requiredContext: "test" },
 			mergePolicies: [{ base: "nuc-config", headPrefix: "agent/nuc-sync-", method: "merge", proof: false }],
@@ -1438,7 +1210,7 @@ describe("rails ledger", () => {
 	test("a refusal writes a coded block row and a later passing call on the same target resolves it", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
 			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
 			await h.call("bash", { command: "ls" });
@@ -1447,7 +1219,7 @@ describe("rails ledger", () => {
 			assert.equal(first.session, "first");
 			assert.equal(first.repo, "owner/repo");
 			assert.equal(first.machine, machineName());
-			assert.equal(first.reason, `Agent rails (structured mode): read ${integrity}, then retry.`);
+			assert.equal(first.reason, `Agent rails: read ${integrity}, then retry.`);
 			await h.read(integrity, structure);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.deepEqual(brief(ledger(h)), ["block read-gate edit", "block read-gate edit", "resolved read-gate edit calls=3 refusals=2"],
@@ -1460,8 +1232,9 @@ describe("rails ledger", () => {
 	test("Git refusals carry their own codes and resolve on the same Git verb", async () => {
 		const h = harness();
 		try {
+			h.govern();
 			assert.equal(isBlocked(await h.call("bash", { command: "git commit -m x" })), true);
-			await h.read("skill://git-tool");
+			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(isBlocked(await h.call("bash", { command: "git push origin main" })), true);
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 			const override = await h.call("bash", { command: "gh pr create -R other/repo" });
@@ -1481,7 +1254,7 @@ describe("rails ledger", () => {
 		try {
 			await h.read("skill://git-tool", mergeRecover);
 			h.config({ commands: { commit: [script] } });
-			h.mode("structured");
+			h.govern();
 			const blocked = await h.call("bash", { command: "git commit -m x" });
 			assert.ok(reasonOf(blocked).includes("COMMIT-BODY"), "the agent still sees the output");
 			h.pathFailure("STAGED-BODY naming finding");
@@ -1507,7 +1280,7 @@ describe("rails ledger", () => {
 	test("post-edit path-check failures are logged without their findings and resolve when the path check passes", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity, structure);
 			h.pathFailure("FINDING-BODY use feature ownership");
 			writeFileSync(join(h.root, "another.ts"), "export {};\n");
@@ -1524,7 +1297,7 @@ describe("rails ledger", () => {
 	test("a refused handoff resolves when a later handoff passes", async () => {
 		const h = harness();
 		try {
-			h.mode("structured");
+			h.govern();
 			await h.read(integrity, structure);
 			await h.call("edit", { path: "existing.ts" });
 			assert.equal((await h.emit("session_stop"))?.decision, "block");

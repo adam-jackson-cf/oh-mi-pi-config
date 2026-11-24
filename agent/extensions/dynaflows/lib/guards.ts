@@ -2,7 +2,6 @@ import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { parseOrigin } from "./git-paths.ts";
-import type { Mode } from "./modes.ts";
 import type { AgentRailsConfig, MergePolicy } from "./repo-config.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, mentionsGit, repoRoot, worktreeTarget, type GitAction,
@@ -284,7 +283,7 @@ async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranc
 	const mirror = await gitText(pi, action.cwd, ["config", "--bool", "--get", `remote.${remote}.mirror`]) === "true";
 	const hit = branches.find(branch => targets.includes(branch));
 	if (!plan.all && !mirror && !targets.includes(EVERY_BRANCH) && !hit) return undefined;
-	return refuse("push-default-branch", `Agent rails: git push to ${remote}'s default branch ${hit ?? branches[0]} is blocked in minimal and structured mode; ` +
+	return refuse("push-default-branch", `Agent rails: git push to ${remote}'s default branch ${hit ?? branches[0]} is blocked; ` +
 		"push a feature branch and open a PR instead.");
 }
 
@@ -464,12 +463,6 @@ function ghCommandReason(action: GitAction): Refusal | undefined {
 		: undefined;
 }
 
-function minimalMergeReason(mode: Mode): Refusal | undefined {
-	return mode === "minimal"
-		? refuse("minimal-merge", "Agent rails: gh pr merge is blocked in dynaflows minimal mode; the owner merges, or switches this repository to structured mode.")
-		: undefined;
-}
-
 type AppliedPolicy = Omit<MergePolicy, "base" | "headPrefix"> & { source: string };
 /** The policy for a PR with no matching mergePolicies entry. */
 const DEFAULT_MERGE_POLICY: Omit<MergePolicy, "base" | "headPrefix"> = { method: "rebase", proof: true };
@@ -544,4 +537,4 @@ function prMergeReason(merge: PrMerge): Refusal | undefined {
 
 export { adminMergeReason, mergeMethodReason, mergePolicyFor, prMerge, prMergeReason, type AppliedPolicy, type DefaultBranches };
 export { autonomyReason, prCreateBranch, pushedBranches, type AutonomyApprovals, type AutonomyRequest };
-export { PUBLISHES, commitHookReason, configWriteReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };
+export { PUBLISHES, commitHookReason, configWriteReason, hookBypassReason, routeReason, pushReason, worktreeReason };

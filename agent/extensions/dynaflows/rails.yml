@@ -1,35 +1,26 @@
-structuredRules:
-  - dynaflows-clean-cutovers
-  - dynaflows-flakes
-  - dynaflows-measured-claims
-  - dynaflows-regression-coverage
+# Skill reads each trigger needs: code and test edits (firstEdit, newFile, testFile) and the handoff
+# after code edits (verification) in governed repositories; git writes (git) in every repository.
 references:
-  minimal:
-    git:
-      - skill://git-tool
-  structured:
-    firstEdit:
-      - skill://structured-workflow/references/delivery-principles.md
-    newFile:
-      - skill://structured-workflow/references/structure-and-naming.md
-    testFile:
-      - skill://test-guidance/references/tiers.md
-      - skill://structured-workflow/references/test-enforcement.md
-      - skill://structured-workflow/references/proofs.md
-    verification:
-      - skill://test-guidance/references/before-commit.md
-    workflow:
-      - skill://structured-workflow
-    git:
-      - skill://git-tool
-      - skill://git-tool/references/merge-and-recover.md
+  firstEdit:
+    - skill://structured-workflow/references/delivery-principles.md
+  newFile:
+    - skill://structured-workflow/references/structure-and-naming.md
+  testFile:
+    - skill://test-guidance/references/tiers.md
+    - skill://structured-workflow/references/test-enforcement.md
+    - skill://structured-workflow/references/proofs.md
+  verification:
+    - skill://test-guidance/references/before-commit.md
+  git:
+    - skill://git-tool
+    - skill://git-tool/references/merge-and-recover.md
 testGlobs:
   - "**/*.{test,spec}.*"
   - "**/{test,tests,__tests__}/**"
 codeGlobs:
   - "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,py,rs,go,java,kt,kts,c,h,cpp,hpp,cs,swift,rb,php,sh,bash,zsh,vue,svelte,sql,ex,exs,erl,scala,dart,lua,r,R,ml,clj,cljs,hs,zig}"
 editTools: [write, edit, ast_edit]
-# Applied to parsed command positions after env assignments and git global options, in both modes.
+# Applied to parsed command positions after env assignments and git global options, in every repository.
 # Quoted echo/rg arguments are not commands and do not trigger this check. The listed commands need
 # the read: commit, push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean,
 # restore, filter-branch, replace, tag creation, branch delete/force/move/copy, stash drop/clear/pop,
@@ -37,8 +28,8 @@ editTools: [write, edit, ast_edit]
 # issue/run/label/secret/variable/ruleset/gist/cache writes and gh api writes. git config hook-path
 # and alias writes are refused outright (guards.ts configWriteReason).
 gitCommand: '^(git (commit|push|merge|rebase|reset|cherry-pick|revert|am|pull|update-ref|clean|restore|filter-branch|filter-repo|replace)(?![-\w])|git tag (?!(?:-l|--list|-n\d*|--contains|--no-contains|--points-at|--merged|--no-merged|--sort\S*|--format\S*|-v|--verify)(?:[ =]|$))\S|git branch (?:.* )?(?:-d|-D|--delete|-f|--force|-m|-M|--move|-c|-C|--copy)(?: |$)|git stash (drop|clear|pop)\b|git fetch (?:.* )?\+?[\w.-][\w./-]*:(?!/)[\w./-]+(?: |$)|git worktree (add|remove)\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge|edit|close|reopen|ready|review|comment|lock|unlock)\b|gh (release|repo|workflow|issue|run|label|secret|variable|ruleset|gist|cache) (create|edit|delete|close|reopen|comment|run|enable|disable|cancel|rerun|rename|archive|unarchive|fork|sync|transfer|lock|unlock|upload|set|remove|pin|unpin|develop)\b|gh api\b(?=.* (?:(?:-X ?|--method[ =])(?!(?:GET|HEAD|get|head)\b)\S|(?:-f|-F|--field|--raw-field|--input)(?:[ =]|$))))'
-# Structured mode: a parsed command position (basename of the command word, then its words, wrappers
-# included) matching this asks in-scope before it runs: privileges, credentials, installs, other
+# In every Git repository: a parsed command position (basename of the command word, then its words, wrappers
+# included) matching this asks in-scope before it runs (refused while the repository is not onboarded): privileges, credentials, installs, other
 # machines, a shell reading piped commands. yes or escalate needs the owner's $approve line; a
 # subagent is refused and returns the command to the main agent.
 askFirstCommand: '^(?:(?:sudo|su|doas|ssh|scp|rsync|gh auth|gh secret|infisical (?:login|secrets set)|op signin|(?:npm|bun|pnpm) (?=(?:.* )?(?:-g|--global)(?: |$))(?:.* )?(?:i|install|add)|uv tool install|pipx install|pip3? install|python[\d.]* -m pip3? install|brew (?:install|upgrade|tap)|apt(?:-get)? install|tailscale|launchctl|systemctl)(?:\s|$)|(?:ba|z|da|k|mk|fi|tc|c)?sh$)'

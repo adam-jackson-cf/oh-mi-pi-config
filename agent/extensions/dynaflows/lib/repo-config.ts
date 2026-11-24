@@ -12,7 +12,7 @@ import { mainCheckout, originSlug, OutsideRepository, type ExecApi } from "./git
 
 // The Git locations the config is found through (common dir, main checkout, origin); the rails that
 // read the config use them too.
-export { commonDir, configRoot, minimalText, OriginError, originUrl, parseOrigin, repoSlug, unresolvedText } from "./git-paths.ts";
+export { commonDir, configRoot, OriginError, originSlug, repoSlug, unresolvedText } from "./git-paths.ts";
 
 export const CONFIG_DIR = ".agentrails";
 export const CONFIG_FILE = "config.json";

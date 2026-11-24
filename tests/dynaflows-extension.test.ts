@@ -23,27 +23,22 @@ test("ci-runner commands come from the extension's own location, never a host li
 	assert.equal(ciRunner, resolve(import.meta.dir, "..", "scripts", "ci_runner.py"));
 });
 
-test("delivery policy references and native reminder scope use the targeted homes", () => {
+test("delivery policy references use the targeted homes, and every native rule always loads", () => {
 	const config = z.object({
-		structuredRules: z.array(z.string()),
 		references: z.object({
-			minimal: z.object({ git: z.array(z.string()) }),
-			structured: z.object({
-				firstEdit: z.array(z.string()), newFile: z.array(z.string()),
-				testFile: z.array(z.string()), verification: z.array(z.string()), git: z.array(z.string()),
-			}),
-		}),
-	}).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-	assert.deepEqual(config.references.minimal, { git: ["skill://git-tool"] });
-	assert.deepEqual(config.references.structured, {
+			firstEdit: z.array(z.string()), newFile: z.array(z.string()),
+			testFile: z.array(z.string()), verification: z.array(z.string()), git: z.array(z.string()),
+		}).strict(),
+	}).passthrough().parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+	assert.deepEqual(config.references, {
 		firstEdit: [integrity], newFile: [structure],
 		testFile: [tiers, enforcement, proofs], verification: [verification],
 		git: ["skill://git-tool", "skill://git-tool/references/merge-and-recover.md"],
 	});
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));
-	assert.deepEqual(config.structuredRules.toSorted(), files.toSorted());
-	for (const name of config.structuredRules) {
+	assert.ok(files.length > 0);
+	for (const name of files) {
 		const text = readFileSync(join(directory, `${name}.md`), "utf8");
 		const frontmatter = /^---\n([\s\S]*?)\n---/.exec(text);
 		assert.ok(frontmatter);

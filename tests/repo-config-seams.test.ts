@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { ensureExcluded, minimalText, OriginError, repoSlug, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
-import { defaultModesPath, repoMode, writeMode } from "../agent/extensions/dynaflows/lib/modes.ts";
+import { ensureExcluded, OriginError, repoSlug, unresolvedText, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
 import { CONFIG_EXCLUDE, configPathFor, QUESTIONNAIRE_VERSION, resolveConfig, type ConfigState } from "../agent/extensions/dynaflows/lib/repo-config.ts";
 
 const ENGINE = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine");
@@ -193,8 +192,7 @@ describe("origin remote", () => {
 			const worktree = join(temp, "worktree");
 			git("-C", clone, "worktree", "add", "-q", "-b", "agent/x", worktree);
 			for (const repo of [clone, worktree]) assert.equal(await repoSlug(repo), "owner/name", repo);
-			assert.equal(minimalText(null, "no origin remote"), "dynaflows minimal mode for none: no origin remote");
-			assert.equal(minimalText("owner/name", "why"), "dynaflows minimal mode for owner/name: why");
+			assert.equal(unresolvedText("why"), "Agent rails: could not resolve this repository's agent-rails config: why; retry.");
 		} finally { rmSync(temp, { recursive: true, force: true }); }
 	}, TIMEOUT_MS);
 
@@ -214,45 +212,4 @@ describe("origin remote", () => {
 			}
 		} finally { process.env["PATH"] = previous; rmSync(temp, { recursive: true, force: true }); }
 	}, TIMEOUT_MS);
-});
-
-describe("mode file", () => {
-	test("the tracked mode file seeds the structured repositories and lists no minimal one", () => {
-		assert.deepEqual(JSON.parse(readFileSync(defaultModesPath(), "utf8")), {
-			schemaVersion: 1,
-			repos: {
-				"adam-jackson-cf/enaible-analyzers": "structured", "adam-jackson-cf/oh-mi-pi-config": "structured",
-				"adam-jackson-cf/raidar": "structured", "adam-jackson-cf/scout": "structured",
-			},
-		});
-	});
-
-	test("an unlisted repository is minimal; writes keep the file sorted and drop minimal entries", async () => {
-		const temp = realpathSync(mkdtempSync(join(tmpdir(), "modes-")));
-		const path = join(temp, "modes.json");
-		try {
-			writeFileSync(path, JSON.stringify({ schemaVersion: 1, repos: {} }));
-			assert.equal(await repoMode(path, "owner/name"), "minimal");
-			await writeMode(path, "Owner/Zed", "structured");
-			await writeMode(path, "owner/alpha", "structured");
-			assert.equal(await repoMode(path, "OWNER/ZED"), "structured");
-			assert.equal(readFileSync(path, "utf8"), `${JSON.stringify({ schemaVersion: 1, repos: { "owner/alpha": "structured", "owner/zed": "structured" } }, null, 2)}\n`);
-			await writeMode(path, "owner/zed", "minimal");
-			assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).repos, { "owner/alpha": "structured" });
-		} finally { rmSync(temp, { recursive: true, force: true }); }
-	});
-
-	test("a missing or malformed mode file is an error, never minimal", async () => {
-		const temp = realpathSync(mkdtempSync(join(tmpdir(), "modes-")));
-		const path = join(temp, "modes.json");
-		try {
-			await assert.rejects(repoMode(path, "owner/name"), /cannot be read/);
-			for (const text of ["{", JSON.stringify({ schemaVersion: 2, repos: {} }), JSON.stringify({ schemaVersion: 1, repos: { "owner/name": "on" } }),
-				JSON.stringify({ schemaVersion: 1, repos: {}, machine: "minimal" }), JSON.stringify({ schemaVersion: 1, repos: { "Owner/Name": "structured" } })]) {
-				writeFileSync(path, text);
-				await assert.rejects(repoMode(path, "owner/name"), /the mode file/, text);
-				await assert.rejects(writeMode(path, "owner/name", "structured"), /the mode file/, text);
-			}
-		} finally { rmSync(temp, { recursive: true, force: true }); }
-	});
 });

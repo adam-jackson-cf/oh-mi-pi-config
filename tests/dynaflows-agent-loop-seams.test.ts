@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const extension = join(repoRoot, "agent/extensions/dynaflows");
@@ -124,7 +123,8 @@ function ompLogs(home: string): string {
 	return readdirSync(dir).map(name => `\n--- ${name} (last 4000 characters)\n${readFileSync(join(dir, name), "utf8").slice(-4000)}`).join("");
 }
 
-async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promise<Run> {
+// governed: the clone has a valid agent-rails config; otherwise it is not onboarded.
+async function agentRun(governed: boolean, turns: ScriptedCall[][]): Promise<Run> {
 	const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-agent-loop-")));
 	const model = scriptedModel(turns);
 	try {
@@ -134,7 +134,6 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 		mkdirSync(join(home, ".omp/agent/extensions"), { recursive: true });
 		mkdirSync(stubs);
 		deployExtension(home, model.port ?? 0);
-		if (mode) writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
 		const view = JSON.stringify({ number: 1, headRefOid: head, baseRefName: "main", headRefName: "agent/unit", state: "OPEN", statusCheckRollup: [], url: "https://github.com/owner/repo/pull/1" });
 		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\n[ "$1 $2" = "pr view" ] && echo '${view}' && exit 0\nexit 1\n`, { mode: 0o755 });
 		const env = {
@@ -145,7 +144,7 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 			GIT_COMMITTER_NAME: "agent", GIT_COMMITTER_EMAIL: "agent@example.invalid", ...uvDirs,
 		};
 		const { repo, remote } = cloneWithRemote(scratch, env);
-		if (mode) {
+		if (governed) {
 			mkdirSync(join(repo, ".agentrails"));
 			writeFileSync(join(repo, ".agentrails/config.json"), JSON.stringify(repoConfig));
 			appendFileSync(join(repo, ".git/info/exclude"), "/.agentrails/\n");
@@ -166,22 +165,34 @@ function outcome(result: Run, index: number): ToolOutcome {
 }
 
 describe("dynaflows in the omp agent loop", () => {
-	test("minimal mode blocks gh pr merge, a hook bypass and a default-branch push, and pushes the agent branch", async () => {
-		const result = await agentRun("minimal", [
-			[gitTool], [bash("gh pr merge 1 --rebase")], [bash("git commit --allow-empty --no-verify -m change")],
-			[bash("git push origin HEAD:main")], [bash("git push origin agent/unit")],
+	test("a clone with no config refuses commits, pushes, merges and edits until the owner onboards it", async () => {
+		const result = await agentRun(false, [
+			[gitTool, mergeRecover], [bash("git commit --allow-empty -m change")], [bash("git push origin agent/unit")],
+			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)], [{ name: "write", arguments: { path: "src/app.ts", content: "export const app = 1;\n" } }],
 		]);
-		assert.equal(outcome(result, 0).isError, false);
-		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("gh pr merge is blocked in dynaflows minimal mode"));
-		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("drop --no-verify"));
-		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("default branch main is blocked"));
-		assert.equal(outcome(result, 4).isError, false, outcome(result, 4).text);
-		assert.deepEqual(result.branches.toSorted(), ["agent/unit", "main"]);
+		assert.equal(outcome(result, 1).isError, false);
+		for (const index of [2, 3, 4, 5]) {
+			const refused = outcome(result, index);
+			assert.ok(refused.isError && refused.text.includes("owner/repo is not onboarded (missing)") && refused.text.includes("/agentrails onboard"), refused.text);
+		}
+		assert.deepEqual(result.branches.toSorted(), ["main"]);
 		assert.equal(result.ghCalled, false);
 	}, runTimeout);
 
-	test("structured mode blocks gh pr merge until prove() passes on the exact head", async () => {
-		const result = await agentRun("structured", [
+	test("a governed clone blocks a hook bypass and a default-branch push, and pushes the agent branch", async () => {
+		const result = await agentRun(true, [
+			[gitTool, mergeRecover], [bash("git commit --allow-empty --no-verify -m change")],
+			[bash("git push origin HEAD:main")], [bash("git push origin agent/unit")],
+		]);
+		assert.equal(outcome(result, 1).isError, false);
+		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("drop --no-verify"), outcome(result, 2).text);
+		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("default branch main is blocked"), outcome(result, 3).text);
+		assert.equal(outcome(result, 4).isError, false, outcome(result, 4).text);
+		assert.deepEqual(result.branches.toSorted(), ["agent/unit", "main"]);
+	}, runTimeout);
+
+	test("a governed clone blocks gh pr merge until prove() passes on the exact head", async () => {
+		const result = await agentRun(true, [
 			[gitTool, mergeRecover], [bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
 		]);
 		assert.equal(outcome(result, 1).isError, false);
@@ -190,9 +201,9 @@ describe("dynaflows in the omp agent loop", () => {
 		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
 
-	test("eval cannot commit or push around the rails, in either mode", async () => {
-		for (const mode of ["minimal", "structured"] as const) {
-			const result = await agentRun(mode, [
+	test("eval cannot commit or push around the rails, whether or not the clone is onboarded", async () => {
+		for (const governed of [false, true]) {
+			const result = await agentRun(governed, [
 				[gitTool, mergeRecover], [{ name: "eval", arguments: { language: "js", code: "await (await commit.draft()).commit('change', { noVerify: true })" } }],
 				[{ name: "eval", arguments: { language: "py", code: "sh('git push origin HEAD:main')" } }],
 			]);
@@ -202,8 +213,8 @@ describe("dynaflows in the omp agent loop", () => {
 		}
 	}, runTimeout * 2);
 
-	test("structured mode refuses forged proof evidence and still finds no prove() pass", async () => {
-		const result = await agentRun("structured", [
+	test("a governed clone refuses forged proof evidence and still finds no prove() pass", async () => {
+		const result = await agentRun(true, [
 			[gitTool, mergeRecover],
 			[{ name: "write", arguments: { path: `.git/omp-prove/${head}.result.json`, content: JSON.stringify({ head, status: "pass" }) } }],
 			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
@@ -211,14 +222,5 @@ describe("dynaflows in the omp agent loop", () => {
 		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("inside Git's internal directory"), outcome(result, 2).text);
 		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes(`no prove() pass for ${head}`), outcome(result, 3).text);
 		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
-	}, runTimeout);
-
-	test("a clone without a record runs in minimal mode", async () => {
-		const result = await agentRun(undefined, [
-			[gitTool], [bash("gh pr merge 1 --rebase")], [{ name: "write", arguments: { path: "src/app.ts", content: "export const app = 1;\n" } }],
-		]);
-		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("gh pr merge is blocked in dynaflows minimal mode"));
-		assert.equal(outcome(result, 2).isError, false, outcome(result, 2).text);
-		assert.equal(result.ghCalled, false);
 	}, runTimeout);
 });

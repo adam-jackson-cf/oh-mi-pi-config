@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-// End-of-turn obligations: work a structured-mode session must finish before it settles. At each
+// End-of-turn obligations: work a session in a governed repository must finish before it settles. At each
 // turn end the rails re-check every obligation; an unmet one sends a follow-up turn naming it, at most
 // MAX_FOLLOW_UPS times, after which the owner is told and the rails stop asking.
 export const MAX_FOLLOW_UPS = 3;
@@ -8,7 +8,7 @@ export const MAX_FOLLOW_UPS = 3;
 export type ObligationStatus = "met" | "unmet" | "waiting";
 export type Obligation = {
 	id: string;
-	/** The repository the obligation belongs to; obligations apply only while it is in structured mode. */
+	/** The repository the obligation belongs to; obligations apply only while it is governed (a valid config). */
 	root: string;
 	text: string;
 	status(): Promise<ObligationStatus>;
