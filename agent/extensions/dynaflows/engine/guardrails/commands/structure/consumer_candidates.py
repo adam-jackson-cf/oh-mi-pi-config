@@ -253,6 +253,70 @@ class ImportIndex:
         return hits
 
 
+DOTTED = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
+
+
+def docstring_nodes(tree: ast.Module) -> set[int]:
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+            ):
+                found.add(id(body[0].value))
+    return found
+
+
+def string_literals(source: str) -> list[str]:
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+    docs = docstring_nodes(tree)
+    return [
+        node.value.strip()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docs
+        and (node.value.strip().endswith(".py") or DOTTED.match(node.value.strip()))
+    ]
+
+
+class PathReferences:
+    def __init__(self, tree: dict[str, str]) -> None:
+        self.tree = tree
+        self.literals = {
+            path: found
+            for path in tree
+            if path.endswith(".py")
+            and not test_like(path)
+            and (found := string_literals(tree[path]))
+        }
+
+    def referenced(self, path: str) -> bool:
+        name = PurePosixPath(path).name
+        top = package_dirs(self.tree, path)[1] or parent(path)
+        dotted = module_names(self.tree, path)
+        for source, literals in self.literals.items():
+            if source == path:
+                continue
+            for literal in literals:
+                if literal in dotted:
+                    return True
+                text = literal.removeprefix("./")
+                if "/" in text and (path == text or path.endswith("/" + text)):
+                    return True
+                if text == name and (source == top or source.startswith(top + "/")):
+                    return True
+        return False
+
+
 def manifest_targets(path: str, text: str) -> list[tuple[str, str]]:
     name = PurePosixPath(path).name
     if name in {"setup.py", "setup.cfg"}:
@@ -296,6 +360,16 @@ def project_scripts(tree: dict[str, str]) -> dict[str, list[str]]:
     return found
 
 
+def test_like(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+        or any(part in {"tests", "test"} for part in path.split("/")[:-1])
+    )
+
+
 def run_markers(source: str) -> list[str]:
     return [name for name, pattern in MARKERS if pattern.search(source)]
 
@@ -332,10 +406,7 @@ def features(
             scripts.get(module) for module in module_names(tree, path)
         ),
         "dunder_main": name == "__main__.py",
-        "test_like": name.startswith("test_")
-        or name.endswith("_test.py")
-        or name == "conftest.py"
-        or any(part in {"tests", "test"} for part in path.split("/")[:-1]),
+        "test_like": test_like(path),
         "imports": [item[4] for item in imports],
     }
 
@@ -387,15 +458,26 @@ def consumer_state(
     }
 
 
+def unused(facts: dict[str, Any]) -> bool:
+    return bool(
+        facts["run_markers"]
+        and facts["imported_by"] == 0
+        and not facts["in_project_scripts"]
+        and not facts["referenced_by_path"]
+    )
+
+
 def propose(tree: dict[str, str]) -> list[tuple[str, dict[str, Any]]]:
     index = ImportIndex(tree)
     scripts = project_scripts(tree)
+    references = PathReferences(tree)
     found = []
     for path in sorted(tree):
         if not candidate_path(tree, path):
             continue
         facts = features(index, path, scripts)
-        if facts["run_markers"] and facts["imported_by"] == 0:
+        facts["referenced_by_path"] = references.referenced(path)
+        if unused(facts):
             facts["det_score"] = det_score(facts)
             found.append((path, facts))
     return found

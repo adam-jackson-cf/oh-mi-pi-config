@@ -1903,7 +1903,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert {(item["question"], item["mode"]) for item in result["findings"]} == {
             (workflow.KIND_QUESTION, "shadow"),
             (workflow.PAIR_QUESTION, "enforced"),
-            (workflow.CONSUMER_QUESTION, "enforced"),
+            (workflow.CONSUMER_QUESTION, "shadow"),
         }
         assert len(result["units"]["src/orders"]["digest"]) == 64
         assert signal.read_text() == '{"status":"pass"}'
@@ -1911,7 +1911,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         comment = workflow._structure_comment(result)
         assert "raw judgment probabilities" in comment
         assert "Every enforced finding blocks merge" in comment
-        assert comment.count("(shadow, not blocking)") == 1
+        assert comment.count("(shadow, not blocking)") == 2
         logged = self.logged()
         assert {
             (row["question"], row["outcome"], row["mode"], row["trigger"], row["item"])
@@ -1922,7 +1922,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             (
                 workflow.CONSUMER_QUESTION,
                 "flag",
-                "enforced",
+                "shadow",
                 "pr",
                 "src/orders/dash.py",
             ),
@@ -1992,17 +1992,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert any("judge role is openrouter" in error for error in result["errors"])
 
     async def test_a_finding_at_the_threshold_sets_persisted_merge_halt(self) -> None:
-        self.pairs = []
-        result = await self.review(score=0.8)
+        self.kinds, self.consumers = [], []
+        self.pairs[0]["det_score"] = 0.051143
+        result = await self.review(score=1.0)
         assert (result["halt"], result["status"]) == (True, "blocked")
         assert {
-            "unit": "src/orders/dash.py",
-            "question": workflow.CONSUMER_QUESTION,
+            "unit": PAIR_ID,
+            "question": workflow.PAIR_QUESTION,
             "mode": "enforced",
-            "score": 0.8,
-            "threshold": 0.8,
+            "score": 0.051143,
+            "threshold": 0.051143,
         } in result["findings"]
-        below = await self.review(score=0.79)
+        below = await self.review(score=0.99)
         assert not below["halt"]
 
     async def test_judge_and_publication_errors_leave_the_review_incomplete(

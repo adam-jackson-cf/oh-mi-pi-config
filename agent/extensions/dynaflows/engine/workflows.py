@@ -2056,9 +2056,10 @@ def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> N
                 f"{name}: decision {ident} is enforced; remove its shadow_exit"
             )
         return
-    if kind != "bool":
+    if kind != "bool" and "threshold" not in decision:
         raise WorkflowError(
-            f"{name}: decision {ident} cannot run in shadow mode: only a bool answer has a non-blocking outcome"
+            f"{name}: decision {ident} cannot run in shadow mode: only a bool answer or a "
+            "choice option threshold has a non-blocking outcome"
         )
     shadow_exit = decision.get("shadow_exit")
     flags = shadow_exit.get("labelled_flags") if isinstance(shadow_exit, dict) else None

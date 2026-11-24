@@ -1102,7 +1102,7 @@ class JudgmentRegistryTests(unittest.TestCase):
             'shadow_exit {"labelled_flags": n}': changed(
                 "flag", mode="shadow", shadow_exit={"labelled_flags": 0}
             ),
-            "only a bool answer has a non-blocking outcome": changed(
+            "or a choice option threshold has a non-blocking outcome": changed(
                 "kind", mode="shadow", shadow_exit={"labelled_flags": 5}
             ),
         }
@@ -1381,7 +1381,7 @@ class StructureProposalTests(unittest.TestCase):
         assert list(first[1]["kind"]["criteria"]) == criteria
         assert list(second[1]["kind"]["criteria"]) == list(reversed(criteria))
         assert self.result["findings"][0]["score"] == 0.8
-        assert self.result["findings"][0]["mode"] == "enforced"
+        assert self.result["findings"][0]["mode"] == "shadow"
         (row,) = self.rows()
         assert (row["outcome"], row["item"]) == ("flag", "pkg/dash.py")
 
