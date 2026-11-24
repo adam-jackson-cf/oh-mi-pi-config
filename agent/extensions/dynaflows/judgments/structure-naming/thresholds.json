@@ -10,18 +10,18 @@
     "route": "omp eval judge_batch with modelRoles.judge typesafe/jev-1.14.0 (direct TypeSafe); per-question scoring runs are recorded in each decision's measured block",
     "note": "same_thing scored 2026-11-23 (k3), consumer_placement 2026-11-23 (k3) and 2026-11-24 (k5 full history), technical_kind_grouping 2026-11-23 (k4) and 2026-11-24 (full history)"
   },
-  "scores_sha256": "aeeb75670190704f1515962d3e385d461585525a748938eb8e7fa16411693b83",
+  "scores_sha256": "57d20b14d9ffdf34d2b561094d079f94a39e0dc03e073290e0a829ce2518b1dc",
   "minimums": {
     "precision": 0.75,
     "assumed": true,
-    "reason": "jev-actions usefulness floor; consumer_placement runs under an owner override and technical_kind_grouping in shadow because precision cannot be measured yet"
+    "reason": "jev-actions usefulness floor; technical_kind_grouping and consumer_placement run in shadow because precision cannot be measured yet"
   },
   "label_set": {
     "counting": "innovation council labels per question, with the Claude arbiter's label for split votes it decided; files: cases.jsonl, labels.jsonl, scores.csv (real cases only)",
     "questions": {
       "technical_kind_grouping": "49 labelled real files (26 history-point, 23 full-history), 0 violations; 40 synthetic",
       "same_thing": "160 labelled real pairs, 20 violations; 40 synthetic",
-      "consumer_placement": "30 labelled real files (15 history-point, 15 full-history), 4 violations; 40 synthetic"
+      "consumer_placement": "30 labelled real files (15 history-point, 15 full-history), 2 violations; 40 synthetic"
     }
   },
   "shortfalls": [
@@ -140,46 +140,62 @@
       "primitive": "choice",
       "evidence_unit": "item",
       "combination": "jev_only",
-      "action": "block",
+      "action": "log",
       "policy_area": "structure",
-      "mode": "enforced",
+      "mode": "shadow",
       "option": "finished_tool",
       "threshold": 0.8,
       "asked_as": "kind",
       "score": "mean P(finished_tool) of the kind Choice question for one code-proposed candidate file, asked in two option orders (criteria as listed, then reversed)",
       "state": "{file: {path, first_60_lines, imports}, package: {name, description: first line of the top package's __init__ docstring, omitted when empty}}, built by guardrails consumer-candidates",
       "unit_rule": "one candidate file; real cases group by repository",
-      "override": {
-        "by": "owner",
-        "timestamp": "2026-11-24",
-        "reason": "Precision against the 0.75 floor cannot be measured yet: there is 1 real violation in the 15 candidates the proposer finds across 8 repositories at 4 history points. The cutoff 0.8 comes from measured data: it flags 1 of 14 real clean files and catches the 1 real violation; it catches 15 of 20 planted synthetic violations and flags 1 of 20 planted clean cases."
-      },
       "measured": {
         "real": {
-          "candidates": 15,
+          "candidates": 30,
+          "labelled": 30,
           "repositories": 8,
-          "history_points": 4,
-          "violations": 1,
-          "at_threshold": "catches 1 of 1 violation, flags 1 of 14 clean files"
+          "violations": 2,
+          "violation_scores": {
+            "K17-0002": 0.875,
+            "K19-0001": 0.57
+          },
+          "at_threshold_before_proposer_fix": "4 flags, 1 correct (K17-0002); K17-0003, K19-0009, K19-0014 clean"
+        },
+        "proposer_fix": {
+          "date": "2026-11-24",
+          "rule": "a file the repository's own non-test code names by path or module string, or a console-script entry names, is used and is not proposed",
+          "dropped": [
+            "K17-0003",
+            "K17-0007",
+            "K19-0006",
+            "K19-0007",
+            "K19-0009",
+            "K19-0010",
+            "K19-0014",
+            "K19-0015"
+          ],
+          "kept": 22,
+          "at_threshold": "1 flag, 1 correct (K17-0002); K19-0001 (0.57) still missed"
         },
         "synthetic": {
           "violations_caught": "15/20",
           "clean_flagged": "1/20"
         },
-        "labels": "innovation council labels for 15 real and 40 synthetic candidates, with the Claude arbiter's label for 1 synthetic split",
-        "full_history": {
-          "candidates": 15,
-          "labelled": 15,
-          "violations": 3,
-          "at_threshold": "flags 2 of 3 violations (K19-0009, K19-0014; both split council votes) and no clean file; misses K19-0001 at 0.57",
-          "added": "2026-11-24, after the cutoff was set"
-        }
+        "labels": "innovation council labels for 15 history-point, 15 full-history and 40 synthetic files; the Claude arbiter ruled K19-0009 and K19-0014 as 0 (k5) and one synthetic split (k3)"
       },
       "shortfalls": [
-        "full-history mining of every first-parent commit is under way to reach at least 10 real flags; re-measure the cutoff then",
-        "precision against the 0.75 floor is unmeasured (one real violation)",
+        "shadow until 10 labelled flags; precision is unmeasured (2 real violations)",
+        "K19-0001 (a real violation) scores 0.57, below the cutoff",
         "probabilities are raw, not calibrated confidence"
-      ]
+      ],
+      "shadow_exit": {
+        "labelled_flags": 10
+      },
+      "shadow": {
+        "by": "owner",
+        "decided_on": "2026-11-24",
+        "reason": "At 0.8 the 30 labelled real files gave 4 flags with 1 correct before the proposer fix: too few flags to measure precision."
+      }
     }
   },
   "retired": {

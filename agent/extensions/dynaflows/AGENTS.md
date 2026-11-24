@@ -156,9 +156,9 @@ at the boundary; the repo never bends its own code or rules to make it pass.
   cutoff 0.15 flags most clusters (in-sample 62 of 63 labelled clusters, 47 correct).
 - `structure-naming/technical_kind_grouping` runs in shadow mode: no real violation is labelled yet,
   so its flags are logged for review and never block until 10 labelled flags measure it.
-- `structure-naming/consumer_placement` asks only files `consumer-candidates` proposes (a run marker
-  and no importer). Its 0.8 cutoff rests on 1 real violation, by owner override, until full-history
-  mining reaches at least 10 real flags.
+- `structure-naming/consumer_placement` asks only files `consumer-candidates` proposes (a run marker,
+  no importer, no path, module-string or console-script reference) and runs in shadow mode: 30
+  labelled real files hold 2 violations, too few flags to measure precision.
 - `STRUCT.entry-point-placement` judges regular packages (`__init__.py` chains) and entry modules by
   name (`__main__.py`, `cli.py`); command scripts with other names are not flagged.
 - A mode switch changes `ttsr.disabledRules` for later matches only; a `dynaflows-*` reminder
@@ -176,8 +176,9 @@ at the boundary; the repo never bends its own code or rules to make it pass.
   shells are opaque), and restart sessions after rail changes (old sessions keep old rails).
 - The decision store logs deterministic check results only for `prove()`'s rename-residue,
   path-check and structure checkers; commit-time checks are not logged.
-- Only bool decisions run in shadow mode: a choice answer, such as `dependency-severity`'s
-  `impact`, has no outcome that leaves the rubric unchanged.
+- Only bool decisions and choice decisions with an option threshold (`consumer_placement`) run in
+  shadow mode: a rubric choice, such as `dependency-severity`'s `impact`, has no outcome that leaves
+  the rubric unchanged.
 - Passes keep their payload only for a stable 1-in-10 sample, so a sampled review sees a tenth of
   passes. `shadow-review --machine nuc` copies labelled NUC decisions home; the NUC's own store is
   only read, so its payloads are never pruned.

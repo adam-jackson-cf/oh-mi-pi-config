@@ -3350,7 +3350,7 @@
       "contract": {
         "base_and_head_required": true,
         "unreadable_commits_are_a_finding": true,
-        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live) and that no other tracked .py file imports",
+        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
         "scope": "candidates whose file is added, modified or renamed in base..head",
         "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
       },

@@ -35,9 +35,10 @@ either name's file. Each pair asks `same_thing` in both orders (first and second
 `judge_batch`; its score is the pair's `det_score` times the mean probability, compared with the
 `same_thing` threshold.
 
-A finished-product consumer placed inside its package is judged per runnable file.
+A finished-product consumer placed inside its package is judged per runnable file, in shadow mode.
 `consumer-candidates` (same launch and record) proposes package files with a run marker that no
-other file imports, added, modified or renamed in the range, and drops files a record exception
+other file imports and no non-test file or console-script entry names by path or module string,
+added, modified or renamed in the range, and drops files a record exception
 with rule `structure-naming/consumer_placement` covers. Each file asks the `consumer_placement`
 question (sent as the `kind` Choice) in both option orders; its score is the mean probability of
 `finished_tool`, compared with the decision's threshold.

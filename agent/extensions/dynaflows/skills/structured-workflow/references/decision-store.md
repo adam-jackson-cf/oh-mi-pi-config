@@ -34,8 +34,8 @@ Each decision in `thresholds.json` has `mode`. An `enforced` decision acts on it
 `shadow` decision is for a judgment whose precision cannot be measured yet: it is asked and logged
 exactly like an enforced one, every finding is shown as "shadow, not blocking", and it never blocks,
 refuses or halts. Its `shadow_exit` (`{"labelled_flags": n}`) says when review has measured enough
-to decide enforcement. Only bool decisions can run in shadow mode.
-`structure-naming/technical_kind_grouping` does today.
+to decide enforcement. Only a bool decision or a choice decision with an option threshold can run in
+shadow mode. `structure-naming/technical_kind_grouping` and `consumer_placement` do today.
 
 ### Shadow review
 
