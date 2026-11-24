@@ -12,7 +12,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/extension-impact"
-TUNER = ROOT / "agent/skills/jev-actions/scripts/tune_threshold.py"
+TUNER = ROOT / "agent/extensions/dynaflows/skills/jev-actions/scripts/tune_threshold.py"
 
 
 def load_tuner() -> Any:

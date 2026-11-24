@@ -62,8 +62,6 @@ agent/*
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/jev-actions/
-!agent/skills/jev-actions/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/

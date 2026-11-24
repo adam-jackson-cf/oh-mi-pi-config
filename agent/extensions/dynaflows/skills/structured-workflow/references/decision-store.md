@@ -11,7 +11,7 @@ by kind, and run a judgment whose precision cannot be measured yet without letti
 
 ### Taxonomy
 
-- Every decision carries its place in the [jev-actions design patterns](../../../../../skills/jev-actions/references/design-patterns.md)
+- Every decision carries its place in the [jev-actions design patterns](../../jev-actions/references/design-patterns.md)
   vocabulary, so the store can compare judgments by kind; `load_judgment` refuses a missing field or
   a value outside it:
 

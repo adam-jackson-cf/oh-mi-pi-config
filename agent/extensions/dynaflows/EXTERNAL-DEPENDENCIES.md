@@ -99,8 +99,6 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
-| `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
 | Readme | `readme.md` | Layout, rails scope, CI runners |
 

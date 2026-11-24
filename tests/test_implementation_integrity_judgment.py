@@ -12,7 +12,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/implementation-integrity"
-TUNER = ROOT / "agent/skills/jev-actions/scripts/tune_threshold.py"
+TUNER = ROOT / "agent/extensions/dynaflows/skills/jev-actions/scripts/tune_threshold.py"
 QUESTION = "weakens_verification"
 DIFF_CAP = 12000
 

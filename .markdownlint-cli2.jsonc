@@ -6,10 +6,7 @@
   },
   "overrides": [
     {
-      "filter": [
-        "agent/extensions/dynaflows/skills/**",
-        "agent/skills/jev-actions/**",
-      ],
+      "filter": ["agent/extensions/dynaflows/skills/**"],
       "config": {
         "MD013": {
           "line_length": 160,

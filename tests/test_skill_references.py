@@ -12,8 +12,6 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-SKILLS = ROOT / "agent/skills"
-
 PACKAGE = ROOT / "agent/extensions/dynaflows"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
@@ -25,7 +23,6 @@ CORE_SKILLS = (
     "test-guidance",
     "setup-repo-proofs",
     "jev-actions",
-    "codify-omp-workflow-corrections",
     "git-tool",
 )
 
@@ -44,7 +41,7 @@ def heading_anchors(target: Path) -> set[str]:
 
 
 def skill_directory(name: str) -> Path:
-    return SKILLS / name if name == "jev-actions" else PACKAGE_SKILLS / name
+    return PACKAGE_SKILLS / name
 
 
 def citing_sources(

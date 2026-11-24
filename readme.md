@@ -13,8 +13,8 @@ rules. The dynaflows package owns
 [delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
 and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
 and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
-`codify-omp-workflow-corrections`. `git-tool` owns Git, PR, CI and merge authority, with its merge,
-CI and recovery runbook. `jev-actions` is a standalone skill in `agent/skills/`.
+`jev-actions`. `git-tool` owns Git, PR, CI and merge authority, with its merge, CI and recovery
+runbook.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -367,7 +367,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
 - `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
-- `agent/skills/jev-actions/` — TypeSafe Jev judgment design, threshold tuning and calibration.
+- `agent/extensions/dynaflows/skills/jev-actions/` — TypeSafe Jev judgment design, threshold
+  tuning and calibration.
 - `agent/extensions/dynaflows/judgments/` — calibrated judgments behind `decide()`; the
   opt-in Jev Inspector route is `agent/extensions/dynaflows/inspector.env`.
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue

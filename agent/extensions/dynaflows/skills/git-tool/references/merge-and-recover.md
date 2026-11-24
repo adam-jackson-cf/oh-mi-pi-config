@@ -99,5 +99,5 @@ Without a declared local CI command, or with unknown host state, stop and resolv
    Revert the landed range; never reset or rewrite default. Unsafe attribution or dependent changes require owner
    escalation with evidence.
 3. The revert is an ordinary PR requiring exact-head CI green. `autonomy.merge: ask` still applies.
-4. Implement the durable fix as a separate PR with regression coverage. Use `skill://codify-omp-workflow-corrections`
-   when the incident exposes a repeated class. Owner authority never permits unrelated changes or check bypasses.
+4. Implement the durable fix as a separate PR with regression coverage. Owner authority never permits unrelated
+   changes or check bypasses.

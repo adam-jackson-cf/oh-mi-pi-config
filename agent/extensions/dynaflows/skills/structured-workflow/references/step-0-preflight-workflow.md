@@ -35,7 +35,6 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
 9. Route these requests on:
    - refactors and bugs: [delivery principles](delivery-principles.md);
    - intermittent failures: `skill://test-guidance/references/flakes.md`;
-   - an owner correction: `skill://codify-omp-workflow-corrections`;
    - changing dynaflows itself: the design directive in [AGENTS.md](../../../AGENTS.md);
    - `orchestrate`: frame, delegate independent units and prove each unit;
    - `workflowz`: native `workpool()` for independent fan-out;
