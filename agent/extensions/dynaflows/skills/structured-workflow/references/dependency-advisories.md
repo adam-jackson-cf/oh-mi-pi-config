@@ -3,7 +3,7 @@
 ## Helpers
 
 ```python
-found = dependency_audit_findings(repo)  # {ok, advisories, failures}
+found = dependency_audit_findings(repo)  # {ok, repo, advisories, failures}
 result = await triage_advisories(
     found, evidence
 )  # {halt, owner, fix, failures, report}
@@ -45,6 +45,9 @@ Every advisory blocks; the repo's checker gives no severity, so these helpers as
    - one lower for a dev-only dependency;
    - one lower when `reached` has a `no` outcome (owned code does not reach the vulnerable feature);
    - never below low.
+   The questions run at their effective modes for the config of `found["repo"]`
+   ([judgments](judgments.md)). A precondition or `reached` the config turns off is not asked
+   and never lowers the level; `impact` cannot be turned off.
    The thresholds live in that directory's `thresholds.json`. Unclear evidence rounds up: the
    impact is the most severe class above the round-up floor, and `reached` lowers the level only
    below its low threshold (0.3), so an uncertain score never lowers it. A failed judgment, invalid answers, stale thresholds, another judge role, a set

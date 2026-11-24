@@ -3,6 +3,7 @@
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
 // the merge and the turn end. An enforced verdict acts and a judge failure refuses; a shadow verdict is
 // logged and shown as "shadow, not blocking" but never acts, so the rail behaves as if it had not run.
+// A question the repo config turns off is never judged or logged and never acts.
 // An escalated enforced outcome goes to the owner, who approves with a $approve prompt line.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -310,11 +311,11 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		const verdict = await attempt(deps.decide, name, state, ctx, subject);
 		if ("failure" in verdict) return verdict;
 		verdicts.set(key, verdict);
-		if (!enforced(verdict) && verdict.outcome !== "no") ctx.ui.notify(`Agent rails: ${verdictText(verdict)}; logged for review.`, "info");
+		if (verdict.mode === "shadow" && verdict.outcome !== "no") ctx.ui.notify(`Agent rails: ${verdictText(verdict)}; logged for review.`, "info");
 		return verdict;
 	}
-	/** A verdict the rail acts on: an enforced one that did not fail. */
-	const acting = (verdict: Verdict | Failure): verdict is Verdict => !("failure" in verdict) && enforced(verdict);
+	/** A verdict the rail acts on: an enforced one that did not fail; shadow and off verdicts never act. */
+	const acting = (verdict: Verdict | Failure): verdict is Verdict & { mode: "enforced" } => !("failure" in verdict) && enforced(verdict);
 	const approved = (ctx: ExtensionContext, key: string) => approvals.has(sessionOf(ctx), key);
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -356,8 +357,8 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		const key = `completion-evidence:${view.headRefOid}`;
 		if (approved(ctx, key)) return "met";
 		const verdict = await decided("completion-evidence", evidenceState(view), ctx, prSubject(view));
-		if (!("failure" in verdict) && (!enforced(verdict) || verdict.outcome === "no")) return "met";
 		if ("failure" in verdict) { obligation.text = verdict.failure; return "unmet"; }
+		if (!enforced(verdict) || verdict.outcome === "no") return "met";
 		obligation.text = verdict.outcome === "yes"
 			? `${verdictText(verdict)}: an outcome the PR for ${at.branch} claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section`
 			: ownerReason(verdict, key, `whether the PR for ${at.branch} shows evidence for every outcome it claims.`);

@@ -1,6 +1,7 @@
 """Proof-first verification (TDD: red at base, green at head) and blind labels; load in the OMP Python eval kernel."""
 
 import copy
+import dataclasses
 import hashlib
 import importlib
 import json
@@ -36,9 +37,11 @@ __all__ = [
     "decide",
     "dependency_audit_findings",
     "deterministic_checks",
+    "effective_judgment",
     "freeze",
     "gate_policy",
     "decision_context",
+    "judgment_config",
     "judgment_error",
     "judgment_record",
     "load_judgment",
@@ -235,6 +238,12 @@ def not_onboarded_reason(repo: StrPath, kind: str) -> str:
     )
 
 
+# A config of these kinds does not apply: global judgment modes hold (judgment_config).
+UNCONFIGURED_KINDS = frozenset({"missing", "unresolved", "outside"})
+# A repo config can only soften a judgment question's global mode.
+MODE_RANK = {"off": 0, "shadow": 1, "enforced": 2}
+
+
 def read_config(repo: StrPath) -> dict[str, Any]:
     """The validated .agentrails/config.json of the clone at `repo` (its main checkout's file).
 
@@ -245,6 +254,22 @@ def read_config(repo: StrPath) -> dict[str, Any]:
         config: dict[str, Any] = module.load_config(repo)
     except module.ConfigError as exc:
         raise WorkflowError(not_onboarded_reason(repo, exc.kind)) from exc
+    return config
+
+
+def judgment_config(cwd: StrPath) -> dict[str, Any] | None:
+    """The repo config whose `judgments` overrides apply at `cwd`, or None when none applies.
+
+    An unconfigured repo (missing), an unresolvable main checkout and a cwd outside a GitHub git
+    repository give None, so the global modes hold. An invalid config raises.
+    """
+    module = _repo_config()
+    try:
+        config: dict[str, Any] = module.load_config(cwd)
+    except module.ConfigError as exc:
+        if exc.kind in UNCONFIGURED_KINDS:
+            return None
+        raise WorkflowError(not_onboarded_reason(cwd, exc.kind)) from exc
     return config
 
 
@@ -2110,6 +2135,50 @@ def _register_questions(judgment: Judgment) -> None:
         raise WorkflowError(f"{judgment.name}: {exc}") from exc
 
 
+def effective_judgment(
+    judgment: Judgment, config: Mapping[str, Any] | None
+) -> Judgment:
+    """`judgment` as the repo config runs it: each question at the lower of its global mode and
+    the config's `judgments["<judgment>/<question>"]` override (off < shadow < enforced).
+
+    An off question leaves both questions and decisions, so it is never asked and writes no
+    decisions row. None (no config applies) returns the judgment unchanged. The questions table
+    keeps the global decisions: load_judgment registered them, and this writes nothing.
+    """
+    if config is None:
+        return judgment
+    overrides = config["judgments"]
+    decisions: dict[str, Any] = {}
+    for ident, decision in judgment.decisions.items():
+        setting = overrides.get(f"{judgment.name}/{ident}")
+        mode = (
+            decision["mode"]
+            if setting is None
+            else setting["mode"]
+            if setting["enabled"]
+            else "off"
+        )
+        if MODE_RANK[mode] > MODE_RANK[decision["mode"]]:
+            # The config validator refuses this; a config that reached here was not validated.
+            raise WorkflowError(
+                f"{judgment.name}/{ident}: the repo config sets {mode} above the global "
+                f"{decision['mode']} mode; only measurement promotes a question"
+            )
+        if mode != "off":
+            decisions[ident] = (
+                decision if mode == decision["mode"] else {**decision, "mode": mode}
+            )
+    return dataclasses.replace(
+        judgment,
+        questions={
+            ident: question
+            for ident, question in judgment.questions.items()
+            if ident in decisions
+        },
+        decisions=decisions,
+    )
+
+
 def outcome(decision: dict[str, Any], probability: float) -> str:
     """A cutoff: yes at or above threshold, else no. A band: yes at or above yes_at_least,
     no at or below no_at_most, escalate (to its fallback judge) in between."""
@@ -2342,11 +2411,23 @@ async def decide(name: str, state: dict[str, Any], context: Any) -> dict[str, An
     """Judge `state` with judgments/<name>/: yes | no | escalate per bool question, logged.
 
     `context` is a decision store DecisionContext: the event that asked and the subject judged.
-    Refuses stale thresholds and a judge role other than the tuned model. A failed or invalid
-    judgment is logged, then raises; it is never read as an outcome. Returns the logged record
-    plus `answers`.
+    The modes are the effective ones for the repo config at the kernel's cwd (effective_judgment):
+    an off question is not asked, and a judgment whose every question is off returns
+    `{"judgment": name, "off": True}` with no judge call and no row. Refuses stale thresholds and
+    a judge role other than the tuned model. A failed or invalid judgment is logged, then raises;
+    it is never read as an outcome. Returns the logged record plus `answers`.
     """
-    judgment = load_judgment(name)
+    judgment = effective_judgment(load_judgment(name), judgment_config(os.getcwd()))
+    if not judgment.questions:
+        return {"judgment": name, "off": True}
+    return await _decide(judgment, state, context)
+
+
+async def _decide(
+    judgment: Judgment, state: dict[str, Any], context: Any
+) -> dict[str, Any]:
+    """decide() for an effective judgment with at least one question asked."""
+    name = judgment.name
     require_judge_model(judgment)
     if not isinstance(state, dict) or not state:
         raise WorkflowError(f"{name}: state must be a non-empty object")
@@ -2358,15 +2439,28 @@ async def decide(name: str, state: dict[str, Any], context: Any) -> dict[str, An
     return {**judgment_record(judgment, state, answers, context), "answers": answers}
 
 
-def judgment_questions(name: str) -> dict[str, Any]:
-    """What a rail sends to its own judge call: the pinned model and the questions.
+def judgment_questions(name: str, config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """What a rail sends to its own judge call: the pinned model and the questions asked under the
+    repo `config` (effective_judgment); `{"judgment": name, "off": True}` when every one is off.
 
     Rails judge from the extension host, which reports the model that answered, so the model check
     happens in record_answers() rather than through `omp config get`.
     """
-    judgment = load_judgment(name)
+    judgment = effective_judgment(load_judgment(name), config)
+    if not judgment.questions:
+        return {"judgment": name, "off": True}
     require_direct_judge_route()
     return {"judgment": name, "model": judgment.model, "questions": judgment.questions}
+
+
+def _asked_judgment(name: str, config: Mapping[str, Any] | None) -> Judgment:
+    """The effective judgment a rail records against; refused when the config turns it all off."""
+    judgment = effective_judgment(load_judgment(name), config)
+    if not judgment.questions:
+        raise WorkflowError(
+            f"{name}: every question is off in this repo's config; nothing was asked"
+        )
+    return judgment
 
 
 def _rail_state(name: str, state: object) -> dict[str, Any]:
@@ -2375,12 +2469,15 @@ def _rail_state(name: str, state: object) -> dict[str, Any]:
     return state
 
 
-def record_answers(name: str, request: object) -> dict[str, Any]:
-    """decide()'s outcomes and decision store rows for answers a rail's judge call returned.
+def record_answers(
+    name: str, request: object, config: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """decide()'s outcomes and decision store rows for answers a rail's judge call returned,
+    under the repo `config`'s effective modes.
 
     Refuses answers from any model other than the tuned one; a refusal is never an outcome.
     """
-    judgment = load_judgment(name)
+    judgment = _asked_judgment(name, config)
     require_direct_judge_route()
     if not isinstance(request, dict) or set(request) != {
         "state",
@@ -2402,9 +2499,12 @@ def record_answers(name: str, request: object) -> dict[str, Any]:
     return judgment_record(judgment, state, request["answers"], context)
 
 
-def record_error(name: str, request: object) -> dict[str, Any]:
-    """Log a rail judge call that failed before it answered; returns the call id."""
-    judgment = load_judgment(name)
+def record_error(
+    name: str, request: object, config: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """Log a rail judge call that failed before it answered, under the repo `config`'s
+    effective modes; returns the call id."""
+    judgment = _asked_judgment(name, config)
     if not isinstance(request, dict) or set(request) != {"state", "error", "context"}:
         raise WorkflowError(
             f"{name}: a rail judge failure needs exactly state, error and context"
@@ -2424,18 +2524,25 @@ def _rail_request(path: str) -> object:
         raise WorkflowError(f"cannot read rail answers {path}: {exc}") from exc
 
 
-def rail_bridge(argv: list[str]) -> int:
+def rail_bridge(argv: list[str], cwd: StrPath) -> int:
     """`questions <name>`, `record <name> <request.json>` or `error <name> <request.json>`:
     one JSON object on stdout. A refusal prints {"error": ...} and exits 1.
+
+    `cwd` is the rail's working directory (the session's): its repo config sets the effective
+    judgment modes (judgment_config, effective_judgment).
     """
     try:
         match argv:
             case ["questions", name]:
-                result = judgment_questions(name)
+                result = judgment_questions(name, judgment_config(cwd))
             case ["record", name, request]:
-                result = record_answers(name, _rail_request(request))
+                result = record_answers(
+                    name, _rail_request(request), judgment_config(cwd)
+                )
             case ["error", name, request]:
-                result = record_error(name, _rail_request(request))
+                result = record_error(
+                    name, _rail_request(request), judgment_config(cwd)
+                )
             case _:
                 raise WorkflowError(
                     "usage: questions <judgment> | record <judgment> <request.json> "
@@ -2532,6 +2639,8 @@ def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
 
     The triage runs whatever gates.audit says: gates.audit only decides whether ci_gate runs
     commands.audit, and audit lines in commands.commit output always block (every commit).
+    Returns `{ok, repo, advisories, failures}`; triage_advisories() reads the severity
+    judgment's effective modes from `repo`'s config.
     """
     config = read_config(repo)
     ok, output = run_check(config["commands"]["commit"], repo)
@@ -2540,7 +2649,7 @@ def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
         raise WorkflowError(
             f"commands.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block"
         )
-    return {"ok": ok, **found}
+    return {"ok": ok, "repo": os.fspath(repo), **found}
 
 
 def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
@@ -2643,6 +2752,8 @@ def rate_advisory(
     Rounds up: the impact is the most severe class at or above the round-up floor, a
     mitigating dimension lowers the level only on a yes outcome, and exposure only on a no
     outcome for `reached`; escalate never lowers it. A malicious package never reaches the rubric.
+    `decisions` are the effective ones: a question the repo config turns off is absent, was not
+    asked, and never lowers the level.
     """
     if malicious_package(advisory):
         return malicious_assessment(advisory, evidence)
@@ -2654,17 +2765,23 @@ def rate_advisory(
         key=IMPACT_LEVEL.__getitem__,
         default=max(probabilities, key=probabilities.get),
     )
-    preconditions = {q: _probability(answers, q, "bool") for q in PRECONDITIONS}
-    reached = _probability(answers, "reached", "bool")
-    # A shadow decision is logged but never acts: it lowers no severity level.
+    preconditions = {
+        q: _probability(answers, q, "bool") for q in PRECONDITIONS if q in decisions
+    }
+    reached = (
+        _probability(answers, "reached", "bool") if "reached" in decisions else None
+    )
+    # A shadow decision is logged but never acts, and an off one is never asked: neither lowers
+    # the severity level.
     cleared = [
         q
-        for q in PRECONDITIONS
+        for q, probability in preconditions.items()
         if decisions[q]["mode"] == "enforced"
-        and outcome(decisions[q], preconditions[q]) == "yes"
+        and outcome(decisions[q], probability) == "yes"
     ]
     unreached = (
-        decisions["reached"]["mode"] == "enforced"
+        reached is not None
+        and decisions["reached"]["mode"] == "enforced"
         and outcome(decisions["reached"], reached) == "no"
     )
     level = (
@@ -2789,11 +2906,15 @@ def malicious_assessment(advisory: dict[str, Any], evidence: object) -> dict[str
     }
 
 
-async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
+async def assess_advisory(
+    advisory: dict[str, Any], evidence: object, config: Mapping[str, Any] | None
+) -> dict[str, Any]:
     """Severity of one advisory: the frozen questions through judge(), then the fixed rubric in code.
 
-    A malicious package is decided in code before any judgment. A failed or invalid judgment
-    raises; it is never read as a low severity.
+    The questions run at their effective modes under the repo `config` (effective_judgment);
+    `impact` is never configurable, so the judge is always asked. A malicious package is decided
+    in code before any judgment. A failed or invalid judgment raises; it is never read as a low
+    severity.
     """
     if malicious_package(advisory):
         return malicious_assessment(advisory, evidence)
@@ -2816,13 +2937,13 @@ async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[st
         "commit", item_kind="advisory", item=advisory_key(advisory)
     )
     try:
-        decided = await decide(SEVERITY_JUDGMENT, state, context)
+        judgment = effective_judgment(load_judgment(SEVERITY_JUDGMENT), config)
+        decided = await _decide(judgment, state, context)
     except WorkflowError as exc:
         raise WorkflowError(
             f"{advisory_key(advisory)}: severity judgment failed: {exc}"
         ) from exc
-    decisions = load_judgment(SEVERITY_JUDGMENT).decisions
-    return rate_advisory(advisory, evidence, decided["answers"], decisions)
+    return rate_advisory(advisory, evidence, decided["answers"], judgment.decisions)
 
 
 def owner_report(
@@ -2875,11 +2996,17 @@ async def triage_advisories(
 ) -> dict[str, Any]:
     """Assess every advisory in `found` (from dependency_audit_findings) with its cited evidence.
 
+    The severity questions run at their effective modes under the config of `found["repo"]`.
     Returns ``{halt, owner, fix, failures, report}``. Any high or critical advisory, any advisory
     with no fixed release or a fix blocked by a pinned dependent, and any exception-file failure
     halts the workflow with ``report`` for the owner; ``fix`` lists only unblocked low and medium
     advisories to upgrade in the flow, and ``failures`` the other checker failures to fix.
     """
+    repo = found.get("repo")
+    if not isinstance(repo, str) or not repo:
+        raise WorkflowError(
+            "found must be dependency_audit_findings(repo)'s result, which names its repo"
+        )
     keys = [advisory_key(a) for a in found["advisories"]]
     missing = sorted(set(keys) - set(evidence))
     extra = sorted(set(evidence) - set(keys))
@@ -2887,8 +3014,9 @@ async def triage_advisories(
         raise WorkflowError(
             f"evidence must cover exactly the advisories found; missing {missing}, unknown {extra}"
         )
+    config = judgment_config(repo)
     assessed = [
-        await assess_advisory(a, evidence[k])
+        await assess_advisory(a, evidence[k], config)
         for a, k in zip(found["advisories"], keys, strict=True)
     ]
     owner = [item for item in assessed if item["route"] == "owner"]
@@ -3092,7 +3220,7 @@ async def structure_review(
         published = _common(repo) / "omp-structure" / f"{head}.json"
         parent, _ = _range(repo, parent, head, target_ref)
         result["parent"] = parent
-        judgment = _structure_config()
+        judgment = effective_judgment(_structure_config(), judgment_config(repo))
         result["thresholds"] = judgment.thresholds
         result["version_key"] = judgment.version_key
         # eval's judge API exposes answers, not a reported model: the judge role is checked instead.
@@ -3103,9 +3231,13 @@ async def structure_review(
         require_direct_judge_route()
         require_judge_model(judgment)
         review = StructureJudgment(judgment, result, _github_repo(repo))
-        await review.judge_kind_files(_kind_candidates(repo, parent, head))
-        await review.judge_pairs(_name_pairs(repo, parent, head))
-        await review.judge_consumers(_consumer_candidates(repo, parent, head))
+        # A question the repo config turns off runs neither its proposer nor the judge.
+        if review.asks(KIND_QUESTION):
+            await review.judge_kind_files(_kind_candidates(repo, parent, head))
+        if review.asks(PAIR_QUESTION):
+            await review.judge_pairs(_name_pairs(repo, parent, head))
+        if review.asks(CONSUMER_QUESTION):
+            await review.judge_consumers(_consumer_candidates(repo, parent, head))
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"infrastructure: {exc}")
     except Exception as exc:
@@ -3142,6 +3274,11 @@ class StructureJudgment:
         self.questions = judgment.questions
         self.result = result
         self.repo = repo
+
+    def asks(self, ident: str) -> bool:
+        """Whether the effective judgment asks `ident`: a question the repo config turns off is
+        never asked and logs nothing."""
+        return ident in self.judgment.decisions
 
     async def ask(
         self,
@@ -3241,7 +3378,7 @@ class StructureJudgment:
 
     async def judge_kind_files(self, candidates: list[dict[str, Any]]) -> None:
         """Each kind-folder file asks the technical_kind_grouping question once."""
-        if not candidates:
+        if not candidates or not self.asks(KIND_QUESTION):
             return
         asked = self.judgment.decisions[KIND_QUESTION].get("asked_as", KIND_QUESTION)
         found = await self.ask(
@@ -3264,7 +3401,7 @@ class StructureJudgment:
 
     async def judge_pairs(self, pairs: list[dict[str, Any]]) -> None:
         """Each name pair asks same_thing in both orders; score = det_score * mean P(true)."""
-        if not pairs:
+        if not pairs or not self.asks(PAIR_QUESTION):
             return
         states: dict[str, dict[str, Any]] = {}
         for pair in pairs:
@@ -3292,7 +3429,7 @@ class StructureJudgment:
 
     async def judge_consumers(self, candidates: list[dict[str, Any]]) -> None:
         """Each candidate in both option orders; score = mean P(option)."""
-        if not candidates:
+        if not candidates or not self.asks(CONSUMER_QUESTION):
             return
         decision = self.judgment.decisions[CONSUMER_QUESTION]
         question = self.questions[CONSUMER_QUESTION]

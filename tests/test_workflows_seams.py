@@ -1,7 +1,10 @@
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
+import runpy
 import sqlite3
 import subprocess
 import sys
@@ -1667,6 +1670,141 @@ class JourneyAndResultTests(RepositoryCase):
             )
 
 
+DECIDE = (
+    Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/lib/decide.py"
+)
+
+
+class JudgmentConfigTests(unittest.TestCase):
+    """The repo config a cwd resolves to (judgment_config) and the rail entry, lib/decide.py,
+    which runs the registry bridge under it."""
+
+    def setUp(self) -> None:
+        environment = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith("GIT_") and k != "TYPESAFE_BASE_URL"
+        }
+        environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        env = patch.dict(os.environ, environment, clear=True)
+        env.start()
+        self.addCleanup(env.stop)
+        scratch = tempfile.TemporaryDirectory(prefix="omp-judgment-config-")
+        self.addCleanup(scratch.cleanup)
+        self.tmp = Path(scratch.name).resolve()
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q")
+        git(self.repo, "config", "user.email", "judgment@example.test")
+        git(self.repo, "config", "user.name", "Judgment Test")
+        git(self.repo, "remote", "add", "origin", ORIGIN)
+        git(self.repo, "commit", "--allow-empty", "-qm", "base")
+        self.main = runpy.run_path(str(DECIDE))["main"]
+
+    def bridge(self, cwd: Path, *argv: str) -> tuple[int, Any]:
+        out = io.StringIO()
+        with contextlib.chdir(cwd), patch("sys.stdout", out):
+            code = self.main(list(argv))
+        return code, json.loads(out.getvalue())
+
+    def store(self, sql: str) -> list[dict[str, Any]]:
+        path = Path(os.environ["PI_CODING_AGENT_DIR"]) / "dynaflows/dynaflows.db"
+        with closing(sqlite3.connect(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            return [dict(row) for row in connection.execute(sql)]
+
+    def test_rail_entry_runs_the_registry_of_the_shipped_judgments(self) -> None:
+        for name, question in (
+            ("extension-impact", "impact"),
+            ("in-scope", "ask_first"),
+            ("implementation-integrity", "weakens_verification"),
+            ("completion-evidence", "evidence_gap"),
+        ):
+            with self.subTest(name=name):
+                code, asked = self.bridge(self.tmp, "questions", name)
+                assert code == 0
+                assert asked["model"] == "typesafe/jev-1.14.0"
+                assert list(asked["questions"]) == [question]
+                thresholds = json.loads(
+                    (
+                        DECIDE.parents[1] / "judgments" / name / "thresholds.json"
+                    ).read_text()
+                )
+                assert thresholds["wired"] is True
+                assert "mode" not in thresholds
+                assert "status" not in thresholds
+                wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
+                assert "enforced from the start" in wiring
+                assert "not wired" not in json.dumps(thresholds)
+
+    def test_an_unconfigured_cwd_uses_global_modes(self) -> None:
+        bare = self.tmp / "bare.git"
+        git(self.tmp, "init", "-q", "--bare", str(bare))
+        for cwd in (self.tmp, self.repo, bare):
+            with self.subTest(cwd=cwd.name):
+                assert workflow.judgment_config(cwd) is None
+                code, asked = self.bridge(cwd, "questions", "implementation-integrity")
+                assert (code, list(asked["questions"])) == (0, ["weakens_verification"])
+
+    def test_a_worktree_cwd_resolves_the_main_checkout_overrides(self) -> None:
+        overrides = {
+            "implementation-integrity/weakens_verification": {"enabled": False},
+            "completion-evidence/evidence_gap": {"enabled": True, "mode": "shadow"},
+        }
+        write_config(self.repo, config(judgments=overrides))
+        linked = self.tmp / "linked"
+        git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
+        self.addCleanup(git, self.repo, "worktree", "remove", "--force", str(linked))
+        resolved = workflow.judgment_config(linked)
+        assert resolved is not None
+        assert resolved["judgments"] == overrides
+        assert self.bridge(linked, "questions", "implementation-integrity") == (
+            0,
+            {"judgment": "implementation-integrity", "off": True},
+        )
+        request = self.tmp / "request.json"
+        request.write_text(
+            json.dumps({
+                "state": {"work_request": {"title": "x"}},
+                "answers": {"evidence_gap": {"type": "bool", "bool": 0.95}},
+                "model": workflow.load_judgment("completion-evidence").model,
+                "context": {"trigger": "pr", "repo": "example-owner/example-repo"},
+            })
+        )
+        code, record = self.bridge(
+            linked, "record", "completion-evidence", str(request)
+        )
+        assert code == 0, record
+        assert (record["outcomes"], record["modes"]) == (
+            {"evidence_gap": "yes"},
+            {"evidence_gap": "shadow"},
+        )
+        assert [
+            row["mode"]
+            for row in self.store(
+                "SELECT mode FROM decisions WHERE judgment = 'completion-evidence'"
+            )
+        ] == ["shadow"]
+        assert [
+            row["mode"]
+            for row in self.store(
+                "SELECT mode FROM questions WHERE judgment = 'completion-evidence'"
+            )
+        ] == ["enforced"], "the questions table keeps the global mode"
+
+    def test_an_invalid_config_refuses_instead_of_falling_back(self) -> None:
+        path = write_config(self.repo, config())
+        path.write_text("{")
+        with pytest.raises(
+            workflow.WorkflowError,
+            match=re.escape("(.agentrails/config.json invalid)"),
+        ):
+            workflow.judgment_config(self.repo)
+        code, refused = self.bridge(self.repo, "questions", "in-scope")
+        assert code == 1
+        assert "is not onboarded" in refused["error"]
+
+
 class InjectedRemovalError(RuntimeError):
     pass
 
@@ -1876,6 +2014,32 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert [
             item["question"] for item in mixed["findings"] if item["mode"] == "enforced"
         ] == [workflow.PAIR_QUESTION]
+
+    async def test_the_repo_config_turns_questions_off_or_to_shadow(self) -> None:
+        write_config(
+            self.repo,
+            config(
+                judgments={
+                    "structure-naming/technical_kind_grouping": {"enabled": False},
+                    "structure-naming/same_thing": {"enabled": True, "mode": "shadow"},
+                }
+            ),
+        )
+        result = await self.review()
+        asked = [list(call[1]) for call in self.calls if call != "closed"]
+        assert asked == [["same_thing"], ["kind"], ["kind"]], (
+            "an off question is never asked"
+        )
+        assert result["kind_files"] == {}
+        assert (result["status"], result["halt"]) == ("pass", False)
+        assert {(item["question"], item["mode"]) for item in result["findings"]} == {
+            (workflow.PAIR_QUESTION, "shadow"),
+            (workflow.CONSUMER_QUESTION, "shadow"),
+        }
+        assert {(row["question"], row["mode"]) for row in self.logged()} == {
+            (workflow.PAIR_QUESTION, "shadow"),
+            (workflow.CONSUMER_QUESTION, "shadow"),
+        }
 
     async def test_scores_below_the_threshold_pass_without_findings(self) -> None:
         result = await self.review(score=0.05)

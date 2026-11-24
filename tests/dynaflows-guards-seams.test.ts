@@ -7,7 +7,7 @@ import { test } from "bun:test";
 import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
 import { parseOrigin } from "../agent/extensions/dynaflows/lib/git-paths.ts";
-import type { AfterMerge, AgentRailsConfig, Autonomy, Ci, Commands, Gates, MergePolicy } from "../agent/extensions/dynaflows/lib/repo-config.ts";
+import type { AfterMerge, AgentRailsConfig, Autonomy, Ci, Commands, Gates, JudgmentOverride, MergePolicy } from "../agent/extensions/dynaflows/lib/repo-config.ts";
 
 const integrity = "skill://structured-workflow/references/delivery-principles.md";
 const structure = "skill://structured-workflow/references/structure-and-naming.md";
@@ -17,11 +17,12 @@ const verification = "skill://test-guidance/references/before-commit.md";
 /** The sections a test sets on the harness's agent-rails config; the rest come from the S1a minimal fixture. */
 type ConfigPatch = {
 	autonomy?: Partial<Autonomy>; ci?: Ci; gates?: Partial<Gates>; commands?: Partial<Commands>; mergePolicies?: MergePolicy[]; afterMerge?: AfterMerge;
+	judgments?: Record<string, JudgmentOverride>;
 };
 const configFixture = resolve(import.meta.dir, "fixtures/agentrails/valid/minimal.json");
 /**
  * A valid .agentrails/config.json for slug, built from the S1a minimal fixture: every autonomy
- * permission allowed, CI off, every gate on, commands.commit `true`, then the test's patch.
+ * permission allowed, CI off, every gate on, no judgment overrides, commands.commit `true`, then the test's patch.
  */
 function harnessConfig(slug: string, patch: ConfigPatch = {}): AgentRailsConfig {
 	const base: AgentRailsConfig = JSON.parse(readFileSync(configFixture, "utf8"));
@@ -33,6 +34,7 @@ function harnessConfig(slug: string, patch: ConfigPatch = {}): AgentRailsConfig 
 		gates: { ...base.gates, ...patch.gates },
 		commands: { commit: ["true"], ...patch.commands },
 		mergePolicies: patch.mergePolicies ?? [],
+		judgments: patch.judgments ?? {},
 	};
 	if (patch.afterMerge) config.afterMerge = patch.afterMerge;
 	return config;
@@ -118,7 +120,7 @@ function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeMo
 // The rails' escalate branches need a band, which no shipped judgment has: this registry
 // double runs the same bridge with every bool decision widened to 0.3-0.7, as a band with a fallback judge would be.
 const bandedBridge = [
-	"import dataclasses, importlib.util, sys",
+	"import dataclasses, importlib.util, os, sys",
 	"spec = importlib.util.spec_from_file_location('dynaflows_workflows', sys.argv[1])",
 	"workflows = importlib.util.module_from_spec(spec)",
 	"sys.modules[spec.name] = workflows",
@@ -130,14 +132,14 @@ const bandedBridge = [
 	"    widen = lambda ident, d: {**{k: v for k, v in d.items() if k != 'threshold'}, **band} if judgment.questions[ident]['type'] == 'bool' else d",
 	"    return dataclasses.replace(judgment, decisions={ident: widen(ident, d) for ident, d in judgment.decisions.items()})",
 	"workflows.load_judgment = banded",
-	"sys.exit(workflows.rail_bridge(sys.argv[2:]))",
+	"sys.exit(workflows.rail_bridge(sys.argv[2:], os.getcwd()))",
 ].join("\n");
 const workflowsScript = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine/workflows.py");
 const bandedDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", bandedBridge, workflowsScript];
 // No shipped judgment runs in shadow mode yet: this registry double runs the same bridge with every
 // bool decision in shadow mode, as thresholds.json declares it for a judgment whose precision is unmeasured.
 const shadowBridge = [
-	"import dataclasses, importlib.util, sys",
+	"import dataclasses, importlib.util, os, sys",
 	"spec = importlib.util.spec_from_file_location('dynaflows_workflows', sys.argv[1])",
 	"workflows = importlib.util.module_from_spec(spec)",
 	"sys.modules[spec.name] = workflows",
@@ -148,7 +150,7 @@ const shadowBridge = [
 	"    shadow = lambda ident, d: {**d, 'mode': 'shadow', 'shadow_exit': {'labelled_flags': 10}} if judgment.questions[ident]['type'] == 'bool' else d",
 	"    return dataclasses.replace(judgment, decisions={ident: shadow(ident, d) for ident, d in judgment.decisions.items()})",
 	"workflows.load_judgment = shadowed",
-	"sys.exit(workflows.rail_bridge(sys.argv[2:]))",
+	"sys.exit(workflows.rail_bridge(sys.argv[2:], os.getcwd()))",
 ].join("\n");
 const shadowDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", shadowBridge, workflowsScript];
 type Registry = "shipped" | "banded" | "shadow";

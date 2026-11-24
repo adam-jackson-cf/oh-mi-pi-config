@@ -23,12 +23,17 @@ export type RailJudgment = keyof typeof RAIL_JUDGMENTS;
 /** A judged state: the JSON object omp's judge() takes. */
 export type JudgeState = Exclude<Parameters<ReturnType<typeof resolveJudge>["judge"]>[0]["state"], string | readonly unknown[]>;
 const questionsSchema = z.object({ judgment: z.string(), model: z.string().min(1), questions: registryQuestions }).strict();
+// The registry's answer when the repo config turns every question of the judgment off.
+const offSchema = z.object({ judgment: z.string(), off: z.literal(true) }).strict();
 export type JudgeQuestions = z.infer<typeof questionsSchema>["questions"];
 export type JudgeAnswer = { answers: JudgeResult["answers"]; model: string };
 /** One judge call: the answers and the provider/model that produced them. Tests stub this. */
 export type JudgeTransport = (state: JudgeState, questions: JudgeQuestions) => Promise<JudgeAnswer>;
-/** A shadow verdict is logged and shown but never acts: the rail behaves as if the judgment were absent. */
-export type Verdict = { judgment: RailJudgment; outcome: "yes" | "no" | "escalate"; probability: number; mode: "enforced" | "shadow"; call: JudgmentCall };
+/** A judged verdict: a shadow one is logged and shown but never acts, so the rail behaves as if the judgment were absent. */
+export type JudgedVerdict = { judgment: RailJudgment; outcome: "yes" | "no" | "escalate"; probability: number; mode: "enforced" | "shadow"; call: JudgmentCall };
+/** The repo config turns the rail's question off: no judge call, no decision store row, and the rail never acts on it. */
+export type OffVerdict = { judgment: RailJudgment; mode: "off" };
+export type Verdict = JudgedVerdict | OffVerdict;
 /** What a rail judged, for the decision store row: the event that asked and the subject. */
 export type DecisionSubject = {
 	trigger: "commit" | "prove" | "pr" | "manual"; repo?: string; commit?: string; pr?: number; item_kind?: string; item?: string;
@@ -70,7 +75,8 @@ export function registryDecide(pi: ExecApi, bridge: string[], transportFor: (ctx
 		}
 	}
 	return async (name, state, ctx, subject) => {
-		const asked = questionsSchema.parse(jsonText.parse(await run(["questions", name], ctx.cwd)));
+		const asked = z.union([questionsSchema, offSchema]).parse(jsonText.parse(await run(["questions", name], ctx.cwd)));
+		if ("off" in asked) return { judgment: name, mode: "off" };
 		const answer = await answered(name, state, ctx, subject, asked.questions);
 		const call = judgmentCallSchema.parse(jsonText.parse(await bridged("record", name, { state, answers: answer.answers, model: answer.model, context: subject }, ctx.cwd)));
 		const question = RAIL_JUDGMENTS[name];
@@ -95,10 +101,11 @@ export function ompJudge(settings: Settings): (ctx: ExtensionContext) => JudgeTr
 
 export const digest = (value: JudgeState): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const clip = (text: string, limit: number): string => text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text;
-export const verdictText = (verdict: Verdict): string =>
-	`${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} ${verdict.outcome}, P=${verdict.probability.toFixed(2)}${verdict.mode === "shadow" ? " (shadow, not blocking)" : ""}`;
-/** Whether a verdict acts on the rail: enforced verdicts do; shadow verdicts are logged only. */
-export const enforced = (verdict: Verdict): boolean => verdict.mode === "enforced";
+export const verdictText = (verdict: Verdict): string => verdict.mode === "off"
+	? `${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} is off in this repository's config (not judged)`
+	: `${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} ${verdict.outcome}, P=${verdict.probability.toFixed(2)}${verdict.mode === "shadow" ? " (shadow, not blocking)" : ""}`;
+/** Whether a verdict acts on the rail: enforced verdicts do; shadow verdicts are logged only; off verdicts were never judged. */
+export const enforced = (verdict: Verdict): verdict is JudgedVerdict & { mode: "enforced" } => verdict.mode === "enforced";
 
 // An owner approval is a line of its own in the owner's prompt; agents cannot write owner prompts.
 // Escalated judgments are keyed by a digest or SHA; autonomy asks by action and subject (branch or PR number).

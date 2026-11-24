@@ -42,6 +42,9 @@ added, modified or renamed in the range, and drops files a record exception
 with rule `structure-naming/consumer_placement` covers. Each file asks the `consumer_placement`
 question (sent as the `kind` Choice) in both option orders; its score is the mean probability of
 `finished_tool`, compared with the decision's threshold.
+Each question runs at its effective mode for the repo's config ([judgments](judgments.md)): an off
+question runs neither its proposer nor the judge and logs nothing, and a question the config sets to
+shadow never blocks.
 The questions load through the [judgment registry](judgments.md): stale version keys, a judge role
 other than the tuned model, or `TYPESAFE_BASE_URL` set (the Jev Inspector route) are
 infrastructure errors, not a clean review. Every proposal's answer is written to the decision store

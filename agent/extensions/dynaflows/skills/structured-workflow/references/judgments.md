@@ -36,6 +36,11 @@ Ask a calibrated judgment through one registry call and act on its yes, no or es
 
 - Each decision's `mode` is `enforced` (acts) or `shadow` (logged, never acts); see the
   [decision store](decision-store.md).
+- The cwd's repo config (a worktree's main checkout) only softens a mode: each question runs at the
+  lower of its global mode and the [override](../../../CONFIG.md#judgments), off < shadow < enforced.
+  No config keeps the global modes; an invalid one raises. An off question is never asked or logged;
+  with all off, `decide()` returns `{"judgment": name, "off": true}`. `questions` rows keep the
+  global mode, `decisions` rows the effective one.
 
 ## Rail judgments
 
@@ -45,7 +50,8 @@ omp's judge role; the model that answered must be `thresholds.model`. A failed c
 never an outcome.
 
 - The table below is for enforced decisions. A shadow decision never acts: the rail behaves as if
-  the judgment had not run and notes a shadow yes as "shadow, not blocking".
+  the judgment had not run and notes a shadow yes as "shadow, not blocking". An off rail question is
+  never judged and never acts; an off `extension-impact` keeps the review task.
 - A failed call refuses the commit, merge or command and leaves the evidence obligation unmet; a
   failed `in-scope` call on an `ask` lets the question through.
 

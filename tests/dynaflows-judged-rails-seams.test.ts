@@ -399,6 +399,32 @@ describe("every shipped judgment acts or is in reviewable shadow", () => {
 	});
 });
 
+describe("the repo config softens a judgment's global mode", () => {
+	test("off makes no judge call and writes no row; a repo shadow logs a shadow row and never blocks", async () => {
+		const h = harness();
+		try {
+			h.mode("structured");
+			await h.read("skill://git-tool", mergeRecover);
+			h.config({ judgments: { "implementation-integrity/weakens_verification": { enabled: false } } });
+			h.judged.scores["weakens_verification"] = 0.95;
+			await staged(h, "skip.test.ts", "test.skip('slow', () => {});\n");
+			assert.equal(await h.call("bash", { command: "git commit -m 'test: skip it'" }), undefined, "an off question never refuses the commit");
+			assert.equal(h.judged.calls.length, 0, "an off question makes no judge call");
+			assert.deepEqual(logged(h), [], "an off question writes no decision store row");
+			h.config({ judgments: { "implementation-integrity/weakens_verification": { enabled: true, mode: "shadow" } } });
+			await staged(h, "other.test.ts", "test.skip('other', () => {});\n");
+			assert.equal(await h.call("bash", { command: "git commit -m 'test: skip another'" }), undefined, "a repo shadow never refuses the commit");
+			assert.equal(h.judged.calls.length, 1);
+			assert.deepEqual(logged(h).map(call => [call.judgment, call.modes["weakens_verification"], call.outcomes["weakens_verification"]]),
+				[["implementation-integrity", "shadow", "yes"]], "the decisions row carries the effective shadow mode");
+			assert.ok(h.notes.some(note => note.includes("implementation-integrity/weakens_verification yes, P=0.95 (shadow, not blocking)")), h.notes.join("; "));
+			h.config();
+			await staged(h, "third.test.ts", "test.skip('third', () => {});\n");
+			assert.equal(isBlocked(await h.call("bash", { command: "git commit -m 'test: skip a third'" })), true, "without an override the global enforced mode acts");
+		} finally { h.cleanup(); }
+	});
+});
+
 describe("a shadow judgment is asked and logged but never acts", () => {
 	test("shadow yes and no outcomes commit, merge, ask and run commands as if the judgment were absent, and say so", async () => {
 		const h = harness({ registry: "shadow" });

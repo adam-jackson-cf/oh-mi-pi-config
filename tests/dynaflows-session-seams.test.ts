@@ -377,6 +377,36 @@ describe("review on restart", () => {
 		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
 	});
 
+	test("an extension-impact the repo config turns off is never judged and keeps the review task", async () => {
+		const records = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-impact-off-")));
+		const extension = join(records, "agent/extensions/dynaflows");
+		const h = harness({ configRoot: records, extra: { extensionDir: extension } });
+		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: records });
+		const change = (subject: string) => {
+			writeFileSync(join(extension, "index.ts"), `export const subject = ${JSON.stringify(subject)};\n`);
+			git("add", "agent"); git("commit", "-qm", subject);
+		};
+		try {
+			mkdirSync(extension, { recursive: true });
+			git("init", "-q");
+			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
+			git("add", ".gitignore");
+			change("feat: first rails");
+			h.mode("structured");
+			h.config({ judgments: { "extension-impact/impact": { enabled: false } } });
+			await h.emit("session_start");
+			change("refactor: rename an internal helper");
+			h.setSession("impact-off");
+			await h.emit("session_start");
+			const task = messageText(await prompt(h, "work"));
+			assert.ok(task.includes("First task") && task.includes("Extension impact: extension-impact/impact is off in this repository's config (not judged)"),
+				`an off extension-impact keeps the review task: ${task}`);
+			assert.equal(h.judged.calls.length, 0, "an off question makes no judge call");
+			const { readJudgmentCalls } = await import("../agent/extensions/dynaflows/lib/judgment-calls.ts");
+			assert.deepEqual(readJudgmentCalls(join(h.machine, "dynaflows", "dynaflows.db")), [], "an off question writes no decision store row");
+		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
+	});
+
 	test("minimal mode only notifies and stores the new revision", async () => {
 		const h = harness();
 		try {
