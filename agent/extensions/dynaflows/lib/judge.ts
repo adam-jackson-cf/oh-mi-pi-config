@@ -27,13 +27,21 @@ export type JudgeQuestions = z.infer<typeof questionsSchema>["questions"];
 export type JudgeAnswer = { answers: JudgeResult["answers"]; model: string };
 /** One judge call: the answers and the provider/model that produced them. Tests stub this. */
 export type JudgeTransport = (state: JudgeState, questions: JudgeQuestions) => Promise<JudgeAnswer>;
-export type Verdict = { judgment: RailJudgment; outcome: "yes" | "no" | "escalate"; probability: number; call: JudgmentCall };
-export type Decide = (name: RailJudgment, state: JudgeState, ctx: ExtensionContext) => Promise<Verdict>;
+/** A shadow verdict is logged and shown but never acts: the rail behaves as if the judgment were absent. */
+export type Verdict = { judgment: RailJudgment; outcome: "yes" | "no" | "escalate"; probability: number; mode: "enforced" | "shadow"; call: JudgmentCall };
+/** What a rail judged, for the decision store row: the event that asked and the subject. */
+export type DecisionSubject = {
+	trigger: "commit" | "prove" | "pr" | "manual"; repo?: string; commit?: string; pr?: number; item_kind?: string; item?: string;
+};
+export type Decide = (name: RailJudgment, state: JudgeState, ctx: ExtensionContext, subject: DecisionSubject) => Promise<Verdict>;
+/** What the registry bridge's record and error commands read: the judged state, its subject, and the answers or the failure. */
+type BridgeRequest = { state: JudgeState; context: DecisionSubject } & ({ answers: JudgeAnswer["answers"]; model: string } | { error: string });
 
 const refusalSchema = z.object({ error: z.string() });
 export const jsonText = z.string().transform(text => { try { return z.unknown().parse(JSON.parse(text)); } catch { return undefined; } });
 
-/** decide() for rails: the registry validates and logs; the host transport answers in between. */
+/** decide() for rails: the registry validates and logs to the decision store; the host transport answers in between.
+ * A transport failure is logged as an error decision before it is rethrown. */
 export function registryDecide(pi: ExecApi, bridge: string[], transportFor: (ctx: ExtensionContext) => JudgeTransport): Decide {
 	const [first, ...prefix] = bridge;
 	if (!first) throw new Error("the judgment registry command is empty");
@@ -45,20 +53,32 @@ export function registryDecide(pi: ExecApi, bridge: string[], transportFor: (ctx
 		throw new Error(`judgment registry ${args[0]} ${args[1]} failed${result.killed ? " (killed)" : ""}: ${
 			refusal.success ? refusal.data.error : `${result.stdout}\n${result.stderr}`.trim()}`);
 	}
-	return async (name, state, ctx) => {
-		const asked = questionsSchema.parse(jsonText.parse(await run(["questions", name], ctx.cwd)));
-		const answer = await transportFor(ctx)(state, asked.questions);
+	async function bridged(verb: "record" | "error", name: RailJudgment, request: BridgeRequest, cwd: string): Promise<string> {
 		const dir = await mkdtemp(join(tmpdir(), "dynaflows-decide-"));
 		try {
-			const request = join(dir, "answers.json");
-			await writeFile(request, JSON.stringify({ state, answers: answer.answers, model: answer.model }));
-			const call = judgmentCallSchema.parse(jsonText.parse(await run(["record", name, request], ctx.cwd)));
-			const question = RAIL_JUDGMENTS[name];
-			const outcome = call.outcomes[question];
-			const probability = z.number().safeParse(call.probabilities[question]);
-			if (!outcome || !probability.success) throw new Error(`${name}: the registry returned no ${question} outcome`);
-			return { judgment: name, outcome, probability: probability.data, call };
+			const path = join(dir, "request.json");
+			await writeFile(path, JSON.stringify(request));
+			return await run([verb, name, path], cwd);
 		} finally { await rm(dir, { recursive: true, force: true }); }
+	}
+	async function answered(name: RailJudgment, state: JudgeState, ctx: ExtensionContext, subject: DecisionSubject, questions: JudgeQuestions): Promise<JudgeAnswer> {
+		try { return await transportFor(ctx)(state, questions); }
+		catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const logged = await bridged("error", name, { state, error: message, context: subject }, ctx.cwd).then(() => "", (logError: Error) => `; the decision store could not log it: ${logError.message}`);
+			throw new Error(`${message}${logged}`, { cause: error });
+		}
+	}
+	return async (name, state, ctx, subject) => {
+		const asked = questionsSchema.parse(jsonText.parse(await run(["questions", name], ctx.cwd)));
+		const answer = await answered(name, state, ctx, subject, asked.questions);
+		const call = judgmentCallSchema.parse(jsonText.parse(await bridged("record", name, { state, answers: answer.answers, model: answer.model, context: subject }, ctx.cwd)));
+		const question = RAIL_JUDGMENTS[name];
+		const outcome = call.outcomes[question];
+		const mode = call.modes[question];
+		const probability = z.number().safeParse(call.probabilities[question]);
+		if (!outcome || !mode || !probability.success) throw new Error(`${name}: the registry returned no ${question} outcome`);
+		return { judgment: name, outcome, probability: probability.data, mode, call };
 	};
 }
 
@@ -76,7 +96,9 @@ export function ompJudge(settings: Settings): (ctx: ExtensionContext) => JudgeTr
 export const digest = (value: JudgeState): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const clip = (text: string, limit: number): string => text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text;
 export const verdictText = (verdict: Verdict): string =>
-	`${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} ${verdict.outcome}, P=${verdict.probability.toFixed(2)}`;
+	`${verdict.judgment}/${RAIL_JUDGMENTS[verdict.judgment]} ${verdict.outcome}, P=${verdict.probability.toFixed(2)}${verdict.mode === "shadow" ? " (shadow, not blocking)" : ""}`;
+/** Whether a verdict acts on the rail: enforced verdicts do; shadow verdicts are logged only. */
+export const enforced = (verdict: Verdict): boolean => verdict.mode === "enforced";
 
 // An owner approval is a line of its own in the owner's prompt; agents cannot write owner prompts.
 const APPROVE = /^\$approve ((?:in-scope|implementation-integrity|completion-evidence):[0-9a-f]{12,64})$/;

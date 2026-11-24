@@ -109,7 +109,10 @@ Session rails:
 | Handoff | Both | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
 
 Judged rails, structured mode only, run after the deterministic checks through `decide()`. Every
-judgment acts from the moment it ships; a judge failure refuses, except that an `ask` goes through.
+enforced judgment acts from the moment it ships; a judge failure refuses, except that an `ask` goes
+through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
+result and rail refusal lands in one SQLite decision store, `~/.omp/agent/dynaflows/dynaflows.db`;
+`guardrails shadow-review` labels and measures what it holds.
 [Rail judgments](agent/extensions/dynaflows/skills/structured-workflow/references/judgments.md#rail-judgments)
 lists each rail, its outcomes and the owner's `$approve` line.
 

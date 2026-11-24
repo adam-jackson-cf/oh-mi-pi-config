@@ -284,20 +284,22 @@ async function proveResultReason(pi: ExecApi, cwd: string, head: string, evidenc
 	if (!parsesAs(result, text)) return refuse("merge-prove", `Agent rails: no prove() pass for ${head} at ${path}; run prove() for this head, then merge.`);
 	return evidence.trusts(path, text) ? undefined : untrustedEvidence("prove()", head, path);
 }
-type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string }[] };
-// Every finding blocks: only a pass with no findings, no halt and no errors admits the merge.
+type StructureVerdict = { status: string; halt: boolean; errors?: string[] | undefined; findings: { unit: string; question: string; mode: "enforced" | "shadow" }[] };
+// Every enforced finding blocks: only a pass with no enforced finding, no halt and no errors admits the merge.
+// A shadow finding is logged for review and never blocks.
 function structureBlock(result: StructureVerdict, head: string): Refusal | undefined {
 	if (result.status === "incomplete" || result.errors?.length) {
 		return refuse("merge-structure", `Agent rails: structure_review() for ${head} is incomplete (${result.errors?.join("; ") || "status incomplete"}); fix the cause and rerun it.`);
 	}
-	if (result.status === "pass" && !result.halt && !result.findings.length) return;
-	const findings = result.findings.map(item => `${item.unit}: ${item.question}`);
+	const enforced = result.findings.filter(item => item.mode === "enforced");
+	if (result.status === "pass" && !result.halt && !enforced.length) return;
+	const findings = enforced.map(item => `${item.unit}: ${item.question}`);
 	return refuse("merge-structure", `Agent rails: structure findings block ${head}: ${findings.join("; ") || "halt is true"}; fix them and rerun prove() and structure_review() on the new head.`);
 }
 async function structureResultReason(pi: ExecApi, cwd: string, head: string, evidence: Evidence): Promise<Refusal | undefined> {
 	const path = join(await commonDir(pi, cwd), "omp-structure", `${head}.json`);
 	const finding = z.object({
-		unit: z.string(), question: z.string(),
+		unit: z.string(), question: z.string(), mode: z.enum(["enforced", "shadow"]),
 		score: z.number().min(0).max(1), threshold: z.number().min(0).max(1),
 	}).strict();
 	const schema = z.object({

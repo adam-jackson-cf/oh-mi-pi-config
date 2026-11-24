@@ -7,8 +7,16 @@
   "score_space": "raw",
   "decisions": {
     "weakens_verification": {
-      "threshold": 0.795,
       "version_key": "b7ec26b4a15a5512d46980f74a50ee2a24f66f579bcc5452643e32bb258f3092",
+      "approach": "Eval judge",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "block",
+      "policy_area": "integrity",
+      "mode": "enforced",
+      "threshold": 0.795,
       "score_space": "raw",
       "minimums": {
         "precision": 0.8,

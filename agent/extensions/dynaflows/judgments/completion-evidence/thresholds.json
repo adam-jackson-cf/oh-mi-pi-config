@@ -37,6 +37,14 @@
   "decisions": {
     "evidence_gap": {
       "version_key": "535639ffa7f958fc228ecf9394385ef958960555ffd47c36cd23a512cae1be0b",
+      "approach": "Verify",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "block",
+      "policy_area": "evidence",
+      "mode": "enforced",
       "threshold": 0.91,
       "metric": {
         "name": "F-beta",

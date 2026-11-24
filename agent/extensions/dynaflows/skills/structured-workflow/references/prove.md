@@ -18,6 +18,8 @@ Prove checks four things:
 2. Rename residue: after CI is green and before proofs, harness `guardrails rename-residue
    --repo <worktree> --record <record dir> --base <parent> --head <head>` rejects leftover
    retired names in renamed folders or files. Every finding blocks, even with no frozen proofs.
+   Each of these checkers logs its rule results to the decision store (source `check`); a store
+   error is listed in `decisionLogErrors` and never changes a verdict.
    The same merge-base/head range runs naming, structure and path-check for added/renamed
    paths and new segments only. Legacy paths and content-only edits are never findings.
    These PR pre-checks are the principles 5/17 exception in

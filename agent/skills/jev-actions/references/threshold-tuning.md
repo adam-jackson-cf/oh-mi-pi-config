@@ -15,15 +15,17 @@ Set each decision threshold from saved scores so that it meets the agreed minimu
   result, below 0.75 needs the user's recorded override: `override` in `thresholds.json` with who
   gave it, when and why. `scripts/tune_threshold.py` refuses a lower `--min-precision` without
   `--owner-override`.
-- A judgment ships enforced or not at all; no shadow, advisory or provisional state holds
-  enforcement back until tuning is done.
-  An untuned judgment has no measured precision, so it ships only under the user's recorded
-  override, at the cost-rule default, with the missing measurement in `shortfalls`.
+- A judgment ships enforced when its precision is measured. One whose precision cannot be measured
+  yet may ship in shadow mode (`mode: "shadow"` with a `shadow_exit` such as
+  `{"labelled_flags": 10}`): it is asked and logged like an enforced one, never blocks, and its
+  results are reviewed until the exit is met, then it is tuned and enforced. Retire a judgment only
+  when it cannot do the job.
+  An untuned judgment that ships enforced does so only under the user's recorded override, at the
+  cost-rule default, with the missing measurement in `shortfalls`.
   The gates below decide only whether a threshold may be tuned or a version compared: when one
   fails, keep the cost-rule default and record the failed gate in `shortfalls`.
-  List every repository doc, plan or code comment that requires a shadow or provisional state,
-  and delete or rewrite it in the change that ships enforcement; the user's instruction decides
-  conflicts.
+  No advisory or provisional state other than shadow mode holds enforcement back; the user's
+  instruction decides conflicts.
 - Precision target: 0.75 for every question by default; at 0.75, three of every four flags are real.
   Raise it only when the user, asked what a wrong flag costs, sets a higher target; record the
   target, that the user set it, and their reason. Never raise it from the kind of action alone.

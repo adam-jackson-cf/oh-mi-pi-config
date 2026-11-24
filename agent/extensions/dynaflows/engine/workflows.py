@@ -39,7 +39,8 @@ __all__ = [
     "deterministic_checks",
     "freeze",
     "gate_policy",
-    "judgment_call_log",
+    "decision_context",
+    "judgment_error",
     "judgment_record",
     "load_judgment",
     "load_manifest",
@@ -125,6 +126,8 @@ MAX_SAFE_INTEGER = 9007199254740991
 # Harness variables the omp runtime exports to its tools. Repo commands must behave as they do
 # without the harness, so run_check removes them at the exec boundary.
 HARNESS_ENV = ("AGENT",)
+# The line prefix a guardrails checker prints when it cannot log its results to the decision store.
+STORE_ERROR = "decision store: "
 # Captured at load: the eval kernel's %load sets __file__ in the shared namespace, and a later
 # %load of another script would overwrite it.
 _LOADED_FROM = globals().get("__file__")
@@ -188,32 +191,53 @@ def _resolver() -> Any:
 
 
 _SURFACE: list[ModuleType] = []
+_STORE: list[ModuleType] = []
 GUARDRAILS_REFERENCE = "agent/extensions/dynaflows/engine"
 
 
+def _guardrails_modules(names: tuple[str, ...], purpose: str) -> list[ModuleType]:
+    """guardrails modules from the harness's python reference; an older guardrails copy is refused."""
+    reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
+    loaded = sys.modules.get("guardrails")
+    if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(
+        reference
+    ):
+        raise WorkflowError(
+            f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}"
+        )
+    sys.path.insert(0, str(reference))
+    try:
+        return [importlib.import_module(name) for name in names]
+    except (OSError, SyntaxError, ImportError) as exc:
+        raise WorkflowError(f"cannot load the {purpose}: {exc}") from exc
+    finally:
+        sys.path.remove(str(reference))
+
+
 def _surface() -> list[ModuleType]:
-    """guardrails' feature-map and journey modules from the harness's python reference, loaded once."""
+    """guardrails' feature-map and journey modules, loaded once."""
     if not _SURFACE:
-        reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
-        loaded = sys.modules.get("guardrails")
-        if loaded is not None and not Path(
-            loaded.__file__ or ""
-        ).resolve().is_relative_to(reference):
-            raise WorkflowError(
-                f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}"
+        _SURFACE.extend(
+            _guardrails_modules(
+                (
+                    "guardrails.commands.surface.feature_map",
+                    "guardrails.commands.surface.journeys",
+                ),
+                "feature-map checker",
             )
-        sys.path.insert(0, str(reference))
-        try:
-            feature_map = importlib.import_module(
-                "guardrails.commands.surface.feature_map"
-            )
-            journeys = importlib.import_module("guardrails.commands.surface.journeys")
-        except (OSError, SyntaxError, ImportError) as exc:
-            raise WorkflowError(f"cannot load the feature-map checker: {exc}") from exc
-        finally:
-            sys.path.remove(str(reference))
-        _SURFACE.extend((feature_map, journeys))
+        )
     return _SURFACE
+
+
+def _store() -> Any:
+    """guardrails' decision store module, loaded once."""
+    if not _STORE:
+        _STORE.extend(
+            _guardrails_modules(
+                ("guardrails.foundation.decision_store",), "decision store"
+            )
+        )
+    return _STORE[0]
 
 
 def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
@@ -1515,6 +1539,7 @@ def prove(
         "manifestSha256": _json_safe(manifest_sha256),
         "deterministic": {},
         "blocking": [],
+        "decisionLogErrors": [],
     }
     published = None
     try:
@@ -1558,7 +1583,9 @@ def _prove_head(
     if not _ancestor(repo, base, parent):
         raise WorkflowError("base must be an ancestor of parent")
     record = _record_with_green_ci(repo, head)
-    result["blocking"].extend(_harness_check_findings(repo, record, parent, head))
+    findings, log_errors = _harness_check_findings(repo, record, parent, head)
+    result["blocking"].extend(findings)
+    result["decisionLogErrors"].extend(log_errors)
     unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
     if unproven:
         raise ProveBlockedError(
@@ -1600,9 +1627,14 @@ def _record_with_green_ci(repo: Path, head: str) -> Path:
 
 def _harness_check_findings(
     repo: Path, record: Path, parent: str, head: str
-) -> list[str]:
-    """Run the harness's rename-residue, path-check and structure checkers over parent..head."""
+) -> tuple[list[str], list[str]]:
+    """Run the harness's rename-residue, path-check and structure checkers over parent..head.
+
+    Returns the blocking findings and the decision store errors: each checker logs its rule results
+    as source=check decisions, and a store failure is reported without changing a verdict.
+    """
     found: list[str] = []
+    log_errors: list[str] = []
     for checker in ("rename-residue", "path-check", "structure"):
         ok, output = run_check(
             [
@@ -1618,6 +1650,8 @@ def _harness_check_findings(
                 str(repo),
                 "--record",
                 str(record),
+                "--log-decisions",
+                "prove",
                 "--base",
                 parent,
                 "--head",
@@ -1626,11 +1660,15 @@ def _harness_check_findings(
             repo,
             timeout=HARNESS_CHECK_TIMEOUT,
         )
+        lines = [line for line in output.splitlines() if line.strip()]
+        log_errors.extend(
+            f"{checker}: {line}" for line in lines if line.startswith(STORE_ERROR)
+        )
         if not ok:
-            found.extend(line for line in output.splitlines() if line.strip())
-            if not output.strip():
+            found.extend(line for line in lines if not line.startswith(STORE_ERROR))
+            if not any(not line.startswith(STORE_ERROR) for line in lines):
                 found.append(f"{checker} failed without diagnostics")
-    return found
+    return found, log_errors
 
 
 def _run_head_proofs(
@@ -1848,12 +1886,38 @@ _FAILURE_LINE = re.compile(
 )
 JUDGMENTS = "agent/extensions/dynaflows/judgments"
 JUDGMENT_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-# Every judge() call through the registry appends one JSON line here, under the omp agent dir.
-JUDGMENT_CALLS = "dynaflows/judgment-calls.jsonl"
 OUTCOMES = ("yes", "no", "escalate")
 # A bool decision is a single cutoff, or a band whose escalations go to a named fallback judgment.
 CUTOFF_KEYS = frozenset({"threshold"})
 BAND_KEYS = frozenset({"no_at_most", "yes_at_least", "fallback"})
+DECISION_KEYS = (
+    "threshold",
+    "no_at_most",
+    "yes_at_least",
+    "fallback",
+    "round_up_floor",
+)
+# Each decision's place in the jev-actions vocabulary (skill://jev-actions/references/design-patterns.md),
+# so the decision store can compare judgments by kind.
+TAXONOMY_ENUMS: dict[str, tuple[str, ...]] = {
+    "approach": ("Gate", "Route", "Rerank", "Select", "Grade", "Verify", "Eval judge"),
+    "evidence_unit": ("item", "pair", "placement"),
+    "combination": ("jev_only", "proposer_product", "chain_all", "any", "max_per_unit"),
+    "action": ("block", "confirm", "review_queue", "log", "route"),
+    "mode": ("enforced", "shadow"),
+}
+OVERLAYS = ("Face-value", "Changing state", "Chain", "Place")
+PRIMITIVES = {"bool": "noul", "choice": "choice", "score": "score"}
+POLICY_AREA = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+TAXONOMY_FIELDS = (
+    "approach",
+    "primitive",
+    "evidence_unit",
+    "combination",
+    "action",
+    "policy_area",
+    "mode",
+)
 
 
 def _judgment_digest(value: object) -> str:
@@ -1922,11 +1986,11 @@ def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> Non
 
 
 def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
-    """A decision fits its question type; every decision is enforced, so none carries a status."""
+    """A decision fits its question type and carries its taxonomy and mode; none carries a status."""
     if not isinstance(decision, dict) or "status" in decision:
         raise WorkflowError(
             f"{name}: decision {ident} must be an object without a status "
-            "(every judgment is enforced)"
+            "(its mode says whether it is enforced)"
         )
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
@@ -1939,6 +2003,59 @@ def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None
     else:
         raise WorkflowError(
             f"{name}: question {ident} must be a bool or choice question"
+        )
+    _check_taxonomy(name, ident, kind, decision)
+    _check_mode(name, ident, kind, decision)
+
+
+def _check_taxonomy(name: str, ident: str, kind: str, decision: dict[str, Any]) -> None:
+    """Every taxonomy field is present and inside the jev-actions vocabulary."""
+    for field, allowed in TAXONOMY_ENUMS.items():
+        if decision.get(field) not in allowed:
+            raise WorkflowError(
+                f"{name}: decision {ident} needs {field} in {list(allowed)}"
+            )
+    overlays = decision.get("overlays")
+    if (
+        not isinstance(overlays, list)
+        or any(overlay not in OVERLAYS for overlay in overlays)
+        or len(set(overlays)) != len(overlays)
+    ):
+        raise WorkflowError(
+            f"{name}: decision {ident} needs overlays, a list of distinct {list(OVERLAYS)}"
+        )
+    if decision.get("primitive") != PRIMITIVES[kind]:
+        raise WorkflowError(
+            f"{name}: decision {ident} answers a {kind} question, so its primitive is {PRIMITIVES[kind]}"
+        )
+    area = decision.get("policy_area")
+    if not isinstance(area, str) or not POLICY_AREA.fullmatch(area):
+        raise WorkflowError(f"{name}: decision {ident} needs a kebab-case policy_area")
+
+
+def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> None:
+    """An enforced decision has no shadow_exit; a shadow one is a bool with {labelled_flags: n}."""
+    if decision["mode"] == "enforced":
+        if "shadow_exit" in decision:
+            raise WorkflowError(
+                f"{name}: decision {ident} is enforced; remove its shadow_exit"
+            )
+        return
+    if kind != "bool":
+        raise WorkflowError(
+            f"{name}: decision {ident} cannot run in shadow mode: only a bool answer has a non-blocking outcome"
+        )
+    shadow_exit = decision.get("shadow_exit")
+    flags = shadow_exit.get("labelled_flags") if isinstance(shadow_exit, dict) else None
+    if (
+        not isinstance(shadow_exit, dict)
+        or set(shadow_exit) != {"labelled_flags"}
+        or not isinstance(flags, int)
+        or isinstance(flags, bool)
+        or flags < 1
+    ):
+        raise WorkflowError(
+            f'{name}: decision {ident} runs in shadow mode and needs shadow_exit {{"labelled_flags": n}}, n >= 1'
         )
 
 
@@ -1964,7 +2081,7 @@ def load_judgment(name: str) -> Judgment:
         )
     if "status" in thresholds:
         raise WorkflowError(
-            f"{name}: thresholds hold a status; every judgment is enforced"
+            f"{name}: thresholds hold a status; each decision's mode says whether it is enforced"
         )
     if (
         not isinstance(model, str)
@@ -1996,9 +2113,52 @@ def load_judgment(name: str) -> Judgment:
             raise WorkflowError(
                 f"{name}: decision {ident} is stale; re-score and re-tune it"
             )
-    return Judgment(
+    judgment = Judgment(
         name, questions, state, model, thresholds["version_key"], decisions, thresholds
     )
+    _register_questions(judgment)
+    return judgment
+
+
+def _question_rows(judgment: Judgment) -> list[dict[str, Any]]:
+    """One decision store questions row per question: taxonomy, mode and the decision in force."""
+    loaded = datetime.now(UTC).isoformat(timespec="seconds")
+    shared = judgment.thresholds.get("minimums")
+    rows = []
+    for ident, decision in judgment.decisions.items():
+        minimums = decision.get("minimums", shared)
+        override = decision.get("override", judgment.thresholds.get("override"))
+        rows.append({
+            "judgment": judgment.name,
+            "question": ident,
+            "question_version": decision["version_key"],
+            **{field: decision[field] for field in TAXONOMY_FIELDS},
+            "overlays": json.dumps(decision["overlays"]),
+            "decision": json.dumps(
+                {key: decision[key] for key in DECISION_KEYS if key in decision},
+                sort_keys=True,
+            ),
+            "precision_target": minimums.get("precision")
+            if isinstance(minimums, dict)
+            else None,
+            "override": None
+            if override is None
+            else json.dumps(override, sort_keys=True),
+            "shadow_exit": json.dumps(decision["shadow_exit"])
+            if "shadow_exit" in decision
+            else None,
+            "model": judgment.model,
+            "loaded_at": loaded,
+        })
+    return rows
+
+
+def _register_questions(judgment: Judgment) -> None:
+    store = _store()
+    try:
+        store.record_questions(_question_rows(judgment))
+    except store.StoreError as exc:
+        raise WorkflowError(f"{judgment.name}: {exc}") from exc
 
 
 def outcome(decision: dict[str, Any], probability: float) -> str:
@@ -2011,16 +2171,6 @@ def outcome(decision: dict[str, Any], probability: float) -> str:
     if probability <= decision["no_at_most"]:
         return "no"
     return "escalate"
-
-
-def _agent_dir() -> Path:
-    """The omp agent state directory: PI_CODING_AGENT_DIR, else ~/.omp/agent (omp's default)."""
-    configured = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
-    return Path(configured).expanduser() if configured else Path.home() / ".omp/agent"
-
-
-def judgment_call_log() -> Path:
-    return _agent_dir() / JUDGMENT_CALLS
 
 
 def _configured_judge_model() -> str:
@@ -2069,50 +2219,183 @@ def require_judge_model(judgment: Judgment) -> None:
         )
 
 
+def _answers(
+    judgment: Judgment, answers: object, idents: list[str]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Each asked question's probability (a choice: its class probabilities), and each invalid answer."""
+    parsed: dict[str, Any] = {}
+    failures: dict[str, str] = {}
+    for ident in idents:
+        question = judgment.questions[ident]
+        try:
+            parsed[ident] = (
+                _probability(answers, ident, "bool")
+                if question["type"] == "bool"
+                else _probability(answers, ident, "choice", question["criteria"])
+            )
+        except WorkflowError as exc:
+            failures[ident] = str(exc)
+    return parsed, failures
+
+
+@dataclass(frozen=True)
+class JudgmentCall:
+    """One judge call through the registry: the decision store rows share its id and timestamp."""
+
+    judgment: Judgment
+    state: object
+    context: Any
+    call_id: str
+    ts: str
+
+    @classmethod
+    def start(cls, judgment: Judgment, state: object, context: Any) -> "JudgmentCall":
+        store = _store()
+        return cls(judgment, state, context, store.new_id(), store.now())
+
+    def row(
+        self, ident: str, answer: Any, failure: tuple[str, str] | None
+    ) -> dict[str, Any]:
+        """The decisions row for one asked question: its answer, or (status, error) when it has none."""
+        store = _store()
+        decision = self.judgment.decisions[ident]
+        row: dict[str, Any] = {
+            "id": store.new_id(),
+            "call_id": self.call_id,
+            "ts": self.ts,
+            "source": "jev",
+            "judgment": self.judgment.name,
+            "question": ident,
+            "mode": decision["mode"],
+            "model": self.judgment.model,
+            "question_version": decision["version_key"],
+            "judgment_version": self.judgment.version_key,
+            "machine": store.machine_name(),
+            "state_sha256": _judgment_digest(self.state),
+            "threshold": decision.get("threshold", decision.get("yes_at_least")),
+            **self.context.columns(),
+        }
+        if failure is not None:
+            row |= {"status": failure[0], "error": failure[1]}
+            if isinstance(answer, dict):
+                row["choice_probabilities"] = json.dumps(answer, sort_keys=True)
+            elif answer is not None:
+                row["probability"] = answer
+        elif isinstance(answer, dict):
+            row |= {
+                "status": "ok",
+                "choice_probabilities": json.dumps(answer, sort_keys=True),
+                "threshold": decision["round_up_floor"],
+            }
+        else:
+            row |= {
+                "status": "ok",
+                "probability": answer,
+                "outcome": store.outcome_name(outcome(decision, answer)),
+            }
+        row["state_kept"] = int(store.keeps_payload(row))
+        return row
+
+    def log(
+        self, rows: list[dict[str, Any]], idents: list[str], response: object
+    ) -> None:
+        """Write the rows, with the exact state, questions and response as the call's payload."""
+        store = _store()
+        payload = {
+            "state": self.state,
+            "questions": {ident: self.judgment.questions[ident] for ident in idents},
+            "response": response,
+        }
+        try:
+            store.record_decisions(rows, payload)
+        except store.StoreError as exc:
+            raise WorkflowError(f"{self.judgment.name}: {exc}") from exc
+
+
 def judgment_record(
     judgment: Judgment,
     state: object,
     answers: object,
+    context: Any,
     asked: Collection[str] | None = None,
 ) -> dict[str, Any]:
-    """Probabilities and outcomes for one state's answers (to `asked`, default all), appended to the call log."""
-    probabilities: dict[str, Any] = {}
-    outcomes: dict[str, str] = {}
-    for ident in judgment.questions if asked is None else asked:
-        question = judgment.questions[ident]
-        if question["type"] == "bool":
-            probabilities[ident] = _probability(answers, ident, "bool")
-            outcomes[ident] = outcome(judgment.decisions[ident], probabilities[ident])
-        else:
-            probabilities[ident] = _probability(
-                answers, ident, "choice", question["criteria"]
+    """Probabilities and outcomes for one state's answers (to `asked`, default all), each written
+    to the decision store as one decisions row. An invalid answer is logged, then raises."""
+    idents = list(judgment.questions if asked is None else asked)
+    call = JudgmentCall.start(judgment, state, context)
+    parsed, failures = _answers(judgment, answers, idents)
+    incomplete = f"the call decided nothing: no valid {', '.join(failures)} answer"
+    call.log(
+        [
+            call.row(
+                ident,
+                parsed.get(ident),
+                None
+                if not failures
+                else ("error", failures[ident])
+                if ident in failures
+                else ("incomplete", incomplete),
             )
-    record = {
+            for ident in idents
+        ],
+        idents,
+        answers,
+    )
+    if failures:
+        raise WorkflowError(next(iter(failures.values())))
+    return {
+        "call_id": call.call_id,
         "judgment": judgment.name,
         "state_sha256": _judgment_digest(state),
         "model": judgment.model,
         "question_version": judgment.version_key,
-        "probabilities": probabilities,
-        "outcomes": outcomes,
-        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        "probabilities": parsed,
+        "outcomes": {
+            ident: outcome(judgment.decisions[ident], probability)
+            for ident, probability in parsed.items()
+            if judgment.questions[ident]["type"] == "bool"
+        },
+        "modes": {ident: judgment.decisions[ident]["mode"] for ident in idents},
+        "timestamp": call.ts,
     }
-    path = judgment_call_log()
+
+
+def judgment_error(
+    judgment: Judgment,
+    state: object,
+    error: str,
+    context: Any,
+    asked: Collection[str] | None = None,
+) -> str:
+    """Log a judge call that returned no answers: one error row per asked question. Returns the call id."""
+    idents = list(judgment.questions if asked is None else asked)
+    call = JudgmentCall.start(judgment, state, context)
+    call.log(
+        [call.row(ident, None, ("error", error)) for ident in idents],
+        idents,
+        {"error": error},
+    )
+    return call.call_id
+
+
+def decision_context(value: object) -> Any:
+    """A rail's {trigger, repo, commit, pr, item_kind, item} as a decision store context."""
+    store = _store()
+    if not isinstance(value, dict) or "trigger" not in value:
+        raise WorkflowError("decision context needs at least a trigger")
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
-    except OSError as exc:
-        raise WorkflowError(
-            f"cannot append the judgment call log {path}: {exc}"
-        ) from exc
-    return record
+        return store.DecisionContext(**value)
+    except (TypeError, store.StoreError) as exc:
+        raise WorkflowError(f"invalid decision context: {exc}") from exc
 
 
-async def decide(name: str, state: dict[str, Any]) -> dict[str, Any]:
+async def decide(name: str, state: dict[str, Any], context: Any) -> dict[str, Any]:
     """Judge `state` with judgments/<name>/: yes | no | escalate per bool question, logged.
 
+    `context` is a decision store DecisionContext: the event that asked and the subject judged.
     Refuses stale thresholds and a judge role other than the tuned model. A failed or invalid
-    judgment raises; it is never read as an outcome. Returns the logged record plus `answers`.
+    judgment is logged, then raises; it is never read as an outcome. Returns the logged record
+    plus `answers`.
     """
     judgment = load_judgment(name)
     require_judge_model(judgment)
@@ -2121,8 +2404,9 @@ async def decide(name: str, state: dict[str, Any]) -> dict[str, Any]:
     try:
         answers = await _kernel("judge")(state, judgment.questions)
     except Exception as exc:
+        judgment_error(judgment, state, f"judgment failed: {exc}", context)
         raise WorkflowError(f"{name}: judgment failed: {exc}") from exc
-    return {**judgment_record(judgment, state, answers), "answers": answers}
+    return {**judgment_record(judgment, state, answers, context), "answers": answers}
 
 
 def judgment_questions(name: str) -> dict[str, Any]:
@@ -2136,48 +2420,77 @@ def judgment_questions(name: str) -> dict[str, Any]:
     return {"judgment": name, "model": judgment.model, "questions": judgment.questions}
 
 
+def _rail_state(name: str, state: object) -> dict[str, Any]:
+    if not isinstance(state, dict) or not state:
+        raise WorkflowError(f"{name}: state must be a non-empty object")
+    return state
+
+
 def record_answers(name: str, request: object) -> dict[str, Any]:
-    """decide()'s outcomes and log line for answers a rail's judge call returned.
+    """decide()'s outcomes and decision store rows for answers a rail's judge call returned.
 
     Refuses answers from any model other than the tuned one; a refusal is never an outcome.
     """
     judgment = load_judgment(name)
     require_direct_judge_route()
-    if not isinstance(request, dict) or set(request) != {"state", "answers", "model"}:
+    if not isinstance(request, dict) or set(request) != {
+        "state",
+        "answers",
+        "model",
+        "context",
+    }:
         raise WorkflowError(
-            f"{name}: rail answers need exactly state, answers and model"
+            f"{name}: rail answers need exactly state, answers, model and context"
         )
-    state, model = request["state"], request["model"]
+    model = request["model"]
     if model != judgment.model:
         raise WorkflowError(
             f"{name}: thresholds are tuned on {judgment.model} but {model!r} answered; "
             "re-score the cases and re-tune"
         )
-    if not isinstance(state, dict) or not state:
-        raise WorkflowError(f"{name}: state must be a non-empty object")
-    return judgment_record(judgment, state, request["answers"])
+    state = _rail_state(name, request["state"])
+    context = decision_context(request["context"])
+    return judgment_record(judgment, state, request["answers"], context)
+
+
+def record_error(name: str, request: object) -> dict[str, Any]:
+    """Log a rail judge call that failed before it answered; returns the call id."""
+    judgment = load_judgment(name)
+    if not isinstance(request, dict) or set(request) != {"state", "error", "context"}:
+        raise WorkflowError(
+            f"{name}: a rail judge failure needs exactly state, error and context"
+        )
+    error = request["error"]
+    if not isinstance(error, str) or not error.strip():
+        raise WorkflowError(f"{name}: a rail judge failure needs its error text")
+    state = _rail_state(name, request["state"])
+    context = decision_context(request["context"])
+    return {"call_id": judgment_error(judgment, state, error, context)}
+
+
+def _rail_request(path: str) -> object:
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError) as exc:
+        raise WorkflowError(f"cannot read rail answers {path}: {exc}") from exc
 
 
 def rail_bridge(argv: list[str]) -> int:
-    """`questions <name>` or `record <name> <request.json>`: one JSON object on stdout.
-
-    A refusal prints {"error": ...} and exits 1.
+    """`questions <name>`, `record <name> <request.json>` or `error <name> <request.json>`:
+    one JSON object on stdout. A refusal prints {"error": ...} and exits 1.
     """
     try:
         match argv:
             case ["questions", name]:
                 result = judgment_questions(name)
             case ["record", name, request]:
-                try:
-                    document = json.loads(Path(request).read_text())
-                except (OSError, ValueError) as exc:
-                    raise WorkflowError(
-                        f"cannot read rail answers {request}: {exc}"
-                    ) from exc
-                result = record_answers(name, document)
+                result = record_answers(name, _rail_request(request))
+            case ["error", name, request]:
+                result = record_error(name, _rail_request(request))
             case _:
                 raise WorkflowError(
-                    "usage: questions <judgment> | record <judgment> <request.json>"
+                    "usage: questions <judgment> | record <judgment> <request.json> "
+                    "| error <judgment> <request.json>"
                 )
     except WorkflowError as exc:
         print(json.dumps({"error": str(exc)}))
@@ -2392,10 +2705,17 @@ def rate_advisory(
     )
     preconditions = {q: _probability(answers, q, "bool") for q in PRECONDITIONS}
     reached = _probability(answers, "reached", "bool")
+    # A shadow decision is logged but never acts: it lowers no severity level.
     cleared = [
-        q for q in PRECONDITIONS if outcome(decisions[q], preconditions[q]) == "yes"
+        q
+        for q in PRECONDITIONS
+        if decisions[q]["mode"] == "enforced"
+        and outcome(decisions[q], preconditions[q]) == "yes"
     ]
-    unreached = outcome(decisions["reached"], reached) == "no"
+    unreached = (
+        decisions["reached"]["mode"] == "enforced"
+        and outcome(decisions["reached"], reached) == "no"
+    )
     level = (
         IMPACT_LEVEL[impact] - bool(cleared) - (evidence["scope"] == "dev") - unreached
     )
@@ -2541,8 +2861,11 @@ async def assess_advisory(advisory: dict[str, Any], evidence: object) -> dict[st
         },
         "code_search": evidence["code_search"],
     }
+    context = _store().DecisionContext(
+        "commit", item_kind="advisory", item=advisory_key(advisory)
+    )
     try:
-        decided = await decide(SEVERITY_JUDGMENT, state)
+        decided = await decide(SEVERITY_JUDGMENT, state, context)
     except WorkflowError as exc:
         raise WorkflowError(
             f"{advisory_key(advisory)}: severity judgment failed: {exc}"
@@ -2685,12 +3008,13 @@ def _structure_comment(result: dict[str, Any]) -> str:
         STRUCTURE_MARKER,
         f"**Structure/naming review** for `{result['head']}`.",
         "Scores are raw judgment probabilities, not calibrated confidence. "
-        "Every finding blocks merge.",
+        "Every enforced finding blocks merge; shadow findings are logged for review and never block.",
     ]
     for item in result["findings"]:
+        shadow = " (shadow, not blocking)" if item["mode"] == "shadow" else ""
         lines.append(
             f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
-            f"≥ {item['threshold']:.3f}"
+            f"≥ {item['threshold']:.3f}{shadow}"
         )
     if not result["findings"]:
         lines.append(
@@ -2701,7 +3025,7 @@ def _structure_comment(result: dict[str, Any]) -> str:
     lines.extend(f"- Infrastructure: {error}" for error in result["errors"])
     if result["halt"]:
         lines.append(
-            "**Blocked:** structure findings; rails refuse merge. "
+            "**Blocked:** enforced structure findings; rails refuse merge. "
             "Fix them and rerun prove() and structure_review() on the new head."
         )
     lines.append(
@@ -2747,7 +3071,8 @@ async def structure_review(
     """PR-time structure judgment, separate from prove().
 
     Rails require this exact-head result and refuse merge when halt is true or it is incomplete.
-    Every finding halts; an infrastructure error or an escalated decision leaves it incomplete.
+    Every enforced finding halts; a shadow finding is reported and logged but never halts. An
+    infrastructure error or an escalated decision leaves it incomplete.
     No proof result file is modified.
     """
     result: dict[str, Any] = {
@@ -2783,7 +3108,7 @@ async def structure_review(
         groups = _structure_units(
             _structure_states(repo, parent, head), judgment.questions, result
         )
-        review = StructureJudgment(judgment, result)
+        review = StructureJudgment(judgment, result, _github_repo(repo))
         for eligible, group in groups.items():
             await review.judge_group(eligible, group)
     except INFRASTRUCTURE_ERRORS as exc:
@@ -2800,15 +3125,15 @@ async def structure_review(
 def _finish_structure(
     repo: StrPath, head: str, published: Any, result: dict[str, Any]
 ) -> None:
-    """Derive halt and status from findings and errors, then publish when the head resolved."""
-    result["halt"] = bool(result["findings"])
+    """Derive halt (enforced findings only) and status, then publish when the head resolved."""
+    result["halt"] = any(item["mode"] == "enforced" for item in result["findings"])
     result["status"] = _structure_status(result)
     if published is not None:
         _publish_structure(Path(repo), head, published, result)
 
 
 def _structure_status(result: dict[str, Any]) -> str:
-    """blocked on any finding, incomplete on any error, else pass."""
+    """blocked on any enforced finding, incomplete on any error, else pass."""
     if result["halt"]:
         return "blocked"
     return "incomplete" if result["errors"] else "pass"
@@ -2841,15 +3166,28 @@ def _structure_units(
 class StructureJudgment:
     """Judge structure units through the eval kernel and record scores and findings in the result."""
 
-    def __init__(self, judgment: Judgment, result: dict[str, Any]) -> None:
+    def __init__(self, judgment: Judgment, result: dict[str, Any], repo: str) -> None:
         self.judgment = judgment
         self.questions = judgment.questions
         self.result = result
+        self.repo = repo
+
+    def context(self, unit: str) -> Any:
+        """The decision store context of one unit's judgment at this PR head."""
+        return _store().DecisionContext(
+            "pr",
+            repo=self.repo,
+            commit=self.result["head"],
+            item_kind="unit",
+            item=unit,
+        )
 
     def record(
         self, unit: str, state: object, answers: object, selected: dict[str, Any]
     ) -> None:
-        logged = judgment_record(self.judgment, state, answers, selected)
+        logged = judgment_record(
+            self.judgment, state, answers, self.context(unit), selected
+        )
         self.result["units"][unit]["scores"] = logged["probabilities"]
         self.result["units"][unit]["outcomes"] = logged["outcomes"]
         for ident, verdict in logged["outcomes"].items():
@@ -2858,6 +3196,7 @@ class StructureJudgment:
                 finding = {
                     "unit": unit,
                     "question": ident,
+                    "mode": decision["mode"],
                     "score": logged["probabilities"][ident],
                     "threshold": decision.get(
                         "threshold", decision.get("yes_at_least")
@@ -2878,25 +3217,41 @@ class StructureJudgment:
         if len(group) == 1:
             unit, state = next(iter(group.items()))
             try:
-                self.record(
-                    unit, state, await _kernel("judge")(state, selected), selected
-                )
+                answers = await _kernel("judge")(state, selected)
             except INFRASTRUCTURE_ERRORS as exc:
-                self.result["errors"].append(f"{unit}: judgment: {exc}")
+                self.failed(unit, state, str(exc), selected)
+                return
+            self.answered(unit, state, answers, selected)
             return
         batch = _kernel("judge_batch")(
             group, selected, intent="Structure/naming review"
         )
         try:
             async for unit, item in batch.drain_iter():
-                try:
-                    if not item.ok:
-                        raise WorkflowError(item.error)
-                    self.record(unit, group[unit], item.answers, selected)
-                except INFRASTRUCTURE_ERRORS as exc:
-                    self.result["errors"].append(f"{unit}: judgment: {exc}")
+                if item.ok:
+                    self.answered(unit, group[unit], item.answers, selected)
+                else:
+                    self.failed(unit, group[unit], str(item.error), selected)
         finally:
             batch.close()
+
+    def answered(
+        self, unit: str, state: object, answers: object, selected: dict[str, Any]
+    ) -> None:
+        try:
+            self.record(unit, state, answers, selected)
+        except INFRASTRUCTURE_ERRORS as exc:
+            self.result["errors"].append(f"{unit}: judgment: {exc}")
+
+    def failed(
+        self, unit: str, state: object, error: str, selected: dict[str, Any]
+    ) -> None:
+        """A unit whose judge call returned no answers: a review error and its decision store rows."""
+        self.result["errors"].append(f"{unit}: judgment: {error}")
+        try:
+            judgment_error(self.judgment, state, error, self.context(unit), selected)
+        except WorkflowError as exc:
+            self.result["errors"].append(f"{unit}: {exc}")
 
 
 def _publish_structure(

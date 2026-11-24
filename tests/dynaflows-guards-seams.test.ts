@@ -118,13 +118,31 @@ const bandedBridge = [
 ].join("\n");
 const workflowsScript = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine/workflows.py");
 const bandedDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", bandedBridge, workflowsScript];
-type Registry = "shipped" | "banded";
+// No shipped judgment runs in shadow mode yet: this registry double runs the same bridge with every
+// bool decision in shadow mode, as thresholds.json declares it for a judgment whose precision is unmeasured.
+const shadowBridge = [
+	"import dataclasses, importlib.util, sys",
+	"spec = importlib.util.spec_from_file_location('dynaflows_workflows', sys.argv[1])",
+	"workflows = importlib.util.module_from_spec(spec)",
+	"sys.modules[spec.name] = workflows",
+	"spec.loader.exec_module(workflows)",
+	"shipped = workflows.load_judgment",
+	"def shadowed(name):",
+	"    judgment = shipped(name)",
+	"    shadow = lambda ident, d: {**d, 'mode': 'shadow', 'shadow_exit': {'labelled_flags': 10}} if judgment.questions[ident]['type'] == 'bool' else d",
+	"    return dataclasses.replace(judgment, decisions={ident: shadow(ident, d) for ident, d in judgment.decisions.items()})",
+	"workflows.load_judgment = shadowed",
+	"sys.exit(workflows.rail_bridge(sys.argv[2:]))",
+].join("\n");
+const shadowDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", shadowBridge, workflowsScript];
+type Registry = "shipped" | "banded" | "shadow";
+const registryCommands = { shipped: decideCommand, banded: bandedDecideCommand, shadow: shadowDecideCommand } satisfies Record<Registry, string[]>;
 
 function extensionOptions(machine: string, records: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
 	const options: ExtensionOptions = {
 		modesPath: join(records, "modes.json"), configRoot: records,
-		// The judgment call log goes to this harness's machine dir, never ~/.omp/agent.
-		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...(choices.registry === "banded" ? bandedDecideCommand : decideCommand)],
+		// The registry's decision store rows go to this harness's machine dir, never ~/.omp/agent.
+		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...registryCommands[choices.registry]],
 		judge: () => async (state, questions) => {
 			if (judged.failure) throw new Error(judged.failure);
 			const answers = Object.fromEntries(Object.keys(questions).map(question => {

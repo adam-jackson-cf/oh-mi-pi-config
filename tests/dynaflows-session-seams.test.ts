@@ -363,8 +363,8 @@ describe("review on restart", () => {
 				assert.ok(task.includes("First task") && task.includes(`Extension impact: extension-impact/impact ${outcome}`), task);
 				await h.tool("dynaflows", { acknowledge: true });
 			}
-			const log = readFileSync(join(h.machine, "dynaflows/judgment-calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
-			assert.deepEqual(log.map(call => call.outcomes.impact), ["no", "yes", "escalate"]);
+			const { readJudgmentCalls } = await import("../agent/extensions/dynaflows/lib/judgment-calls.ts");
+			assert.deepEqual(readJudgmentCalls(join(h.machine, "dynaflows", "dynaflows.db")).map(call => call.outcomes["impact"]), ["no", "yes", "escalate"]);
 			h.judged.model = "openrouter/typesafe/jev-1.14";
 			change("feat: judged by another model");
 			h.setSession("other-model");

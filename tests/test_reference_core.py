@@ -61,6 +61,7 @@ CONTRACT_SUBCOMMANDS = {
     "surface-lint",
     "lever-selftest",
     "adapter",
+    "shadow-review",
 }
 
 

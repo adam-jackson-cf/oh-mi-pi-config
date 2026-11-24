@@ -26,7 +26,8 @@ class CliTests(CliCase):
             "import sys; sys.modules['pytest'] = None; sys.modules['ast_grep_py'] = None; "
             "from guardrails.commands import cli; raise SystemExit(cli.main(sys.argv[1:]))"
         )
-        for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter"}):
+        # shadow-review reads the decision store, not a repository: it takes no --repo or --record.
+        for name in sorted(CONTRACT_SUBCOMMANDS - {"adapter", "shadow-review"}):
             with self.subTest(subcommand=name):
                 result = run_text(
                     [sys.executable, "-c", entry, *self.located(name, "--help")],
@@ -36,6 +37,21 @@ class CliTests(CliCase):
                 assert result.returncode == 0, result.stderr
                 assert name in result.stdout
                 assert "does not exist" not in result.stdout
+        result = run_text(
+            [sys.executable, "-c", entry, "shadow-review", "--help"],
+            cwd=REFERENCE,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        for word in (
+            "shadow-review",
+            "export",
+            "import",
+            "report",
+            "inspector",
+            "--machine",
+        ):
+            assert word in result.stdout
 
     def test_checker_modules_are_imported_only_when_their_subcommand_runs(self) -> None:
         probe = (

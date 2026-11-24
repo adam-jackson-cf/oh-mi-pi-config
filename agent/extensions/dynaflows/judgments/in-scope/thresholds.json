@@ -15,8 +15,16 @@
   },
   "decisions": {
     "ask_first": {
-      "threshold": 0.115,
       "version_key": "cd0f75dc5c7efc3acb2b4f79f64efd139d0c2acfde41420f28b4254f41c2c5e8",
+      "approach": "Gate",
+      "overlays": ["Face-value", "Changing state"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "confirm",
+      "policy_area": "scope",
+      "mode": "enforced",
+      "threshold": 0.115,
       "score_space": "raw",
       "minimums": {
         "precision": 0.8,

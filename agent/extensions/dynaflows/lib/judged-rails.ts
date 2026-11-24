@@ -1,15 +1,16 @@
 // Judged rails, structured mode only: each runs its deterministic pre-checks first and calls decide()
 // only on what they pass. extension-impact gates the restart review,
 // implementation-integrity the commit, in-scope asks and privileged commands, completion-evidence
-// the merge and the turn end. Every judgment is enforced from the start: the rails act on each verdict,
-// and a judge failure refuses. An escalated outcome goes to the owner, who approves with a $approve prompt line.
+// the merge and the turn end. An enforced verdict acts and a judge failure refuses; a shadow verdict is
+// logged and shown as "shadow, not blocking" but never acts, so the rail behaves as if it had not run.
+// An escalated enforced outcome goes to the owner, who approves with a $approve prompt line.
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { SUBPROCESS_TIMEOUT_MS, absentFile, shellCommands, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
-import { Approvals, approvalLine, clip, digest, jsonText, verdictText, type Decide, type JudgeState, type RailJudgment, type Verdict } from "./judge.ts";
+import { Approvals, approvalLine, clip, digest, enforced, jsonText, verdictText, type Decide, type DecisionSubject, type JudgeState, type RailJudgment, type Verdict } from "./judge.ts";
 import type { Obligation, ObligationStatus } from "./obligations.ts";
-import { readGateText } from "./repo-record.ts";
+import { parseOrigin, readGateText } from "./repo-record.ts";
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };
@@ -46,6 +47,8 @@ const SCOPE_MESSAGES = 4;
 const SCOPE_MESSAGE_LIMIT = 800;
 const SCOPE_CONTEXT_LIMIT = 700;
 const SCOPE_ACTION_LIMIT = 600;
+// The decision store's item text for an ask or a command: enough to find it, never the whole input.
+const SUBJECT_LIMIT = 200;
 
 const checkSchema = z.union([
 	z.object({ __typename: z.literal("CheckRun"), name: z.string(), status: z.string(), conclusion: z.union([z.string(), z.literal(null)]) })
@@ -84,12 +87,15 @@ async function prView(pi: ExecApi, cwd: string, selector: string | undefined, fi
 	return prViewSchema.parse(jsonText.parse(result.stdout));
 }
 const repositoryOf = (view: PrView) => new URL(view.url).pathname.split("/").slice(1, 3).join("/");
+const prSubject = (view: PrView): DecisionSubject => ({
+	trigger: "pr", repo: repositoryOf(view), commit: view.headRefOid, pr: view.number, item_kind: "pr", item: `${repositoryOf(view)}#${view.number}`,
+});
 const sessionOf = (ctx: ExtensionContext) => ctx.sessionManager.getSessionId();
 const ownerReason = (verdict: Verdict, key: string, question: string) =>
 	`${verdictText(verdict)} is uncertain; ask the owner ${question} If they approve, they send ${approvalLine(key)} as a line of their own.`;
 
-async function attempt(decide: Decide, name: RailJudgment, state: JudgeState, ctx: ExtensionContext): Promise<Verdict | Failure> {
-	try { return await decide(name, state, ctx); }
+async function attempt(decide: Decide, name: RailJudgment, state: JudgeState, ctx: ExtensionContext, subject: DecisionSubject): Promise<Verdict | Failure> {
+	try { return await decide(name, state, ctx, subject); }
 	catch (error) { return { failure: `the ${name} judgment could not run: ${error instanceof Error ? error.message : String(error)}` }; }
 }
 
@@ -317,12 +323,18 @@ export type EvidenceTarget = { cwd: string; root: string; branch: string; requir
 export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: JudgedDeps) {
 	const approvals = new Approvals();
 	const verdicts = new Map<string, Verdict | Failure>();
-	async function decided(name: RailJudgment, state: JudgeState, ctx: ExtensionContext): Promise<Verdict | Failure> {
+	async function decided(name: RailJudgment, state: JudgeState, ctx: ExtensionContext, subject: DecisionSubject): Promise<Verdict | Failure> {
 		const key = `${name}:${digest(state)}`;
-		const verdict = verdicts.get(key) ?? await attempt(deps.decide, name, state, ctx);
-		if (!("failure" in verdict)) verdicts.set(key, verdict);
+		const cached = verdicts.get(key);
+		if (cached) return cached;
+		const verdict = await attempt(deps.decide, name, state, ctx, subject);
+		if ("failure" in verdict) return verdict;
+		verdicts.set(key, verdict);
+		if (!enforced(verdict) && verdict.outcome !== "no") ctx.ui.notify(`Agent rails: ${verdictText(verdict)}; logged for review.`, "info");
 		return verdict;
 	}
+	/** A verdict the rail acts on: an enforced one that did not fail. */
+	const acting = (verdict: Verdict | Failure): verdict is Verdict => !("failure" in verdict) && enforced(verdict);
 	const approved = (ctx: ExtensionContext, key: string) => approvals.has(sessionOf(ctx), key);
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -334,8 +346,8 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	});
 
 	async function askReason(question: string, ctx: ExtensionContext): Promise<string | undefined> {
-		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), question), ctx);
-		if ("failure" in verdict || verdict.outcome !== "no") return undefined;
+		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), question), ctx, { trigger: "manual", item_kind: "ask", item: clip(question, SUBJECT_LIMIT) });
+		if (!acting(verdict) || verdict.outcome !== "no") return undefined;
 		return `Agent rails: ${verdictText(verdict)}: this question decides a detail of the agreed work. Decide it yourself and continue; ask only for what the agreed work does not grant.`;
 	}
 
@@ -343,9 +355,9 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		const action = `${input.intent ? `[${input.intent}] ` : ""}bash ${command}`;
 		const key = `in-scope:${digest({ action }).slice(0, 16)}`;
 		if (approved(ctx, key)) return undefined;
-		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), action), ctx);
+		const verdict = await decided("in-scope", scopeState(ctx.sessionManager.getBranch(), action), ctx, { trigger: "manual", item_kind: "command", item: clip(command, SUBJECT_LIMIT) });
 		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; ask the owner before running it.`;
-		if (verdict.outcome === "no") return undefined;
+		if (!enforced(verdict) || verdict.outcome === "no") return undefined;
 		return `Agent rails: ${verdictText(verdict)}: this command may go beyond the agreed work (privileges, credentials, cost or other machines). ` +
 			`Ask the owner first. If they approve, they send ${approvalLine(key)} as a line of their own.`;
 	}
@@ -363,8 +375,8 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	async function evidenceVerdictStatus(ctx: ExtensionContext, at: EvidenceTarget, obligation: Obligation, view: PrView): Promise<ObligationStatus> {
 		const key = `completion-evidence:${view.headRefOid}`;
 		if (approved(ctx, key)) return "met";
-		const verdict = await decided("completion-evidence", evidenceState(view), ctx);
-		if (!("failure" in verdict) && verdict.outcome === "no") return "met";
+		const verdict = await decided("completion-evidence", evidenceState(view), ctx, prSubject(view));
+		if (!("failure" in verdict) && (!enforced(verdict) || verdict.outcome === "no")) return "met";
 		if ("failure" in verdict) { obligation.text = verdict.failure; return "unmet"; }
 		obligation.text = verdict.outcome === "yes"
 			? `${verdictText(verdict)}: an outcome the PR for ${at.branch} claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section`
@@ -388,9 +400,9 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		return evidenceVerdictReason(view, key, ctx);
 	}
 	async function evidenceVerdictReason(view: PrView, key: string, ctx: ExtensionContext): Promise<string | undefined> {
-		const verdict = await decided("completion-evidence", evidenceState(view), ctx);
+		const verdict = await decided("completion-evidence", evidenceState(view), ctx, prSubject(view));
 		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the merge.`;
-		if (verdict.outcome === "no") return undefined;
+		if (!enforced(verdict) || verdict.outcome === "no") return undefined;
 		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this PR shows evidence for every outcome it claims.")}`;
 		return `Agent rails: ${verdictText(verdict)}: an outcome this PR claims has no evidence; add the test, run or observation that shows it to the PR's Evidence section, then merge.`;
 	}
@@ -398,11 +410,16 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	async function integrityReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
 		const state = await commitState(pi, root, action.args);
 		if (!state) return undefined;
-		const key = `implementation-integrity:${(await run(pi, "git", ["write-tree"], root)).stdout.trim()}`;
+		const tree = (await run(pi, "git", ["write-tree"], root)).stdout.trim();
+		const key = `implementation-integrity:${tree}`;
 		if (approved(ctx, key)) return undefined;
-		const verdict = await decided("implementation-integrity", state, ctx);
+		const subject: DecisionSubject = { trigger: "commit", item_kind: "staged-tree", item: tree };
+		const origin = await run(pi, "git", ["remote", "get-url", "origin"], root);
+		const repo = origin.code === 0 ? parseOrigin(origin.stdout.trim()) : null;
+		if (repo) subject.repo = repo;
+		const verdict = await decided("implementation-integrity", state, ctx, subject);
 		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the commit.`;
-		if (verdict.outcome === "no") return undefined;
+		if (!enforced(verdict) || verdict.outcome === "no") return undefined;
 		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this staged change may weaken how the repository verifies itself.")}`;
 		return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour. ` +
 			"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
@@ -419,7 +436,7 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 			record: { repo: input.slug, gate: JSON.parse(await readGateText(dir)), profile_summary: profileSummary(await readFile(join(dir, "profile.md"), "utf8").catch(absentFile)) },
 			change: await impactChange(pi, (await run(pi, "git", ["rev-parse", "--show-toplevel"], input.configRoot)).stdout.trim(), { from, to }),
 		}))().catch((error: Error) => ({ failure: `the extension-impact judgment could not run: ${error.message}` }));
-		return "failure" in state ? state : decided("extension-impact", state, ctx);
+		return "failure" in state ? state : decided("extension-impact", state, ctx, { trigger: "manual", repo: input.slug, commit: to, item_kind: "extension-range", item: `${from}..${to}` });
 	}
 
 	return {

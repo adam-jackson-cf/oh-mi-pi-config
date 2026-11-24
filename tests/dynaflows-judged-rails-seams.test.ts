@@ -6,13 +6,14 @@ import { z } from "@oh-my-pi/pi-coding-agent";
 import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
 import { commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
 import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
+import { storePath } from "../agent/extensions/dynaflows/lib/decision-store.ts";
+import { readJudgmentCalls } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
 
 type Harness = ReturnType<typeof harness>;
 const prompt = (h: Harness, text: string) => h.emit("before_agent_start", { reason: "prompt", prompt: text });
 const bashResult = (h: Harness, command: string) => h.emit("tool_result", { toolName: "bash", toolCallId: `result-${command}`, input: { command }, isError: false });
 const approvalOf = (reason: string) => /\$approve ([a-z-]+:[0-9a-f]+)/.exec(reason)?.[1] ?? "";
-const logged = (h: Harness) => readFileSync(join(h.machine, "dynaflows/judgment-calls.jsonl"), "utf8").trim().split("\n")
-	.map(line => z.object({ judgment: z.string(), outcomes: z.record(z.string(), z.string()) }).passthrough().parse(JSON.parse(line)));
+const logged = (h: Harness) => readJudgmentCalls(storePath(h.machine));
 
 async function staged(h: Harness, name: string, text: string): Promise<void> {
 	writeFileSync(join(h.root, name), text);
@@ -326,11 +327,11 @@ describe("judged-rails helpers", () => {
 });
 
 const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/judgments");
-const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional() }).passthrough();
+const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional(), mode: z.enum(["enforced", "shadow"]) }).passthrough();
 const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSchema) }).passthrough();
 
-describe("every judgment is enforced from the start", () => {
-	test("no shipped judgment has a status or a band: each bool decision is one threshold", () => {
+describe("every shipped judgment is enforced", () => {
+	test("no shipped judgment has a status, a band or a shadow decision: each bool decision is one enforced threshold", () => {
 		const names = readdirSync(shippedJudgments);
 		assert.ok(names.length >= 6, names.join(", "));
 		for (const name of names) {
@@ -339,6 +340,7 @@ describe("every judgment is enforced from the start", () => {
 			for (const [ident, decision] of Object.entries(thresholds.decisions)) {
 				assert.equal("status" in decision, false, `${name}/${ident}`);
 				assert.equal("no_at_most" in decision || "yes_at_least" in decision, false, `${name}/${ident} has a band`);
+				assert.equal(decision.mode, "enforced", `${name}/${ident}`);
 				assert.ok(decision.threshold !== undefined || decision.round_up_floor !== undefined, `${name}/${ident}`);
 			}
 		}
@@ -382,6 +384,32 @@ describe("every judgment is enforced from the start", () => {
 			h.judged.scores["ask_first"] = 0.115;
 			assert.equal(await h.call("ask", { questions: [{ question: "Shall I log in to the NUC now?" }] }), undefined);
 			assert.ok(reasonOf(await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" })).includes("$approve in-scope:"));
+		} finally { h.cleanup(); }
+	});
+});
+
+describe("a shadow judgment is asked and logged but never acts", () => {
+	test("shadow yes and no outcomes commit, merge, ask and run commands as if the judgment were absent, and say so", async () => {
+		const h = harness({ registry: "shadow" });
+		try {
+			const command = await mergeable(h);
+			h.judged.scores["weakens_verification"] = 0.95;
+			await staged(h, "skip.test.ts", "test.skip('slow', () => {});\n");
+			assert.equal(await h.call("bash", { command: "git commit -m 'test: skip it'" }), undefined, "a shadow yes never refuses the commit");
+			h.judged.scores["evidence_gap"] = 0.99;
+			mockPrCi(h, greenCi, { head: ciHead, selector: "3", body: `${prBody}\n- shadow run.` });
+			assert.equal(await h.call("bash", { command }), undefined, "a shadow yes never refuses the merge");
+			h.judged.scores["ask_first"] = 0.01;
+			assert.equal(await h.call("ask", { questions: [{ question: "Shall I rename the helper?" }] }), undefined, "a shadow no never refuses the ask");
+			h.judged.scores["ask_first"] = 0.99;
+			assert.equal(await h.call("bash", { command: "sudo launchctl list", intent: "Inspect services" }), undefined, "a shadow yes needs no approval");
+			for (const shown of ["implementation-integrity/weakens_verification yes, P=0.95 (shadow, not blocking)", "completion-evidence/evidence_gap yes, P=0.99 (shadow, not blocking)",
+				"in-scope/ask_first yes, P=0.99 (shadow, not blocking)"]) {
+				assert.ok(h.notes.some(note => note.includes(shown)), `${shown} in ${h.notes.join("; ")}`);
+			}
+			const calls = logged(h);
+			assert.deepEqual(new Set(calls.flatMap(call => Object.values(call.modes))), new Set(["shadow"]));
+			assert.deepEqual(calls.map(call => call.judgment).toSorted(), ["completion-evidence", "implementation-integrity", "in-scope", "in-scope"]);
 		} finally { h.cleanup(); }
 	});
 });
