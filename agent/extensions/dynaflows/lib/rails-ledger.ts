@@ -12,7 +12,7 @@ export { storePath } from "./decision-store.ts";
 export const RAIL_CODES = [
 	// The rails themselves: rails.yml, an evaluation error, the origin remote and rail state.
 	"rails-config", "policy-error", "post-edit-error", "handoff-error", "mode-unresolved", "rail-state-drift", "rail-state-write",
-	"protected-path", "extension-review", "github-token",
+	"protected-path", "extension-review", "github-token", "config-unresolved",
 	// Reads, subagents and tools other than bash.
 	"read-gate", "subagent-path", "eval-git", "eval-refused", "github-tool-write", "judged-scope",
 	// The shell scan.

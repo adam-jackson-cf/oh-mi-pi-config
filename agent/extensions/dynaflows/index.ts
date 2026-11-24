@@ -1,5 +1,4 @@
 import { access, lstat, readFile, realpath } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
 	z, type ExtensionAPI, type ExtensionContext,
@@ -29,6 +28,7 @@ import {
 	COMMIT_CHECKS_TIMEOUT_MS, Evidence, Snapshot, evalReason, fileState, pinSettings, protectedPathReason, setting as ompSetting, shellStateReason,
 	type Protection,
 } from "./lib/trust.ts";
+import { commonDir } from "./lib/git-paths.ts";
 
 const prCiSchema = z.object({
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
@@ -53,7 +53,7 @@ const GITHUB_TOOL_WRITES = ["pr_create", "pr_push", "pr_checkout"];
 // Characters of a failed commit check's output shown to the agent (the tail, where findings end).
 const commitOutputLimit = 8000;
 // Derived from this file's location so the rails hold no machine path: <omp>/scripts/ci_runner.py.
-const ciRunnerPath = fileURLToPath(new URL("../../../scripts/ci_runner.py", import.meta.url));
+const ciRunnerPath = resolve(import.meta.dir, "../../../scripts/ci_runner.py");
 function shellWord(value: string): string {
 	return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -227,12 +227,12 @@ const READ_ONLY_GIT = /^git (?:status|diff|log|show|rev-parse)\b/;
 // The harness checks: guardrails run from the harness's own reference project (never installed
 // into the repo), over the whole repo, with the record as config. Rails append
 // `--repo <worktree> --record <record dir>`.
-const guardrailsProject = fileURLToPath(new URL("./engine", import.meta.url));
+const guardrailsProject = join(import.meta.dir, "engine");
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
 const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
 const defaultProfileCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "profile-check"];
 // The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
-const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", fileURLToPath(new URL("./lib/decide.py", import.meta.url))];
+const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the record has not given the step to it.
 const harnessOnlyNote =
@@ -269,11 +269,6 @@ function repoExec(pi: ExecApi, argv: string[], cwd: string, timeout?: number) {
 type Schema = Pick<ReturnType<typeof z.object>, "safeParse">;
 function parsesAs(schema: Schema, text: string): boolean {
 	try { return schema.safeParse(JSON.parse(text)).success; } catch { return false; }
-}
-async function commonDir(pi: ExecApi, cwd: string): Promise<string> {
-	const common = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
-	if (common.code !== 0 || common.killed || !common.stdout.trim()) throw new Error("cannot resolve Git common directory for proof evidence");
-	return resolve(cwd, common.stdout.trim());
 }
 const untrustedEvidence = (what: string, head: string, path: string) => refuse("merge-evidence-untrusted",
 	`Agent rails: the ${what} result for ${head} at ${path} was not written by a ${what} call the rails saw in this omp process; run ${what} for this head here, then merge.`);
@@ -552,12 +547,12 @@ type DynaflowsOptions = {
 function defaultOptions(): DynaflowsOptions {
 	return {
 		modesPath: defaultModesPath(),
-		configPath: fileURLToPath(new URL("./rails.yml", import.meta.url)),
+		configPath: join(import.meta.dir, "rails.yml"),
 		configRoot: defaultConfigRoot(),
 		guardrailsCommand: defaultGuardrailsCommand,
 		guardrailsProfileCommand: defaultProfileCommand,
 		ompCommand: ["omp"],
-		extensionDir: fileURLToPath(new URL(".", import.meta.url)),
+		extensionDir: import.meta.dir,
 		// The omp agent dir, by the same rule as the judgment call log; never a repository.
 		reviewsPath: defaultReviewsPath(),
 		storePath: defaultStorePath(),
@@ -605,6 +600,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	}
 	const sessionRail = sessionRails(pi, {
 		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
+		commonDir: cwd => commonDir(pi, cwd),
 		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
 		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),

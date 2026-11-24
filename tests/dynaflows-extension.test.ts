@@ -16,7 +16,7 @@ const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 
 test("ci-runner commands come from the extension's own location, never a host literal", async () => {
 	const source = readFileSync(join(import.meta.dir, "../agent/extensions/dynaflows/index.ts"), "utf8");
-	assert.ok(source.includes('new URL("../../../scripts/ci_runner.py", import.meta.url)'), "path is derived from import.meta.url");
+	assert.ok(source.includes('resolve(import.meta.dir, "../../../scripts/ci_runner.py")'), "path is derived from import.meta.dir");
 	for (const literal of [homedir(), "/Users/", "ssh ", "BatchMode", "--timeout", "ci_gate.py"]) {
 		assert.equal(source.includes(literal), false, `rails source must not hold ${literal}`);
 	}

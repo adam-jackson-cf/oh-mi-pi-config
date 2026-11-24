@@ -141,6 +141,8 @@ tests/fixtures/*
 !tests/test_repo_config.py
 !tests/test_repo_config_seams.py
 !tests/repo-record.test.ts
+!tests/repo-config.test.ts
+!tests/repo-config-seams.test.ts
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py

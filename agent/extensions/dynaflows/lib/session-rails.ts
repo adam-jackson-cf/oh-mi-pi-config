@@ -6,7 +6,7 @@ import { OriginError, repoSlug, unresolvedText } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
-import { commonDir as gitCommonDir, defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
+import { defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
 import { prMerge } from "./guards.ts";
 import { verdictText, type Decide, type Verdict } from "./judge.ts";
 import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
@@ -17,6 +17,8 @@ export type SessionDeps = {
 	configRoot: string;
 	extensionDir: string;
 	reviewsPath: string;
+	/** The real path of the Git common dir of the repository holding cwd (git-paths.ts). */
+	commonDir(cwd: string): Promise<string>;
 	modeOf(ctx: ExtensionContext, cwd: string): Promise<Mode>;
 	recordAt(root: string): Promise<RepoRecord | undefined>;
 	/** The turn-end status of a branch's PR, with the reason when it is unmet (CI pending or failing, gh unreadable). */
@@ -109,8 +111,6 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	const rolloutCommand = shellJoin(rolloutStep.argv);
 	const judged = judgedRails(pi, { decide: deps.decide, structured: structuredOrNotify, askFirst: deps.askFirst });
 
-	const commonDir = (cwd: string) => gitCommonDir(pi, cwd);
-
 	async function reviewChecks(root: string): Promise<string> {
 		const record = await deps.recordAt(root).catch(() => undefined);
 		if (!record) return "no valid per-repo record; review the record against the change by hand.";
@@ -138,7 +138,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		}
 		const record = await deps.recordAt(root).catch(() => undefined);
 		session.review = {
-			slug, root, common: await commonDir(root), from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
+			slug, root, common: await deps.commonDir(root), from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
 			impact: judged.impactVerdict(ctx, { slug, record, configRoot: deps.configRoot, from, to }),
 		};
 	}
@@ -357,7 +357,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		async gitWriteReason(action, ctx) {
 			const { review, reviewError } = sessionFor(ctx);
 			if (reviewError) return `Agent rails: could not check the dynaflows extension review at session start (${reviewError}); the owner restarts omp.`;
-			if (!review || !action.cwd || await commonDir(action.cwd).catch(() => undefined) !== review.common) return undefined;
+			if (!review || !action.cwd || await deps.commonDir(action.cwd).catch(() => undefined) !== review.common) return undefined;
 			return `Agent rails: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it; ` +
 				"review the change, then call the dynaflows tool with acknowledge: true before Git writes.";
 		},
