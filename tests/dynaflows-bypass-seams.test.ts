@@ -52,9 +52,9 @@ describe("dynaflows closes routes around the bash rails", () => {
 	}));
 
 	test("pipelines and background jobs keep the cwd, so cd cannot move a commit out of its repository", () => withHarness("structured", async h => {
-		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
+		h.config({ commands: { commit: ["false"] } });
 		for (const command of ["cd / | git commit -m x", "cd /tmp & git commit -m x"]) {
-			await assertRefused(h, "bash", { command }, "checks.commit (false) failed");
+			await assertRefused(h, "bash", { command }, "commands.commit (false) failed");
 		}
 	}));
 
@@ -155,7 +155,7 @@ describe("dynaflows closes routes around the bash rails", () => {
 	}));
 
 	test("a failing required context blocks the merge even beside a green one of the same name", () => withHarness("structured", async h => {
-		h.gate({ schemaVersion: 2, checks: { commit: ["true"] }, ci: ciGate });
+		h.config(ciGate);
 		await proveResult(h);
 		await structureResult(h);
 		mockPrCi(h, [
@@ -177,22 +177,25 @@ describe("dynaflows closes routes around the bash rails", () => {
 		await assertRefused(h, "bash", { command: "chmod -x .git/hooks/pre-commit" }, "writes near rail state");
 	}));
 
-	test("agents write records at any time, through any tool", () => withHarness(undefined, async h => {
-		for (const name of ["gate.json", "profile.md"]) await assertAllowed(h, "write", { path: join(h.recordDir(), name), content: "x" });
-		await assertAllowed(h, "write", { path: join(h.records, "repos/owner/other/gate.json"), content: "x" });
-		await assertAllowed(h, "bash", { command: `cp /tmp/x '${join(h.records, "repos/owner/repo/gate.json")}'` });
-		await assertAllowed(h, "eval", { language: "py", code: `open('${join(h.recordDir(), "profile.md")}', 'w').write('x')` });
+	test("agents never write a repository's agent-rails config, through any tool; reads pass", () => withHarness(undefined, async h => {
+		h.config();
+		await assertRefused(h, "write", { path: h.repoConfigPath, content: "x" }, "agents read it but never write it");
+		await assertRefused(h, "write", { path: join(h.root, ".agentrails", "other.json"), content: "x" }, "agents read it but never write it");
+		await assertRefused(h, "bash", { command: `cp /tmp/x '${h.repoConfigPath}'` }, "writes near rail state");
+		await assertRefused(h, "bash", { command: "printf '{}' > .agentrails/config.json" }, "writes near rail state");
+		await assertRefused(h, "eval", { language: "py", code: `open('${h.repoConfigPath}', 'w').write('x')` }, "may not write rail state");
+		await assertAllowed(h, "bash", { command: "cat .agentrails/config.json" });
+		await assertAllowed(h, "read", { path: h.repoConfigPath });
 	}));
 
-	test("a record change during a session takes effect on the next action; mode file changes refuse git and gh", () => withHarness("structured", async h => {
+	test("an owner's config change during a session takes effect on the next action; mode file changes refuse git and gh", () => withHarness("structured", async h => {
 		await h.emit("session_start");
 		await h.read("skill://git-tool", mergeRecover);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
-		const gate = join(h.recordDir(), "gate.json");
-		const saved = readFileSync(gate, "utf8");
-		writeFileSync(gate, JSON.stringify({ schemaVersion: 2, checks: { commit: ["false"] } }));
-		await assertRefused(h, "bash", { command: "git commit -m x" }, "checks.commit (false) failed");
-		writeFileSync(gate, saved);
+		const saved = h.configText();
+		h.config({ commands: { commit: ["false"] } });
+		await assertRefused(h, "bash", { command: "git commit -m x" }, "commands.commit (false) failed");
+		h.rawConfig(saved);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
 		h.mode("minimal");
 		await assertRefused(h, "bash", { command: "git push origin agent/test" }, "changed during this session");

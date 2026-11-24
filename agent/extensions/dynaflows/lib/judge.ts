@@ -101,10 +101,14 @@ export const verdictText = (verdict: Verdict): string =>
 export const enforced = (verdict: Verdict): boolean => verdict.mode === "enforced";
 
 // An owner approval is a line of its own in the owner's prompt; agents cannot write owner prompts.
-const APPROVE = /^\$approve ((?:in-scope|implementation-integrity|completion-evidence):[0-9a-f]{12,64})$/;
+// Escalated judgments are keyed by a digest or SHA; autonomy asks by action and subject (branch or PR number).
+const APPROVE = /^\$approve ((?:in-scope|implementation-integrity|completion-evidence):[0-9a-f]{12,64}|autonomy:(?:branch|pr|merge):[A-Za-z0-9._/#-]+)$/;
 export const approvalLine = (key: string): string => `\`$approve ${key}\``;
 
-/** Escalated decisions the owner approved, per session, keyed <judgment>:<subject digest or SHA>. */
+/**
+ * Owner approvals, per session and in memory: escalated decisions keyed <judgment>:<subject digest or SHA>,
+ * and autonomy asks keyed autonomy:<action>:<subject>, which the rails consume on the first allowed action.
+ */
 export class Approvals {
 	#granted = new Map<string, Set<string>>();
 
@@ -118,5 +122,10 @@ export class Approvals {
 
 	has(sessionId: string, key: string): boolean {
 		return this.#granted.get(sessionId)?.has(key) ?? false;
+	}
+
+	/** Uses a one-use approval up: a later action needs the owner's approval again. */
+	consume(sessionId: string, key: string): void {
+		this.#granted.get(sessionId)?.delete(key);
 	}
 }

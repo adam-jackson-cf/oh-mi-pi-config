@@ -3,7 +3,6 @@ import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { z, type ExtensionContext, type ToolCallEvent, type ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
-import { findRecord, loadGate, type Gate } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import { RailError, refuse, type Refusal } from "./rails-ledger.ts";
 
@@ -57,7 +56,6 @@ const detailsSchema = z.object({
 }).catch({ applied: undefined, files: undefined });
 const fileErrorSchema = z.object({ code: z.string().optional() });
 type Mapping = z.infer<typeof mappingSchema>;
-type RepoRecord = { dir: string; gate: Gate };
 type GitAction = {
 	command: string; args: string[]; cwd: string | undefined; config: string[];
 	// A hook-skip variable the command assigns, exports or unsets anywhere (see `hookSkipVariables`).
@@ -942,11 +940,6 @@ function commitBypass(action: GitAction): string | undefined {
 	return bypassArgument(action.args.slice(1), action.args[0] ?? "") ?? hooksPathConfig(action.config) ?? action.hookSkip;
 }
 
-async function readRecord(root: string, configRoot: string): Promise<RepoRecord | undefined> {
-	const dir = await findRecord(root, configRoot);
-	if (dir) return { dir, gate: await loadGate(dir) };
-	return undefined;
-}
 /** rails.yml parsed with mappingSchema; throws on an unreadable or invalid file. */
 function loadMapping(path: string): Mapping {
 	const parsed = mappingSchema.safeParse(Bun.YAML.parse(readFileSync(path, "utf8")));
@@ -959,9 +952,9 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	ctx.ui.notify(message, "info");
 }
 export { codeRunsGit, mentionsGit, shellCommands, commitScopeArgument, INDEX_WRITES };
-export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, readRecord, note };
+export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, stringList, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, sentence, readReason, gitActions, commitBypass, note };
 export { fileErrorSchema };
-export type { Mapping, RepoRecord, GitAction, State, ToolEvent };
+export type { Mapping, GitAction, State, ToolEvent };
 export {
 	blockLine, closeEpisodes, coded, insertEntries, openEpisode, RailError, refuse, resolvedLine, storePath,
 	type Episode, type LedgerLine, type RailCode, type Refusal,

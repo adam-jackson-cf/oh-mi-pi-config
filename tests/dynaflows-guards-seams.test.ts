@@ -1,26 +1,44 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { test } from "bun:test";
 import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
 import { parseOrigin } from "../agent/extensions/dynaflows/lib/repo-record.ts";
-import type { Mode } from "../agent/extensions/dynaflows/lib/modes.ts";
+import type { AfterMerge, AgentRailsConfig, Autonomy, Ci, Commands, Gates, MergePolicy } from "../agent/extensions/dynaflows/lib/repo-config.ts";
 
 const integrity = "skill://structured-workflow/references/delivery-principles.md";
 const structure = "skill://structured-workflow/references/structure-and-naming.md";
 const enforcement = "skill://structured-workflow/references/test-enforcement.md";
 const tiers = "skill://test-guidance/references/tiers.md";
 const verification = "skill://test-guidance/references/before-commit.md";
-type GateFixture = {
-	schemaVersion: 2; checks?: { commit?: string[]; ci?: string[]; format?: string[]; profile?: string[] };
-	agentMerge?: "allowed" | "disabled";
-	ci?: { requiredContext: string; runner: string };
-	afterMerge?: { argv: string[]; paths?: string[] };
-	mergePolicies?: { base: string; headPrefix: string; method: "rebase" | "merge"; proof: boolean }[];
+/** The sections a test sets on the harness's agent-rails config; the rest come from the S1a minimal fixture. */
+type ConfigPatch = {
+	autonomy?: Partial<Autonomy>; ci?: Ci; gates?: Partial<Gates>; commands?: Partial<Commands>; mergePolicies?: MergePolicy[]; afterMerge?: AfterMerge;
 };
+const configFixture = resolve(import.meta.dir, "fixtures/agentrails/valid/minimal.json");
+/**
+ * A valid .agentrails/config.json for slug, built from the S1a minimal fixture: every autonomy
+ * permission allowed, CI off, every gate on, commands.commit `true`, then the test's patch.
+ */
+function harnessConfig(slug: string, patch: ConfigPatch = {}): AgentRailsConfig {
+	const base: AgentRailsConfig = JSON.parse(readFileSync(configFixture, "utf8"));
+	const config: AgentRailsConfig = {
+		...base,
+		repo: { ...base.repo, slug },
+		autonomy: { branch: "allowed", pr: "allowed", merge: "allowed", ...patch.autonomy },
+		ci: patch.ci ?? { enabled: false },
+		gates: { ...base.gates, ...patch.gates },
+		commands: { commit: ["true"], ...patch.commands },
+		mergePolicies: patch.mergePolicies ?? [],
+	};
+	if (patch.afterMerge) config.afterMerge = patch.afterMerge;
+	return config;
+}
+/** Every publishing action needs the owner's approval. */
+const askAutonomy: ConfigPatch = { autonomy: { branch: "ask", pr: "ask", merge: "ask" } };
 type Input = {
 	path?: string; paths?: string[]; input?: string; content?: string; command?: string; cwd?: string; questions?: { question: string }[]; intent?: string;
 	code?: string; op?: string; language?: string;
@@ -69,8 +87,8 @@ const wrappedPublishing = [
 const mergeRecover = "skill://git-tool/references/merge-and-recover.md";
 const railsConfig = join(import.meta.dir, "../agent/extensions/dynaflows/rails.yml");
 const defaultOrigin = "git@github.com:owner/repo.git";
-const recordGateSchema = z.object({ schemaVersion: z.number() }).passthrough();
 const modesFileSchema = z.object({ schemaVersion: z.literal(1), repos: z.record(z.string(), z.enum(["minimal", "structured"])) }).strict();
+type Mode = z.infer<typeof modesFileSchema>["repos"][string];
 
 function repoCommand(command: string, args: string[]): [string, string[]] {
 	if (command === "env") {
@@ -170,6 +188,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	execFileSync("git", ["init", "-b", "agent/test", root]);
 	execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
 	execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: root });
+	// Onboarding keeps the config directory out of Git through the shared info/exclude.
+	appendFileSync(join(root, ".git", "info", "exclude"), "/.agentrails/\n");
 	writeFileSync(join(root, "existing.ts"), "export const answer = 42;\n");
 	const handlers = new Map<string, Handler[]>();
 	const tools = new Map<string, Tool>();
@@ -222,22 +242,17 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 	const modesPath = join(records, "modes.json");
 	if (!existsSync(modesPath)) writeFileSync(modesPath, JSON.stringify({ schemaVersion: 1, repos: {} }));
 	dynaflowsExtension(api, options);
-	let fixture: GateFixture | undefined;
+	let patch: ConfigPatch = {};
 	let slug = parseOrigin(remote);
 	const modes = () => modesFileSchema.parse(JSON.parse(readFileSync(modesPath, "utf8"))).repos;
-	const recordDir = (cwd = root) => {
-		const currentSlug = cwd === root ? slug : parseOrigin(execFileSync(
-			"git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8", timeout: 20000 },
-		).trim());
-		assert.ok(currentSlug, "the harness origin names a record");
-		return join(records, "repos", currentSlug);
+	const repoConfigPath = join(root, ".agentrails", "config.json");
+	const writeConfigText = (text: string) => {
+		mkdirSync(dirname(repoConfigPath), { recursive: true });
+		writeFileSync(repoConfigPath, text);
 	};
-	const writeRecord = (text: string) => {
-		mkdirSync(recordDir(), { recursive: true });
-		writeFileSync(join(recordDir(), "gate.json"), text);
-	};
-	const writeGate = () => {
-		writeRecord(JSON.stringify({ checks: { commit: ["true"] }, ...(fixture ?? { schemaVersion: 2 }) }));
+	const writeConfig = () => {
+		assert.ok(slug, "the harness origin names the config's repo.slug");
+		writeConfigText(`${JSON.stringify(harnessConfig(slug, patch), null, 2)}\n`);
 	};
 	let id = 0;
 	async function emit(name: string, event: Omit<Event, "type"> = {}) {
@@ -250,7 +265,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		return combined;
 	}
 	return {
-		root, notes, errors, branch, context, emit, api, options, records, recordDir, judged,
+		root, notes, errors, branch, context, emit, api, options, records, repoConfigPath, judged,
 		pathFailure(message?: string) { pathFailure = message; },
 		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
@@ -260,25 +275,23 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 			assert.ok(tool, `missing tool ${name}`);
 			return toolResultSchema.parse(await tool.execute("tool-1", params, undefined, undefined, context)).content.map(part => part.text).join("");
 		},
-		gate(value: GateFixture) { fixture = value; writeGate(); },
+		/** Writes the repo's .agentrails/config.json: the minimal fixture with this patch (see harnessConfig). */
+		config(value: ConfigPatch = {}) { patch = value; writeConfig(); },
 		worktreeBase(value: string) { writeFileSync(join(machine, "worktree-base"), `${value}\n`); },
 		mode(value: Mode) {
 			assert.ok(slug, "the harness origin names a mode entry");
 			writeFileSync(modesPath, JSON.stringify({ schemaVersion: 1, repos: { ...modes(), [slug]: value } }));
-			writeGate();
+			writeConfig();
 		},
 		modeOf(): Mode { return slug ? modes()[slug] ?? "minimal" : "minimal"; },
 		modesPath,
-		rawGate(text: string) { writeRecord(text); },
-		record() { return recordGateSchema.parse(JSON.parse(readFileSync(join(recordDir(), "gate.json"), "utf8"))); },
+		rawConfig(text: string) { writeConfigText(text); },
+		configText() { return readFileSync(repoConfigPath, "utf8"); },
+		// A new origin renames the repository: an existing harness config follows it.
 		async origin(url: string) {
-			const previous = slug ? join(records, "repos", slug) : undefined;
 			await execute("git", ["remote", "set-url", "origin", url], { cwd: root });
 			slug = parseOrigin(url);
-			if (previous && existsSync(previous) && slug && previous !== recordDir()) {
-				mkdirSync(dirname(recordDir()), { recursive: true });
-				renameSync(previous, recordDir());
-			}
+			if (existsSync(repoConfigPath) && slug) writeConfig();
 		},
 		modesText(text: string) { writeFileSync(modesPath, text); },
 		async read(...urls: string[]) {
@@ -299,20 +312,20 @@ type Harness = ReturnType<typeof harness>;
 
 
 async function checkDestinationRepository(h: Harness, other: Harness, action: string): Promise<void> {
-	h.gate({ schemaVersion: 2 });
+	h.config();
 	for (const prefix of [`cd '${other.root}'`, `pushd '${other.root}'`, `cd '${relative(h.root, other.root)}' && cd .`]) {
 		assert.equal(await bashBlocked(h, `${prefix} && ${action}`), true, prefix);
 	}
 	for (const launcher of ["env -C", "sudo -D"]) {
 		assert.equal(await bashBlocked(h, `${launcher} '${other.root}' ${action}`), true, launcher);
 	}
-	h.gate({ schemaVersion: 2, agentMerge: "disabled" });
-	other.gate({ schemaVersion: 2 });
+	h.config(askAutonomy);
+	other.config();
 	assert.equal(await h.call("bash", { command: `cd '${other.root}' && ${action}` }), undefined);
 	for (const launcher of ["env -C", "sudo -D"]) {
 		assert.equal(await h.call("bash", { command: `${launcher} '${other.root}' ${action}` }), undefined, launcher);
 	}
-	other.gate({ schemaVersion: 2, agentMerge: "disabled" });
+	other.config(askAutonomy);
 	for (const prefix of ["cd", "cd -", "cd missing-dir", 'cd "$TARGET"']) {
 		assertBlocked(await h.call("bash", { command: `${prefix} && ${action}` }), "effective cwd", prefix);
 	}
@@ -404,7 +417,8 @@ function forbidGh(h: PrCiHarness) {
 	};
 }
 
-const ciGate = { requiredContext: "gate", runner: "ci-gate" };
+// CI routed to the NUC ci-gate runner: an exact-head required context and the commands.ci it runs.
+const ciGate: ConfigPatch = { ci: { enabled: true, runner: "ci-gate", requiredContext: "gate" }, commands: { ci: ["make", "ci"] } };
 const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 async function originRemote(h: { origin(url: string): Promise<void> }, remote = defaultOrigin) {
 	await h.origin(remote);
@@ -438,6 +452,7 @@ async function structureResult(h: EvidenceHarness, head = ciHead) {
 
 export { prBody, prFiles, decideCommand, judgeModel };
 export type { JudgeStub };
+export { askAutonomy, harnessConfig, type ConfigPatch };
 export { harness, mergeRecover, execute, reasonOf, isBlocked, wrappedPublishing, railsConfig, defaultOrigin, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, ciGate, ciRunner, originRemote, proveResult, structureResult, watchedProofCall };
 export { repoCommand };
 export type { Input };
@@ -569,36 +584,74 @@ export type { Input };
 		}
 	});
 
-	test("repo merge policy fails closed for publishing actions, respecting git -C", async () => {
+	test("autonomy ask refuses pushes and PR creation per repository, respecting git -C; an invalid config refuses publishing", async () => {
 		const h = harness();
 		const other = harness({ configRoot: h.records, remote: "git@github.com:owner/other.git" });
 		try {
 			await h.read("skill://git-tool");
 			forbidGh(h);
-			const commands = ["git push", "gh pr create", "gh pr merge 7", ...wrappedPublishing];
-			const unmerged = commands.filter(command => command !== "gh pr merge 7");
-			for (const command of unmerged) assert.equal(await h.call("bash", { command }), undefined, command);
+			const commands = ["git push", "gh pr create", ...wrappedPublishing];
+			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined, `no config: ${command}`);
 			assertBlocked(await h.call("bash", { command: "gh pr merge 7" }), "minimal mode");
-			h.gate({ schemaVersion: 2 });
-			for (const command of unmerged) assert.equal(await h.call("bash", { command }), undefined, command);
-			h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+			h.config();
+			for (const command of commands) assert.equal(await h.call("bash", { command }), undefined, `autonomy allowed: ${command}`);
+			h.config(askAutonomy);
 			for (const command of commands) {
-				assertBlocked(await h.call("bash", { command }), "ask the owner", command);
+				const action = command.includes("gh pr create") ? "pr" : "branch";
+				assertBlocked(await h.call("bash", { command }), `sets autonomy.${action} to ask`, command);
+				assertBlocked(await h.call("bash", { command }), `the exact line \`$approve autonomy:${action}:agent/test\``, command);
 			}
-			assert.equal(await h.call("bash", { command: "git commit -m fix" }), undefined);
+			assertBlocked(await h.call("bash", { command: "gh pr merge 7" }), "minimal mode", "minimal mode refuses merges before autonomy");
+			assert.equal(await h.call("bash", { command: "git commit -m fix" }), undefined, "commits are not publishing");
+			h.config({ autonomy: { pr: "ask" } });
+			assert.equal(await h.call("bash", { command: "git push" }), undefined, "each permission is separate");
+			assertBlocked(await h.call("bash", { command: "gh pr create --head agent/other" }), "autonomy:pr:agent/other");
+			h.config(askAutonomy);
 			assert.equal(await h.call("bash", { command: `git -C '${other.root}' push` }), undefined);
-			other.gate({ schemaVersion: 2, agentMerge: "disabled" });
+			other.config(askAutonomy);
 			assert.equal(await bashBlocked(h, `git -C '${other.root}' push`), true);
 			for (const action of ["git push", "gh pr create"]) await checkDestinationRepository(h, other, action);
-			for (const invalid of ["{broken", '{"schemaVersion":3}', '{"schemaVersion":2,"checks":{"commit":"bun check"}}', '{"schemaVersion":2,"otherField":"github"}', '{"schemaVersion":2,"ci":{"requiredContext":"gate"}}', '{"schemaVersion":2,"dynaflows":{"mode":"structured"}}']) {
-				h.rawGate(invalid);
+			for (const invalid of ["{broken", JSON.stringify({ ...harnessConfig("owner/repo"), autonomy: { branch: "never", pr: "allowed", merge: "allowed" } })]) {
+				h.rawConfig(invalid);
 				for (const command of commands) {
-					const reason = assertBlocked(await h.call("bash", { command }), "gate.json", command);
-					assert.ok(reason.includes("Error"));
+					const reason = assertBlocked(await h.call("bash", { command }), `the agent-rails config ${h.repoConfigPath} is invalid`, command);
+					assert.ok(reason.includes("policy could not be evaluated"), reason);
 				}
 			}
 		} finally { h.cleanup(); other.cleanup(); }
-	}, 30_000);
+	}, 60_000);
+
+	test("an owner's $approve autonomy line allows one matching action in its session and is consumed by it", async () => {
+		const h = harness();
+		try {
+			await h.read("skill://git-tool");
+			forbidGh(h);
+			h.config(askAutonomy);
+			const push = "git push -u origin agent/test";
+			const approve = async (line: string, kind: "main" | "sub" = "main") => {
+				h.context.agent.kind = kind;
+				const result = await h.emit("before_agent_start", { reason: "prompt", prompt: `carry on\n${line}` });
+				h.context.agent.kind = "main";
+				return JSON.stringify(result ?? {});
+			};
+			assertBlocked(await h.call("bash", { command: push }), "$approve autonomy:branch:agent/test");
+			assert.equal(await approve("$approve autonomy:branch:agent/test", "sub"), "{}", "a subagent prompt grants nothing");
+			assertBlocked(await h.call("bash", { command: push }), "$approve autonomy:branch:agent/test");
+			assert.ok((await approve("$approve autonomy:branch:agent/test")).includes("the owner approved autonomy:branch:agent/test"));
+			assertBlocked(await h.call("bash", { command: `${push} && gh pr create` }), "autonomy:pr:agent/test", "a refused call leaves the approval unused");
+			assert.equal(await h.call("bash", { command: push }), undefined, "the approval allows the push");
+			assertBlocked(await h.call("bash", { command: push }), "$approve autonomy:branch:agent/test", "the allowed push consumed the approval");
+			await approve("$approve autonomy:pr:agent/test");
+			h.setSession("other");
+			await h.read("skill://git-tool");
+			assertBlocked(await h.call("bash", { command: "gh pr create --fill" }), "autonomy:pr:agent/test", "approvals belong to their session");
+			h.setSession("first");
+			assert.equal(await h.call("bash", { command: "gh pr create --fill" }), undefined);
+			assertBlocked(await h.call("bash", { command: "gh pr create --fill" }), "autonomy:pr:agent/test");
+			await approve("$approve autonomy:pr:agent/test extra words");
+			assertBlocked(await h.call("bash", { command: "gh pr create --fill" }), "autonomy:pr:agent/test", "only the exact line approves");
+		} finally { h.cleanup(); }
+	});
 
 	test("commits must run the pre-commit hook: bypass flags, hook-path overrides and any touch of a skip variable block", async () => {
 		const h = harness();
@@ -692,7 +745,7 @@ export type { Input };
 test("pulling commits in (merge, rebase, cherry-pick, revert, am, pull) needs the Git reads but no harness check beyond hook-bypass flags", async () => {
 	const h = harness();
 	try {
-		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
+		h.config({ commands: { commit: ["false"] } });
 		h.mode("structured");
 		forbidGh(h);
 		assert.equal(await h.call("bash", { command: "git merge-base HEAD HEAD" }), undefined);
@@ -719,7 +772,7 @@ test("standalone hook environment changes and eval cannot bypass policy", async 
 		for (const command of ["echo 'export HUSKY=0'", "echo 'eval git commit -n'", "git commit -m 'export HUSKY=0'"]) {
 			assert.equal(await h.call("bash", { command }), undefined, command);
 		}
-		h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+		h.config(askAutonomy);
 		for (const command of ["eval git push", "eval 'gh pr merge 3'", "gh -R owner/other pr merge 3"]) {
 			assert.equal((await h.call("bash", { command }))?.block, true, command);
 		}
@@ -951,7 +1004,7 @@ test("an invalid rails.yml mapping fails the load", async () => {
 test("minimal mode runs only the fixed guards: no reference reads, path checks or commit checks", async () => {
 	const h = harness();
 	try {
-		h.gate({ schemaVersion: 2, checks: { commit: ["false"] } });
+		h.config({ commands: { commit: ["false"] } });
 		h.pathFailure("must not run");
 		await h.emit("session_start");
 		assert.ok(h.notes.every(note => note.includes("dynaflows minimal mode for owner/repo")), h.notes.join("; "));
@@ -1025,7 +1078,7 @@ test("minimal mode blocks gh pr merge and pushes to the default branch while fea
 		forbidGh(h);
 		const merge = reasonOf(await h.call("bash", { command: "gh pr merge 7 --squash" }));
 		assert.ok(merge.includes("gh pr merge is blocked in dynaflows minimal mode"), merge);
-		h.gate({ schemaVersion: 2 });
+		h.config();
 		assert.ok(reasonOf(await h.call("bash", { command: "gh pr merge 7" })).includes("minimal mode"));
 		for (const command of [
 			"git push origin main", "git push origin HEAD:main", "git push -f origin +agent/test:refs/heads/main",

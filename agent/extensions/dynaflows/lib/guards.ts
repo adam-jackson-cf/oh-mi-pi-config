@@ -1,10 +1,11 @@
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { DEFAULT_MERGE_POLICY, parseOrigin, type MergePolicy } from "./repo-record.ts";
+import { parseOrigin } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
+import type { AgentRailsConfig, MergePolicy } from "./repo-config.ts";
 import {
-	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, mentionsGit, readRecord, repoRoot, worktreeTarget, type GitAction,
+	SUBPROCESS_TIMEOUT_MS, absolute, canonicalPath, commitBypass, mentionsGit, repoRoot, worktreeTarget, type GitAction,
 } from "./rails-runtime.ts";
 import { assignmentName, refuse, type Refusal } from "./rails-ledger.ts";
 
@@ -142,15 +143,47 @@ async function worktreeReason(pi: ExecApi, ompCommand: string[], action: GitActi
 	return worktreeTargetReason(action.args, action.cwd, expandedBase, name);
 }
 
-async function agentMergeReason(action: GitAction, configRoot: string): Promise<Refusal | undefined> {
-	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git push or gh pr create/merge.`);
-	const root = await repoRoot(action.cwd);
-	if (!root) throw new Error("publishing requires a validated local Git repository");
-	const record = await readRecord(root, configRoot);
-	if (record?.gate.agentMerge === "disabled") {
-		return refuse("agent-merge-disabled", "Agent rails: agentMerge is disabled; ask the owner before git push, gh pr create or gh pr merge in this repository.");
+// What each autonomy permission covers: branch is a git push of a branch other than the default
+// branch (pushReason refuses that one), pr is gh pr create, merge is gh pr merge.
+type AutonomyAction = keyof AgentRailsConfig["autonomy"];
+/** One publishing action and its subject: the branch for branch and pr, the PR number for merge. */
+type AutonomyRequest = { action: AutonomyAction; subject: string | undefined };
+/** The session's owner approvals: has() reads them; use() marks one to consume once the whole action is allowed. */
+type AutonomyApprovals = { has(key: string): boolean; use(key: string): void };
+const AUTONOMY_SUBJECTS = {
+	branch: (subject: string) => `pushing branch ${subject}`,
+	pr: (subject: string) => `opening a PR from branch ${subject}`,
+	merge: (subject: string) => `merging PR #${subject}`,
+} satisfies Record<AutonomyAction, (subject: string) => string>;
+
+
+/**
+ * The repo config's autonomy permission for one publishing action. allowed passes; ask needs the
+ * owner's one-use `$approve autonomy:<action>:<subject>` line from this session. A repository with no
+ * config has no autonomy restriction.
+ */
+function autonomyReason(request: AutonomyRequest, config: AgentRailsConfig | undefined, approvals: AutonomyApprovals): Refusal | undefined {
+	if (config?.autonomy[request.action] !== "ask") return undefined;
+	if (!request.subject) {
+		return refuse("autonomy-ask", `Agent rails: this repository's .agentrails/config.json sets autonomy.${request.action} to ask, and the rails cannot name the ` +
+			`${request.action === "merge" ? "PR" : "branch"} this action publishes; name it explicitly (a checked-out branch, or gh pr create --head <branch>), then ask the owner.`);
 	}
-	return undefined;
+	const key = `autonomy:${request.action}:${request.subject}`;
+	if (approvals.has(key)) {
+		approvals.use(key);
+		return undefined;
+	}
+	return refuse("autonomy-ask", `Agent rails: this repository's .agentrails/config.json sets autonomy.${request.action} to ask, so ${AUTONOMY_SUBJECTS[request.action](request.subject)} ` +
+		`needs the owner's approval. Ask the owner; if they approve, they send the exact line \`$approve ${key}\` as a line of their own, which covers this one action.`);
+}
+
+/** The branch gh pr create opens a PR from: its --head/-H value, else the current branch. */
+async function prCreateBranch(pi: ExecApi, action: GitAction): Promise<string | undefined> {
+	const flag = action.args.findIndex(arg => arg === "--head" || arg === "-H");
+	if (flag >= 0) return action.args[flag + 1];
+	const inline = action.args.find(arg => arg.startsWith("--head="));
+	if (inline) return inline.slice("--head=".length);
+	return action.cwd ? gitText(pi, action.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]) : undefined;
 }
 
 function pushOption(args: string[], index: number, options: PushOptions): number {
@@ -221,14 +254,28 @@ async function protectedBranches(pi: ExecApi, cwd: string, remote: string, defau
 	return [...new Set([defaults.get(key) ?? branch, branch])];
 }
 
-async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranches): Promise<Refusal | undefined> {
-	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git push.`);
-	const plan = pushPlan(action.args);
-	const current = await gitText(pi, action.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-	const remote = plan.remote ?? await implicitRemote(pi, action.cwd, current);
+type PushTargets = { plan: PushPlan; remote: string; targets: PushTarget[] };
+
+// Where a git push sends commits: its refspecs, else the remote's push config or the current branch.
+async function pushTargets(pi: ExecApi, cwd: string, args: string[]): Promise<PushTargets> {
+	const plan = pushPlan(args);
+	const current = await gitText(pi, cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
+	const remote = plan.remote ?? await implicitRemote(pi, cwd, current);
 	const targets = plan.refspecs.length
 		? plan.refspecs.map(refspec => destination(refspec, current))
-		: await implicitTargets(pi, action.cwd, remote, current);
+		: await implicitTargets(pi, cwd, remote, current);
+	return { plan, remote, targets };
+}
+
+/** The branches a git push names, for the autonomy check after pushReason passed it. */
+async function pushedBranches(pi: ExecApi, cwd: string, args: string[]): Promise<string[]> {
+	const { targets } = await pushTargets(pi, cwd, args);
+	return [...new Set(targets.filter((target): target is string => target !== undefined && target !== EVERY_BRANCH))];
+}
+
+async function pushReason(pi: ExecApi, action: GitAction, defaults: DefaultBranches): Promise<Refusal | undefined> {
+	if (!action.cwd) return refuse("cwd-unresolved", `${CWD_UNRESOLVED} git push.`);
+	const { plan, remote, targets } = await pushTargets(pi, action.cwd, action.args);
 	const branches = await protectedBranches(pi, action.cwd, remote, defaults);
 	if (!branches) {
 		return refuse("push-remote-head", `Agent rails: cannot resolve the default branch of remote ${remote} (refs/remotes/${remote}/HEAD); ` +
@@ -424,6 +471,8 @@ function minimalMergeReason(mode: Mode): Refusal | undefined {
 }
 
 type AppliedPolicy = Omit<MergePolicy, "base" | "headPrefix"> & { source: string };
+/** The policy for a PR with no matching mergePolicies entry. */
+const DEFAULT_MERGE_POLICY: Omit<MergePolicy, "base" | "headPrefix"> = { method: "rebase", proof: true };
 const METHOD_FLAGS = new Map([["--rebase", "rebase"], ["-r", "rebase"], ["--merge", "merge"], ["-m", "merge"], ["--squash", "squash"], ["-s", "squash"]]);
 
 function adminMergeReason(args: string[]): Refusal | undefined {
@@ -432,7 +481,7 @@ function adminMergeReason(args: string[]): Refusal | undefined {
 		: undefined;
 }
 
-/** The record's first mergePolicies entry for the PR's base and head branch, else the default. */
+/** The config's first mergePolicies entry for the PR's base and head branch, else the default. */
 function mergePolicyFor(policies: MergePolicy[], base: string, head: string): AppliedPolicy {
 	const match = policies.find(policy => policy.base === base && head.startsWith(policy.headPrefix));
 	if (!match) return { ...DEFAULT_MERGE_POLICY, source: "the default policy" };
@@ -494,4 +543,5 @@ function prMergeReason(merge: PrMerge): Refusal | undefined {
 }
 
 export { adminMergeReason, mergeMethodReason, mergePolicyFor, prMerge, prMergeReason, type AppliedPolicy, type DefaultBranches };
-export { PUBLISHES, agentMergeReason, commitHookReason, configWriteReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };
+export { autonomyReason, prCreateBranch, pushedBranches, type AutonomyApprovals, type AutonomyRequest };
+export { PUBLISHES, commitHookReason, configWriteReason, hookBypassReason, routeReason, minimalMergeReason, pushReason, worktreeReason };

@@ -3,8 +3,8 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
-import { commitMessage, evidenceText, profileSummary, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
+import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
+import { commitMessage, evidenceText, impactConfig, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
 import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
 import { storePath } from "../agent/extensions/dynaflows/lib/decision-store.ts";
 import { readJudgmentCalls } from "../agent/extensions/dynaflows/lib/judgment-calls.ts";
@@ -221,7 +221,7 @@ describe("in-scope before asks and privileged commands", () => {
 
 async function prCreated(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}, rollup: object[] = greenCi): Promise<void> {
 	h.mode("structured");
-	h.gate({ schemaVersion: 2, agentMerge: "disabled" });
+	h.config(askAutonomy);
 	await bashResult(h, "gh pr create --fill");
 	mockPrCi(h, rollup, { selector: "agent/test", ...view });
 }
@@ -283,7 +283,7 @@ describe("completion-evidence at the turn end", () => {
 		const h = harness();
 		try {
 			await prCreated(h);
-			h.gate({ schemaVersion: 2, agentMerge: "disabled", ci: { requiredContext: "gate", runner: "ci-gate" } });
+			h.config({ ...ciGate, ...askAutonomy });
 			assert.equal(await h.emit("session_stop"), undefined, "an unreported required context waits");
 			mockPrCi(h, [...greenCi, { __typename: "StatusContext", context: "gate", state: "FAILURE" }], { selector: "agent/test" });
 			assert.ok(reasonOf(await h.emit("session_stop")).includes("P6 required context gate is not green"));
@@ -296,9 +296,10 @@ describe("judged-rails helpers", () => {
 		const body = "# Title\n## Why\nbecause\n### Detail\nmore\n## Testing\n- ran it\n\n**Not tested:** Linux\n## Other\nx";
 		assert.deepEqual(sections(body, ["why"]), ["because\n### Detail\nmore"]);
 		assert.deepEqual(evidenceText(body), { tested: "- ran it", notTested: "Linux" });
-		assert.deepEqual(profileSummary(null), { frontmatter: {}, headings: [], intro: "" });
-		const long = profileSummary(`---\n${JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, "v".repeat(300)])))}\n---\n# H\n`);
-		assert.ok(JSON.stringify(long).length <= 3500);
+		assert.deepEqual(Object.keys(impactConfig(harnessConfig("owner/repo"))), ["autonomy", "ci", "gates", "judgments", "mergePolicies", "commands"],
+			"extension-impact sees the rail sections; afterMerge only when set; never the setup-owned sections, exceptions or approvals");
+		assert.deepEqual(Object.keys(impactConfig(harnessConfig("owner/repo", { afterMerge: { argv: ["make"] } }))),
+			["autonomy", "ci", "gates", "judgments", "mergePolicies", "afterMerge", "commands"]);
 		assert.equal(clip("abcdef", 3), "abc…[truncated]");
 	});
 
@@ -322,6 +323,13 @@ describe("judged-rails helpers", () => {
 		assert.deepEqual(approvals.fromPrompt("s", "ok\n$approve completion-evidence:abcdefabcdef12\n say $approve in-scope:x"), ["completion-evidence:abcdefabcdef12"]);
 		assert.equal(approvals.has("s", "completion-evidence:abcdefabcdef12"), true);
 		assert.equal(approvals.has("other", "completion-evidence:abcdefabcdef12"), false);
+		assert.deepEqual(approvals.fromPrompt("s", [
+			"$approve autonomy:branch:agent/x", "$approve autonomy:pr:agent/feature-2.1", "$approve autonomy:merge:42",
+			"$approve autonomy:deploy:x", "$approve autonomy:merge:", "$approve autonomy:merge:4 2", "please $approve autonomy:merge:7",
+		].join("\n")), ["autonomy:branch:agent/x", "autonomy:pr:agent/feature-2.1", "autonomy:merge:42"], "autonomy keys name a known action and one subject word");
+		approvals.consume("s", "autonomy:merge:42");
+		assert.equal(approvals.has("s", "autonomy:merge:42"), false, "an autonomy approval is one use");
+		assert.equal(approvals.has("s", "completion-evidence:abcdefabcdef12"), true, "consuming one key leaves the others");
 		assert.throws(() => registryDecide({ exec: async () => ({ code: 0, killed: false, stdout: "", stderr: "" }) }, [], () => async () => ({ answers: {}, model: "m" })), /empty/);
 	});
 });

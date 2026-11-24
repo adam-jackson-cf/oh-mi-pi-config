@@ -1,7 +1,8 @@
 // Rails-owned trust: the omp settings the rails pin, the paths no agent tool may write, the eval
 // cells the rails refuse, the proof evidence only prove() and structure_review() runs the rails saw
-// may supply, and the rail state (mode file, origin) seen at session start. Records are agent-writable
-// at any time; the rails re-read them on every action.
+// may supply, and the rail state (mode file, origin) seen at session start. A repository's agent-rails
+// config (<main checkout>/.agentrails/) is rail state too: agents read it but never write it, and the
+// rails re-read it on every action.
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -10,7 +11,7 @@ import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { absentFile, canonicalPath, mentionsGit, repoRoot } from "./rails-runtime.ts";
 
-// checks.commit plus the harness checks get this long; omp's tool_call budget must exceed it.
+// commands.commit plus the harness checks get this long; omp's tool_call budget must exceed it.
 const COMMIT_CHECKS_TIMEOUT_MS = 600_000;
 const TOOL_CALL_TIMEOUT_MS = COMMIT_CHECKS_TIMEOUT_MS + 60_000;
 // omp routes that land commits or pushes without a bash call: the eval commit prelude, the github
@@ -45,12 +46,19 @@ const inside = (path: string, root: string) => {
 	return rel === "" || !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
 };
 
-// Why an agent tool may not write path: Git internals (hooks, config, refs, proof evidence), the
-// mode file, the review state, the live extension, the harness config, or Git and gh config.
+// The directory that holds a repository's agent-rails config, in any repository or worktree.
+const CONFIG_SEGMENT = ".agentrails";
+
+// Why an agent tool may not write path: Git internals (hooks, config, refs, proof evidence), a
+// repository's agent-rails config, the mode file, the review state, the live extension, the harness
+// config, or Git and gh config.
 function protectedPathReason(path: string, protection: Protection): string | undefined {
 	const forms = [path, canonicalPath(path)];
 	if (forms.some(form => form.split(sep).includes(".git"))) {
 		return `Agent rails: ${path} is inside Git's internal directory (hooks, config, refs and proof evidence); agents never write it.`;
+	}
+	if (forms.some(form => form.split(sep).includes(CONFIG_SEGMENT))) {
+		return `Agent rails: ${path} is inside a repository's agent-rails config (${CONFIG_SEGMENT}/); agents read it but never write it, and only the owner changes it.`;
 	}
 	const root = protectedRoots(protection).find(candidate => forms.some(form => inside(form, candidate) || inside(form, canonicalPath(candidate))));
 	return root ? `Agent rails: ${path} is rail state (${root}); only the owner changes it.` : undefined;
@@ -58,19 +66,19 @@ function protectedPathReason(path: string, protection: Protection): string | und
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// Text naming rail state: Git internals and proof evidence anywhere, Git and gh config, and the
-// mode file, review state, extension and harness config by absolute or ~/ path.
+// Text naming rail state: Git internals, proof evidence and agent-rails configs anywhere, Git and gh
+// config, and the mode file, review state, extension and harness config by absolute or ~/ path.
 function markerPattern(protection: Protection): RegExp {
 	const home = homedir();
 	const roots = protectedRoots(protection).flatMap(root => root.startsWith(`${home}/`) ? [root, `~${root.slice(home.length)}`] : [root]);
-	return new RegExp(`(?:^|[\\s'"=:/(])\\.git(?:/|$|[\\s'";)])|omp-prove|omp-structure|dynaflows-reviews\\.json|dynaflows/modes\\.json|\\.gitconfig|git/config\\b|gh/config\\.yml|${roots.map(escape).join("|")}`, "m");
+	return new RegExp(`(?:^|[\\s'"=:/(])\\.git(?:/|$|[\\s'";)])|\\.agentrails|omp-prove|omp-structure|dynaflows-reviews\\.json|dynaflows/modes\\.json|\\.gitconfig|git/config\\b|gh/config\\.yml|${roots.map(escape).join("|")}`, "m");
 }
 
 const SHELL_WRITES = /(?<!<)>(?!&)|\b(?:tee|cp|mv|rm|ln|install|rsync|dd|truncate|chmod|chown|touch|mkdir|unlink|shred|patch|python[\d.]*|node|bun|perl|ruby|deno)\b|-delete\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)/;
 
 function shellStateReason(command: string, protection: Protection): string | undefined {
 	return markerPattern(protection).test(command) && SHELL_WRITES.test(command)
-		? "Agent rails: this command writes near rail state (Git internals, proof evidence, the mode file, the review state, the extension or Git/gh config); only the owner changes it."
+		? "Agent rails: this command writes near rail state (Git internals, proof evidence, an agent-rails config, the mode file, the review state, the extension or Git/gh config); only the owner changes it."
 		: undefined;
 }
 
@@ -86,7 +94,7 @@ function evalReason(code: string, protection: Protection): string | undefined {
 	if (EVAL_COMMIT.test(code)) return "Agent rails: the eval commit namespace commits outside the rails; commit with git commit in the bash tool.";
 	if (EVAL_PROCESS.test(code) && mentionsGit(code)) return "Agent rails: eval may not run git, gh, hub or omp; run them with the bash tool so the rails check them.";
 	if (markerPattern(protection).test(code) && (EVAL_WRITES.test(code) || EVAL_PROCESS.test(code))) {
-		return "Agent rails: eval may not write rail state (Git internals, proof evidence, the mode file, the review state, the extension or Git/gh config).";
+		return "Agent rails: eval may not write rail state (Git internals, proof evidence, an agent-rails config, the mode file, the review state, the extension or Git/gh config).";
 	}
 	return EVAL_TAMPER.test(code) ? "Agent rails: eval may not redefine the proof workflow or reach builtins; call prove() and structure_review() as loaded." : undefined;
 }

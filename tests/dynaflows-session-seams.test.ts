@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, ciHead, greenCi, mockPrCi, mergeRecover } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi, mergeRecover } from "./dynaflows-guards-seams.test";
 import { extensionDiff, extensionRevision } from "../agent/extensions/dynaflows/lib/restart-review.ts";
 import { MAX_FOLLOW_UPS, ranCommand, shellJoin } from "../agent/extensions/dynaflows/lib/obligations.ts";
 
@@ -50,17 +50,18 @@ describe("end-of-turn obligations", () => {
 	test("the PR obligation waits on pending CI, ends at merge and never applies when agents may not merge", async () => {
 		const h = harness();
 		try {
+			h.config({ ci: { enabled: true, runner: "github-actions", requiredContext: "test" } });
 			h.mode("structured");
 			await bashResult(h, "gh pr create --head agent/other --fill");
 			mockPrCi(h, [{ __typename: "CheckRun", name: "test", status: "IN_PROGRESS", conclusion: null }], { selector: "agent/other" });
 			const pending = reasonOf(await h.emit("session_stop"));
-			assert.ok(pending.includes("[pr:agent/other]") && pending.includes("test: IN_PROGRESS") && pending.includes("gh pr checks agent/other --watch"),
+			assert.ok(pending.includes("[pr:agent/other]") && pending.includes('required CI context "test" is IN_PROGRESS/') && pending.includes("gh pr checks agent/other --watch"),
 				`running CI holds the turn with the wait command: ${pending}`);
 			mockPrCi(h, greenCi, { selector: "agent/other" });
 			assert.ok(reasonOf(await h.emit("session_stop")).includes("has green CI on its head and is unmerged"), "green CI asks for the merge");
-			h.gate({ schemaVersion: 2, agentMerge: "disabled" });
-			assert.equal(await h.emit("session_stop"), undefined, "agentMerge disabled leaves the merge to the owner");
-			h.gate({ schemaVersion: 2 });
+			h.config(askAutonomy);
+			assert.equal(await h.emit("session_stop"), undefined, "autonomy.merge ask leaves the merge to the owner");
+			h.config();
 			await bashResult(h, "gh pr create --head agent/other --fill");
 			mockPrCi(h, greenCi, { selector: "agent/other", state: "MERGED" });
 			assert.equal(await h.emit("session_stop"), undefined, "a merged PR meets the obligation");
@@ -73,7 +74,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		try {
 			h.mode("structured");
-			h.gate({ schemaVersion: 2, ci: { requiredContext: "gate", runner: "ci-gate" } });
+			h.config(ciGate);
 			await bashResult(h, "gh pr create --fill");
 			mockPrCi(h, [{ __typename: "StatusContext", context: "gate", state: "PENDING" }], { selector: "agent/test" });
 			const reason = reasonOf(await h.emit("session_stop"));
@@ -103,7 +104,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		try {
 			h.mode("structured");
-			h.gate({ schemaVersion: 2, afterMerge: { argv: ["make", "sync"] } });
+			h.config({ afterMerge: { argv: ["make", "sync"] } });
 			h.branch.push(
 				{ type: "message", message: { role: "user", content: "fix it\n$rollout" } },
 				toolCallEntry("c1", "bash", { command: "gh pr create --head agent/resumed --fill" }), toolResultEntry("c1"),
@@ -138,7 +139,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		try {
 			h.mode("structured");
-			h.gate({ schemaVersion: 2, afterMerge: { argv: ["make", "sync"], paths: ["agent/**"] } });
+			h.config({ afterMerge: { argv: ["make", "sync"], paths: ["agent/**"] } });
 			let files = ["readme.md"];
 			const exec = h.api.exec.bind(h.api);
 			h.api.exec = async (command, args, options) => {
@@ -168,7 +169,7 @@ describe("end-of-turn obligations", () => {
 		const h = harness();
 		try {
 			h.mode("structured");
-			h.gate({ schemaVersion: 2, afterMerge: { argv: ["./sync", "--all"] } });
+			h.config({ afterMerge: { argv: ["./sync", "--all"] } });
 			await bashResult(h, "gh pr merge 3 --merge --match-head-commit x");
 			assert.ok(reasonOf(await h.emit("session_stop")).includes("./sync --all"));
 			await bashResult(h, "cd . && ./sync --all");
@@ -256,7 +257,7 @@ describe("review on restart", () => {
 			await h.emit("session_start");
 			await h.read("skill://git-tool", mergeRecover);
 			const task = messageText(await prompt(h, "work"));
-			assert.ok(task.includes("First task: the dynaflows extension changed") && task.includes("Record checks") &&
+			assert.ok(task.includes("First task: the dynaflows extension changed") && task.includes("Config checks") &&
 				task.includes("guardrails config-check: exit 0") && task.includes("guardrails check: exit 0"), task);
 			assert.ok(task.includes("unavailable (not a Git revision pair)"), task);
 			assert.ok(reasonOf(await commit(h)).includes("acknowledge: true"));
@@ -297,7 +298,7 @@ describe("review on restart", () => {
 		} finally { h.cleanup(); rmSync(join(worktree, ".."), { recursive: true, force: true }); }
 	});
 
-	test("failing record checks are in the task, and modes.json changes are not extension changes", async () => {
+	test("failing config checks are in the task, and modes.json changes are not extension changes", async () => {
 		const h = harness({ guardrailsCommand: ["sh", "-c", "echo 'PROFILE.complete missing'; exit 1", "check"] });
 		try {
 			h.mode("structured");
@@ -329,8 +330,8 @@ describe("review on restart", () => {
 			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
+			h.config({ afterMerge: { argv: ["make", "sync"] } });
 			h.mode("structured");
-			writeFileSync(join(h.recordDir(), "profile.md"), '---\n{"tiers": {"t1": "bun test"}}\n---\n# Repo test profile\n\nThe front matter holds the values.\n\n## Tiers\n');
 			await h.read("skill://git-tool", mergeRecover);
 			await h.emit("session_start");
 			assert.match(reviews(h)["owner/repo"] ?? "", /^git:[0-9a-f]{40}$/);
@@ -343,14 +344,16 @@ describe("review on restart", () => {
 			assert.equal(reviews(h)["owner/repo"], `git:${git("rev-parse", "HEAD").toString().trim()}`);
 			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await commit(h), undefined);
-			const judged = z.object({ mode: z.object({ name: z.string(), runs: z.string() }), record: z.object({ repo: z.string(), gate: z.object({ schemaVersion: z.number() }).passthrough(),
-				profile_summary: z.object({ frontmatter: z.record(z.string(), z.string()), headings: z.array(z.string()), intro: z.string() }) }),
+			const judged = z.object({ mode: z.object({ name: z.string(), runs: z.string() }), config: z.record(z.string(), z.unknown()),
 				change: z.object({ commit_subjects: z.array(z.string()), files: z.array(z.object({ path: z.string(), status: z.string() })), patch_excerpts: z.array(z.object({ path: z.string(), patch: z.string() })) }).passthrough() })
-				.parse(h.judged.calls.at(-1)?.state);
+				.strict().parse(h.judged.calls.at(-1)?.state);
 			assert.equal(judged.mode.name, "structured");
 			assert.ok(judged.mode.runs.startsWith("Everything minimal runs"));
-			assert.equal(judged.record.repo, "owner/repo");
-			assert.deepEqual(judged.record.profile_summary, { frontmatter: { tiers: '{"t1":"bun test"}' }, headings: ["# Repo test profile", "## Tiers"], intro: "The front matter holds the values." });
+			const config = harnessConfig("owner/repo", { afterMerge: { argv: ["make", "sync"] } });
+			assert.deepEqual(judged.config, {
+				autonomy: config.autonomy, ci: config.ci, gates: config.gates, judgments: config.judgments, mergePolicies: config.mergePolicies,
+				afterMerge: config.afterMerge, commands: config.commands,
+			}, "extension-impact judges the config's rail sections, never its setup-owned sections");
 			assert.deepEqual(judged.change.commit_subjects, ["refactor: rename an internal helper"]);
 			assert.deepEqual(judged.change.files.map(file => `${file.status} ${file.path}`), ["M agent/extensions/dynaflows/index.ts"]);
 			assert.ok(judged.change.patch_excerpts[0]?.patch.startsWith("--- a/agent/extensions/dynaflows/index.ts"));

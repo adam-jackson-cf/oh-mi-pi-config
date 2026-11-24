@@ -5,32 +5,33 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, GATE_FILE, type Gate, loadGate, minimalText, OriginError, recordDir, repoSlug, resolveRecord, unresolvedText,
+	configRoot as defaultConfigRoot, minimalText, OriginError, originUrl, parseOrigin, repoSlug, unresolvedText,
 } from "./lib/repo-record.ts";
+import { commonDir, resolveConfig, type AgentRailsConfig, type Ci, type ConfigState } from "./lib/repo-config.ts";
 import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, loadMapping, detailsSchema, policyEvent, absolute, repoRoot,
-	paths, pathArguments, matches, missing, sentence, readReason, gitActions, readRecord, note, fileErrorSchema,
+	paths, pathArguments, matches, missing, sentence, readReason, gitActions, note, fileErrorSchema,
 	codeRunsGit, INDEX_WRITES, commitScopeArgument,
-	recordRead, subagentPathReason, type GitAction, type Mapping, type RepoRecord, type State as SharedState, type ToolEvent,
+	recordRead, subagentPathReason, type GitAction, type Mapping, type State as SharedState, type ToolEvent,
 	blockLine, closeEpisodes, coded, insertEntries, openEpisode, RailError, refuse, resolvedLine, storePath as defaultStorePath,
 	type Episode, type LedgerLine, type RailCode, type Refusal,
 } from "./lib/rails-runtime.ts";
 import {
-	PUBLISHES, adminMergeReason, agentMergeReason, commitHookReason, configWriteReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
-	prMerge, prMergeReason, pushReason, routeReason, worktreeReason, type DefaultBranches,
+	PUBLISHES, adminMergeReason, autonomyReason, commitHookReason, configWriteReason, hookBypassReason, mergeMethodReason, mergePolicyFor, minimalMergeReason,
+	prCreateBranch, prMerge, prMergeReason, pushedBranches, pushReason, routeReason, worktreeReason, type AutonomyApprovals, type DefaultBranches,
 } from "./lib/guards.ts";
 import {
-	defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
+	Approvals, defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
 	type PrStatus,
 } from "./lib/session-rails.ts";
 import {
 	COMMIT_CHECKS_TIMEOUT_MS, Evidence, Snapshot, evalReason, fileState, pinSettings, protectedPathReason, setting as ompSetting, shellStateReason,
 	type Protection,
 } from "./lib/trust.ts";
-import { commonDir } from "./lib/git-paths.ts";
 
 const prCiSchema = z.object({
+	number: z.number().int().positive(),
 	headRefOid: z.string().regex(/^[0-9a-f]{40}$/),
 	baseRefName: z.string().min(1),
 	headRefName: z.string().min(1),
@@ -45,7 +46,7 @@ const prCiSchema = z.object({
 });
 
 // Harness variables the omp runtime sets for its own commands. Rails strip them from every repo
-// command they run (path check, checks.commit, harness checks) so repos never see the harness.
+// command they run (path check, commands.commit, harness checks) so repos never see the harness.
 const harnessVariables = ["AGENT"];
 const ALIAS_DEPTH = 8;
 // github tool operations that push, open PRs or move local branches.
@@ -105,18 +106,20 @@ function headFormatReason(head: string | undefined): Refusal | undefined {
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
 type Applied = { notice: string; content?: string | undefined };
-function missingRecordOutcome(notify: (notice: string) => string, slug: string, recordPath: string, mode: Mode): Applied {
-	if (mode === "minimal") return { notice: notify(`Agent rails: ${slug} has no per-repo record, so dynaflows is already in minimal mode.`) };
-	return { notice: notify(`Agent rails: ${slug} has no per-repo record; starting repository setup.`), content:
-		`The owner asked for dynaflows structured mode in ${slug}, which has no per-repo record yet. ` +
-		"Start skill://structured-workflow/references/harness-setup.md setup now, from Step 0. Write the record " +
-		`yourself at ${recordPath} as setup reaches each file; structured mode starts once the record is complete. ` +
-		"Never ask the owner to save a file." };
+// The directive's outcome for a repository whose agent-rails config is missing or cannot be resolved.
+function unconfiguredOutcome(notify: (notice: string, level?: "info" | "error") => string, slug: string, state: ConfigState, mode: Mode): Applied {
+	if (state.kind !== "missing") {
+		const reason = "reason" in state ? state.reason : state.kind;
+		return { notice: notify(`Agent rails: cannot resolve the agent-rails config of ${slug}: ${reason}; retry.`, "error") };
+	}
+	if (mode === "minimal") return { notice: notify(`Agent rails: ${slug} has no agent-rails config, so dynaflows is already in minimal mode.`) };
+	return { notice: notify(`Agent rails: ${slug} has no agent-rails config at ${state.path}; structured mode starts once the owner onboards it.`), content:
+		`The owner asked for dynaflows structured mode in ${slug}, which has no agent-rails config (${state.path}) yet, so it runs minimal mode. ` +
+		"Agents never write that file: tell the owner the repository needs onboarding, and apply only the fixed guards until then." };
 }
-function resumeContent(slug: string, dir: string, reason: string): string {
-	return `The owner asked for dynaflows structured mode in ${slug}, but its per-repo record ` +
-		`${join(dir, GATE_FILE)} is refused: ${reason}. Resume skill://structured-workflow/references/harness-setup.md setup now and repair ` +
-		"the record yourself in place. Never ask the owner to save a file.";
+function invalidContent(slug: string, path: string, reason: string): string {
+	return `The owner asked for dynaflows structured mode in ${slug}, but its agent-rails config ${path} is refused: ${reason}. ` +
+		"Agents never write that file: report the problems to the owner, who repairs it; until then dynaflows runs minimal mode.";
 }
 function startContent(slug: string, workflow: string): string {
 	return `Dynaflows structured mode for ${slug}. The owner asked to start dynaflows here, so begin now: read ` +
@@ -136,11 +139,13 @@ interface State extends SharedState {
 	// Tool calls seen this session and the open refusal episodes, for the rails ledger.
 	calls: number;
 	episodes: Episode[];
+	// The owner's one-use autonomy approvals the current tool call relies on; consumed only when the call is allowed.
+	autonomyUses: string[];
 }
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		pointed: false, proposal: [], ownerAsked: false, calls: 0, episodes: [],
+		pointed: false, proposal: [], ownerAsked: false, calls: 0, episodes: [], autonomyUses: [],
 	};
 }
 // A rebuilt session state keeps the pointer, path failures, call count and open ledger episodes.
@@ -233,12 +238,12 @@ const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardr
 const defaultConfigCheckCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "config-check"];
 // The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
 const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
-// The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
-// checker already enforces that step and the record has not given the step to it.
+// The harness checks run only after commands.commit passed, so a harness-only finding can mean a repo
+// checker already enforces that step and the config has not given the step to it.
 const harnessOnlyNote =
-	"checks.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: route to project setup (skill://structured-workflow/references/harness-setup.md, adopt mode) to " +
-	"draft guardrails.check.repo for the owner to save.";
+	"commands.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
+	"code to the harness copy: report it to the owner, whose .agentrails/config.json can give the step to the repo " +
+	"checker (checkers.check.repo).";
 
 const dynaflowsOnVerbs = "on|enable|init|initiali[sz]e|start|setup|set up|turn on|structured";
 const dynaflowsDirective = new RegExp(
@@ -313,25 +318,39 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 	if (!evidence.trusts(path, text)) return untrustedEvidence("structure_review()", head, path);
 	return structureBlock(result, head);
 }
-type PrCi = { reason: Refusal } | { head: string; repository: string; base: string; headRef: string; state: string; gate: Gate | undefined; ciReason: Refusal | undefined };
+type PrCi = { reason: Refusal } | {
+	number: number; head: string; repository: string; base: string; headRef: string; state: string; config: AgentRailsConfig | undefined; ciReason: Refusal | undefined;
+};
 // The turn-end status of the agent's PR: open is unmet while agents may merge; pending or failing CI
 // and an unreadable PR are unmet with their reason, so the turn waits for CI instead of settling.
+// A repository whose autonomy.merge is ask leaves the merge to the owner.
 function prObligation(pr: PrCi): PrStatus {
 	if (!("head" in pr)) return { status: "unmet", reason: pr.reason.reason };
-	if (pr.state !== "OPEN" || pr.gate?.agentMerge === "disabled") return { status: "met" };
+	if (pr.state !== "OPEN" || pr.config?.autonomy.merge === "ask") return { status: "met" };
 	return { status: "unmet", reason: pr.ciReason?.reason };
 }
 type PrIdentity = { head: string; repository: string };
 type PrState = Exclude<PrCi, { reason: Refusal }>;
+type MergeAt = { cwd: string; head: string; evidence: Evidence };
+type Proofs = { prove: boolean; structure: boolean };
+// The proof a merge needs: none unless its policy asks for proof; then gates.prove and gates.structureReview
+// decide whether prove() and structure_review() results are required.
+function proofsFor(proof: boolean, gates: AgentRailsConfig["gates"] | undefined): Proofs {
+	return { prove: proof && gates?.prove !== false, structure: proof && gates?.structureReview !== false };
+}
+async function proofReason(pi: ExecApi, at: MergeAt, proofs: Proofs): Promise<Refusal | undefined> {
+	const prove = proofs.prove ? await proveResultReason(pi, at.cwd, at.head, at.evidence) : undefined;
+	if (prove || !proofs.structure) return prove;
+	return structureResultReason(pi, at.cwd, at.head, at.evidence);
+}
 // The merge policy for the PR's base and head decides the method and whether proof is needed.
-async function policyMergeReason(pi: ExecApi, args: string[], at: { cwd: string; head: string; evidence: Evidence }, pr: PrState): Promise<Refusal | undefined> {
-	const { cwd, head, evidence: watched } = at;
-	const policy = mergePolicyFor(pr.gate?.mergePolicies ?? [], pr.base, pr.headRef);
+async function policyMergeReason(pi: ExecApi, args: string[], at: MergeAt, pr: PrState): Promise<Refusal | undefined> {
+	const policy = mergePolicyFor(pr.config?.mergePolicies ?? [], pr.base, pr.headRef);
 	const method = mergeMethodReason(args, policy);
 	if (method) return method;
-	if (pr.head !== head) return refuse("merge-head-stale", `Agent rails: PR head is ${pr.head}, not ${head}; ${policy.proof ? "prove() the current head" : "merge the current head"}`);
-	const evidence = policy.proof ? (await proveResultReason(pi, cwd, head, watched)) ?? (await structureResultReason(pi, cwd, head, watched)) : undefined;
-	return evidence ?? pr.ciReason;
+	const proofs = proofsFor(policy.proof, pr.config?.gates);
+	if (pr.head !== at.head) return refuse("merge-head-stale", `Agent rails: PR head is ${pr.head}, not ${at.head}; ${proofs.prove ? "prove() the current head" : "merge the current head"}`);
+	return (await proofReason(pi, at, proofs)) ?? pr.ciReason;
 }
 async function foreignRepository(pi: ExecApi, root: string, selector: string | undefined, repository: string): Promise<boolean> {
 	if (!selector || !/^https?:[/]{2}/i.test(selector)) return false;
@@ -346,12 +365,10 @@ function requiredCiReason(checks: CheckReport[], required: { requiredContext: st
 		`Submit and wait: ${command("submit")}, then ${command("wait")} --context ${shellWord(requiredContext)}; ` +
 		"see skill://git-tool/references/merge-and-recover.md for failures.");
 }
-function ciReason(checks: CheckReport[], gate: Gate | undefined, pr: PrIdentity): Refusal | undefined {
-	if (gate?.requiredCi) return requiredCiReason(checks, gate.requiredCi, pr);
-	if (!checks.length) return refuse("merge-ci", `Agent rails: no CI checks reported for ${pr.head}; structured merges need CI on the exact head.`);
-	const nonGreen = checks.filter(check => !check.acceptable).map(check => `${check.name}: ${check.state}`);
-	return nonGreen.length || !checks.some(check => check.green)
-		? refuse("merge-ci", `Agent rails: CI is not green for ${pr.head}: ${nonGreen.join(", ") || "no SUCCESS check reported"}`) : undefined;
+// The config's ci decides the merge's CI requirement: the exact-head required context when enabled, none when disabled.
+function ciReason(checks: CheckReport[], ci: Ci | undefined, pr: PrIdentity): Refusal | undefined {
+	if (ci === undefined) return refuse("merge-ci", `Agent rails: ${pr.repository} has no valid agent-rails config, so its CI requirement for ${pr.head} is unknown; the owner merges.`);
+	return ci.enabled ? requiredCiReason(checks, ci, pr) : undefined;
 }
 type ModeAt = { mode: Mode; why?: string; invalid?: boolean };
 async function statusAdditions(pi: ExecApi, canonicalRoot: string): Promise<Set<string>> {
@@ -388,20 +405,62 @@ async function groupByRoot(map: Mapping, changed: string[], state: State): Promi
 	}
 	return groups;
 }
-type Resolved = { slug: string | null; dir: string | null; reason?: string };
-// The mode file names the mode; structured mode also needs a valid record, else the repo runs minimal.
-async function resolvedMode(modesPath: string, resolved: Resolved, strict: boolean): Promise<ModeAt> {
-	const { slug, dir } = resolved;
-	if (!slug) return { mode: "minimal", why: minimalText(null, resolved.reason ?? "no GitHub origin") };
+type Origin = { slug: string | null; reason?: string };
+/** The clone's GitHub slug, or why it has none; an origin remote that cannot be read throws OriginError. */
+async function originAt(root: string): Promise<Origin> {
+	const url = await originUrl(root);
+	if (url === null) return { slug: null, reason: "no origin remote" };
+	const slug = parseOrigin(url);
+	return slug === null ? { slug, reason: `origin ${url.trim()} is not a GitHub owner/name URL` } : { slug };
+}
+/** Why a config state is not one the rails can run: the engine's problems, or why it could not be resolved. */
+function configFault(state: Exclude<ConfigState, { kind: "ok" | "missing" }>): string {
+	return state.kind === "invalid"
+		? `the agent-rails config ${state.path} is invalid: ${state.problems.join("; ")}`
+		: `cannot resolve this repository's agent-rails config: ${state.reason}`;
+}
+// The mode file names the mode; structured mode also needs a config the engine accepts, else the repo runs minimal.
+async function resolvedMode(modesPath: string, slug: string, config: () => Promise<ConfigState>, strict: boolean): Promise<ModeAt> {
 	try {
 		if (await repoMode(modesPath, slug) === "minimal") return { mode: "minimal", why: minimalText(slug, `the mode file ${modesPath} does not set structured`) };
-		if (!dir) return { mode: "minimal", why: minimalText(slug, resolved.reason ?? "no per-repo record") };
-		await loadGate(dir);
-		return { mode: "structured" };
+		const state = await config();
+		if (state.kind === "ok") return { mode: "structured" };
+		if (state.kind === "missing") return { mode: "minimal", why: minimalText(slug, `no agent-rails config at ${state.path}`) };
+		throw state.kind === "invalid" ? new Error(configFault(state)) : new RailError("config-unresolved", configFault(state));
 	} catch (error) {
 		if (strict) throw error;
 		return { mode: "minimal", invalid: true, why: minimalText(slug, error instanceof Error ? error.message : String(error)) };
 	}
+}
+// The agent-rails config of the repository holding cwd, re-read (and engine-checked once per content) on every action.
+function configAt(pi: ExecApi, cwd: string): Promise<ConfigState> {
+	return resolveConfig(pi, guardrailsProject, cwd);
+}
+// The config publishing and merges run under: none for an unconfigured repository; an invalid or
+// unresolvable config refuses the action.
+async function publishConfig(pi: ExecApi, cwd: string): Promise<AgentRailsConfig | undefined> {
+	const root = await repoRoot(cwd);
+	if (!root) throw new Error("publishing requires a validated local Git repository");
+	const state = await configAt(pi, root);
+	if (state.kind === "ok") return state.config;
+	if (state.kind === "missing" || state.kind === "outside") return undefined;
+	if (state.kind === "invalid") throw new Error(configFault(state));
+	throw new RailError("config-unresolved", configFault(state));
+}
+// The config of a repository whose rails run, when the engine accepted it; undefined for any other state.
+async function acceptedConfig(pi: ExecApi, root: string): Promise<AgentRailsConfig | undefined> {
+	const state = await configAt(pi, root);
+	return state.kind === "ok" ? state.config : undefined;
+}
+// The repo config's autonomy.branch for each branch a git push sends, once pushReason passed it.
+async function branchAutonomyReason(pi: ExecApi, action: GitAction, cwd: string, approved: AutonomyApprovals): Promise<Refusal | undefined> {
+	const config = await publishConfig(pi, cwd);
+	if (config?.autonomy.branch !== "ask") return undefined;
+	for (const branch of await pushedBranches(pi, cwd, action.args)) {
+		const reason = autonomyReason({ action: "branch", subject: branch }, config, approved);
+		if (reason) return reason;
+	}
+	return undefined;
 }
 type SessionCache = { builtins?: Promise<Set<string>>; userRules?: string[] };
 // Git's own commands (built-ins and the scripts it ships), plus git-lfs: any other subcommand is an
@@ -429,7 +488,7 @@ async function subagentReason(map: Mapping, event: ToolEvent, ctx: ExtensionCont
 }
 type CommitRun = { code: RailCode; label: string; argv: string[] };
 function commitFailure(run: CommitRun, root: string, result: { code: number; killed?: boolean; stdout: string; stderr: string }, repoOwned: boolean): Refusal {
-	if (result.killed) return refuse(run.code, `Agent rails: ${run.label} did not finish within the commit rail's ${COMMIT_CHECKS_TIMEOUT_MS / 1000}s budget in ${root}; make checks.commit faster, then commit again.`);
+	if (result.killed) return refuse(run.code, `Agent rails: ${run.label} did not finish within the commit rail's ${COMMIT_CHECKS_TIMEOUT_MS / 1000}s budget in ${root}; make commands.commit faster, then commit again.`);
 	const output = `${result.stdout}\n${result.stderr}`.trim();
 	const failed = `Agent rails: ${run.label} failed in ${root} (exit ${result.code})`;
 	return refuse(run.code, `${failed}; ` +
@@ -450,7 +509,7 @@ function committedTreeReason(action: GitAction, root: string, call: BashCall): R
 		? refuse("commit-alone", `Agent rails: run git commit in ${root} as its own bash command (stage in an earlier call) so the commit checks see the tree being committed.`)
 		: undefined;
 }
-// checks.commit runs on the working tree, so it must match what git commit records.
+// commands.commit runs on the working tree, so it must match what git commit records.
 async function unstagedReason(pi: ExecApi, action: GitAction, root: string): Promise<Refusal | undefined> {
 	if (action.args.slice(1).some(arg => arg === "--all" || /^-[^-]*a/.test(arg))) return undefined;
 	const diff = await pi.exec("git", ["diff", "--name-only"], { cwd: root, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -476,8 +535,8 @@ function protectedEditReason(map: Mapping, protection: Protection, event: ToolEv
 	}
 	return undefined;
 }
-// The rail state a session trusts: the mode file and the session repo's origin. Records are not
-// part of it: agents write them at any time and the rails re-read them on every action.
+// The rail state a session trusts: the mode file and the session repo's origin. The repo's
+// agent-rails config is not snapshotted: agents cannot write it, and the rails re-read it on every action.
 async function captureState(snapshot: Snapshot, modesFile: string, cwd: string, notify: (text: string, level: "error") => void): Promise<void> {
 	await snapshot.capture(modesFile, () => fileState(modesFile));
 	const root = await repoRoot(cwd);
@@ -533,7 +592,7 @@ function workflowReferences(map: Mapping): string {
 	return (map.references.structured["workflow"] ?? []).join(" and ");
 }
 type ScopeInput = Parameters<ReturnType<typeof sessionRails>["judged"]["scopeReason"]>[1];
-type StructuredRequest = { notice: string; slug: string; dir: string; task: boolean };
+type StructuredRequest = { notice: string; slug: string; path: string; task: boolean };
 
 type DynaflowsOptions = {
 	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsConfigCheckCommand: string[];
@@ -572,7 +631,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const root = await repoRoot(cwd).catch(() => undefined);
 		const repo = root ? await repoSlug(root).catch(() => null) : null;
 		return { repo, mode: await modeAt(ctx, cwd).then(at => at.mode, () => null) };
-	}), states = new Map<string, State>(), session: SessionCache = {}, trust: Trust = {
+	}), states = new Map<string, State>(), session: SessionCache = {}, approvals = new Approvals(), trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
 		protection: {
 			modesFile: modesPath, reviewsFile: reviewsPath, extensionDir: dirname(configPath),
@@ -595,39 +654,32 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		}
 		return state;
 	};
-	async function recordAt(root: string): Promise<RepoRecord | undefined> {
-		return readRecord(root, configRoot);
-	}
+	const autonomyApprovals = (ctx: ExtensionContext, state: State): AutonomyApprovals => ({
+		has: key => approvals.has(ctx.sessionManager.getSessionId(), key),
+		use: key => { state.autonomyUses.push(key); },
+	});
 	const sessionRail = sessionRails(pi, {
 		configRoot, extensionDir, reviewsPath, sources: [...obligationSources],
 		commonDir: cwd => commonDir(pi, cwd),
 		decide: registryDecide(pi, decideCommand, judge ?? ompJudge(pi.pi.settings)),
+		approvals,
 		askFirst: part => !loadError && new RegExp(map.askFirstCommand).test(part),
 		modeOf: (ctx, cwd) => modeOf(ctx, cwd),
-		recordAt,
-		prStatus: (ctx, cwd, selector) => prCi(cwd, selector, stateFor(ctx), ctx).then(prObligation, (error: Error): PrStatus => ({ status: "unmet", reason: String(error) })),
-		prOpen: async (ctx, cwd, branch) => {
-			const pr = await prCi(cwd, branch, stateFor(ctx), ctx).catch(() => undefined);
+		configOf: root => acceptedConfig(pi, root),
+		prStatus: (_ctx, cwd, selector) => prCi(cwd, selector).then(prObligation, (error: Error): PrStatus => ({ status: "unmet", reason: String(error) })),
+		prOpen: async (_ctx, cwd, branch) => {
+			const pr = await prCi(cwd, branch).catch(() => undefined);
 			return pr !== undefined && "head" in pr && pr.state === "OPEN";
 		},
 		repoRun: (argv, cwd, timeout) => repoExec(pi, argv, cwd, timeout),
 		checks: { config: guardrailsConfigCheckCommand, check: guardrailsCommand },
 		loadError: () => loadError,
 	});
-	async function gateAt(root: string, state: State, ctx: ExtensionContext, strict = false): Promise<Gate | undefined> {
-		try {
-			return (await recordAt(root))?.gate;
-		} catch (error) {
-			if (strict) throw error;
-			note(state, ctx, `Agent rails: ${error instanceof Error ? error.message : String(error)}; reference checks apply.`);
-			return undefined;
-		}
-	}
-	async function prCi(cwd: string | undefined, selector: string | undefined, state: State, ctx: ExtensionContext): Promise<PrCi> {
+	async function prCi(cwd: string | undefined, selector: string | undefined): Promise<PrCi> {
 		if (!cwd) throw new Error("cannot resolve PR action cwd");
 		const root = await repoRoot(cwd);
 		if (!root) throw new Error("PR checks require a validated local Git repository");
-		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "headRefOid,baseRefName,headRefName,state,statusCheckRollup,url"],
+		const result = await pi.exec("gh", ["pr", "view", ...(selector ? [selector] : []), "--json", "number,headRefOid,baseRefName,headRefName,state,statusCheckRollup,url"],
 			{ cwd, timeout: SUBPROCESS_TIMEOUT_MS });
 		if (result.code !== 0 || result.killed) return {
 			reason: refuse("merge-pr-unreadable", `Agent rails: cannot read PR head/CI via gh: ${result.stderr.trim()}; authenticate the GitHub account that owns this repository (gh auth switch) and retry.`,
@@ -638,13 +690,17 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		if (await foreignRepository(pi, root, selector, identity.repository)) {
 			return { reason: refuse("merge-foreign-repo", `Agent rails: run from a checkout of ${identity.repository}`) };
 		}
-		const gate = await gateAt(root, state, ctx, true);
-		return { ...identity, base: pr.baseRefName, headRef: pr.headRefName, state: pr.state, gate, ciReason: ciReason(pr.statusCheckRollup, gate, identity) };
+		const config = await publishConfig(pi, root);
+		return {
+			...identity, number: pr.number, base: pr.baseRefName, headRef: pr.headRefName, state: pr.state, config,
+			ciReason: ciReason(pr.statusCheckRollup, config?.ci, identity),
+		};
 	}
 	async function modeAt(ctx: ExtensionContext, cwd = ctx.cwd, strict = false): Promise<ModeAt> {
 		const root = await repoRoot(cwd);
-		const resolved: Resolved = root ? await resolveRecord(root, configRoot) : { slug: null, dir: null, reason: "not in a Git repository" };
-		return resolvedMode(modesPath, resolved, strict);
+		const origin: Origin = root ? await originAt(root) : { slug: null, reason: "not in a Git repository" };
+		if (!root || !origin.slug) return { mode: "minimal", why: minimalText(null, origin.reason ?? "no GitHub origin") };
+		return resolvedMode(modesPath, origin.slug, () => configAt(pi, root), strict);
 	}
 	async function modeOf(ctx: ExtensionContext, cwd = ctx.cwd): Promise<Mode> {
 		const at = await modeAt(ctx, cwd);
@@ -661,18 +717,16 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			return false;
 		}
 	}
-	// The dynaflows directive's target: the repo's slug and record directory (null when it has no
-	// record yet). Throws outside a Git project with a GitHub origin remote.
-	async function directiveTarget(ctx: ExtensionContext): Promise<{ slug: string; dir: string | null }> {
+	// The dynaflows directive's target: the repo's slug and its agent-rails config state. Throws
+	// outside a Git project with a GitHub origin remote.
+	async function directiveTarget(ctx: ExtensionContext): Promise<{ slug: string; config: ConfigState }> {
 		const root = await repoRoot(ctx.cwd);
 		if (!root) throw new Error("repo toggle needs a Git project");
-		const resolved = await resolveRecord(root, configRoot);
-		if (!resolved.slug) throw new Error(`repo toggle needs a Git project with a GitHub origin remote: ${root} has ${resolved.reason}`);
-		return { slug: resolved.slug, dir: resolved.dir };
+		const origin = await originAt(root);
+		if (!origin.slug) throw new Error(`repo toggle needs a Git project with a GitHub origin remote: ${root} has ${origin.reason}`);
+		return { slug: origin.slug, config: await configAt(pi, root) };
 	}
-	async function runPathCheck(root: string, canonicalRoot: string, changed: string[]): Promise<void> {
-		const record = await recordAt(root);
-		if (!record) throw new Error("per-repo record disappeared during path check");
+	async function runPathCheck(canonicalRoot: string, changed: string[]): Promise<void> {
 		const result = await repoExec(pi, [...harnessPathCommand, "--repo", canonicalRoot, "--event", "edit", ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
 		if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 	}
@@ -683,7 +737,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			pending = await canonicalCandidates(root, canonicalRoot, pending);
 			const added = await statusAdditions(pi, canonicalRoot);
 			pending = pending.filter(path => added.has(relative(canonicalRoot, path)));
-			if (pending.length) await runPathCheck(root, canonicalRoot, pending);
+			if (pending.length) await runPathCheck(canonicalRoot, pending);
 			state.pathFailures.delete(root);
 			return undefined;
 		} catch (error) {
@@ -691,23 +745,28 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			return `Agent rails: path check failed in ${root}: ${String(error)}`;
 		}
 	}
+	// gates.pathCheck runs the staged path check; gates.commitChecks runs commands.commit, then the harness checks.
 	async function commitChecksReason(root: string): Promise<Refusal | undefined> {
-		const record = await recordAt(root);
-		if (!record) return undefined;
-		const pathResult = await repoExec(pi, [...harnessPathCommand, "--repo", root, "--event", "staged"], root, SUBPROCESS_TIMEOUT_MS);
-		if (pathResult.code !== 0 || pathResult.killed) {
-			return refuse("staged-path-check", `Agent rails: staged path check failed in ${root}: ${pathResult.stdout}\n${pathResult.stderr}\nFix the findings, then commit again.`,
-				`Agent rails: staged path check failed in ${root}`);
+		const config = await acceptedConfig(pi, root);
+		if (!config) return undefined;
+		const { gates, commands } = config;
+		if (gates.pathCheck) {
+			const pathResult = await repoExec(pi, [...harnessPathCommand, "--repo", root, "--event", "staged"], root, SUBPROCESS_TIMEOUT_MS);
+			if (pathResult.code !== 0 || pathResult.killed) {
+				return refuse("staged-path-check", `Agent rails: staged path check failed in ${root}: ${pathResult.stdout}\n${pathResult.stderr}\nFix the findings, then commit again.`,
+					`Agent rails: staged path check failed in ${root}`);
+			}
 		}
+		if (!gates.commitChecks) return undefined;
 		const runs: CommitRun[] = [
-			{ code: "commit-checks", label: `checks.commit (${record.gate.commit.join(" ")})`, argv: record.gate.commit },
+			{ code: "commit-checks", label: `commands.commit (${commands.commit.join(" ")})`, argv: commands.commit },
 			{ code: "harness-checks", label: "harness checks (guardrails)", argv: [...guardrailsCommand, "--repo", root] },
 		];
 		const deadline = Date.now() + COMMIT_CHECKS_TIMEOUT_MS;
 		for (const run of runs) {
 			const result = await repoExec(pi, run.argv, root, Math.max(1, deadline - Date.now()));
 			if (result.code === 0 && !result.killed) continue;
-			return commitFailure(run, root, result, run.argv === record.gate.commit);
+			return commitFailure(run, root, result, run.argv === commands.commit);
 		}
 		return undefined;
 	}
@@ -715,6 +774,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const errors: Refusal[] = [];
 		for (const [root, changedPaths] of groups) {
 			if (!await structuredAt(ctx, root)) continue;
+			if (!(await acceptedConfig(pi, root))?.gates.pathCheck) {
+				state.pathFailures.delete(root);
+				continue;
+			}
 			const pending = [...new Set([...(state.pathFailures.get(root) ?? []), ...changedPaths])];
 			const error = await ledger.path(ctx, state, root, { code: "path-check", tool }, await checkPaths(root, pending, state));
 			if (!error) continue;
@@ -791,17 +854,22 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const format = adminMergeReason(action.args) ?? prMergeReason(merge) ?? headFormatReason(head);
 		if (format || !head) return format;
 		const selector = merge.selectors[0];
-		const pr = await prCi(action.cwd, selector, state, ctx);
+		const pr = await prCi(action.cwd, selector);
 		if (!("head" in pr)) return pr.reason;
+		const autonomy = autonomyReason({ action: "merge", subject: String(pr.number) }, pr.config, autonomyApprovals(ctx, state));
+		if (autonomy) return autonomy;
 		return (await policyMergeReason(pi, action.args, { cwd: action.cwd, head, evidence: trust.evidence }, pr)) ??
 			coded("judged-evidence", await sessionRail.judged.mergeReason(action.cwd, selector, head, ctx));
 	}
+	// Publishing: git push (default-branch block, then autonomy.branch), gh pr create (autonomy.pr) and
+	// gh pr merge (minimal-mode block, then the merge checks with autonomy.merge).
 	async function publishActionReason(action: GitAction, mode: Mode, state: State, ctx: ExtensionContext): Promise<Refusal | undefined> {
-		const merge = /^gh pr merge\b/.test(action.command);
-		const reason = (await agentMergeReason(action, configRoot)) ?? (merge ? minimalMergeReason(mode) : undefined);
-		if (reason) return reason;
-		if (/^git push\b/.test(action.command)) return pushReason(pi, action, trust.defaults);
-		return merge ? mergeActionReason(action, state, ctx) : undefined;
+		const { cwd } = action;
+		if (!cwd) return refuse("cwd-unresolved", "Agent rails: cannot resolve the command's effective cwd; use an explicit existing directory before git push or gh pr create/merge.");
+		const approved = autonomyApprovals(ctx, state);
+		if (/^git push\b/.test(action.command)) return (await pushReason(pi, action, trust.defaults)) ?? branchAutonomyReason(pi, action, cwd, approved);
+		if (/^gh pr create\b/.test(action.command)) return autonomyReason({ action: "pr", subject: await prCreateBranch(pi, action) }, await publishConfig(pi, cwd), approved);
+		return minimalMergeReason(mode) ?? mergeActionReason(action, state, ctx);
 	}
 	async function gitActionReason(step: Step, state: State, ctx: ExtensionContext, call: BashCall): Promise<Refusal | undefined> {
 		const { action } = step;
@@ -879,6 +947,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		const event = policyEvent(runtimeEvent);
 		const state = stateFor(ctx);
 		state.calls++;
+		state.autonomyUses = [];
 		let refusal: Refusal | undefined;
 		if (loadError) refusal = refuse("rails-config", loadError);
 		else try { refusal = await callReason(event, scopeInputSchema.parse(runtimeEvent.input), ctx, state); }
@@ -887,6 +956,9 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			refusal = error instanceof OriginError ? refuse("mode-unresolved", unresolvedText(error))
 				: refuse(error instanceof RailError ? error.code : "policy-error", `Agent rails: policy could not be evaluated: ${String(error)}`);
 		}
+		// An owner's autonomy approval covers one allowed action: a refused call leaves it for the retry.
+		if (!refusal) for (const key of state.autonomyUses) approvals.consume(ctx.sessionManager.getSessionId(), key);
+		state.autonomyUses = [];
 		await ledger.call(loadError ? undefined : map, event, ctx, state, refusal);
 		return refusal ? { block: true, reason: refusal.reason } : undefined;
 	});
@@ -910,6 +982,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		for (const root of new Set([...state.edits, ...state.pathFailures.keys()])) {
 			if (await modeOf(ctx, root) !== "structured") continue;
 			if (state.edits.has(root)) editedDynaflowsRepo = true;
+			if (!(await acceptedConfig(pi, root))?.gates.pathCheck) state.pathFailures.delete(root);
 			const failedPaths = state.pathFailures.get(root);
 			const error = failedPaths
 				? await ledger.path(ctx, state, root, { code: "handoff-path-check", tool: "session_stop" }, await checkPaths(root, failedPaths, state))
@@ -944,7 +1017,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			return { notice: notify(unresolvedText(error), "error") };
 		}
 		if (at.invalid) {
-			return { notice: request.notice, content: resumeContent(request.slug, request.dir, at.why ?? "invalid record") };
+			return { notice: request.notice, content: invalidContent(request.slug, request.path, at.why ?? "invalid config") };
 		}
 		if (at.mode === "minimal") {
 			const minimal = sentence(at.why ?? "dynaflows minimal mode");
@@ -957,20 +1030,20 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function applyDynaflows(ctx: ExtensionContext, mode: Mode, task: boolean): Promise<Applied> {
 		const state = stateFor(ctx);
 		const notify: Notify = (notice, level = "info") => { ctx.ui.notify(notice, level); return notice; };
-		let target: { slug: string; dir: string | null };
+		let target: { slug: string; config: ConfigState };
 		try { target = await directiveTarget(ctx); }
 		catch (error) { return { notice: notify(error instanceof OriginError ? unresolvedText(error) : `Agent rails: ${String(error)}`, "error") }; }
 		state.pointed = false;
-		const { slug, dir } = target;
+		const { slug, config } = target;
 		try {
 			await writeMode(modesPath, slug, mode);
 			trust.snapshot.accept(modesPath, await fileState(modesPath));
 		} catch (error) { return { notice: notify(`Agent rails: cannot set dynaflows for ${slug}: ${String(error)}`, "error") }; }
 		await syncRules(ctx);
-		if (!dir) return missingRecordOutcome(notify, slug, recordDir(slug, configRoot), mode);
+		if (config.kind !== "ok" && config.kind !== "invalid") return unconfiguredOutcome(notify, slug, config, mode);
 		const notice = notify(`Agent rails: dynaflows ${mode} mode for ${slug} (${modesPath}).`);
 		if (mode === "minimal") return { notice, content: "Dynaflows minimal mode: fixed guards only; do not apply the dynaflows workflow." };
-		return structuredOutcome(ctx, state, notify, { notice, slug, dir, task });
+		return structuredOutcome(ctx, state, notify, { notice, slug, path: config.path, task });
 	}
 	async function applyDirective(ctx: ExtensionContext, settings: (Mode | undefined)[]) {
 		const mode = settings.includes("structured") ? "structured" : "minimal";

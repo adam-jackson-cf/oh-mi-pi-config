@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, test } from "bun:test";
@@ -20,6 +20,16 @@ const gitTool = { name: "read", arguments: { path: "skill://git-tool" } };
 const mergeRecover = { name: "read", arguments: { path: "skill://git-tool/references/merge-and-recover.md" } };
 type ScriptedCall = { name: string; arguments: Record<string, string> };
 const bash = (command: string): ScriptedCall => ({ name: "bash", arguments: { command } });
+// The repo's agent-rails config: the S1a minimal fixture for owner/repo with every autonomy permission allowed and CI off.
+const repoConfig = (() => {
+	const config = JSON.parse(readFileSync(join(repoRoot, "tests/fixtures/agentrails/valid/minimal.json"), "utf8"));
+	return { ...config, repo: { ...config.repo, slug: "owner/repo" }, autonomy: { branch: "allowed", pr: "allowed", merge: "allowed" },
+		ci: { enabled: false }, commands: { commit: ["true"] } };
+})();
+// The rails ask the engine (uv run --project <extension>/engine) for the config's verdict. The test HOME
+// moves uv's default cache and Python directories, so the real ones are passed through.
+const uvDirs = Object.fromEntries(([["UV_CACHE_DIR", "cache"], ["UV_PYTHON_INSTALL_DIR", "python"]] as const).map(([name, verb]) =>
+	[name, Bun.spawnSync({ cmd: ["uv", verb, "dir"], stdout: "pipe" }).stdout.toString().trim()]));
 const requestSchema = z.object({ messages: z.array(z.object({ role: z.string() })), tools: z.array(z.object({ type: z.string() })).optional() });
 
 const eventSchema = z.object({
@@ -74,12 +84,10 @@ function outcomes(stdout: string): ToolOutcome[] {
 function deployExtension(home: string, port: number): void {
 	const target = join(home, ".omp/agent/extensions/dynaflows");
 	const skipped = new Set(["engine", "docs", "judgments"]);
-	// The decision store schema is the one engine file the extension reads.
-	const schema = "engine/guardrails/data/decision-store.sql";
-	cpSync(extension, target, { recursive: true, filter: source => {
-		const path = relative(extension, source);
-		return !skipped.has(path.split("/")[0] ?? "") || path === schema || schema.startsWith(`${path}/`);
-	} });
+	cpSync(extension, target, { recursive: true, filter: source => !skipped.has(relative(extension, source).split("/")[0] ?? "") });
+	// The engine is linked with its environment, not copied: the rails read its decision-store schema
+	// and run its config-check on the repo's agent-rails config.
+	symlinkSync(join(extension, "engine"), join(target, "engine"));
 	symlinkSync(join(repoRoot, "node_modules"), join(home, ".omp/node_modules"));
 	writeFileSync(join(home, ".omp/agent/config.yml"), "extensions:\n  - ~/.omp/agent/extensions/dynaflows\n");
 	writeFileSync(join(home, ".omp/agent/models.yml"), [
@@ -126,22 +134,22 @@ async function agentRun(mode: Mode | undefined, turns: ScriptedCall[][]): Promis
 		mkdirSync(join(home, ".omp/agent/extensions"), { recursive: true });
 		mkdirSync(stubs);
 		deployExtension(home, model.port ?? 0);
-		if (mode) {
-			mkdirSync(join(home, ".omp/repos/owner/repo"), { recursive: true });
-			writeFileSync(join(home, ".omp/repos/owner/repo/gate.json"),
-				JSON.stringify({ schemaVersion: 2, checks: { commit: ["true"] } }));
-			writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
-		}
-		const view = JSON.stringify({ headRefOid: head, baseRefName: "main", headRefName: "agent/unit", state: "OPEN", statusCheckRollup: [], url: "https://github.com/owner/repo/pull/1" });
+		if (mode) writeFileSync(join(home, ".omp/agent/extensions/dynaflows/modes.json"), JSON.stringify({ schemaVersion: 1, repos: { "owner/repo": mode } }));
+		const view = JSON.stringify({ number: 1, headRefOid: head, baseRefName: "main", headRefName: "agent/unit", state: "OPEN", statusCheckRollup: [], url: "https://github.com/owner/repo/pull/1" });
 		writeFileSync(join(stubs, "gh"), `#!/bin/sh\necho "$@" >> '${ghLog}'\n[ "$1 $2" = "pr view" ] && echo '${view}' && exit 0\nexit 1\n`, { mode: 0o755 });
 		const env = {
 			PATH: `${stubs}:${process.env["PATH"] ?? ""}`, HOME: home, TMPDIR: scratch,
 			XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"),
 			XDG_STATE_HOME: join(home, ".local/state"), XDG_CACHE_HOME: join(home, ".cache"),
 			GIT_AUTHOR_NAME: "agent", GIT_AUTHOR_EMAIL: "agent@example.invalid",
-			GIT_COMMITTER_NAME: "agent", GIT_COMMITTER_EMAIL: "agent@example.invalid",
+			GIT_COMMITTER_NAME: "agent", GIT_COMMITTER_EMAIL: "agent@example.invalid", ...uvDirs,
 		};
 		const { repo, remote } = cloneWithRemote(scratch, env);
+		if (mode) {
+			mkdirSync(join(repo, ".agentrails"));
+			writeFileSync(join(repo, ".agentrails/config.json"), JSON.stringify(repoConfig));
+			appendFileSync(join(repo, ".git/info/exclude"), "/.agentrails/\n");
+		}
 		const stdout = await omp(repo, env);
 		const branches = run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"], remote, env).trim().split("\n");
 		return { outcomes: outcomes(stdout), branches, ghCalled: existsSync(ghLog) };

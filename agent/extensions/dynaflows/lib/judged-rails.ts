@@ -5,12 +5,13 @@
 // logged and shown as "shadow, not blocking" but never acts, so the rail behaves as if it had not run.
 // An escalated enforced outcome goes to the owner, who approves with a $approve prompt line.
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { SUBPROCESS_TIMEOUT_MS, absentFile, shellCommands, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
-import { Approvals, approvalLine, clip, digest, enforced, jsonText, verdictText, type Decide, type DecisionSubject, type JudgeState, type RailJudgment, type Verdict } from "./judge.ts";
+import { SUBPROCESS_TIMEOUT_MS, shellCommands, type GitAction, type ToolEvent } from "./rails-runtime.ts";
+import { approvalLine, clip, digest, enforced, jsonText, verdictText, type Decide, type DecisionSubject, type JudgeState, type RailJudgment, type Approvals, type Verdict } from "./judge.ts";
 import type { Obligation, ObligationStatus } from "./obligations.ts";
-import { parseOrigin, readGateText } from "./repo-record.ts";
+import type { AgentRailsConfig } from "./repo-config.ts";
+import { parseOrigin } from "./repo-record.ts";
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };
@@ -42,7 +43,6 @@ const LARGEST_FILES = 20;
 const IMPACT_FILES = 80;
 const PATCH_LIMIT = 2500;
 const PATCHES_LIMIT = 12000;
-const PROFILE_LIMIT = 3500;
 const SCOPE_MESSAGES = 4;
 const SCOPE_MESSAGE_LIMIT = 800;
 const SCOPE_CONTEXT_LIMIT = 700;
@@ -76,7 +76,6 @@ export const scopeInputSchema = z.object({
 	questions: z.array(z.object({ question: z.string() })).optional(), html: z.string().optional(), intent: z.string().optional(),
 }).catch({});
 export type ScopeInput = z.infer<typeof scopeInputSchema>;
-const frontMatterSchema = z.record(z.string(), z.unknown()).catch({});
 
 async function run(pi: ExecApi, command: string, args: string[], cwd: string): Promise<Run> {
 	return pi.exec(command, args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -200,33 +199,6 @@ const questionText = (input: ScopeInput): string | undefined => input.questions?
 	? input.questions.map(item => item.question).join("\n")
 	: input.html?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-const isHeading = (line: string) => /^#{1,6}\s/.test(line);
-function profileIntro(lines: string[]): string {
-	const intro: string[] = [];
-	for (const line of lines.slice(lines.findIndex(isHeading) + 1)) {
-		if (isHeading(line) || (!line.trim() && intro.length)) break;
-		if (line.trim()) intro.push(line);
-	}
-	return intro.join("\n");
-}
-const clippedValues = (values: [string, unknown][], limit: number) => Object.fromEntries(values.map(([key, value]) => {
-	const json = JSON.stringify(value);
-	return [key, json.length > limit ? `${json.slice(0, limit)}…` : json];
-}));
-/** The profile.md summary extension-impact was scored with: clipped front-matter values, headings, intro. */
-export function profileSummary(text: string | null) {
-	const front = /^---\n([\s\S]*?)\n---\n/.exec(text ?? "");
-	const values = Object.entries(frontMatterSchema.parse(front?.[1] ? Bun.YAML.parse(front[1]) : {}));
-	const lines = (text ?? "").slice(front?.[0].length ?? 0).split("\n");
-	const headings = lines.filter(isHeading);
-	const intro = profileIntro(lines);
-	let summary = { frontmatter: clippedValues(values, 240), headings, intro };
-	for (let limit = 120; JSON.stringify(summary).length > PROFILE_LIMIT && limit >= 8; limit = Math.floor(limit / 2)) {
-		summary = { frontmatter: clippedValues(values, limit), headings, intro };
-	}
-	return summary;
-}
-
 const patchRank = (path: string) => /(^|\/)tests?\/|\.test\.|_test\.|test_/.test(path) ? 2 : /\.(md|html)$|(^|\/)docs\//.test(path) ? 1 : 0;
 function patchesOf(diff: string): { path: string; patch: string }[] {
 	return diff.split(/^diff --git .*$/m).slice(1).map(chunk => {
@@ -313,15 +285,23 @@ export function evidenceState(view: PrView) {
 
 export type JudgedDeps = {
 	decide: Decide;
+	/** The owner's approvals for this extension instance: escalated judgments and autonomy asks share them. */
+	approvals: Approvals;
 	structured(ctx: ExtensionContext, cwd: string): Promise<boolean>;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
 	askFirst(part: string): boolean;
 };
-export type ImpactInput = { slug: string; record: RepoRecord | undefined; configRoot: string; from: string; to: string };
+export type ImpactInput = { slug: string; config: AgentRailsConfig | undefined; configRoot: string; from: string; to: string };
+// The config sections extension-impact judges a change against: what the rails run and enforce in the repository.
+const IMPACT_SECTIONS = ["autonomy", "ci", "gates", "judgments", "mergePolicies", "afterMerge", "commands"] as const;
+/** The extension-impact `config` state: the repo config's rail-facing sections. */
+export function impactConfig(config: AgentRailsConfig) {
+	return Object.fromEntries(IMPACT_SECTIONS.flatMap(section => config[section] === undefined ? [] : [[section, config[section]]]));
+}
 export type EvidenceTarget = { cwd: string; root: string; branch: string; requiredContext(): Promise<string | undefined> };
 
 export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: JudgedDeps) {
-	const approvals = new Approvals();
+	const { approvals } = deps;
 	const verdicts = new Map<string, Verdict | Failure>();
 	async function decided(name: RailJudgment, state: JudgeState, ctx: ExtensionContext, subject: DecisionSubject): Promise<Verdict | Failure> {
 		const key = `${name}:${digest(state)}`;
@@ -429,18 +409,18 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 	async function impactDecided(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {
 		const [from, to] = [input.from, input.to].map(revision => revision.startsWith("git:") ? revision.slice(4) : undefined);
 		if (!from || !to) return { failure: "no Git revision pair to judge" };
-		if (!input.record) return { failure: "no valid per-repo record to judge against" };
-		const { dir } = input.record;
+		if (!input.config) return { failure: "no valid .agentrails/config.json to judge against" };
+		const { config } = input;
 		const state = await (async () => ({
 			mode: { name: "structured", runs: MODE_RUNS.structured },
-			record: { repo: input.slug, gate: JSON.parse(await readGateText(dir)), profile_summary: profileSummary(await readFile(join(dir, "profile.md"), "utf8").catch(absentFile)) },
+			config: impactConfig(config),
 			change: await impactChange(pi, (await run(pi, "git", ["rev-parse", "--show-toplevel"], input.configRoot)).stdout.trim(), { from, to }),
 		}))().catch((error: Error) => ({ failure: `the extension-impact judgment could not run: ${error.message}` }));
 		return "failure" in state ? state : decided("extension-impact", state, ctx, { trigger: "manual", repo: input.slug, commit: to, item_kind: "extension-range", item: `${from}..${to}` });
 	}
 
 	return {
-		/** implementation-integrity at a structured commit, after checks.commit and the harness checks passed. */
+		/** implementation-integrity at a structured commit, after commands.commit and the harness checks passed. */
 		async commitReason(root: string, action: GitAction, ctx: ExtensionContext): Promise<string | undefined> {
 			return integrityReason(root, action, ctx);
 		},

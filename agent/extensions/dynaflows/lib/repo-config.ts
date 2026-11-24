@@ -10,6 +10,9 @@ import { z } from "@oh-my-pi/pi-coding-agent";
 import { SUBPROCESS_TIMEOUT_MS, absentFile } from "./rails-runtime.ts";
 import { mainCheckout, originSlug, OutsideRepository, type ExecApi } from "./git-paths.ts";
 
+// The Git common dir the config's main checkout is found through; rails that read the config use it too.
+export { commonDir } from "./git-paths.ts";
+
 export const CONFIG_DIR = ".agentrails";
 export const CONFIG_FILE = "config.json";
 /** The info/exclude line that keeps the config directory out of Git. */

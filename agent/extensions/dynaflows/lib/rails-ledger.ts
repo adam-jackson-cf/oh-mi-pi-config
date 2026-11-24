@@ -30,7 +30,7 @@ export const RAIL_CODES = [
 	"commit-alone", "commit-after-staging", "commit-scope", "commit-unstaged", "handoff-staged", "staged-path-check",
 	"commit-checks", "harness-checks", "judged-integrity",
 	// Publishing: push, PR and merge.
-	"agent-merge-disabled", "minimal-merge", "push-remote-head", "push-default-branch", "merge-alone", "merge-admin",
+	"autonomy-ask", "minimal-merge", "push-remote-head", "push-default-branch", "merge-alone", "merge-admin",
 	"merge-flag-unknown", "merge-args-ambiguous", "merge-head-format", "merge-method", "merge-head-stale", "merge-prove",
 	"merge-structure", "merge-evidence-untrusted", "merge-pr-unreadable", "merge-foreign-repo", "merge-ci", "judged-evidence",
 	// Edits and handoff.

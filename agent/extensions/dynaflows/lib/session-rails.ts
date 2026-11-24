@@ -1,15 +1,15 @@
 // Session rails: end-of-turn obligations (structured mode), opt-in device rollout, review on
 // restart and handoffs between sessions. index.ts wires them into the Git rails and the dynaflows tool.
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type RepoRecord, type ToolEvent } from "./rails-runtime.ts";
+import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type ToolEvent } from "./rails-runtime.ts";
 import { OriginError, repoSlug, unresolvedText } from "./repo-record.ts";
 import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";
 import { defaultReviewsPath, extensionDiff, extensionRevision, storedRevision, storeRevision } from "./restart-review.ts";
 import { prMerge } from "./guards.ts";
-import { verdictText, type Decide, type Verdict } from "./judge.ts";
-import { judgedRails, type Failure, type JudgedRails } from "./judged-rails.ts";
+import { verdictText, type Approvals, type Decide, type Verdict } from "./judge.ts";
+import { judgedRails, type Failure, type ImpactInput, type JudgedRails } from "./judged-rails.ts";
 
 type SessionApi = Pick<ExtensionAPI, "on" | "exec" | "registerTool">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };
@@ -20,7 +20,8 @@ export type SessionDeps = {
 	/** The real path of the Git common dir of the repository holding cwd (git-paths.ts). */
 	commonDir(cwd: string): Promise<string>;
 	modeOf(ctx: ExtensionContext, cwd: string): Promise<Mode>;
-	recordAt(root: string): Promise<RepoRecord | undefined>;
+	/** The agent-rails config of the repository holding root when the engine accepted it (repo-config.ts); else undefined. */
+	configOf(root: string): Promise<ImpactInput["config"]>;
 	/** The turn-end status of a branch's PR, with the reason when it is unmet (CI pending or failing, gh unreadable). */
 	prStatus(ctx: ExtensionContext, cwd: string, selector: string): Promise<PrStatus>;
 	/** Whether the branch has an open PR (gh pr view), for PRs this session did not create. */
@@ -29,6 +30,8 @@ export type SessionDeps = {
 	checks: { config: string[]; check: string[] };
 	/** The judged rails' decide(): the judgment registry with the host judge transport. */
 	decide: Decide;
+	/** The owner's approvals, shared with the Git rails' autonomy asks. */
+	approvals: Approvals;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
 	askFirst(part: string): boolean;
 	sources: ObligationSource[];
@@ -76,7 +79,7 @@ async function reviewTask(review: Review): Promise<string | undefined> {
 	return `First task: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it. ` +
 		"Review the change and address anything that affects this repository's setup or its interactions with the rails first; " +
 		"Git writes are refused until you call the dynaflows tool with acknowledge: true.\n" +
-		`Extension impact: ${judged}\nExtension diff:\n${diff ?? "unavailable (not a Git revision pair)"}\nRecord checks:\n${checks}`;
+		`Extension impact: ${judged}\nExtension diff:\n${diff ?? "unavailable (not a Git revision pair)"}\nConfig checks:\n${checks}`;
 }
 
 export type SessionRails = {
@@ -109,11 +112,12 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	// The rollout step, from the config root only: any spelling that resolves to the same script counts.
 	const rolloutStep: Step = { argv: ["python3", `${deps.configRoot.replace(/\/+$/, "")}/scripts/device_rollout.py`], root: deps.configRoot };
 	const rolloutCommand = shellJoin(rolloutStep.argv);
-	const judged = judgedRails(pi, { decide: deps.decide, structured: structuredOrNotify, askFirst: deps.askFirst });
+	const judged = judgedRails(pi, { decide: deps.decide, approvals: deps.approvals, structured: structuredOrNotify, askFirst: deps.askFirst });
+	// The repository's config when the engine accepted it; any other state, or a failure to resolve it, has none to read.
+	const configOf = (root: string) => deps.configOf(root).catch(() => undefined);
 
 	async function reviewChecks(root: string): Promise<string> {
-		const record = await deps.recordAt(root).catch(() => undefined);
-		if (!record) return "no valid per-repo record; review the record against the change by hand.";
+		if (!await configOf(root)) return "no valid .agentrails/config.json; review the config against the change by hand.";
 		const lines: string[] = [];
 		for (const [label, prefix] of [["config-check", deps.checks.config], ["check", deps.checks.check]] as const) {
 			const argv = [...prefix, "--repo", root];
@@ -136,10 +140,10 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 			await storeRevision(deps.reviewsPath, slug, to);
 			return;
 		}
-		const record = await deps.recordAt(root).catch(() => undefined);
+		const config = await configOf(root);
 		session.review = {
 			slug, root, common: await deps.commonDir(root), from, to, checks: reviewChecks(root), diff: extensionDiff(pi, deps.configRoot, deps.extensionDir, { from, to }),
-			impact: judged.impactVerdict(ctx, { slug, record, configRoot: deps.configRoot, from, to }),
+			impact: judged.impactVerdict(ctx, { slug, config, configRoot: deps.configRoot, from, to }),
 		};
 	}
 
@@ -217,7 +221,10 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		} };
 		session.book.add(obligation);
 		session.book.add(judged.evidenceObligation(ctx, { cwd, root, branch,
-			requiredContext: async () => (await deps.recordAt(root).catch(() => undefined))?.gate.requiredCi?.requiredContext }));
+			requiredContext: async () => {
+				const ci = (await configOf(root))?.ci;
+				return ci?.enabled ? ci.requiredContext : undefined;
+			} }));
 	}
 
 	async function trackPr(action: GitAction, ctx: ExtensionContext, session: Session): Promise<void> {
@@ -242,10 +249,10 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 	}
 
 	async function afterMergeStep(root: string | undefined) {
-		return root ? (await deps.recordAt(root).catch(() => undefined))?.gate.afterMerge : undefined;
+		return root ? (await configOf(root))?.afterMerge : undefined;
 	}
 
-	// A merge needs the step unless the record names paths and the PR's files (when gh lists them) match none.
+	// A merge needs the step unless the config names paths and the PR's files (when gh lists them) match none.
 	async function mergeMatches(action: GitAction, cwd: string, paths: string[] | undefined): Promise<boolean> {
 		if (!paths) return true;
 		const selector = prMerge(action.args).selectors[0];
@@ -259,7 +266,7 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		const step = await afterMergeStep(root);
 		if (!root || !step || !action.cwd || !await mergeMatches(action, action.cwd, step.paths)) return;
 		const command = shellJoin(step.argv);
-		session.book.add({ id: `afterMerge:${root}`, root, text: `the record's afterMerge step has not exited 0 since the merge; run \`${command}\` in ${root}`,
+		session.book.add({ id: `afterMerge:${root}`, root, text: `the config's afterMerge step has not exited 0 since the merge; run \`${command}\` in ${root}`,
 			status: async () => "unmet" });
 	}
 
@@ -382,6 +389,6 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 }
 
 export type { Obligation, ObligationSource, ObligationStatus };
-export { ompJudge, registryDecide, type JudgeTransport } from "./judge.ts";
+export { Approvals, ompJudge, registryDecide, type JudgeTransport } from "./judge.ts";
 export { defaultReviewsPath };
 export { scopeInputSchema } from "./judged-rails.ts";
