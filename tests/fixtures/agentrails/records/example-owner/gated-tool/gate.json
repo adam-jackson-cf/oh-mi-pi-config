@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "checks": {
+    "audit": [
+      "bash",
+      "scripts/audit-dependencies.sh"
+    ],
+    "ci": [
+      "bash",
+      "scripts/run-ci-quality-gates.sh"
+    ],
+    "commit": [
+      "bash",
+      "scripts/run-ci-quality-gates.sh",
+      "--tier",
+      "commit"
+    ]
+  },
+  "ci": {
+    "requiredContext": "gate",
+    "runner": "ci-gate"
+  },
+  "mergePolicies": [
+    {
+      "base": "nuc-config",
+      "headPrefix": "agent/nuc-sync-",
+      "method": "merge",
+      "proof": false
+    }
+  ],
+  "afterMerge": {
+    "argv": [
+      "bash",
+      "scripts/sync.sh"
+    ],
+    "paths": [
+      "agent/**"
+    ]
+  }
+}

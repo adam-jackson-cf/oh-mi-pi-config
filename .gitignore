@@ -46,6 +46,7 @@ scripts/*
 !scripts/device_rollout.py
 !scripts/device-rollout-hosts.json
 !scripts/migrate_judgment_calls.py
+!scripts/cutover_agent_rails.py
 
 !tools/
 tools/*
@@ -140,6 +141,8 @@ tests/fixtures/*
 !tests/test_repo_record.py
 !tests/test_repo_config.py
 !tests/test_repo_config_seams.py
+!tests/test_cutover_agent_rails.py
+!tests/test_cutover_agent_rails_seams.py
 !tests/repo-record.test.ts
 !tests/repo-config.test.ts
 !tests/repo-config-seams.test.ts

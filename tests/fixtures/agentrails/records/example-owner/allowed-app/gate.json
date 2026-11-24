@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "checks": {
+    "commit": [
+      "bash",
+      "scripts/gate.sh",
+      "commit"
+    ],
+    "ci": [
+      "bash",
+      "scripts/gate.sh",
+      "ci"
+    ],
+    "format": [
+      "uv",
+      "run",
+      "ruff",
+      "format"
+    ],
+    "profile": [
+      "guardrails",
+      "profile-check"
+    ]
+  },
+  "ci": {
+    "requiredContext": "quality-gates",
+    "runner": "github-actions"
+  },
+  "agentMerge": "allowed"
+}
