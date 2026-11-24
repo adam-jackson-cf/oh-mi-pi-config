@@ -6,6 +6,7 @@ from typing import Any
 from guardrails.commands.check.integrity import commit_findings
 from guardrails.context.changes import DiffError, range_finding, staged_range
 from guardrails.context.config.profile import PROFILE_PATH, ProfileError
+from guardrails.context.config.repo_config import CHECK_STEPS
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -22,15 +23,12 @@ from guardrails.toolkit.dispatch import (
 
 CHECKER = "check"
 RULE = "PROFILE.complete"
+OPT_IN_STEPS = ("python-test-hygiene",)
 DEFAULT_STEPS = (
     "profile-check",
-    "python-quality",
-    "python-fanout",
-    "python-scalability",
-    "surface-lint",
-    "adapter lint",
+    *(step for step in CHECK_STEPS if step not in OPT_IN_STEPS),
 )
-STEPS = (*DEFAULT_STEPS, "python-test-hygiene")
+STEPS = ("profile-check", *CHECK_STEPS)
 UNOWNABLE = ("profile-check",)
 STAGED_DIFFS = {
     "guardrails.commands.diffs.coverage_ratchet": "TEST.coverage-ratchet",

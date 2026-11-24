@@ -163,6 +163,13 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "run one of the profile's test-framework adapters: adapter <name> <action>",
         prints_data=True,
     ),
+    "config-check": Subcommand(
+        ("guardrails.commands.config.command",),
+        "validate the repo's .agentrails/config.json, a config file or one section; "
+        "one JSON line (config-check --help)",
+        needs_profile=False,
+        prints_data=True,
+    ),
     "shadow-review": Subcommand(
         ("guardrails.commands.shadow_review.command",),
         "export, import and report review labels for logged judgment decisions; "

@@ -134,8 +134,12 @@ tests/*
 tests/fixtures/*
 !tests/fixtures/reference/
 !tests/fixtures/reference/**
+!tests/fixtures/agentrails/
+!tests/fixtures/agentrails/**
 !tests/test_device_rollout.py
 !tests/test_repo_record.py
+!tests/test_repo_config.py
+!tests/test_repo_config_seams.py
 !tests/repo-record.test.ts
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py

@@ -219,6 +219,9 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
     return findings
 
 
+TARGETLESS = frozenset({"shadow-review", "config-check"})
+
+
 def early_exit(args: list[str]) -> int | None:
     """Usage, an unknown subcommand, shadow-review (no repository target) and subcommand help."""
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -228,9 +231,9 @@ def early_exit(args: list[str]) -> int | None:
     if name not in SUBCOMMANDS:
         print(f"unknown subcommand: {name}\n\n{usage()}", file=sys.stderr)
         return 2
-    if name == "shadow-review":
-        review: int = checker_module(SUBCOMMANDS[name].modules[0]).main(rest)
-        return review
+    if name in TARGETLESS:
+        handled: int = checker_module(SUBCOMMANDS[name].modules[0]).main(rest)
+        return handled
     if (
         wants_help(rest)
         and name != "adapter"

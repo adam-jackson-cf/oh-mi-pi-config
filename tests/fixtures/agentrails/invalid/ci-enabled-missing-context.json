@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "repo": {
+    "slug": "example-owner/ledger",
+    "defaultBranch": "main"
+  },
+  "onboarding": {
+    "origin": "onboarding",
+    "completedAt": "2026-11-24T09:00:00Z",
+    "questionnaireVersion": 1,
+    "skills": {
+      "setup-repo-proofs": {
+        "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "whole"
+        }
+      },
+      "test-guidance": {
+        "version": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "paths",
+          "paths": [
+            "tests"
+          ]
+        }
+      }
+    }
+  },
+  "autonomy": {
+    "branch": "allowed",
+    "pr": "allowed",
+    "merge": "ask"
+  },
+  "ci": {
+    "enabled": true,
+    "runner": "github-actions"
+  },
+  "gates": {
+    "commitChecks": true,
+    "pathCheck": true,
+    "prove": true,
+    "structureReview": true,
+    "audit": false,
+    "rules": {}
+  },
+  "judgments": {},
+  "mergePolicies": [],
+  "commands": {
+    "commit": [
+      "make",
+      "gate-commit"
+    ]
+  },
+  "checkers": {},
+  "structure": {
+    "owners": {
+      "directories": {
+        "src/ledger/": "ledger"
+      }
+    },
+    "tiers": [],
+    "import_direction": {
+      "package": "ledger",
+      "source_root": "src/ledger"
+    },
+    "ownership_areas": {
+      "map": {
+        "tests/boundary/test_ledger_*.py": "ledger"
+      },
+      "affected_t2_selection": "guardrails adapter pytest affected"
+    }
+  },
+  "houseStyle": {
+    "version": 1
+  },
+  "tests": {
+    "tiers": {
+      "t1": {
+        "command": "make test-fast"
+      },
+      "t2": {
+        "command": "make test-boundary"
+      },
+      "t3": {
+        "command": "make test-nightly"
+      }
+    },
+    "adapters": [
+      {
+        "name": "pytest",
+        "tiers": {
+          "t1": {
+            "selector": "not boundary",
+            "location": "tests/unit"
+          },
+          "t2": {
+            "selector": "boundary",
+            "location": "tests/boundary"
+          },
+          "t3": {
+            "selector": "scheduled",
+            "location": "tests/scheduled"
+          }
+        }
+      }
+    ],
+    "public_entry_points": {
+      "ledger": "ledger.cli:main"
+    },
+    "run_events": {
+      "commit": "make gate-commit",
+      "ci": "make gate-ci",
+      "nightly_scheduler": "GitHub Actions schedule at 02:00 UTC",
+      "nightly_branches": [
+        "main"
+      ]
+    },
+    "fast_tier_budget": {
+      "duration_report_command": "make test-fast-report",
+      "machines": [
+        {
+          "id": "a1b2c3d4e5f60718",
+          "platform": "darwin-arm64",
+          "runtime": "python 3.12",
+          "wall_limit_s": 20,
+          "per_test_limit_s": 0.5
+        }
+      ]
+    },
+    "coverage": {
+      "scope": [
+        "src/ledger"
+      ],
+      "line_floor": 85,
+      "branch_floor": 75,
+      "where": "pyproject.toml"
+    },
+    "guards": {
+      "process": "tests/unit/conftest.py",
+      "network": "tests/unit/conftest.py",
+      "user_data": "guardrails guard-run"
+    },
+    "environments": {
+      "required": [
+        "postgres"
+      ],
+      "require_flag": "--require-env",
+      "readiness_probe": "make doctor"
+    },
+    "verification_surface": {
+      "lever_command": "ledger doctor",
+      "doctor_marker": "DOCTOR FAILED",
+      "feature_map_path": "docs/feature-map.json",
+      "journey_file_pattern": "journeys/*.json",
+      "data_dir_arg": "--data-dir",
+      "evidence_dir_arg": "--evidence-dir"
+    },
+    "identity_artefacts": {
+      "migrations/**": "never rewrite an applied migration"
+    },
+    "layout": {
+      "support_dir": "tests/support",
+      "fixtures_dir": "tests/fixtures",
+      "test_file_patterns": [
+        "test_*.py"
+      ]
+    },
+    "command_notes": {
+      "working_directory": "repository root after uv sync",
+      "interpretation": "exit 0 passes; exit 1 lists findings"
+    }
+  },
+  "exceptions": [],
+  "approvals": [
+    {
+      "kind": "budget",
+      "target": "a1b2c3d4e5f60718",
+      "reason": "fast-tier budget 20 s approved",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    }
+  ]
+}

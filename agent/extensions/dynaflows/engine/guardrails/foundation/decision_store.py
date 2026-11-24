@@ -338,6 +338,10 @@ def record_questions(
         raise StoreError(f"cannot write the decision store: {exc}") from exc
 
 
+def shadow_capable(kind: object, decision: Mapping[str, object]) -> bool:
+    return kind == "bool" or "threshold" in decision
+
+
 def outcome_name(outcome: str) -> str:
     """A registry outcome (yes, no, escalate) as the store names it (flag, pass, escalate)."""
     return OUTCOME_NAMES[outcome]

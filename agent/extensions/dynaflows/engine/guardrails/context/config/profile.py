@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -203,18 +204,20 @@ def validate_profile(profile: dict[str, Any]) -> list[Finding]:
 def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
     declared = profile.get("house_style", {})
     version = declared.get("version") if isinstance(declared, dict) else None
+    problem = house_style_version_problem(version)
+    return [] if problem is None else [("house_style.version", problem)]
+
+
+def house_style_version_problem(version: object) -> str | None:
     if not isinstance(version, int) or isinstance(version, bool):
-        return []
+        return None
     shipped = load_house_style()["version"]
     if version == shipped:
-        return []
-    return [
-        (
-            "house_style.version",
-            f"is {version} but the installed house style is version {shipped}; "
-            "review the house-style changes and record the new version",
-        )
-    ]
+        return None
+    return (
+        f"is {version} but the installed house style is version {shipped}; "
+        "review the house-style changes and record the new version"
+    )
 
 
 def is_exemption(value: object) -> TypeGuard[dict[str, Any]]:
@@ -272,20 +275,6 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
     return problems
 
 
-def check_value(
-    value: object, spec: Any, key: str, problems: list[tuple[str, str]]
-) -> None:
-    if key in EXEMPTABLE and is_exemption(value):
-        check_exemption(value, key, problems)
-        return
-    if isinstance(spec, dict):
-        check_section(value, spec, key, problems)
-    elif isinstance(spec, tuple):
-        check_records(value, spec, key, problems)
-    else:
-        check_leaf(value, spec, key, problems)
-
-
 def check_exemption(
     value: dict[str, Any], key: str, problems: list[tuple[str, str]]
 ) -> None:
@@ -298,29 +287,75 @@ def check_exemption(
         problems.append((key, "exemption needs an owner 'approval' reference"))
 
 
+def profile_unknown_key(key: str, extra: str) -> str:
+    if key == "house_style" and extra == "exceptions":
+        return (
+            "is obsolete; move entries to guardrails.exceptions and replace the old "
+            "justification field with reason"
+        )
+    return "is not a profile key; remove it or fix its spelling"
+
+
+ExemptionCheck = Callable[[dict[str, Any], str, list[tuple[str, str]]], None]
+UnknownKey = Callable[[str, str], str]
+
+
+@dataclass(frozen=True)
+class SectionRules:
+    exemption: ExemptionCheck
+    unknown_key: UnknownKey
+
+
+PROFILE_RULES = SectionRules(check_exemption, profile_unknown_key)
+
+
+def child_key(key: str, name: str) -> str:
+    return f"{key}.{name}" if key else name
+
+
+def check_value(
+    value: object,
+    spec: Any,
+    key: str,
+    problems: list[tuple[str, str]],
+    rules: SectionRules = PROFILE_RULES,
+) -> None:
+    if key in EXEMPTABLE and is_exemption(value):
+        rules.exemption(value, key, problems)
+        return
+    if isinstance(spec, dict):
+        check_section(value, spec, key, problems, rules)
+    elif isinstance(spec, tuple):
+        check_records(value, spec, key, problems, rules)
+    else:
+        check_leaf(value, spec, key, problems)
+
+
 def check_section(
-    value: object, spec: dict[str, Any], key: str, problems: list[tuple[str, str]]
+    value: object,
+    spec: dict[str, Any],
+    key: str,
+    problems: list[tuple[str, str]],
+    rules: SectionRules = PROFILE_RULES,
 ) -> None:
     if not isinstance(value, dict):
         problems.append((key, "is missing" if value is None else "must be an object"))
         return
     names = {child.removesuffix(OPTIONAL_MARK): child for child in spec}
     for extra in sorted(set(value) - set(names)):
-        problem = (
-            "is obsolete; move entries to guardrails.exceptions and replace the old justification "
-            "field with reason"
-            if key == "house_style" and extra == "exceptions"
-            else "is not a profile key; remove it or fix its spelling"
-        )
-        problems.append((f"{key}.{extra}", problem))
+        problems.append((child_key(key, extra), rules.unknown_key(key, extra)))
     for name, child in names.items():
         if child.endswith(OPTIONAL_MARK) and name not in value:
             continue
-        check_value(value.get(name), spec[child], f"{key}.{name}", problems)
+        check_value(value.get(name), spec[child], child_key(key, name), problems, rules)
 
 
 def check_records(
-    value: object, spec: tuple[Any, ...], key: str, problems: list[tuple[str, str]]
+    value: object,
+    spec: tuple[Any, ...],
+    key: str,
+    problems: list[tuple[str, str]],
+    rules: SectionRules = PROFILE_RULES,
 ) -> None:
     kind, fields = spec
     if not isinstance(value, list):
@@ -329,7 +364,7 @@ def check_records(
     if not value and kind == "records":
         problems.append((key, "needs at least one entry"))
     for index, item in enumerate(value):
-        check_section(item, fields, f"{key}[{index}]", problems)
+        check_section(item, fields, f"{key}[{index}]", problems, rules)
 
 
 def check_leaf(

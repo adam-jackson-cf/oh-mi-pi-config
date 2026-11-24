@@ -66,6 +66,7 @@ CONTRACT_SUBCOMMANDS = {
     "lever-selftest",
     "adapter",
     "shadow-review",
+    "config-check",
 }
 
 
