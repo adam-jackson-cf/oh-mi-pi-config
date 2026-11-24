@@ -11,17 +11,37 @@ import json
 import os
 import re
 import runpy
+import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Never
 from unittest.mock import patch
 
 import pytest
+from test_reference_decision_store import (
+    no_unclosed_connections as no_unclosed_connections,
+)
 
-pytestmark = pytest.mark.fast
+# A sqlite3 connection left open fails the test where it is freed, and the guard fixture finds the rest.
+pytestmark = [
+    pytest.mark.fast,
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
+
+
+@pytest.fixture(autouse=True)
+def isolated_decision_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every test writes the decision store under a temporary agent dir, never the real one."""
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path_factory.mktemp("agent")))
+
 
 MODULE = (
     Path(__file__).resolve().parents[1]
@@ -45,6 +65,27 @@ CONFIGURED_JUDGE = next(
     for line in CONFIG.read_text().splitlines()
     if line.startswith("  judge: ")
 )
+
+
+def isolated_agent(case: unittest.TestCase) -> Path:
+    """A temporary omp agent dir for the decision store, so no test writes the real one."""
+    scratch = tempfile.TemporaryDirectory()
+    case.addCleanup(scratch.cleanup)
+    patcher = patch.dict(os.environ, {"PI_CODING_AGENT_DIR": scratch.name})
+    patcher.start()
+    case.addCleanup(patcher.stop)
+    return Path(scratch.name)
+
+
+def stored(
+    agent: Path, sql: str = "SELECT * FROM decisions ORDER BY rowid"
+) -> list[dict[str, Any]]:
+    """Rows of the decision store under `agent`; none before anything is logged."""
+    if not (agent / "dynaflows/dynaflows.db").exists():
+        return []
+    with closing(sqlite3.connect(agent / "dynaflows/dynaflows.db")) as store:
+        store.row_factory = sqlite3.Row
+        return [dict(row) for row in store.execute(sql)]
 
 
 class SchemaTests(unittest.TestCase):
@@ -446,8 +487,37 @@ class DependencyAuditParsingTests(unittest.TestCase):
         assert len(workflow.parse_dependency_audit(example)["advisories"]) == 1
 
 
+class HarnessCheckLogTests(unittest.TestCase):
+    def test_prove_checkers_log_their_results_and_a_store_error_never_blocks(
+        self,
+    ) -> None:
+        outputs = iter([
+            (True, "rename-residue: ok\n"),
+            (
+                False,
+                "src/a.py: GATE.path-check: bad name; rename it\ndecision store: locked\n",
+            ),
+            (True, "structure: ok\ndecision store: cannot open the decision store\n"),
+        ])
+        with patch.object(
+            workflow, "run_check", side_effect=lambda *a, **k: next(outputs)
+        ) as run:
+            found, errors = workflow._harness_check_findings(
+                Path("/repo"), Path("/records/repos/owner/name"), "p" * 40, "h" * 40
+            )
+        assert found == ["src/a.py: GATE.path-check: bad name; rename it"]
+        assert errors == [
+            "path-check: decision store: locked",
+            "structure: decision store: cannot open the decision store",
+        ]
+        for call in run.call_args_list:
+            argv = call.args[0]
+            assert argv[argv.index("--log-decisions") + 1] == "prove"
+
+
 class SeverityRubricTests(unittest.TestCase):
     def setUp(self) -> None:
+        isolated_agent(self)
         self.decisions = workflow.load_judgment("dependency-severity").decisions
         self.advisory = workflow.parse_dependency_audit(ADVISORY)["advisories"][0]
         self.no_fix = workflow.parse_dependency_audit(NO_FIX)["advisories"][0]
@@ -565,6 +635,36 @@ class SeverityRubricTests(unittest.TestCase):
             )
 
 
+# The decisions columns a Jev answer sets besides its ids, timestamp and payload flag.
+DECISION_FIELDS = (
+    "source",
+    "judgment",
+    "mode",
+    "status",
+    "probability",
+    "threshold",
+    "model",
+    "question_version",
+    "judgment_version",
+    "state_sha256",
+    "trigger",
+    "item_kind",
+    "item",
+    "machine",
+)
+# A decision's jev-actions taxonomy and mode, as every thresholds.json decision carries them.
+TAXONOMY: dict[str, Any] = {
+    "approach": "Gate",
+    "overlays": ["Face-value"],
+    "primitive": "noul",
+    "evidence_unit": "item",
+    "combination": "jev_only",
+    "action": "block",
+    "policy_area": "secrets",
+    "mode": "enforced",
+}
+
+
 def write_judgment(
     root: Path,
     name: str = "demo",
@@ -595,8 +695,14 @@ def write_judgment(
             "model": model,
         }),
         "decisions": {
-            "flag": dict(flag or {"threshold": 0.7}),
-            "kind": {"round_up_floor": 0.3},
+            "flag": {**TAXONOMY, **(flag or {"threshold": 0.7})},
+            "kind": {
+                **TAXONOMY,
+                "approach": "Route",
+                "primitive": "choice",
+                "action": "route",
+                "round_up_floor": 0.3,
+            },
         },
     }
     for ident, question in questions.items():
@@ -636,12 +742,14 @@ class JudgmentRegistryTests(unittest.TestCase):
                 "kind": {"type": "choice", "probabilities": {"note": 0.8, "log": 0.2}},
             }
 
+        context = workflow._store().DecisionContext(
+            "manual", item_kind="text", item="a note"
+        )
         with patch.object(workflow, "judge", judge, create=True):
-            return asyncio.run(workflow.decide(name, {"text": "a note"}))
+            return asyncio.run(workflow.decide(name, {"text": "a note"}, context))
 
-    def logged(self) -> list[Any]:
-        log = self.agent / workflow.JUDGMENT_CALLS
-        return [json.loads(line) for line in log.read_text().splitlines()]
+    def logged(self, sql: str = "SELECT * FROM decisions ORDER BY rowid") -> list[Any]:
+        return stored(self.agent, sql)
 
     def test_a_single_threshold_decides_yes_or_no_and_every_call_is_logged(
         self,
@@ -657,30 +765,32 @@ class JudgmentRegistryTests(unittest.TestCase):
                 decided = self.decide(score)
                 assert decided["outcomes"] == {"flag": expected}
                 assert decided["probabilities"]["kind"] == {"note": 0.8, "log": 0.2}
-        records = self.logged()
-        assert [r["outcomes"]["flag"] for r in records] == ["yes", "yes", "no", "no"]
+        rows = self.logged()
+        flags = [row for row in rows if row["question"] == "flag"]
+        assert [row["outcome"] for row in flags] == ["flag", "flag", "pass", "pass"]
+        assert len({row["call_id"] for row in rows}) == 4
         judgment = workflow.load_judgment("demo")
-        assert set(records[0]) == {
-            "judgment",
-            "state_sha256",
-            "model",
-            "question_version",
-            "probabilities",
-            "outcomes",
-            "timestamp",
+        assert {key: flags[0][key] for key in DECISION_FIELDS} == {
+            "source": "jev",
+            "judgment": "demo",
+            "mode": "enforced",
+            "status": "ok",
+            "probability": 0.7,
+            "threshold": 0.7,
+            "model": "typesafe/jev-1.14.0",
+            "question_version": judgment.decisions["flag"]["version_key"],
+            "judgment_version": judgment.version_key,
+            "state_sha256": workflow._judgment_digest({"text": "a note"}),
+            "trigger": "manual",
+            "item_kind": "text",
+            "item": "a note",
+            "machine": socket.gethostname(),
         }
-        assert records[0]["judgment"] == "demo"
-        assert records[0]["model"] == "typesafe/jev-1.14.0"
-        assert records[0]["question_version"] == judgment.version_key
-        assert records[0]["state_sha256"] == workflow._judgment_digest({
-            "text": "a note"
-        })
-        assert records[0]["probabilities"]["flag"] == 0.7
+        kind = next(row for row in rows if row["question"] == "kind")
+        assert (kind["status"], kind["outcome"], kind["threshold"]) == ("ok", None, 0.3)
+        assert json.loads(kind["choice_probabilities"]) == {"note": 0.8, "log": 0.2}
         assert self.calls[0][1] == judgment.questions
-        assert (
-            workflow.judgment_call_log()
-            == self.agent / "dynaflows/judgment-calls.jsonl"
-        )
+        assert workflow._store().store_path() == self.agent / "dynaflows/dynaflows.db"
 
     def test_a_band_escalates_only_with_a_registered_fallback_judge(self) -> None:
         write_judgment(self.root, "backup")
@@ -774,9 +884,24 @@ class JudgmentRegistryTests(unittest.TestCase):
         for invalid in (1.5, "yes", True, float("nan")):
             with self.subTest(invalid=invalid), pytest.raises(workflow.WorkflowError):
                 self.decide(invalid)
-        assert not (self.agent / workflow.JUDGMENT_CALLS).exists()
+        rows = self.logged()
+        assert all(row["outcome"] is None for row in rows), "no failed call decides"
+        offline = [row for row in rows if row["call_id"] == rows[0]["call_id"]]
+        assert {(row["question"], row["status"]) for row in offline} == {
+            ("flag", "error"),
+            ("kind", "error"),
+        }
+        assert offline[0]["error"] == "judgment failed: offline"
+        invalid_calls = rows[2:]
+        assert {(row["question"], row["status"]) for row in invalid_calls} == {
+            ("flag", "error"),
+            ("kind", "incomplete"),
+        }
+        assert all(row["state_kept"] == 1 for row in rows), (
+            "every error keeps its payload"
+        )
         with pytest.raises(workflow.WorkflowError, match="non-empty object"):
-            asyncio.run(workflow.decide("demo", {}))
+            asyncio.run(workflow.decide("demo", {}, None))
 
     def bridge(self, *argv: str) -> tuple[int, Any]:
         out = io.StringIO()
@@ -805,25 +930,40 @@ class JudgmentRegistryTests(unittest.TestCase):
             request.write_text(json.dumps(document))
             return self.bridge("record", "demo", str(request))
 
+        context = {"trigger": "commit", "repo": "owner/name", "item": "tree"}
         code, record = send({
             "state": {"text": "a note"},
             "answers": answers,
             "model": "typesafe/jev-1.14.0",
+            "context": context,
         })
         assert code == 0
         assert record["outcomes"] == {"flag": "yes"}
-        assert self.logged() == [record]
+        assert record["modes"] == {"flag": "enforced", "kind": "enforced"}
+        rows = self.logged()
+        assert {row["call_id"] for row in rows} == {record["call_id"]}
+        assert {(row["trigger"], row["repo"], row["item"]) for row in rows} == {
+            ("commit", "owner/name", "tree")
+        }
         refusals = {
             "but 'openrouter/typesafe/jev-1.14' answered": {
                 "state": {"text": "a note"},
                 "answers": answers,
                 "model": "openrouter/typesafe/jev-1.14",
+                "context": context,
             },
-            "exactly state, answers and model": {"state": {"text": "a note"}},
+            "exactly state, answers, model and context": {"state": {"text": "a note"}},
             "non-empty object": {
                 "state": {},
                 "answers": answers,
                 "model": "typesafe/jev-1.14.0",
+                "context": context,
+            },
+            "invalid decision context": {
+                "state": {"text": "a note"},
+                "answers": answers,
+                "model": "typesafe/jev-1.14.0",
+                "context": {"trigger": "weekly"},
             },
         }
         for message, document in refusals.items():
@@ -835,11 +975,26 @@ class JudgmentRegistryTests(unittest.TestCase):
             "error"
         ].startswith("cannot read rail answers")
         assert self.bridge("decide", "demo")[0] == 1
+        request.write_text(
+            json.dumps({
+                "state": {"text": "a note"},
+                "error": "transport closed",
+                "context": context,
+            })
+        )
+        code, failed = self.bridge("error", "demo", str(request))
+        assert code == 0
+        errors = self.logged(
+            f"SELECT * FROM decisions WHERE call_id = '{failed['call_id']}'"
+        )
+        assert {(row["status"], row["error"]) for row in errors} == {
+            ("error", "transport closed")
+        }
         with patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}):
             code, refused = self.bridge("questions", "demo")
         assert code == 1
         assert "direct TypeSafe endpoint" in refused["error"]
-        assert len(self.logged()) == 1
+        assert len({row["call_id"] for row in self.logged()}) == 2
 
     def test_rail_entry_runs_the_registry_of_the_shipped_judgments(self) -> None:
         main = runpy.run_path(str(MODULE.parents[1] / "lib/decide.py"))["main"]
@@ -905,12 +1060,131 @@ class JudgmentRegistryTests(unittest.TestCase):
 
     def test_agent_dir_defaults_to_the_omp_home(self) -> None:
         with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": ""}):
-            assert workflow.judgment_call_log() == (
-                Path.home() / ".omp/agent/dynaflows/judgment-calls.jsonl"
+            assert workflow._store().store_path() == (
+                Path.home() / ".omp/agent/dynaflows/dynaflows.db"
             )
+
+    def test_every_decision_carries_its_taxonomy_and_mode(self) -> None:
+        directory = write_judgment(self.root)
+        thresholds = json.loads((directory / "thresholds.json").read_text())
+
+        def changed(ident: str, **change: Any) -> dict[str, Any]:
+            document: dict[str, Any] = copy.deepcopy(thresholds)
+            decision = document["decisions"][ident]
+            for key, value in change.items():
+                if value is None:
+                    decision.pop(key)
+                else:
+                    decision[key] = value
+            return document
+
+        cases = {
+            "needs approach in": changed("flag", approach=None),
+            "needs evidence_unit in": changed("flag", evidence_unit="folder"),
+            "needs combination in": changed("flag", combination="all"),
+            "needs action in": changed("flag", action="warn"),
+            "needs mode in": changed("flag", mode="advisory"),
+            "needs overlays": changed("flag", overlays=["Face-value", "Face-value"]),
+            "needs overlays, a list": changed("flag", overlays="Place"),
+            "so its primitive is noul": changed("flag", primitive="choice"),
+            "so its primitive is choice": changed("kind", primitive="score"),
+            "kebab-case policy_area": changed("flag", policy_area="Naming Rules"),
+            "remove its shadow_exit": changed(
+                "flag", shadow_exit={"labelled_flags": 5}
+            ),
+            "needs shadow_exit": changed("flag", mode="shadow"),
+            'shadow_exit {"labelled_flags": n}': changed(
+                "flag", mode="shadow", shadow_exit={"labelled_flags": 0}
+            ),
+            "only a bool answer has a non-blocking outcome": changed(
+                "kind", mode="shadow", shadow_exit={"labelled_flags": 5}
+            ),
+        }
+        for message, document in cases.items():
+            with self.subTest(message=message):
+                (directory / "thresholds.json").write_text(json.dumps(document))
+                with pytest.raises(workflow.WorkflowError, match=re.escape(message)):
+                    workflow.load_judgment("demo")
+
+    def test_loading_registers_each_question_version_with_its_taxonomy(self) -> None:
+        write_judgment(self.root, flag={"threshold": 0.7, "override": {"by": "owner"}})
+        judgment = workflow.load_judgment("demo")
+        rows = {row["question"]: row for row in self.logged("SELECT * FROM questions")}
+        assert set(rows) == {"flag", "kind"}
+        flag = rows["flag"]
+        assert {key: flag[key] for key in TAXONOMY if key != "overlays"} == {
+            key: value for key, value in TAXONOMY.items() if key != "overlays"
+        }
+        assert json.loads(flag["overlays"]) == ["Face-value"]
+        assert flag["question_version"] == judgment.decisions["flag"]["version_key"]
+        assert json.loads(flag["decision"]) == {"threshold": 0.7}
+        assert json.loads(flag["override"]) == {"by": "owner"}
+        assert flag["shadow_exit"] is None
+        assert json.loads(rows["kind"]["decision"]) == {"round_up_floor": 0.3}
+        workflow.load_judgment("demo")
+        assert len(self.logged("SELECT * FROM questions")) == 2, (
+            "a reload replaces its rows"
+        )
+
+    def test_payloads_keep_every_flag_and_error_and_a_stable_sample_of_passes(
+        self,
+    ) -> None:
+        write_judgment(self.root)
+        store = workflow._store()
+        for score in (0.9, 0.1):
+            self.decide(score)
+        with pytest.raises(workflow.WorkflowError):
+            self.decide(RuntimeError("offline"))
+        rows = self.logged()
+        kept = {row["call_id"] for row in self.logged("SELECT * FROM payloads")}
+        for row in rows:
+            expected = (
+                row["outcome"] == "flag"
+                or row["status"] != "ok"
+                or (
+                    row["outcome"] == "pass"
+                    and store.sampled_pass(row["state_sha256"], "demo", row["question"])
+                )
+            )
+            assert row["state_kept"] == int(expected), row
+        assert kept == {row["call_id"] for row in rows if row["state_kept"]}
+        body = self.logged("SELECT body FROM payloads")[0]["body"]
+        assert set(store.decompress(body)) == {"state", "questions", "response"}
+        samples = [store.sampled_pass(f"{n:064x}", "demo", "flag") for n in range(2000)]
+        assert 150 < sum(samples) < 250, "about one pass in ten keeps its payload"
+        assert samples == [
+            store.sampled_pass(f"{n:064x}", "demo", "flag") for n in range(2000)
+        ]
+
+    def test_a_shadow_decision_is_asked_and_logged_like_an_enforced_one(self) -> None:
+        write_judgment(
+            self.root,
+            flag={
+                "threshold": 0.7,
+                "mode": "shadow",
+                "shadow_exit": {"labelled_flags": 10},
+            },
+        )
+        decided = self.decide(0.9)
+        assert decided["outcomes"] == {"flag": "yes"}
+        assert decided["modes"] == {"flag": "shadow", "kind": "enforced"}
+        flag = next(row for row in self.logged() if row["question"] == "flag")
+        assert (flag["mode"], flag["outcome"], flag["state_kept"]) == (
+            "shadow",
+            "flag",
+            1,
+        )
+        progress = self.logged("SELECT * FROM shadow_progress")
+        assert [
+            (row["question"], row["decisions"], row["flags"], row["exit_met"])
+            for row in progress
+        ] == [("flag", 1, 1, 0)]
 
 
 class ShippedJudgmentTests(unittest.TestCase):
+    def setUp(self) -> None:
+        isolated_agent(self)
+
     def test_the_inspector_route_is_opt_in_and_loopback_only(self) -> None:
         root = Path(__file__).resolve().parents[1]
         overlay = root / "agent/extensions/dynaflows/inspector.env"
@@ -962,6 +1236,7 @@ MALICIOUS = (
 
 class MaliciousPackageTests(unittest.TestCase):
     def setUp(self) -> None:
+        isolated_agent(self)
         self.decisions = workflow.load_judgment("dependency-severity").decisions
 
     def advisory(self, line: str) -> Any:
@@ -1032,6 +1307,23 @@ class MaliciousPackageTests(unittest.TestCase):
         assert workflow.MALICIOUS_PREFIX in contract["malicious_package_mark"]
 
 
+def calls(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Decision rows grouped by call, oldest first: judgment, state digest, context and outcomes."""
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        call = grouped.setdefault(
+            row["call_id"],
+            {
+                "judgment": row["judgment"],
+                "state_sha256": row["state_sha256"],
+                "context": (row["trigger"], row["item_kind"], row["item"]),
+                "outcomes": {},
+            },
+        )
+        call["outcomes"][row["question"]] = row["outcome"]
+    return list(grouped.values())
+
+
 class TriageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.found = workflow.parse_dependency_audit(
@@ -1079,12 +1371,10 @@ class TriageTests(unittest.TestCase):
             ),
             patch.object(workflow, "judge", judge, create=True),
         ):
-            result = asyncio.run(workflow.triage_advisories(self.found, evidence_map))
-            self.logged = [
-                json.loads(line)
-                for line in workflow.judgment_call_log().read_text().splitlines()
-            ]
-        return result
+            try:
+                return asyncio.run(workflow.triage_advisories(self.found, evidence_map))
+            finally:
+                self.logged = calls(stored(Path(agent)))
 
     def test_high_severity_halts_with_an_owner_report_and_low_is_fixed_in_flow(
         self,
@@ -1116,7 +1406,10 @@ class TriageTests(unittest.TestCase):
             "dependency-severity"
         ] * 2
         assert self.logged[0]["state_sha256"] == workflow._judgment_digest(state)
-        assert self.logged[1]["outcomes"]["reached"] == "no"
+        assert self.logged[1]["outcomes"]["reached"] == "pass"
+        assert [record["context"] for record in self.logged] == [
+            ("commit", "advisory", key) for key in self.keys
+        ]
         assert state["advisory"]["text"] == "arbitrary code execution through full_load"
 
     def test_the_inspector_route_never_serves_advisory_triage(self) -> None:

@@ -3,21 +3,39 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
 from collections.abc import AsyncIterator, Callable
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from test_reference_decision_store import (
+    no_unclosed_connections as no_unclosed_connections,
+)
 from test_workflows import workflow
 
 from guardrails.host.process import run_text
 
-pytestmark = pytest.mark.seam
+# A sqlite3 connection left open fails the test where it is freed, and the guard fixture finds the rest.
+pytestmark = [
+    pytest.mark.seam,
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
+
+
+@pytest.fixture(autouse=True)
+def isolated_decision_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every test writes the decision store under a temporary agent dir, never the real one."""
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path_factory.mktemp("agent")))
 
 
 ORIGIN = "https://github.com/Example-Owner/Example-Repo.git"
@@ -346,6 +364,17 @@ class ProofRunTests(RepositoryCase):
             assert result["status"] == "pass", result
             self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
             assert self.stored_status() == "pass"
+            assert result["decisionLogErrors"] == []
+            store = Path(os.environ["PI_CODING_AGENT_DIR"]) / "dynaflows/dynaflows.db"
+            with closing(sqlite3.connect(store)) as connection:
+                logged = connection.execute(
+                    "SELECT DISTINCT question, outcome, trigger, repo, commit_sha "
+                    "FROM decisions WHERE source = 'check' ORDER BY question"
+                ).fetchall()
+            assert logged == [
+                (checker, "pass", "prove", "example-owner/example-repo", self.head)
+                for checker in ("path-check", "rename-residue", "structure")
+            ], "each prove checker logs its rule results as passes"
             self.ci.return_value = "pending"
             result = workflow.prove(
                 self.repo,
@@ -1712,6 +1741,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "init", "-q")
         git(self.repo, "config", "user.email", "structure@example.test")
         git(self.repo, "config", "user.name", "Structure Test")
+        git(self.repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
         (self.repo / "src").mkdir()
         (self.repo / "src/__init__.py").write_text("")
         git(self.repo, "add", ".")
@@ -1774,7 +1804,21 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert saved == result
         return result
 
-    async def test_every_finding_blocks_and_never_changes_prove_signal(
+    def logged(self) -> list[dict[str, Any]]:
+        with closing(sqlite3.connect(self.agent / "dynaflows/dynaflows.db")) as store:
+            store.row_factory = sqlite3.Row
+            return [
+                dict(row)
+                for row in store.execute("SELECT * FROM decisions ORDER BY rowid")
+            ]
+
+    def shadow(self, *idents: str) -> None:
+        for ident in idents:
+            self.judgment.decisions[ident].update(
+                mode="shadow", shadow_exit={"labelled_flags": 10}
+            )
+
+    async def test_every_enforced_finding_blocks_and_never_changes_prove_signal(
         self,
     ) -> None:
         signal = workflow.result_path(self.repo, self.head)
@@ -1793,14 +1837,43 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert result["thresholds"] == self.thresholds
         comment = workflow._structure_comment(result)
         assert "raw judgment probabilities" in comment
-        assert "Every finding blocks merge" in comment
-        assert "shadow" not in comment
+        assert "Every enforced finding blocks merge" in comment
+        assert "(shadow, not blocking)" not in comment
         assert set(result["units"]["src/orders"]["outcomes"].values()) == {"yes"}
-        logged = (self.agent / workflow.JUDGMENT_CALLS).read_text().splitlines()
-        assert [json.loads(line)["judgment"] for line in logged] == ["structure-naming"]
-        assert json.loads(logged[0])["state_sha256"] == workflow._judgment_digest(
-            self.calls[0][0]
-        )
+        logged = self.logged()
+        assert len(logged) == 7
+        assert {
+            (row["judgment"], row["outcome"], row["mode"], row["trigger"])
+            for row in logged
+        } == {("structure-naming", "flag", "enforced", "pr")}
+        assert {
+            (row["repo"], row["commit_sha"], row["item_kind"], row["item"])
+            for row in logged
+        } == {("owner/repo", self.head, "unit", "src/orders")}
+        assert logged[0]["state_sha256"] == workflow._judgment_digest(self.calls[0][0])
+
+    async def test_shadow_findings_are_reported_and_logged_but_never_block(
+        self,
+    ) -> None:
+        self.shadow(*self.questions)
+        result = await self.review()
+        assert (result["status"], result["halt"]) == ("pass", False)
+        assert len(result["findings"]) == 7
+        assert {item["mode"] for item in result["findings"]} == {"shadow"}
+        comment = workflow._structure_comment(result)
+        assert comment.count("(shadow, not blocking)") == 7
+        assert "**Blocked:**" not in comment
+        assert {(row["mode"], row["outcome"]) for row in self.logged()} == {
+            ("shadow", "flag")
+        }
+        self.judgment.decisions["folder_name_coverage"].update(mode="enforced")
+        del self.judgment.decisions["folder_name_coverage"]["shadow_exit"]
+        mixed = await self.review()
+        assert (mixed["status"], mixed["halt"]) == ("blocked", True)
+        assert [
+            item["question"] for item in mixed["findings"] if item["mode"] == "enforced"
+        ] == ["folder_name_coverage"]
+        assert workflow._structure_comment(mixed).count("(shadow, not blocking)") == 6
 
     async def test_scores_below_the_threshold_pass_without_findings(self) -> None:
         result = await self.review(score=0.5)
@@ -1847,6 +1920,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert {
             "unit": "src/orders",
             "question": ident,
+            "mode": "enforced",
             "score": 0.7,
             "threshold": 0.7,
         } in result["findings"]
@@ -1880,6 +1954,9 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert not result["findings"]
         assert any("judge offline" in error for error in result["errors"])
         assert any("comment offline" in error for error in result["errors"])
+        assert {(row["status"], row["error"]) for row in self.logged()} == {
+            ("error", "judge offline")
+        }
 
     async def test_invalid_answer_is_incomplete_not_clean(self) -> None:
         result = await self.review(score=float("nan"))

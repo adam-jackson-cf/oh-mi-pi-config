@@ -68,7 +68,8 @@ const tail = (text: string) => text.length > OUTPUT_TAIL ? `…${text.slice(-OUT
 
 async function reviewTask(review: Review): Promise<string | undefined> {
 	const [checks, diff, impact] = await Promise.all([review.checks, review.diff, review.impact]);
-	if (!("failure" in impact) && impact.outcome === "no") return undefined;
+	// Only an enforced "no" skips the review task; a shadow verdict never changes what the rail does.
+	if (!("failure" in impact) && impact.mode === "enforced" && impact.outcome === "no") return undefined;
 	const judged = "failure" in impact ? `not judged: ${impact.failure}` : verdictText(impact);
 	return `First task: the dynaflows extension changed (${review.from} → ${review.to}) since ${review.slug} last acknowledged it. ` +
 		"Review the change and address anything that affects this repository's setup or its interactions with the rails first; " +

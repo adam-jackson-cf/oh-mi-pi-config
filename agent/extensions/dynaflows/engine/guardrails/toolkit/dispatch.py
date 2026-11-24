@@ -139,6 +139,13 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "run one of the profile's test-framework adapters: adapter <name> <action>",
         prints_data=True,
     ),
+    "shadow-review": Subcommand(
+        ("guardrails.commands.shadow_review.command",),
+        "export, import and report review labels for logged judgment decisions; "
+        "write Jev Inspector sessions (shadow-review --help)",
+        needs_profile=False,
+        prints_data=True,
+    ),
 }
 
 

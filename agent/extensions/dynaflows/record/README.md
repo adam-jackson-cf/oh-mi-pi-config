@@ -166,6 +166,25 @@ Run the engine from `agent/extensions/dynaflows/engine` using `uv run --project`
 CI retains the repo's own required context and gate. There is no pre-push hook or
 separate handoff check.
 
+### Rails outcome ledger
+
+Rails write one row per blocking decision, post-edit path-check failure and later resolution
+to the `rail_events` table of the decision store, `<agent dir>/dynaflows/dynaflows.db` (agent
+dir: `PI_CODING_AGENT_DIR`, else `~/.omp/agent`), outside every repository.
+[rails-ledger.ts](../lib/rails-ledger.ts) lists the codes in `RAIL_CODES`, one per rule;
+[decision-store.sql](../engine/guardrails/data/decision-store.sql) defines the row: `ts`,
+`session`, `repo` (or null), `mode` (or null when it cannot be resolved), `tool`, `kind`
+(`block`, `context` or `resolved`), `code`, `reason`, `calls`, `refusals` and `machine`.
+`reason` is the refusal's first line or a summary, at most 200 characters; it never holds
+command output or a hook-skip value. A `resolved` row closes a refusal episode when a later call
+on the same Git verb, edit target, path-check root or handoff passes. It records the episode's
+refusals and the tool calls from its first refusal to the passing call. The ledger is
+observability, not a check: a write failure is noted and never changes a decision.
+
+`bun agent/extensions/dynaflows/lib/ledger-report.ts [--since YYYY-MM-DD] [--store PATH]` prints
+refusals by code and by repository and mode, the share later satisfied and the median calls to
+resolve. Refusals that are nearly all satisfied within a call or two mark friction.
+
 ## Profile schema and checker ownership
 
 Start the live `profile.md` from [this harness template](profile.md), not the generic

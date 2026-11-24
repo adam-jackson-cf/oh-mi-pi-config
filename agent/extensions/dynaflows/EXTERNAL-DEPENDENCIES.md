@@ -23,7 +23,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Commit prelude off | `agent/config.yml` | `commit.enabled: false` before a session |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `write`, `eval`, `read`, `xd://`, `skill://` |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
-| Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs |
+| Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs; `bun:sqlite` |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
 | Health marker | `agent/extensions/extension-health.ts` | Expects dynaflows to register |
 | Config root | Repo root | Records and scripts resolve by position |
@@ -31,7 +31,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
 | `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
-| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the judgment call log and review state |
+| `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the decision store and review state |
 | `TYPESAFE_API_KEY` | omp runtime | Key omp's typesafe provider sends |
 | `TYPESAFE_BASE_URL` | omp runtime | Jev Inspector route; gate judgments refuse it |
 
@@ -116,8 +116,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Git and gh config | `~/.gitconfig`, `~/.config/gh/config.yml` | Agent tools never write them |
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
 | Secrets | Infisical | `TYPESAFE_API_KEY` judge key; gate status token |
-| Judgment calls | `~/.omp/agent/dynaflows/judgment-calls.jsonl` | `decide()` log; agent dir |
-| NUC | `codex-omarchy-nuc` | `nuc-config` deploy runs `ci_gate.py` |
+| Decision store | `~/.omp/agent/dynaflows/dynaflows.db` | Decisions, reviews, rails ledger |
+| Store schema | `agent/extensions/dynaflows/engine/guardrails/data/decision-store.sql` | SQL |
+| NUC | `codex-omarchy-nuc` | `nuc-config` runs `ci_gate.py`; shadow review reads its store |
 
 ## Devices and GitHub
 
@@ -141,6 +142,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | `omp` | PATH | 19.0.1; `config get worktree.base`, `config get modelRoles` |
 | `env` | PATH | Runs repo commands without `AGENT` |
 | `python3` | PATH | Runs `ci_runner.py` |
+| `ssh` | PATH | `shadow-review --machine nuc`: BatchMode, read-only store copy |
 | Repo commands | Record | `checks.commit` before commits |
 | `go`, `node`, `bun` | PATH | Engine adapter test runs |
 | LSP servers | PATH | `pyright-langserver`, TS server for `init` |

@@ -112,6 +112,14 @@
   "decisions": {
     "technical_kind_grouping": {
       "version_key": "03a8865fb3f66505f42e9f4914de65c105b77306414d308df75f1707cbda4d5b",
+      "approach": "Eval judge",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "structure",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -162,6 +170,14 @@
     },
     "folder_name_coverage": {
       "version_key": "b7eee4fd9900f4740534e268d5e5084da16d39d66754f6d694e1cff409639747",
+      "approach": "Eval judge",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "naming",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -212,6 +228,14 @@
     },
     "overlapping_responsibilities": {
       "version_key": "4d851b51600a29a5e4f9c4ff14333e6dce03d67153cb3cba9a081125af9f8ef2",
+      "approach": "Eval judge",
+      "overlays": ["Face-value", "Place"],
+      "primitive": "noul",
+      "evidence_unit": "pair",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "structure",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -251,6 +275,14 @@
     },
     "one_name_per_concept": {
       "version_key": "13e46b50ef8b3557008ecfffe4cfdc935c786e86d5572b0f2ebb5ea1070a9185",
+      "approach": "Eval judge",
+      "overlays": ["Face-value", "Place"],
+      "primitive": "noul",
+      "evidence_unit": "pair",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "naming",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -301,6 +333,14 @@
     },
     "sibling_naming_pattern": {
       "version_key": "73be2e72d105844090863a374601e246c170d7e87bb6619f29078fc0a83ef3fa",
+      "approach": "Eval judge",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "naming",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -340,6 +380,14 @@
     },
     "prefix_should_be_folder": {
       "version_key": "3be81e957f809d56969cb7bf6ae67b4e7a9e8d9e136f007a89b19f7121b53a5c",
+      "approach": "Eval judge",
+      "overlays": ["Face-value", "Place"],
+      "primitive": "noul",
+      "evidence_unit": "placement",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "structure",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -379,6 +427,14 @@
     },
     "runtime_data_in_code": {
       "version_key": "d9cc8eaf02912e2c784ac0d9add7845176294ef96a287f83a45538115ab37cf6",
+      "approach": "Eval judge",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "structure",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {
@@ -418,6 +474,14 @@
     },
     "entry_point_placement": {
       "version_key": "e161c90f50df5f4cd8cae8c20df216679365baeb06c7420575a01c680be551dc",
+      "approach": "Eval judge",
+      "overlays": ["Face-value", "Place"],
+      "primitive": "noul",
+      "evidence_unit": "placement",
+      "combination": "any",
+      "action": "block",
+      "policy_area": "structure",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A false finding costs more than a miss: findings only at yes >= 0.7",
       "measured": {

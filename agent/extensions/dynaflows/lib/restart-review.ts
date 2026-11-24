@@ -5,9 +5,9 @@ import { readdir, readFile, realpath, rename, writeFile } from "node:fs/promises
 import { join, relative } from "node:path";
 import { z, type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { SUBPROCESS_TIMEOUT_MS, absentFile } from "./rails-runtime.ts";
-import { agentDir } from "./judgment-calls.ts";
+import { agentDir } from "./decision-store.ts";
 
-/** The review state under the omp agent dir, by the judgment call log's rule (PI_CODING_AGENT_DIR). */
+/** The review state under the omp agent dir, by the decision store's rule (PI_CODING_AGENT_DIR). */
 export const defaultReviewsPath = (): string => join(agentDir(), "dynaflows-reviews.json");
 
 /** The repository's Git common dir: the same for every worktree of one repository. */

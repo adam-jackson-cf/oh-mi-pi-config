@@ -136,7 +136,7 @@ at the boundary; the repo never bends its own code or rules to make it pass.
   settings, even where repo checks overlap; repo build, tests and CI stay independent.
 - Principles 5 and 17: automatic naming, structure and path checks judge only new paths and
   segments, and `prove()` runs those new-path pre-checks at the PR; full scans are explicit
-  requests, and `structure_review()` findings block merge.
+  requests, and enforced `structure_review()` findings block merge.
 
 ## Known limits
 
@@ -156,3 +156,12 @@ at the boundary; the repo never bends its own code or rules to make it pass.
   post.
 - Two rules stay instructions in `agent/AGENTS.md`: no Git in the NUC's `~/.omp` (remote `ssh`
   shells are opaque), and restart sessions after rail changes (old sessions keep old rails).
+- The decision store logs deterministic check results only for `prove()`'s rename-residue,
+  path-check and structure checkers; commit-time checks are not logged.
+- Only bool decisions run in shadow mode: a choice answer, such as `dependency-severity`'s
+  `impact`, has no outcome that leaves the rubric unchanged.
+- Passes keep their payload only for a stable 1-in-10 sample, so a sampled review sees a tenth of
+  passes. `shadow-review --machine nuc` copies labelled NUC decisions home; the NUC's own store is
+  only read, so its payloads are never pruned.
+- Turn-end `session_stop` blocks and the `dynaflows` tool's refusals carry no rail code, so the
+  rails ledger does not count them.

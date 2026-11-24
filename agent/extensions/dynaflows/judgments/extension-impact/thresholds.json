@@ -36,6 +36,14 @@
   "decisions": {
     "impact": {
       "version_key": "7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
+      "approach": "Gate",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "review_queue",
+      "policy_area": "harness",
+      "mode": "enforced",
       "tuned_threshold": 0.47,
       "threshold": 0.28,
       "rule": "P(impact) >= threshold flags the repository for review",

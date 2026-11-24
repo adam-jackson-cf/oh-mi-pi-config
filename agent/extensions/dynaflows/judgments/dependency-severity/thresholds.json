@@ -58,6 +58,14 @@
   "decisions": {
     "impact": {
       "version_key": "18d911c70d78a5416bc2aa286bf8ce1272191f73e0147ee4e016e834d823f330",
+      "approach": "Grade",
+      "overlays": [],
+      "primitive": "choice",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "route",
+      "policy_area": "security",
+      "mode": "enforced",
       "round_up_floor": 0.3,
       "rule": "the most severe class with probability >= round_up_floor; 0.3 because understated severity costs more than an extra owner report",
       "measured": {
@@ -77,6 +85,14 @@
     },
     "local_only": {
       "version_key": "ccc08c6ed647275fac880423150f47ac252caf6652114da6f8da72ee8f8dc37e",
+      "approach": "Grade",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "route",
+      "policy_area": "security",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "A wrong yes lowers severity (understated, missed owner halt); lowers only at yes >= 0.7",
       "measured": {
@@ -127,6 +143,14 @@
     },
     "needs_privileges": {
       "version_key": "5226447ff80b26535c59ada21ecc386e252eb5f734335badc2d831699f24b634",
+      "approach": "Grade",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "route",
+      "policy_area": "security",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "as local_only",
       "measured": {
@@ -177,6 +201,14 @@
     },
     "needs_interaction": {
       "version_key": "1f501ca5feb73f6fab0f0fc73e23e0fe6cc9b105435ee1ce20a3846c914e7bf1",
+      "approach": "Grade",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "any",
+      "action": "route",
+      "policy_area": "security",
+      "mode": "enforced",
       "threshold": 0.7,
       "cost_rule": "as local_only",
       "measured": {
@@ -227,6 +259,14 @@
     },
     "reached": {
       "version_key": "b7058ae0f9e92688731557942ed5ec14011f4d9885d8f1caf93205876d65560f",
+      "approach": "Grade",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "route",
+      "policy_area": "security",
+      "mode": "enforced",
       "threshold": 0.3,
       "cost_rule": "A wrong no lowers severity; unreached only below the threshold 0.3 (the former no_at_most), so triage still never lowers severity on an uncertain score",
       "measured": {
