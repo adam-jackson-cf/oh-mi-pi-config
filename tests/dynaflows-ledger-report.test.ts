@@ -30,10 +30,10 @@ function withSeededStore(lines: Line[], body: (path: string) => void): void {
 	const path = storePath(dir);
 	const db = openStore(path);
 	try {
-		const insert = db.query("INSERT INTO rail_events (ts, session, repo, mode, tool, kind, code, reason, calls, refusals, machine) " +
-			"VALUES ($ts, 's1', $repo, $mode, 'bash', $kind, $code, $reason, $calls, $refusals, 'test-machine')");
+		const insert = db.query("INSERT INTO rail_events (ts, session, repo, tool, kind, code, reason, calls, refusals, machine) " +
+			"VALUES ($ts, 's1', $repo, 'bash', $kind, $code, $reason, $calls, $refusals, 'test-machine')");
 		for (const [day, repo, kind, code, calls, refusals] of lines) {
-			insert.run({ ts: `2026-11-${day}T10:00:00.000Z`, repo, mode: repo ? "structured" : "minimal", kind, code,
+			insert.run({ ts: `2026-11-${day}T10:00:00.000Z`, repo, kind, code,
 				reason: kind === "resolved" ? null : `Agent rails: ${code}`, calls: calls ?? null, refusals: refusals ?? null });
 		}
 	} finally { db.close(); }
@@ -41,7 +41,7 @@ function withSeededStore(lines: Line[], body: (path: string) => void): void {
 	finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-test("the report counts refusals by code and by repository and mode, with the satisfied share and median calls", () => {
+test("the report counts refusals by code and by repository, with the satisfied share and median calls", () => {
 	withSeededStore(fixture, path => {
 		const report = summarise(readLedger(path));
 		assert.deepEqual([report.refusals, report.blocks, report.postEdit, report.satisfied, report.medianCalls], [7, 6, 1, 5, 3]);
@@ -52,15 +52,17 @@ test("the report counts refusals by code and by repository and mode, with the sa
 			{ code: "push-default-branch", refusals: 1, blocks: 1, postEdit: 0, satisfied: 0, medianCalls: null },
 		]);
 		assert.deepEqual(report.groups, [
-			{ repo: "owner/a", mode: "structured", refusals: 3, satisfied: 3 },
-			{ repo: "owner/b", mode: "structured", refusals: 3, satisfied: 2 },
-			{ repo: "(none)", mode: "minimal", refusals: 1, satisfied: 0 },
+			{ repo: "owner/a", refusals: 3, satisfied: 3 },
+			{ repo: "owner/b", refusals: 3, satisfied: 2 },
+			{ repo: "(none)", refusals: 1, satisfied: 0 },
 		]);
 		const printed = formatReport(report, path);
 		assert.ok(printed.startsWith(`Rails ledger ${path}\n7 refusals (6 blocks, 1 post-edit), 5 later satisfied (71%), median 3 calls to resolve\n`), printed);
 		assert.match(printed, /^read-gate +4 +4 +0 +4 +100% +2$/m);
 		assert.match(printed, /^commit-checks +1 +1 +0 +0 +0% +-$/m);
-		assert.match(printed, /^\(none\) +minimal +1 +0 +0%$/m);
+		assert.match(printed, /^repo +refusals +satisfied +rate$/m, "the groups table has one row per repository, no mode column");
+		assert.match(printed, /^owner\/a +3 +3 +100%$/m);
+		assert.match(printed, /^\(none\) +1 +0 +0%$/m);
 	});
 });
 

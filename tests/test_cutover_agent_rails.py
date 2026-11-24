@@ -1,4 +1,5 @@
-"""scripts/cutover_agent_rails.py records: the one-off conversion of repo records into config.json.
+"""scripts/cutover_agent_rails.py: the one-off conversion of repo records into config.json and of
+the decision store to schema version 2.
 
 Synthetic records under tests/fixtures/agentrails/records copy the profile template's sections and
 the gate shapes of the four live records. git is replaced by a fake clone inspector here; the seam
@@ -8,14 +9,20 @@ tests drive real checkouts.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
+import re
 import shutil
+import sqlite3
+import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -36,6 +43,7 @@ sys.modules[spec.name] = cutover
 spec.loader.exec_module(cutover)
 
 from guardrails.commands import cli  # noqa: E402 - the script put the engine on sys.path
+from guardrails.foundation import decision_store  # noqa: E402
 
 OWNER = "example-owner"
 NAMES = ("allowed-app", "gated-tool", "plain-lib")
@@ -573,3 +581,469 @@ class Rewrites(Workspace):
             == "agent/extensions/agent-rails/skills/jev-actions/a.py"
         )
         assert found.approvals[0]["reason"] == "ok"
+
+
+# The version 1 decision-store.sql, comments dropped: the schema every live store is at before the cutover.
+V1_SCHEMA = """
+BEGIN IMMEDIATE;
+
+CREATE TABLE IF NOT EXISTS questions (
+  judgment TEXT NOT NULL,
+  question TEXT NOT NULL,
+  question_version TEXT NOT NULL,
+  approach TEXT NOT NULL CHECK (approach IN ('Gate', 'Route', 'Rerank', 'Select', 'Grade', 'Verify', 'Eval judge')),
+  overlays TEXT NOT NULL CHECK (json_valid(overlays) AND json_type(overlays) = 'array'),
+  primitive TEXT NOT NULL CHECK (primitive IN ('noul', 'choice', 'score')),
+  evidence_unit TEXT NOT NULL CHECK (evidence_unit IN ('item', 'pair', 'placement')),
+  combination TEXT NOT NULL CHECK (combination IN ('jev_only', 'proposer_product', 'chain_all', 'any', 'max_per_unit')),
+  action TEXT NOT NULL CHECK (action IN ('block', 'confirm', 'review_queue', 'log', 'route')),
+  policy_area TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('enforced', 'shadow')),
+  decision TEXT NOT NULL CHECK (json_valid(decision)),
+  precision_target REAL,
+  override TEXT CHECK (override IS NULL OR json_valid(override)),
+  shadow_exit TEXT CHECK (shadow_exit IS NULL OR json_valid(shadow_exit)),
+  model TEXT NOT NULL,
+  loaded_at TEXT NOT NULL,
+  PRIMARY KEY (judgment, question, question_version)
+);
+
+CREATE TABLE IF NOT EXISTS decisions (
+  id TEXT PRIMARY KEY,
+  call_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('jev', 'check')),
+  judgment TEXT NOT NULL,
+  question TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('enforced', 'shadow')),
+  status TEXT NOT NULL CHECK (status IN ('ok', 'error', 'incomplete')),
+  error TEXT,
+  outcome TEXT CHECK (outcome IN ('flag', 'pass', 'escalate')),
+  probability REAL,
+  choice_probabilities TEXT CHECK (choice_probabilities IS NULL OR json_valid(choice_probabilities)),
+  threshold REAL,
+  proposer_score REAL,
+  combined_score REAL,
+  model TEXT,
+  question_version TEXT,
+  judgment_version TEXT,
+  repo TEXT,
+  commit_sha TEXT,
+  pr INTEGER,
+  trigger TEXT NOT NULL CHECK (trigger IN ('commit', 'prove', 'pr', 'manual')),
+  item_kind TEXT,
+  item TEXT,
+  machine TEXT NOT NULL,
+  state_sha256 TEXT,
+  state_kept INTEGER NOT NULL DEFAULT 0 CHECK (state_kept IN (0, 1)),
+  review_label TEXT CHECK (review_label IN ('0', '1', 'abstain')),
+  review_rule TEXT,
+  reviewed_at TEXT,
+  review_batch TEXT,
+  verdict TEXT CHECK (verdict IN ('true_flag', 'false_flag', 'missed', 'true_pass')),
+  CHECK (status = 'ok' OR outcome IS NULL),
+  CHECK (status != 'ok' OR outcome IS NOT NULL OR choice_probabilities IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS decisions_question ON decisions (judgment, question, outcome, ts);
+CREATE INDEX IF NOT EXISTS decisions_review ON decisions (mode, review_label);
+CREATE INDEX IF NOT EXISTS decisions_commit ON decisions (repo, commit_sha);
+CREATE INDEX IF NOT EXISTS decisions_status ON decisions (status);
+CREATE INDEX IF NOT EXISTS decisions_item ON decisions (item);
+CREATE INDEX IF NOT EXISTS decisions_source ON decisions (source);
+CREATE INDEX IF NOT EXISTS decisions_call ON decisions (call_id);
+
+CREATE TABLE IF NOT EXISTS payloads (
+  call_id TEXT PRIMARY KEY,
+  state_sha256 TEXT NOT NULL,
+  body BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payloads_state ON payloads (state_sha256);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id INTEGER PRIMARY KEY,
+  decision_id TEXT NOT NULL REFERENCES decisions (id),
+  label TEXT NOT NULL CHECK (label IN ('0', '1', 'abstain')),
+  rule TEXT,
+  reason TEXT,
+  labeller TEXT NOT NULL CHECK (labeller IN ('council', 'arbiter')),
+  batch TEXT NOT NULL,
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS reviews_decision ON reviews (decision_id);
+
+CREATE TABLE IF NOT EXISTS rail_events (
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  session TEXT NOT NULL,
+  repo TEXT,
+  mode TEXT CHECK (mode IN ('minimal', 'structured')),
+  tool TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('block', 'context', 'resolved')),
+  code TEXT NOT NULL,
+  reason TEXT CHECK (reason IS NULL OR length(reason) <= 200),
+  calls INTEGER CHECK (calls IS NULL OR calls >= 0),
+  refusals INTEGER CHECK (refusals IS NULL OR refusals > 0),
+  machine TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rail_events_code ON rail_events (code, ts);
+CREATE INDEX IF NOT EXISTS rail_events_repo ON rail_events (repo, mode);
+
+CREATE VIEW IF NOT EXISTS shadow_progress AS
+SELECT
+  q.judgment,
+  q.question,
+  q.question_version,
+  q.shadow_exit,
+  COUNT(d.id) AS decisions,
+  COALESCE(SUM(d.outcome = 'flag'), 0) AS flags,
+  COALESCE(SUM(d.outcome = 'flag' AND d.review_label IN ('0', '1')), 0) AS labelled_flags,
+  COALESCE(SUM(d.verdict = 'true_flag'), 0) AS true_flags,
+  CAST(SUM(d.verdict = 'true_flag') AS REAL)
+    / NULLIF(SUM(d.outcome = 'flag' AND d.review_label IN ('0', '1')), 0) AS precision,
+  COALESCE(SUM(d.outcome = 'flag' AND d.review_label IN ('0', '1')), 0)
+    >= json_extract(q.shadow_exit, '$.labelled_flags') AS exit_met
+FROM questions AS q
+LEFT JOIN decisions AS d
+  ON d.source = 'jev'
+  AND d.mode = 'shadow'
+  AND d.judgment = q.judgment
+  AND d.question = q.question
+  AND d.question_version = q.question_version
+WHERE q.mode = 'shadow'
+GROUP BY q.judgment, q.question, q.question_version;
+
+PRAGMA user_version = 1;
+COMMIT;
+"""
+V1_RAIL_EVENTS = [
+    (
+        "2026-11-20T10:00:00Z",
+        "s1",
+        "owner/a",
+        "structured",
+        "bash",
+        "block",
+        "read-gate",
+        "r",
+        None,
+        None,
+        "mac",
+    ),
+    (
+        "2026-11-20T10:01:00Z",
+        "s1",
+        "owner/a",
+        "structured",
+        "bash",
+        "resolved",
+        "read-gate",
+        None,
+        2,
+        1,
+        "mac",
+    ),
+    (
+        "2026-11-20T10:02:00Z",
+        "s2",
+        None,
+        None,
+        "edit",
+        "context",
+        "path-check",
+        "p",
+        None,
+        None,
+        "nuc",
+    ),
+    (
+        "2026-11-20T10:03:00Z",
+        "s2",
+        "owner/b",
+        "minimal",
+        "bash",
+        "block",
+        "minimal-merge",
+        "m",
+        None,
+        None,
+        "nuc",
+    ),
+]
+V1_COUNTS = {
+    "questions": 1,
+    "decisions": 1,
+    "payloads": 1,
+    "reviews": 1,
+    "rail_events": 4,
+}
+REAL_HOLDERS = cutover.holders
+REAL_OMP_SESSIONS = cutover.omp_sessions
+
+
+def seed_v1(connection: sqlite3.Connection) -> None:
+    connection.executescript(V1_SCHEMA)
+    connection.execute(
+        "INSERT INTO questions (judgment, question, question_version, approach, overlays, primitive, "
+        "evidence_unit, combination, action, policy_area, mode, decision, model, loaded_at) "
+        "VALUES ('j', 'q', 'v1', 'Gate', '[]', 'noul', 'item', 'jev_only', 'block', 'area', 'shadow', "
+        "'{}', 'model', '2026-11-20')"
+    )
+    connection.execute(
+        "INSERT INTO decisions (id, call_id, ts, source, judgment, question, mode, status, outcome, "
+        "trigger, machine, question_version) VALUES ('d1', 'c1', '2026-11-20', 'jev', 'j', 'q', "
+        "'shadow', 'ok', 'flag', 'commit', 'mac', 'v1')"
+    )
+    connection.execute(
+        "INSERT INTO payloads (call_id, state_sha256, body, created_at) "
+        "VALUES ('c1', 'sha', x'00', '2026-11-20')"
+    )
+    connection.execute(
+        "INSERT INTO reviews (decision_id, label, labeller, batch, ts) "
+        "VALUES ('d1', '1', 'council', 'b1', '2026-11-20')"
+    )
+    connection.executemany(
+        "INSERT INTO rail_events (ts, session, repo, mode, tool, kind, code, reason, calls, refusals, "
+        "machine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        V1_RAIL_EVENTS,
+    )
+
+
+def digests(directory: Path) -> dict[str, str]:
+    return {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(directory.iterdir())
+    }
+
+
+class StoreMigration(unittest.TestCase):
+    """The store subcommand on a version 1 store copied, like the live one, with its WAL un-checkpointed."""
+
+    def setUp(self) -> None:
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.live = self.temp / "live"
+        self.live.mkdir()
+        self.store = self.live / "dynaflows.db"
+        self.backup = self.temp / "backup"
+        writer = self.temp / "writer"
+        writer.mkdir()
+        with closing(
+            sqlite3.connect(writer / "dynaflows.db", isolation_level=None)
+        ) as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA wal_autocheckpoint = 0")
+            seed_v1(connection)
+            for path in writer.iterdir():
+                shutil.copy2(path, self.live / path.name)
+        self.held: list[str] = []
+        self.sessions: list[str] = []
+        for name, value in (
+            ("holders", lambda store: self.held),
+            ("omp_sessions", lambda: self.sessions),
+        ):
+            patcher = patch.object(cutover, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_store(self, *extra: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cutover.main([
+                "store",
+                "--store",
+                str(self.store),
+                "--backup",
+                str(self.backup),
+                *extra,
+            ])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_the_fixture_holds_rows_in_an_uncheckpointed_wal(self) -> None:
+        assert (self.live / "dynaflows.db-wal").stat().st_size > 0
+
+    def test_the_dry_run_reports_the_planned_counts_and_leaves_the_store_untouched(
+        self,
+    ) -> None:
+        self.sessions = ["77 omp"]
+        before = digests(self.live)
+        code, out, err = self.run_store()
+        assert code == 0, err
+        assert re.search(r"^  rail_events +4 +4$", out, re.MULTILINE), out
+        assert re.search(r"^  decisions +1 +1$", out, re.MULTILINE), out
+        assert "integrity_check: ok" in out
+        assert f"dry run: {self.store} untouched" in out
+        assert digests(self.live) == before
+        assert not self.backup.exists()
+
+    def test_apply_backs_up_the_store_then_migrates_it_to_v2_with_equal_counts(
+        self,
+    ) -> None:
+        code, out, err = self.run_store("--apply")
+        assert code == 0, err
+        [saved] = self.backup.iterdir()
+        assert f"backed up {self.store} to {saved}" in out
+        assert re.search(r"^  rail_events +4 +4$", out, re.MULTILINE), out
+        with closing(sqlite3.connect(saved / "dynaflows.db")) as old:
+            assert old.execute("PRAGMA user_version").fetchone()[0] == 1
+            assert cutover.table_counts(old) == V1_COUNTS
+        with decision_store.opened(self.store) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+            assert cutover.table_counts(connection) == V1_COUNTS
+            columns = [
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(rail_events)")
+            ]
+            assert "mode" not in columns
+            rows = connection.execute(
+                f"SELECT {', '.join(columns)} FROM rail_events ORDER BY id"
+            ).fetchall()
+            assert [tuple(row)[1:] for row in rows] == [
+                (*event[:3], *event[4:]) for event in V1_RAIL_EVENTS
+            ]
+            assert [
+                row["name"]
+                for row in connection.execute("PRAGMA index_info(rail_events_repo)")
+            ] == ["repo"]
+
+    def test_a_version_1_store_is_refused_by_the_python_readers(self) -> None:
+        for opener in (decision_store.connect, decision_store.connect_read_only):
+            with (
+                self.subTest(opener=opener.__name__),
+                pytest.raises(
+                    decision_store.StoreError,
+                    match="schema version 1; this harness reads version 2 only",
+                ),
+            ):
+                opener(self.store)
+
+    def test_the_store_is_refused_while_held_open_or_while_omp_runs(self) -> None:
+        before = digests(self.live)
+        self.held = ["4242"]
+        code, _, err = self.run_store()
+        assert code == 1
+        assert "processes 4242 hold" in err
+        self.held = []
+        self.sessions = ["77 /opt/homebrew/bin/omp"]
+        code, _, err = self.run_store("--apply")
+        assert code == 1
+        assert "omp session running: 77 /opt/homebrew/bin/omp" in err
+        assert digests(self.live) == before
+        assert not self.backup.exists()
+
+    def test_usage_and_store_refusals(self) -> None:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            usage = cutover.main(["store", "--store", str(self.store), "--apply"])
+        assert usage == 2
+        assert "--apply needs --backup DIR" in err.getvalue()
+        missing = self.temp / "absent.db"
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            assert cutover.main(["store", "--store", str(missing)]) == 1
+        assert f"no decision store at {missing}" in err.getvalue()
+
+    def test_a_store_already_at_v2_is_refused_without_a_backup(self) -> None:
+        current = self.temp / "current" / "dynaflows.db"
+        with decision_store.opened(current):
+            pass
+        self.store = current
+        for extra in ((), ("--apply",)):
+            code, _, err = self.run_store(*extra)
+            assert code == 1
+            assert "schema version 2; this migration reads version 1 only" in err
+        assert not self.backup.exists()
+
+    def test_a_failed_check_rolls_the_whole_migration_back(self) -> None:
+        counts = cutover.table_counts
+        calls = []
+
+        def drifting(connection: sqlite3.Connection) -> dict[str, int]:
+            calls.append(1)
+            found = counts(connection)
+            return {**found, "rail_events": 0} if len(calls) == 2 else found
+
+        cutover.checkpoint(self.store)
+        with (
+            patch.object(cutover, "table_counts", drifting),
+            pytest.raises(
+                cutover.CutoverError, match="rolled back: row counts changed"
+            ),
+        ):
+            cutover.migrate_store(self.store)
+        with closing(sqlite3.connect(self.store)) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+            assert "mode" in cutover._columns(connection, "rail_events")
+            assert cutover.table_counts(connection) == V1_COUNTS
+
+    def test_the_backup_never_reuses_a_directory(self) -> None:
+        cutover.backup_store(self.store, self.backup, "2026-11-24T09:00:00Z")
+        with pytest.raises(FileExistsError):
+            cutover.backup_store(self.store, self.backup, "2026-11-24T09:00:00Z")
+
+
+class ProcessProbes(unittest.TestCase):
+    """holders reads lsof and omp_sessions reads ps; both refuse when the tool is missing or fails."""
+
+    def setUp(self) -> None:
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.store = self.temp / "dynaflows.db"
+        self.store.write_bytes(b"")
+        (self.temp / "dynaflows.db-wal").write_bytes(b"")
+        self.argv: list[list[str]] = []
+
+    def fake(
+        self, code: int, stdout: str = "", missing: bool = False
+    ) -> Callable[..., subprocess.CompletedProcess[str]]:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            self.argv.append(argv)
+            if missing:
+                raise FileNotFoundError(argv[0])
+            return subprocess.CompletedProcess(argv, code, stdout, "boom")
+
+        return run
+
+    def test_lsof_lists_the_pids_holding_any_store_file(self) -> None:
+        with patch.object(cutover, "run_text", self.fake(0, "456\n123\n456\n")):
+            assert REAL_HOLDERS(self.store) == ["123", "456"]
+        assert self.argv[0] == [
+            "lsof",
+            "-t",
+            "--",
+            str(self.store),
+            str(self.temp / "dynaflows.db-wal"),
+        ]
+        with patch.object(cutover, "run_text", self.fake(1)):
+            assert REAL_HOLDERS(self.store) == []
+        for run, message in (
+            (self.fake(2), "lsof failed: boom"),
+            (self.fake(0, missing=True), "lsof is not installed"),
+        ):
+            with (
+                patch.object(cutover, "run_text", run),
+                pytest.raises(cutover.CutoverError, match=message),
+            ):
+                REAL_HOLDERS(self.store)
+
+    def test_ps_lists_omp_sessions_but_not_omp_workers_or_other_commands(self) -> None:
+        listing = (
+            "  10 /opt/homebrew/Cellar/omp/19.0.1/bin/omp\n"
+            "  11 /opt/homebrew/Cellar/omp/19.0.1/bin/omp __omp_worker_daemon_broker\n"
+            "  12 /bin/zsh -c omp -p hi\n"
+            "  13 omp -p --no-session hi\n"
+            "  14 /usr/bin/python3 scripts/omp.py\n"
+        )
+        with patch.object(cutover, "run_text", self.fake(0, listing)):
+            assert REAL_OMP_SESSIONS() == [
+                "10 /opt/homebrew/Cellar/omp/19.0.1/bin/omp",
+                "13 omp -p --no-session hi",
+            ]
+        for run, message in (
+            (self.fake(1), "ps failed: boom"),
+            (self.fake(0, missing=True), "ps is not installed"),
+        ):
+            with (
+                patch.object(cutover, "run_text", run),
+                pytest.raises(cutover.CutoverError, match=message),
+            ):
+                REAL_OMP_SESSIONS()

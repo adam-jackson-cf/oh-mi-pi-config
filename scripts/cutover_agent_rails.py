@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""One-off cutover: convert the ~/.omp/repos records into <main checkout>/.agentrails/config.json.
+"""One-off agent-rails cutover: repo records into config.json, the decision store to schema v2.
 
 The owner runs it once, in the live cutover after the agent/agent-rails merge, and a follow-up PR
-deletes it with its tests. Nothing else runs it, and no test touches the live records.
+deletes it with its tests. Nothing else runs it, and no test touches the live records or store.
+
+records: convert the ~/.omp/repos records into <main checkout>/.agentrails/config.json.
 
     python3 scripts/cutover_agent_rails.py records --records-root ~/.omp/repos \
         --repo owner/name=/abs/clone [--repo ...] [--delete owner/name ...] \
@@ -22,16 +24,34 @@ deletes the records root; a later cutover step removes it after verification.
 PATH_REWRITES moves the paths a record names to where the agent/agent-rails branch put them.
 Steps that rename or delete tracked paths named by a migrated record extend it. Before --apply,
 the owner proves a rewritten config with guardrails check --repo on the merged tree.
+
+store: migrate one decision store from schema version 1 to 2 (rail_events.mode dropped).
+
+    python3 scripts/cutover_agent_rails.py store --store <agent dir>/dynaflows/dynaflows.db \
+        [--backup DIR --apply]
+
+Both store readers refuse a version 1 store once the branch lands, so every device whose agent
+dir holds a store (the Mac, the NUC and any other device that ran omp with the rails) runs this
+once after it pulls, with its omp sessions stopped. The command refuses while lsof lists any
+process holding the store, its -wal or its -shm. Without --apply it is a dry run: it copies the
+store files to a temporary directory, migrates the copy, prints the row counts it would keep and
+leaves the store untouched. With --apply it also refuses while an omp session runs; it then runs
+PRAGMA wal_checkpoint(TRUNCATE), copies the store files into a new directory under --backup, and
+migrates the store in place in one transaction: rail_events is rebuilt from decision-store.sql
+without mode, every row keeps its other columns, and user_version becomes 2. Row counts of every
+table must be equal before and after, and PRAGMA integrity_check must pass, or nothing changes.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import tarfile
 import tempfile
@@ -54,6 +74,7 @@ sys.path.insert(
 )
 from guardrails.context.config import repo_config
 from guardrails.context.config.repo_config import ConfigError
+from guardrails.foundation import decision_store
 from guardrails.host.process import run_text
 
 GIT_TIMEOUT_S = 20
@@ -178,6 +199,10 @@ class Migration:
     clone: Clone
     config: dict[str, Any]
     dropped: list[str]
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -729,7 +754,7 @@ def records(args: argparse.Namespace) -> int:
             "cutover refused; nothing written:", *selection, sep="\n  ", file=sys.stderr
         )
         return 1
-    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    now = utc_now()
     found = plan(root, args.repo, attestation, now)
     if found.unattested:
         print(
@@ -751,6 +776,304 @@ def records(args: argparse.Namespace) -> int:
         _print_plan(found, root, args.delete)
         return 0
     _apply(found, root, args.archive.expanduser(), args.delete, now)
+    return 0
+
+
+# The decision store migration (the store subcommand).
+STORE_FROM_VERSION = 1
+STORE_TABLES = ("questions", "decisions", "payloads", "reviews", "rail_events")
+STORE_SIDECARS = ("-wal", "-shm")
+DROPPED_COLUMN = "mode"
+PROCESS_TIMEOUT_S = 30
+OMP_WORKER = "__omp_worker_"
+
+
+@dataclass(frozen=True)
+class StoreReport:
+    before: dict[str, int]
+    after: dict[str, int]
+    integrity: str
+
+
+def store_files(store: Path) -> list[Path]:
+    """The store and whichever of its -wal and -shm files exist."""
+    sidecars = [store.with_name(store.name + suffix) for suffix in STORE_SIDECARS]
+    return [store, *(path for path in sidecars if path.exists())]
+
+
+def holders(store: Path) -> list[str]:
+    """The PIDs lsof lists as holding the store, its -wal or its -shm open."""
+    try:
+        result = run_text(
+            ["lsof", "-t", "--", *map(str, store_files(store))],
+            timeout=PROCESS_TIMEOUT_S,
+        )
+    except FileNotFoundError as error:
+        raise CutoverError(
+            "lsof is not installed; the store cutover cannot prove no process holds the store"
+        ) from error
+    if result.returncode not in (0, 1):
+        raise CutoverError(
+            f"lsof failed: {result.stderr.strip() or f'exit {result.returncode}'}"
+        )
+    return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+
+
+def omp_sessions() -> list[str]:
+    """Running omp processes other than omp's own worker daemons, as 'PID ARGS'."""
+    try:
+        result = run_text(
+            ["ps", "-A", "-o", "pid=", "-o", "args="], timeout=PROCESS_TIMEOUT_S
+        )
+    except FileNotFoundError as error:
+        raise CutoverError(
+            "ps is not installed; the store cutover cannot prove no omp session runs"
+        ) from error
+    if result.returncode != 0:
+        raise CutoverError(
+            f"ps failed: {result.stderr.strip() or f'exit {result.returncode}'}"
+        )
+    sessions = []
+    for line in result.stdout.splitlines():
+        pid, _, args = line.strip().partition(" ")
+        args = args.strip()
+        if Path(args.split(" ", 1)[0]).name == "omp" and OMP_WORKER not in args:
+            sessions.append(f"{pid} {args}")
+    return sessions
+
+
+def _rail_events_schema() -> tuple[str, list[str]]:
+    """The v2 rail_events CREATE TABLE and CREATE INDEX statements, from decision-store.sql."""
+    text = decision_store.schema_text()
+    table = re.search(
+        r"^CREATE TABLE IF NOT EXISTS rail_events \(.*?^\);$",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    indexes = re.findall(
+        r"^CREATE INDEX IF NOT EXISTS rail_events_\w+ ON rail_events \([^)]*\);$",
+        text,
+        re.MULTILINE,
+    )
+    if table is None or not indexes:
+        raise CutoverError(
+            f"{decision_store.SCHEMA_FILE} has no rail_events table or index"
+        )
+    return table[0], indexes
+
+
+def _version(connection: sqlite3.Connection) -> int:
+    return int(connection.execute("PRAGMA user_version").fetchone()[0])
+
+
+def _require_from_version(connection: sqlite3.Connection, store: Path) -> None:
+    version = _version(connection)
+    if version != STORE_FROM_VERSION:
+        raise CutoverError(
+            f"{store} is at schema version {version}; this migration reads version "
+            f"{STORE_FROM_VERSION} only"
+        )
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> list[str]:
+    return [row[1] for row in connection.execute(f"PRAGMA table_info({table})")]
+
+
+def table_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in STORE_TABLES
+    }
+
+
+def _schema_rows(
+    connection: sqlite3.Connection, rail_events: bool
+) -> list[tuple[str, str, str]]:
+    """sqlite_master (type, name, sql) rows of rail_events and its indexes, or of everything else."""
+    rows = connection.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+    ).fetchall()
+    return [
+        (kind, name, sql)
+        for kind, name, table, sql in rows
+        if (table == "rail_events") == rail_events
+    ]
+
+
+def _open_store(store: Path) -> sqlite3.Connection:
+    try:
+        return sqlite3.connect(
+            store, timeout=decision_store.BUSY_TIMEOUT_SECONDS, isolation_level=None
+        )
+    except sqlite3.Error as error:
+        raise CutoverError(f"cannot open {store}: {error}") from error
+
+
+def checkpoint(store: Path) -> None:
+    """Require schema version 1, then fold the WAL into the store file and truncate it."""
+    connection = _open_store(store)
+    try:
+        _require_from_version(connection, store)
+        busy, _, _ = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if busy:
+            raise CutoverError(
+                f"PRAGMA wal_checkpoint(TRUNCATE) on {store} was blocked by another connection"
+            )
+    except sqlite3.Error as error:
+        raise CutoverError(f"cannot checkpoint {store}: {error}") from error
+    finally:
+        connection.close()
+
+
+def _rebuild_rail_events(connection: sqlite3.Connection, store: Path) -> None:
+    table, indexes = _rail_events_schema()
+    old = _columns(connection, "rail_events")
+    connection.execute("ALTER TABLE rail_events RENAME TO rail_events_v1")
+    connection.execute(table)
+    kept = _columns(connection, "rail_events")
+    if [name for name in old if name != DROPPED_COLUMN] != kept:
+        raise CutoverError(
+            f"{store} rail_events has columns {old}; the migration expects {kept} plus "
+            f"{DROPPED_COLUMN!r}"
+        )
+    names = ", ".join(kept)
+    connection.execute(
+        f"INSERT INTO rail_events ({names}) SELECT {names} FROM rail_events_v1"
+    )
+    connection.execute("DROP TABLE rail_events_v1")
+    for index in indexes:
+        connection.execute(index)
+    connection.execute(f"PRAGMA user_version = {decision_store.schema_version()}")
+
+
+def _expected_rail_events() -> list[tuple[str, str, str]]:
+    fresh = sqlite3.connect(":memory:", isolation_level=None)
+    try:
+        fresh.executescript(decision_store.schema_text())
+        return _schema_rows(fresh, rail_events=True)
+    finally:
+        fresh.close()
+
+
+def migrate_store(store: Path) -> StoreReport:
+    """Migrate the store from schema version 1 to 2 in one transaction; any failed check rolls it back."""
+    connection = _open_store(store)
+    try:
+        _require_from_version(connection, store)
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            before = table_counts(connection)
+            others = _schema_rows(connection, rail_events=False)
+            _rebuild_rail_events(connection, store)
+            after = table_counts(connection)
+            integrity = "; ".join(
+                str(row[0]) for row in connection.execute("PRAGMA integrity_check")
+            )
+            problems = []
+            if after != before:
+                problems.append(f"row counts changed: {before} before, {after} after")
+            if integrity != "ok":
+                problems.append(f"PRAGMA integrity_check: {integrity}")
+            if _schema_rows(connection, rail_events=False) != others:
+                problems.append("tables other than rail_events changed")
+            if _schema_rows(connection, rail_events=True) != _expected_rail_events():
+                problems.append(
+                    f"rail_events differs from {decision_store.SCHEMA_FILE}"
+                )
+            if problems:
+                raise CutoverError(
+                    f"{store} migration rolled back: " + "; ".join(problems)
+                )
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+        connection.execute("COMMIT")
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.Error as error:
+        raise CutoverError(f"cannot migrate {store}: {error}") from error
+    finally:
+        connection.close()
+    return StoreReport(before, after, integrity)
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def backup_store(store: Path, backup: Path, now: str) -> Path:
+    """Copy the store files into a new directory under backup and check each copy's digest."""
+    target = backup / f"decision-store-{now.replace(':', '')}"
+    target.mkdir(parents=True, exist_ok=False)
+    for path in store_files(store):
+        copied = Path(shutil.copy2(path, target / path.name))
+        if _digest(copied) != _digest(path):
+            raise CutoverError(f"the backup {copied} differs from {path}")
+    return target
+
+
+def _print_store_report(report: StoreReport, heading: str) -> None:
+    print(heading)
+    width = max(len(table) for table in STORE_TABLES)
+    print(f"  {'table'.ljust(width)}  before  after")
+    for table in STORE_TABLES:
+        print(
+            f"  {table.ljust(width)}  {report.before[table]:>6}  {report.after[table]:>5}"
+        )
+    print(f"  integrity_check: {report.integrity}")
+
+
+def _store_refusals(store: Path, apply: bool) -> list[str]:
+    if not store.is_file():
+        return [f"no decision store at {store}"]
+    problems = []
+    held = holders(store)
+    if held:
+        problems.append(
+            f"processes {', '.join(held)} hold {store} open; stop them and retry"
+        )
+    if apply:
+        problems += [f"omp session running: {session}" for session in omp_sessions()]
+    return problems
+
+
+def store(args: argparse.Namespace) -> int:
+    path: Path = args.store.expanduser()
+    if args.apply and args.backup is None:
+        print("cutover refused: --apply needs --backup DIR", file=sys.stderr)
+        return 2
+    try:
+        refusals = _store_refusals(path, args.apply)
+        if refusals:
+            print(
+                "cutover refused; nothing written:",
+                *refusals,
+                sep="\n  ",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.apply:
+            with tempfile.TemporaryDirectory(prefix="agent-rails-store-") as scratch:
+                copies = [
+                    Path(shutil.copy2(file, Path(scratch) / file.name))
+                    for file in store_files(path)
+                ]
+                checkpoint(copies[0])
+                report = migrate_store(copies[0])
+            _print_store_report(
+                report, f"dry run on a copy of {path}: schema version 1 -> 2 planned"
+            )
+            print(f"dry run: {path} untouched; nothing written")
+            return 0
+        now = utc_now()
+        checkpoint(path)
+        saved = backup_store(path, args.backup.expanduser(), now)
+        print(f"backed up {path} to {saved}")
+        report = migrate_store(path)
+    except (CutoverError, OSError) as error:
+        print(f"cutover refused: {error}", file=sys.stderr)
+        return 1
+    _print_store_report(report, f"{path}: migrated to schema version 2")
     return 0
 
 
@@ -788,6 +1111,19 @@ def parser() -> argparse.ArgumentParser:
         "--apply", action="store_true", help="write the configs"
     )
     convert_records.set_defaults(run=records)
+    migrate = commands.add_parser(
+        "store", help="migrate a decision store from schema version 1 to 2"
+    )
+    migrate.add_argument(
+        "--store", type=Path, required=True, help="the decision store file"
+    )
+    migrate.add_argument(
+        "--backup", type=Path, help="the directory --apply copies the store files into"
+    )
+    migrate.add_argument(
+        "--apply", action="store_true", help="migrate the store in place"
+    )
+    migrate.set_defaults(run=store)
     return top
 
 

@@ -77,11 +77,13 @@ test("a stored call outside the registry's shape fails loudly, never as no decis
 	}
 });
 
-test("a store at an unknown schema version is refused, never read or upgraded", () => {
-	const path = store([{ call: callId("1"), question: "reached" }]);
-	withStore(db => db.exec("PRAGMA user_version = 99"), path);
-	assert.throws(() => openStore(path), /schema version 99; this harness reads version 1 only/);
-	assert.throws(() => readJudgmentCalls(path), /schema version 99/);
+test("a store at another schema version, the v1 store included, is refused, never read or upgraded", () => {
+	for (const version of [1, 99]) {
+		const path = store([{ call: callId("1"), question: "reached" }]);
+		withStore(db => db.exec(`PRAGMA user_version = ${version}`), path);
+		assert.throws(() => openStore(path), new RegExp(`schema version ${version}; this harness reads version 2 only`));
+		assert.throws(() => readJudgmentCalls(path), new RegExp(`schema version ${version}`));
+	}
 });
 
 test("every store handle is closed after use, also when the use throws", () => {

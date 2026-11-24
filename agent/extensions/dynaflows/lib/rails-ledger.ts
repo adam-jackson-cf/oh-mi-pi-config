@@ -3,7 +3,6 @@
 // decision-store.ts), outside every repository. The ledger is observability, not a check: a write
 // failure never changes a decision; the extension surfaces it as a note. ledger-report.ts
 // summarises the rows.
-import type { Mode } from "./modes.ts";
 import { machineName, withStore } from "./decision-store.ts";
 
 export { storePath } from "./decision-store.ts";
@@ -81,7 +80,7 @@ export type LedgerKind = typeof LEDGER_KINDS[number];
 export type LedgerLine = {
 	tool: string; kind: LedgerKind; code: RailCode; reason: string | null; calls: number | null; refusals: number | null;
 };
-export type LedgerEntry = LedgerLine & { ts: string; session: string; repo: string | null; mode: Mode | null };
+export type LedgerEntry = LedgerLine & { ts: string; session: string; repo: string | null };
 
 export function blockLine(kind: Exclude<LedgerKind, "resolved">, tool: string, refusal: Refusal): LedgerLine {
 	return { tool, kind, code: refusal.code, reason: ledgerReason(refusal), calls: null, refusals: null };
@@ -91,8 +90,8 @@ export function resolvedLine(resolution: Resolution): LedgerLine {
 	return { tool: resolution.tool, kind: "resolved", code: resolution.code, reason: null, calls: resolution.calls, refusals: resolution.refusals };
 }
 
-const INSERT = "INSERT INTO rail_events (ts, session, repo, mode, tool, kind, code, reason, calls, refusals, machine) " +
-	"VALUES ($ts, $session, $repo, $mode, $tool, $kind, $code, $reason, $calls, $refusals, $machine)";
+const INSERT = "INSERT INTO rail_events (ts, session, repo, tool, kind, code, reason, calls, refusals, machine) " +
+	"VALUES ($ts, $session, $repo, $tool, $kind, $code, $reason, $calls, $refusals, $machine)";
 
 /** Writes entries to the rail_events table of the decision store at path, in one transaction, with this machine's name. */
 export function insertEntries(path: string, entries: LedgerEntry[]): void {

@@ -236,16 +236,26 @@ class DecisionStoreTests(StoreCase):
             assert (
                 connection.execute("PRAGMA user_version").fetchone()[0]
                 == decision_store.schema_version()
-                == 1
+                == 2
             )
-        with decision_store.opened(self.store) as connection:
-            connection.execute("PRAGMA user_version = 2")
-        for opener in (decision_store.connect, decision_store.connect_read_only):
-            with (
-                self.subTest(opener=opener.__name__),
-                pytest.raises(decision_store.StoreError, match="schema version 2"),
-            ):
-                opener(self.store)
+            assert "mode" not in {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(rail_events)")
+            }
+        for version in (1, 3):
+            with closing(
+                sqlite3.connect(self.store, isolation_level=None)
+            ) as connection:
+                connection.execute(f"PRAGMA user_version = {version}")
+            for opener in (decision_store.connect, decision_store.connect_read_only):
+                with (
+                    self.subTest(opener=opener.__name__, version=version),
+                    pytest.raises(
+                        decision_store.StoreError,
+                        match=f"schema version {version}; this harness reads version 2 only",
+                    ),
+                ):
+                    opener(self.store)
 
     def test_the_leak_guard_finds_a_connection_left_open(self) -> None:
         assert unclosed_connections(lambda: sqlite3.connect(":memory:")) != []

@@ -107,7 +107,6 @@ CREATE TABLE IF NOT EXISTS rail_events (
   ts TEXT NOT NULL,
   session TEXT NOT NULL,
   repo TEXT,
-  mode TEXT CHECK (mode IN ('minimal', 'structured')),
   tool TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('block', 'context', 'resolved')),
   code TEXT NOT NULL,
@@ -117,7 +116,7 @@ CREATE TABLE IF NOT EXISTS rail_events (
   machine TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS rail_events_code ON rail_events (code, ts);
-CREATE INDEX IF NOT EXISTS rail_events_repo ON rail_events (repo, mode);
+CREATE INDEX IF NOT EXISTS rail_events_repo ON rail_events (repo);
 
 -- Shadow questions' review progress: labelled flags, precision and whether shadow_exit is met.
 CREATE VIEW IF NOT EXISTS shadow_progress AS
@@ -144,5 +143,5 @@ LEFT JOIN decisions AS d
 WHERE q.mode = 'shadow'
 GROUP BY q.judgment, q.question, q.question_version;
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 COMMIT;

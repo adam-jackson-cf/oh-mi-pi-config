@@ -180,8 +180,8 @@ async function callSubjects(map: Mapping | undefined, event: ToolEvent, ctx: Ext
 	if (!map.editTools.includes(event.toolName)) return [event.toolName];
 	return event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
 }
-type LedgerScope = { repo: string | null; mode: Mode | null };
-type ScopeAt = (ctx: ExtensionContext, cwd: string) => Promise<LedgerScope>;
+type LedgerScope = { repo: string | null };
+type ScopeAt = (cwd: string) => Promise<LedgerScope>;
 const HANDOFF = ["session_stop"];
 // The rails outcome ledger (lib/rails-ledger.ts): rail_events rows in the decision store for one
 // extension instance. A failed write never changes a decision; it is noted for the session.
@@ -192,14 +192,14 @@ class RailsLedger {
 		this.file = file;
 		this.scopeAt = scopeAt;
 	}
-	// Writes rows with the time, session, and the repository and mode at cwd.
+	// Writes rows with the time, session, and the repository at cwd.
 	async write(ctx: ExtensionContext, state: State, cwd: string, lines: LedgerLine[]): Promise<void> {
 		if (!lines.length) return;
 		try {
-			const { repo, mode } = await this.scopeAt(ctx, cwd);
+			const { repo } = await this.scopeAt(cwd);
 			const ts = new Date().toISOString();
 			const session = ctx.sessionManager.getSessionId();
-			insertEntries(this.file, lines.map(line => ({ ts, session, repo, mode, ...line })));
+			insertEntries(this.file, lines.map(line => ({ ts, session, repo, ...line })));
 		} catch (error) {
 			note(state, ctx, `Agent rails: cannot write the rails ledger ${this.file}: ${String(error)}`);
 		}
@@ -632,11 +632,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		modesPath, configPath, configRoot, guardrailsCommand, guardrailsConfigCheckCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
 		decideCommand, judge, storePath,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
-	// A ledger row's repository and mode at cwd; one that cannot be resolved (no origin, an unreadable mode) is recorded as null.
-	const ledger = new RailsLedger(storePath, async (ctx, cwd) => {
+	// A ledger row's repository at cwd; one that cannot be resolved (no origin) is recorded as null.
+	const ledger = new RailsLedger(storePath, async cwd => {
 		const root = await repoRoot(cwd).catch(() => undefined);
-		const repo = root ? await repoSlug(root).catch(() => null) : null;
-		return { repo, mode: await modeAt(ctx, cwd).then(at => at.mode, () => null) };
+		return { repo: root ? await repoSlug(root).catch(() => null) : null };
 	}), states = new Map<string, State>(), session: SessionCache = {}, approvals = new Approvals(), trust: Trust = {
 		evidence: new Evidence(), snapshot: new Snapshot(), defaults: new Map(),
 		protection: {

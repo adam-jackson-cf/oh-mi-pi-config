@@ -1,5 +1,5 @@
 // Summarises the rails outcome ledger (rails-ledger.ts), the rail_events table of the decision
-// store: refusals by code and by repository and mode, the share of refusals a later call
+// store: refusals by code and by repository, the share of refusals a later call
 // satisfied, and the median tool calls to resolve.
 //
 //   bun agent/extensions/dynaflows/lib/ledger-report.ts [--since YYYY-MM-DD] [--store PATH]
@@ -10,13 +10,11 @@
 import { existsSync } from "node:fs";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { storePath, withStore } from "./decision-store.ts";
-import { MODES } from "./modes.ts";
 import { LEDGER_KINDS } from "./rails-ledger.ts";
 
 const rowSchema = z.object({
 	id: z.number().int(),
 	repo: z.string().nullable(),
-	mode: z.enum(MODES).nullable(),
 	kind: z.enum(LEDGER_KINDS),
 	code: z.string().min(1),
 	calls: z.number().int().refine(value => value >= 0).nullable(),
@@ -27,7 +25,7 @@ export type LedgerRow = z.infer<typeof rowSchema>;
 export type CodeRow = {
 	code: string; refusals: number; blocks: number; postEdit: number; satisfied: number; medianCalls: number | null;
 };
-export type GroupRow = { repo: string; mode: string; refusals: number; satisfied: number };
+export type GroupRow = { repo: string; refusals: number; satisfied: number };
 export type LedgerReport = {
 	since: string | null; refusals: number; blocks: number; postEdit: number; satisfied: number; medianCalls: number | null;
 	codes: CodeRow[]; groups: GroupRow[];
@@ -37,7 +35,7 @@ export type LedgerReport = {
 export function readLedger(path: string, since: Date | null = null): LedgerRow[] {
 	if (!existsSync(path)) throw new Error(`no decision store at ${path}`);
 	return withStore(db => db.query<unknown, { since: string }>(
-		"SELECT id, repo, mode, kind, code, calls, refusals FROM rail_events WHERE ts >= $since ORDER BY id",
+		"SELECT id, repo, kind, code, calls, refusals FROM rail_events WHERE ts >= $since ORDER BY id",
 	).all({ since: since ? since.toISOString() : "" }).map((row, index) => {
 		const parsed = rowSchema.safeParse(row);
 		if (!parsed.success) throw new Error(`rail_events row ${index + 1} is invalid: ${parsed.error.message}`);
@@ -87,10 +85,9 @@ export function summarise(rows: LedgerRow[], since: Date | null = null): LedgerR
 	const codes = [...tallied(rows, row => row.code)].map(([code, tally]): CodeRow => ({
 		code, refusals: tally.refusals, blocks: tally.blocks, postEdit: tally.postEdit, satisfied: tally.satisfied, medianCalls: median(tally.calls),
 	}));
-	const groups = [...tallied(rows, row => `${row.repo ?? "(none)"}\t${row.mode ?? "(unknown)"}`)].map(([key, tally]): GroupRow => {
-		const [repo = "", mode = ""] = key.split("\t");
-		return { repo, mode, refusals: tally.refusals, satisfied: tally.satisfied };
-	});
+	const groups = [...tallied(rows, row => row.repo ?? "(none)")].map(([repo, tally]): GroupRow => ({
+		repo, refusals: tally.refusals, satisfied: tally.satisfied,
+	}));
 	return {
 		since: since ? since.toISOString().slice(0, 10) : null,
 		refusals: total.refusals, blocks: total.blocks, postEdit: total.postEdit, satisfied: total.satisfied, medianCalls: median(total.calls),
@@ -116,8 +113,8 @@ export function formatReport(report: LedgerReport, path: string): string {
 	const codes = table(["code", "refusals", "blocks", "post-edit", "satisfied", "rate", "median calls"], 1, report.codes.map(row => [
 		row.code, String(row.refusals), String(row.blocks), String(row.postEdit), String(row.satisfied), percent(row.satisfied, row.refusals), calls(row.medianCalls),
 	]));
-	const groups = table(["repo", "mode", "refusals", "satisfied", "rate"], 2, report.groups.map(row => [
-		row.repo, row.mode, String(row.refusals), String(row.satisfied), percent(row.satisfied, row.refusals),
+	const groups = table(["repo", "refusals", "satisfied", "rate"], 1, report.groups.map(row => [
+		row.repo, String(row.refusals), String(row.satisfied), percent(row.satisfied, row.refusals),
 	]));
 	return `Rails ledger ${path}${scope}\n${summary}\n\n${codes}\n\n${groups}\n`;
 }

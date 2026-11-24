@@ -1418,7 +1418,7 @@ test("a config merge policy sets the method and whether proof is needed for its 
 
 type LedgerHarness = ReturnType<typeof harness>;
 type LedgerRow = {
-	ts: string; session: string; repo: string | null; mode: string | null; tool: string; kind: string; code: string;
+	ts: string; session: string; repo: string | null; tool: string; kind: string; code: string;
 	reason: string | null; calls: number | null; refusals: number | null; machine: string;
 };
 
@@ -1426,7 +1426,7 @@ function ledger(h: LedgerHarness): LedgerRow[] {
 	const path = storePath(h.machine);
 	if (!existsSync(path)) return [];
 	return withStore(db => db.query<LedgerRow, []>(
-		"SELECT ts, session, repo, mode, tool, kind, code, reason, calls, refusals, machine FROM rail_events ORDER BY id",
+		"SELECT ts, session, repo, tool, kind, code, reason, calls, refusals, machine FROM rail_events ORDER BY id",
 	).all(), path);
 }
 
@@ -1446,7 +1446,6 @@ describe("rails ledger", () => {
 			assert.ok(first);
 			assert.equal(first.session, "first");
 			assert.equal(first.repo, "owner/repo");
-			assert.equal(first.mode, "structured");
 			assert.equal(first.machine, machineName());
 			assert.equal(first.reason, `Agent rails (structured mode): read ${integrity}, then retry.`);
 			await h.read(integrity, structure);
@@ -1470,7 +1469,7 @@ describe("rails ledger", () => {
 			assert.equal(isBlocked(await h.call("bash", { command: "echo 'unterminated" })), true);
 			assert.deepEqual(brief(ledger(h)), ["block read-gate bash", "block push-default-branch bash", "resolved read-gate bash calls=2 refusals=1",
 				"block gh-repo-override bash", "block shell-unparseable bash"]);
-			assert.equal(ledger(h)[0]?.mode, "minimal");
+			assert.equal(ledger(h)[0]?.repo, "owner/repo");
 		} finally { h.cleanup(); }
 	});
 
