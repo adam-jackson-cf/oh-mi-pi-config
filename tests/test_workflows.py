@@ -1295,7 +1295,7 @@ class StructureProposalTests(unittest.TestCase):
     def rows(self) -> list[dict[str, Any]]:
         import sqlite3
 
-        with sqlite3.connect(self.store) as connection:
+        with closing(sqlite3.connect(self.store)) as connection:
             connection.row_factory = sqlite3.Row
             return [
                 dict(row)
