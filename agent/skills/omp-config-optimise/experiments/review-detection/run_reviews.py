@@ -31,6 +31,12 @@ from typing import Any
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from analyze import latest_records, needs_rerun
 from cases import CASES, FIXTURES, Case, build_workspace
+from real_cases import (
+    REPO as REAL_REPO,
+    RealCase,
+    build_workspace as build_real_workspace,
+    load_manifest,
+)
 from toolset import label_of, toolset_label
 
 WORKSPACES = Path("/tmp/omp-review-ws")
@@ -111,6 +117,7 @@ def summarize_events(stdout: str) -> Record:
     }
     texts: list[str] = []
     models: set[str] = set()
+    outside = False
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -125,6 +132,11 @@ def summarize_events(stdout: str) -> Record:
             usage[key] += u.get(key, 0)
         usage["reasoning"] += u.get("reasoningTokens", 0)
         usage["cost"] += (u.get("cost") or {}).get("total", 0.0)
+        outside = outside or any(
+            str(REAL_REPO) in json.dumps(c.get("arguments"))
+            for c in msg.get("content") or []
+            if c.get("type") == "toolCall"
+        )
         text = "".join(
             c.get("text", "")
             for c in msg.get("content") or []
@@ -137,6 +149,7 @@ def summarize_events(stdout: str) -> Record:
         "assistantMessages": len(texts),
         "texts": texts,
         "effectiveModels": sorted(models),
+        "outsideAccess": outside,
     }
 
 
@@ -188,19 +201,34 @@ def failure_of(run: Invocation, texts: list[str]) -> str | None:
     return None
 
 
-def run_trial(case: Case, arm: Arm, rep: int, runs: Path) -> Record:
+def plan_of(case: Case | RealCase) -> str:
+    if isinstance(case, RealCase):
+        return case.plan
+    return (FIXTURES / case.fixture / "task.md").read_text()
+
+
+def build(case: Case | RealCase, ws: Path) -> dict[str, dict[str, Any]]:
+    if isinstance(case, RealCase):
+        return build_real_workspace(case, ws)
+    return build_workspace(case, ws)
+
+
+def run_trial(
+    case: Case | RealCase, arm: Arm, rep: int, runs: Path, extensions: list[str]
+) -> Record:
     run_id = uuid.uuid4().hex[:10]
     run_dir = runs / run_id
     run_dir.mkdir(parents=True)
     ws = WORKSPACES / run_id
-    defects = build_workspace(case, ws)
+    defects = build(case, ws)
     before = git_diff(ws)
-    prompt = PROMPT.format(plan=(FIXTURES / case.fixture / "task.md").read_text())
+    prompt = PROMPT.format(plan=plan_of(case))
     cmd = [
         "omp",
         "-p",
         "--no-session",
         "--no-extensions",
+        *[flag for path in extensions for flag in ("-e", path)],
         "--no-title",
         "--approval-mode",
         "yolo",
@@ -264,13 +292,28 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=280926)
     parser.add_argument("--cases", nargs="*", help="case ids to run (default: all)")
     parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="real-defect case manifest (real_cases.py); default: seeded fixture cases",
+    )
+    parser.add_argument(
+        "--extension",
+        dest="extensions",
+        action="append",
+        default=[],
+        help="extension file loaded in every trial (e.g. agy-cli.ts for agy arms); repeatable",
+    )
+    parser.add_argument(
         "--rerun-failed",
         action="store_true",
         help="re-run only (case, arm, rep) whose latest record failed or leaked",
     )
     args = parser.parse_args()
 
-    cases = [c for c in CASES if not args.cases or c.id in args.cases]
+    pool_cases: list[Case | RealCase] = (
+        list(load_manifest(args.manifest)) if args.manifest else list(CASES)
+    )
+    cases = [c for c in pool_cases if not args.cases or c.id in args.cases]
     jobs = list(itertools.product(cases, args.arms, range(args.reps)))
     label = toolset_label()  # one effective config per run; stored on every record
     if args.rerun_failed:
@@ -288,7 +331,10 @@ def main() -> None:
         cf.ThreadPoolExecutor(args.workers) as pool,
         (args.out / "results.jsonl").open("a") as out,
     ):
-        futures = {pool.submit(run_trial, c, a, r, runs): (c, a, r) for c, a, r in jobs}
+        futures = {
+            pool.submit(run_trial, c, a, r, runs, args.extensions): (c, a, r)
+            for c, a, r in jobs
+        }
         for fut in cf.as_completed(futures):
             case, arm, rep = futures[fut]
             rec = outcome(fut, {"case": case.id, "arm": arm.name, "rep": rep})

@@ -70,6 +70,9 @@ def latest_records(out: Path, label: tuple[str, str]) -> dict[TrialKey, Record]:
 
 
 def leaked(rec: Record, out: Path) -> bool:
+    """Fixture cases: a reference marker in the trial output. Real cases: a tool call into the live repo."""
+    if str(rec.get("fixture", "")).startswith("repo@"):
+        return bool(rec.get("outsideAccess"))
     path = out / "runs" / rec.get("runId", "-") / "events.jsonl"
     return path.exists() and any(marker in path.read_text() for marker in LEAK_MARKERS)
 

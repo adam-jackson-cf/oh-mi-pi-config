@@ -67,6 +67,15 @@ python3 run_reviews.py <same arms> --rerun-failed --out <same dir>
 python3 analyze.py <output-dir>
 ```
 
+Trials run with `--no-extensions`; agy arms need `--extension ~/.omp/agent/extensions/agy-cli.ts`
+(loaded in every arm). Google policy refusals record as unparsed, which `--rerun-failed` skips.
+Real defects: `real_cases.py mine --out <dir>/candidates.json` blames lines later changed by `fix`
+commits to the commit that wrote them; curate into a frozen `manifest.json`, then `real_cases.py
+validate <manifest>`, `run_reviews.py --manifest <manifest> ...`, and `real_cases.py analyse
+<output-dir>` (per-case detection, ±5 lines, unparsed trials score 0, paired 95% t-interval).
+Workspaces carry no history; a tool call into the live `~/.omp` flags the trial as leaked. False
+positives are not scored, because real commits can hold unrecorded defects.
+
 ## Reusable harness: vision reading
 
 `experiments/vision-reading/` generates 16 chart, table, diagram and
